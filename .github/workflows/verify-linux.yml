@@ -63,8 +63,13 @@ jobs:
       - name: Types
         run: pnpm verify:types
 
-      - name: Script tests
-        run: pnpm verify:scripts
+      # Script tests are DELIBERATELY absent, measured not assumed (first
+      # dispatch, 2026-08-15): build1-sidecar-preflight asserts the staged
+      # sidecar tree (server.js / node_modules — build artifacts this job
+      # never builds), and it27-publish-node-pin demands a linux-x64 entry in
+      # scripts/vendor/bundled-node.mjs — there is no Linux desktop, so no
+      # Linux node pin exists BY DESIGN. Those suites run on the Windows and
+      # macOS gates, where the thing they measure exists.
 
       - name: Golden
         run: pnpm golden

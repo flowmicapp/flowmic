@@ -205,7 +205,7 @@ pub(super) fn write_user_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> 
             .mode(0o600)
             .open(path)?;
         f.write_all(bytes)?;
-        return f.flush();
+        f.flush()
     }
 
     #[cfg(not(unix))]
