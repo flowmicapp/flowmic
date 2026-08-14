@@ -1,0 +1,13 @@
+/* iOS permission usage descriptions — 한국어.
+
+   네 가지 모두 "무엇에 쓰는지"만 답한다. 명령문을 쓰지 않고,
+   "더 나은 경험을 위해" 같은 모호한 표현도 쓰지 않는다. */
+
+"NSMicrophoneUsageDescription" = "FlowMic은 마이크를 사용해 말한 내용을 문자로 바꿔 PC로 보냅니다.";
+
+"NSCameraUsageDescription" = "FlowMic은 카메라를 사용해 PC에 표시된 페어링 QR 코드를 스캔합니다.";
+
+"NSPhotoLibraryUsageDescription" = "FlowMic은 선택한 사진을 읽어 그 이미지를 PC로 전송합니다.";
+
+/* 로컬 네트워크: LAN 채널은 같은 네트워크에 있는 PC로 직접 연결한다. */
+"NSLocalNetworkUsageDescription" = "FlowMic은 로컬 네트워크로 PC에 직접 연결하여, 말한 내용을 인터넷을 거치지 않고 PC로 보냅니다.";

@@ -1,0 +1,3572 @@
+{
+  "leaves": [
+    {
+      "key": "_diagTail",
+      "leaf": "_lf_diagTail",
+      "params": [
+        "identifier"
+      ]
+    },
+    {
+      "key": "_endMismatch__1",
+      "leaf": "_lf_endMismatch__1",
+      "params": []
+    },
+    {
+      "key": "_endMismatch__2",
+      "leaf": "_lf_endMismatch__2",
+      "params": []
+    },
+    {
+      "key": "_endMismatch__3",
+      "leaf": "_lf_endMismatch__3",
+      "params": [
+        "where"
+      ]
+    },
+    {
+      "key": "_serverRefusedWhy__1",
+      "leaf": "_lf_serverRefusedWhy__1",
+      "params": []
+    },
+    {
+      "key": "_serverRefusedWhy__2",
+      "leaf": "_lf_serverRefusedWhy__2",
+      "params": []
+    },
+    {
+      "key": "add",
+      "leaf": "_lfAdd",
+      "params": []
+    },
+    {
+      "key": "addDevice",
+      "leaf": "_lfAddDevice",
+      "params": []
+    },
+    {
+      "key": "addPairingTitle",
+      "leaf": "_lfAddPairingTitle",
+      "params": []
+    },
+    {
+      "key": "addTerm",
+      "leaf": "_lfAddTerm",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__1",
+      "leaf": "_lfAiComposeError__1",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__2",
+      "leaf": "_lfAiComposeError__2",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__3",
+      "leaf": "_lfAiComposeError__3",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__4",
+      "leaf": "_lfAiComposeError__4",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__5",
+      "leaf": "_lfAiComposeError__5",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__6",
+      "leaf": "_lfAiComposeError__6",
+      "params": []
+    },
+    {
+      "key": "aiComposeError__7",
+      "leaf": "_lfAiComposeError__7",
+      "params": [
+        "aiErrorCodeOutcomeCode"
+      ]
+    },
+    {
+      "key": "aiErrorCode__1",
+      "leaf": "_lfAiErrorCode__1",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__10",
+      "leaf": "_lfAiErrorCode__10",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__2",
+      "leaf": "_lfAiErrorCode__2",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__3",
+      "leaf": "_lfAiErrorCode__3",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__4",
+      "leaf": "_lfAiErrorCode__4",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__5",
+      "leaf": "_lfAiErrorCode__5",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__6",
+      "leaf": "_lfAiErrorCode__6",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__7",
+      "leaf": "_lfAiErrorCode__7",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__8",
+      "leaf": "_lfAiErrorCode__8",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__9",
+      "leaf": "_lfAiErrorCode__9",
+      "params": []
+    },
+    {
+      "key": "aiRestoreOriginal",
+      "leaf": "_lfAiRestoreOriginal",
+      "params": []
+    },
+    {
+      "key": "aiRestoreOriginalHint",
+      "leaf": "_lfAiRestoreOriginalHint",
+      "params": []
+    },
+    {
+      "key": "aiRowNote",
+      "leaf": "_lfAiRowNote",
+      "params": []
+    },
+    {
+      "key": "aiRunning",
+      "leaf": "_lfAiRunning",
+      "params": [
+        "aiTaskLabelTask"
+      ]
+    },
+    {
+      "key": "aiTaskLabel__1",
+      "leaf": "_lfAiTaskLabel__1",
+      "params": []
+    },
+    {
+      "key": "aiTaskLabel__2",
+      "leaf": "_lfAiTaskLabel__2",
+      "params": []
+    },
+    {
+      "key": "aiTaskLabel__3",
+      "leaf": "_lfAiTaskLabel__3",
+      "params": []
+    },
+    {
+      "key": "appendCancelArmed",
+      "leaf": "_lfAppendCancelArmed",
+      "params": []
+    },
+    {
+      "key": "appendHold",
+      "leaf": "_lfAppendHold",
+      "params": []
+    },
+    {
+      "key": "appendRelease",
+      "leaf": "_lfAppendRelease",
+      "params": []
+    },
+    {
+      "key": "appVersionLabel",
+      "leaf": "_lfAppVersionLabel",
+      "params": []
+    },
+    {
+      "key": "appVersionUnknown",
+      "leaf": "_lfAppVersionUnknown",
+      "params": []
+    },
+    {
+      "key": "appVersionValue",
+      "leaf": "_lfAppVersionValue",
+      "params": [
+        "v"
+      ]
+    },
+    {
+      "key": "backToBottom",
+      "leaf": "_lfBackToBottom",
+      "params": []
+    },
+    {
+      "key": "bannerAlbumAway",
+      "leaf": "_lfBannerAlbumAway",
+      "params": []
+    },
+    {
+      "key": "bannerAllTitle",
+      "leaf": "_lfBannerAllTitle",
+      "params": []
+    },
+    {
+      "key": "bannerLinkDown",
+      "leaf": "_lfBannerLinkDown",
+      "params": []
+    },
+    {
+      "key": "bannerMore",
+      "leaf": "_lfBannerMore",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "bannerReconnecting",
+      "leaf": "_lfBannerReconnecting",
+      "params": []
+    },
+    {
+      "key": "cancel",
+      "leaf": "_lfCancel",
+      "params": []
+    },
+    {
+      "key": "capsuleTakenNotice",
+      "leaf": "_lfCapsuleTakenNotice",
+      "params": []
+    },
+    {
+      "key": "chatHistoryNoInstance",
+      "leaf": "_lfChatHistoryNoInstance",
+      "params": []
+    },
+    {
+      "key": "checkingReach",
+      "leaf": "_lfCheckingReach",
+      "params": []
+    },
+    {
+      "key": "clearAction",
+      "leaf": "_lfClearAction",
+      "params": []
+    },
+    {
+      "key": "clearCancel",
+      "leaf": "_lfClearCancel",
+      "params": []
+    },
+    {
+      "key": "clearConfirmOk",
+      "leaf": "_lfClearConfirmOk",
+      "params": []
+    },
+    {
+      "key": "clearConfirmTitle",
+      "leaf": "_lfClearConfirmTitle",
+      "params": []
+    },
+    {
+      "key": "clearDone",
+      "leaf": "_lfClearDone",
+      "params": [
+        "rows",
+        "formatBytesBytes"
+      ]
+    },
+    {
+      "key": "clearedImagesBefore",
+      "leaf": "_lfClearedImagesBefore",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "clearedTextBefore",
+      "leaf": "_lfClearedTextBefore",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "clearIrreversible",
+      "leaf": "_lfClearIrreversible",
+      "params": []
+    },
+    {
+      "key": "clearKindBoth",
+      "leaf": "_lfClearKindBoth",
+      "params": []
+    },
+    {
+      "key": "clearKindImages",
+      "leaf": "_lfClearKindImages",
+      "params": []
+    },
+    {
+      "key": "clearKindText",
+      "leaf": "_lfClearKindText",
+      "params": []
+    },
+    {
+      "key": "clearNothing",
+      "leaf": "_lfClearNothing",
+      "params": []
+    },
+    {
+      "key": "clearPreview",
+      "leaf": "_lfClearPreview",
+      "params": [
+        "rows",
+        "formatBytesBytes"
+      ]
+    },
+    {
+      "key": "clearSub",
+      "leaf": "_lfClearSub",
+      "params": []
+    },
+    {
+      "key": "clearTitle",
+      "leaf": "_lfClearTitle",
+      "params": []
+    },
+    {
+      "key": "clearWinAll",
+      "leaf": "_lfClearWinAll",
+      "params": []
+    },
+    {
+      "key": "clearWinHalfYear",
+      "leaf": "_lfClearWinHalfYear",
+      "params": []
+    },
+    {
+      "key": "clearWinMonth",
+      "leaf": "_lfClearWinMonth",
+      "params": []
+    },
+    {
+      "key": "clearWinQuarter",
+      "leaf": "_lfClearWinQuarter",
+      "params": []
+    },
+    {
+      "key": "clearWinWeek",
+      "leaf": "_lfClearWinWeek",
+      "params": []
+    },
+    {
+      "key": "clearWinYear",
+      "leaf": "_lfClearWinYear",
+      "params": []
+    },
+    {
+      "key": "cloudError_AUTH_LOGIN_FAILED",
+      "leaf": "_lfCloudError_AUTH_LOGIN_FAILED",
+      "params": []
+    },
+    {
+      "key": "cloudError_AUTH_TOKEN_EXPIRED",
+      "leaf": "_lfCloudError_AUTH_TOKEN_EXPIRED",
+      "params": []
+    },
+    {
+      "key": "cloudError_AUTH_TOKEN_INVALID",
+      "leaf": "_lfCloudError_AUTH_TOKEN_INVALID",
+      "params": []
+    },
+    {
+      "key": "cloudError_NOT_LOGGED_IN",
+      "leaf": "_lfCloudError_NOT_LOGGED_IN",
+      "params": []
+    },
+    {
+      "key": "cloudError_REGISTER_RATE_LIMITED",
+      "leaf": "_lfCloudError_REGISTER_RATE_LIMITED",
+      "params": []
+    },
+    {
+      "key": "cloudFixedNote",
+      "leaf": "_lfCloudFixedNote",
+      "params": [
+        "recordOnly"
+      ]
+    },
+    {
+      "key": "cloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED",
+      "leaf": "_lfCloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED",
+      "params": [
+        "kCloudImageQuotaMax",
+        "kCloudImageQuotaWindowHours"
+      ]
+    },
+    {
+      "key": "cloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_TOO_LARGE",
+      "leaf": "_lfCloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_TOO_LARGE",
+      "params": [
+        "formatBytesKCloudImageBytesMax"
+      ]
+    },
+    {
+      "key": "cloudInstance",
+      "leaf": "_lfCloudInstance",
+      "params": []
+    },
+    {
+      "key": "cloudInstanceRow",
+      "leaf": "_lfCloudInstanceRow",
+      "params": [
+        "recordOnly"
+      ]
+    },
+    {
+      "key": "cloudInstanceSub",
+      "leaf": "_lfCloudInstanceSub",
+      "params": []
+    },
+    {
+      "key": "cloudRelay",
+      "leaf": "_lfCloudRelay",
+      "params": []
+    },
+    {
+      "key": "composeCardDeliver",
+      "leaf": "_lfComposeCardDeliver",
+      "params": []
+    },
+    {
+      "key": "composeCardDiscard",
+      "leaf": "_lfComposeCardDiscard",
+      "params": []
+    },
+    {
+      "key": "composeCardHeader",
+      "leaf": "_lfComposeCardHeader",
+      "params": []
+    },
+    {
+      "key": "composeCollapse",
+      "leaf": "_lfComposeCollapse",
+      "params": []
+    },
+    {
+      "key": "composeDisabled",
+      "leaf": "_lfComposeDisabled",
+      "params": []
+    },
+    {
+      "key": "composeEntryStrip",
+      "leaf": "_lfComposeEntryStrip",
+      "params": []
+    },
+    {
+      "key": "composeExpandHint",
+      "leaf": "_lfComposeExpandHint",
+      "params": []
+    },
+    {
+      "key": "composeHint",
+      "leaf": "_lfComposeHint",
+      "params": []
+    },
+    {
+      "key": "composeModeSwitchClearsHint",
+      "leaf": "_lfComposeModeSwitchClearsHint",
+      "params": []
+    },
+    {
+      "key": "composeSendError__1",
+      "leaf": "_lfComposeSendError__1",
+      "params": []
+    },
+    {
+      "key": "composeSendError__2",
+      "leaf": "_lfComposeSendError__2",
+      "params": []
+    },
+    {
+      "key": "composeSendError__3",
+      "leaf": "_lfComposeSendError__3",
+      "params": []
+    },
+    {
+      "key": "composeSendError__4",
+      "leaf": "_lfComposeSendError__4",
+      "params": []
+    },
+    {
+      "key": "composeSendError__5",
+      "leaf": "_lfComposeSendError__5",
+      "params": []
+    },
+    {
+      "key": "composeSendError__6",
+      "leaf": "_lfComposeSendError__6",
+      "params": []
+    },
+    {
+      "key": "composeSendError__7",
+      "leaf": "_lfComposeSendError__7",
+      "params": []
+    },
+    {
+      "key": "composeSheetHeaderAppending",
+      "leaf": "_lfComposeSheetHeaderAppending",
+      "params": []
+    },
+    {
+      "key": "composeSheetHeaderTyped",
+      "leaf": "_lfComposeSheetHeaderTyped",
+      "params": []
+    },
+    {
+      "key": "confirmDelete",
+      "leaf": "_lfConfirmDelete",
+      "params": []
+    },
+    {
+      "key": "confirmUnaffectedLabel",
+      "leaf": "_lfConfirmUnaffectedLabel",
+      "params": []
+    },
+    {
+      "key": "connConnected",
+      "leaf": "_lfConnConnected",
+      "params": []
+    },
+    {
+      "key": "connectedLan",
+      "leaf": "_lfConnectedLan",
+      "params": []
+    },
+    {
+      "key": "connecting",
+      "leaf": "_lfConnecting",
+      "params": []
+    },
+    {
+      "key": "connectingRow",
+      "leaf": "_lfConnectingRow",
+      "params": []
+    },
+    {
+      "key": "connError",
+      "leaf": "_lfConnError",
+      "params": []
+    },
+    {
+      "key": "controlRowClearNote",
+      "leaf": "_lfControlRowClearNote",
+      "params": []
+    },
+    {
+      "key": "controlRowLabel",
+      "leaf": "_lfControlRowLabel",
+      "params": [
+        "key"
+      ]
+    },
+    {
+      "key": "controlRowSent",
+      "leaf": "_lfControlRowSent",
+      "params": []
+    },
+    {
+      "key": "deleteEntryConfirmBody",
+      "leaf": "_lfDeleteEntryConfirmBody",
+      "params": []
+    },
+    {
+      "key": "deleteEntryConfirmTitle",
+      "leaf": "_lfDeleteEntryConfirmTitle",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_FRAME_INVALID",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_FRAME_INVALID",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_FRAME_TOO_LARGE",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_FRAME_TOO_LARGE",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_PC_MISMATCH",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_PC_MISMATCH",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_PC_OFFLINE",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_PC_OFFLINE",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_PC_UNSPECIFIED",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_PC_UNSPECIFIED",
+      "params": []
+    },
+    {
+      "key": "deliveryRefusalNote_INJECT_SERVER_BUSY",
+      "leaf": "_lfDeliveryRefusalNote_INJECT_SERVER_BUSY",
+      "params": []
+    },
+    {
+      "key": "diagChannel",
+      "leaf": "_lfDiagChannel",
+      "params": []
+    },
+    {
+      "key": "diagDevice",
+      "leaf": "_lfDiagDevice",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionPlain",
+      "leaf": "_lfDiagEncryptionPlain",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionScopeNote",
+      "leaf": "_lfDiagEncryptionScopeNote",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionSection",
+      "leaf": "_lfDiagEncryptionSection",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionTofu",
+      "leaf": "_lfDiagEncryptionTofu",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionTofuNote",
+      "leaf": "_lfDiagEncryptionTofuNote",
+      "params": []
+    },
+    {
+      "key": "diagEncryptionVerified",
+      "leaf": "_lfDiagEncryptionVerified",
+      "params": []
+    },
+    {
+      "key": "diagEndpoint",
+      "leaf": "_lfDiagEndpoint",
+      "params": []
+    },
+    {
+      "key": "diagEngineConnected",
+      "leaf": "_lfDiagEngineConnected",
+      "params": []
+    },
+    {
+      "key": "diagEngineConnectFailed",
+      "leaf": "_lfDiagEngineConnectFailed",
+      "params": []
+    },
+    {
+      "key": "diagEngineNoObservation",
+      "leaf": "_lfDiagEngineNoObservation",
+      "params": []
+    },
+    {
+      "key": "diagEngineObservedAt",
+      "leaf": "_lfDiagEngineObservedAt",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "diagEngineReconnecting",
+      "leaf": "_lfDiagEngineReconnecting",
+      "params": []
+    },
+    {
+      "key": "diagEngineSection",
+      "leaf": "_lfDiagEngineSection",
+      "params": []
+    },
+    {
+      "key": "diagEngineStt",
+      "leaf": "_lfDiagEngineStt",
+      "params": []
+    },
+    {
+      "key": "diagLastError",
+      "leaf": "_lfDiagLastError",
+      "params": []
+    },
+    {
+      "key": "diagState",
+      "leaf": "_lfDiagState",
+      "params": []
+    },
+    {
+      "key": "diagTitle",
+      "leaf": "_lfDiagTitle",
+      "params": []
+    },
+    {
+      "key": "diagUpload",
+      "leaf": "_lfDiagUpload",
+      "params": []
+    },
+    {
+      "key": "diagUploadDone",
+      "leaf": "_lfDiagUploadDone",
+      "params": [
+        "lines"
+      ]
+    },
+    {
+      "key": "diagUploadEmpty",
+      "leaf": "_lfDiagUploadEmpty",
+      "params": []
+    },
+    {
+      "key": "diagUploadHint",
+      "leaf": "_lfDiagUploadHint",
+      "params": []
+    },
+    {
+      "key": "diagUploadNoEndpoint",
+      "leaf": "_lfDiagUploadNoEndpoint",
+      "params": []
+    },
+    {
+      "key": "diagUploadNoSink",
+      "leaf": "_lfDiagUploadNoSink",
+      "params": []
+    },
+    {
+      "key": "diagUploadRefused",
+      "leaf": "_lfDiagUploadRefused",
+      "params": [
+        "detail"
+      ]
+    },
+    {
+      "key": "diagUploadUnreachable",
+      "leaf": "_lfDiagUploadUnreachable",
+      "params": []
+    },
+    {
+      "key": "discardUnsentAction",
+      "leaf": "_lfDiscardUnsentAction",
+      "params": []
+    },
+    {
+      "key": "discardUnsentConfirm",
+      "leaf": "_lfDiscardUnsentConfirm",
+      "params": []
+    },
+    {
+      "key": "discCopyLink",
+      "leaf": "_lfDiscCopyLink",
+      "params": []
+    },
+    {
+      "key": "discEntry",
+      "leaf": "_lfDiscEntry",
+      "params": []
+    },
+    {
+      "key": "discEntrySub",
+      "leaf": "_lfDiscEntrySub",
+      "params": []
+    },
+    {
+      "key": "discLead",
+      "leaf": "_lfDiscLead",
+      "params": []
+    },
+    {
+      "key": "discLegalPrivacy",
+      "leaf": "_lfDiscLegalPrivacy",
+      "params": []
+    },
+    {
+      "key": "discLegalTerms",
+      "leaf": "_lfDiscLegalTerms",
+      "params": []
+    },
+    {
+      "key": "discLegalTitle",
+      "leaf": "_lfDiscLegalTitle",
+      "params": []
+    },
+    {
+      "key": "discLinkCopied",
+      "leaf": "_lfDiscLinkCopied",
+      "params": []
+    },
+    {
+      "key": "disconnect",
+      "leaf": "_lfDisconnect",
+      "params": []
+    },
+    {
+      "key": "discOpenFailed",
+      "leaf": "_lfDiscOpenFailed",
+      "params": []
+    },
+    {
+      "key": "discOpenInBrowser",
+      "leaf": "_lfDiscOpenInBrowser",
+      "params": []
+    },
+    {
+      "key": "discScopeNote",
+      "leaf": "_lfDiscScopeNote",
+      "params": []
+    },
+    {
+      "key": "discStep1Body",
+      "leaf": "_lfDiscStep1Body",
+      "params": []
+    },
+    {
+      "key": "discStep1Title",
+      "leaf": "_lfDiscStep1Title",
+      "params": []
+    },
+    {
+      "key": "discStep2Body",
+      "leaf": "_lfDiscStep2Body",
+      "params": []
+    },
+    {
+      "key": "discStep2Byok",
+      "leaf": "_lfDiscStep2Byok",
+      "params": []
+    },
+    {
+      "key": "discStep2Cloud",
+      "leaf": "_lfDiscStep2Cloud",
+      "params": []
+    },
+    {
+      "key": "discStep2Local",
+      "leaf": "_lfDiscStep2Local",
+      "params": []
+    },
+    {
+      "key": "discStep2Title",
+      "leaf": "_lfDiscStep2Title",
+      "params": []
+    },
+    {
+      "key": "discStep3Body",
+      "leaf": "_lfDiscStep3Body",
+      "params": []
+    },
+    {
+      "key": "discStep3Title",
+      "leaf": "_lfDiscStep3Title",
+      "params": []
+    },
+    {
+      "key": "discStep4Body",
+      "leaf": "_lfDiscStep4Body",
+      "params": []
+    },
+    {
+      "key": "discStep4LanPlain",
+      "leaf": "_lfDiscStep4LanPlain",
+      "params": []
+    },
+    {
+      "key": "discStep4Title",
+      "leaf": "_lfDiscStep4Title",
+      "params": []
+    },
+    {
+      "key": "discStep5Body",
+      "leaf": "_lfDiscStep5Body",
+      "params": []
+    },
+    {
+      "key": "discStep5Title",
+      "leaf": "_lfDiscStep5Title",
+      "params": []
+    },
+    {
+      "key": "domain",
+      "leaf": "_lfDomain",
+      "params": []
+    },
+    {
+      "key": "domainLabel_backend",
+      "leaf": "_lfDomainLabel_backend",
+      "params": []
+    },
+    {
+      "key": "domainLabel_cloud_native",
+      "leaf": "_lfDomainLabel_cloud_native",
+      "params": []
+    },
+    {
+      "key": "domainLabel_data___ML",
+      "leaf": "_lfDomainLabel_data___ML",
+      "params": []
+    },
+    {
+      "key": "domainLabel_e_commerce",
+      "leaf": "_lfDomainLabel_e_commerce",
+      "params": []
+    },
+    {
+      "key": "domainLabel_education",
+      "leaf": "_lfDomainLabel_education",
+      "params": []
+    },
+    {
+      "key": "domainLabel_frontend",
+      "leaf": "_lfDomainLabel_frontend",
+      "params": []
+    },
+    {
+      "key": "domainLabel_healthcare",
+      "leaf": "_lfDomainLabel_healthcare",
+      "params": []
+    },
+    {
+      "key": "domainLabel_legal",
+      "leaf": "_lfDomainLabel_legal",
+      "params": []
+    },
+    {
+      "key": "editedMark",
+      "leaf": "_lfEditedMark",
+      "params": []
+    },
+    {
+      "key": "editEntryNote",
+      "leaf": "_lfEditEntryNote",
+      "params": [
+        "editedMark"
+      ]
+    },
+    {
+      "key": "editEntryTitle",
+      "leaf": "_lfEditEntryTitle",
+      "params": []
+    },
+    {
+      "key": "emailHint",
+      "leaf": "_lfEmailHint",
+      "params": []
+    },
+    {
+      "key": "enterCloudInstance",
+      "leaf": "_lfEnterCloudInstance",
+      "params": [
+        "recordOnly"
+      ]
+    },
+    {
+      "key": "entryCopy",
+      "leaf": "_lfEntryCopy",
+      "params": []
+    },
+    {
+      "key": "entryCopyPreview",
+      "leaf": "_lfEntryCopyPreview",
+      "params": []
+    },
+    {
+      "key": "entryEdit",
+      "leaf": "_lfEntryEdit",
+      "params": []
+    },
+    {
+      "key": "entryReInject",
+      "leaf": "_lfEntryReInject",
+      "params": []
+    },
+    {
+      "key": "entryReInjectSub",
+      "leaf": "_lfEntryReInjectSub",
+      "params": []
+    },
+    {
+      "key": "entryReprocess",
+      "leaf": "_lfEntryReprocess",
+      "params": []
+    },
+    {
+      "key": "entryReprocessSub",
+      "leaf": "_lfEntryReprocessSub",
+      "params": []
+    },
+    {
+      "key": "entryWordCountLabel",
+      "leaf": "_lfEntryWordCountLabel",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "exitCloudInstance",
+      "leaf": "_lfExitCloudInstance",
+      "params": []
+    },
+    {
+      "key": "exportAction",
+      "leaf": "_lfExportAction",
+      "params": []
+    },
+    {
+      "key": "exportCancelled",
+      "leaf": "_lfExportCancelled",
+      "params": []
+    },
+    {
+      "key": "exportDone",
+      "leaf": "_lfExportDone",
+      "params": [
+        "count",
+        "where"
+      ]
+    },
+    {
+      "key": "exportFailedText__1",
+      "leaf": "_lfExportFailedText__1",
+      "params": []
+    },
+    {
+      "key": "exportFailedText__2",
+      "leaf": "_lfExportFailedText__2",
+      "params": []
+    },
+    {
+      "key": "exportFailedText__3",
+      "leaf": "_lfExportFailedText__3",
+      "params": []
+    },
+    {
+      "key": "exportIncludeImages",
+      "leaf": "_lfExportIncludeImages",
+      "params": [
+        "count",
+        "formatBytesBytes"
+      ]
+    },
+    {
+      "key": "exportNoImages",
+      "leaf": "_lfExportNoImages",
+      "params": []
+    },
+    {
+      "key": "exportPlaintextWarning",
+      "leaf": "_lfExportPlaintextWarning",
+      "params": []
+    },
+    {
+      "key": "exportRunning",
+      "leaf": "_lfExportRunning",
+      "params": []
+    },
+    {
+      "key": "exportScopeCount",
+      "leaf": "_lfExportScopeCount",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "exportScopeNote",
+      "leaf": "_lfExportScopeNote",
+      "params": []
+    },
+    {
+      "key": "exportSub",
+      "leaf": "_lfExportSub",
+      "params": []
+    },
+    {
+      "key": "exportTitle",
+      "leaf": "_lfExportTitle",
+      "params": []
+    },
+    {
+      "key": "exportWithoutImagesNote",
+      "leaf": "_lfExportWithoutImagesNote",
+      "params": []
+    },
+    {
+      "key": "favoriteAdd",
+      "leaf": "_lfFavoriteAdd",
+      "params": []
+    },
+    {
+      "key": "favoriteAddResult__1",
+      "leaf": "_lfFavoriteAddResult__1",
+      "params": []
+    },
+    {
+      "key": "favoriteAddResult__2",
+      "leaf": "_lfFavoriteAddResult__2",
+      "params": []
+    },
+    {
+      "key": "favoriteAddResult__3",
+      "leaf": "_lfFavoriteAddResult__3",
+      "params": []
+    },
+    {
+      "key": "favorites",
+      "leaf": "_lfFavorites",
+      "params": []
+    },
+    {
+      "key": "favoritesEmpty",
+      "leaf": "_lfFavoritesEmpty",
+      "params": []
+    },
+    {
+      "key": "favoritesEmptyHint",
+      "leaf": "_lfFavoritesEmptyHint",
+      "params": []
+    },
+    {
+      "key": "favoritesNoPcTarget",
+      "leaf": "_lfFavoritesNoPcTarget",
+      "params": []
+    },
+    {
+      "key": "favoritesRemove",
+      "leaf": "_lfFavoritesRemove",
+      "params": []
+    },
+    {
+      "key": "favoritesSaveBlockedAiComposing",
+      "leaf": "_lfFavoritesSaveBlockedAiComposing",
+      "params": []
+    },
+    {
+      "key": "favoritesSaveBuffer",
+      "leaf": "_lfFavoritesSaveBuffer",
+      "params": []
+    },
+    {
+      "key": "favoritesTapToSend",
+      "leaf": "_lfFavoritesTapToSend",
+      "params": []
+    },
+    {
+      "key": "forgotPassword",
+      "leaf": "_lfForgotPassword",
+      "params": []
+    },
+    {
+      "key": "guideClose",
+      "leaf": "_lfGuideClose",
+      "params": []
+    },
+    {
+      "key": "guideCloudBody",
+      "leaf": "_lfGuideCloudBody",
+      "params": []
+    },
+    {
+      "key": "guideCloudTitle",
+      "leaf": "_lfGuideCloudTitle",
+      "params": [
+        "name"
+      ]
+    },
+    {
+      "key": "guideGestureLongPress",
+      "leaf": "_lfGuideGestureLongPress",
+      "params": []
+    },
+    {
+      "key": "guideGesturesTitle",
+      "leaf": "_lfGuideGesturesTitle",
+      "params": []
+    },
+    {
+      "key": "guideGestureSwipe",
+      "leaf": "_lfGuideGestureSwipe",
+      "params": []
+    },
+    {
+      "key": "guideInstancesTitle",
+      "leaf": "_lfGuideInstancesTitle",
+      "params": []
+    },
+    {
+      "key": "guideListBody",
+      "leaf": "_lfGuideListBody",
+      "params": []
+    },
+    {
+      "key": "guideListTitle",
+      "leaf": "_lfGuideListTitle",
+      "params": []
+    },
+    {
+      "key": "guidePairingBack",
+      "leaf": "_lfGuidePairingBack",
+      "params": []
+    },
+    {
+      "key": "guidePairingCodeExpires",
+      "leaf": "_lfGuidePairingCodeExpires",
+      "params": []
+    },
+    {
+      "key": "guidePairingManualBody",
+      "leaf": "_lfGuidePairingManualBody",
+      "params": [
+        "addressLabel",
+        "codeLabel",
+        "pcidLabel"
+      ]
+    },
+    {
+      "key": "guidePairingManualTitle",
+      "leaf": "_lfGuidePairingManualTitle",
+      "params": [
+        "manualTab"
+      ]
+    },
+    {
+      "key": "guidePairingNewestCode",
+      "leaf": "_lfGuidePairingNewestCode",
+      "params": []
+    },
+    {
+      "key": "guidePairingSameNetwork",
+      "leaf": "_lfGuidePairingSameNetwork",
+      "params": []
+    },
+    {
+      "key": "guidePairingScanBody",
+      "leaf": "_lfGuidePairingScanBody",
+      "params": []
+    },
+    {
+      "key": "guidePairingScanTitle",
+      "leaf": "_lfGuidePairingScanTitle",
+      "params": [
+        "scanTab"
+      ]
+    },
+    {
+      "key": "guidePairingSketchCaption",
+      "leaf": "_lfGuidePairingSketchCaption",
+      "params": []
+    },
+    {
+      "key": "guidePairingTitle",
+      "leaf": "_lfGuidePairingTitle",
+      "params": []
+    },
+    {
+      "key": "guidePairingTroubleTitle",
+      "leaf": "_lfGuidePairingTroubleTitle",
+      "params": []
+    },
+    {
+      "key": "guidePairingWhereBody",
+      "leaf": "_lfGuidePairingWhereBody",
+      "params": []
+    },
+    {
+      "key": "guidePairingWhereTitle",
+      "leaf": "_lfGuidePairingWhereTitle",
+      "params": []
+    },
+    {
+      "key": "guideSameMachineBody",
+      "leaf": "_lfGuideSameMachineBody",
+      "params": []
+    },
+    {
+      "key": "guideSameMachineTitle",
+      "leaf": "_lfGuideSameMachineTitle",
+      "params": []
+    },
+    {
+      "key": "guideStatusChecking",
+      "leaf": "_lfGuideStatusChecking",
+      "params": []
+    },
+    {
+      "key": "guideStatusOffline",
+      "leaf": "_lfGuideStatusOffline",
+      "params": []
+    },
+    {
+      "key": "guideStatusOnline",
+      "leaf": "_lfGuideStatusOnline",
+      "params": []
+    },
+    {
+      "key": "guideStatusPcOffline",
+      "leaf": "_lfGuideStatusPcOffline",
+      "params": []
+    },
+    {
+      "key": "guideStatusRelayOnly",
+      "leaf": "_lfGuideStatusRelayOnly",
+      "params": []
+    },
+    {
+      "key": "guideStatusTitle",
+      "leaf": "_lfGuideStatusTitle",
+      "params": []
+    },
+    {
+      "key": "guideStatusUnmeasured",
+      "leaf": "_lfGuideStatusUnmeasured",
+      "params": []
+    },
+    {
+      "key": "helpLabel",
+      "leaf": "_lfHelpLabel",
+      "params": []
+    },
+    {
+      "key": "historyAllPersisted",
+      "leaf": "_lfHistoryAllPersisted",
+      "params": []
+    },
+    {
+      "key": "historyEmpty",
+      "leaf": "_lfHistoryEmpty",
+      "params": []
+    },
+    {
+      "key": "historyFallbackNote",
+      "leaf": "_lfHistoryFallbackNote",
+      "params": []
+    },
+    {
+      "key": "historyLoadingMore",
+      "leaf": "_lfHistoryLoadingMore",
+      "params": []
+    },
+    {
+      "key": "historyReachedEnd",
+      "leaf": "_lfHistoryReachedEnd",
+      "params": []
+    },
+    {
+      "key": "historySearchClear",
+      "leaf": "_lfHistorySearchClear",
+      "params": []
+    },
+    {
+      "key": "historySearchHint",
+      "leaf": "_lfHistorySearchHint",
+      "params": []
+    },
+    {
+      "key": "historySearchNoHit",
+      "leaf": "_lfHistorySearchNoHit",
+      "params": []
+    },
+    {
+      "key": "historyTitle",
+      "leaf": "_lfHistoryTitle",
+      "params": []
+    },
+    {
+      "key": "imageCopyResult__1",
+      "leaf": "_lfImageCopyResult__1",
+      "params": [
+        "imagePreviewNote"
+      ]
+    },
+    {
+      "key": "imageCopyResult__2",
+      "leaf": "_lfImageCopyResult__2",
+      "params": []
+    },
+    {
+      "key": "imageCopyResult__3",
+      "leaf": "_lfImageCopyResult__3",
+      "params": []
+    },
+    {
+      "key": "imageInjectVerdictNote_INJECT_FOCUS_LOST",
+      "leaf": "_lfImageInjectVerdictNote_INJECT_FOCUS_LOST",
+      "params": []
+    },
+    {
+      "key": "imageInjectVerdictNote_INJECT_NO_ACCESSIBILITY",
+      "leaf": "_lfImageInjectVerdictNote_INJECT_NO_ACCESSIBILITY",
+      "params": []
+    },
+    {
+      "key": "imageInjectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
+      "leaf": "_lfImageInjectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
+      "params": []
+    },
+    {
+      "key": "imageNoPcTarget",
+      "leaf": "_lfImageNoPcTarget",
+      "params": []
+    },
+    {
+      "key": "imageOriginal",
+      "leaf": "_lfImageOriginal",
+      "params": []
+    },
+    {
+      "key": "imageOriginalHint",
+      "leaf": "_lfImageOriginalHint",
+      "params": []
+    },
+    {
+      "key": "imageOriginalUnavailable__1",
+      "leaf": "_lfImageOriginalUnavailable__1",
+      "params": []
+    },
+    {
+      "key": "imageOriginalUnavailable__2",
+      "leaf": "_lfImageOriginalUnavailable__2",
+      "params": []
+    },
+    {
+      "key": "imagePreviewNote",
+      "leaf": "_lfImagePreviewNote",
+      "params": []
+    },
+    {
+      "key": "imageResendUnavailableNote",
+      "leaf": "_lfImageResendUnavailableNote",
+      "params": []
+    },
+    {
+      "key": "imageSendError__1",
+      "leaf": "_lfImageSendError__1",
+      "params": []
+    },
+    {
+      "key": "imageSendError__10",
+      "leaf": "_lfImageSendError__10",
+      "params": []
+    },
+    {
+      "key": "imageSendError__11",
+      "leaf": "_lfImageSendError__11",
+      "params": []
+    },
+    {
+      "key": "imageSendError__12",
+      "leaf": "_lfImageSendError__12",
+      "params": []
+    },
+    {
+      "key": "imageSendError__13",
+      "leaf": "_lfImageSendError__13",
+      "params": []
+    },
+    {
+      "key": "imageSendError__15",
+      "leaf": "_lfImageSendError__15",
+      "params": [
+        "why"
+      ]
+    },
+    {
+      "key": "imageSendError__16",
+      "leaf": "_lfImageSendError__16",
+      "params": [
+        "why",
+        "secs"
+      ]
+    },
+    {
+      "key": "imageSendError__2",
+      "leaf": "_lfImageSendError__2",
+      "params": []
+    },
+    {
+      "key": "imageSendError__3",
+      "leaf": "_lfImageSendError__3",
+      "params": []
+    },
+    {
+      "key": "imageSendError__4",
+      "leaf": "_lfImageSendError__4",
+      "params": []
+    },
+    {
+      "key": "imageSendError__5",
+      "leaf": "_lfImageSendError__5",
+      "params": []
+    },
+    {
+      "key": "imageSendError__6",
+      "leaf": "_lfImageSendError__6",
+      "params": [
+        "outcomeDetail"
+      ]
+    },
+    {
+      "key": "imageSendError__7",
+      "leaf": "_lfImageSendError__7",
+      "params": [
+        "outcomeDetail"
+      ]
+    },
+    {
+      "key": "imageSendError__8",
+      "leaf": "_lfImageSendError__8",
+      "params": [
+        "outcomeDetail",
+        "formatBytesKCloudImageBytesMax"
+      ]
+    },
+    {
+      "key": "imageSendError__9",
+      "leaf": "_lfImageSendError__9",
+      "params": []
+    },
+    {
+      "key": "imageSending",
+      "leaf": "_lfImageSending",
+      "params": []
+    },
+    {
+      "key": "imageStagePreparing",
+      "leaf": "_lfImageStagePreparing",
+      "params": []
+    },
+    {
+      "key": "imageStageUploading",
+      "leaf": "_lfImageStageUploading",
+      "params": []
+    },
+    {
+      "key": "imageStageWaitingHttpVerdict",
+      "leaf": "_lfImageStageWaitingHttpVerdict",
+      "params": []
+    },
+    {
+      "key": "imageStageWaitingSocketAck",
+      "leaf": "_lfImageStageWaitingSocketAck",
+      "params": []
+    },
+    {
+      "key": "imageTile",
+      "leaf": "_lfImageTile",
+      "params": []
+    },
+    {
+      "key": "imageTileSub",
+      "leaf": "_lfImageTileSub",
+      "params": []
+    },
+    {
+      "key": "imageTileSubLocal",
+      "leaf": "_lfImageTileSubLocal",
+      "params": []
+    },
+    {
+      "key": "imageZoomClose",
+      "leaf": "_lfImageZoomClose",
+      "params": []
+    },
+    {
+      "key": "importAction",
+      "leaf": "_lfImportAction",
+      "params": []
+    },
+    {
+      "key": "importCancelled",
+      "leaf": "_lfImportCancelled",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__1",
+      "leaf": "_lfImportFileRefusal__1",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__2",
+      "leaf": "_lfImportFileRefusal__2",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__3",
+      "leaf": "_lfImportFileRefusal__3",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__4",
+      "leaf": "_lfImportFileRefusal__4",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__5",
+      "leaf": "_lfImportFileRefusal__5",
+      "params": []
+    },
+    {
+      "key": "importFileRefusal__6",
+      "leaf": "_lfImportFileRefusal__6",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__1",
+      "leaf": "_lfImportLineRefusal__1",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__2",
+      "leaf": "_lfImportLineRefusal__2",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__3",
+      "leaf": "_lfImportLineRefusal__3",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__4",
+      "leaf": "_lfImportLineRefusal__4",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__5",
+      "leaf": "_lfImportLineRefusal__5",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__6",
+      "leaf": "_lfImportLineRefusal__6",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__7",
+      "leaf": "_lfImportLineRefusal__7",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__8",
+      "leaf": "_lfImportLineRefusal__8",
+      "params": []
+    },
+    {
+      "key": "importLineRefusal__9",
+      "leaf": "_lfImportLineRefusal__9",
+      "params": []
+    },
+    {
+      "key": "importReportText__1",
+      "leaf": "_lfImportReportText__1",
+      "params": [
+        "rAdded"
+      ]
+    },
+    {
+      "key": "importReportText__2",
+      "leaf": "_lfImportReportText__2",
+      "params": [
+        "rSkippedExisting"
+      ]
+    },
+    {
+      "key": "importReportText__4",
+      "leaf": "_lfImportReportText__4",
+      "params": [
+        "rMissingAttachments"
+      ]
+    },
+    {
+      "key": "importReportText__5",
+      "leaf": "_lfImportReportText__5",
+      "params": [
+        "rMissingAttachments"
+      ]
+    },
+    {
+      "key": "importRunning",
+      "leaf": "_lfImportRunning",
+      "params": []
+    },
+    {
+      "key": "importSub",
+      "leaf": "_lfImportSub",
+      "params": []
+    },
+    {
+      "key": "importTitle",
+      "leaf": "_lfImportTitle",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_CLIPBOARD_FAIL",
+      "leaf": "_lfInjectVerdictNote_INJECT_CLIPBOARD_FAIL",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_FOCUS_LOST",
+      "leaf": "_lfInjectVerdictNote_INJECT_FOCUS_LOST",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_IMAGE_UNSUPPORTED",
+      "leaf": "_lfInjectVerdictNote_INJECT_IMAGE_UNSUPPORTED",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_NO_ACCESSIBILITY",
+      "leaf": "_lfInjectVerdictNote_INJECT_NO_ACCESSIBILITY",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
+      "leaf": "_lfInjectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_SELF_WINDOW_NO_INPUT",
+      "leaf": "_lfInjectVerdictNote_INJECT_SELF_WINDOW_NO_INPUT",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_SENDINPUT_FAIL",
+      "leaf": "_lfInjectVerdictNote_INJECT_SENDINPUT_FAIL",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_TARGET_INVALID",
+      "leaf": "_lfInjectVerdictNote_INJECT_TARGET_INVALID",
+      "params": []
+    },
+    {
+      "key": "instancesTitle",
+      "leaf": "_lfInstancesTitle",
+      "params": []
+    },
+    {
+      "key": "keyBackspace",
+      "leaf": "_lfKeyBackspace",
+      "params": []
+    },
+    {
+      "key": "keyBackspaceHint",
+      "leaf": "_lfKeyBackspaceHint",
+      "params": []
+    },
+    {
+      "key": "keyClear",
+      "leaf": "_lfKeyClear",
+      "params": []
+    },
+    {
+      "key": "keyClearHint",
+      "leaf": "_lfKeyClearHint",
+      "params": []
+    },
+    {
+      "key": "keyEnter",
+      "leaf": "_lfKeyEnter",
+      "params": []
+    },
+    {
+      "key": "keyEnterHint",
+      "leaf": "_lfKeyEnterHint",
+      "params": []
+    },
+    {
+      "key": "keyUndo",
+      "leaf": "_lfKeyUndo",
+      "params": []
+    },
+    {
+      "key": "keyUndoHint",
+      "leaf": "_lfKeyUndoHint",
+      "params": []
+    },
+    {
+      "key": "langZh",
+      "leaf": "_lfLangZh",
+      "params": []
+    },
+    {
+      "key": "lastConnectedAt__1",
+      "leaf": "_lfLastConnectedAt__1",
+      "params": []
+    },
+    {
+      "key": "lastConnectedAt__2",
+      "leaf": "_lfLastConnectedAt__2",
+      "params": [
+        "ageInMinutes"
+      ]
+    },
+    {
+      "key": "lastConnectedAt__3",
+      "leaf": "_lfLastConnectedAt__3",
+      "params": [
+        "ageInHours"
+      ]
+    },
+    {
+      "key": "lastConnectedAt__4",
+      "leaf": "_lfLastConnectedAt__4",
+      "params": [
+        "hhmm"
+      ]
+    },
+    {
+      "key": "lastConnectedAt__5",
+      "leaf": "_lfLastConnectedAt__5",
+      "params": [
+        "tMonth",
+        "tDay",
+        "hhmm"
+      ]
+    },
+    {
+      "key": "lastConnectedAt__6",
+      "leaf": "_lfLastConnectedAt__6",
+      "params": [
+        "tYear",
+        "tMonth",
+        "tDay",
+        "hhmm"
+      ]
+    },
+    {
+      "key": "lastConnectedAt__7",
+      "leaf": "_lfLastConnectedAt__7",
+      "params": [
+        "relative"
+      ]
+    },
+    {
+      "key": "lastKnownCloudRelay",
+      "leaf": "_lfLastKnownCloudRelay",
+      "params": []
+    },
+    {
+      "key": "lastKnownLocalLan",
+      "leaf": "_lfLastKnownLocalLan",
+      "params": []
+    },
+    {
+      "key": "lightRecordImageNoOriginal",
+      "leaf": "_lfLightRecordImageNoOriginal",
+      "params": []
+    },
+    {
+      "key": "lightRecordsEmpty",
+      "leaf": "_lfLightRecordsEmpty",
+      "params": []
+    },
+    {
+      "key": "lightRecordsLoading",
+      "leaf": "_lfLightRecordsLoading",
+      "params": []
+    },
+    {
+      "key": "lightRecordsSearchHint",
+      "leaf": "_lfLightRecordsSearchHint",
+      "params": []
+    },
+    {
+      "key": "lightRecordsSearchNoMatch",
+      "leaf": "_lfLightRecordsSearchNoMatch",
+      "params": []
+    },
+    {
+      "key": "lightRecordsSignedOutEmpty",
+      "leaf": "_lfLightRecordsSignedOutEmpty",
+      "params": []
+    },
+    {
+      "key": "lightRecordsSignedOutNotice",
+      "leaf": "_lfLightRecordsSignedOutNotice",
+      "params": []
+    },
+    {
+      "key": "liveNow",
+      "leaf": "_lfLiveNow",
+      "params": []
+    },
+    {
+      "key": "liveTranscribing",
+      "leaf": "_lfLiveTranscribing",
+      "params": []
+    },
+    {
+      "key": "localLan",
+      "leaf": "_lfLocalLan",
+      "params": []
+    },
+    {
+      "key": "loginButton",
+      "leaf": "_lfLoginButton",
+      "params": []
+    },
+    {
+      "key": "loginError__1",
+      "leaf": "_lfLoginError__1",
+      "params": []
+    },
+    {
+      "key": "loginError__2",
+      "leaf": "_lfLoginError__2",
+      "params": []
+    },
+    {
+      "key": "loginError__3",
+      "leaf": "_lfLoginError__3",
+      "params": []
+    },
+    {
+      "key": "loginError__4",
+      "leaf": "_lfLoginError__4",
+      "params": []
+    },
+    {
+      "key": "loginError__5",
+      "leaf": "_lfLoginError__5",
+      "params": []
+    },
+    {
+      "key": "loginError__6",
+      "leaf": "_lfLoginError__6",
+      "params": []
+    },
+    {
+      "key": "loginError__7",
+      "leaf": "_lfLoginError__7",
+      "params": []
+    },
+    {
+      "key": "loginError__8",
+      "leaf": "_lfLoginError__8",
+      "params": []
+    },
+    {
+      "key": "loginError__9",
+      "leaf": "_lfLoginError__9",
+      "params": []
+    },
+    {
+      "key": "loginFootnote",
+      "leaf": "_lfLoginFootnote",
+      "params": []
+    },
+    {
+      "key": "loginScanHint",
+      "leaf": "_lfLoginScanHint",
+      "params": []
+    },
+    {
+      "key": "loginScanIsPair",
+      "leaf": "_lfLoginScanIsPair",
+      "params": []
+    },
+    {
+      "key": "loginScanOpen",
+      "leaf": "_lfLoginScanOpen",
+      "params": []
+    },
+    {
+      "key": "loginScanTitle",
+      "leaf": "_lfLoginScanTitle",
+      "params": []
+    },
+    {
+      "key": "loginTitle",
+      "leaf": "_lfLoginTitle",
+      "params": []
+    },
+    {
+      "key": "logout",
+      "leaf": "_lfLogout",
+      "params": []
+    },
+    {
+      "key": "logoutConfirmAction",
+      "leaf": "_lfLogoutConfirmAction",
+      "params": []
+    },
+    {
+      "key": "logoutConfirmBody",
+      "leaf": "_lfLogoutConfirmBody",
+      "params": []
+    },
+    {
+      "key": "logoutConfirmKeepsAccount",
+      "leaf": "_lfLogoutConfirmKeepsAccount",
+      "params": []
+    },
+    {
+      "key": "logoutConfirmKeepsRecords",
+      "leaf": "_lfLogoutConfirmKeepsRecords",
+      "params": []
+    },
+    {
+      "key": "logoutConfirmTitle",
+      "leaf": "_lfLogoutConfirmTitle",
+      "params": []
+    },
+    {
+      "key": "logoutNotice__1",
+      "leaf": "_lfLogoutNotice__1",
+      "params": []
+    },
+    {
+      "key": "logoutNotice__2",
+      "leaf": "_lfLogoutNotice__2",
+      "params": []
+    },
+    {
+      "key": "manageCloudOnDevices",
+      "leaf": "_lfManageCloudOnDevices",
+      "params": []
+    },
+    {
+      "key": "micAllowAction",
+      "leaf": "_lfMicAllowAction",
+      "params": []
+    },
+    {
+      "key": "micCaptureStartFailed",
+      "leaf": "_lfMicCaptureStartFailed",
+      "params": []
+    },
+    {
+      "key": "micDenied",
+      "leaf": "_lfMicDenied",
+      "params": []
+    },
+    {
+      "key": "micOpenSettingsAction",
+      "leaf": "_lfMicOpenSettingsAction",
+      "params": []
+    },
+    {
+      "key": "micPermanentlyDenied",
+      "leaf": "_lfMicPermanentlyDenied",
+      "params": []
+    },
+    {
+      "key": "micRationale",
+      "leaf": "_lfMicRationale",
+      "params": []
+    },
+    {
+      "key": "modeLabel__1",
+      "leaf": "_lfModeLabel__1",
+      "params": []
+    },
+    {
+      "key": "modeLabel__2",
+      "leaf": "_lfModeLabel__2",
+      "params": []
+    },
+    {
+      "key": "modeLabel__3",
+      "leaf": "_lfModeLabel__3",
+      "params": []
+    },
+    {
+      "key": "noInstances",
+      "leaf": "_lfNoInstances",
+      "params": []
+    },
+    {
+      "key": "noInstancesHint",
+      "leaf": "_lfNoInstancesHint",
+      "params": []
+    },
+    {
+      "key": "notConnected",
+      "leaf": "_lfNotConnected",
+      "params": []
+    },
+    {
+      "key": "offline",
+      "leaf": "_lfOffline",
+      "params": []
+    },
+    {
+      "key": "onboardingArtInstall",
+      "leaf": "_lfOnboardingArtInstall",
+      "params": []
+    },
+    {
+      "key": "onboardingArtPair",
+      "leaf": "_lfOnboardingArtPair",
+      "params": []
+    },
+    {
+      "key": "onboardingArtWhat",
+      "leaf": "_lfOnboardingArtWhat",
+      "params": []
+    },
+    {
+      "key": "onboardingBack",
+      "leaf": "_lfOnboardingBack",
+      "params": []
+    },
+    {
+      "key": "onboardingClose",
+      "leaf": "_lfOnboardingClose",
+      "params": []
+    },
+    {
+      "key": "onboardingCodeExpiryNote",
+      "leaf": "_lfOnboardingCodeExpiryNote",
+      "params": []
+    },
+    {
+      "key": "onboardingInstallBody",
+      "leaf": "_lfOnboardingInstallBody",
+      "params": []
+    },
+    {
+      "key": "onboardingInstallTitle",
+      "leaf": "_lfOnboardingInstallTitle",
+      "params": []
+    },
+    {
+      "key": "onboardingNext",
+      "leaf": "_lfOnboardingNext",
+      "params": []
+    },
+    {
+      "key": "onboardingPairBody",
+      "leaf": "_lfOnboardingPairBody",
+      "params": [
+        "addDevice",
+        "pairTabScan",
+        "pairTabManual"
+      ]
+    },
+    {
+      "key": "onboardingPairTitle",
+      "leaf": "_lfOnboardingPairTitle",
+      "params": []
+    },
+    {
+      "key": "onboardingReviewSub",
+      "leaf": "_lfOnboardingReviewSub",
+      "params": []
+    },
+    {
+      "key": "onboardingReviewTitle",
+      "leaf": "_lfOnboardingReviewTitle",
+      "params": []
+    },
+    {
+      "key": "onboardingSameNetworkNote",
+      "leaf": "_lfOnboardingSameNetworkNote",
+      "params": []
+    },
+    {
+      "key": "onboardingSkip",
+      "leaf": "_lfOnboardingSkip",
+      "params": []
+    },
+    {
+      "key": "onboardingSpeakBody",
+      "leaf": "_lfOnboardingSpeakBody",
+      "params": []
+    },
+    {
+      "key": "onboardingStart",
+      "leaf": "_lfOnboardingStart",
+      "params": []
+    },
+    {
+      "key": "onboardingStepOf",
+      "leaf": "_lfOnboardingStepOf",
+      "params": [
+        "step",
+        "total"
+      ]
+    },
+    {
+      "key": "onboardingWhatBody",
+      "leaf": "_lfOnboardingWhatBody",
+      "params": []
+    },
+    {
+      "key": "onboardingWhatTitle",
+      "leaf": "_lfOnboardingWhatTitle",
+      "params": []
+    },
+    {
+      "key": "online",
+      "leaf": "_lfOnline",
+      "params": []
+    },
+    {
+      "key": "originalPcName",
+      "leaf": "_lfOriginalPcName",
+      "params": [
+        "real"
+      ]
+    },
+    {
+      "key": "outboxPendingNotice",
+      "leaf": "_lfOutboxPendingNotice",
+      "params": [
+        "count"
+      ]
+    },
+    {
+      "key": "outboxTerminalMessage__1",
+      "leaf": "_lfOutboxTerminalMessage__1",
+      "params": []
+    },
+    {
+      "key": "outboxTerminalMessage__2",
+      "leaf": "_lfOutboxTerminalMessage__2",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__1",
+      "leaf": "_lfPairCandidatesFailed__1",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__2",
+      "leaf": "_lfPairCandidatesFailed__2",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__3",
+      "leaf": "_lfPairCandidatesFailed__3",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__4",
+      "leaf": "_lfPairCandidatesFailed__4",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__5",
+      "leaf": "_lfPairCandidatesFailed__5",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__6",
+      "leaf": "_lfPairCandidatesFailed__6",
+      "params": []
+    },
+    {
+      "key": "pairCandidatesFailed__7",
+      "leaf": "_lfPairCandidatesFailed__7",
+      "params": []
+    },
+    {
+      "key": "pairCodeInputHint",
+      "leaf": "_lfPairCodeInputHint",
+      "params": []
+    },
+    {
+      "key": "pairCodeLabel",
+      "leaf": "_lfPairCodeLabel",
+      "params": []
+    },
+    {
+      "key": "pairConnect",
+      "leaf": "_lfPairConnect",
+      "params": []
+    },
+    {
+      "key": "pairError__1",
+      "leaf": "_lfPairError__1",
+      "params": []
+    },
+    {
+      "key": "pairError__10",
+      "leaf": "_lfPairError__10",
+      "params": [
+        "secs"
+      ]
+    },
+    {
+      "key": "pairError__11",
+      "leaf": "_lfPairError__11",
+      "params": []
+    },
+    {
+      "key": "pairError__12",
+      "leaf": "_lfPairError__12",
+      "params": []
+    },
+    {
+      "key": "pairError__13",
+      "leaf": "_lfPairError__13",
+      "params": []
+    },
+    {
+      "key": "pairError__14",
+      "leaf": "_lfPairError__14",
+      "params": []
+    },
+    {
+      "key": "pairError__15",
+      "leaf": "_lfPairError__15",
+      "params": []
+    },
+    {
+      "key": "pairError__16",
+      "leaf": "_lfPairError__16",
+      "params": []
+    },
+    {
+      "key": "pairError__17",
+      "leaf": "_lfPairError__17",
+      "params": [
+        "diag"
+      ]
+    },
+    {
+      "key": "pairError__2",
+      "leaf": "_lfPairError__2",
+      "params": []
+    },
+    {
+      "key": "pairError__3",
+      "leaf": "_lfPairError__3",
+      "params": []
+    },
+    {
+      "key": "pairError__4",
+      "leaf": "_lfPairError__4",
+      "params": []
+    },
+    {
+      "key": "pairError__5",
+      "leaf": "_lfPairError__5",
+      "params": []
+    },
+    {
+      "key": "pairError__6",
+      "leaf": "_lfPairError__6",
+      "params": []
+    },
+    {
+      "key": "pairError__7",
+      "leaf": "_lfPairError__7",
+      "params": []
+    },
+    {
+      "key": "pairError__8",
+      "leaf": "_lfPairError__8",
+      "params": []
+    },
+    {
+      "key": "pairError__9",
+      "leaf": "_lfPairError__9",
+      "params": []
+    },
+    {
+      "key": "pairing",
+      "leaf": "_lfPairing",
+      "params": []
+    },
+    {
+      "key": "pairNeedAddress",
+      "leaf": "_lfPairNeedAddress",
+      "params": []
+    },
+    {
+      "key": "pairNeedCode",
+      "leaf": "_lfPairNeedCode",
+      "params": []
+    },
+    {
+      "key": "pairNeedPcid",
+      "leaf": "_lfPairNeedPcid",
+      "params": []
+    },
+    {
+      "key": "pairScanDenied",
+      "leaf": "_lfPairScanDenied",
+      "params": []
+    },
+    {
+      "key": "pairScanForeign",
+      "leaf": "_lfPairScanForeign",
+      "params": []
+    },
+    {
+      "key": "pairScanHint",
+      "leaf": "_lfPairScanHint",
+      "params": []
+    },
+    {
+      "key": "pairScanIsLogin",
+      "leaf": "_lfPairScanIsLogin",
+      "params": []
+    },
+    {
+      "key": "pairScanNoCamera",
+      "leaf": "_lfPairScanNoCamera",
+      "params": []
+    },
+    {
+      "key": "pairTabManual",
+      "leaf": "_lfPairTabManual",
+      "params": []
+    },
+    {
+      "key": "pairTabScan",
+      "leaf": "_lfPairTabScan",
+      "params": []
+    },
+    {
+      "key": "passwordHint",
+      "leaf": "_lfPasswordHint",
+      "params": []
+    },
+    {
+      "key": "pcAddressHint",
+      "leaf": "_lfPcAddressHint",
+      "params": []
+    },
+    {
+      "key": "pcAddressLabel",
+      "leaf": "_lfPcAddressLabel",
+      "params": []
+    },
+    {
+      "key": "pcidInputHint",
+      "leaf": "_lfPcidInputHint",
+      "params": []
+    },
+    {
+      "key": "pcidLabel",
+      "leaf": "_lfPcidLabel",
+      "params": []
+    },
+    {
+      "key": "pcKeysGroupLabel",
+      "leaf": "_lfPcKeysGroupLabel",
+      "params": []
+    },
+    {
+      "key": "pcKeysUnavailableNoted",
+      "leaf": "_lfPcKeysUnavailableNoted",
+      "params": []
+    },
+    {
+      "key": "pcOfflineChip",
+      "leaf": "_lfPcOfflineChip",
+      "params": []
+    },
+    {
+      "key": "planLabel_free",
+      "leaf": "_lfPlanLabel_free",
+      "params": []
+    },
+    {
+      "key": "planLabel_pro",
+      "leaf": "_lfPlanLabel_pro",
+      "params": []
+    },
+    {
+      "key": "plusPanelTitle",
+      "leaf": "_lfPlusPanelTitle",
+      "params": []
+    },
+    {
+      "key": "plusSelectionImagesSeparate",
+      "leaf": "_lfPlusSelectionImagesSeparate",
+      "params": []
+    },
+    {
+      "key": "plusSelectionSend",
+      "leaf": "_lfPlusSelectionSend",
+      "params": []
+    },
+    {
+      "key": "polishSkipped",
+      "leaf": "_lfPolishSkipped",
+      "params": []
+    },
+    {
+      "key": "portableReadme__1",
+      "leaf": "_lfPortableReadme__1",
+      "params": []
+    },
+    {
+      "key": "portableReadme__3",
+      "leaf": "_lfPortableReadme__3",
+      "params": []
+    },
+    {
+      "key": "profession",
+      "leaf": "_lfProfession",
+      "params": []
+    },
+    {
+      "key": "professionLabel_devops___SRE",
+      "leaf": "_lfProfessionLabel_devops___SRE",
+      "params": []
+    },
+    {
+      "key": "professionLabel_finance",
+      "leaf": "_lfProfessionLabel_finance",
+      "params": []
+    },
+    {
+      "key": "professionLabel_law",
+      "leaf": "_lfProfessionLabel_law",
+      "params": []
+    },
+    {
+      "key": "professionLabel_medicine",
+      "leaf": "_lfProfessionLabel_medicine",
+      "params": []
+    },
+    {
+      "key": "professionLabel_product_design",
+      "leaf": "_lfProfessionLabel_product_design",
+      "params": []
+    },
+    {
+      "key": "professionLabel_research",
+      "leaf": "_lfProfessionLabel_research",
+      "params": []
+    },
+    {
+      "key": "professionLabel_software_development",
+      "leaf": "_lfProfessionLabel_software_development",
+      "params": []
+    },
+    {
+      "key": "professionLabel_teaching",
+      "leaf": "_lfProfessionLabel_teaching",
+      "params": []
+    },
+    {
+      "key": "professionLabel_writing___editing",
+      "leaf": "_lfProfessionLabel_writing___editing",
+      "params": []
+    },
+    {
+      "key": "pttCancelArmed",
+      "leaf": "_lfPttCancelArmed",
+      "params": []
+    },
+    {
+      "key": "pttDisabled",
+      "leaf": "_lfPttDisabled",
+      "params": []
+    },
+    {
+      "key": "pttHold",
+      "leaf": "_lfPttHold",
+      "params": []
+    },
+    {
+      "key": "pttHoldNoted",
+      "leaf": "_lfPttHoldNoted",
+      "params": [
+        "recordOnly"
+      ]
+    },
+    {
+      "key": "pttJustDone",
+      "leaf": "_lfPttJustDone",
+      "params": []
+    },
+    {
+      "key": "pttProcessing",
+      "leaf": "_lfPttProcessing",
+      "params": []
+    },
+    {
+      "key": "pttRecording",
+      "leaf": "_lfPttRecording",
+      "params": []
+    },
+    {
+      "key": "pttSubDirect",
+      "leaf": "_lfPttSubDirect",
+      "params": []
+    },
+    {
+      "key": "pttSubDisabled",
+      "leaf": "_lfPttSubDisabled",
+      "params": []
+    },
+    {
+      "key": "pttSubManual",
+      "leaf": "_lfPttSubManual",
+      "params": []
+    },
+    {
+      "key": "pttSubNoted",
+      "leaf": "_lfPttSubNoted",
+      "params": []
+    },
+    {
+      "key": "pttSubProcessingDirect",
+      "leaf": "_lfPttSubProcessingDirect",
+      "params": [
+        "pc"
+      ]
+    },
+    {
+      "key": "pttSubProcessingManual",
+      "leaf": "_lfPttSubProcessingManual",
+      "params": []
+    },
+    {
+      "key": "recLinkDegraded",
+      "leaf": "_lfRecLinkDegraded",
+      "params": []
+    },
+    {
+      "key": "recLinkDown",
+      "leaf": "_lfRecLinkDown",
+      "params": []
+    },
+    {
+      "key": "recLinkOk",
+      "leaf": "_lfRecLinkOk",
+      "params": []
+    },
+    {
+      "key": "recNoSound",
+      "leaf": "_lfRecNoSound",
+      "params": []
+    },
+    {
+      "key": "recordingAutoStopped",
+      "leaf": "_lfRecordingAutoStopped",
+      "params": []
+    },
+    {
+      "key": "recordingAutoStoppedQuota",
+      "leaf": "_lfRecordingAutoStoppedQuota",
+      "params": []
+    },
+    {
+      "key": "recordingAutoStoppedUnknown",
+      "leaf": "_lfRecordingAutoStoppedUnknown",
+      "params": [
+        "reason"
+      ]
+    },
+    {
+      "key": "recordingStoppedKept",
+      "leaf": "_lfRecordingStoppedKept",
+      "params": []
+    },
+    {
+      "key": "recordingStoppedLinkLoss",
+      "leaf": "_lfRecordingStoppedLinkLoss",
+      "params": []
+    },
+    {
+      "key": "recordingStoppedLinkLossKept",
+      "leaf": "_lfRecordingStoppedLinkLossKept",
+      "params": []
+    },
+    {
+      "key": "recordOnly",
+      "leaf": "_lfRecordOnly",
+      "params": []
+    },
+    {
+      "key": "recSegments",
+      "leaf": "_lfRecSegments",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "recSwipeCancel",
+      "leaf": "_lfRecSwipeCancel",
+      "params": []
+    },
+    {
+      "key": "registerCopyLink",
+      "leaf": "_lfRegisterCopyLink",
+      "params": []
+    },
+    {
+      "key": "registerLinkCopied",
+      "leaf": "_lfRegisterLinkCopied",
+      "params": []
+    },
+    {
+      "key": "registerOnWebsite",
+      "leaf": "_lfRegisterOnWebsite",
+      "params": []
+    },
+    {
+      "key": "relayUpPcUnknown",
+      "leaf": "_lfRelayUpPcUnknown",
+      "params": []
+    },
+    {
+      "key": "reloginRequired",
+      "leaf": "_lfReloginRequired",
+      "params": []
+    },
+    {
+      "key": "removeDidNotReachServer",
+      "leaf": "_lfRemoveDidNotReachServer",
+      "params": []
+    },
+    {
+      "key": "removeFavoriteConfirmBody",
+      "leaf": "_lfRemoveFavoriteConfirmBody",
+      "params": []
+    },
+    {
+      "key": "removeFavoriteConfirmTitle",
+      "leaf": "_lfRemoveFavoriteConfirmTitle",
+      "params": [
+        "shown"
+      ]
+    },
+    {
+      "key": "removePairing",
+      "leaf": "_lfRemovePairing",
+      "params": []
+    },
+    {
+      "key": "removePairingConfirmBody",
+      "leaf": "_lfRemovePairingConfirmBody",
+      "params": []
+    },
+    {
+      "key": "removePairingConfirmTitle",
+      "leaf": "_lfRemovePairingConfirmTitle",
+      "params": [
+        "name"
+      ]
+    },
+    {
+      "key": "renameAliasHint",
+      "leaf": "_lfRenameAliasHint",
+      "params": []
+    },
+    {
+      "key": "renameAliasTitle",
+      "leaf": "_lfRenameAliasTitle",
+      "params": []
+    },
+    {
+      "key": "reprocessBusy",
+      "leaf": "_lfReprocessBusy",
+      "params": []
+    },
+    {
+      "key": "reprocessUnavailable",
+      "leaf": "_lfReprocessUnavailable",
+      "params": []
+    },
+    {
+      "key": "resendAction",
+      "leaf": "_lfResendAction",
+      "params": []
+    },
+    {
+      "key": "resentAtLabel",
+      "leaf": "_lfResentAtLabel",
+      "params": [
+        "time"
+      ]
+    },
+    {
+      "key": "restoreDefaultName",
+      "leaf": "_lfRestoreDefaultName",
+      "params": []
+    },
+    {
+      "key": "restrictionReasonNote_account_security",
+      "leaf": "_lfRestrictionReasonNote_account_security",
+      "params": []
+    },
+    {
+      "key": "restrictionReasonNote_automated_or_bulk_use",
+      "leaf": "_lfRestrictionReasonNote_automated_or_bulk_use",
+      "params": []
+    },
+    {
+      "key": "restrictionReasonNote_legal_requirement",
+      "leaf": "_lfRestrictionReasonNote_legal_requirement",
+      "params": []
+    },
+    {
+      "key": "restrictionReasonNote_other",
+      "leaf": "_lfRestrictionReasonNote_other",
+      "params": []
+    },
+    {
+      "key": "restrictionReasonNote_terms_violation",
+      "leaf": "_lfRestrictionReasonNote_terms_violation",
+      "params": []
+    },
+    {
+      "key": "sameMachine",
+      "leaf": "_lfSameMachine",
+      "params": [
+        "name",
+        "connections"
+      ]
+    },
+    {
+      "key": "save",
+      "leaf": "_lfSave",
+      "params": []
+    },
+    {
+      "key": "saveAndReInject",
+      "leaf": "_lfSaveAndReInject",
+      "params": []
+    },
+    {
+      "key": "scenarioHint",
+      "leaf": "_lfScenarioHint",
+      "params": []
+    },
+    {
+      "key": "scenarioRemoteNote",
+      "leaf": "_lfScenarioRemoteNote",
+      "params": []
+    },
+    {
+      "key": "secAbout",
+      "leaf": "_lfSecAbout",
+      "params": []
+    },
+    {
+      "key": "secAccount",
+      "leaf": "_lfSecAccount",
+      "params": []
+    },
+    {
+      "key": "secCustomTerms",
+      "leaf": "_lfSecCustomTerms",
+      "params": []
+    },
+    {
+      "key": "secData",
+      "leaf": "_lfSecData",
+      "params": []
+    },
+    {
+      "key": "secPreferences",
+      "leaf": "_lfSecPreferences",
+      "params": []
+    },
+    {
+      "key": "secScenario",
+      "leaf": "_lfSecScenario",
+      "params": []
+    },
+    {
+      "key": "secUpdate",
+      "leaf": "_lfSecUpdate",
+      "params": []
+    },
+    {
+      "key": "selectionCancel",
+      "leaf": "_lfSelectionCancel",
+      "params": []
+    },
+    {
+      "key": "selectionCopiedNothing",
+      "leaf": "_lfSelectionCopiedNothing",
+      "params": []
+    },
+    {
+      "key": "selectionCopiedRecords",
+      "leaf": "_lfSelectionCopiedRecords",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionCopiedRecordsSkippedImages",
+      "leaf": "_lfSelectionCopiedRecordsSkippedImages",
+      "params": [
+        "n",
+        "images"
+      ]
+    },
+    {
+      "key": "selectionCopy",
+      "leaf": "_lfSelectionCopy",
+      "params": []
+    },
+    {
+      "key": "selectionCopySub",
+      "leaf": "_lfSelectionCopySub",
+      "params": []
+    },
+    {
+      "key": "selectionCount",
+      "leaf": "_lfSelectionCount",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionEnter",
+      "leaf": "_lfSelectionEnter",
+      "params": []
+    },
+    {
+      "key": "selectionEnterSub",
+      "leaf": "_lfSelectionEnterSub",
+      "params": []
+    },
+    {
+      "key": "selectionOrganize",
+      "leaf": "_lfSelectionOrganize",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeAiBusy",
+      "leaf": "_lfSelectionOrganizeAiBusy",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeBufferBusy",
+      "leaf": "_lfSelectionOrganizeBufferBusy",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeNoSelection",
+      "leaf": "_lfSelectionOrganizeNoSelection",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeNoText",
+      "leaf": "_lfSelectionOrganizeNoText",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeNotStarted",
+      "leaf": "_lfSelectionOrganizeNotStarted",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeOffline",
+      "leaf": "_lfSelectionOrganizeOffline",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeRecording",
+      "leaf": "_lfSelectionOrganizeRecording",
+      "params": []
+    },
+    {
+      "key": "selectionOrganizeStarted",
+      "leaf": "_lfSelectionOrganizeStarted",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionOrganizeStartedSkippedImages",
+      "leaf": "_lfSelectionOrganizeStartedSkippedImages",
+      "params": [
+        "n",
+        "images"
+      ]
+    },
+    {
+      "key": "selectionOrganizeSub",
+      "leaf": "_lfSelectionOrganizeSub",
+      "params": []
+    },
+    {
+      "key": "selectionSelectAll",
+      "leaf": "_lfSelectionSelectAll",
+      "params": []
+    },
+    {
+      "key": "sendPolicyDirect",
+      "leaf": "_lfSendPolicyDirect",
+      "params": []
+    },
+    {
+      "key": "sendPolicyDirectHint",
+      "leaf": "_lfSendPolicyDirectHint",
+      "params": []
+    },
+    {
+      "key": "sendPolicyManual",
+      "leaf": "_lfSendPolicyManual",
+      "params": []
+    },
+    {
+      "key": "sendPolicyManualHint",
+      "leaf": "_lfSendPolicyManualHint",
+      "params": []
+    },
+    {
+      "key": "sessionLostToast",
+      "leaf": "_lfSessionLostToast",
+      "params": []
+    },
+    {
+      "key": "settingsTitle",
+      "leaf": "_lfSettingsTitle",
+      "params": []
+    },
+    {
+      "key": "signInCloud",
+      "leaf": "_lfSignInCloud",
+      "params": []
+    },
+    {
+      "key": "sourceLine",
+      "leaf": "_lfSourceLine",
+      "params": [
+        "source"
+      ]
+    },
+    {
+      "key": "spokenLangNote",
+      "leaf": "_lfSpokenLangNote",
+      "params": []
+    },
+    {
+      "key": "spokenLangTitle",
+      "leaf": "_lfSpokenLangTitle",
+      "params": []
+    },
+    {
+      "key": "startNoAutoConnect",
+      "leaf": "_lfStartNoAutoConnect",
+      "params": []
+    },
+    {
+      "key": "statsApprox",
+      "leaf": "_lfStatsApprox",
+      "params": []
+    },
+    {
+      "key": "statsByPc",
+      "leaf": "_lfStatsByPc",
+      "params": []
+    },
+    {
+      "key": "statsDuration",
+      "leaf": "_lfStatsDuration",
+      "params": []
+    },
+    {
+      "key": "statsEmpty",
+      "leaf": "_lfStatsEmpty",
+      "params": []
+    },
+    {
+      "key": "statsImages",
+      "leaf": "_lfStatsImages",
+      "params": []
+    },
+    {
+      "key": "statsImageSize",
+      "leaf": "_lfStatsImageSize",
+      "params": []
+    },
+    {
+      "key": "statsMissingPictures",
+      "leaf": "_lfStatsMissingPictures",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "statsNoDurationCount",
+      "leaf": "_lfStatsNoDurationCount",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "statsOpen",
+      "leaf": "_lfStatsOpen",
+      "params": []
+    },
+    {
+      "key": "statsRange",
+      "leaf": "_lfStatsRange",
+      "params": []
+    },
+    {
+      "key": "statsRows",
+      "leaf": "_lfStatsRows",
+      "params": []
+    },
+    {
+      "key": "statsRowsUnit",
+      "leaf": "_lfStatsRowsUnit",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "statsSub",
+      "leaf": "_lfStatsSub",
+      "params": []
+    },
+    {
+      "key": "statsTextSize",
+      "leaf": "_lfStatsTextSize",
+      "params": []
+    },
+    {
+      "key": "statsTitle",
+      "leaf": "_lfStatsTitle",
+      "params": []
+    },
+    {
+      "key": "statsTranscripts",
+      "leaf": "_lfStatsTranscripts",
+      "params": []
+    },
+    {
+      "key": "statsUnknownPc",
+      "leaf": "_lfStatsUnknownPc",
+      "params": []
+    },
+    {
+      "key": "statsWords",
+      "leaf": "_lfStatsWords",
+      "params": []
+    },
+    {
+      "key": "statsWordsUnit",
+      "leaf": "_lfStatsWordsUnit",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "statusDeferredNotInjected",
+      "leaf": "_lfStatusDeferredNotInjected",
+      "params": []
+    },
+    {
+      "key": "statusDeliveredNotInjected",
+      "leaf": "_lfStatusDeliveredNotInjected",
+      "params": []
+    },
+    {
+      "key": "statusDelivering",
+      "leaf": "_lfStatusDelivering",
+      "params": []
+    },
+    {
+      "key": "statusFailed",
+      "leaf": "_lfStatusFailed",
+      "params": []
+    },
+    {
+      "key": "statusInjected",
+      "leaf": "_lfStatusInjected",
+      "params": []
+    },
+    {
+      "key": "statusNoFocus",
+      "leaf": "_lfStatusNoFocus",
+      "params": []
+    },
+    {
+      "key": "statusQueued",
+      "leaf": "_lfStatusQueued",
+      "params": []
+    },
+    {
+      "key": "statusRefused",
+      "leaf": "_lfStatusRefused",
+      "params": []
+    },
+    {
+      "key": "statusUndelivered",
+      "leaf": "_lfStatusUndelivered",
+      "params": []
+    },
+    {
+      "key": "sttStallConfigMissing",
+      "leaf": "_lfSttStallConfigMissing",
+      "params": []
+    },
+    {
+      "key": "sttStallEngineErrorCoded",
+      "leaf": "_lfSttStallEngineErrorCoded",
+      "params": [
+        "code"
+      ]
+    },
+    {
+      "key": "sttStallMessage__1",
+      "leaf": "_lfSttStallMessage__1",
+      "params": []
+    },
+    {
+      "key": "sttStallMessage__2",
+      "leaf": "_lfSttStallMessage__2",
+      "params": []
+    },
+    {
+      "key": "sttStallMessage__3",
+      "leaf": "_lfSttStallMessage__3",
+      "params": []
+    },
+    {
+      "key": "sttStallMessage__4",
+      "leaf": "_lfSttStallMessage__4",
+      "params": []
+    },
+    {
+      "key": "sttStallNoEngineReached",
+      "leaf": "_lfSttStallNoEngineReached",
+      "params": []
+    },
+    {
+      "key": "syncPendingNote",
+      "leaf": "_lfSyncPendingNote",
+      "params": []
+    },
+    {
+      "key": "tabLogin",
+      "leaf": "_lfTabLogin",
+      "params": []
+    },
+    {
+      "key": "tapToConnect",
+      "leaf": "_lfTapToConnect",
+      "params": []
+    },
+    {
+      "key": "termAddError__1",
+      "leaf": "_lfTermAddError__1",
+      "params": []
+    },
+    {
+      "key": "termAddError__2",
+      "leaf": "_lfTermAddError__2",
+      "params": []
+    },
+    {
+      "key": "termAddError__3",
+      "leaf": "_lfTermAddError__3",
+      "params": []
+    },
+    {
+      "key": "termAddError__4",
+      "leaf": "_lfTermAddError__4",
+      "params": []
+    },
+    {
+      "key": "termInputHint",
+      "leaf": "_lfTermInputHint",
+      "params": []
+    },
+    {
+      "key": "termMaxHint",
+      "leaf": "_lfTermMaxHint",
+      "params": []
+    },
+    {
+      "key": "textScaleLarge",
+      "leaf": "_lfTextScaleLarge",
+      "params": []
+    },
+    {
+      "key": "textScaleMedium",
+      "leaf": "_lfTextScaleMedium",
+      "params": []
+    },
+    {
+      "key": "textScaleNote",
+      "leaf": "_lfTextScaleNote",
+      "params": []
+    },
+    {
+      "key": "textScaleSmall",
+      "leaf": "_lfTextScaleSmall",
+      "params": []
+    },
+    {
+      "key": "textScaleTitle",
+      "leaf": "_lfTextScaleTitle",
+      "params": []
+    },
+    {
+      "key": "themeDark",
+      "leaf": "_lfThemeDark",
+      "params": []
+    },
+    {
+      "key": "themeLight",
+      "leaf": "_lfThemeLight",
+      "params": []
+    },
+    {
+      "key": "themeSystem",
+      "leaf": "_lfThemeSystem",
+      "params": []
+    },
+    {
+      "key": "themeTitle",
+      "leaf": "_lfThemeTitle",
+      "params": []
+    },
+    {
+      "key": "translateTargetLabel",
+      "leaf": "_lfTranslateTargetLabel",
+      "params": []
+    },
+    {
+      "key": "uiLanguage",
+      "leaf": "_lfUiLanguage",
+      "params": []
+    },
+    {
+      "key": "unknownInstance",
+      "leaf": "_lfUnknownInstance",
+      "params": []
+    },
+    {
+      "key": "updateAutoCheckLabel",
+      "leaf": "_lfUpdateAutoCheckLabel",
+      "params": []
+    },
+    {
+      "key": "updateAutoCheckOffNote",
+      "leaf": "_lfUpdateAutoCheckOffNote",
+      "params": []
+    },
+    {
+      "key": "updateAvailableTitle",
+      "leaf": "_lfUpdateAvailableTitle",
+      "params": [
+        "v"
+      ]
+    },
+    {
+      "key": "updateChecking",
+      "leaf": "_lfUpdateChecking",
+      "params": []
+    },
+    {
+      "key": "updateCheckNow",
+      "leaf": "_lfUpdateCheckNow",
+      "params": []
+    },
+    {
+      "key": "updateCopyLink",
+      "leaf": "_lfUpdateCopyLink",
+      "params": []
+    },
+    {
+      "key": "updateDownloadAndInstall",
+      "leaf": "_lfUpdateDownloadAndInstall",
+      "params": []
+    },
+    {
+      "key": "updateDownloadCannotWrite",
+      "leaf": "_lfUpdateDownloadCannotWrite",
+      "params": []
+    },
+    {
+      "key": "updateDownloadHashMismatch",
+      "leaf": "_lfUpdateDownloadHashMismatch",
+      "params": []
+    },
+    {
+      "key": "updateDownloading",
+      "leaf": "_lfUpdateDownloading",
+      "params": [
+        "percent"
+      ]
+    },
+    {
+      "key": "updateDownloadServerRefused",
+      "leaf": "_lfUpdateDownloadServerRefused",
+      "params": []
+    },
+    {
+      "key": "updateDownloadSizeMismatch",
+      "leaf": "_lfUpdateDownloadSizeMismatch",
+      "params": []
+    },
+    {
+      "key": "updateDownloadUnreachable",
+      "leaf": "_lfUpdateDownloadUnreachable",
+      "params": []
+    },
+    {
+      "key": "updateDownloadUrlLabel",
+      "leaf": "_lfUpdateDownloadUrlLabel",
+      "params": []
+    },
+    {
+      "key": "updateHandedToInstaller",
+      "leaf": "_lfUpdateHandedToInstaller",
+      "params": []
+    },
+    {
+      "key": "updateIncompleteInfo",
+      "leaf": "_lfUpdateIncompleteInfo",
+      "params": []
+    },
+    {
+      "key": "updateInstallPermissionRequired",
+      "leaf": "_lfUpdateInstallPermissionRequired",
+      "params": []
+    },
+    {
+      "key": "updateInstallRefused",
+      "leaf": "_lfUpdateInstallRefused",
+      "params": []
+    },
+    {
+      "key": "updateInstallUnsupported",
+      "leaf": "_lfUpdateInstallUnsupported",
+      "params": []
+    },
+    {
+      "key": "updateKindUnknownNote",
+      "leaf": "_lfUpdateKindUnknownNote",
+      "params": []
+    },
+    {
+      "key": "updateLastSuccessAt",
+      "leaf": "_lfUpdateLastSuccessAt",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "updateLinkCopied",
+      "leaf": "_lfUpdateLinkCopied",
+      "params": []
+    },
+    {
+      "key": "updateMalformed",
+      "leaf": "_lfUpdateMalformed",
+      "params": []
+    },
+    {
+      "key": "updateNeverChecked",
+      "leaf": "_lfUpdateNeverChecked",
+      "params": []
+    },
+    {
+      "key": "updateNoManifestHere",
+      "leaf": "_lfUpdateNoManifestHere",
+      "params": []
+    },
+    {
+      "key": "updateNotBundledNote",
+      "leaf": "_lfUpdateNotBundledNote",
+      "params": []
+    },
+    {
+      "key": "updateNotBundledTitle",
+      "leaf": "_lfUpdateNotBundledTitle",
+      "params": []
+    },
+    {
+      "key": "updateNotesUrlLabel",
+      "leaf": "_lfUpdateNotesUrlLabel",
+      "params": []
+    },
+    {
+      "key": "updateOwnVersionUnknown",
+      "leaf": "_lfUpdateOwnVersionUnknown",
+      "params": []
+    },
+    {
+      "key": "updateUnavailable",
+      "leaf": "_lfUpdateUnavailable",
+      "params": []
+    },
+    {
+      "key": "updateUnreachable",
+      "leaf": "_lfUpdateUnreachable",
+      "params": []
+    },
+    {
+      "key": "updateUpToDate",
+      "leaf": "_lfUpdateUpToDate",
+      "params": [
+        "v"
+      ]
+    },
+    {
+      "key": "updateVerifying",
+      "leaf": "_lfUpdateVerifying",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__1",
+      "leaf": "_lfUtteranceComposeError__1",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__2",
+      "leaf": "_lfUtteranceComposeError__2",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__3",
+      "leaf": "_lfUtteranceComposeError__3",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__4",
+      "leaf": "_lfUtteranceComposeError__4",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__5",
+      "leaf": "_lfUtteranceComposeError__5",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__6",
+      "leaf": "_lfUtteranceComposeError__6",
+      "params": []
+    },
+    {
+      "key": "utteranceComposeError__7",
+      "leaf": "_lfUtteranceComposeError__7",
+      "params": [
+        "why"
+      ]
+    }
+  ]
+}

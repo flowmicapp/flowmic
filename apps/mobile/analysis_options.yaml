@@ -1,0 +1,29 @@
+# FlowMic mobile analyzer config.
+# SPEC-REF: docs/rebuild/08-MOBILE-SPEC.md §1 (≤500-line Dart cap enforced by
+#   verify/lint/file-size.mjs), §10.2 (protocol via codegen — generated *.g.dart
+#   is excluded from analysis).
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unused_import: error
+    unused_local_variable: error
+    dead_code: error
+  exclude:
+    - "**/*.g.dart"
+    - "build/**"
+
+linter:
+  rules:
+    avoid_print: true
+    file_names: false
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_final_locals: true
+    require_trailing_commas: true
+    unawaited_futures: true

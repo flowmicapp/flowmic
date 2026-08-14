@@ -1,0 +1,97 @@
+# deps / build
+node_modules/
+dist/
+target/
+build/
+.dart_tool/
+*.g.dart
+
+# WP-R2-4: the bundled sidecar server payload is a BUILD ARTIFACT (rebuilt by
+# apps/desktop/scripts/build-sidecar.mjs → `pnpm --filter @flowmic/desktop build:sidecar`).
+# The build script is tracked; the emitted bundle is not.
+apps/desktop/src-tauri/resources/server.js
+# Emitted next to it by the same script: `{"type":"module"}`, which is what makes
+# an older host Node read that ESM bundle as ESM instead of CJS (see the comment
+# on OUT_PKG in build-sidecar.mjs). Same reason it is not tracked: it is emitted,
+# not authored.
+apps/desktop/src-tauri/resources/package.json
+# The private Node runtime staged by the same script (owner 2026-08-03: the MSI
+# ships one too, not just the portable bundle). ~83 MB of somebody else's release
+# binary — copied at build time from the Node running the build, never tracked.
+#
+# 🔴 W3 2026-08-07 — the line below used to be the ONLY entry, and「never tracked」
+# had quietly become false. MAC-03 made the staged filename per-platform, so on
+# darwin the file is `resources/node` with no extension: `git check-ignore` exited
+# 1 (NOT ignored) for a **112,915,776-byte** Mach-O. One `git add -A` on any macOS
+# clone would have committed 113 MB of somebody else's release binary into a repo
+# that is scheduled to go PUBLIC at 0.3.0 — and a large binary is not undone by a
+# later `git rm`, it stays in history forever.
+# ⇒ Matched by BASENAME so it cannot rot again the next time the name moves: the
+# staged runtime is `resources/node` on darwin/linux and `resources/node.exe` on
+# Windows, and both are emitted by build-sidecar.mjs from the pin in
+# scripts/vendor/bundled-node.mjs. Nothing authored lives at either path.
+apps/desktop/src-tauri/resources/node
+apps/desktop/src-tauri/resources/node.exe
+# ENG-1 / fix-028: the sherpa-onnx addon staged beside the bundle by the same
+# script (stageSherpaAddon) — ~22 MB of somebody else's release binaries per
+# platform (onnxruntime.dll, sherpa-onnx-c-api.dll, sherpa-onnx.node).
+#
+# The blanket `node_modules/` at the top of this file ALREADY matches it. This
+# entry is written out anyway, for the reason the W3 block above this one was:
+# the last time a large staged binary depended on an implicit rule, a rename
+# (`node.exe` → `node` on darwin) silently moved it OUT of the ignore and put a
+# 113 MB Mach-O one `git add -A` away from a repo scheduled to go public. An
+# explicit, named line costs nothing and does not rot when a path moves.
+apps/desktop/src-tauri/resources/node_modules/
+# Card L4: staged by the same script's stageNotice() from the committed root
+# NOTICE (scripts/generate-notice.mjs), so Vite's default public/ passthrough
+# carries it into dist/NOTICE → the webview bundle. The root NOTICE is the
+# tracked source of truth; this copy is emitted, not authored.
+apps/desktop/public/NOTICE
+
+# Operational dry-run tool: a self-contained bundle emitted by
+# `pnpm --filter @flowmic/server-core build:tools` from the tracked source at
+# apps/server-core/src/tools/provenance-dryrun.ts. Emitted, not authored — and it
+# MUST be rebuilt rather than fetched from git, because a stale copy would report
+# on whichever settings/provenance.ts it was built from instead of the one about
+# to ship.
+scripts/provenance-dryrun.mjs
+
+# release artifacts
+release/
+publish/
+
+# env / secrets — never commit
+.env
+.env.*
+*.jks
+*.keystore
+key.properties
+vps.env
+
+# local scratch (gitignored by convention, see CLAUDE.md)
+.local/
+
+# editor / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+
+# logs
+*.log
+window-forensics.log
+
+.playwright-mcp/
+
+# worker 临时输出（0.2.25 实战：git add -A 把它们扫进过仓库一次）
+.tmp-*
+
+# Python bytecode cache. Same reason as the line above, and it is not
+# hypothetical: the moment a `.py` under scripts/ was first RUN in this repo
+# (C11's OPS-4 drills, 2026-08-12), `scripts/__pycache__/` appeared untracked and
+# was one `git add -A` away from being committed. The three older tracked `.py`
+# files are brand build scripts that nobody runs from here, which is the only
+# reason this never came up before.
+__pycache__/
+*.pyc

@@ -1,0 +1,8 @@
+# Normalize line endings in-repo to LF (prevents CRLF churn tripping
+# clean-tree checks — a known lesson from the previous line, rebuild 13 §4).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.jks binary

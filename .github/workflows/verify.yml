@@ -1,0 +1,156 @@
+# The gate, in CI. The SAME stages as `pnpm verify:delivery` locally, in the
+# same order — the authoritative list is `verify:delivery` in the root
+# package.json, deliberately NOT re-counted here: this header once said "four
+# stages" while the local gate had grown to eight, and the stale count meant
+# GATE-1/GATE-2 (landed precisely because those suites only ran when someone
+# typed a command) still did not run on any push. A number written in a comment
+# is a copy that drifts; a pointer is not. (RT window ledger §6.6, 2026-08-07.)
+#
+# 🔴 Deliberately Windows-only for now, and deliberately only the jobs we have
+# actually watched pass. A workflow that is red on day one teaches everyone to
+# ignore the red X, and then the gate is worth nothing. Other platforms get
+# added here the round their runner exists and has been observed green — not
+# the round we wish it did.
+#
+# Not here yet, on purpose:
+#   • macOS  — needs a self-hosted runner; the machine has not arrived.
+#   • Flutter — see flutter.yml, which is manual-dispatch until observed green.
+#   • Linux desktop — there is no Linux desktop build to verify.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: the delivery gate (mirrors pnpm verify:delivery)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      # 🔴 FULL HISTORY, not the default shallow clone. `verify:scripts` contains
+      # regression guards that read specific historical commits (s8 pins the last
+      # commit that authored a defect, so the guard can prove the defect is gone
+      # rather than trusting that it was fixed). Under fetch-depth 1 those die
+      # with 「exists on disk, but not in <sha>」 — a failure that says nothing
+      # about the code. Measured 2026-08-07 on the first nine-stage CI run.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      # 🔴 THE EXACT DECLARED RUNTIME, not 「some 22」. `node-version: 22` gave the
+      # runner v22.23.2, `build-sidecar.mjs` stages whichever Node runs it, and
+      # `it27-publish-node-pin` went red on the byte count (86,997,320 staged vs
+      # 86,969,160 declared) — correctly, because the owner pinned the bundled
+      # runtime to one build (2026-08-05) and NOTICE reproduces that build's
+      # LICENSE verbatim. `.node-version` is GENERATED from
+      # scripts/vendor/bundled-node.mjs and pinned against it by
+      # `verify:lint node-version-pin`, so this is not a second copy that drifts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # 🔴 Not optional, and not a CI quirk. `server-core` resolves
+      # `@flowmic/protocol` through that package's `dist/`, which is gitignored
+      # — so on any fresh clone, `verify:types` fails with TS2307 until this
+      # runs. Every contributor hits it too; README and CONTRIBUTING both say to
+      # run this first, and CI does exactly what the docs say rather than
+      # quietly compensating for them.
+      #
+      # Found by rehearsing the first commit end to end on a clean tree. It
+      # would otherwise have been the repository's first red X.
+      - name: Build protocol
+        run: pnpm --filter @flowmic/protocol build
+
+      # The static half. Fast, and the same rules the pre-commit hook runs.
+      - name: Lint
+        run: pnpm verify:lint
+
+      - name: Types
+        run: pnpm verify:types
+
+      # Rust. `--lib` twice, once per feature set, both with -D warnings —
+      # matching the local script exactly. Do not "simplify" it to one run:
+      # the two feature sets compile different code.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # 🔴 Same class of trap as "Build protocol" above, and found the same way.
+      # The Tauri build script resolves `resources/server.js`, which is a build
+      # artifact (gitignored, emitted by this command). On a fresh clone cargo
+      # fails before it ever type-checks anything:
+      #     resource path `resources\server.js` doesn't exist
+      # It passes locally only because the file is already sitting on disk.
+      - name: Build desktop sidecar bundle
+        run: pnpm --filter @flowmic/desktop build:sidecar
+
+      - name: Clippy
+        run: pnpm verify:clippy
+
+      # 455 Rust tests, four of which pin the 0.2.19 red line (「判不出就拒绝」
+      # would reject the owner's main browser and WeChat). Runs right after
+      # clippy to reuse its warm build — the same placement, for the same
+      # reason, as the local gate. ⚠️ Windows reading only: cfg(target_os =
+      # "macos") modules are invisible to all three Rust stages here.
+      - name: Rust tests
+        run: pnpm verify:rust-tests
+
+      - name: Rust doctests
+        run: pnpm verify:doctests
+
+      - name: Script tests
+        run: pnpm verify:scripts
+
+      # The golden suite starts a real server and drives real sockets on
+      # loopback. Paths that need the owner's LAN engines or an interactive
+      # desktop report SKIPPED, which is not a failure — that distinction is
+      # built into the runner, so a green here means "everything runnable ran".
+      # It also rebuilds protocol's dist every run (since 0.2.29), which is why
+      # the two stages below sit AFTER it: both typecheck/test against dist,
+      # and a stale dist lies in both directions.
+      - name: Golden
+        run: pnpm golden
+
+      # GATE-3, both halves (RT window ledger §6.5 + the §6.7 correction):
+      # protocol's 297 tests and server-core's 1561 were in no gate anywhere
+      # until 2026-08-07 — the suite-level repeat of the GATE-2 shape.
+      - name: Protocol tests
+        run: pnpm verify:protocol-tests
+
+      # 🔴 stt-cloud and the desktop vitest suite were BOTH absent until
+      # 2026-08-08 — the fourth and fifth members of the same class GATE-1/2/3
+      # each found one at a time. `verify:lint gate-covers-workspaces` now fails
+      # on the day a sixth arrives, so this list cannot silently fall behind the
+      # workspace again.
+      - name: Server tests
+        run: pnpm verify:server-tests
+
+      - name: Desktop tests
+        run: pnpm verify:desktop-tests
+
+      - name: Desktop typecheck
+        run: pnpm verify:types:desktop

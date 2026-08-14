@@ -1,0 +1,188 @@
+name: flowmic
+description: "FlowMic mobile — speak on your phone, type on your PC."
+publish_to: 'none'
+
+# Monorepo version-sync (verify/lint/version-sync.mjs): every face matches the
+# root package.json version. The Android versionCode governance formula
+# (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
+# (a later R3 card), not here — this card does not build a signed APK.
+version: 0.2.66
+
+environment:
+  sdk: ^3.11.5
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  meta: ^1.16.0
+  # socket FSM transport (08 §4): websocket-only, self-managed reconnect.
+  socket_io_client: ^3.0.2
+  # D2LAN-B3 — already in this app as a TRANSITIVE dependency of
+  # socket_io_client (its `WebSocketConnector` returns a `web_socket.WebSocket`).
+  # Declared DIRECT because lib/src/signaling/lan_pinning.dart now imports it by
+  # name to hand socket.io a pinned dart:io socket, and an undeclared import is
+  # an import that breaks the day socket_io_client drops the package. No version
+  # moves: the constraint matches the 1.0.1 already in pubspec.lock.
+  web_socket: ^1.0.1
+  # audio capture (08 §3): streaming PCM16 16 kHz mono via the `record` plugin.
+  # Only RealAudioRecorder touches it; the AudioRecorder DI seam keeps the whole
+  # pipeline (ring buffer / slicer / amplitude) unit-testable with a fake.
+  record: ^5.1.2
+  # first-PTT microphone permission (08 §8, F-2063).
+  permission_handler: ^11.3.1
+  # pairing token persistence in Android Keystore-backed secure storage (08 §4).
+  flutter_secure_storage: ^9.2.2
+  # device-local persistence (08 §7 timeline entry table lineage + the
+  # flowmic.timeline.sync.noted device-local toggle, R1-1 emit-side filter).
+  # Sanctioned by the WP-R3-2 card ("本地持久 shared_prefs/drift 照旧线本地库机理" —
+  # "on-device persistence: shared_prefs/drift follow the old line's local-db mechanism").
+  # Kept OUT of the settings-store call pattern so settings-key-drift does not
+  # demand a server-side reader — these are phone-local, never synced.
+  shared_preferences: ^2.5.3
+  # R6 T-4 image pipeline — the ONE dependency this card adds. It is also the
+  # reason the app needs no image codec of its own: pickImage(maxWidth/maxHeight/
+  # imageQuality) does a NATIVE decode → scale → re-encode, which is the
+  # 「压缩/尺寸约束」("compression/size constraint") stage of the chain. Only
+  # platform_image_picker.dart imports
+  # it; the rest of the chain talks to the ImagePickerPort seam and is testable
+  # without a platform channel.
+  image_picker: ^1.1.2
+  # GA-30 QR-scan pairing (owner 2026-07-26:「扫码优先于手输」— "scan-to-pair takes
+  # priority over manual entry") — the camera QR scanner
+  # WP-R23-1 deferred ("扫码留后续" — "QR scanning deferred to later" — no camera
+  # dependency). Only
+  # ui/add_pairing_sheet.dart imports it; every DECISION about a scanned frame
+  # lives in the platform-free ui/scan_payload.dart, so the classification rules
+  # are unit-tested without a camera. Needs android.permission.CAMERA (declared
+  # in AndroidManifest.xml with a NOT-required hardware feature).
+  mobile_scanner: ^7.4.0
+  # Window C export/import (FPR v1, docs/rebuild/16 §3) — the container is a
+  # `.zip` (owner 2026-08-01 ruling 4), and this is the ONE pure-Dart zip writer/reader.
+  # Deliberately NOT a native archiver plugin: the whole container format —
+  # entry names, the 「no absolute path / no `..`」 rule, round-tripping a file
+  # back out — is then unit-provable on the host VM without a device, which is
+  # the same reason image_payload.dart keeps the base64/mime rules plugin-free.
+  # Only lib/src/portable/fpr_archive.dart imports it.
+  archive: ^4.0.9
+  # Window C export/import (16 册 (doc 16) §7-2, owner: 「不许默认落相册/下载目录/云备份，
+  # 要用户主动选目的地」— "must not default to the gallery/downloads folder/cloud
+  # backup; the user must actively pick a destination") — the SAF save dialog
+  # (ACTION_CREATE_DOCUMENT) and the SAF
+  # open dialog. It is the ONLY Android API that both (a) lets the user pick the
+  # directory AND the file name and (b) TELLS US WHERE IT LANDED, which §7-3
+  # requires the success message to say. `share_plus` was the other candidate and
+  # was rejected for exactly that: a share sheet returns the receiving app, never
+  # a path, so the success line would have had to stay silent about the one thing
+  # the user needs. Only lib/src/portable/platform_export_destination.dart
+  # imports it; every DECISION (file name, refusal wording, what counts as a
+  # cancel) lives behind the ExportDestinationPort / ImportSourcePort seams and is
+  # unit-tested without a picker.
+  file_picker: ^11.0.3
+  # Window C export/import (16 册 (doc 16) §4.1 `source.version`: 「从 package.json /
+  # pubspec 读，不许硬编码」— "read from package.json / pubspec, must not be
+  # hardcoded") — reads the INSTALLED package's versionName, which Flutter derives
+  # from `version:` above. A generated Dart constant would have been an 9th version
+  # face that `scripts/bump-version.mjs` does not know about and `verify:lint
+  # version-sync` does not check ⇒ a number free to drift, which is the exact
+  # 13 册 (doc 13) D5 failure the version discipline exists to prevent. Only
+  # lib/src/portable/platform_app_version.dart imports it, behind AppVersionPort.
+  # ⚠️ PINNED TO 9.x ON PURPOSE, not by oversight: 10.x requires `win32 ^6`
+  # while `file_picker` 11 requires `win32 ^5`, so the two cannot coexist above
+  # this line (pub's own solver message). 9.x reads the same `versionName`; the
+  # constraint is a resolver fact, and it moves when file_picker moves.
+  package_info_plus: ^9.0.1
+  # Window C export/import (16 册 (doc 16) §3: 「附件文件名用内容哈希前 16 位十六进制」
+  # — "attachment file names use the first 16 hex digits of the content hash")
+  # — sha256 over
+  # the picture bytes is what makes `att/` de-duplicating and the export idempotent
+  # (the same picture referenced by two rows is stored once). Already present as a
+  # transitive dependency; declared here because lib/src/portable/fpr_attachment.dart
+  # imports it directly.
+  crypto: ^3.0.7
+  # UP-2b in-app update slice 2 — where the downloaded .apk lands.
+  # PROMOTED, not added: it was already resolved as a transitive dependency
+  # (2.1.6 in pubspec.lock before this change), so declaring it does not move
+  # the solver — which matters here because file_picker 11 pins win32 ^5 and
+  # package_info_plus is pinned to 9.x behind that (see its comment above).
+  # Only lib/src/update/update_download.dart imports it.
+  # ⚠️ getApplicationSupportDirectory() is the ONE we use, and the choice is
+  # load-bearing rather than stylistic: on Android it returns
+  # Context.getFilesDir() (measured 2026-08-08 from path_provider_android 2.3.1),
+  # which is exactly the root <files-path> covers in
+  # android/app/src/main/res/xml/flowmic_update_paths.xml. Switching it to
+  # getApplicationDocumentsDirectory() (Context.getDir("flutter", …)) would put
+  # the file outside every declared FileProvider root.
+  path_provider: ^2.1.6
+  # Official-site legal pages (privacy / terms) open in the external browser
+  # from the data-flow disclosure. The standing note that url_launcher cannot
+  # be added (file_picker 11 pins win32 ^5, package_info_plus therefore 9.x)
+  # is true about those pins and false about this package: `flutter pub add
+  # --dry-run url_launcher` resolves with win32 staying on 5.x.
+  # Only lib/src/ui/data_flow_disclosure_page.dart imports it this round.
+  url_launcher: ^6.3.1
+  # V2-06a-2 — the timeline's real store. shared_preferences held the WHOLE
+  # table as one JSON array under one key, so every single mutation rewrote
+  # every row; the 100-row disk cap existed only to bound that cost, and it
+  # capped the user's history as a side effect.
+  #
+  # The deciding argument was NOT search speed (at this scale a linear scan is
+  # fine). It was that EDIT and DELETE on an append-only/blob file force a
+  # hand-rolled compaction plus crash safety — which is exactly where data-loss
+  # bugs live. sqflite already has both, tested by everyone.
+  sqflite: ^2.4.1
+  # E-B1 blind-store client-side crypto layer (docs/rebuild/05-DATA-MODEL.md §2, design
+  # docs/strategy/2026-08-08-design-e-blindstore-client.md §2) — Argon2id for the
+  # passphrase→MasterKey step and AES-256-GCM for the per-entry `e2e:v1:`
+  # envelope. Only lib/src/crypto/** imports it.
+  #
+  # 🔴 THE POINT OF THIS DEPENDENCY IS THAT IT IS NOT THE SERVER'S CRYPTO.
+  # apps/server-core/src/auth/crypto.ts implements the server-decryptable
+  # `enc:v1:` envelope on Node's OpenSSL bindings. 05 册 (doc 05) §2's red line is that the
+  # two prefixes are never interchanged, and the failure shape it guards against
+  # is the two implementations being merged into one helper — after which one
+  # wrong argument yields server-readable bytes still wearing the `e2e:v1:`
+  # prefix, with every existing guard green. Picking a physically separate
+  # library makes that merge impossible rather than merely discouraged.
+  #
+  # WHY pointycastle over `cryptography` (the other pure-Dart Argon2id):
+  #   - upstream dint-dev/cryptography is DISCONTINUED (community fork only),
+  #     while pointycastle is bcgit/pc-dart, the BouncyCastle org's own port;
+  #   - MIT (Legion of the Bouncy Castle) vs Apache-2.0 — both fine, MIT simpler;
+  #   - one dependency covers BOTH primitives we need.
+  # Cost: pure Dart, NO ffi/native/platform-channel code, so it adds nothing to
+  # the Android build and nothing to the Win/macOS/Linux portable mandate. It
+  # pulls exactly ONE package not already in pubspec.lock: `convert` (dart.dev).
+  #
+  # ⚠️ pointycastle's own test suite exercises Argon2**i** only
+  # (test/key_derivators/argon2_vm_test.dart passes ARGON2_i for every case) —
+  # the Argon2**id** mode we depend on is NOT covered upstream. That is why
+  # test/blind_store_kdf_vector_test.dart carries the RFC 9106 §5.3 known-answer
+  # vector: it is the only thing proving this library computes Argon2id at all.
+  pointycastle: ^3.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # deterministic timer control for the FSM / reconnect-ladder contract tests.
+  fake_async: ^1.3.1
+  # V2-06a-2 — runs the SAME sqflite API on the host VM, so the schema, the SQL
+  # and the shared_prefs→SQLite migration are exercised by `flutter test`
+  # against a REAL database rather than a fake that agrees with itself.
+  # 13 册 (doc 13) §7 F1 ③: a green unit test over a hand-written stub proves nothing
+  # about whether the statements are valid SQL.
+  sqflite_common_ffi: ^2.3.4
+
+# Pin record_linux to the same major as `record` so the analyzer sees a
+# consistent platform-interface impl across the federated plugin tree (the
+# Linux entry-points are pulled in even for an android-only build; record_linux
+# 0.7.2 misses the startStream() override added in record_platform_interface
+# 1.5 — legacy 08-MOBILE lesson).
+dependency_overrides:
+  record_linux: ^1.0.0
+
+flutter:
+  uses-material-design: true

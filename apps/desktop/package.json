@@ -1,0 +1,35 @@
+{
+  "name": "@flowmic/desktop",
+  "version": "0.2.66",
+  "private": true,
+  "description": "FlowMic desktop (Tauri 2 + Vue 3 + Rust injection layer). WP-R2-2 dual-window UI: timeline main window + transparent capsule HUD.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev --features app",
+    "tauri:build": "node scripts/build-sidecar.mjs && tauri build --features app && node scripts/verify-bundle.mjs && node scripts/verify-sherpa-sidecar-addon.mjs",
+    "build:sidecar": "node scripts/build-sidecar.mjs"
+  },
+  "dependencies": {
+    "@flowmic/protocol": "workspace:*",
+    "@tauri-apps/api": "^2.1.0",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/qrcode": "^1.5.5",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "jsqr": "^1.4.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0",
+    "vue-tsc": "^2.1.10"
+  }
+}

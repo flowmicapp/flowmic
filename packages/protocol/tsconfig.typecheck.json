@@ -1,0 +1,11 @@
+{
+  // GATE-3b: the build tsconfig pins rootDir=src, so test/ was structurally
+  // invisible to `tsc` — 20 test files shipped with no type check at all. This
+  // config exists ONLY for `typecheck`; the build stays on tsconfig.json (tsup).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src", "test"]
+}

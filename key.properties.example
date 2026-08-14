@@ -1,0 +1,30 @@
+# FlowMic Android signing — example template / 签名配置模板
+#
+# Copy to a local key.properties (never commit the real file).
+# 复制为本地 key.properties（真实文件永不入库）。
+#
+# Real key.properties is gitignored (see .gitignore: key.properties / *.jks / .local/).
+# 真实 key.properties 已被 .gitignore 拦截（key.properties / *.jks / .local/），永不入库。
+#
+# Generate a local keystore + key.properties:
+#   node scripts/gen-keystore.mjs
+# 生成本地 keystore 与 key.properties：
+#   node scripts/gen-keystore.mjs
+
+# storePassword — password that unlocks the keystore file (.jks / PKCS12)
+# storePassword — 打开 keystore 文件（.jks / PKCS12）的口令
+storePassword=REPLACE_WITH_STORE_PASSWORD
+
+# keyPassword — password that unlocks the private key entry inside the keystore.
+# NOTE: PKCS12 stores force keyPassword == storePassword; gen-keystore.mjs writes the same value to both.
+# keyPassword — 解锁 keystore 内私钥条目的口令。
+# 注意：PKCS12 格式强制 keyPassword 与 storePassword 一致；gen-keystore.mjs 会写入相同值。
+keyPassword=REPLACE_WITH_KEY_PASSWORD
+
+# keyAlias — alias of the signing key entry (must match keytool -alias)
+# keyAlias — 签名密钥条目的别名（须与 keytool -alias 一致）
+keyAlias=flowmic
+
+# storeFile — path to the keystore file, relative to the repository root
+# storeFile — keystore 文件路径，相对仓库根目录
+storeFile=.local/keystore/flowmic-release.jks

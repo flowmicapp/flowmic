@@ -1,0 +1,17 @@
+/* iOS permission usage descriptions — 简体中文.
+
+   四条都只回答「我们要它干什么」，不写祈使句、不写「为了更好的体验」。
+   用户读不懂用途的权限说明，等于没说。
+
+   ⚠️ 目录名是 `zh-Hans.lproj` 而不是 `zh.lproj`：这是 Apple 的语言标识符命名空间
+   （App Store 与 iOS 的本地化都认它），与 `AppLocale` 那套裸 ISO 639-1 码
+   （`zh`/`en`/`ja`/`ko`）**是两个不同的问题**，不许因为「看起来不一致」去统一。 */
+
+"NSMicrophoneUsageDescription" = "FlowMic 使用麦克风，把你说的话变成文字送到电脑上。";
+
+"NSCameraUsageDescription" = "FlowMic 使用相机扫描电脑上显示的配对二维码。";
+
+"NSPhotoLibraryUsageDescription" = "FlowMic 读取你选中的照片，把这张图片发送到电脑上。";
+
+/* 本地网络：局域网通道是手机直接拨号到同一网络里的电脑。 */
+"NSLocalNetworkUsageDescription" = "FlowMic 通过局域网直接连接你的电脑，让你说的话不经过互联网就送到电脑上。";

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card P8 — legacy (API 23-30) backup exclusion (android:fullBackupContent).
+
+     Same exclusion and same reasoning as flowmic_backup_rules.xml (API 31+
+     android:dataExtractionRules) — this file is the pre-31 schema for the
+     same requirement, needed because this app's minSdkVersion (24, see
+     android/app/build.gradle) is below 31: devices on API 24-30 only honor
+     fullBackupContent, not dataExtractionRules. Read that file's header for
+     the full WHY (plaintext timeline DB + pairing tokens) and the
+     🔴 CURRENTLY INERT note (android:allowBackup="false" already disables
+     both mechanisms; this file is the documented backstop).
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+</full-backup-content>

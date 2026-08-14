@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the FlowMic main window + capsule HUD (WP-R2-2). core:default covers the event listen/emit surface the frontend bridge uses; app-defined commands (settings/history/capsule) are permitted by default. autostart:default (V2-10) authorizes the plugin's enable/disable/is-enabled surface; the settings page drives it through the app-defined autostart_state/autostart_set commands, which wrap the plugin with fail-loud read-back.",
+  "windows": ["main", "capsule"],
+  "permissions": ["core:default", "shell:allow-open", "autostart:default"]
+}

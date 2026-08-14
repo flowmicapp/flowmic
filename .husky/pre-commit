@@ -1,0 +1,5 @@
+pnpm verify:lint
+# desktop vue-tsc stays OUT of this gate: it is the slow one (vue-tsc over the
+# whole SFC graph). Ran by the 主控 before delivery instead — stated here so the
+# gap is visible rather than assumed covered.
+pnpm verify:types

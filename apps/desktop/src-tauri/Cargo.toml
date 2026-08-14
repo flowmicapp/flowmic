@@ -1,0 +1,357 @@
+[package]
+name = "flowmic-desktop"
+version = "0.2.66"
+description = "FlowMic desktop — Tauri 2 shell + Rust injection layer (SendInput / focus tracking / clipboard fallback / window enum) and the socket.io client to server-core."
+edition = "2021"
+# 🔴 RAISED 1.78 → 1.89 (W3, 2026-08-07). This is a CORRECTION, not a new
+# requirement — 1.78 had already been false for some time, and nothing noticed
+# because nothing enforces this field.
+#
+# WHY IT SURFACED NOW: MAC-07 replaced the non-Windows「总是抢到」("always grabs
+# it") instance lock
+# with `File::try_lock()`, stable since 1.89. `clippy::incompatible_msrv` says so
+# at single_instance.rs, and `verify:clippy` runs `-D warnings`, so the gate went
+# red — but ONLY on the Mac mini, because clippy had never been installed there
+# before this window. Newly VISIBLE, not newly broken.
+#
+# WHY 1.89 AND NOT A REVERT [measured 2026-08-07, `cargo metadata` over the resolved
+# tree, 236 packages declaring an MSRV】: the dependency graph ALREADY floors us
+# at **1.88.0** — `time`, `time-core`, `time-macros`, `plist`, `serde_with`,
+# `darling_core`, `darling_macro` all declare it. So this crate could not have
+# built on 1.78 with or without `try_lock`; the old number described a tree that
+# stopped existing whenever those deps last moved. Raising to 1.89 makes the
+# field TRUE for the first time in a while; reverting `try_lock` would have
+# hand-rolled `flock` through `libc` FFI — new `unsafe` — to protect a claim that
+# was already wrong. That is fixing the number instead of the fact.
+#
+# WHAT DEPENDS ON THIS VALUE: no BUILD machinery does [measured] — there is no
+# `rust-toolchain` file in the repo, `.github/workflows/verify.yml:74` uses
+# `dtolnay/rust-toolchain@stable`, and both build machines are far above it (dev
+# box 1.95.0, Mac mini 1.97.1). The only other「1.78」in the tree is in
+# `docs/legacy-reference/`, which is explicitly historical and not a spec.
+#
+# 🔴 IN-PLACE CORRECTION — a sentence falsified ten minutes after it was written
+# (W3, 2026-08-07): the paragraph above
+# first read「nothing mechanical depends on this value」. **CLIPPY DOES.** Clippy
+# gates its idiom lints on the declared MSRV — it will not suggest an API newer
+# than what you claim to support. Raising 1.78 → 1.89 therefore UNLOCKED three
+# lints that had been suppressed all along (`map_or(true, …)` → `is_none_or` in
+# socket/fanout.rs + socket/pump.rs, `% 4 != 0` → `is_multiple_of` in
+# inject/image.rs), and `verify:clippy` runs `-D warnings`, so the gate went red
+# on the DEV BOX — a machine the change was supposed to leave alone. All three
+# are mechanical rewrites and were applied in the same commit.
+# ⇒ The lesson is the one this window keeps re-learning: I asserted a property of
+# something else (「nothing consumes this」) without enumerating the consumers, and
+# it was false. 反 façade ④ (anti-façade ④), committed by the person writing the anti-façade note.
+# ⇒ AND THE PRACTICAL WARNING FOR THE NEXT BUMP: raising this field is never
+# only a declaration — it changes what clippy demands, so budget for a lint
+# sweep rather than treating it as a one-line metadata edit.
+# ⇒ The field is a CLAIM about what we support, and its whole value is being
+# true. An MSRV nobody enforces and nobody can satisfy is the same shape as a
+# comment asserting behaviour elsewhere: it decays silently and is believed anyway.
+rust-version = "1.89"
+license = "AGPL-3.0-only"
+
+[lib]
+name = "flowmic_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The Tauri binary only builds under the `app` feature so `cargo test` can
+# exercise the injection + socket + focus layers WITHOUT dragging in the
+# WebView2 / wry toolchain. The audited core (inject/, focus/, socket/,
+# events.rs) is tauri-free; `app` adds the window shell on top.
+[[bin]]
+name = "flowmic-desktop"
+path = "src/main.rs"
+required-features = ["app"]
+
+# Headless golden-path client: connects to server-core, registers, and runs
+# the real inject pipeline on inject:request. Needs no Tauri window, so it
+# runs under default (no-app) features.
+[[example]]
+name = "golden_inject"
+path = "examples/golden_inject.rs"
+
+# WP-R2-4 sidecar real-spawn acceptance test: resolve→spawn→handshake→/api/health→adopt-probe→
+# kill-the-child→1.5s exit detection, against the bundled resources/server.js. Headless.
+[[example]]
+name = "sidecar_spawn"
+path = "examples/sidecar_spawn.rs"
+
+# W5R hardening 3: CROSS-PROCESS proof of the single-instance mutex. The unit
+# tests can only show a second CALL is refused; this shows a second PROCESS is.
+[[example]]
+name = "instance_probe"
+path = "examples/instance_probe.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+# Sync socket.io client — its own background thread, no caller-side tokio
+# runtime. Server-core is socket.io 4.8 (Socket.IO v5 / Engine.IO v4), which
+# this client speaks.
+rust_socketio = "0.6"
+# L3 account card: the two account reads (`GET /api/me`, `GET /api/cloud/summary`) go to
+# the RELAY over https, so `sidecar/io.rs`'s hand-rolled loopback GET cannot serve
+# them (its own header says it is `http://127.0.0.1` only, deliberately TLS-free).
+#
+# This is NOT a new package in the tree: `rust_engineio` (under rust_socketio,
+# above) already pulls reqwest 0.12.28 with native-tls — promoting it to a direct
+# dependency adds one edge to Cargo.lock and zero crates, the same precedent as
+# `winreg` below. `blocking` because this crate has no caller-side tokio runtime
+# (the socket.io client owns its own thread), and the command runs the fetch on a
+# thread it spawns itself — never on a Tauri runtime thread.
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+# UP-3a online-update hash gate ③: the client recomputes the downloaded installer's SHA256
+# and refuses to hand it onward when it does not match the manifest. Until stage-2
+# code signing exists, this is the ONLY thing standing between a plain-HTTP
+# download mirror and an installer we hand to msiexec.
+#
+# 🔴 NOT a new package in the tree, and this sentence is MEASURED rather than
+# assumed [measured 2026-08-08, dev-pc-a]: `sha2 0.10.9` is already in
+# Cargo.lock (via tauri-codegen / wry), and `git diff Cargo.lock` after promoting
+# it added **0 new `[[package]]` blocks** — only edges. Same trade and same
+# precedent as `winreg` and `reqwest` above. A previous window wrote a comment of
+# exactly this shape without running the diff and it was falsified, so the number
+# above comes from the command, not from the pattern.
+sha2 = "0.10"
+# UP-3b portable in-place upgrade: INFLATE. The portable bundle must be unpacked before it can
+# be swapped into place, and nothing in this tree could do that.
+#
+# 🔴 WHY A CRATE HERE WHEN `portable::zip` WAS HAND-ROLLED. That module's header
+# states its trade and it is still right for what it does: FPR v1 archives are
+# STORE-only *because we write them*, so a reader that understands method 0 and
+# names every other method is a complete answer there. This is the opposite
+# situation — we do NOT write the portable bundle, `scripts/pack-portable.mjs`
+# does, via bsdtar. [measured 2026-08-08, dev-pc-a, by parsing the central
+# directory of `publish/FlowMic-0.2.59-portable-windows-x64.zip`】 that archive's
+# method histogram is **{0: 2, 8: 8}** — the two method-0 entries are the
+# zero-byte directory markers, and **every one of the 8 real files is DEFLATE**
+# (`FlowMic.exe` 15,825,408 → 5,215,779; `node.exe` 86,969,160 → 33,164,432).
+# ⇒ `ZipReader::read_entry` answers `Compressed` for all eight. The choice was
+# never "crate vs. a hundred lines"; it was "a DEFLATE decoder vs. no portable
+# self-update at all", and hand-rolling a correctness-critical decompressor to
+# avoid an edge in the lockfile is the wrong side of that trade.
+#
+# 🔴 NOT a new package in the tree, and this is MEASURED, not assumed
+# [measured 2026-08-08]: `flate2 1.1.9` and `miniz_oxide 0.8.9` are already in
+# Cargo.lock (via `png`/`fdeflate` under the image stack). `git diff Cargo.lock`
+# after promoting it added **0 new `[[package]]` blocks** — 507 before, 507
+# after — only edges. Same precedent, and same obligation to run the command,
+# as `winreg` / `reqwest` / `sha2` above: the comment beside `sha2` records that
+# a previous window wrote this sentence from the pattern instead of the diff and
+# was falsified for it.
+#
+# ⚠️ `default-features = false` + `rust_backend` is load-bearing: the DEFAULT
+# feature set routes through `libz-sys`, which needs a C toolchain and WOULD add
+# packages. `rust_backend` is miniz_oxide, which is the copy already resolved.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Tauri window shell — feature-gated (see [[bin]] note above).
+#
+# ── `macos-private-api` — REQ-13-15 macOS half, 🔴 UNVERIFIED ON MAC ──────────
+# Symptom (owner 2026-08-13):「在MACOS没有透明效果就是一片白色」("on macOS there is
+# no transparency effect, it's just a white block") — the capsule
+# renders as a white block instead of a transparent HUD.
+#
+# WHAT WAS READ (crate sources in the local registry, 2026-08-13 — a code
+# reading, NOT a run; nothing here has executed on a Mac):
+#   · tauri-runtime-wry-2.11.4/src/lib.rs:880 gates the ONE line that forwards
+#     our config to the window builder:
+#       #[cfg(any(not(target_os = "macos"), feature = "macos-private-api"))]
+#       { window = window.transparent(config.transparent); }
+#     ⇒ on macOS without this feature, `"transparent": true` is parsed,
+#     validated, and then dropped on the floor. Lines 884-894 even eprintln!
+#     about it — in debug builds only, which is why nobody saw it.
+#   · tao-0.35.3/src/platform_impl/macos/window.rs:544 is what that unlocks:
+#     `if win_attribs.transparent { ns_window.setOpaque(false) }` + a
+#     `NSColor::clearColor()` background. That IS the mechanism, and it has
+#     never run in our app.
+#   · tauri-2.11.5/Cargo.toml:108 makes this feature a passthrough to
+#     `tauri-runtime/macos-private-api` + `tauri-runtime-wry?/…`.
+#   · tauri-utils-2.9.3/src/config.rs:2022 says the same thing in the
+#     `transparent` field's own documentation.
+# `app.macOSPrivateApi: true` (tauri.conf.json, same commit) is the CONFIG half;
+# this is the CARGO half. Neither works alone.
+#
+# ⚠️ WHY IT IS DECLARED HERE AND NOT UNDER [target.'cfg(target_os = "macos")'].
+# That was the first attempt, and it produced a permanent, WRONG build warning
+# on Windows:「The `tauri` dependency features on the `Cargo.toml` file does not
+# match the allowlist defined under `tauri.conf.json`. …or add the
+# `macos-private-api` feature.」— because tauri-build's checker
+# (tauri-build-2.6.3/src/manifest.rs `find_dependency`) reads the plain
+# `[dependencies]` table and CANNOT see a target-scoped entry, so the config
+# flag and the visible feature list can never agree there. A build warning that
+# fires on every Windows build and gives advice that is wrong on Windows is
+# worse than the thing it warns about.
+# 🔴 And it costs nothing to declare it everywhere, which is MEASURED and not
+# assumed: every single cfg that mentions this feature in tauri, tauri-runtime
+# and tauri-runtime-wry has the form
+#     any(not(target_os = "macos"), feature = "macos-private-api")
+# (grepped across all three crates, 2026-08-13) — i.e. off macOS that code is
+# already enabled with or without the feature. `tauri-runtime`'s own definition
+# is `macos-private-api = []`, an empty passthrough. Off macOS this flag selects
+# nothing.
+#
+# 🔴 WINDOWS GATES PROVE NOTHING ABOUT THE MAC HALF. They cannot: the code it
+# unlocks is behind cfg(target_os = "macos") and does not compile here. What
+# this box can and did check is that the Windows build is unchanged and that the
+# feature really does resolve on the Apple target (`cargo tree --target
+# aarch64-apple-darwin -e features -i tauri` lists `tauri feature
+# "macos-private-api"` ← flowmic-desktop; the same command on
+# x86_64-pc-windows-msvc does not). Whether the capsule is actually transparent
+# on the Mac mini is a device-line reading that HAS NOT BEEN TAKEN.
+# ⚠️ One consequence that is the owner's to weigh, not ours: Apple's private
+# APIs disqualify an app from the Mac App Store. Notarised direct distribution
+# — what we ship — is unaffected. If the App Store ever becomes the channel,
+# this feature and the transparent capsule go together.
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"], optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+# V2-10 launch-at-login: HKCU Run-key registration (Windows) behind the same `app`
+# gate as the shell plugin — the lean test build never sees it.
+tauri-plugin-autostart = { version = "2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# V2-10: read-back + quoted rewrite of the HKCU Run-key value. This is the SAME
+# crate auto-launch itself uses (already in the tree as its transitive dep, so
+# nothing new enters the lockfile's package set) — promoted to a direct dep so
+# our verification layer and the plugin's writes speak one registry dialect.
+winreg = { version = "0.10", optional = true }
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  # 2026-07-30 (card N1): ImmGetContext/ImmReleaseContext — the Stage 1b 「is the
+  # keyboard focus in an input state?」 read that replaced the UIA pre-check.
+  # A FEATURE of the `windows` crate we already depend on, not a new dependency
+  # (same precedent as Win32_Graphics_Imaging below).
+  "Win32_UI_Input_Ime",
+  "Win32_UI_Accessibility",
+  # IJ-05. 🔴 CORRECTED 2026-08-08 — the first version of this comment was FALSE and
+  # was disproved by removing the feature and building. It claimed the accessibility
+  # VARIANT accessors "live behind this feature … this is the piece that makes it
+  # callable". They do not: `IAccessible::accFocus` returns `windows_core::VARIANT`,
+  # and `Win32_UI_Accessibility = ["Win32_UI"]` in the windows crate — no dependency
+  # on this feature at all. Measured: with the line removed, `cargo check --lib`
+  # (production cfg) EXIT=0; `cargo check --lib --tests` EXIT=101.
+  # ⇒ THE HONEST REASON IT IS HERE: exactly one consumer, and it is a TEST — the
+  # assertion that pins our hand-written `VT_I4`/`VT_DISPATCH` literals against the
+  # crate's own constants needs `Win32::System::Variant::{VT_I4, VT_DISPATCH}`.
+  # That is a real reason (an unchecked number-to-meaning table is what the IJ-03
+  # spike got wrong), but it is a TEST-ONLY dependency carried in the shipped build,
+  # and it should be named as such rather than dressed up as a build requirement.
+  "Win32_System_Variant",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Threading",
+  # owner 2026-07-29「退出PC端时强制杀掉 sidecar」("force-kill the sidecar when quitting
+  # the PC side"): Job Object with
+  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE — the OS terminates the spawned child
+  # with the desktop even on force-kill / crash (sidecar/job.rs).
+  "Win32_System_JobObjects",
+  # WNDCLASSW / RegisterClassW (the message-only window for delayed clipboard
+  # rendering) references GDI handle types (HICON/HCURSOR/HBRUSH). R6 T-4 also
+  # uses CreateDIBitmap here to serve a CF_BITMAP clipboard request.
+  "Win32_Graphics_Gdi",
+  # R6 T-4 image injection: WIC (the imaging component that ships IN Windows)
+  # decodes PNG/JPEG/WebP to BGRA for the clipboard DIB. Deliberately a FEATURE
+  # of the `windows` crate we already depend on rather than a new image-codec
+  # dependency — the card admits no new crates.
+  "Win32_Graphics_Imaging",
+  "Win32_System_Com",
+  # DPAPI (CryptProtectData/CryptUnprotectData) for the pairing token at-rest —
+  # the same user-scoped keystore the E2EE MasterKey uses (07-DESKTOP-SPEC §6).
+  "Win32_Security_Cryptography",
+  # 16 册 (doc 16) §7-2「要用户主动选目的地」("the user must actively pick a
+  # destination"): GetSaveFileNameW / GetOpenFileNameW for the
+  # export/import file picker (portable/dialog.rs). Deliberately a FEATURE of the
+  # `windows` crate we already depend on rather than `tauri-plugin-dialog` —
+  # same trade as Win32_UI_Input_Ime and Win32_Graphics_Imaging above; the
+  # plugin would have cost a crate tree, a lib.rs registration, a capabilities
+  # permission and an npm package.
+  "Win32_UI_Controls_Dialogs",
+] }
+
+# ── macOS: MAC-04 focus tracking / MAC-05 text injection / MAC-06 image ──────
+#
+# 🔴 NOT NEW PACKAGES IN THE TREE. Every crate below is ALREADY in Cargo.lock as a
+# transitive dependency of Tauri's macOS backend (objc2 0.6.4, objc2-app-kit 0.3.2,
+# objc2-foundation 0.3.2, objc2-core-graphics 0.3.2, block2 0.6.2 — verified by
+# reading the lockfile, not by assuming), so promoting them to DIRECT dependencies
+# adds edges to Cargo.lock and ZERO crates to the package set. That is the same
+# trade — and the same justification — as `winreg` and `reqwest` above, and the
+# MAC cards admit no new crates.
+#
+# Features are per-card and nothing wider:
+#   NSWorkspace / NSRunningApplication  MAC-04 — the activation notification, the
+#                                       frontmost read, and Stage-1 activation
+#   NSPasteboard                        MAC-05 + MAC-06 — the clipboard main path
+#   CGEvent / CGEventTypes /            MAC-05 — the synthetic ⌘V and the six
+#     CGEventSource / CGRemoteOperation  control-key chords
+#   block2                              the NSNotificationCenter observer block
+#                                       (no `define_class!` delegate is needed —
+#                                       addObserverForName:…usingBlock: takes a
+#                                       DynBlock; read off the crate source on the
+#                                       Mac mini 2026-08-07)
+#
+# ⚠️ Two frameworks are linked by `#[link(…, kind = "framework")]` in
+# `src/inject/macos/secure_input.rs` rather than through a crate: ApplicationServices
+# (AXIsProcessTrusted) and Carbon (IsSecureEventInputEnabled). Two `extern "C"`
+# declarations beat a dependency for two nullary functions.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# 🔴 `default-features = false` ON ALL THREE FRAMEWORK CRATES, AND IT IS LOad-BEARING.
+# Their `default` feature is the WHOLE framework — every class objc2-app-kit binds,
+# which transitively enables the optional `objc2-metal` and `objc2-core-video`
+# packages. Tauri already depends on these same crates with defaults OFF, and Cargo
+# UNIONS features across dependents, so omitting this line does not just build more
+# code: it adds two packages to the lockfile that were not there before.
+# [measured 2026-08-07] I omitted it first, and `git diff Cargo.lock` grew exactly two
+# `[[package]]` blocks (objc2-core-video 0.3.2, objc2-metal 0.3.2) — which would
+# have made the sentence above ("ZERO crates") a false claim in the very comment
+# defending the change. With this line the lock gains edges only.
+# `std` is re-added by hand because it rides `default` and these crates are
+# no_std-capable.
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  # `block2` gates `addObserverForName:object:queue:usingBlock:` — without it the
+  # method does not exist and MAC-04 has no observer at all.
+  "block2",
+  "NSString",
+  "NSData",
+  "NSArray",
+  "NSDictionary",
+  "NSNotification",
+  "NSOperation",
+  "NSObject",
+  "NSURL",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  # `libc` gates every `pid_t`-typed member — `processIdentifier` and
+  # `runningApplicationWithProcessIdentifier`, i.e. the two calls the whole
+  # 「the u64 slot carries a pid」 design rests on.
+  "libc",
+  "NSPasteboard",
+  "NSWorkspace",
+  "NSRunningApplication",
+] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+  "std",
+  "CGEvent",
+  "CGEventTypes",
+  "CGEventSource",
+  "CGRemoteOperation",
+] }
+block2 = "0.6"
+
+[features]
+default = []
+# `app` pulls in the Tauri window shell (main.rs bin + lib::run). Off by
+# default so tests/examples stay on the lean injection+socket core.
+app = ["dep:tauri", "dep:tauri-plugin-shell", "dep:tauri-plugin-autostart", "dep:winreg"]

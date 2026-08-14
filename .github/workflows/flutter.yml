@@ -1,0 +1,63 @@
+# The phone app's test suite.
+#
+# 🔴 Manual dispatch only, on purpose — this workflow has never been observed
+# green on a GitHub runner. Promoting it to `push` before watching it pass once
+# would put a red X on the repository from the first commit, and a gate that is
+# red on day one is a gate everyone learns to ignore.
+#
+# Promotion criteria (do all three, then add the `push` / `pull_request`
+# triggers in the same commit that records the run):
+#   1. dispatch it manually and watch it pass;
+#   2. confirm the wall-clock is sane — the timeout below is a real risk, not a
+#      formality: a single hung widget test makes the whole suite sit silent for
+#      twenty minutes. That is why `--timeout` and `--reporter compact` are not
+#      optional here;
+#   3. link the green run in the promoting commit message.
+
+name: flutter
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: flutter test (unobserved — see header)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.8'
+          cache: true
+
+      - name: Pub get
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      # Generated Dart is gitignored (protocol event names + the string
+      # catalogue's per-language classes), so a fresh checkout does not compile
+      # until the generators run — measured 2026-08-14: 190 failures inside the
+      # first exported tree, every one a missing `lib/generated/` symbol. Both
+      # generators are plain Node using only node: builtins, so the runner's
+      # preinstalled Node suffices — deliberately no pnpm install here.
+      - name: Generate Dart sources
+        working-directory: apps/mobile
+        run: make gen
+
+      - name: Analyze
+        working-directory: apps/mobile
+        run: flutter analyze
+
+      # --timeout and --reporter are load-bearing, not cosmetic. Bare
+      # `flutter test` on this suite can produce zero output for twenty minutes
+      # when one widget test hangs, and a silent runner is indistinguishable
+      # from a slow one.
+      - name: Test
+        working-directory: apps/mobile
+        run: flutter test --timeout 90s --reporter compact

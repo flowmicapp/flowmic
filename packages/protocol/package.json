@@ -1,0 +1,71 @@
+{
+  "name": "@flowmic/protocol",
+  "version": "0.2.0",
+  "description": "FlowMic wire protocol — socket.io event whitelist, zod payload schemas, error codes, and shared types.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./events": {
+      "import": { "types": "./dist/events.d.ts", "default": "./dist/events.js" },
+      "require": { "types": "./dist/events.d.cts", "default": "./dist/events.cjs" }
+    },
+    "./protocol-schemas": {
+      "import": { "types": "./dist/protocol-schemas.d.ts", "default": "./dist/protocol-schemas.js" },
+      "require": { "types": "./dist/protocol-schemas.d.cts", "default": "./dist/protocol-schemas.cjs" }
+    },
+    "./error-codes": {
+      "import": { "types": "./dist/error-codes.d.ts", "default": "./dist/error-codes.js" },
+      "require": { "types": "./dist/error-codes.d.cts", "default": "./dist/error-codes.cjs" }
+    },
+    "./engine-presets": {
+      "import": { "types": "./dist/engine-presets.d.ts", "default": "./dist/engine-presets.js" },
+      "require": { "types": "./dist/engine-presets.d.cts", "default": "./dist/engine-presets.cjs" }
+    },
+    "./types": {
+      "import": { "types": "./dist/types.d.ts", "default": "./dist/types.js" },
+      "require": { "types": "./dist/types.d.cts", "default": "./dist/types.cjs" }
+    },
+    "./constants": {
+      "import": { "types": "./dist/constants.d.ts", "default": "./dist/constants.js" },
+      "require": { "types": "./dist/constants.d.cts", "default": "./dist/constants.cjs" }
+    },
+    "./dictionary-packs": {
+      "import": { "types": "./dist/dictionary-packs.d.ts", "default": "./dist/dictionary-packs.js" },
+      "require": { "types": "./dist/dictionary-packs.d.cts", "default": "./dist/dictionary-packs.cjs" }
+    },
+    "./schema-negotiation": {
+      "import": { "types": "./dist/schema-negotiation.d.ts", "default": "./dist/schema-negotiation.js" },
+      "require": { "types": "./dist/schema-negotiation.d.cts", "default": "./dist/schema-negotiation.cjs" }
+    },
+    "./scenario": {
+      "import": { "types": "./dist/scenario.d.ts", "default": "./dist/scenario.js" },
+      "require": { "types": "./dist/scenario.d.cts", "default": "./dist/scenario.cjs" }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "codegen:dart": "node scripts/gen-dart.mjs"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

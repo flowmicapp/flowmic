@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FlowMic Capsule</title>
+  </head>
+  <body>
+    <!-- WP-R2-2 transparent capsule HUD window (separate WebView2 window). Body is
+         transparent; only the capsule card paints. Never activates / steals focus
+         (WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE from the Rust shell). -->
+    <div id="capsule"></div>
+    <script type="module" src="/src/capsule/main.ts"></script>
+  </body>
+</html>

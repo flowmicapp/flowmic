@@ -1,0 +1,134 @@
+/* WP-R2-2 main window layout (sidenav + timeline + settings), ported from
+   docs/ui-design/demo/desktop.html. The bordered OS window replaces the demo's
+   custom titlebar; the sidenav carries only Timeline / Settings (no Devices /
+   Preferences / About dead entries — anti-façade, deferred to later cards). */
+html, body, #app { height: 100%; }
+body { background: var(--canvas); }
+.win-body { display: flex; height: 100vh; overflow: hidden; }
+
+.sidenav { width: 200px; flex: none; background: var(--sidenav-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; }
+.sidenav .brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 16px; }
+.sidenav .brand .logo { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), #6d64f0); display: flex; align-items: center; justify-content: center; }
+.sidenav .brand .logo .icon { width: 14px; height: 14px; color: #fff; stroke-width: 2; }
+/* GA-34: the real mark replaced the generic mic glyph. Slightly larger than
+   the 14px glyph because the mark carries its own padding inside the 280
+   viewBox, so at 14px it read visually smaller than what it replaced. */
+.sidenav .brand .logo .brand-mark { width: 16px; height: 16px; color: #fff; }
+.sidenav .brand b { font-size: 14px; }
+.navitem { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-size: 13.5px; font-weight: 500; cursor: pointer; margin-bottom: 2px; width: 100%; text-align: left; background: none; transition: background .15s, color .15s; }
+.navitem:hover { background: var(--hover-bg); }
+/* 2026-07-29 polish: the active marker was an inset box-shadow — a square bar
+   clipped by the rounded item corner. A real rounded pill reads intentional. */
+.navitem.on { background: var(--brand-soft); color: var(--brand-ink); font-weight: 600; }
+.navitem.on::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; border-radius: 99px; background: var(--brand); }
+.navitem .icon { width: 17px; height: 17px; }
+.side-foot { margin-top: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r12); padding: 10px 12px; font-size: 12px; cursor: pointer; width: 100%; text-align: left; color: inherit; font: inherit; transition: border-color .15s, background .15s; }
+.side-foot:hover { border-color: var(--line-strong); background: var(--hover-bg); }
+.side-foot .row { display: flex; align-items: center; gap: 6px; color: var(--t2); }
+.side-foot .row .icon { width: 14px; height: 14px; margin-left: auto; flex: none; color: var(--t3); }
+.side-foot:hover .row .icon { color: var(--t2); }
+.side-foot .conn-detail { margin-top: 4px; color: var(--red); font-size: 11.5px; line-height: 1.35; }
+
+.content { flex: 1; overflow: auto; padding: 24px 26px; background: var(--canvas); }
+/* 2026-07-29 polish: on wide windows the page column used to stretch to the
+   full width, which made cards read as banners and pushed paired-row meta to
+   an unreachable far edge. A centered measure keeps every page scannable. */
+.content > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.page-head { display: flex; align-items: center; margin-bottom: 18px; }
+.page-head h2 { font-size: 18px; font-weight: 700; }
+
+/* timeline */
+.filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.fchip { font-size: 12.5px; font-weight: 500; padding: 6px 13px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--t2); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.fchip.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.fchip:hover { border-color: var(--line-strong); }
+.hrow { position: relative; padding: 13px 16px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start; }
+.hrow .body { flex: 1; min-width: 0; }
+.hrow .meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--t3); margin-bottom: 3px; flex-wrap: wrap; }
+.hrow .txt { font-size: 13.5px; color: var(--t1); white-space: pre-wrap; word-break: break-word; }
+.hrow .src { font-size: 12px; color: var(--t3); margin-top: 3px; padding-left: 10px; border-left: 2px solid var(--line); }
+/* R-UX-06: hover-reveal stays (visual noise), but the keyboard path must work.
+   NOT `display:none` and NOT `visibility:hidden` — both drop the buttons out of
+   the tab order, so `:focus-within` could never fire and the "fix" would look
+   done while the keyboard still could not reach a single one. `opacity:0` keeps
+   them focusable; `pointer-events:none` stops the invisible row from eating clicks. */
+.hrow .ops { position: absolute; right: 12px; top: 10px; display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 3px; box-shadow: var(--sh-md); opacity: 0; pointer-events: none; }
+.hrow:hover .ops,
+.hrow:focus-within .ops { opacity: 1; pointer-events: auto; }
+.ops button { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--t2); transition: background .12s, color .12s; }
+.ops button:hover { background: var(--line-soft); color: var(--brand-ink); }
+.ops button.del:hover { color: var(--red); }
+.ops .icon { width: 16px; height: 16px; }
+.edited-mark { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: var(--t2); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.edited-mark .icon { width: 11px; height: 11px; }
+/* R6 T-4: image row marker. Same chip geometry as .edited-mark so the meta row
+   stays one visual rhythm; brand-tinted because it describes WHAT the row is,
+   not what happened to it. */
+/* owner 2026-07-27: the picture row's inline preview (thumb_b64). Bounded so a
+   tall screenshot cannot take over the list, object-fit so it is never
+   distorted. */
+.tl-thumb { display: block; max-width: 260px; max-height: 180px; border-radius: 10px; border: 1px solid var(--line); margin: 4px 0 6px; object-fit: contain; background: var(--surface-2); cursor: zoom-in; }
+/* owner 2026-07-27 double-click full-screen preview. Fixed over the whole window; the caption says how
+   to get out, because a preview you cannot close is a trap. */
+.tl-zoom { position: fixed; inset: 0; z-index: 60; background: rgba(11, 16, 32, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; cursor: zoom-out; }
+/* RV-93: `pixelated` moved off the element and onto `.small`. It was right when the
+   zoom could only ever show an enlarged 256 px thumbnail (a smeared upscale reads as a
+   broken render); the zoom now shows the DELIVERED picture at real resolution, and
+   pixelating that would make the good case look like the degraded one. */
+.tl-zoom img { max-width: min(92vw, 900px); max-height: 80vh; border-radius: 10px; background: #fff; }
+.tl-zoom img.small { image-rendering: pixelated; }
+.tl-zoomcap { color: #cbd5e1; font-size: 12px; text-align: center; overflow-wrap: anywhere; }
+.tl-copyerr { color: var(--red); font-size: 12px; margin: 6px 2px; }
+/* owner 2026-07-27 phone instance name → target. Muted on purpose: it is provenance, not
+   status — the five-state chip beside it must stay the loudest thing in the row.
+   Bounded + ellipsis because a phone name is user-supplied. */
+.sender-chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t2); font-size: 11.5px; font-weight: 600; }
+.img-chip { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; color: var(--brand-ink); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.edit-box { width: 100%; font: inherit; font-size: 13.5px; padding: 8px 10px; border: 1px solid var(--brand); border-radius: 9px; resize: vertical; min-height: 60px; }
+.edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+.empty { color: var(--t3); font-size: 13px; padding: 40px 0; text-align: center; }
+
+/* settings — single-page scroll + sticky left anchor nav (REDESIGN §5.2) */
+.savehint { color: var(--t3); margin-left: 10px; font-size: 12px; }
+.set-wrap { display: flex; gap: 22px; align-items: flex-start; }
+.set-nav { width: 132px; flex: none; position: sticky; top: 0; }
+.set-nav button { display: block; width: 100%; text-align: left; font-size: 13px; color: var(--t2); padding: 7px 11px; border-radius: 9px; cursor: pointer; margin-bottom: 2px; background: none; }
+.set-nav button.on { background: var(--brand-soft); color: var(--brand-ink); font-weight: 600; }
+.set-nav button:hover { background: var(--hover-bg); }
+.set-body { flex: 1; min-width: 0; }
+.set-sec { margin-bottom: 26px; scroll-margin-top: 12px; }
+#set-stt, #set-llm { scroll-margin-top: 12px; }
+.set-sec > h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.set-sec > .hint { font-size: 12px; color: var(--t3); margin-bottom: 12px; }
+.sub-h { font-size: 13px; font-weight: 700; color: var(--t2); margin: 20px 0 10px; }
+
+/* timeline — inline delete confirm + source expand */
+.del-confirm { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--red); flex-wrap: wrap; }
+.src-toggle { margin-top: 6px; font-size: 12px; color: var(--brand-ink); font-weight: 500; padding: 0; background: none; border: none; cursor: pointer; }
+.src-toggle:hover { text-decoration: underline; }
+.hrow.confirming { border-color: var(--danger-line); }
+
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { text-align: left; font-size: 11px; font-weight: 600; color: var(--t3); text-transform: uppercase; letter-spacing: .4px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl td .input { padding: 5px 8px; font-size: 12px; }
+.dict-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.dict-row:last-child { border-bottom: none; }
+.dict-row .term { font-weight: 600; }
+.dict-row .alias { color: var(--t3); font-size: 12px; }
+.dict-row .rm { margin-left: auto; color: var(--t3); }
+.dict-row .rm:hover { color: var(--red); }
+
+.ctx-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 4px; }
+.ctx-chip { font-size: 12.5px; font-weight: 500; padding: 6px 13px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--t2); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.ctx-chip.on { background: var(--brand-soft); color: var(--brand-ink); border-color: var(--brand-line); }
+.ctx-chip:hover { border-color: var(--line-strong); }
+.chkrow { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); font-size: 13px; cursor: pointer; }
+.chkrow:last-child { border-bottom: none; }
+.chk { width: 19px; height: 19px; border-radius: 6px; border: 1.5px solid var(--line); flex: none; display: flex; align-items: center; justify-content: center; color: transparent; }
+.chk.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.chk .icon { width: 12px; height: 12px; stroke-width: 3; }
+.chkrow .sub { font-size: 11.5px; color: var(--t3); margin-top: 2px; }
+.term-input { display: flex; gap: 8px; margin-top: 8px; }
+.reject { color: var(--red); font-size: 11.5px; margin-left: 8px; }
