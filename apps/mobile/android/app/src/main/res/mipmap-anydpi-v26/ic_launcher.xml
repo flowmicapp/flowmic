@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GA-34: adaptive launcher icon (Android 8+). The two layers come from the
+     brand package; a flat PNG here would be letterboxed inside a white blob
+     by most modern launchers. Pre-26 devices fall back to the flat
+     mipmap-*/ic_launcher.png beside this file. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

@@ -1,0 +1,23 @@
+/* iOS permission usage descriptions — English (developmentRegion).
+
+   These four strings are the ONLY place iOS lets us answer "why does this app
+   want that?" before the user decides. Each one answers exactly that and
+   nothing else: no imperative telling the user what to tap, and no vague
+   "to improve your experience" — a permission line the user cannot map onto a
+   real capability is the same failure shape as a status word that cannot say
+   what it is based on.
+
+   The values here duplicate the defaults in Info.plist on purpose: Info.plist
+   is what ships when the device locale matches no .lproj, and iOS reads THIS
+   file when the locale is English. Both must say the same thing. */
+
+"NSMicrophoneUsageDescription" = "FlowMic uses the microphone to turn what you say into text on your PC.";
+
+"NSCameraUsageDescription" = "FlowMic uses the camera to scan the pairing QR code shown on your PC.";
+
+"NSPhotoLibraryUsageDescription" = "FlowMic reads the photo you pick so it can send that picture to your PC.";
+
+/* Local network: the LAN channel dials the PC directly on the same network.
+   Saying so plainly is the point — this is the one permission whose purpose a
+   user has no other way to guess. */
+"NSLocalNetworkUsageDescription" = "FlowMic connects directly to your PC over the local network, so what you say reaches it without going through the internet.";

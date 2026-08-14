@@ -1,0 +1,69 @@
+# The phone app's test suite.
+#
+# Promoted to `push` / `pull_request` on 2026-08-15, meeting the three criteria
+# the original header set while this was manual-dispatch only ("never observed
+# green on a GitHub runner" — true when written):
+#   1. observed green: run 31841188243 (workflow_dispatch) — analyze clean +
+#      2617 tests passed. The first-ever dispatch, two minutes old, caught a
+#      real inconsistency: `flutter analyze` exited 1 on 27 info findings on
+#      every machine including the dev box, and no local gate read that exit
+#      code (verify:delivery does not include analyze);
+#   2. wall-clock sane: 8m32s against the 30-minute timeout. `--timeout` and
+#      `--reporter compact` stay non-optional — a single hung widget test makes
+#      a bare run sit silent for twenty minutes;
+#   3. the promoting commit links the run.
+
+name: flutter
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: flutter analyze + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.8'
+          cache: true
+
+      - name: Pub get
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      # Generated Dart is gitignored (protocol event names + the string
+      # catalogue's per-language classes), so a fresh checkout does not compile
+      # until the generators run — measured 2026-08-14: 190 failures inside the
+      # first exported tree, every one a missing `lib/generated/` symbol. Both
+      # generators are plain Node using only node: builtins, so the runner's
+      # preinstalled Node suffices — deliberately no pnpm install here.
+      - name: Generate Dart sources
+        working-directory: apps/mobile
+        run: make gen
+
+      - name: Analyze
+        working-directory: apps/mobile
+        run: flutter analyze
+
+      # --timeout and --reporter are load-bearing, not cosmetic. Bare
+      # `flutter test` on this suite can produce zero output for twenty minutes
+      # when one widget test hangs, and a silent runner is indistinguishable
+      # from a slow one.
+      - name: Test
+        working-directory: apps/mobile
+        run: flutter test --timeout 90s --reporter compact

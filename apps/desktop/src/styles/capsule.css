@@ -1,0 +1,134 @@
+/* WP-R2-2 transparent capsule HUD styles (ported from docs/ui-design/demo/
+   desktop.html capsule frames). The window itself is transparent; only .caps /
+   .caps-ok paint. Layout targets the 560px capsule width. */
+html, body, #capsule { height: 100%; margin: 0; background: transparent !important; overflow: hidden; }
+* { box-sizing: border-box; }
+body { font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--t1); font-size: 14px; }
+.icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+/* REQ-13-15 (owner 2026-08-13):「胶囊窗口主显示区外会有半透明惭变，在WINDOWS下
+   可以看到明显的切边」("outside the capsule window's main display area there is a
+   semi-transparent gradient, and under WINDOWS you can see an obvious cut edge").
+   The gradient is `.caps`' DROP SHADOW; the cut edge is the
+   window rect slicing it while its alpha is still well above zero.
+
+   This gutter is the room that shadow needs, per side, and it is DELIBERATELY
+   ASYMMETRIC — a shadow offset downwards does not need the same space above as
+   below, and one number for four sides just pays for the difference in dead
+   clicks (the transparent gutter still hit-tests; `set_ignore_cursor_events` is
+   only on for the 800 ms just_injected window).
+
+   The arithmetic, which is the whole reason these four numbers are allowed to
+   exist: a CSS blur radius R spreads the shadow R/2 PAST the shape's edge, then
+   the y-offset shifts the whole thing. With `--caps-shadow` at 0 5px 12px +
+   0 1px 4px that is 6px sideways, 1px up, 11px down — so 8 / 4 / 14 clears each
+   side with 2–3px to spare. Change either the shadow or these paddings and
+   `capsule-shadow-fits-window.test.ts` recomputes both and goes red.
+   ⚠️ Longhands, not the `padding` shorthand: the test parses each side by name,
+   and a 3-value shorthand is exactly the kind of thing a regex reads wrong. */
+.wrap { padding-top: 4px; padding-right: 8px; padding-bottom: 14px; padding-left: 8px; }
+
+.caps { width: 100%; background: var(--caps-bg); backdrop-filter: blur(14px); border-radius: var(--r16); box-shadow: var(--caps-shadow); border: 1px solid var(--caps-border); overflow: hidden; }
+.crow { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 14px; }
+.cbtn { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--t2); background: none; }
+.cbtn:hover { background: var(--caps-hover); color: var(--t1); }
+/* owner 2026-07-27: ✕ is refused while transcribing — it must LOOK refused, so
+   the click that does nothing is an explained one. */
+.cbtn.inert { opacity: .35; cursor: default; }
+.cbtn.inert:hover { background: none; color: var(--t2); }
+.sess { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+.sess .chan { font-size: 10.5px; font-weight: 600; color: var(--t2); background: var(--caps-hover); border-radius: 6px; padding: 1px 6px; }
+/* owner 2026-07-27: a long window title wrapped to a second line and squeezed
+   the session name beside it. The target is a chip, not a paragraph: one line,
+   bounded, ellipsised — the full title is still in the tooltip. */
+.tgt { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--teal-ink); font-weight: 600; background: var(--teal-soft); padding: 4px 10px; border-radius: 99px; min-width: 0; max-width: 46%; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.tgt .tgt-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* …and the session name must be the one that yields, not the one that is pushed
+   off: it shrinks and ellipsises too rather than forcing the row taller.
+
+   v0.2.1: this used to be `.crow .sess > span:first-child`, which was written
+   for the phone name but silently applied to the CHANNEL CHIP — the name was a
+   bare text node and `:first-child` only matches elements. Result on owner's
+   screen: 「云端中继」("cloud relay") cut to 「云端…」("cloud…") (the chip, wrongly clamped) while the phone
+   name wrapped to two lines (never clamped at all). Both halves came from this
+   one selector aiming at the wrong element. Now each part is targeted by NAME,
+   so neither can be hit by accident again. */
+.crow .sess { min-width: 0; overflow: hidden; }
+.crow .sess .sess-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The chip is short and fixed-width by nature — it must never be the thing that
+   gets ellipsised, so it is excluded from the shrink entirely. */
+.crow .sess .chan { flex: none; white-space: nowrap; }
+/* owner 2026-08-01 channel visual identity (颜色+图标组合，不能只靠颜色；一处定义，
+   全产品统一 — "colour + icon combination, never colour alone; one definition,
+   unified across the whole product"): the base `.sess .chan` rule above still owns this chip's SIZE
+   (font-size/padding/border-radius — capsule-specific, same as `.rbadge` being
+   16px where the timeline's `.mbadge` is 24px, not a second colour system).
+   Only the ICON LAYOUT and the COLOUR are added here, and the colour comes from
+   EXACTLY the same four tokens.css vars TimelinePage.vue's `.chan-badge` reads
+   (`--channel-lan-ink/-soft`, `--channel-cloud-ink/-soft`) — zero new hex.
+   Placed AFTER `.sess .chan` on purpose: equal specificity (two classes each),
+   so source order is what makes `.lan`/`.cloud` win over the grey default. */
+.chan { display: inline-flex; align-items: center; gap: 3px; }
+.chan .icon { width: 10px; height: 10px; stroke-width: 2.2; }
+.chan.lan { color: var(--channel-lan-ink); background: var(--channel-lan-soft); }
+.chan.cloud { color: var(--channel-cloud-ink); background: var(--channel-cloud-soft); }
+.tgt .icon { width: 12px; height: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.g { background: var(--green); } .dot.r { background: var(--red); } .dot.o { background: var(--dot-off); }
+.dot.y { background: var(--amber); } /* degraded / reconnecting (R6-R2 STT status) */
+/* C3: the header row is the drag handle (buttons + status dot keep their cursor). */
+.caps .crow { cursor: grab; touch-action: none; }
+.caps .crow:active { cursor: grabbing; }
+.caps .crow .cbtn, .caps .crow .dot { cursor: pointer; }
+.pulse { animation: pl 1.6s infinite; }
+@keyframes pl { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .5); } 50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); } }
+
+.preview { border-top: 1px solid var(--caps-hairline); padding: 10px 14px 12px; }
+/* owner 2026-07-27: a long transcript showed its FIRST three lines and hid the
+   rest, so the words arriving right now were the ones you could not see. The
+   box scrolls and is pinned to the bottom (controller keeps it there), which is
+   the only reading that matches a live transcript. */
+.interim { font-size: 13px; color: var(--t3); max-height: 66px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; overscroll-behavior: contain; }
+.interim .fin { color: var(--t1); }
+.ministat { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: var(--t2); align-items: center; }
+.ministat .icon { width: 11px; height: 11px; }
+
+/* amplitude meter */
+.meter { display: flex; align-items: center; gap: 3px; height: 26px; margin-top: 8px; }
+.meter i { width: 4px; border-radius: 2px; background: var(--brand); opacity: .85; transition: height .08s linear; }
+
+/* just injected */
+/* REQ-13-15: these two flash pills used to carry their OWN copy of the old
+   `0 12px 32px` shadow, so shrinking the token alone would have fixed the clip
+   on the idle capsule and left it on every success / failure flash — the two
+   moments the owner is most likely to be looking at it. One definition now. */
+.caps-ok { width: 100%; background: rgba(34, 197, 94, .96); border-radius: var(--r16); box-shadow: var(--caps-shadow); color: #fff; }
+.caps-ok .crow { height: 56px; }
+.okic { width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, .25); display: flex; align-items: center; justify-content: center; }
+.okic .icon { width: 13px; height: 13px; color: #fff; stroke-width: 2.5; }
+.oktxt { font-size: 13px; font-weight: 600; }
+.oksub { font-size: 11px; opacity: .85; margin-left: auto; }
+
+/* inject failed / cached flash (R6-R1, spec E-5). Red = hard delivery failure;
+   amber (.cached) = the utterance was preserved to the timeline, not lost. */
+.caps-fail { width: 100%; background: rgba(239, 68, 68, .96); border-radius: var(--r16); box-shadow: var(--caps-shadow); color: #fff; }
+.caps-fail.cached { background: rgba(245, 158, 11, .96); }
+.caps-fail .crow { height: 56px; }
+.failic { width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, .25); display: flex; align-items: center; justify-content: center; }
+.failic .icon { width: 13px; height: 13px; color: #fff; stroke-width: 2.5; }
+.failtxt { font-size: 13px; font-weight: 600; }
+.failsub { font-size: 11px; opacity: .9; margin-left: auto; max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* idle_with_history recent list */
+.recent { border-top: 1px solid var(--caps-hairline); padding: 6px 14px 10px; }
+.recent .r { font-size: 12px; color: var(--t2); padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* diagnostics popover */
+.diag { margin: 6px 14px 12px; background: var(--caps-diag-bg); border-radius: var(--r12); padding: 10px 12px; font-size: 12.5px; }
+.diag h4 { font-size: 12px; color: var(--t2); margin-bottom: 8px; font-weight: 600; }
+.diag .drow { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.diag .drow .v { margin-left: auto; color: var(--t2); font-size: 12px; }
+/* The diag row's channel badge reuses the SAME `.chan`/`.lan`/`.cloud` rules the
+   header chip uses (one definition, two consumers) — this is a POSITION-only
+   modifier so it sits at the row's right edge like every other `.v`, never a
+   second colour rule. font-size matches the panel's other values (12px). */
+.diag .drow .chan-diag { margin-left: auto; font-size: 12px; }

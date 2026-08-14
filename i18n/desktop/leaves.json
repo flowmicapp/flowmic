@@ -1,0 +1,3562 @@
+{
+  "leaves": [
+    {
+      "key": "nav_devices",
+      "shard": "nav",
+      "kind": "string",
+      "name": "nav_devices"
+    },
+    {
+      "key": "nav_timeline",
+      "shard": "nav",
+      "kind": "string",
+      "name": "nav_timeline"
+    },
+    {
+      "key": "nav_settings",
+      "shard": "nav",
+      "kind": "string",
+      "name": "nav_settings"
+    },
+    {
+      "key": "app_name",
+      "shard": "nav",
+      "kind": "string",
+      "name": "app_name"
+    },
+    {
+      "key": "dev_title",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_title"
+    },
+    {
+      "key": "dev_add_phone",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_add_phone"
+    },
+    {
+      "key": "dev_chan_lan",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_lan"
+    },
+    {
+      "key": "dev_chan_lan_ready",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_lan_ready"
+    },
+    {
+      "key": "dev_chan_lan_loopback",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_lan_loopback"
+    },
+    {
+      "key": "dev_chan_lan_suspended",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_lan_suspended"
+    },
+    {
+      "key": "dev_chan_lan_failed",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_lan_failed"
+    },
+    {
+      "key": "dev_chan_cloud",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_cloud"
+    },
+    {
+      "key": "dev_chan_cloud_ready",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_cloud_ready"
+    },
+    {
+      "key": "dev_chan_cloud_no_key",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_cloud_no_key"
+    },
+    {
+      "key": "dev_chan_cloud_signed_out",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_cloud_signed_out"
+    },
+    {
+      "key": "dev_chan_connecting",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_connecting"
+    },
+    {
+      "key": "dev_chan_group_title",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_group_title"
+    },
+    {
+      "key": "dev_chan_group_ready",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_group_ready"
+    },
+    {
+      "key": "dev_chan_group_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_group_hint"
+    },
+    {
+      "key": "dev_chan_state_ready",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_state_ready"
+    },
+    {
+      "key": "dev_chan_state_down",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_state_down"
+    },
+    {
+      "key": "dev_chan_state_off",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_state_off"
+    },
+    {
+      "key": "dev_rename",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_rename"
+    },
+    {
+      "key": "dev_rename_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_rename_hint"
+    },
+    {
+      "key": "dev_rename_save",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_rename_save"
+    },
+    {
+      "key": "dev_rename_failed",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_rename_failed"
+    },
+    {
+      "key": "dev_paired",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired"
+    },
+    {
+      "key": "dev_mobiles_online",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_mobiles_online"
+    },
+    {
+      "key": "dev_paired_loading",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_loading"
+    },
+    {
+      "key": "dev_paired_failed",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_failed"
+    },
+    {
+      "key": "dev_paired_empty",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_empty"
+    },
+    {
+      "key": "dev_paired_online",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_online"
+    },
+    {
+      "key": "dev_paired_offline",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_offline"
+    },
+    {
+      "key": "dev_paired_unknown",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_unknown"
+    },
+    {
+      "key": "dev_paired_unknown_tip",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_unknown_tip"
+    },
+    {
+      "key": "dev_paired_unlisted",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_unlisted"
+    },
+    {
+      "key": "dev_revoke_unreachable",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_revoke_unreachable"
+    },
+    {
+      "key": "dev_paired_at",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_at"
+    },
+    {
+      "key": "dev_paired_last_seen",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_last_seen"
+    },
+    {
+      "key": "dev_paired_never",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_never"
+    },
+    {
+      "key": "dev_paired_online_tip",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_online_tip"
+    },
+    {
+      "key": "dev_paired_last_seen_tip",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_last_seen_tip"
+    },
+    {
+      "key": "dev_group_pairings",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_group_pairings"
+    },
+    {
+      "key": "dev_group_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_group_hint"
+    },
+    {
+      "key": "dev_paired_count",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_count"
+    },
+    {
+      "key": "dev_paired_unit",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_unit"
+    },
+    {
+      "key": "dev_paired_retry",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_retry"
+    },
+    {
+      "key": "dev_release",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_release"
+    },
+    {
+      "key": "dev_release_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_release_hint"
+    },
+    {
+      "key": "dev_revoke",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_revoke"
+    },
+    {
+      "key": "dev_revoke_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_revoke_hint"
+    },
+    {
+      "key": "dev_revoke_confirm",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_revoke_confirm"
+    },
+    {
+      "key": "dev_revoke_do",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_revoke_do"
+    },
+    {
+      "key": "dev_release_cancel",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_release_cancel"
+    },
+    {
+      "key": "dev_release_failed",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_release_failed"
+    },
+    {
+      "key": "dev_self",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_self"
+    },
+    {
+      "key": "dev_rename_sync",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_rename_sync"
+    },
+    {
+      "key": "dev_lan_pick",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_pick"
+    },
+    {
+      "key": "dev_lan_edit",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_edit"
+    },
+    {
+      "key": "dev_lan_listen",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_listen"
+    },
+    {
+      "key": "dev_lan_in_qr",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_in_qr"
+    },
+    {
+      "key": "dev_lan_nonstandard",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_nonstandard"
+    },
+    {
+      "key": "dev_fold_more",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_fold_more"
+    },
+    {
+      "key": "dev_fold_less",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_fold_less"
+    },
+    {
+      "key": "dev_chan_ready_no_mobiles",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_ready_no_mobiles"
+    },
+    {
+      "key": "dev_chan_ready_mobiles",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_chan_ready_mobiles"
+    },
+    {
+      "key": "dev_time_just_now",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_time_just_now"
+    },
+    {
+      "key": "dev_time_minutes_ago",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_time_minutes_ago"
+    },
+    {
+      "key": "dev_time_hours_ago",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_time_hours_ago"
+    },
+    {
+      "key": "dev_time_yesterday",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_time_yesterday"
+    },
+    {
+      "key": "dev_cred_plaintext_note",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_cred_plaintext_note"
+    },
+    {
+      "key": "cloud_key_label",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_label"
+    },
+    {
+      "key": "cloud_key_ph",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_ph"
+    },
+    {
+      "key": "cloud_endpoint_label",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_endpoint_label"
+    },
+    {
+      "key": "cloud_endpoint_hint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_endpoint_hint"
+    },
+    {
+      "key": "cloud_key_save",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_save"
+    },
+    {
+      "key": "cloud_key_clear",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear"
+    },
+    {
+      "key": "cloud_key_clear_q",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_q"
+    },
+    {
+      "key": "cloud_key_clear_confirm",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_confirm"
+    },
+    {
+      "key": "cloud_key_clear_unaffected",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_unaffected"
+    },
+    {
+      "key": "cloud_key_clear_keeps_records",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_keeps_records"
+    },
+    {
+      "key": "cloud_key_clear_keeps_account",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_keeps_account"
+    },
+    {
+      "key": "cloud_key_clear_do",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_clear_do"
+    },
+    {
+      "key": "cloud_key_set",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_set"
+    },
+    {
+      "key": "cloud_plan",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_plan"
+    },
+    {
+      "key": "cloud_account",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_account"
+    },
+    {
+      "key": "cloud_sub_expires",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_sub_expires"
+    },
+    {
+      "key": "cloud_key_expires",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_expires"
+    },
+    {
+      "key": "cloud_key_expires_tip",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_expires_tip"
+    },
+    {
+      "key": "cloud_usage",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage"
+    },
+    {
+      "key": "cloud_usage_minutes",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_minutes"
+    },
+    {
+      "key": "cloud_usage_minutes_exempt",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_minutes_exempt"
+    },
+    {
+      "key": "cloud_src_permanent_free",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_src_permanent_free"
+    },
+    {
+      "key": "cloud_src_paddle",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_src_paddle"
+    },
+    {
+      "key": "cloud_src_mock",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_src_mock"
+    },
+    {
+      "key": "cloud_sub_canceled",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_sub_canceled"
+    },
+    {
+      "key": "cloud_sub_past_due",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_sub_past_due"
+    },
+    {
+      "key": "cloud_sub_paused",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_sub_paused"
+    },
+    {
+      "key": "cloud_acct_no_email",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_no_email"
+    },
+    {
+      "key": "cloud_acct_loading",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_loading"
+    },
+    {
+      "key": "cloud_acct_live",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_live"
+    },
+    {
+      "key": "cloud_acct_stale",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_stale"
+    },
+    {
+      "key": "cloud_acct_unknown",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_unknown"
+    },
+    {
+      "key": "cloud_acct_retry",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_retry"
+    },
+    {
+      "key": "cloud_pair_hint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_pair_hint"
+    },
+    {
+      "key": "cloud_pair_offline",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_pair_offline"
+    },
+    {
+      "key": "cloud_err_expired",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_expired"
+    },
+    {
+      "key": "cloud_err_malformed",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_malformed"
+    },
+    {
+      "key": "cloud_err_refused",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_refused"
+    },
+    {
+      "key": "cloud_err_pc_limit",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_pc_limit"
+    },
+    {
+      "key": "cloud_err_no_endpoint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_no_endpoint"
+    },
+    {
+      "key": "pair_title",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_title"
+    },
+    {
+      "key": "pair_code_inline",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_code_inline"
+    },
+    {
+      "key": "pair_ttl",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_ttl"
+    },
+    {
+      "key": "pair_expires_in",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_expires_in"
+    },
+    {
+      "key": "pair_expired_refreshing",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_expired_refreshing"
+    },
+    {
+      "key": "pair_loopback",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_loopback"
+    },
+    {
+      "key": "pair_no_code",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_no_code"
+    },
+    {
+      "key": "pair_disconnected",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_disconnected"
+    },
+    {
+      "key": "pair_switching",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_switching"
+    },
+    {
+      "key": "pair_qr_render_failed",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_qr_render_failed"
+    },
+    {
+      "key": "pair_refresh",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_refresh"
+    },
+    {
+      "key": "pair_refresh_failed",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_refresh_failed"
+    },
+    {
+      "key": "pair_close",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_close"
+    },
+    {
+      "key": "pair_pcid_label",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_pcid_label"
+    },
+    {
+      "key": "pair_pcid_hint",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_pcid_hint"
+    },
+    {
+      "key": "pair_pcid_copy",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_pcid_copy"
+    },
+    {
+      "key": "pair_pcid_copied",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_pcid_copied"
+    },
+    {
+      "key": "pair_pcid_copy_failed",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_pcid_copy_failed"
+    },
+    {
+      "key": "pair_addr_toggle",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_addr_toggle"
+    },
+    {
+      "key": "pair_addr_title",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_addr_title"
+    },
+    {
+      "key": "pair_addr_in_qr",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_addr_in_qr"
+    },
+    {
+      "key": "pair_addr_others",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_addr_others"
+    },
+    {
+      "key": "pair_addr_dropped",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_addr_dropped"
+    },
+    {
+      "key": "pair_need_app",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_need_app"
+    },
+    {
+      "key": "pair_get_app",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_get_app"
+    },
+    {
+      "key": "pair_cloud_console_hint",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_cloud_console_hint"
+    },
+    {
+      "key": "settings_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "settings_title"
+    },
+    {
+      "key": "settings_savehint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "settings_savehint"
+    },
+    {
+      "key": "set_nav_account",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_account"
+    },
+    {
+      "key": "set_nav_stt",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_stt"
+    },
+    {
+      "key": "set_nav_llm",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_llm"
+    },
+    {
+      "key": "set_nav_prefs",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_prefs"
+    },
+    {
+      "key": "set_nav_about",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_about"
+    },
+    {
+      "key": "set_account_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_account_title"
+    },
+    {
+      "key": "set_account_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_account_hint"
+    },
+    {
+      "key": "set_account_channel",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_account_channel"
+    },
+    {
+      "key": "set_account_signed_out",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_account_signed_out"
+    },
+    {
+      "key": "set_account_goto_devices",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_account_goto_devices"
+    },
+    {
+      "key": "set_prefs_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_title"
+    },
+    {
+      "key": "set_prefs_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_hint"
+    },
+    {
+      "key": "set_prefs_capsule_reset",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_capsule_reset"
+    },
+    {
+      "key": "set_prefs_capsule_reset_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_capsule_reset_hint"
+    },
+    {
+      "key": "set_prefs_capsule_reset_done",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_capsule_reset_done"
+    },
+    {
+      "key": "set_prefs_language",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_language"
+    },
+    {
+      "key": "set_prefs_language_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_language_hint"
+    },
+    {
+      "key": "set_prefs_theme",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_theme"
+    },
+    {
+      "key": "set_prefs_theme_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_theme_hint"
+    },
+    {
+      "key": "set_theme_system",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_theme_system"
+    },
+    {
+      "key": "set_theme_light",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_theme_light"
+    },
+    {
+      "key": "set_theme_dark",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_theme_dark"
+    },
+    {
+      "key": "set_prefs_autostart",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart"
+    },
+    {
+      "key": "set_prefs_autostart_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_hint"
+    },
+    {
+      "key": "set_prefs_autostart_path",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_path"
+    },
+    {
+      "key": "set_prefs_autostart_dead",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_dead"
+    },
+    {
+      "key": "set_prefs_autostart_failed",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_failed"
+    },
+    {
+      "key": "set_prefs_autostart_read_failed",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_read_failed"
+    },
+    {
+      "key": "set_about_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_title"
+    },
+    {
+      "key": "set_about_version",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_version"
+    },
+    {
+      "key": "set_about_log_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_title"
+    },
+    {
+      "key": "set_about_log_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_hint"
+    },
+    {
+      "key": "set_about_log_path",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_path"
+    },
+    {
+      "key": "set_about_log_open",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_open"
+    },
+    {
+      "key": "set_about_log_opening",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_opening"
+    },
+    {
+      "key": "set_about_log_open_failed",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_about_log_open_failed"
+    },
+    {
+      "key": "stt_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_title"
+    },
+    {
+      "key": "stt_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_hint"
+    },
+    {
+      "key": "stt_preset",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_preset"
+    },
+    {
+      "key": "stt_routings",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_routings"
+    },
+    {
+      "key": "stt_add_lang",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_add_lang"
+    },
+    {
+      "key": "col_language",
+      "shard": "settings",
+      "kind": "string",
+      "name": "col_language"
+    },
+    {
+      "key": "col_engine",
+      "shard": "settings",
+      "kind": "string",
+      "name": "col_engine"
+    },
+    {
+      "key": "col_endpoint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "col_endpoint"
+    },
+    {
+      "key": "dict_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "dict_title"
+    },
+    {
+      "key": "dict_add",
+      "shard": "settings",
+      "kind": "string",
+      "name": "dict_add"
+    },
+    {
+      "key": "polish_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_title"
+    },
+    {
+      "key": "polish_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_hint"
+    },
+    {
+      "key": "polish_toggle",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_toggle"
+    },
+    {
+      "key": "polish_no_llm",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_no_llm"
+    },
+    {
+      "key": "settings_scope_lan",
+      "shard": "settings",
+      "kind": "string",
+      "name": "settings_scope_lan"
+    },
+    {
+      "key": "refine_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "refine_title"
+    },
+    {
+      "key": "refine_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "refine_hint"
+    },
+    {
+      "key": "refine_toggle",
+      "shard": "settings",
+      "kind": "string",
+      "name": "refine_toggle"
+    },
+    {
+      "key": "refine_precondition",
+      "shard": "settings",
+      "kind": "string",
+      "name": "refine_precondition"
+    },
+    {
+      "key": "llm_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_title"
+    },
+    {
+      "key": "llm_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_hint"
+    },
+    {
+      "key": "llm_preset",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_preset"
+    },
+    {
+      "key": "llm_protocol",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_protocol"
+    },
+    {
+      "key": "llm_endpoint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_endpoint"
+    },
+    {
+      "key": "llm_model",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_model"
+    },
+    {
+      "key": "llm_apikey",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_apikey"
+    },
+    {
+      "key": "llm_apikey_ph",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_apikey_ph"
+    },
+    {
+      "key": "scenario_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_title"
+    },
+    {
+      "key": "scenario_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_hint"
+    },
+    {
+      "key": "scenario_professions",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_professions"
+    },
+    {
+      "key": "scenario_packs",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_packs"
+    },
+    {
+      "key": "scenario_terms",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_terms"
+    },
+    {
+      "key": "scenario_add_term",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_add_term"
+    },
+    {
+      "key": "scenario_term_ph",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_term_ph"
+    },
+    {
+      "key": "infer_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_title"
+    },
+    {
+      "key": "infer_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_hint"
+    },
+    {
+      "key": "infer_collect",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_collect"
+    },
+    {
+      "key": "infer_no_screen",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_no_screen"
+    },
+    {
+      "key": "infer_sends_to",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_sends_to"
+    },
+    {
+      "key": "infer_dest_private",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_dest_private"
+    },
+    {
+      "key": "infer_dest_unprovable",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_dest_unprovable"
+    },
+    {
+      "key": "infer_dest_unprovable_note",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_dest_unprovable_note"
+    },
+    {
+      "key": "infer_endpoint_unset",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_endpoint_unset"
+    },
+    {
+      "key": "infer_toggle",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_toggle"
+    },
+    {
+      "key": "infer_off_note",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_off_note"
+    },
+    {
+      "key": "infer_widened_note",
+      "shard": "settings",
+      "kind": "string",
+      "name": "infer_widened_note"
+    },
+    {
+      "key": "stt_builtin_no_endpoint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_builtin_no_endpoint"
+    },
+    {
+      "key": "stt_engine_custom",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_engine_custom"
+    },
+    {
+      "key": "stt_sub_on",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_sub_on"
+    },
+    {
+      "key": "stt_sub_off_default",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_sub_off_default"
+    },
+    {
+      "key": "dict_no_alias",
+      "shard": "settings",
+      "kind": "string",
+      "name": "dict_no_alias"
+    },
+    {
+      "key": "scenario_term_exists",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_term_exists"
+    },
+    {
+      "key": "pack_tech_dev",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_tech_dev"
+    },
+    {
+      "key": "pack_medical",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_medical"
+    },
+    {
+      "key": "pack_legal",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_legal"
+    },
+    {
+      "key": "pack_finance",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_finance"
+    },
+    {
+      "key": "pack_proper_noun",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_proper_noun"
+    },
+    {
+      "key": "pack_code_switch",
+      "shard": "settings",
+      "kind": "string",
+      "name": "pack_code_switch"
+    },
+    {
+      "key": "saved",
+      "shard": "settings",
+      "kind": "string",
+      "name": "saved"
+    },
+    {
+      "key": "saved_local",
+      "shard": "settings",
+      "kind": "string",
+      "name": "saved_local"
+    },
+    {
+      "key": "saved_local_no_service_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "saved_local_no_service_hint"
+    },
+    {
+      "key": "saving",
+      "shard": "settings",
+      "kind": "string",
+      "name": "saving"
+    },
+    {
+      "key": "timeline_title",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "timeline_title"
+    },
+    {
+      "key": "filter_all",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "filter_all"
+    },
+    {
+      "key": "filter_realtime",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "filter_realtime"
+    },
+    {
+      "key": "filter_translate",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "filter_translate"
+    },
+    {
+      "key": "filter_organize",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "filter_organize"
+    },
+    {
+      "key": "filter_image",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "filter_image"
+    },
+    {
+      "key": "empty_timeline",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "empty_timeline"
+    },
+    {
+      "key": "crash_banner",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "crash_banner"
+    },
+    {
+      "key": "tl_store_write_failed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_store_write_failed"
+    },
+    {
+      "key": "op_copy",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_copy"
+    },
+    {
+      "key": "op_copy_image",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_copy_image"
+    },
+    {
+      "key": "op_copy_failed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_copy_failed"
+    },
+    {
+      "key": "tl_sender_tip",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_sender_tip"
+    },
+    {
+      "key": "tl_zoom_hint",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_zoom_hint"
+    },
+    {
+      "key": "tl_zoom_close",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_zoom_close"
+    },
+    {
+      "key": "op_reinject",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_reinject"
+    },
+    {
+      "key": "op_makeup",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_makeup"
+    },
+    {
+      "key": "op_edit",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_edit"
+    },
+    {
+      "key": "op_delete",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_delete"
+    },
+    {
+      "key": "op_save",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_save"
+    },
+    {
+      "key": "op_cancel",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_cancel"
+    },
+    {
+      "key": "copied",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "copied"
+    },
+    {
+      "key": "tl_confirm_delete",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_confirm_delete"
+    },
+    {
+      "key": "tl_confirm_yes",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_confirm_yes"
+    },
+    {
+      "key": "tl_show_source",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_show_source"
+    },
+    {
+      "key": "tl_hide_source",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_hide_source"
+    },
+    {
+      "key": "tl_source_label",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_source_label"
+    },
+    {
+      "key": "tl_image_chip",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_image_chip"
+    },
+    {
+      "key": "tl_control_chip",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_control_chip"
+    },
+    {
+      "key": "ck_enter",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_enter"
+    },
+    {
+      "key": "ck_backspace",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_backspace"
+    },
+    {
+      "key": "ck_undo",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_undo"
+    },
+    {
+      "key": "ck_clear",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_clear"
+    },
+    {
+      "key": "ck_tab",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_tab"
+    },
+    {
+      "key": "ck_space",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ck_space"
+    },
+    {
+      "key": "co_no_target",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "co_no_target"
+    },
+    {
+      "key": "co_foreground_refused",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "co_foreground_refused"
+    },
+    {
+      "key": "co_os_refused",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "co_os_refused"
+    },
+    {
+      "key": "co_send_failed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "co_send_failed"
+    },
+    {
+      "key": "co_not_primary",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "co_not_primary"
+    },
+    {
+      "key": "tl_fail_inject",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_fail_inject"
+    },
+    {
+      "key": "tl_fail_dismiss",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_fail_dismiss"
+    },
+    {
+      "key": "tl_select",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_select"
+    },
+    {
+      "key": "tl_select_done",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_select_done"
+    },
+    {
+      "key": "tl_sel_all",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_sel_all"
+    },
+    {
+      "key": "tl_sel_none",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_sel_none"
+    },
+    {
+      "key": "tl_sel_copy",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "tl_sel_copy"
+    },
+    {
+      "key": "st_injected",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_injected"
+    },
+    {
+      "key": "st_delivered",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_delivered"
+    },
+    {
+      "key": "st_cached",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_cached"
+    },
+    {
+      "key": "st_failed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_failed"
+    },
+    {
+      "key": "st_noted",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_noted"
+    },
+    {
+      "key": "ev_confirmed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ev_confirmed"
+    },
+    {
+      "key": "ev_unconfirmed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "ev_unconfirmed"
+    },
+    {
+      "key": "edited",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "edited"
+    },
+    {
+      "key": "to",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "to"
+    },
+    {
+      "key": "tl_search_ph",
+      "shard": "search",
+      "kind": "string",
+      "name": "tl_search_ph"
+    },
+    {
+      "key": "tl_search_hint",
+      "shard": "search",
+      "kind": "string",
+      "name": "tl_search_hint"
+    },
+    {
+      "key": "tl_search_clear",
+      "shard": "search",
+      "kind": "string",
+      "name": "tl_search_clear"
+    },
+    {
+      "key": "tl_search_none",
+      "shard": "search",
+      "kind": "string",
+      "name": "tl_search_none"
+    },
+    {
+      "key": "cap_target_none",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_target_none"
+    },
+    {
+      "key": "cap_target_dash",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_target_dash"
+    },
+    {
+      "key": "cap_locked",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_locked"
+    },
+    {
+      "key": "cap_injected",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_injected",
+      "sameAs": "st_injected"
+    },
+    {
+      "key": "cap_delivered",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_delivered",
+      "sameAs": "st_delivered"
+    },
+    {
+      "key": "cap_delivering",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_delivering"
+    },
+    {
+      "key": "cap_image_open",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_image_open"
+    },
+    {
+      "key": "cap_chars",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_chars"
+    },
+    {
+      "key": "cap_secs",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_secs"
+    },
+    {
+      "key": "cap_seg",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_seg"
+    },
+    {
+      "key": "cap_session_default",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_session_default"
+    },
+    {
+      "key": "cap_reconnect",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_reconnect"
+    },
+    {
+      "key": "cap_diag",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_diag"
+    },
+    {
+      "key": "cap_settings",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_settings"
+    },
+    {
+      "key": "cap_dismiss",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_dismiss"
+    },
+    {
+      "key": "cap_dismiss_busy",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_dismiss_busy"
+    },
+    {
+      "key": "cap_inject_failed",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_inject_failed",
+      "sameAs": "st_failed"
+    },
+    {
+      "key": "cap_cached",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_cached",
+      "sameAs": "st_cached"
+    },
+    {
+      "key": "cap_reason_unknown",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_reason_unknown"
+    },
+    {
+      "key": "cap_stt_label",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_label"
+    },
+    {
+      "key": "cap_stt_unknown",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_unknown"
+    },
+    {
+      "key": "cap_stt_ready",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_ready"
+    },
+    {
+      "key": "cap_stt_reconnecting",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_reconnecting"
+    },
+    {
+      "key": "cap_stt_failed",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_failed"
+    },
+    {
+      "key": "cap_phone_present",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_phone_present"
+    },
+    {
+      "key": "cap_online",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_online"
+    },
+    {
+      "key": "cap_offline",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_offline"
+    },
+    {
+      "key": "cap_socket",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_socket"
+    },
+    {
+      "key": "cap_socket_ok",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_socket_ok"
+    },
+    {
+      "key": "cap_socket_down",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_socket_down"
+    },
+    {
+      "key": "conn_offline",
+      "shard": "connection",
+      "kind": "string",
+      "name": "conn_offline"
+    },
+    {
+      "key": "conn_online",
+      "shard": "connection",
+      "kind": "string",
+      "name": "conn_online"
+    },
+    {
+      "key": "conn_reconnecting",
+      "shard": "connection",
+      "kind": "string",
+      "name": "conn_reconnecting"
+    },
+    {
+      "key": "conn_fault",
+      "shard": "connection",
+      "kind": "string",
+      "name": "conn_fault"
+    },
+    {
+      "key": "diag_endpoint",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_endpoint"
+    },
+    {
+      "key": "diag_registered",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_registered"
+    },
+    {
+      "key": "diag_registered_yes",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_registered_yes"
+    },
+    {
+      "key": "diag_registered_no",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_registered_no"
+    },
+    {
+      "key": "diag_mobiles",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_mobiles"
+    },
+    {
+      "key": "diag_loud",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_loud"
+    },
+    {
+      "key": "diag_machine_uid",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_machine_uid"
+    },
+    {
+      "key": "diag_machine_uid_unknown",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_machine_uid_unknown"
+    },
+    {
+      "key": "diag_channels",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_channels"
+    },
+    {
+      "key": "diag_ch_up",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_ch_up"
+    },
+    {
+      "key": "diag_ch_down",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_ch_down"
+    },
+    {
+      "key": "diag_ch_unknown",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_ch_unknown"
+    },
+    {
+      "key": "diag_engines",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_engines"
+    },
+    {
+      "key": "diag_focus_probe",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_focus_probe"
+    },
+    {
+      "key": "diag_probe_start",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_start"
+    },
+    {
+      "key": "diag_probe_countdown",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_countdown"
+    },
+    {
+      "key": "diag_probe_hint_1a",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_hint_1a"
+    },
+    {
+      "key": "diag_probe_hint_1b",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_hint_1b"
+    },
+    {
+      "key": "diag_probe_hint_1c",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_hint_1c"
+    },
+    {
+      "key": "diag_probe_hint_2a",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_hint_2a"
+    },
+    {
+      "key": "diag_probe_hint_2b",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_hint_2b"
+    },
+    {
+      "key": "diag_probe_failed",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_failed"
+    },
+    {
+      "key": "diag_probe_paste_hint",
+      "shard": "connection",
+      "kind": "string",
+      "name": "diag_probe_paste_hint"
+    },
+    {
+      "key": "sidecar_title",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_title"
+    },
+    {
+      "key": "sidecar_healthy",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_healthy"
+    },
+    {
+      "key": "sidecar_adopted",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_adopted"
+    },
+    {
+      "key": "sidecar_starting",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_starting"
+    },
+    {
+      "key": "sidecar_failed",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_failed"
+    },
+    {
+      "key": "sidecar_retry",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_retry"
+    },
+    {
+      "key": "sidecar_retrying",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_retrying"
+    },
+    {
+      "key": "sidecar_firewall_note",
+      "shard": "sidecar",
+      "kind": "string",
+      "name": "sidecar_firewall_note"
+    },
+    {
+      "key": "test_conn",
+      "shard": "probe",
+      "kind": "string",
+      "name": "test_conn"
+    },
+    {
+      "key": "probe_running",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_running"
+    },
+    {
+      "key": "probe_ok",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_ok"
+    },
+    {
+      "key": "probe_latency",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_latency"
+    },
+    {
+      "key": "probe_model",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_model"
+    },
+    {
+      "key": "probe_sample",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_sample"
+    },
+    {
+      "key": "probe_none",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_none"
+    },
+    {
+      "key": "probe_detail",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_detail"
+    },
+    {
+      "key": "probe_hint",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_hint"
+    },
+    {
+      "key": "probe_note_handshake",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_note_handshake"
+    },
+    {
+      "key": "probe_note_local",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_note_local"
+    },
+    {
+      "key": "probe_note_silent",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_note_silent"
+    },
+    {
+      "key": "probe_note_empty",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_note_empty"
+    },
+    {
+      "key": "probe_byok",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_byok"
+    },
+    {
+      "key": "probe_managed",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_managed"
+    },
+    {
+      "key": "probe_no_server",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_no_server"
+    },
+    {
+      "key": "probe_no_routing",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_no_routing"
+    },
+    {
+      "key": "probe_no_llm",
+      "shard": "probe",
+      "kind": "string",
+      "name": "probe_no_llm"
+    },
+    {
+      "key": "tl_data_title",
+      "shard": "portable",
+      "kind": "string",
+      "name": "tl_data_title"
+    },
+    {
+      "key": "tl_data_hint",
+      "shard": "portable",
+      "kind": "string",
+      "name": "tl_data_hint"
+    },
+    {
+      "key": "pd_export_title",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_title"
+    },
+    {
+      "key": "pd_export_hint",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_hint"
+    },
+    {
+      "key": "pd_plain_warning",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_plain_warning"
+    },
+    {
+      "key": "pd_pick_hint",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_pick_hint"
+    },
+    {
+      "key": "pd_include_pictures",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_include_pictures"
+    },
+    {
+      "key": "pd_include_pictures_hint",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_include_pictures_hint"
+    },
+    {
+      "key": "pd_estimate",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_estimate"
+    },
+    {
+      "key": "pd_export_btn",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_btn"
+    },
+    {
+      "key": "pd_exporting",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_exporting"
+    },
+    {
+      "key": "pd_export_done",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_done"
+    },
+    {
+      "key": "pd_export_failed",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_failed"
+    },
+    {
+      "key": "pd_export_empty",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_export_empty"
+    },
+    {
+      "key": "pd_import_title",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_title"
+    },
+    {
+      "key": "pd_import_hint",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_hint"
+    },
+    {
+      "key": "pd_import_btn",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_btn"
+    },
+    {
+      "key": "pd_importing",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_importing"
+    },
+    {
+      "key": "pd_import_done",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_done"
+    },
+    {
+      "key": "pd_import_partial",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_partial"
+    },
+    {
+      "key": "pd_import_failed",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_import_failed"
+    },
+    {
+      "key": "pd_r_added",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_added"
+    },
+    {
+      "key": "pd_r_skipped",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_skipped"
+    },
+    {
+      "key": "pd_r_refused",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_refused"
+    },
+    {
+      "key": "pd_r_evicted",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_evicted"
+    },
+    {
+      "key": "pd_r_att_missing",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_att_missing"
+    },
+    {
+      "key": "pd_r_no_pictures",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_no_pictures"
+    },
+    {
+      "key": "pd_r_pictures",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_pictures"
+    },
+    {
+      "key": "pd_r_pictures_failed",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_pictures_failed"
+    },
+    {
+      "key": "pd_r_preserve_failed",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_preserve_failed"
+    },
+    {
+      "key": "pd_r_refused_names",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_r_refused_names"
+    },
+    {
+      "key": "pd_unit_rows",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_unit_rows"
+    },
+    {
+      "key": "pd_at_line",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_at_line"
+    },
+    {
+      "key": "pd_err_no_header",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_err_no_header"
+    },
+    {
+      "key": "pd_err_version",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_err_version"
+    },
+    {
+      "key": "pd_err_wrong_end_mobile",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_err_wrong_end_mobile"
+    },
+    {
+      "key": "pd_err_wrong_end",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_err_wrong_end"
+    },
+    {
+      "key": "pd_err_count",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_err_count"
+    },
+    {
+      "key": "pd_ref_not_json",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_not_json"
+    },
+    {
+      "key": "pd_ref_unsupported_version",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_unsupported_version"
+    },
+    {
+      "key": "pd_ref_unknown_kind",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_unknown_kind"
+    },
+    {
+      "key": "pd_ref_no_id",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_no_id"
+    },
+    {
+      "key": "pd_ref_bad_created_at",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_bad_created_at"
+    },
+    {
+      "key": "pd_ref_bad_mode",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_bad_mode"
+    },
+    {
+      "key": "pd_ref_bad_status",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_bad_status"
+    },
+    {
+      "key": "pd_ref_bad_entry_type",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_bad_entry_type"
+    },
+    {
+      "key": "pd_ref_no_channel",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_ref_no_channel"
+    },
+    {
+      "key": "pd_zip_io",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_io"
+    },
+    {
+      "key": "pd_zip_not_a_zip",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_not_a_zip"
+    },
+    {
+      "key": "pd_zip_corrupt",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_corrupt"
+    },
+    {
+      "key": "pd_zip_compressed",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_compressed"
+    },
+    {
+      "key": "pd_zip_unsafe_name",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_unsafe_name"
+    },
+    {
+      "key": "pd_zip_no_such_entry",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_no_such_entry"
+    },
+    {
+      "key": "pd_zip_bridge",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_bridge"
+    },
+    {
+      "key": "pd_zip_shape",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_shape"
+    },
+    {
+      "key": "pd_zip_unknown",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_zip_unknown"
+    },
+    {
+      "key": "pd_readme_title",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_title"
+    },
+    {
+      "key": "pd_readme_plain",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_plain"
+    },
+    {
+      "key": "pd_readme_howto",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_howto"
+    },
+    {
+      "key": "pd_readme_files",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_files"
+    },
+    {
+      "key": "pd_readme_exported",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_exported"
+    },
+    {
+      "key": "pd_readme_count",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_count"
+    },
+    {
+      "key": "pd_readme_device",
+      "shard": "portable",
+      "kind": "string",
+      "name": "pd_readme_device"
+    },
+    {
+      "key": "st_title",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_title"
+    },
+    {
+      "key": "st_hint",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_hint"
+    },
+    {
+      "key": "st_rows",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_rows"
+    },
+    {
+      "key": "st_transcripts",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_transcripts"
+    },
+    {
+      "key": "st_images",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_images"
+    },
+    {
+      "key": "st_words",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_words"
+    },
+    {
+      "key": "st_text_size",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_text_size"
+    },
+    {
+      "key": "st_picture_size",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_picture_size"
+    },
+    {
+      "key": "st_range",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_range"
+    },
+    {
+      "key": "st_range_to",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_range_to"
+    },
+    {
+      "key": "st_duration",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_duration"
+    },
+    {
+      "key": "st_duration_missing",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_duration_missing"
+    },
+    {
+      "key": "st_duration_none",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_duration_none"
+    },
+    {
+      "key": "st_missing_pictures",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_missing_pictures"
+    },
+    {
+      "key": "st_approx",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_approx"
+    },
+    {
+      "key": "st_by_mobile",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_by_mobile"
+    },
+    {
+      "key": "st_early",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_early"
+    },
+    {
+      "key": "st_early_tip",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_early_tip"
+    },
+    {
+      "key": "st_other",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_other"
+    },
+    {
+      "key": "st_other_tip",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_other_tip"
+    },
+    {
+      "key": "st_empty",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_empty"
+    },
+    {
+      "key": "st_unit_rows",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_unit_rows"
+    },
+    {
+      "key": "st_unit_words",
+      "shard": "stats",
+      "kind": "string",
+      "name": "st_unit_words"
+    },
+    {
+      "key": "cl_title",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_title"
+    },
+    {
+      "key": "cl_entry_hint",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_entry_hint"
+    },
+    {
+      "key": "cl_irreversible",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_irreversible"
+    },
+    {
+      "key": "cl_kind_text",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_kind_text"
+    },
+    {
+      "key": "cl_kind_images",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_kind_images"
+    },
+    {
+      "key": "cl_kind_both",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_kind_both"
+    },
+    {
+      "key": "cl_win_week",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_week"
+    },
+    {
+      "key": "cl_win_month",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_month"
+    },
+    {
+      "key": "cl_win_quarter",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_quarter"
+    },
+    {
+      "key": "cl_win_halfYear",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_halfYear"
+    },
+    {
+      "key": "cl_win_year",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_year"
+    },
+    {
+      "key": "cl_win_all",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_win_all"
+    },
+    {
+      "key": "cl_preview",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_preview"
+    },
+    {
+      "key": "cl_frees",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_frees"
+    },
+    {
+      "key": "cl_nothing",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_nothing"
+    },
+    {
+      "key": "cl_btn",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_btn"
+    },
+    {
+      "key": "cl_confirm_title",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_confirm_title"
+    },
+    {
+      "key": "cl_confirm_ok",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_confirm_ok"
+    },
+    {
+      "key": "cl_confirm_cancel",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_confirm_cancel"
+    },
+    {
+      "key": "cl_done",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_done"
+    },
+    {
+      "key": "cl_cleared_text",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_cleared_text"
+    },
+    {
+      "key": "cl_cleared_images",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_cleared_images"
+    },
+    {
+      "key": "cl_cleared_both",
+      "shard": "stats",
+      "kind": "string",
+      "name": "cl_cleared_both"
+    },
+    {
+      "key": "disc_nav",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_nav"
+    },
+    {
+      "key": "disc_entry",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_entry"
+    },
+    {
+      "key": "disc_entry_sub",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_entry_sub"
+    },
+    {
+      "key": "disc_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_title"
+    },
+    {
+      "key": "disc_lead",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_lead"
+    },
+    {
+      "key": "disc_s1_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s1_title"
+    },
+    {
+      "key": "disc_s1_body",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s1_body"
+    },
+    {
+      "key": "disc_s2_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s2_title"
+    },
+    {
+      "key": "disc_s2_body",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s2_body"
+    },
+    {
+      "key": "disc_s2_cloud",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s2_cloud"
+    },
+    {
+      "key": "disc_s2_byok",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s2_byok"
+    },
+    {
+      "key": "disc_s2_local",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s2_local"
+    },
+    {
+      "key": "disc_s3_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s3_title"
+    },
+    {
+      "key": "disc_s3_body",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s3_body"
+    },
+    {
+      "key": "disc_s4_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s4_title"
+    },
+    {
+      "key": "disc_s4_body",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s4_body"
+    },
+    {
+      "key": "disc_s4_lan_plain",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s4_lan_plain"
+    },
+    {
+      "key": "disc_s5_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s5_title"
+    },
+    {
+      "key": "disc_s5_body",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_s5_body"
+    },
+    {
+      "key": "disc_legal_title",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_legal_title"
+    },
+    {
+      "key": "disc_legal_privacy",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_legal_privacy"
+    },
+    {
+      "key": "disc_legal_terms",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_legal_terms"
+    },
+    {
+      "key": "disc_more_on_site",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_more_on_site"
+    },
+    {
+      "key": "disc_scope_note",
+      "shard": "disclosure",
+      "kind": "string",
+      "name": "disc_scope_note"
+    },
+    {
+      "key": "upd_section",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_section"
+    },
+    {
+      "key": "upd_current",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_current"
+    },
+    {
+      "key": "upd_available",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_available"
+    },
+    {
+      "key": "upd_up_to_date",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_up_to_date"
+    },
+    {
+      "key": "upd_checking",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_checking"
+    },
+    {
+      "key": "upd_check_now",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_check_now"
+    },
+    {
+      "key": "upd_auto",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_auto"
+    },
+    {
+      "key": "upd_auto_off_note",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_auto_off_note"
+    },
+    {
+      "key": "upd_last_check",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_last_check"
+    },
+    {
+      "key": "upd_last_check_never",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_last_check_never"
+    },
+    {
+      "key": "upd_notes",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_notes"
+    },
+    {
+      "key": "upd_download",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_download"
+    },
+    {
+      "key": "upd_downloading",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_downloading"
+    },
+    {
+      "key": "upd_verified",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_verified"
+    },
+    {
+      "key": "upd_install_msi",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_install_msi"
+    },
+    {
+      "key": "upd_msi_hint",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_msi_hint"
+    },
+    {
+      "key": "upd_install_portable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_install_portable"
+    },
+    {
+      "key": "upd_portable_hint",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_portable_hint"
+    },
+    {
+      "key": "upd_open_page",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_open_page"
+    },
+    {
+      "key": "upd_dismiss",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_dismiss"
+    },
+    {
+      "key": "upd_retry",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_retry"
+    },
+    {
+      "key": "upd_form_unknown",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_form_unknown"
+    },
+    {
+      "key": "upd_form_unsupported",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_form_unsupported"
+    },
+    {
+      "key": "upd_no_fetchable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_no_fetchable"
+    },
+    {
+      "key": "upd_done",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_done"
+    },
+    {
+      "key": "upd_pending_failed",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_pending_failed"
+    },
+    {
+      "key": "upd_pending_rolled_back",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_pending_rolled_back"
+    },
+    {
+      "key": "upd_fail_unreachable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_unreachable"
+    },
+    {
+      "key": "upd_fail_no_manifest_on_server",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_no_manifest_on_server"
+    },
+    {
+      "key": "upd_fail_service_unavailable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_service_unavailable"
+    },
+    {
+      "key": "upd_fail_unexpected_status",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_unexpected_status"
+    },
+    {
+      "key": "upd_fail_manifest_unusable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_manifest_unusable"
+    },
+    {
+      "key": "upd_fail_no_build_for_platform",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_no_build_for_platform"
+    },
+    {
+      "key": "upd_fail_own_version_unreadable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_own_version_unreadable"
+    },
+    {
+      "key": "upd_fail_artifact_gone",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_artifact_gone"
+    },
+    {
+      "key": "upd_fail_download_failed",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_download_failed"
+    },
+    {
+      "key": "upd_fail_cannot_write",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_cannot_write"
+    },
+    {
+      "key": "upd_fail_cannot_hash",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_cannot_hash"
+    },
+    {
+      "key": "upd_fail_size_mismatch",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_size_mismatch"
+    },
+    {
+      "key": "upd_fail_hash_mismatch",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_hash_mismatch"
+    },
+    {
+      "key": "upd_fail_archive_unreadable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_archive_unreadable"
+    },
+    {
+      "key": "upd_fail_archive_layout_unexpected",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_archive_layout_unexpected"
+    },
+    {
+      "key": "upd_fail_archive_unsafe_entry",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_archive_unsafe_entry"
+    },
+    {
+      "key": "upd_fail_location_not_updatable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_location_not_updatable"
+    },
+    {
+      "key": "upd_fail_extract_failed",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_extract_failed"
+    },
+    {
+      "key": "upd_fail_archive_compression_unsupported",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_archive_compression_unsupported"
+    },
+    {
+      "key": "upd_fail_staged_tree_incomplete",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_staged_tree_incomplete"
+    },
+    {
+      "key": "upd_fail_mover_not_launched",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_mover_not_launched"
+    },
+    {
+      "key": "upd_fail_installer_not_launched",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_fail_installer_not_launched"
+    },
+    {
+      "key": "injectFailReason.INJECT_FOCUS_LOST",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_FOCUS_LOST"
+    },
+    {
+      "key": "injectFailReason.INJECT_TARGET_INVALID",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_TARGET_INVALID"
+    },
+    {
+      "key": "injectFailReason.INJECT_CLIPBOARD_FAIL",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_CLIPBOARD_FAIL"
+    },
+    {
+      "key": "injectFailReason.INJECT_SENDINPUT_FAIL",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_SENDINPUT_FAIL"
+    },
+    {
+      "key": "injectFailReason.INJECT_DEFERRED_NOT_AUTOINJECTED",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_DEFERRED_NOT_AUTOINJECTED"
+    },
+    {
+      "key": "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_SELF_WINDOW_NO_INPUT"
+    },
+    {
+      "key": "injectFailReason.INJECT_NO_TEXT_TARGET",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_NO_TEXT_TARGET"
+    },
+    {
+      "key": "injectFailReason.INJECT_IMAGE_UNSUPPORTED",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_IMAGE_UNSUPPORTED"
+    },
+    {
+      "key": "injectFailReason.INJECT_SECURE_INPUT_ACTIVE",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_SECURE_INPUT_ACTIVE"
+    },
+    {
+      "key": "injectFailReason.INJECT_NO_ACCESSIBILITY",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_NO_ACCESSIBILITY"
+    },
+    {
+      "key": "settingsMsg.termTooLong",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "termTooLong",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "settingsMsg.termsAtCap",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "termsAtCap",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "settingsMsg.termsCapNote",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "termsCapNote",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "settingsMsg.dictCount",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "dictCount",
+      "params": [
+        "n",
+        "cap"
+      ]
+    },
+    {
+      "key": "settingsMsg.dictAliases",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "dictAliases",
+      "params": [
+        "aliases"
+      ]
+    },
+    {
+      "key": "tlBatchMsg.selCount",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "selCount",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "tlBatchMsg.selImgHint",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "selImgHint",
+      "params": [
+        "selected",
+        "images"
+      ]
+    },
+    {
+      "key": "tlBatchMsg.copiedWithSkip",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "copiedWithSkip",
+      "params": [
+        "copied",
+        "skipped"
+      ]
+    },
+    {
+      "key": "tlBatchMsg.copied",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "copied",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "tlBatchMsg.nothingToCopy",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "nothingToCopy",
+      "params": [
+        "selected"
+      ]
+    },
+    {
+      "key": "tlRetentionMsg.keptNote",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "keptNote",
+      "params": [
+        "kept",
+        "when"
+      ]
+    },
+    {
+      "key": "tlRetentionMsg.searchNoneTrimmed",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "searchNoneTrimmed",
+      "params": [
+        "kept",
+        "when"
+      ]
+    },
+    {
+      "key": "tlMetricsMsg.wordCount",
+      "shard": "timeline",
+      "kind": "fn",
+      "name": "wordCount",
+      "params": [
+        "n"
+      ]
+    }
+  ]
+}

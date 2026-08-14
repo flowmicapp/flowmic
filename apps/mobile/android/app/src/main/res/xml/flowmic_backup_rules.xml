@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card P8 — API 31+ backup/transfer exclusion (android:dataExtractionRules).
+
+     WHY: FlowMic's on-device timeline database (flowmic_timeline.db, see
+     lib/src/timeline/timeline_sqlite.dart) stores transcribed speech in
+     PLAINTEXT sqflite, plus a lowercased `search_text` copy for search — there
+     is no field-level encryption at rest. The pairing/session tokens
+     (lib/src/auth/token_storage.dart) are Keystore-backed EncryptedSharedPreferences,
+     but this file excludes them too rather than relying on OS/OEM backup
+     implementations to handle Keystore-wrapped data correctly in every case.
+
+     Everything under the app's private root (databases/, shared_prefs/,
+     files/) is excluded from BOTH Google's cloud auto-backup and Android's
+     device-to-device transfer — not just the database — because the
+     decision (owner) is "keep FlowMic's data off any channel that could move
+     it off this device", not "keep this one specific file off one specific
+     channel".
+
+     🔴 THIS FILE IS CURRENTLY INERT: android:allowBackup="false" in
+     AndroidManifest.xml already disables the OS from consulting either
+     backup mechanism at all, so neither this file nor the legacy
+     flowmic_backup_rules_legacy.xml is read while that flag stays false. It
+     is kept anyway (a) as the documented, machine-readable exclusion list
+     that takes effect immediately if allowBackup is ever flipped back to
+     true by a future change, and (b) so the reasoning lives next to the
+     actual backup mechanism it would govern, not only in a manifest
+     comment. See AndroidManifest.xml for the full tradeoff writeup (users
+     lose FlowMic history across Google account restore / device transfer).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

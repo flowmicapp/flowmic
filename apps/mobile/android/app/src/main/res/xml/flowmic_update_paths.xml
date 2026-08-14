@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card UP-2b (mobile in-app update, slice 2). The ONLY path this provider
+     exposes is the updater's own download subdirectory inside the app's private
+     files dir.
+
+     `path` must match `kUpdateDownloadDirName` in
+     lib/src/update/update_download.dart, because path_provider's
+     getApplicationSupportDirectory() returns Context.getFilesDir() on Android
+     (measured 2026-08-08 from path_provider_android 2.3.1:
+     getApplicationSupportPath() reads `_applicationContext.filesDir`), and
+     <files-path> is rooted at exactly that directory.
+
+     A drift between the two fails LOUDLY: FileProvider.getUriForFile throws
+     IllegalArgumentException for a file outside every declared root, and
+     UpdateInstaller.kt turns that into a named refusal.
+
+     This is a SECOND provider, not a widening of flowmic_clipboard_paths.xml —
+     that file states that widening it would expose the rest of the cache to
+     whatever app reads the clipboard. Two jobs, two authorities. -->
+<paths>
+    <files-path name="flowmic_update" path="update/" />
+</paths>

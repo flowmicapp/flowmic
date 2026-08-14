@@ -1,0 +1,126 @@
+# Checks that a pull request's author has signed the CLA before it can be
+# reviewed. Card L2: CONTRIBUTING.md used to promise "a bot will comment a CLA
+# link on your PR" with nothing behind it — no workflow, no CLA document. This
+# is the real mechanism; CLA.md is the document it links to.
+#
+# 🔴 Honest status, not a promise: this repository is private and has never
+# received an external pull request, so this workflow has never actually
+# fired. What has been verified is narrower and stated precisely:
+#   - the YAML below parses (`python -c "import yaml; yaml.safe_load(...)"`,
+#     see the L2 verification table in the worker report that added this file);
+#   - the `with:` keys and the `if:` trigger phrase match the upstream
+#     contributor-assistant/github-action README as of 2026-08-04.
+#   - it has NOT been dispatched against a real pull request, because there
+#     isn't one — CONTRIBUTING's "gate that nobody invokes" rule applies to
+#     this workflow just as much as to any other: the day this repository
+#     opens up and the first external PR arrives, confirm this actually posts
+#     the CLA comment before treating the gate as real.
+#
+# Action pin: contributor-assistant/github-action is pinned to an immutable
+# commit SHA (not a mutable tag). This workflow runs on pull_request_target
+# with contents:write, so a re-pointed tag would be arbitrary code execution
+# against the base repo. When upgrading, bump the trailing `# vX.Y.Z` comment
+# AND the SHA together — do not "helpfully" revert the uses: line to a tag.
+#
+# What it does: on a pull_request_target (or a comment on one), the action
+# checks whether the PR author has signed by looking for their username in a
+# JSON file it maintains in this repository (`.github/cla-signatures.json`,
+# created on first sign-off). If not, it comments with a link to CLA.md and
+# waits for the author to reply with the sign phrase, then re-runs and marks
+# the PR's CLA check green.
+#
+# pull_request_target (not pull_request) is deliberate and matches upstream's
+# documented pattern: it runs with the base repo's permissions/secrets so the
+# action can comment on and label PRs from forks, which a plain
+# `pull_request` trigger cannot do. It does not check out or execute the PR's
+# code, so this does not grant a fork write access to anything beyond posting
+# the CLA-status comment/label.
+
+name: cla
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla-check:
+    name: CLA signature check
+    runs-on: ubuntu-latest
+    # Only run the action body on a fresh/updated PR, or when the comment is
+    # either the exact sign phrase or a maintainer-triggered recheck — this
+    # mirrors the upstream example exactly so the `custom-pr-sign-comment`
+    # below and this condition stay in sync. Without this guard, every
+    # unrelated PR comment would re-invoke the action.
+    if: >-
+      (github.event.comment.body == 'recheck' ||
+       github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
+      github.event_name == 'pull_request_target'
+    steps:
+      - name: CLA Assistant
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          # The default token is enough because signatures are stored in this
+          # same repository (see path-to-signatures below), not a separate
+          # one. If a separate signature-storage repo is ever wanted, this
+          # needs to become a PERSONAL_ACCESS_TOKEN secret with write access
+          # to that repo — do not silently swap the token without updating
+          # this comment, the next reader needs to know which mode is live.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: '.github/cla-signatures.json'
+          # Resolves against whatever org/repo this ends up pushed to — this
+          # repository has no git remote configured yet (CLAUDE.md, "环境事实"),
+          # so a hardcoded https://github.com/<org>/<repo>/... URL would be a
+          # guess. This expression is correct regardless of where it lands.
+          #
+          # ⚠️ CORRECTION 2026-08-05 (in place, original kept — it was true the
+          # day it was written): the repository DOES have a remote now, and the
+          # commits are pushed to it:
+          # https://github.com/flowmicapp/<private-dev-repo> (private —
+          # measured, see docs/decisions/2026-08-05-repo-stays-private-handoff-
+          # is-for-review.md). The CLAUDE.md line this cites has itself been
+          # corrected in place. The REASONING above is unaffected: the
+          # expression is still the right choice, and is now also the one that
+          # survives the repository being renamed or transferred. What changed
+          # is only its premise, which is exactly the failure shape 反 façade ④
+          # names — a comment that asserts something about elsewhere stays
+          # frozen while the elsewhere moves.
+          path-to-document: 'https://github.com/${{ github.repository }}/blob/${{ github.event.repository.default_branch }}/CLA.md'
+          branch: 'main'
+          # This one field answers TWO different questions, and only one of them
+          # was ruled on. Keep them apart:
+          #   ·「which HUMANS are exempt from signing」 — EMPTY, deliberately.
+          #     The owner's earlier ruling was to allowlist the remote developer
+          #     so their PRs would not be gated; that premise died with
+          #     docs/decisions/2026-08-05-owner-internal-iteration-mandate.md
+          #     (there is no third party). While the repo is private nobody
+          #     opens PRs so the gate never fires; on the day it goes public it
+          #     is already in place rather than something to remember to add.
+          #   ·「which non-humans are excluded from a human-only process」 —
+          #     the bot entries below. A bot cannot sign a CLA, so gating one
+          #     creates a check that can never go green. There is no
+          #     .github/dependabot.yml today 【measured 2026-08-05】, so this is
+          #     latent rather than live — but 0.3.0 opens this repo, and
+          #     enabling dependabot is the ordinary next thing someone does.
+          # ⇒ Emptying this field entirely would silently answer the second
+          #   question with a ruling that was only ever about the first.
+          allowlist: 'dependabot[bot],dependabot-preview[bot]'
+          custom-notsigned-prcomment: >-
+            Thanks for the pull request! Before this can be reviewed, please
+            sign the [FlowMic Individual Contributor License
+            Agreement](CLA.md) — see CONTRIBUTING.md § Contributor License
+            Agreement for why we ask. Reply to this comment with the sentence
+            below, all on one line:
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+          custom-allsigned-prcomment: >-
+            All contributors have signed the CLA. Thanks — this is clear to
+            review.
+          lock-pullrequest-aftermerge: false

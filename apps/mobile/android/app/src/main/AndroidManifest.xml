@@ -1,0 +1,217 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 08-MOBILE-SPEC §8 (F-304): microphone capture for the audio:start
+         pipeline. Without this Android 6+ silently denies the runtime request
+         and audio:start fires but zero chunks reach the server (F-2063). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Android 13+ runtime notification permission (foreground keepalive,
+         wired in a later card — declared here per 08-MOBILE-SPEC §8). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Install-time normal permission — release builds do NOT inherit it from
+         the Flutter debug manifest, and without it every socket/HTTP call dies
+         with Permission denied (2026-07-24 real-device release finding). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- R6 T-4 image pipeline (「+」panel album image).
+         Android 13+ (API 33): image_picker uses the system Photo Picker, which
+         grants access to the ONE item the user chose and needs no runtime
+         permission — READ_MEDIA_IMAGES is declared so the older gallery intent
+         path and any OEM fallback still resolve.
+         Android 12 and below (API ≤32): the document/gallery intent needs
+         READ_EXTERNAL_STORAGE, capped at maxSdkVersion=32 so the broad legacy
+         storage permission is NOT requested on modern devices.
+         When the OS refuses either, image_picker raises a PlatformException
+         which platform_image_picker.dart turns into a NAMED failure — a picker
+         that opens onto nothing is exactly the silent failure the red line
+         forbids (same lesson as R6-R5's lock-screen case). -->
+    <!-- GA-30 QR-scan pairing (owner 2026-07-26:「扫码优先于手输」— "scan-to-pair
+         takes priority over manual entry"). mobile_scanner asks
+         for this at runtime the first time the pairing sheet opens; without the
+         manifest entry the request is denied outright by the OS and the sheet
+         would show a black rectangle. The refusal path is still handled in-app
+         (errorBuilder → fall back to manual entry + explain why) — a permission the user declines
+         must degrade loudly, not silently.
+         `android.hardware.camera` is declared NOT required so the app still
+         installs on a camera-less device; manual entry covers that case. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Card UP-2b in-app update slice 2 (download → verify sha256 → hand to the
+         system installer). API 26+ requires this to be DECLARED before
+         PackageManager.canRequestPackageInstalls() can ever return true; the
+         actual grant is a per-app user toggle, handled in UpdateInstaller.kt
+         (denied ⇒ we open ACTION_MANAGE_UNKNOWN_APP_SOURCES and say so, rather
+         than dead-ending in the system installer).
+
+         🔴 THIS LINE IS STATIC AND THE BUILD FLAG DOES NOT REMOVE IT.
+         lib/src/update/self_update_flag.dart argues the default-off
+         FLOWMIC_SELF_UPDATE define is safe because forgetting it only LOSES the
+         feature. That argument covers Dart code (AOT tree-shakes it) and does
+         NOT extend to here: a manifest entry is not behind any define, so
+         building with FLOWMIC_SELF_UPDATE=0 still ships an APK that declares
+         REQUEST_INSTALL_PACKAGES. Play reviews that declaration. The full
+         paragraph, and why we are recording the debt instead of inventing a
+         flavor/manifestPlaceholder scheme in this window, is in that file's
+         header under 「构建期旗标管不到这一行」("the build-time flag doesn't reach
+         this line"). It rides on the same already-open
+         debt: no store build until run-time gate ② exists and has been proven
+         on a real Play track.
+
+         (NOTE ON SPELLING: the dart-define flag is written above without its
+         leading dashes on purpose — a literal double hyphen is illegal inside
+         an XML comment and breaks the manifest merger. Measured 2026-08-08:
+         writing it in full failed :app:processDebugMainManifest with
+         "ManifestMerger2$MergeFailureException: Error parsing ...
+         AndroidManifest.xml". NO Dart test can see that; only building the APK
+         did, which is why this file is not covered by the mobile suite.) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Card P8 — keep FlowMic's on-device data off Google auto-backup and
+         Android device-to-device transfer.
+
+         WHY: the timeline database (flowmic_timeline.db,
+         lib/src/timeline/timeline_sqlite.dart) stores transcribed speech in
+         PLAINTEXT sqflite plus a lowercased `search_text` copy — nothing in
+         it is encrypted at rest. Pairing/session tokens
+         (lib/src/auth/token_storage.dart) are live credentials that let a
+         restored copy of this app rejoin a paired PC. Leaving the platform
+         default (android:allowBackup defaults to true when the attribute is
+         absent) means Google's cloud auto-backup or a device-transfer flow
+         could carry a user's transcribed speech and live pairing state onto
+         another device or into Google's backup storage without the user
+         ever being asked "do you want your FlowMic history to go too?".
+
+         DECISION (owner): exclude FlowMic's data from both channels.
+         android:allowBackup="false" is the actual, authoritative control —
+         it disables cloud auto-backup AND device transfer outright, on
+         every API level this app supports. dataExtractionRules (API 31+)
+         and fullBackupContent (API 24-30, this app's minSdkVersion) are
+         added on top even though allowBackup="false" makes the OS ignore
+         them: see res/xml/flowmic_backup_rules.xml for why they are kept
+         as documentation + a backstop rather than left out.
+
+         🔴 HONEST TRADEOFF: a user who sets up a new phone via Google
+         account restore, or moves to a new device via Android's built-in
+         transfer flow, will NOT get their FlowMic conversation history or
+         PC pairing carried over — they start with an empty timeline and
+         must re-pair every PC from scratch. This is the deliberate cost of
+         not letting plaintext transcripts and live pairing tokens leave the
+         device through a channel the user did not explicitly choose.
+
+         Deliberately NOT touched: android:usesCleartextTraffic (unrelated —
+         that governs plaintext network transport, not on-device backup). -->
+    <application
+        android:label="flowmic"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/flowmic_backup_rules"
+        android:fullBackupContent="@xml/flowmic_backup_rules_legacy">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- owner 2026-07-27 image copy: ClipData.newUri needs a content:// URI, so
+             the single clipboard preview file in the private cache is exposed
+             through its own FileProvider. Authority is suffixed
+             (.clipboard.fileprovider) so it cannot collide with the one
+             image_picker declares (.flutter.image_provider).
+             🔴 W8-5 (2026-08-10, measured on a real tablet): the sentence above
+             is true and it guarded the wrong collision. Both providers used to
+             name androidx.core.content.FileProvider directly, and a shared
+             android:name collides regardless of how distinct the authorities
+             are — see FlowMicFileProviders.kt for the mechanism. Each authority
+             now gets its own subclass; the original wording is kept because the
+             image_picker part of it still holds.
+             exported=false + grantUriPermissions=true is the required pair: the
+             system clipboard service grants read access to whichever app pastes,
+             and nobody else can reach it. See ImageClipboard.kt. -->
+        <provider
+            android:name=".ClipboardFileProvider"
+            android:authorities="${applicationId}.clipboard.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/flowmic_clipboard_paths" />
+        </provider>
+        <!-- Card UP-2b in-app update slice 2: the system package installer runs in
+             another process, so the verified .apk has to be handed over as a
+             content:// URI. A SECOND provider with its own authority and its own
+             paths file — flowmic_clipboard_paths.xml states that widening it
+             would expose the rest of the cache to whatever app reads the
+             clipboard, so this does not touch it.
+             exported=false + grantUriPermissions=true is the required pair: read
+             access is granted per-Intent (FLAG_GRANT_READ_URI_PERMISSION in
+             UpdateInstaller.kt) and nobody else can reach the file.
+             🔴 W8-5: android:name must stay a class that no other <provider>
+             names. It shipped as androidx.core.content.FileProvider in 0.2.59
+             and 0.2.60, which made every self-update on those builds fail at
+             the hand-off to the installer. -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.update.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/flowmic_update_paths" />
+        </provider>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- 0.2.67 — the privacy-policy / terms links on the data-flow disclosure
+             page open in the external browser via url_launcher.
+
+             🔴 THIS BLOCK IS REQUIRED AND THE PLUGIN DOES NOT SUPPLY IT.
+             Measured on this machine: url_launcher_android 6.3.17's own
+             AndroidManifest.xml declares only a WebViewActivity — no <queries>
+             at all. Since Android 11 (API 30) package visibility is opt-in, so
+             without this entry `launchUrl` cannot see any browser, returns
+             false, and the links fall through to the copy-the-URL path on
+             essentially every current device. That failure is LOUD by design
+             (data_flow_disclosure_page.dart surfaces it), which is exactly why
+             it would have shipped: the feature would look implemented, degrade
+             politely, and never work.
+
+             targetSdk comes from the Flutter SDK (see build.gradle's note) and
+             is 36 today, so API 30+ behaviour is not hypothetical here. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+</manifest>

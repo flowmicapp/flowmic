@@ -1,0 +1,183 @@
+/* Styles for DevicesPage.vue, split out into a sibling stylesheet when card
+   F5+U11 (the LAN card firewall-honesty line) pushed that file past the
+   800-line cap. Included back in via DevicesPage.vue's
+   <style scoped src="./devices-page.css">.
+
+   🔴 CORRECTED during acceptance review (0.3.0). The line above used to read 「Pure move —
+   nothing about the rules changed」, and that was not true of this FILE: the
+   90 rules lifted out of the SFC went over verbatim, but `.sc-fw-note` (and
+   its two comment lines) is U11's OWN new rule, authored in the same pass and
+   never present in DevicesPage.vue at any commit. Diffing the removed <style>
+   block against this file is exactly how a reviewer would check a claimed pure
+   move, and that diff is 3 lines — so the claim sent them looking for a
+   regression that does not exist, or, worse, invited them to skip the diff.
+   ⚠️ Kept as a correction rather than a rewrite, per 反 façade ④: the original
+   sentence records what the split was INTENDED to be, and that intent is why
+   the other 90 rules were not touched.
+
+   [measured] the mechanism itself is proven, not assumed: `pnpm build` emits
+   `.sc-fw-note[data-v-020a494b]` carrying the SAME scope hash as `.sc-inline`
+   and the component's own `__scopeId`. This is the only `<style scoped src=>`
+   in the desktop app, and CSS is invisible to vitest — so 「the split kept the
+   styling」 had to be read off a real build or it was not known at all. */
+
+/* REQ-12-10b — the same-machine shell around the two channel cards.
+   ⚠️ It is a STATEMENT, not a merge: the two `.card.chan` inside keep their own
+   border, their own status, their own address and their own actions. The ruling
+   forbids collapsing them into one clickable card, and the mobile side carries
+   the identical law (machine_group.dart). What was missing was only the sentence
+   「这两条通道属于同一台电脑」("these two channels belong to the same computer"),
+   and a container is how a layout says it.
+   Recessed rather than raised (`--surface-2` under `--surface` cards): the shell
+   must read as the ground the two cards stand on, never as a third card. */
+.chan-group { border: 1px solid var(--line); border-radius: var(--r16);
+  background: var(--surface-2); padding: 12px; }
+.cg-head { display: flex; align-items: center; gap: 8px; padding: 1px 4px 11px; }
+.cg-ic { width: 15px; height: 15px; color: var(--t3); }
+.cg-t { font-size: 12px; font-weight: 700; color: var(--t2); letter-spacing: .2px; }
+/* The dotted underline is this app's existing 「there is an explanation here」
+   affordance (PairedList.vue's `.pm-seen` uses the same one) — not a new idiom. */
+.cg-sum { margin-left: auto; font-size: 11.5px; color: var(--t3); cursor: help;
+  text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* Local-service line inside the LAN card (owner ①: merged, no standalone card) */
+.sc-inline { display: flex; align-items: center; gap: 7px; margin-top: 10px;
+  padding: 7px 10px; border-radius: 8px; background: var(--surface-inset);
+  font-size: 12px; color: var(--t1); }
+.sc-inline.bad { background: var(--red-soft); }
+.sc-status { color: var(--t2); font-size: 12px; }
+.sc-detail { margin-top: 8px; font-size: 11.5px; color: var(--red); word-break: break-all; }
+/* U11: a persistent small-print note, not an error — font size/colour follow the
+   same 「弱提示」("weak hint") language as .fld-hint, but with its own margin
+   (.fld-hint's -4px was tuned to sit tight under an input field, which does not
+   apply here). */
+.sc-fw-note { margin-top: 6px; font-size: 11px; color: var(--t3); line-height: 1.5; }
+.dot.r { background: var(--red); }
+/* cloud card fold (owner ①: equal height, details on demand) */
+.fold-toggle { display: flex; align-items: center; gap: 6px; margin-top: 10px;
+  background: none; border: 0; padding: 0; cursor: pointer; color: var(--t3); font-size: 11.5px; }
+.diag-chev { color: var(--t3); font-size: 11px; transition: transform .15s ease; }
+.diag-chev.open { transform: rotate(180deg); }
+
+/* GA-32 (owner: 「本地局域网和云端中继这两个以本地局域网为准要等高」("the LAN card
+   and the cloud-relay card should match the LAN card's height")):
+   `align-items: stretch` makes both cards the height of the row, and the cloud
+   card pushes its own footer to the bottom instead of ending early — so the two
+   line up on BOTH edges. The LAN card is the one that sets the height in the
+   normal signed-in case; the cloud card only exceeds it while the paste form is
+   open, which is exactly when it has more to say.
+
+   ⚠️ owner 2026-08-02 UI batch one ⑤「设备页左右两卡保持同样高度（现在 LAN 卡因地址列表撑高）」
+   ("the two device-page cards should stay the same height — right now the LAN
+   card is stretched tall by its address list")
+   — what the diagnosis actually found was not that the equal-height rule was
+   broken: `stretch` had been in effect the whole time, and the two cards
+   **were already the same height**. What was really being complained about was
+   **that height itself**: the LAN card lays its N candidate addresses out flat,
+   which pushes the whole row very tall, while the cloud card — stretched into
+   that same tall box — only has three lines of text, so it reads as empty, as
+   if it were misaligned. ⇒ The fix is to fold the address list up (the
+   `lanIpsOpen` above), **not** to add a `min-height` or `align-items: flex-start`
+   here.
+   ⚠️ Two things not to touch: `align-items: stretch` (changing it to
+   flex-start would make the two cards genuinely unequal in height) and
+   `flex: 1 1 300px` (changing it to `flex: none` would let the two cards'
+   widths drift with their content). Under a narrow window `flex-wrap` wraps
+   the two cards into a top-and-bottom stack, at which point each having its
+   own independent height is correct, not a regression. */
+.channels { display: flex; gap: 14px; flex-wrap: wrap; align-items: stretch; }
+.chan { position: relative; padding: 15px 17px 15px 20px; min-width: 260px; flex: 1 1 300px;
+  display: flex; flex-direction: column; }
+
+/* ── REQ-12-14 channel identity, one rule serving both cards ─────────────────
+   The only thing that differs between the two cards is a PAIR OF TOKENS, bound
+   here as local custom properties. Everything below reads `var(--chan-ink)` /
+   `var(--chan-soft)`, so the LAN card and the cloud card are literally the same
+   design with one substitution — which is what「一套系统的两面」("one system,
+   two faces") has to mean in CSS.
+   ⚠️ Zero colour literals: the values are tokens.css's `--channel-*` pair, the
+   ONE definition that stays byte-identical with the phone's FlowMicChannelColors.
+   (A local `--chan-ink:` declaration is a real definition, so verify:lint's
+   css-var-defined resolves it — it is not a dangling reference.) */
+.chan.ch-lan { --chan-ink: var(--channel-lan-ink); --chan-soft: var(--channel-lan-soft); }
+.chan.ch-cloud { --chan-ink: var(--channel-cloud-ink); --chan-soft: var(--channel-cloud-soft); }
+/* An identity rail on the leading edge — the same device the phone's connection
+   list uses for identity (REQ-12-10's colour band), so the two products read as
+   one. Drawn as a pseudo-element rather than a `border-left` so it cannot fight
+   `.card`'s 1px border or its radius.
+   ⚠️ Inset 10px top and bottom ON PURPOSE, not as a taste call: `.card` has a
+   12px radius, and a rail running to y=0 would be drawn across the corner ARC,
+   where the card's own surface has not started yet — it pokes out as a tick.
+   The two alternatives are worse on a screen nobody has looked at yet:
+   `overflow: hidden` on the card would clip descendants' focus rings (this app
+   has a global 2px ring at 2px offset), and relying on border-radius CLAMPING to
+   round the rail is depending on a corner-scaling rule to save the layout. */
+.chan::before { content: ''; position: absolute; top: 10px; bottom: 10px; left: 0; width: 3px;
+  border-radius: 2px; background: var(--chan-ink); }
+/* A single soft wash from the card's own identity colour, fading out well before
+   the middle. Deliberately NOT a full-surface gradient: the status pill and the
+   loud line have to keep the strongest colour on the card, and a decorated card
+   that out-shouts its own status word is the failure mode the brief calls out
+   (「装饰压过状态词」— "decoration out-shouting the status word"). Both stops
+   are tokens, so dark mode follows automatically. */
+.chan { background: linear-gradient(158deg, var(--chan-soft), transparent 46%), var(--surface); }
+.chan:hover { border-color: var(--line-strong); box-shadow: var(--sh-md); }
+.chan-loud { margin-top: 8px; font-size: 12px; color: var(--red); background: var(--red-soft); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
+.chip.plan { background: var(--amber-soft); color: var(--amber-ink); }
+.chip.key-chip { background: var(--green-soft); color: var(--green-ink); }
+.acct { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.acct-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.acct-line { font-size: 12px; color: var(--t2); word-break: break-all; }
+.keyform { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.keyform .btn { align-self: flex-start; }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld-l { font-size: 11.5px; color: var(--t2); font-weight: 600; }
+.fld-hint { font-size: 11px; color: var(--t3); line-height: 1.5; margin-top: -4px; }
+/* REQ-12-14: `.chan h3` / `.chan-ic` are GONE from this file — the heading row
+   is components/ChannelCardHead.vue now, and its styles had to travel with it
+   (a scoped rule here would only ever reach the child's ROOT node, never the
+   tile and pill inside it). The ink still comes from the same tokens.css pair;
+   what moved is where the rule lives, not where the colour comes from. */
+.chan .st { font-size: 12.5px; color: var(--t2); margin-bottom: 8px; line-height: 1.5; }
+/* D4 second status layer (phones connected over this channel) — quieter than .st. */
+.chan .st2 { font-size: 11.5px; color: var(--t3); margin: -4px 0 8px; }
+/* owner ② the LAN listen-address list. Same recessed mono pill as .addr — these
+   are values you read off the screen and type into a phone.
+   owner 2026-08-02 UI batch one ⑤: wrapped in the SAME `.fold-toggle` + `.diag-chev` pair the
+   cloud card's account fold already uses — one fold language on this page, not a second. */
+.lanips { margin-top: 10px; }
+.lanips .fold-toggle { margin-top: 0; }
+.lanips .mini { width: 12px; height: 12px; }
+.lanips-l { display: block; margin-top: 8px; font-size: 11.5px; color: var(--t2); font-weight: 600; }
+.lanips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.lanip { font-size: 11.5px; color: var(--t2); background: var(--surface-inset); border: 1px solid transparent;
+  border-radius: 7px; padding: 3px 8px; cursor: pointer; text-align: left; word-break: break-all; }
+.lanip.on { border-color: var(--brand); color: var(--t1); }
+.lanip-note { color: var(--t3); }
+/* 2026-07-29 polish: the endpoint was a loose muted line; a recessed mono pill
+   makes it read as a copyable technical value and matches .sc-inline's well. */
+.chan .addr { display: inline-block; align-self: flex-start; font-size: 11.5px; color: var(--t2);
+  background: var(--surface-inset); border-radius: 7px; padding: 3px 8px; word-break: break-all; }
+/* 0.2.66 — the cloud card's PCID line. A LABEL + a value rather than a bare pill
+   like `.addr` above: nine loose digits under a relay URL read as part of the URL,
+   and this one is meant to be read out loud to someone holding a phone. */
+.chan .pcid-line { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.chan .pcid-line-l { font-size: 11.5px; color: var(--t3); }
+.chan .pcid-line-v { font-size: 13px; font-weight: 700; color: var(--t1);
+  letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+/* GA-08's inline confirmation — kept here because the cloud card's clear-key
+   confirm reuses the shape; the paired-row styles themselves moved into
+   PairedList.vue with the rows (2026-07-29 polish). */
+.pm-confirm .btn { font-size: 11.5px; padding: 3px 9px; }
+.btn.danger { background: var(--red); color: var(--on-brand); }
+.pm-confirm { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--red-soft); }
+.pm-confirm-t { flex: 1 1 200px; font-size: 11.5px; color: var(--t1); line-height: 1.5; }
+/* REQ-12-14: the self-PC card's rules (`.chan.self`, `.self-*`, `.rename-input`)
+   left with the card, into components/SelfPcCard.vue. They had to: that card no
+   longer wears `.chan`, precisely so it cannot inherit the identity rail, the
+   colour wash and the state pill added above — chrome that answers「哪条通道 /
+   通不通」("which channel / is it connected"), two questions the self-PC card
+   has no source for. */
+
+.btn.pri:disabled, .btn.ghost:disabled { opacity: .5; cursor: default; }

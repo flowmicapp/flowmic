@@ -1,0 +1,79 @@
+{
+  "total": 581,
+  "aliases": 4,
+  "generated": "scripts/i18n/gen-desktop-ts.mjs",
+  "locales": [
+    {
+      "code": "en",
+      "endonym": "English",
+      "translated": 581,
+      "inheritsBase": 0,
+      "percent": 100,
+      "inApp": true
+    },
+    {
+      "code": "zh-CN",
+      "endonym": "中文",
+      "translated": 581,
+      "inheritsBase": 0,
+      "percent": 100,
+      "inApp": true
+    },
+    {
+      "code": "zh-TW",
+      "endonym": "繁體中文",
+      "translated": 569,
+      "inheritsBase": 12,
+      "percent": 97.9,
+      "inApp": true
+    },
+    {
+      "code": "fr",
+      "endonym": "Français",
+      "translated": 568,
+      "inheritsBase": 13,
+      "percent": 97.8,
+      "inApp": true
+    },
+    {
+      "code": "es",
+      "endonym": "Español",
+      "translated": 568,
+      "inheritsBase": 13,
+      "percent": 97.8,
+      "inApp": true
+    },
+    {
+      "code": "de",
+      "endonym": "Deutsch",
+      "translated": 569,
+      "inheritsBase": 12,
+      "percent": 97.9,
+      "inApp": true
+    },
+    {
+      "code": "ja",
+      "endonym": "日本語",
+      "translated": 581,
+      "inheritsBase": 0,
+      "percent": 100,
+      "inApp": true
+    },
+    {
+      "code": "ko",
+      "endonym": "한국어",
+      "translated": 581,
+      "inheritsBase": 0,
+      "percent": 100,
+      "inApp": true
+    },
+    {
+      "code": "ru",
+      "endonym": "Русский",
+      "translated": 569,
+      "inheritsBase": 12,
+      "percent": 97.9,
+      "inApp": true
+    }
+  ]
+}

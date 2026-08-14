@@ -1,0 +1,231 @@
+/* WP-R2-2 design tokens + shared primitives, ported from docs/ui-design/demo/
+   desktop.html. Loaded globally by both windows.
+
+   V2-07.8a: the「later preference card」this header used to promise. Two themes now:
+   the resolved theme is stamped as `data-theme="light|dark"` on <html> by
+   lib/theme.ts BEFORE Vue mounts (first frame, no flash), and the dark block
+   below is the ONLY dark styling anywhere — components never carry their own
+   dark rules, they read these vars. The capsule window shares this file, so it
+   follows the same attribute on its own document. */
+
+:root {
+  --brand: #4f46e5; --brand-hover: #4338ca; --brand-soft: #eef0fe;
+  --brand-ink: #4f46e5;         /* brand used as TEXT on surfaces (not fills) */
+  --brand-line: #c7cbf5;        /* brand-tinted selected border (ctx-chip.on) */
+  --on-brand: #fff;             /* text/icons on a --brand fill */
+  --teal: #14b8a6; --teal-soft: #e6faf7; --teal-ink: #0f766e;
+  --amber: #f59e0b; --amber-soft: #fef6e4; --amber-ink: #b45309;
+  --red: #ef4444; --red-soft: #fdecec; --green: #22c55e; --green-soft: #e9f9f0;
+  --blue: #3b82f6; --slate: #64748b;      /* status text: st-b / st-n */
+  --ink: #0b1020; --on-ink: #fff;         /* fchip.on fill + its text */
+  --canvas: #f6f7fb; --surface: #ffffff; --surface-2: #f3f4f9; --line: #e5e7ef;
+  --sidenav-bg: #f7f8fc; --hover-bg: #eef0f8;
+  --line-soft: #f0f1f7;                   /* table/dict dividers, ops hover */
+  --line-strong: #c9cedd;                 /* hover-state borders */
+  --danger-line: #f3c7c7; --danger-hover-bg: #fadede;
+  --dot-off: #c4c9d6; --slate-dot: #94a3b8;
+  --t1: #141a2e; --t2: #5a6378; --t3: #9aa1b5;
+  /* 2026-07-29 polish round: semantic tokens for values that used to be
+     hardcoded in scoped styles (and therefore broke in dark mode). */
+  --surface-inset: #f4f5fa;  /* recessed info wells: scope-note, sidecar line, addr pill */
+  --green-ink: #15803d;      /* green as TEXT on a --green-soft chip */
+  --red-ink: #8a1f1f;        /* red prose on a --red-soft block */
+  --amber-line: #f3e2bd;     /* border of amber note boxes */
+  --off-chip-bg: #eef0f5;    /* neutral "off/disabled" chip fill */
+  /* 2026-08-01 channel visual identity (owner: 颜色+图标组合，不能只靠颜色；一处定义，
+     全产品统一 — "colour + icon combination, never colour alone; one definition,
+     unified across the whole product"). DEDICATED tokens, not aliases onto
+     --teal-ink/--brand-ink: this pair
+     must stay BYTE-IDENTICAL with apps/mobile/lib/src/ui/tokens.dart's
+     FlowMicChannelColors (see that file's header for the side-by-side table). The
+     app-wide --teal/--brand roles are free to retune for unrelated reasons; if they
+     did, aliasing would silently drag the channel identity out of sync with the
+     phone, which is the exact drift this pair exists to prevent. Consumed by
+     `.chan-badge` below; lib/channel.ts's `CHANNEL_VISUAL` selects `.lan`/`.cloud`. */
+  --channel-lan-ink: #0f766e; --channel-lan-soft: #e6faf7;
+  --channel-cloud-ink: #4f46e5; --channel-cloud-soft: #eef0fe;
+  --selection: rgba(79, 70, 229, .16);
+  /* capsule window surfaces (translucent over the OS desktop) */
+  --caps-bg: rgba(255, 255, 255, .94);
+  --caps-border: rgba(255, 255, 255, .6);
+  --caps-diag-bg: rgba(255, 255, 255, .97);
+  --caps-hairline: rgba(11, 16, 32, .07);
+  --caps-hover: rgba(11, 16, 32, .06);
+  /* REQ-13-15 (owner 2026-08-13): was `0 12px 32px … , 0 2px 8px …`, which needs
+     16px of room sideways and 28px below (blur/2 ± the y-offset) while `.wrap`
+     offered 4 — so on Windows the gradient hit the window rect with plenty of
+     alpha left and read as a straight cut. Geometry only: BOTH alphas are
+     unchanged, so the shadow keeps its weight and loses its reach.
+     🔴 This token is the ONLY capsule-card shadow (`.caps`, `.caps-ok`,
+     `.caps-fail` all read it) and `.wrap`'s per-side gutter in capsule.css is
+     sized from these numbers. Do not edit one without the other —
+     capsule-shadow-fits-window.test.ts recomputes the relation from both files
+     and names the side that no longer fits. */
+  --caps-shadow: 0 5px 12px rgba(0, 0, 0, .32), 0 1px 4px rgba(0, 0, 0, .18);
+  --r8: 8px; --r12: 12px; --r16: 16px; --r24: 24px;
+  /* Full-window scrim behind a blocking modal. Deliberately NOT re-declared in
+     the dark block below, for the same reason the radii above are not: a scrim
+     darkens whatever is behind it, and that job does not change with the theme
+     (over the dark surfaces it lands on near-black, which is if anything more
+     scrim-like). Declaring it once says「considered, and it is the same」; a
+     second identical line would read as a copy-paste slip.
+     ⚠️ PairingModal's own scrim is a DIFFERENT alpha at the same RGB (.42) and
+     is pinned in verify/lint/design-token-literals.mjs's ALLOWLIST. It is not
+     folded in here — one token cannot serve two alphas, and merging them would
+     silently restyle that modal. Pick this one up when a third scrim appears
+     and the two alphas turn out to be the same judgement written twice. */
+  --scrim: rgba(11, 16, 32, .62);
+  --sh-lg: 0 24px 64px rgba(11, 16, 32, .18), 0 4px 16px rgba(11, 16, 32, .08);
+  --sh-md: 0 8px 24px rgba(11, 16, 32, .12), 0 2px 6px rgba(11, 16, 32, .06);
+  --sh-sm: 0 1px 2px rgba(11, 16, 32, .06);
+}
+
+/* Dark. Every text/background pair that the WCAG AA 4.5:1 bar applies to was
+   verified (numbers in the V2-07.8a card report); accents keep their hue but
+   shift lightness, never saturation-first, so the palette stays the same
+   product at a glance. */
+:root[data-theme='dark'] {
+  --brand: #5b55e0; --brand-hover: #6f69ec; --brand-soft: #262a4e;
+  --brand-ink: #a5a1ff;
+  --brand-line: #3d4176;
+  --on-brand: #fff;
+  --teal: #2dd4bf; --teal-soft: #12302c; --teal-ink: #5eead4;
+  --amber: #fbbf24; --amber-soft: #33270e; --amber-ink: #fcd34d;
+  --red: #f87171; --red-soft: #3d1f22; --green: #4ade80; --green-soft: #14291d;
+  --blue: #60a5fa; --slate: #9aa7bd;
+  --ink: #e8eaf4; --on-ink: #171b2e;
+  --canvas: #0f1322; --surface: #181c2f; --surface-2: #20253c; --line: #2c3153;
+  --sidenav-bg: #131731; --hover-bg: #21263f;
+  --line-soft: #232846;
+  --line-strong: #3d4368;
+  --danger-line: #5c2c30; --danger-hover-bg: #4a2428;
+  --dot-off: #4a5070; --slate-dot: #64748b;
+  --t1: #e9ebf5; --t2: #aab0c8; --t3: #9399b4;
+  --surface-inset: #20253c;
+  --green-ink: #4ade80;
+  --red-ink: #fca5a5;
+  --amber-line: #4d3d16;
+  --off-chip-bg: #232846;
+  /* 2026-08-01 channel visual identity — dark values of the pair declared above.
+     Same byte-identical contract with FlowMicChannelColors (mobile), dark branch. */
+  --channel-lan-ink: #2dd4bf; --channel-lan-soft: #12302c;
+  --channel-cloud-ink: #818cf8; --channel-cloud-soft: #262a4e;
+  --selection: rgba(165, 161, 255, .26);
+  --caps-bg: rgba(24, 28, 47, .95);
+  --caps-border: rgba(255, 255, 255, .12);
+  --caps-diag-bg: rgba(24, 28, 47, .97);
+  --caps-hairline: rgba(233, 235, 245, .09);
+  --caps-hover: rgba(233, 235, 245, .07);
+  /* REQ-13-15 — same geometry as the light theme (the window rect does not care
+     which palette is up); only the alphas stay theme-specific. */
+  --caps-shadow: 0 5px 12px rgba(0, 0, 0, .55), 0 1px 4px rgba(0, 0, 0, .4);
+  --sh-lg: 0 24px 64px rgba(0, 0, 0, .5), 0 4px 16px rgba(0, 0, 0, .3);
+  --sh-md: 0 8px 24px rgba(0, 0, 0, .4), 0 2px 6px rgba(0, 0, 0, .25);
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, .3);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: Inter, "SF Pro Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  color: var(--t1); font-size: 14px; line-height: 1.55;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", monospace; }
+.muted { color: var(--t3); font-size: 12px; }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
+.btn.pri { background: var(--brand); color: var(--on-brand); }
+.btn.pri:hover { background: var(--brand-hover); }
+.btn.ghost { border: 1px solid var(--line); color: var(--t2); background: var(--surface); }
+.btn.ghost:hover { color: var(--t1); border-color: var(--line-strong); }
+.btn.sm { padding: 4px 10px; font-size: 12px; border-radius: 8px; }
+.btn.danger { color: var(--red); border: 1px solid var(--danger-line); background: var(--red-soft); }
+.btn.danger:hover { background: var(--danger-hover-bg); }
+
+/* cards + dots + chips */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r12); box-shadow: var(--sh-sm); transition: border-color .18s ease, box-shadow .18s ease; }
+/* 0.2.47 (owner data-page two-mandate round): `.pad` used to be a **ghost class**
+   — nothing here had ever defined padding, five components each patched in
+   their own scoped copy (one of which had already drifted to 12px/14px), and
+   the two that missed the patch (the stats card, the clear card) rendered as
+   bare edge-to-edge blocks 「有边框、零内边距」("bordered, zero inset"). This is
+   now its one true home; components are not allowed to configure a private
+   rule of the same name again (guarded by timeline-data-group.test.ts).
+   ScenarioInference's tighter padding is an explicit override, not a duplicate. */
+.card.pad { padding: 14px 16px; }
+/* The global .sub-h's 20px top margin is redundant for「卡内第一个小标题」
+   ("the first subheading inside a card") (0.2.40's card-top whitespace band). */
+.card.pad > .sub-h:first-child { margin-top: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.dot.g { background: var(--green); } .dot.y { background: var(--amber); } .dot.r { background: var(--red); }
+.dot.o { background: var(--dot-off); } .dot.n { background: var(--slate-dot); } .dot.b { background: var(--blue); }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; }
+.chip.lan { background: var(--teal-soft); color: var(--teal-ink); }
+.chip.cloud { background: var(--brand-soft); color: var(--brand-ink); }
+
+/* 2026-08-01 channel badge: icon + colour TOGETHER (owner: 颜色+图标组合，不能只靠
+   颜色 — "colour + icon combination, never colour alone") — full-scan of the app
+   (2026-08-01 channel-identity survey) found three
+   places drawing their own lan/cloud chip with their own copy of the colours
+   (main-window/components/PairedList.vue's `.chip.chan-lan/.chan-cloud` among them);
+   this is the ONE definition going forward. `.chan-badge .icon` sizes the inline SVG
+   the two chan-badge consumers render via v-html (main-window/TimelinePage.vue today;
+   any future page should adopt these two classes instead of drawing its own). */
+.chan-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 1px 8px 1px 6px; border-radius: 99px; }
+.chan-badge .icon { width: 11px; height: 11px; stroke-width: 2.4; }
+.chan-badge.lan { color: var(--channel-lan-ink); background: var(--channel-lan-soft); }
+.chan-badge.cloud { color: var(--channel-cloud-ink); background: var(--channel-cloud-soft); }
+
+/* status text colors (five-state) */
+.st-tag { font-size: 11px; font-weight: 600; }
+.st-g { color: var(--green); } .st-y { color: var(--amber-ink); } .st-r { color: var(--red); }
+.st-b { color: var(--blue); } .st-n { color: var(--slate); }
+
+/* mode badges */
+.mbadge { flex: none; width: 24px; height: 24px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+/* V2-17: the numeral is an SVG icon now — slightly heavier stroke than the
+   global .icon default so the 13px glyph stays crisp on the tinted chip. */
+.mbadge .icon { width: 13px; height: 13px; stroke-width: 2; }
+.b1 { background: var(--brand-soft); color: var(--brand-ink); }
+.b2 { background: var(--teal-soft); color: var(--teal-ink); }
+.b3 { background: var(--amber-soft); color: var(--amber-ink); }
+
+/* forms */
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 5px; }
+.input, select.input { width: 100%; font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--t1); transition: border-color .15s, box-shadow .15s; }
+.input:focus, select.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.saved { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--green); font-weight: 600; margin-left: 8px; }
+.saved.local { color: var(--amber); }
+
+.icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ── 2026-07-29 polish round: one interaction language for the whole app ── */
+
+/* Text selection follows the brand instead of the OS default blue. */
+::selection { background: var(--selection); }
+
+/* Keyboard focus: a single ring everywhere, and ONLY for keyboard users
+   (:focus-visible never fires on mouse click, so buttons stay clean). Inputs
+   are excluded — they already ring via border + soft shadow above. */
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+:is(.input, select.input, textarea):focus-visible { outline: none; }
+
+/* Scrollbars that match the theme instead of the WebView default. The thumb
+   is border-clipped so it floats inside its track with breathing room. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border: 3px solid transparent; border-radius: 8px; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--t3); border: 3px solid transparent; background-clip: padding-box; }
+
+/* Respect the OS reduced-motion setting: every transition/animation in the app
+   (incl. the capsule window, which shares this file) collapses to instant. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -1,0 +1,1 @@
+node verify/hooks/commit-msg.mjs "$1"

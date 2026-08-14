@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.flowmic.mac",
+  "bundle": {
+    "targets": ["app"],
+    "resources": ["resources/server.js", "resources/package.json", "resources/node"],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

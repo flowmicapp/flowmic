@@ -1,0 +1,37 @@
+{
+  "name": "@flowmic/server-core",
+  "version": "0.2.66",
+  "private": true,
+  "description": "FlowMic server-core — standalone/saas socket.io + REST server. Room pairing, settings sync, timeline blind store, mock billing.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "flowmic-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:tools": "tsup --config tsup.tools.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:golden": "node scripts/smoke-golden-path.mjs",
+    "smoke:billing": "node scripts/smoke-mock-billing.mjs"
+  },
+  "dependencies": {
+    "@flowmic/protocol": "workspace:*",
+    "socket.io": "^4.8.1",
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-node": "1.13.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.0",
+    "socket.io-client": "^4.8.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

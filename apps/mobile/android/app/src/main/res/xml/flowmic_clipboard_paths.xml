@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- owner 2026-07-27 image copy: the ONLY path this provider exposes is the single
+     clipboard preview file in the app's private cache. `path` must match
+     ImageClipboard.DIR — widening it here would expose the rest of the cache to
+     whatever app reads the clipboard. -->
+<paths>
+    <cache-path name="flowmic_clipboard" path="clipboard/" />
+</paths>

@@ -1,0 +1,24 @@
+# FlowMic self-host — `docker compose up --build` and pair from the phone.
+# Standalone mode: single user, secret auto-generated into the /data volume on
+# first boot (identity.ts), SQLite at /data/flowmic.db. No cloud dependency.
+#
+# NOTE (2026-07-23): authored on a dev box without docker — see the Dockerfile
+# header for the OWNER-ENV verification command.
+
+services:
+  flowmic-server:
+    build:
+      context: .
+      dockerfile: apps/server-core/Dockerfile
+    ports:
+      - "41879:41879"
+    volumes:
+      - flowmic-data:/data
+    environment:
+      FLOWMIC_MODE: standalone
+      # 0.1.0 private build: mock billing on so the plan/quota flow is testable.
+      FLOWMIC_MOCK_BILLING: "1"
+    restart: unless-stopped
+
+volumes:
+  flowmic-data:
