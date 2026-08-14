@@ -1,0 +1,108 @@
+# The delivery gate on macOS.
+#
+# WHY THIS EXISTS: every stage of verify.yml runs on Windows, where
+# cfg(target_os = "macos") / cfg(unix) code is not compiled at all — the
+# `platform-cfg-count` lint exists precisely because changes to those modules
+# slip through the Windows gate with zero proof. This job compiles and tests
+# them on a GitHub-hosted macOS runner. (Never a self-hosted one — see the
+# red line in verify.yml's header.)
+#
+# 🔴 Manual dispatch only, on purpose — this workflow has never been observed
+# green on a macOS runner. Same promotion contract flutter.yml carried and
+# satisfied on 2026-08-15 (its header records the run):
+#   1. dispatch it manually and watch it pass;
+#   2. confirm the wall-clock is sane against the timeout below;
+#   3. add the push/pull_request triggers in the same commit that links the
+#      green run.
+#
+# Known unknowns going in (stated, not hidden): the sidecar bundle stages a
+# darwin Node against the per-platform pin in scripts/vendor/bundled-node.mjs;
+# the script/golden/desktop suites have only ever run on Windows and the Mac
+# mini's cargo-only subset (scripts/mac-verify.sh — which is NOT the delivery
+# gate and says so). Whatever this job flushes out is the reason it exists.
+
+name: verify-macos
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: the delivery gate on macOS (unobserved — see header)
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      # Full history for the same reason as verify.yml: verify:scripts contains
+      # guards that read specific historical commits.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build protocol
+        run: pnpm --filter @flowmic/protocol build
+
+      - name: Lint
+        run: pnpm verify:lint
+
+      - name: Types
+        run: pnpm verify:types
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Build desktop sidecar bundle
+        run: pnpm --filter @flowmic/desktop build:sidecar
+
+      # The prize: cfg(target_os = "macos") modules compile under -D warnings
+      # here, which no Windows stage can claim.
+      - name: Clippy
+        run: pnpm verify:clippy
+
+      - name: Rust tests
+        run: pnpm verify:rust-tests
+
+      - name: Rust doctests
+        run: pnpm verify:doctests
+
+      - name: Script tests
+        run: pnpm verify:scripts
+
+      - name: Golden
+        run: pnpm golden
+
+      - name: Protocol tests
+        run: pnpm verify:protocol-tests
+
+      - name: Server tests
+        run: pnpm verify:server-tests
+
+      - name: Desktop tests
+        run: pnpm verify:desktop-tests
+
+      - name: Desktop typecheck
+        run: pnpm verify:types:desktop

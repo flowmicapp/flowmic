@@ -1,0 +1,82 @@
+# The node-side gate on Linux — the relay's own platform.
+#
+# WHY THIS EXISTS: production serves server-core's dist on a Linux VPS, yet
+# every server/protocol/golden suite in this repo has only ever run on
+# Windows (verify.yml) or a dev machine. This job runs the node-side stages
+# on the platform the relay actually ships to.
+#
+# WHAT IS DELIBERATELY ABSENT: the Rust family (sidecar bundle, clippy,
+# rust-tests, doctests). There is no Linux desktop build — tauri.conf ships
+# Windows bundles, the Rust tree has no Linux injection backend, and
+# pretending to verify one would be a green about nothing. The day a Linux
+# desktop build exists, those stages get added here the same way everything
+# else was: observed green first.
+#
+# 🔴 Manual dispatch only until observed green — the same promotion contract
+# flutter.yml satisfied on 2026-08-15 (its header records the pattern):
+# watch it pass, confirm the wall-clock, add push/pull_request triggers in
+# the commit that links the run.
+
+name: verify-linux
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: the node-side gate on Linux (unobserved — see header)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # Full history for the same reason as verify.yml: verify:scripts contains
+      # guards that read specific historical commits.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build protocol
+        run: pnpm --filter @flowmic/protocol build
+
+      - name: Lint
+        run: pnpm verify:lint
+
+      - name: Types
+        run: pnpm verify:types
+
+      - name: Script tests
+        run: pnpm verify:scripts
+
+      - name: Golden
+        run: pnpm golden
+
+      - name: Protocol tests
+        run: pnpm verify:protocol-tests
+
+      - name: Server tests
+        run: pnpm verify:server-tests
+
+      - name: Desktop tests
+        run: pnpm verify:desktop-tests
+
+      - name: Desktop typecheck
+        run: pnpm verify:types:desktop
