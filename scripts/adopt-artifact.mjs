@@ -52,7 +52,7 @@
 //   rather than letting the filename quietly speak for bytes nobody asked.
 
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -290,8 +290,15 @@ function main(argv) {
 const thisFile = fileURLToPath(import.meta.url);
 const argvEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 const sameEntry = (a, b) => {
-  const na = normalize(resolve(a));
-  const nb = normalize(resolve(b));
+  // realpath BOTH sides: Node's ESM loader resolves symlinks in module URLs
+  // while argv[1] arrives as typed, so on macOS a script under the /tmp or
+  // /var symlink family compares /private/var/... against /var/... and the
+  // guard refuses its own direct invocation. Measured on the first macOS CI
+  // dispatch (up6, 2026-08-15); same fix in pack-portable.mjs and
+  // publish-download-center.mjs — the guard has three copies.
+  const canon = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  const na = normalize(canon(a));
+  const nb = normalize(canon(b));
   return process.platform === 'win32' ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 };
 if (argvEntry && sameEntry(thisFile, argvEntry)) {

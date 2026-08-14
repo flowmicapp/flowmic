@@ -172,13 +172,24 @@ if (pin) {
     const real = measure(realStagedPath);
     console.log(`  measured: bytes=${real.bytes} sha256=${real.sha256.slice(0, 16)}…`);
 
-    // Reference cross-check (lead, measured 2026-08-05): 86,969,160 bytes.
-    // Per the dispatch: if THIS run disagrees, that is a finding to report,
-    // not something to quietly paper over by trusting pin.bytes instead.
-    const REFERENCE_BYTES = 86_969_160;
+    // Reference cross-check — an INDEPENDENT copy per platform, deliberately
+    // not read from pin.bytes (a corrupted pin must not self-validate):
+    //   win32-x64    86,969,160 — lead's reference measurement, 2026-08-05.
+    //   darwin-arm64 112,915,776 — traced to nodejs.org's signed tarball on
+    //     the Mac mini, 2026-08-07 (provenance in scripts/vendor/
+    //     bundled-node.mjs); the first macOS CI dispatch (2026-08-15) staged
+    //     a byte-identical binary via setup-node — which is also the run that
+    //     caught this constant being win32-only and platform-blind.
+    // A pinned platform with no row here FAILS (not skips): the independent
+    // reference is the whole point of this section, so adding a platform pin
+    // means adding its reference in the same commit.
+    const REFERENCE_BYTES_BY_PLATFORM = { 'win32-x64': 86_969_160, 'darwin-arm64': 112_915_776 };
+    const REFERENCE_BYTES = REFERENCE_BYTES_BY_PLATFORM[platformKey];
     assertTrue(
-      real.bytes === REFERENCE_BYTES,
-      `staged binary is ${REFERENCE_BYTES} bytes (lead's 2026-08-05 reference measurement) — got ${real.bytes}`,
+      REFERENCE_BYTES != null && real.bytes === REFERENCE_BYTES,
+      REFERENCE_BYTES == null
+        ? `no independent reference measurement declared for ${platformKey} — add one beside the pin`
+        : `staged binary is ${REFERENCE_BYTES} bytes (independent per-platform reference) — got ${real.bytes}`,
     );
 
     const problems = compareToPin(real, pin);

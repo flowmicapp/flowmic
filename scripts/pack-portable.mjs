@@ -94,7 +94,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -479,8 +479,12 @@ function main(argv) {
 const thisFile = fileURLToPath(import.meta.url);
 const argvEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 const sameEntry = (a, b) => {
-  const na = normalize(resolve(a));
-  const nb = normalize(resolve(b));
+  // realpath BOTH sides — macOS /var → /private/var symlinks make the ESM
+  // loader's URL and argv[1] disagree about one file. See the identical fix
+  // and its CI measurement in adopt-artifact.mjs (up6, 2026-08-15).
+  const canon = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  const na = normalize(canon(a));
+  const nb = normalize(canon(b));
   return process.platform === 'win32' ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 };
 if (argvEntry && sameEntry(thisFile, argvEntry)) {
