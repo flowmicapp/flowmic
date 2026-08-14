@@ -33,6 +33,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The bundled-node pin table — same declaration build-sidecar.mjs consults.
+// Imported so the shipped-artifact check below can tell "nobody ran the build
+// here" apart from "this platform cannot run the build at all".
+import { stagedNodeFileName } from '../../../scripts/vendor/bundled-node.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../..');
 const SERVER_ENTRY = path.join(REPO_ROOT, 'apps', 'server-core', 'src', 'index.ts');
@@ -158,8 +163,21 @@ describe('sidecar bundle must not contain @flowmic/stt-cloud (card §207)', () =
     for (const f of PRIVATE_FINGERPRINTS) expect(bundle).not.toContain(f);
   }, 120_000);
 
-  it('the shipped artifact, when one exists, agrees', () => {
+  it('the shipped artifact, when one exists, agrees', (ctx) => {
     if (!existsSync(SIDECAR_ARTIFACT)) {
+      // On a platform with no bundled-node pin, build-sidecar REFUSES to run
+      // by design (no runtime to stage, nothing for verify-bundle to measure
+      // against), so no artifact can exist here and its absence carries no
+      // information. Measured on the first Linux CI dispatch (2026-08-15):
+      // 2188/2198 green, this line the only red, on a platform whose build
+      // throws 'no bundled-Node pin declared for linux-x64'. The day a
+      // linux-x64 pin lands (0.3.0 card S8), stagedNodeFileName() starts
+      // answering here and this skip disarms itself — absence becomes a
+      // failure again with no edit to this file.
+      if (stagedNodeFileName() == null) {
+        ctx.skip();
+        return;
+      }
       // Not a skip: a missing artifact is a real fact the reader must see. It is
       // also not a failure of THIS card — the authoritative check above already
       // ran against current source.
