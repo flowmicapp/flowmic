@@ -1,6 +1,6 @@
 {
   "name": "@flowmic/desktop",
-  "version": "0.2.66",
+  "version": "0.3.0",
   "private": true,
   "description": "FlowMic desktop (Tauri 2 + Vue 3 + Rust injection layer). WP-R2-2 dual-window UI: timeline main window + transparent capsule HUD.",
   "license": "AGPL-3.0-only",

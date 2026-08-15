@@ -12,14 +12,19 @@
 # desktop build exists, those stages get added here the same way everything
 # else was: observed green first.
 #
-# 🔴 Manual dispatch only until observed green — the same promotion contract
-# flutter.yml satisfied on 2026-08-15 (its header records the pattern):
-# watch it pass, confirm the wall-clock, add push/pull_request triggers in
-# the commit that links the run.
+# Promoted to `push` / `pull_request` on 2026-08-15 under the same contract
+# flutter.yml satisfied: observed green (run 31851656414, the third
+# dispatch), wall-clock sane (2m37s against the 30-minute timeout), and this
+# commit links the run. The first dispatch measured, rather than assumed,
+# which stages belong here — see the note above the absent script-tests
+# stage and the pin-aware skip in sidecar-excludes-stt-cloud.test.ts.
 
 name: verify-linux
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +36,7 @@ permissions:
 
 jobs:
   verify:
-    name: the node-side gate on Linux (unobserved — see header)
+    name: the node-side gate on Linux
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

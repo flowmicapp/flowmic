@@ -7,23 +7,22 @@
 # them on a GitHub-hosted macOS runner. (Never a self-hosted one — see the
 # red line in verify.yml's header.)
 #
-# 🔴 Manual dispatch only, on purpose — this workflow has never been observed
-# green on a macOS runner. Same promotion contract flutter.yml carried and
-# satisfied on 2026-08-15 (its header records the run):
-#   1. dispatch it manually and watch it pass;
-#   2. confirm the wall-clock is sane against the timeout below;
-#   3. add the push/pull_request triggers in the same commit that links the
-#      green run.
-#
-# Known unknowns going in (stated, not hidden): the sidecar bundle stages a
-# darwin Node against the per-platform pin in scripts/vendor/bundled-node.mjs;
-# the script/golden/desktop suites have only ever run on Windows and the Mac
-# mini's cargo-only subset (scripts/mac-verify.sh — which is NOT the delivery
-# gate and says so). Whatever this job flushes out is the reason it exists.
+# Promoted to `push` / `pull_request` on 2026-08-15 under the same contract
+# flutter.yml satisfied: observed green (run 31851653930, the third dispatch),
+# wall-clock sane (6m22s against the 60-minute timeout, rust-cache warm), and
+# this commit links the run. The two red dispatches before it are the reason
+# this job exists — each caught real platform-blind defects no Windows stage
+# could see: a clippy error inside cfg(unix) (credentials.rs), a win32-only
+# byte constant posing as a cross-platform reference (it27), and a
+# run-as-main guard that refused its own invocation under macOS's
+# /var → /private/var symlinks (three release scripts, up6).
 
 name: verify-macos
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -35,7 +34,7 @@ permissions:
 
 jobs:
   verify:
-    name: the delivery gate on macOS (unobserved — see header)
+    name: the delivery gate on macOS
     runs-on: macos-15
     timeout-minutes: 60
 
