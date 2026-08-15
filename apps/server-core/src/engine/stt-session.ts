@@ -196,6 +196,18 @@ export class SttSessionBridge implements SttOrchestrator {
       message: nonEmpty(e.message, nonEmpty(e.code, 'STT engine error')),
       retryable: Boolean(e.retryable),
     }));
+    // Card ENG-4 (2026-08-15) — a refusal we deliberately do NOT put on the wire
+    // (the vendor said "no audio received" about a recording our own gate found
+    // no speech in; the honest sentence is the one the empty final already
+    // triggers). It is logged rather than dropped: 「不说给用户听」 and
+    // 「当作没发生过」 are different things, and only the first one is the fix.
+    // ⚠️ This is what a grep for the vendor's own words will hit now, so the
+    // ops trail keeps working — the same reason `stt.error emitted` exists.
+    o.on('error-suppressed', (e: OError) => log.info('stt.no-voice: vendor refused an empty session', {
+      code: e.code,
+      message: e.message,
+      note: 'our feed gate accepted 0 bytes — the phone says 「没有听到语音」 off the empty final instead',
+    }));
     o.on('engine-status', (e: OStatus) => this.deps.emitter.emit('stt:engine-status', {
       provider: nonEmpty(e.provider, 'unknown'),
       status: e.status,

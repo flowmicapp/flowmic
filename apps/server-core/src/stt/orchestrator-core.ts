@@ -29,7 +29,7 @@ import { SttConfigMissingError } from './engine-router';
 import { mergeOverlap, foldInterim, foldConfirmedWithDraft, bankDraftAcrossLegs } from './text-merge';
 import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, type FlushOutcome } from './flush-final';
 import { noEngineTerminalText } from './terminal-final-text';
-import { silentEmptyFinalError, noEngineReachedError } from './empty-final-verdicts';
+import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
 import { coldOpenErrorVerdict } from './cold-open-verdict';
 
 export * from './orchestrator-types';
@@ -168,7 +168,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     const hooks: EngineSessionHooks = {
       spawnEngine: () => this.spawnEngine(), closeEngine: () => this.closeEngine(),
       replayBufferTail: () => this.replayBufferTail(), currentEngineId: () => this.engine?.id ?? 'unknown',
-      emitStatus: (p) => this.emit('engine-status', p), emitError: (p) => this.emit('error', p),
+      emitStatus: (p) => this.emit('engine-status', p), emitError: (p) => this.emit(vendorNoAudioIsOurSilence(p.code, this.voiceBytesCaptured) ? 'error-suppressed' : 'error', p), // ENG-4: this class holds the only copy of that counter; rule + production trace + why this is not a silent failure are all on the verdict, and `error-suppressed` is logged by engine/stt-session.ts
       clearSoftSegmentTimer: () => this.clearSoftSegmentTimer(), isTerminated: () => this.terminated,
     };
     this.ladder = new EngineSessionReconnectLadder(hooks, {

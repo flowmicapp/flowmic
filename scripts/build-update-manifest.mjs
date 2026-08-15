@@ -92,7 +92,11 @@ import {
   fetchLiveManifest,
   isRoundArtifactName,
   mergeLivePlatforms,
+  nonPublicUpdateUrls,
   resolveLiveManifestUrl,
+  resolveUpdateDownloadBase,
+  updateArtifactUrl,
+  updateNotesUrl,
 } from './update-manifest-lib.mjs';
 // Card UP-10's gate ②. Lives in a separate module rather than in this file, for the
 // same reason as portable-self-update-marker.mjs: this file **is entirely top-level
@@ -110,8 +114,12 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'publish');
 const MANIFEST = join(OUT, 'update-manifest.json');
-const PROJECT = 'flowmic';
-const CHANNEL = 'release';
+// `PROJECT` / `CHANNEL` lived here to compose the download-centre path segments
+// (`/files/<project>/<channel>/…`). Since the URLs moved to the public release
+// area (2026-08-15) nothing in this file consumes them, and a constant with no
+// consumer is the same shape as a capability with no caller. They still exist
+// where they are still true: publish-download-center.mjs, which is what
+// actually uploads to that site.
 
 /** Version is read from the root package.json — the same reference face as
  *  publish.mjs:49 / publish-download-center.mjs:35, and the one version-sync
@@ -120,13 +128,13 @@ const CHANNEL = 'release';
  *  the artifacts for four versions (CLAUDE.md version-number discipline). */
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 
-/** Download-center entry. Same constants and same reason as
- *  publish-download-center.mjs:31-33 (IP first: going via the domain, a
- *  multi-NIC / VPN host may pick a different source address).
- *  ⚠️ The site is **HTTP only**; 443 drops the connection — that is exactly
- *     why sha256 is required on the manifest, not a "we'll switch to https later"
- *     compromise. */
-const DOWNLOAD_BASE = process.env.DOWNLOAD_CENTER_URL ?? 'http://updates.example.invalid';
+/** Where a client is told to fetch the bytes (owner, 2026-08-15 — full account,
+ *  including the measured dead link that prompted it, in update-manifest-lib.mjs).
+ *  🔴 This used to be the LAN download centre, which meant the manifest's URLs
+ *  only worked for someone on 100.64.7.0/24. The download centre is still where
+ *  publish.mjs uploads — the two are now separate questions: 「产物存到哪」 and
+ *  「告诉客户端去哪拿」, and only the second one is what this file answers. */
+const DOWNLOAD_BASE = resolveUpdateDownloadBase();
 
 const args = process.argv.slice(2);
 const CHECK_ONLY = args.includes('--check');
@@ -195,16 +203,24 @@ for (const name of files.sort()) {
 
   const p = (platforms[cls.platform] ??= {
     version: VERSION,
-    // Full release notes go up with the package (publish-download-center.mjs:171).
-    // Version-pinned path; the reason is word-for-word the same as artifacts[].url below.
-    notes_url: `${DOWNLOAD_BASE}/files/${PROJECT}/${CHANNEL}/${VERSION}/FlowMic-${VERSION}-RELEASE_NOTES.md`,
+    // The release page for this version — it carries the same notes
+    // publish-download-center.mjs uploads as FlowMic-<v>-RELEASE_NOTES.md, on a
+    // host a user outside the office can actually open. Version-pinned; the
+    // reason is word-for-word the same as artifacts[].url below.
+    notes_url: updateNotesUrl(DOWNLOAD_BASE, VERSION),
     artifacts: [],
   });
   p.artifacts.push({
     kind: cls.kind,
     locale: cls.locale,
     filename: name,
-    // 🔴 Version-pinned path `/files/<project>/<channel>/<version>/<file>`.
+    // 🔴 Version-pinned: `<release base>/download/v<version>/<file>`.
+    //
+    // ⚠️ THE HOST CHANGED (owner, 2026-08-15), THE PINNING LESSON DID NOT. The
+    // paragraph below is kept because the lesson it paid for is what makes the
+    // GitHub shape the right one too; only the base moved, from the LAN
+    // download centre to the public release area (full account, with the
+    // measured dead link, in update-manifest-lib.mjs).
     //
     // This originally wrote `/dl/<project>/<channel>/<file>`, and **the comment
     // above it defended that**: roughly 「带了文件名就不是那个永远指向最新的稳定链了，所以固定的
@@ -225,8 +241,7 @@ for (const name of files.sort()) {
     // with `/dl/`, any round that 「上传了产物、按那条规矩跳过中继部署」 would hand **every
     // old client a 404**. Pinning the version makes the conflict disappear — the right
     // fix is to change the URL shape, **not to add another rule someone has to remember**.
-    // One fewer 302 hop as a side effect.
-    url: `${DOWNLOAD_BASE}/files/${PROJECT}/${CHANNEL}/${VERSION}/${encodeURIComponent(name)}`,
+    url: updateArtifactUrl(DOWNLOAD_BASE, VERSION, name),
     sha256: actual,
     size: statSync(path).size,
   });
@@ -305,7 +320,7 @@ if (SKIP_REMOTE_VERIFY) {
     }
     if (merged.retained.length > 0) {
       console.log(
-        '  · retained entries are re-verified against the download center below. If one has been ' +
+        '  · retained entries are re-verified at their own published URLs below. If one has been ' +
           'rotated out (the center keeps only the latest 3 versions), the verification will refuse ' +
           'the whole manifest — the action then is to re-upload that version\'s artifact, or ship ' +
           'a new artifact for that platform.',
@@ -326,6 +341,43 @@ if (SKIP_REMOTE_VERIFY) {
     console.error('\n✗ 清单未生成 — refuse to merge when live entries cannot be asked / cannot be read (an absent platform would be silently dropped, the exact shape ruling ① exists to end).');
     process.exit(1);
   }
+}
+
+// ── 🔴 Gate ③: is every URL one an OUTSIDE user can actually fetch ─────────
+//
+// Card PUB-1 (owner, 2026-08-15). Gate ② asks 「这些字节真的在那个地址上吗」 and
+// answers it honestly — **from this machine**. That is the loophole: the build
+// machine sits on the office LAN, so a download-centre URL verifies perfectly
+// here and is a dead link for every user who is not on that subnet.
+// A gate that can only pass is not a gate; this one asks the question gate ②
+// structurally cannot.
+//
+// 🔴 It runs on the MERGED map, not on this round's artifacts — that is the
+// whole point. This round's URLs are composed by this script and are public by
+// construction; the ones that can be stale are the entries ruling ① RETAINED
+// from the live manifest, which are copied verbatim, url included. A
+// single-platform round is exactly when that bites, and it would bite quietly.
+//
+// It runs BEFORE gate ② deliberately: no reason to stream 220 MB through sha256
+// to prove that a URL nobody outside can open does contain the right bytes.
+{
+  const offenders = nonPublicUpdateUrls(platforms, DOWNLOAD_BASE);
+  if (offenders.length > 0) {
+    console.log('\n── public reachability (gate ③, card PUB-1) ──');
+    for (const o of offenders) {
+      fail(
+        `${o.platform} ${o.filename}: ${o.field} points at ${o.url}, which is not under ${DOWNLOAD_BASE} — ` +
+          `that is an address only this network can open, so every user off it gets 「更新功能什么都不做」. ` +
+          `This entry was retained from the live manifest (ruling ①), so the action is to publish that ` +
+          `platform's ${o.platform === 'android' ? 'APK' : 'artifact'} to the public release for its version ` +
+          `(node scripts/publish-github-release.mjs --repo=flowmicapp/flowmic), or to ship a new artifact for ` +
+          `that platform this round so this script composes the URL itself.`,
+      );
+    }
+    console.error('\n✗ 清单未生成 — a manifest that is half public and half LAN-only is worse than one platform less: it looks complete.');
+    process.exit(1);
+  }
+  ok(`public reachability: every url/notes_url sits under ${DOWNLOAD_BASE} (gate ③)`);
 }
 
 // ── 🔴 Gate ②: are these bytes actually on the site (card UP-10) ───────────
@@ -351,17 +403,17 @@ if (SKIP_REMOTE_VERIFY) {
 if (SKIP_REMOTE_VERIFY) {
   for (const line of remoteVerifySkipBanner()) console.log(line);
 } else {
-  console.log('\n── remote verify: does the download center actually have these bytes (card UP-10) ──');
+  console.log('\n── remote verify: does the published URL actually serve these bytes (card UP-10) ──');
   const outcome = await gateRemoteArtifacts({ platforms, fail, ok });
   if (outcome.refused > 0) {
     console.error(
-      `\n✗ 清单未生成 — ${outcome.checked} artifacts, ${outcome.refused} of them do not match on the download center.`,
+      `\n✗ 清单未生成 — ${outcome.checked} artifacts, ${outcome.refused} of them do not match at their published URL.`,
     );
     console.error('  Each line above is 「这份清单会把客户端指向一个取不到、或者取回来不是它的文件」。');
     console.error('  「先产物后清单」 is now delivered by this step, not by someone remembering.');
     process.exit(1);
   }
-  ok(`remote verify passed: ${outcome.checked} artifacts match byte-for-byte on the download center`);
+  ok(`remote verify passed: ${outcome.checked} artifacts match byte-for-byte at their published URL`);
 }
 
 const manifest = {

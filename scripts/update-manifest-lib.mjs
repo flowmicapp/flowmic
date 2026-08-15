@@ -164,6 +164,106 @@ export function resolveLiveManifestUrl(env = process.env) {
  *  sized for streaming installers off the LAN download center. */
 export const LIVE_MANIFEST_TIMEOUT_MS = 30_000;
 
+// ── where the client actually pulls the bytes from (owner, 2026-08-15) ──────
+//
+// Owner, after tapping "update" on a phone that was not on the office network:
+// 「原来的下载链接，它是内部的，就是外部的用户，他是使用不了的……如果是 GitHub
+// 可以拉就直接拉 GitHub」("the old download link is internal — an outside user
+// cannot use it … if GitHub can serve it, pull straight from GitHub").
+//
+// 🔴 MEASURED, 2026-08-15 [dev-pc-a]: `GET https://flowmic.app/api/updates/latest`
+// served every one of the five 0.3.1 artifacts from the LAN download centre
+// (`/files/flowmic/release/0.3.1/…` on the internal host publish-download-center.mjs
+// uploads to). Publishing there is gated to the office subnet, it is HTTP-only,
+// and 443 drops the connection. So for every user who is not sitting on that
+// network, the whole update feature resolved to a dead link. **That is the
+// quiet failure shape this module's own header argues against for 404s**, and
+// it had been shipping since the manifest existed, because the machine that
+// generates the manifest is always on the network that makes the URL work.
+//
+// ⚠️ The URL is the ONLY thing that changes. Integrity is unaffected and stays
+// where it was: the manifest's sha256 is what both clients verify after the
+// download (`update/download.rs` gate ③, `update/update_download.dart`
+// `verifyDownloadedArtifact` — the latter's comment already says out loud that
+// TLS is not what makes this byte stream trustworthy). Moving to HTTPS is a
+// side effect, not the argument.
+//
+// ⚠️ Both clients follow redirects, which this shape needs: GitHub answers the
+// asset URL with a 302 to `release-assets.githubusercontent.com`
+// 〔measured 2026-08-15, dev-pc-a: `curl -L -r 0-1024` → 206 after one hop〕.
+// reqwest follows up to 10 by default; dart:io `HttpClient` follows up to 5.
+export const UPDATE_DOWNLOAD_BASE_ENV = 'FLOWMIC_UPDATE_DOWNLOAD_BASE';
+
+/**
+ * The public release area. Everything a user can download hangs off it.
+ *
+ * ⚠️ NAMED MIRROR, drift risk stated (the same disclosure `resolveLiveManifestUrl`
+ * makes about its host): the repo slug also appears in `opensource-sync.mjs`
+ * (`PUBLIC_REPO`) and is passed to `publish-github-release.mjs` as `--repo=`.
+ * Neither can be imported — both are executable top-level scripts, so importing
+ * one runs it. The mirror is therefore held by a machine instead of by memory:
+ * `up11-public-update-urls.test.mjs` reads `opensource-sync.mjs` as TEXT and
+ * fails if the two slugs disagree.
+ */
+export const PUBLIC_RELEASE_BASE = 'https://updates.example.invalid/releases';
+
+/** Env override so a loopback drill can point the whole chain at a stub — the
+ *  same argument (and the same shape) as LIVE_MANIFEST_URL_ENV above. It
+ *  replaced `DOWNLOAD_CENTER_URL`, which was the honest name while the base WAS
+ *  the download centre and became a lie the moment it stopped being one. */
+export function resolveUpdateDownloadBase(env = process.env) {
+  return env[UPDATE_DOWNLOAD_BASE_ENV] ?? PUBLIC_RELEASE_BASE;
+}
+
+/**
+ * 🔴 Version-pinned, for the reason the download-centre URL was version-pinned
+ * before it 〔measured 2026-08-09, recorded in build-update-manifest.mjs〕: a
+ * "latest" link stops answering the moment the version is no longer latest, and
+ * an old client then gets a 404 — "the update feature does nothing", the
+ * quieter of the two failure modes. A GitHub release tag never moves, so this
+ * URL keeps working for a client that checks in a year.
+ */
+export function updateArtifactUrl(base, version, filename) {
+  return `${base}/download/v${version}/${encodeURIComponent(filename)}`;
+}
+
+/** The release page for this version. `notes_url` is only ever OPENED as a link
+ *  — desktop `UpdateBlock.vue`/`UpdateCard.vue`, mobile `settings_update_card.dart`
+ *  — never fetched or parsed, so the rendered release page is the right target
+ *  and the markdown file it used to point at is not needed for this. */
+export function updateNotesUrl(base, version) {
+  return `${base}/tag/v${version}`;
+}
+
+/**
+ * Gate ③'s judgment: which URLs in the finished manifest are NOT on the public
+ * base. Pure, so the drill can drive the real function.
+ *
+ * 🔴 Why this gate has to exist at all: the merge (ruling ①) retains a live
+ * entry verbatim for any platform this round did not build, **including its
+ * url**. Every live entry today carries a download-centre URL, so without this
+ * check the very next single-platform round would quietly re-publish a manifest
+ * that is half public and half unreachable — and gate ② would happily verify
+ * the unreachable half, because the machine that runs it is the one machine on
+ * earth for which those URLs work.
+ *
+ * @returns {{platform:string, filename:string, url:string, field:'url'|'notes_url'}[]}
+ */
+export function nonPublicUpdateUrls(platforms, base) {
+  const offenders = [];
+  for (const [platform, entry] of Object.entries(platforms)) {
+    if (typeof entry?.notes_url === 'string' && !entry.notes_url.startsWith(`${base}/`)) {
+      offenders.push({ platform, filename: '(release notes)', url: entry.notes_url, field: 'notes_url' });
+    }
+    for (const a of entry?.artifacts ?? []) {
+      if (typeof a?.url === 'string' && !a.url.startsWith(`${base}/`)) {
+        offenders.push({ platform, filename: a.filename, url: a.url, field: 'url' });
+      }
+    }
+  }
+  return offenders;
+}
+
 /** Numeric x.y.z comparison — `0.2.9` < `0.2.10`, which string comparison gets
  *  wrong. Returns -1 / 0 / 1. Segments beyond three are ignored because the
  *  version faces this repo pins (bump-version.mjs) are strictly three-segment. */

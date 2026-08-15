@@ -47,11 +47,16 @@ const List<AppLocale> kLocales = <AppLocale>[
   AppLocale.en,
   AppLocale.ja,
   AppLocale.ko,
+  AppLocale.zhTw,
+  AppLocale.fr,
+  AppLocale.es,
+  AppLocale.de,
+  AppLocale.ru,
 ];
 
 /// The five stages, one unmistakable phrase per language. Written as a table
 /// rather than 「contains the English word」 because a half-translated catalogue
-/// is precisely what four-language copy exists to prevent.
+/// is precisely what nine-language copy exists to prevent.
 const Map<AppLocale, List<String>> kStageMarkers = <AppLocale, List<String>>{
   AppLocale.zh: <String>['采集音频', '语音识别', '语言模型处理', '打进当前输入框', '留下什么'],
   AppLocale.en: <String>[
@@ -63,10 +68,39 @@ const Map<AppLocale, List<String>> kStageMarkers = <AppLocale, List<String>>{
   ],
   AppLocale.ja: <String>['音声を取得', '音声認識', '言語モデル処理', 'フォーカス中の入力欄', '何が残るのか'],
   AppLocale.ko: <String>['음성을 수집', '음성 인식', '언어 모델 처리', '포커스된 입력창', '무엇이 남는가'],
+  AppLocale.zhTw: <String>['採集音訊', '語音辨識', '語言模型處理', '打進目前輸入框', '留下什麼'],
+  AppLocale.fr: <String>[
+    'téléphone enregistre',
+    'Reconnaissance vocale',
+    'modèle de langue',
+    'saisi dans le champ actif',
+    'Ce qui reste',
+  ],
+  AppLocale.es: <String>[
+    'graba audio',
+    'Reconocimiento de voz',
+    'modelo de idioma',
+    'escritura en el campo activo',
+    'Qué queda detrás',
+  ],
+  AppLocale.de: <String>[
+    'nimmt Audio auf',
+    'Spracherkennung',
+    'Sprachmodell',
+    'ins Fokusfeld eingefügt',
+    'Was bleibt',
+  ],
+  AppLocale.ru: <String>[
+    'записывает звук',
+    'Распознавание речи',
+    'языковой моделью',
+    'вставлено в активное поле',
+    'Что остаётся',
+  ],
 };
 
 /// The vendors that actually process the data, per stage. Both are proper nouns
-/// and are NOT translated, so one literal each covers all four catalogues; the
+/// and are NOT translated, so one literal each covers all nine catalogues; the
 /// per-locale loop is what proves no language dropped the sentence.
 const String kSpeechVendor = 'Soniox';
 const String kModelVendor = 'DeepSeek';
@@ -90,6 +124,35 @@ const Map<AppLocale, List<String>> kPlanHedges = <AppLocale, List<String>>{
   ],
   AppLocale.ja: <String>['まだ稼働していません', '当社が運用するサーバー上で動作', '計画', '将来'],
   AppLocale.ko: <String>['아직 사용하지 않습니다', '우리가 운영하는 서버에서 돌아갑니다', '계획', '앞으로'],
+  // The five locales below never shipped the pre-switch sentence, so their rows
+  // are authored plausible back-slides rather than verbatim history: the most
+  // natural 「not yet in service」 / 「our own servers」 phrasings a translation
+  // refresh or a well-meaning edit would reach for in each language.
+  AppLocale.zhTw: <String>['尚未啟用', '我們自己運營的伺服器', '計劃', '計畫', '將來'],
+  AppLocale.fr: <String>[
+    'pas encore en service',
+    'pas encore utilisé',
+    'prévoyons de',
+    'nos propres serveurs',
+  ],
+  AppLocale.es: <String>[
+    'aún no está en uso',
+    'todavía no',
+    'planeamos',
+    'nuestros propios servidores',
+  ],
+  AppLocale.de: <String>[
+    'noch nicht im Einsatz',
+    'noch nicht genutzt',
+    'geplant',
+    'auf unseren eigenen Servern',
+  ],
+  AppLocale.ru: <String>[
+    'ещё не используется',
+    'пока не',
+    'планируем',
+    'на наших собственных серверах',
+  ],
 };
 
 // ── The LAN leg: ONE claim became THREE (DISC-1, 0.2.61) ────────────────────
@@ -118,6 +181,23 @@ const Map<AppLocale, List<String>> kLanPinned = <AppLocale, List<String>>{
   ],
   AppLocale.ja: <String>['PC の身元が入っている', '接続ごとに照合'],
   AppLocale.ko: <String>['컴퓨터의 신원이 실려 있는', '연결마다 대조'],
+  AppLocale.zhTw: <String>['帶著這臺電腦的身分', '每一次連線都核對'],
+  AppLocale.fr: <String>[
+    'porte l\'identité du PC',
+    'vérifie à chaque connexion suivante',
+  ],
+  AppLocale.es: <String>[
+    'lleva la identidad del PC',
+    'comprueba en cada conexión posterior',
+  ],
+  AppLocale.de: <String>[
+    'die Identität des PC trägt',
+    'bei jeder späteren Verbindung',
+  ],
+  AppLocale.ru: <String>[
+    'в коде есть личность компьютера',
+    'при каждом следующем подключении',
+  ],
 };
 
 /// ② The old warning is STILL TRUE for pairings made before 0.2.60, and there is
@@ -139,9 +219,14 @@ const Map<AppLocale, List<String>> kLanLegacyPlaintext = <AppLocale, List<String
   AppLocale.en: <String>['still in the clear', 'pairing again'],
   AppLocale.ja: <String>['今も平文', 'ペアリングし直す'],
   AppLocale.ko: <String>['지금도 평문', '다시 페어링'],
+  AppLocale.zhTw: <String>['仍然是明文', '重新配對'],
+  AppLocale.fr: <String>['restent en clair', 'un nouvel appairage'],
+  AppLocale.es: <String>['siguen en claro', 'volver a emparejar'],
+  AppLocale.de: <String>['noch im Klartext', 'erneut koppeln'],
+  AppLocale.ru: <String>['всё ещё открыты', 'повторное сопряжение'],
 };
 
-/// ③ The kill switch. An env var name, so one literal covers all four
+/// ③ The kill switch. An env var name, so one literal covers all nine
 /// catalogues — the per-locale loop is what proves no language dropped the
 /// sentence, exactly as with the vendor names. apps/server-core/src/config.ts
 /// `resolveLanTls` branch ② is the mechanism.
@@ -162,6 +247,23 @@ const Map<AppLocale, List<String>> kLanKillSwitchCost = <AppLocale, List<String>
   ],
   AppLocale.ja: <String>['接続できなくなります', '削除してペアリングし直します'],
   AppLocale.ko: <String>['연결되지 않습니다', '삭제하고 다시 페어링'],
+  AppLocale.zhTw: <String>['連不上', '刪掉這臺電腦再配一次'],
+  AppLocale.fr: <String>[
+    'ne peuvent plus se connecter',
+    'supprimez le PC sur le téléphone et appariez à nouveau',
+  ],
+  AppLocale.es: <String>[
+    'ya no pueden conectar',
+    'borrando el PC en el teléfono y emparejando de nuevo',
+  ],
+  AppLocale.de: <String>[
+    'kommen nicht mehr durch',
+    'den PC auf dem Handy löschen und neu koppeln',
+  ],
+  AppLocale.ru: <String>[
+    'больше не подключатся',
+    'удалить компьютер на телефоне и сопрячь снова',
+  ],
 };
 
 /// ④ The sentences this card replaced, as verbatim fragments per locale.
@@ -179,6 +281,14 @@ const Map<AppLocale, List<String>> kLanExpiredClaims = <AppLocale, List<String>>
   ],
   AppLocale.ja: <String>['現在暗号化されていません', 'この区間の暗号化は開発中'],
   AppLocale.ko: <String>['현재 암호화되어 있지 않습니다', '이 구간의 암호화는 개발 중'],
+  // The five locales below were born after 0.2.60, so the expired sentence
+  // never existed in them; their rows are the phrasings a translation refresh
+  // seeded from the four pre-D2-LAN catalogues would most plausibly produce.
+  AppLocale.zhTw: <String>['區域網路這條路目前沒有加密', '加密還在做'],
+  AppLocale.fr: <String>['pas encore chiffré', 'en cours de développement'],
+  AppLocale.es: <String>['no está cifrada hoy', 'cifrado está en desarrollo'],
+  AppLocale.de: <String>['heute nicht verschlüsselt', 'Verschlüsselung ist in Arbeit'],
+  AppLocale.ru: <String>['сегодня не шифруется', 'ещё в разработке'],
 };
 
 Future<void> _pumpPage(
@@ -299,6 +409,16 @@ void main() {
       AppLocale.en: 'local',
       AppLocale.ja: 'ローカル',
       AppLocale.ko: '로컬',
+      AppLocale.zhTw: '本地',
+      AppLocale.fr: 'local',
+      AppLocale.es: 'local',
+      // Substring of both 'lokale' and 'lokal' — case-sensitively lowercase,
+      // which is what the copy uses ('Eine lokale Engine').
+      AppLocale.de: 'lokal',
+      // 'Локальный' opens the bullet capitalized; the fragment is case-robust
+      // (matches 'Локальн…' and 'локальн…' alike) so a mid-sentence rewrite
+      // cannot dodge the ban by changing case.
+      AppLocale.ru: 'окальн',
     };
     // The tier must still be NAMED — dropping it outright would restore the W1.5
     // defect (the 「转录直接报错停止」 clause goes false when the seeded rows that
@@ -308,6 +428,11 @@ void main() {
       AppLocale.en: 'we seeded for you at first boot',
       AppLocale.ja: '初回起動時に用意した',
       AppLocale.ko: '첫 실행 때 미리 넣어 둔',
+      AppLocale.zhTw: '首次開機時替你預置',
+      AppLocale.fr: 'préparées au premier démarrage',
+      AppLocale.es: 'preparamos al primer arranque',
+      AppLocale.de: 'beim ersten Start angelegt',
+      AppLocale.ru: 'заданные при первом запуске',
     };
     for (final AppLocale loc in kLocales) {
       final AppStrings s = AppStrings.of(loc);
@@ -378,6 +503,23 @@ void main() {
       ],
       AppLocale.ja: <String>['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
       AppLocale.ko: <String>['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
+      AppLocale.zhTw: <String>['說的是語音', '文字之後去哪，見 ③'],
+      AppLocale.fr: <String>[
+        'il s\'agit de votre voix',
+        'où va le texte ensuite, voir l\'étape 3',
+      ],
+      AppLocale.es: <String>[
+        'eso es tu voz',
+        'a dónde va el texto después es el paso 3',
+      ],
+      AppLocale.de: <String>[
+        'das betrifft Ihre Stimme',
+        'wohin der Text danach geht, ist Schritt 3',
+      ],
+      AppLocale.ru: <String>[
+        'речь о голосе',
+        'куда дальше идёт текст, см. шаг 3',
+      ],
     };
     // owner's verbatim opt-in sentence (ruling 2026-08-11 / deferred-batch #12).
     // The clause was inserted BEFORE it; if a future edit rewrites the bullet and

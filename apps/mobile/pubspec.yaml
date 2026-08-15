@@ -6,7 +6,7 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.1
+version: 0.3.2
 
 environment:
   sdk: ^3.11.5

@@ -32,14 +32,32 @@ import DataFlowDisclosure from './components/DataFlowDisclosure.vue';
 import { S_BY_LOCALE, setLocale } from '../lib/strings';
 import { DISCLOSURE_PRIVACY_URL, DISCLOSURE_TERMS_URL } from '../lib/strings/disclosure';
 
-const LOCALES = ['zh-CN', 'en', 'ja', 'ko'] as const;
-type Loc = (typeof LOCALES)[number];
+// All nine shipped languages, from the generated registry — hardcoding four
+// here is how the five 2026-08-14 locales ran for a day with every guard in
+// this file silently not covering them.
+import { UI_LOCALES, type UiLocale } from '../lib/strings/generated/locales.g';
+
+const LOCALES = UI_LOCALES;
+type Loc = UiLocale;
 
 async function renderIn(loc: Loc): Promise<string> {
   setLocale(loc);
   const html = await renderToString(createSSRApp(DataFlowDisclosure));
   setLocale('zh-CN');
   return html;
+}
+
+/** Vue's SSR text escaping. Catalogue strings with apostrophes (fr) or straight
+ *  quotes (de „…") are entity-escaped in the serialized markup, so asserting a
+ *  RAW catalogue string against `renderIn`'s output would fail for exactly the
+ *  languages this file exists to cover. Same table as scripts elsewhere use. */
+function ssrEscape(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /** One phrase per locale that only the intended sentence can satisfy. Kept as
@@ -50,6 +68,11 @@ const STEP_MARKERS: Record<Loc, readonly string[]> = {
   en: ['records audio', 'Speech recognition', 'Language-model processing', 'typed into the focused box', 'left behind'],
   ja: ['音声を取得', '音声認識', '言語モデル処理', 'フォーカス中の入力欄', '何が残るのか'],
   ko: ['음성을 수집', '음성 인식', '언어 모델 처리', '포커스된 입력창', '무엇이 남는가'],
+  'zh-TW': ['擷取音訊', '語音辨識', '語言模型處理', '取得焦點的輸入框', '留下什麼'],
+  fr: ['votre téléphone capte', 'Reconnaissance vocale', 'Traitement par le modèle de langage', 'saisi dans le champ actif', 'Ce qui reste'],
+  es: ['capta el audio', 'Reconocimiento de voz', 'Procesado por el modelo de lenguaje', 'se escribe en el campo enfocado', 'Qué queda guardado'],
+  de: ['nimmt dein Handy Audio auf', 'Spracherkennung', 'Verarbeitung durch das Sprachmodell', 'in das fokussierte Feld getippt', 'Was zurückbleibt'],
+  ru: ['записывает звук', 'Распознавание речи', 'Обработка языковой моделью', 'вводится в активное поле', 'Что остаётся'],
 };
 
 /** The vendors that actually process the data, per stage. Both are proper nouns
@@ -66,6 +89,11 @@ const DEFAULT_VALUE_CLAIMS: Record<Loc, readonly string[]> = {
   en: ['off by default', 'on by default', 'unless you switch it on', 'switched on', 'you turned on'],
   ja: ['デフォルトはオフ', 'デフォルトはオン', '既定ではオフ', '有効にしている場合'],
   ko: ['기본 꺼짐', '기본 켜짐', '기본값은 꺼', '직접 켜 두었다면'],
+  'zh-TW': ['預設關閉', '預設開啟', '預設為關', '你若自己開啟'],
+  fr: ['désactivé par défaut', 'activé par défaut'],
+  es: ['desactivado por defecto', 'activado por defecto'],
+  de: ['standardmäßig deaktiviert', 'standardmäßig aktiviert', 'standardmäßig aus', 'standardmäßig ein'],
+  ru: ['по умолчанию включ', 'по умолчанию выключ', 'включён по умолчанию'],
 };
 
 /** The clause that replaces them: where the reader can see the current value.
@@ -75,6 +103,11 @@ const WHERE_TO_SEE_IT: Record<Loc, string> = {
   en: 'Settings → Speech recognition',
   ja: '設定 → 音声認識',
   ko: '설정 → 음성 인식',
+  'zh-TW': '設定 → 語音辨識',
+  fr: 'Paramètres → Reconnaissance vocale',
+  es: 'Ajustes → Reconocimiento de voz',
+  de: 'Einstellungen → Spracherkennung',
+  ru: 'Настройки → Распознавание речи',
 };
 
 /** Phrasings that would turn the present-tense claim back into a plan.
@@ -91,6 +124,11 @@ const PLAN_HEDGES: Record<Loc, readonly string[]> = {
   en: ['not in use yet', 'runs on servers we operate', 'plan to', 'will change to the present tense'],
   ja: ['まだ稼働していません', '当社が運用するサーバー上で動作', '計画', '将来'],
   ko: ['아직 사용하지 않습니다', '우리가 운영하는 서버에서 돌아갑니다', '계획', '앞으로'],
+  'zh-TW': ['尚未啟用', '計畫', '將來'],
+  fr: ['pas encore en service', 'prévoyons', "à l'avenir"],
+  es: ['aún no está en uso', 'planeamos', 'en el futuro'],
+  de: ['noch nicht im Einsatz', 'geplant', 'in Zukunft'],
+  ru: ['ещё не используется', 'планируем', 'в будущем'],
 };
 
 // ── The LAN leg: ONE claim became THREE (DISC-1, 0.2.61) ────────────────────
@@ -116,6 +154,11 @@ const LAN_PINNED: Record<Loc, readonly string[]> = {
   en: ['carries the identity of the computer', 'checks it on every later connection'],
   ja: ['PC の身元が入っている', '接続ごとに照合'],
   ko: ['컴퓨터의 신원이 실려 있는', '연결마다 대조'],
+  'zh-TW': ['帶有該電腦的身分識別', '每次連線時都會檢查'],
+  fr: ["porte l'identité de l'ordinateur", 'à chaque connexion ultérieure'],
+  es: ['lleve la identidad del ordenador', 'en cada conexión posterior'],
+  de: ['die Identität des Computers trägt', 'bei jeder späteren Verbindung'],
+  ru: ['несёт в себе идентификатор компьютера', 'при каждом последующем подключении'],
 };
 
 /** ② The old warning is STILL TRUE for pairings made before 0.2.60, and there is
@@ -131,6 +174,11 @@ const LAN_LEGACY_PLAINTEXT: Record<Loc, readonly string[]> = {
   en: ['still in the clear', 'pairing again'],
   ja: ['今も平文', 'ペアリングし直す'],
   ko: ['지금도 평문', '다시 페어링'],
+  'zh-TW': ['仍然是未加密的', '重新配對'],
+  fr: ['restent en clair', 'nouvel appairage'],
+  es: ['siguen sin cifrar', 'volver a emparejar'],
+  de: ['weiterhin unverschlüsselt', 'erneutes Koppeln'],
+  ru: ['остаются незашифрованными', 'повторное сопряжение'],
 };
 
 /** ③ The kill switch, and what it costs. `FLOWMIC_LAN_TLS` is an env var name,
@@ -151,6 +199,11 @@ const LAN_KILL_SWITCH_COST: Record<Loc, readonly string[]> = {
   en: ['can no longer connect', 'deleting the computer on the phone and pairing again'],
   ja: ['接続できなくなります', '削除してペアリングし直します'],
   ko: ['연결되지 않습니다', '삭제하고 다시 페어링'],
+  'zh-TW': ['無法再連線', '刪除該電腦並重新配對'],
+  fr: ['ne peuvent plus se connecter', "supprimer l'ordinateur sur le téléphone"],
+  es: ['ya no pueden conectarse', 'eliminar el ordenador en el teléfono'],
+  de: ['nicht mehr verbinden', 'auf dem Telefon gelöscht und erneut gekoppelt'],
+  ru: ['больше не смогут подключиться', 'удалить компьютер на телефоне'],
 };
 
 /** The phone section the paragraph sends the reader to, for the current value of
@@ -170,6 +223,11 @@ const PHONE_ENCRYPTION_SECTION: Record<Loc, string> = {
   en: 'Connection encryption',
   ja: '接続の暗号化',
   ko: '연결 암호화',
+  'zh-TW': '連線加密',
+  fr: 'Chiffrement de la connexion',
+  es: 'Cifrado de la conexión',
+  de: 'Verschlüsselung',
+  ru: 'Шифрование связи',
 };
 
 /** ④ The sentences this card replaced, as verbatim fragments per locale.
@@ -184,6 +242,11 @@ const LAN_EXPIRED_CLAIMS: Record<Loc, readonly string[]> = {
   en: ['route is not encrypted today', 'Encryption for this leg is in development'],
   ja: ['現在暗号化されていません', 'この区間の暗号化は開発中'],
   ko: ['현재 암호화되어 있지 않습니다', '이 구간의 암호화는 개발 중'],
+  'zh-TW': ['目前沒有加密', '加密還在開發'],
+  fr: ['pas chiffrée aujourd', 'chiffrement est en développement'],
+  es: ['no está cifrada hoy', 'cifrado está en desarrollo'],
+  de: ['heute nicht verschlüsselt', 'Verschlüsselung ist in Entwicklung'],
+  ru: ['сегодня не зашифрован', 'шифрование ещё разрабатывается'],
 };
 
 describe('P1 — the product says where the user’s words go', () => {
@@ -191,7 +254,7 @@ describe('P1 — the product says where the user’s words go', () => {
     for (const loc of LOCALES) {
       const html = await renderIn(loc);
       for (const marker of STEP_MARKERS[loc]) {
-        expect(html, `${loc} is missing the stage 「${marker}」`).toContain(marker);
+        expect(html, `${loc} is missing the stage 「${marker}」`).toContain(ssrEscape(marker));
       }
     }
   });
@@ -215,7 +278,7 @@ describe('P1 — the product says where the user’s words go', () => {
       const cat = S_BY_LOCALE[loc];
       const html = await renderIn(loc);
       for (const key of ['disc_s2_cloud', 'disc_s2_byok', 'disc_s2_local'] as const) {
-        expect(html, `${loc}.${key} not rendered`).toContain(cat[key]);
+        expect(html, `${loc}.${key} not rendered`).toContain(ssrEscape(cat[key]));
       }
       expect(cat.disc_s2_cloud, `${loc}: Soniox must be on the CLOUD branch`).toContain(SPEECH_VENDOR);
       expect(cat.disc_s2_local, `${loc}: the local branch must not name a vendor`).not.toContain(SPEECH_VENDOR);
@@ -282,7 +345,7 @@ describe('P1 — the product says where the user’s words go', () => {
     for (const loc of LOCALES) {
       const html = await renderIn(loc);
       const body = S_BY_LOCALE[loc].disc_s3_body;
-      expect(html, `${loc}: step ③ is not mounted`).toContain(body);
+      expect(html, `${loc}: step ③ is not mounted`).toContain(ssrEscape(body));
       for (const claim of DEFAULT_VALUE_CLAIMS[loc]) {
         expect(
           body,
@@ -308,7 +371,7 @@ describe('P1 — the product says where the user’s words go', () => {
     for (const loc of LOCALES) {
       const html = await renderIn(loc);
       const line = S_BY_LOCALE[loc].disc_s4_lan_plain;
-      expect(html, `${loc}: the LAN paragraph is not mounted`).toContain(line);
+      expect(html, `${loc}: the LAN paragraph is not mounted`).toContain(ssrEscape(line));
 
       for (const m of LAN_PINNED[loc]) {
         expect(
@@ -391,12 +454,24 @@ describe('P1 — the product says where the user’s words go', () => {
       en: 'local',
       ja: 'ローカル',
       ko: '로컬',
+      // zh-TW says 本機; ru's word is capitalized at the bullet start
+      // (「Локальный движок」), so the fragment is case-robust on purpose.
+      'zh-TW': '本機',
+      fr: 'local',
+      es: 'local',
+      de: 'lokal',
+      ru: 'окальн',
     };
     const SEEDED_LOCALITY_CLAIM: Record<Loc, readonly string[]> = {
       'zh-CN': [LOCALITY_WORD['zh-CN']],
       en: [LOCALITY_WORD.en],
       ja: [LOCALITY_WORD.ja],
       ko: [LOCALITY_WORD.ko],
+      'zh-TW': [LOCALITY_WORD['zh-TW']],
+      fr: [LOCALITY_WORD.fr],
+      es: [LOCALITY_WORD.es],
+      de: [LOCALITY_WORD.de],
+      ru: [LOCALITY_WORD.ru],
     };
     // The tier must still be NAMED — dropping it entirely would restore the W1.5
     // defect (the 「stops with an error」 clause becomes false when the seeded
@@ -406,6 +481,11 @@ describe('P1 — the product says where the user’s words go', () => {
       en: 'we seeded for you at first boot',
       ja: '初回起動時に用意した',
       ko: '첫 실행 때 미리 넣어 둔',
+      'zh-TW': '第一次啟動時為你預先設定',
+      fr: 'préconfigurées pour vous au premier démarrage',
+      es: 'preconfiguramos para ti en el primer arranque',
+      de: 'beim ersten Start für dich voreingestellt',
+      ru: 'предварительно настроили для вас при первом запуске',
     };
     for (const loc of LOCALES) {
       const body = S_BY_LOCALE[loc].disc_s2_body;
@@ -429,7 +509,7 @@ describe('P1 — the product says where the user’s words go', () => {
       ).toContain(LOCALITY_WORD[loc]);
       // …and it really reaches the screen, not just the catalogue (0.2.53).
       const html = await renderIn(loc);
-      expect(html, `${loc}: disc_s2_body is not rendered`).toContain(body);
+      expect(html, `${loc}: disc_s2_body is not rendered`).toContain(ssrEscape(body));
     }
   });
 
@@ -464,6 +544,11 @@ describe('P1 — the product says where the user’s words go', () => {
       en: ['that is about your voice', 'where the text goes next is step 3'],
       ja: ['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
       ko: ['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
+      'zh-TW': ['只關乎你的語音', '文字接下來要送去哪裡是第 3 步'],
+      fr: ['cela concerne votre voix', "c'est l'étape 3"],
+      es: ['eso concierne a tu voz', 'a dónde va el texto después es el paso 3'],
+      de: ['das betrifft deine Stimme', 'ist Schritt 3'],
+      ru: ['это касается вашего голоса', 'решается на шаге 3'],
     };
     // owner's verbatim opt-in sentence (ruling 2026-08-11 / deferred-batch #12).
     // The clause was inserted BEFORE it — an owner-ruled sentence must not be
@@ -487,7 +572,7 @@ describe('P1 — the product says where the user’s words go', () => {
       // and measures the rendered paragraph at 360dp; this end has no layout to
       // measure, so it asserts presence in the serialized markup instead.
       const html = await renderIn(loc);
-      expect(html, `${loc}: disc_s2_local is not rendered`).toContain(line);
+      expect(html, `${loc}: disc_s2_local is not rendered`).toContain(ssrEscape(line));
     }
   });
 
@@ -511,12 +596,12 @@ describe('P1 — the product says where the user’s words go', () => {
       expect(html, `${loc}: expired privacy-policy.md path is back`).not.toContain('privacy-policy.md');
       expect(html, `${loc}: expired terms-of-service.md path is back`).not.toContain('terms-of-service.md');
       const cat = S_BY_LOCALE[loc];
-      expect(html, `${loc}: privacy label not mounted`).toContain(cat.disc_legal_privacy);
-      expect(html, `${loc}: terms label not mounted`).toContain(cat.disc_legal_terms);
-      // Do not claim the opened page is in the UI language — the site is four
-      // languages and does not take a locale from this URL.
+      expect(html, `${loc}: privacy label not mounted`).toContain(ssrEscape(cat.disc_legal_privacy));
+      expect(html, `${loc}: terms label not mounted`).toContain(ssrEscape(cat.disc_legal_terms));
+      // Do not claim the opened page is in the UI language — the site stores its
+      // own language choice and does not take a locale from this URL.
       expect(cat.disc_more_on_site, `${loc}: copy claimed the policy is in the UI language`).not.toMatch(
-        /your language|你的语言|あなたの言語|당신의 언어|in your language/i,
+        /your language|你的语言|你的語言|あなたの言語|당신의 언어|in your language|votre langue|tu idioma|deiner Sprache|вашем языке/i,
       );
     }
   });

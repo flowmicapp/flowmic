@@ -158,3 +158,54 @@ export function noEngineReachedError(
     retryable: false,
   };
 }
+
+/**
+ * 🔴 Card ENG-4 (2026-08-15, owner report 「云端中继……说的时候连不上 STT」) — the
+ * same rule as {@link noEngineReachedError}'s FIRST condition, applied to the
+ * code when it arrives from BELOW instead of from here.
+ *
+ * THE ACCOUNT, measured end to end on a real tablet (0.2.64) against the
+ * production relay 〔2026-08-15 15:49 CST, device TB335ZC, machine dev-pc-a〕:
+ *   15:49:18  stt.pool selected a route  {provider:"soniox"}
+ *   15:49:22  WARN stt.error emitted     {code:"STT_NO_ENGINE_REACHED",
+ *                                         message:"[invalid_request] No audio received."}
+ *   15:49:24  audio intake               {chunks:27, audioMs:5280, voicedMs:0}
+ * A held button in a quiet room. The VAD gate accepted **nothing**, so the
+ * session opened and was handed no audio; Soniox answered "No audio received.";
+ * `classifyNoAudio` (packages/stt-cloud/.../soniox.ts) re-points that at this
+ * code — a real improvement over the `STT_CONFIG_MISSING` it replaced, and still
+ * not what happened. The registered sentence is 「这段录音没有到达任何识别引擎，
+ * 没有转成文字……如果一直这样，请检查识别引擎设置。」: the recording reached an
+ * engine (it answered), nothing was lost (there was nothing), and on the managed
+ * cloud route the user has no engine settings to check. Read from the user's
+ * side that sentence IS 「连不上 STT」.
+ *
+ * 🔴 AND IT WINS OVER THE TRUE ONE. The empty final that follows makes the phone
+ * raise `SttStallReason.emptyTranscript` = 「没有听到语音，请靠近麦克风再说一次」
+ * — the honest sentence, already shipped in nine languages. `chat_notices.dart`'s
+ * `namedRefusalHolds` then suppresses it, because within one utterance a NAMED
+ * refusal is normally the more informative of the two. That guard is right; what
+ * broke it is a named refusal that is less informative than the thing it hides.
+ * ⇒ The fix belongs where the claim is MADE, not where it is displayed.
+ *
+ * ⚠️ THE CONDITION IS THE WHOLE DESIGN, and it is deliberately NOT "the code is
+ * STT_NO_ENGINE_REACHED":
+ *  · `voiceBytesCaptured === 0` — our own feed gate accepted nothing, so there
+ *    was nothing to deliver to anybody. This is the same fact, taken from the
+ *    same counter, that already stops {@link noEngineReachedError} from making
+ *    the claim from above; below it, the claim was arriving unchecked.
+ *  · `voiceBytesCaptured > 0` and the vendor still says "no audio received"
+ *    ⇒ **we captured speech and it reached no engine**, which is exactly what
+ *    the code was registered for. That one must stay loud, and it does: this
+ *    returns false and the error goes out untouched.
+ *
+ * ⚠️ NOT A SILENT FAILURE — the banned direction. Suppressing this error does not
+ * leave the user with nothing: the terminal empty `stt:final` is emitted on the
+ * same recording (`emitTerminalFinal`, and `chat_notices.dart` records both
+ * arriving on the measured runs), and the phone then says the true sentence it
+ * was already going to say. The refusal is still recorded server-side by the
+ * caller, so the ops trail keeps the vendor's own words.
+ */
+export function vendorNoAudioIsOurSilence(code: string, voiceBytesCaptured: number): boolean {
+  return code === 'STT_NO_ENGINE_REACHED' && voiceBytesCaptured === 0;
+}

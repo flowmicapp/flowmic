@@ -58,6 +58,12 @@ import {
   remoteVerifySkipBanner,
   verifyRemoteArtifact,
 } from './verify-remote-artifact.mjs';
+// The URL shape is imported, not re-spelled: §6 used to pin it by matching the
+// builder's source text, and that pin went stale the moment the base moved to
+// the public release area (card PUB-1, 2026-08-15). Driving the real composer
+// means these fixtures cannot model a path nobody builds — the same argument
+// this drill makes for driving the real gate instead of re-implementing it.
+import { updateArtifactUrl } from './update-manifest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILDER_SRC = readFileSync(join(ROOT, 'scripts', 'build-update-manifest.mjs'), 'utf8'); // text only
@@ -91,9 +97,11 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const APK_BYTES = randomBytes(300_000);
 const MSI_BYTES = randomBytes(120_000);
 
-/** The path shape build-update-manifest.mjs composes. §6 pins this against the
- *  builder's own source, so this constant cannot quietly stop modelling it. */
-const filesPath = (name) => `/files/${PROJECT}/${CHANNEL}/${FIXTURE_VERSION}/${encodeURIComponent(name)}`;
+/** The path shape build-update-manifest.mjs composes — produced by the very
+ *  function the builder calls, with an empty base so what comes back is the
+ *  path. Nothing here can drift from the real thing without this drill changing
+ *  shape with it. */
+const filesPath = (name) => updateArtifactUrl('', FIXTURE_VERSION, name);
 
 /** Start a loopback server, run `fn` against its base URL, always shut it down.
  *  `closeAllConnections()` first: undici keeps sockets alive, and without it
@@ -172,7 +180,14 @@ await withServer(goodSite, async (base) => {
   });
   assertTrue(viaRedirect.verdict === 'ok', 'a 302 is FOLLOWED to the final 200, not refused as a non-200');
   assertTrue(viaRedirect.redirected === true, 'and the redirect is recorded rather than absorbed silently');
-  assertTrue(viaRedirect.finalUrl.includes('/files/'), `the FINAL url is reported (${viaRedirect.finalUrl.slice(-48)})`);
+  // Derived from the composer, not spelled as a literal: this assertion used to
+  // hard-code `/files/` and went red the day the path moved (PUB-1). What it is
+  // actually about is that the POST-redirect url is reported rather than the one
+  // that was asked for — so it pins that, against whatever path is current.
+  assertTrue(
+    viaRedirect.finalUrl.includes(decodeURIComponent(filesPath(APK_NAME))),
+    `the FINAL url is reported (${viaRedirect.finalUrl.slice(-48)})`,
+  );
 });
 
 // ── §2 a 404 — the silent failure this card exists to catch ─────────────────
@@ -328,12 +343,18 @@ section('§6 build-update-manifest.mjs calls it, awaits it, and refuses before w
   assertTrue(/refused > 0[\s\S]{0,600}process\.exit\(1\)/.test(BUILDER_SRC), 'a non-zero refusal count exits 1 — the refusal actually stops the run');
 
   // The URL shape this drill models must still be the shape the builder builds,
-  // or §1–§5 have been exercising a path nobody composes.
+  // or §1–§5 have been exercising a path nobody composes. This used to be a
+  // source-text match on the literal template; since PUB-1 the fixtures call
+  // the builder's own composer (see the import at the top), so what is left to
+  // pin is that the builder still uses it rather than re-spelling a URL inline.
   assertTrue(
-    BUILDER_SRC.includes('`${DOWNLOAD_BASE}/files/${PROJECT}/${CHANNEL}/${VERSION}/${encodeURIComponent(name)}`'),
-    'the version-pinned URL shape from 25904fa is unchanged — the fixtures here model the real path',
+    BUILDER_SRC.includes('url: updateArtifactUrl(DOWNLOAD_BASE, VERSION, name)'),
+    'the builder composes artifact URLs through updateArtifactUrl — the shared composer these fixtures drive',
   );
-  assertTrue(/DOWNLOAD_CENTER_URL/.test(BUILDER_SRC), 'the base is still env-overridable, which is what makes a loopback drill of the whole script possible later');
+  assertTrue(
+    /resolveUpdateDownloadBase\(\)/.test(BUILDER_SRC),
+    'the base is still env-overridable (FLOWMIC_UPDATE_DOWNLOAD_BASE), which is what makes a loopback drill of the whole script possible later',
+  );
 
   // The correction must stay: the header used to say this script could not
   // enforce ordering, and an expired truth there costs a question nobody asks.

@@ -1,6 +1,6 @@
 {
   "name": "flowmic",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "FlowMic — speak on your phone, type on your PC. Open-source cross-device voice input.",
   "license": "AGPL-3.0-only",

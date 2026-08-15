@@ -100,10 +100,17 @@ class FakeEngine extends EventEmitter implements SttEngine {
   /** An unexpected ws close — a plain Error, so the ladder climbs (the L2 branch
    *  for permanent errors is not what this file is about). */
   emitDrop(): void { this.emit('error', new Error('ws closed unexpectedly')); }
+  /** A NAMED, permanent vendor refusal mid-session — the shape Soniox produces
+   *  when it is closed without ever being handed audio (card ENG-4). */
+  emitNamed(err: SttEngineError): void { this.emit('error', err); }
 }
 
 const CHUNK_BYTES = 6400;
-type EvKey = 'interim' | 'final' | 'engine-status' | 'error' | 'auto-stopped';
+// 'error-suppressed' (card ENG-4, 2026-08-15) is an orchestrator-internal event, never a
+// wire frame: it carries a refusal we deliberately do not say to the user. Observing it
+// here is what lets a row prove 「it was suppressed」 rather than 「nothing happened」 —
+// two very different facts that an assertion on `events.error` alone cannot tell apart.
+type EvKey = 'interim' | 'final' | 'engine-status' | 'error' | 'auto-stopped' | 'error-suppressed';
 interface Rig {
   orch: SttEngineOrchestrator;
   clock: FakeClock;
@@ -124,7 +131,7 @@ function harness(engines: FakeEngine[], opts: Record<string, unknown> = {}): Rig
     softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
     reconnectBackoffMs: [1_000, 1_000, 1_000], maxRetries: 3, ...opts,
   });
-  const events: Record<EvKey, unknown[]> = { interim: [], final: [], 'engine-status': [], error: [], 'auto-stopped': [] };
+  const events: Record<EvKey, unknown[]> = { interim: [], final: [], 'engine-status': [], error: [], 'auto-stopped': [], 'error-suppressed': [] };
   for (const ev of Object.keys(events) as EvKey[]) orch.on(ev, (p: unknown) => events[ev].push(p));
   let seq = 0;
   const errs = (): { code: string; message: string; retryable: boolean }[] => events.error as { code: string; message: string; retryable: boolean }[];
@@ -405,5 +412,93 @@ describe('G-23 positive controls — 「I cannot tell」 must not become either 
 
     expect(rig.codes()).toEqual(['STT_ENGINE_TIMEOUT']);
     expect(rig.lastFinal().text).toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card ENG-4 (2026-08-15) — the same code arriving from BELOW, about a recording
+// that had nothing in it.
+//
+// THE ACCOUNT is a production trace, not a hypothesis 〔measured 2026-08-15
+// 15:49 CST, tablet TB335ZC on the cloud relay, machine dev-pc-a〕: a held
+// button in a quiet room ⇒ `audio intake {audioMs:5280, voicedMs:0}`, Soniox
+// answers `invalid_request / "No audio received."`, and the phone shows 「这段录音
+// 没有到达任何识别引擎……请检查识别引擎设置」. Every clause is wrong: the engine
+// answered, nothing was lost, and on the managed route there are no engine
+// settings. The user reads that as 「云端连不上 STT」 — which is exactly how it
+// was reported.
+//
+// 🔴 REVERSE CONTROL, RUN 〔2026-08-15, machine dev-pc-a〕. `vendorNoAudioIsOurSilence`
+// was made to `return false` in place — i.e. the pre-fix behaviour, where the
+// refusal always went out — and this file was re-run: **1 failed | 14 passed**,
+// the one red being
+//     × 🔴 our gate accepted nothing ⇒ the refusal never reaches the wire, and
+//       the empty final still does
+// The two PAIRED rows stayed green, which is the half that matters as much: the
+// change removes exactly one sentence, in exactly one shape, and adds none.
+// Restored from a byte-level backup; `REVERSE-CONTROL-ENG4` greps to 0.
+describe('ENG-4: a vendor "no audio" refusal about OUR silence is not said to the user', () => {
+  const noAudio = (): SttEngineError => new SttEngineError(
+    'STT_NO_ENGINE_REACHED',
+    '[invalid_request] No audio received.',
+    false,
+  );
+
+  it('🔴 our gate accepted nothing ⇒ the refusal never reaches the wire, and the empty final still does', async () => {
+    const a = new FakeEngine();
+    // `shouldFeedEngine: () => false` IS the production condition, not a stand-in:
+    // it is the same predicate the feed site consults, and voicedMs:0 means it
+    // answered false for every chunk of that recording.
+    const rig = harness([a], { shouldFeedEngine: () => false });
+    await rig.orch.start({ language: 'zh', mode: 'realtime' });
+    rig.speak(5);
+    a.emitNamed(noAudio());
+    await drain();
+    await rig.orch.stop();
+
+    expect(rig.codes()).not.toContain('STT_NO_ENGINE_REACHED');
+    // 🔴 NOT the same as 「nothing happened」: it was routed away, and this is
+    // what the server log line hangs off. Suppressed ≠ dropped.
+    expect(rig.events['error-suppressed']).toHaveLength(1);
+    expect((rig.events['error-suppressed'][0] as { message: string }).message)
+      .toContain('No audio received.');
+    // 🔴 AND THE USER IS NOT LEFT WITH SILENCE — the banned direction. The empty
+    // terminal final is what makes the phone say 「没有听到语音，请靠近麦克风再说
+    // 一次」 (SttStallReason.emptyTranscript). Without this assertion the change
+    // would be indistinguishable from swallowing the failure.
+    expect(rig.lastFinal().text).toBe('');
+    expect(rig.lastFinal().is_segment).toBe(false);
+  });
+
+  it('🔴 PAIRED — speech DID pass the gate and still reached no engine ⇒ the code goes out unchanged', async () => {
+    // The case the code was registered for. If this row ever goes green by
+    // accident the narrowing has become a mute button.
+    const a = new FakeEngine();
+    const rig = harness([a]);
+    await rig.orch.start({ language: 'zh', mode: 'realtime' });
+    rig.speak(5);
+    a.emitNamed(noAudio());
+    await drain();
+    await rig.orch.stop();
+
+    expect(rig.codes()).toContain('STT_NO_ENGINE_REACHED');
+    expect(rig.events['error-suppressed']).toHaveLength(0);
+    expect(rig.errorFor('STT_NO_ENGINE_REACHED')!.message).toContain('No audio received.');
+  });
+
+  it('PAIRED — a DIFFERENT permanent code over the same silence is untouched', async () => {
+    // Positive control on the narrowing itself: the condition is not 「we heard
+    // nothing, so say nothing」. An engine that cannot open still has to be
+    // reported, silence or not.
+    const a = new FakeEngine();
+    const rig = harness([a], { shouldFeedEngine: () => false });
+    await rig.orch.start({ language: 'zh', mode: 'realtime' });
+    rig.speak(5);
+    a.emitNamed(new SttEngineError('STT_CONFIG_MISSING', 'model files missing', false));
+    await drain();
+    await rig.orch.stop();
+
+    expect(rig.codes()).toContain('STT_CONFIG_MISSING');
+    expect(rig.events['error-suppressed']).toHaveLength(0);
   });
 });
