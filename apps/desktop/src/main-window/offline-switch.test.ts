@@ -73,6 +73,41 @@ describe('P7 · offline switch wiring', () => {
     expect(RUST_SESSION).toMatch(/connect_on_main[\s\S]{0,600}is_offline\(\)/);
   });
 
+  // ── P7b (owner 2026-08-15: 「做成胶囊形状的开关」) ──────────────────────────
+  // The checkbox became a capsule switch. Two things about that are load-bearing
+  // rather than cosmetic, and neither is provable by a green build.
+  describe('P7b · the capsule skin did not cost the control anything', () => {
+    it('🔴 the knob follows the STORE, never the click — no `:checked` styling hook', () => {
+      // The component's own rule since P7: 「the rendered state is ALWAYS the
+      // store's offlineMode … the control never renders the click's intention」.
+      // A skin is exactly how that gets broken by accident — `input:checked +
+      // .track` is the CSS everyone reaches for first, and it paints the ON
+      // state from the DOM's optimistic checked flag the instant the user
+      // clicks, before Rust has agreed. The class hook must come from the
+      // store binding.
+      expect(SWITCH).toMatch(/:class="\{\s*on:\s*offlineMode/);
+      const css = SWITCH.slice(SWITCH.indexOf('<style'));
+      expect(
+        css,
+        'the ON fill must not be driven by :checked — that renders intention, not fact',
+      ).not.toMatch(/:checked\s*[+~]?\s*[^{]*\.(track|knob)/);
+    });
+
+    it('🔴 the real <input> is still there, and hidden the way that KEEPS the keyboard', () => {
+      // A <div role="switch"> would have to re-implement Space/Enter, the
+      // checked announcement and the label association. And `display:none` /
+      // `visibility:hidden` remove the input from the focus order, which is the
+      // same loss wearing a different hat.
+      expect(SWITCH).toMatch(/<input[\s\S]{0,200}type="checkbox"/);
+      const css = SWITCH.slice(SWITCH.indexOf('<style'));
+      const srBlock = /\.sr\s*\{([^}]*)\}/.exec(css);
+      expect(srBlock, '.sr (the visually-hidden rule) must exist').not.toBeNull();
+      expect(srBlock![1]).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+      // …and the focus ring has to land on what the user actually sees.
+      expect(css).toMatch(/\.sr:focus-visible\s*\+\s*\.track/);
+    });
+  });
+
   it('the flag is session-scoped: no persistence write anywhere in offline.rs', () => {
     // NOT persisted is a design decision (a PC silently offline across a
     // restart is a support black hole) — pin its implementation: the module

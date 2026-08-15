@@ -207,6 +207,27 @@ mixin RecordingStrings on AppStringsLeaves {
   /// install is fine.
   String get sttStallNoEngineReached => _lfSttStallNoEngineReached;
 
+  /// `QUOTA_EXCEEDED` — the account's monthly transcription allowance is spent
+  /// (QTA-1, 2026-08-15). The server refuses at the `audio:start` entry, before
+  /// any engine is picked.
+  ///
+  /// 🔴 IT MUST NOT FALL THROUGH TO [sttStallEngineErrorCoded]. Nothing broke:
+  /// the engine was never asked, the recording was fine, the network was fine.
+  /// 「转写引擎报错（QUOTA_EXCEEDED）」("transcription engine error
+  /// (QUOTA_EXCEEDED)") would send the user to check an engine that is in
+  /// perfect health — the literal 0.2.53 / ENG-4 shape, twice repaired in this
+  /// repo already, and this is the third code that would have re-run it.
+  ///
+  /// ⚠️ NO UPGRADE CTA, deliberately — the same restraint the LLM leg's
+  /// `QUOTA_EXCEEDED` copy carries (`compose_strings.dart`). The sentence states
+  /// the fact and when it lifts; a banner is not a checkout funnel.
+  ///
+  /// ⚠️ 「resets at the start of next month」 is a MEASURED claim, not a
+  /// comforting guess: the guard reads `usage_records` keyed by
+  /// `currentMonth(clock)` (server-core `db/repos/usage.repo.ts`), i.e. the
+  /// calendar month — so a new month is a fresh row and a fresh budget.
+  String get sttStallQuotaExceeded => _lfSttStallQuotaExceeded;
+
   /// An engine error whose code this build has no sentence for. States what
   /// the frame itself proves (the engine reported an error) and shows the raw
   /// identifier — never a confident cause nobody verified (0.2.53 rule), and a
@@ -225,6 +246,7 @@ mixin RecordingStrings on AppStringsLeaves {
       final String? code = stall.code;
       if (code == 'STT_CONFIG_MISSING') return sttStallConfigMissing;
       if (code == 'STT_NO_ENGINE_REACHED') return sttStallNoEngineReached;
+      if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
       if (code != null && code.isNotEmpty) {
         return sttStallEngineErrorCoded(code);
       }

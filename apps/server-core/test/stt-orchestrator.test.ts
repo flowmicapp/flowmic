@@ -71,7 +71,16 @@ function harness(engines: FakeEngine[], opts: Record<string, unknown> = {}): { o
   let i = 0;
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
-    softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000, ...opts,
+    softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
+    // card SEG-1: a zero grace makes the cadence deadline cut IMMEDIATELY, i.e.
+    // exactly the pre-SEG-1 stopwatch. Pinned here on purpose — the rows in this
+    // file are about index accounting, flush races and settlement fields, none of
+    // which is a claim about WHERE a sentence should end. The boundary policy has
+    // its own file (`stt-segment-boundary.test.ts`) and its own wiring rows in
+    // `stt-segment-settlement.test.ts`; leaving it live here would make every one
+    // of these tests depend on a second, unrelated decision.
+    softSegmentGraceMs: 0,
+    ...opts,
   });
   const events: Record<EvKey, unknown[]> = { interim: [], final: [], 'engine-status': [], error: [], 'auto-stopped': [] };
   for (const ev of Object.keys(events) as EvKey[]) orch.on(ev, (p: unknown) => events[ev].push(p));

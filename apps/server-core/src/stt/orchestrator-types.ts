@@ -9,6 +9,19 @@ import type { ProcessingMode } from '@flowmic/protocol';
 import type { SttEngine, FinalResult, InterimResult } from './engines/base';
 
 export const DEFAULT_SOFT_SEGMENT_MS = 30_000;
+/**
+ * card SEG-1 — how long past {@link DEFAULT_SOFT_SEGMENT_MS} the orchestrator
+ * keeps looking for a decent place to end the segment before cutting anyway.
+ *
+ * 15 s, and the reasoning is stated rather than tuned: the boundary signals it
+ * waits for (a VAD pause, or a sentence terminator in the engine's CONFIRMED
+ * text — `stt/segment-boundary.ts`) arrive within a second or two of the
+ * deadline in ordinary speech, so this number is only ever spent by the two
+ * cases that produce neither: a speaker who does not pause AND an engine with
+ * no punctuation model. Half the cadence bounds the worst-case row at 45 s,
+ * which is still one row per stretch of speech rather than one per stopwatch.
+ */
+export const DEFAULT_SOFT_SEGMENT_GRACE_MS = 15_000;
 export const DEFAULT_REPLAY_WINDOW_MS = 5_000;
 /** engine.open()/flush() caps so audio:start ack + final always fire. */
 export const DEFAULT_ENGINE_SPAWN_TIMEOUT_MS = 5_000;
@@ -33,6 +46,8 @@ export type SttEngineFactory = () => SttEngine;
 
 export interface OrchestratorOptions {
   softSegmentMs?: number;
+  /** card SEG-1 — see {@link DEFAULT_SOFT_SEGMENT_GRACE_MS}. */
+  softSegmentGraceMs?: number;
   hardLimitMs?: number;
   reconnectBackoffMs?: readonly number[];
   maxRetries?: number;

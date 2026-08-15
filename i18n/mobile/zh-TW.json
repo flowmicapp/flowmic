@@ -632,6 +632,7 @@
     "sttStallMessage__3": "'沒有聽到語音，請靠近麥克風再說一次'",
     "sttStallMessage__4": "'麥克風沒有收到任何聲音，請檢查系統的麥克風權限或是否有其他應用程式佔用麥克風'",
     "sttStallNoEngineReached": "'這段錄音沒有到達辨識引擎，沒有轉成文字。請重新說一次；如果一直這樣，請檢查辨識引擎設定'",
+    "sttStallQuotaExceeded": "'本月轉錄額度已用完，這段錄音沒有轉成文字。額度每月月初重置'",
     "syncPendingNote": "'已存本機 · 待連網同步'",
     "tabLogin": "'登入'",
     "tapToConnect": "'點選連線'",

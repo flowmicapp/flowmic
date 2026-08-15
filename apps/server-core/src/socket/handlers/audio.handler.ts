@@ -40,6 +40,7 @@ import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
 import { getAuth, getRoomUuid, safeAck } from '../wire';
 import { markAudioStop } from '../../obs/latency';
+import { log } from '../../log';
 
 export interface SttStartArgs {
   userId: string;
@@ -164,11 +165,60 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     if (pc) send(pc);
   }
 
+  /**
+   * 🔴 QTA-1 (2026-08-15) — SAY THE REFUSAL OUT LOUD, on the wire and in the log.
+   *
+   * MEASURED, tablet TB335ZC + relay journal, 2026-08-15 17:21:40Z+8:
+   * held the talk button 4 s inside a cloud-relay PC instance. `AudioRecord ...
+   * 16000 Hz packageName app.flowmic.android` in logcat (the mic really opened),
+   * one live TLS socket to the relay (`/proc/net/tcp`, uid 10309 → :443), and
+   * then: NOTHING. No route selection, no `audio intake`, no line of any kind in
+   * the relay journal — and nothing on the phone either. The same gesture in the
+   * record-only instance two minutes earlier logged the full trace.
+   *
+   * Cause: the two refusal arms below returned through `safeAck` ALONE, and
+   * `quota-guard.ts`'s own header already records that nobody reads that ack —
+   * the phone emits `audio:start` fire-and-forget (`ptt_session.dart` pttDown).
+   * So an over-quota account got: no text, no error, no log. Both ends silent
+   * about a user being turned away is the red line ("没有静默失败"), and it also
+   * cost an afternoon of archaeology to attribute, which is the second reason
+   * the `log.warn` is here and not only the frame.
+   *
+   * ⚠️ WHY `stt:error` AND NOT A NEW EVENT / A FIXED ACK READER: this arrives at
+   * every phone ALREADY IN THE FIELD. `ptt_inbound.dart` has caught terminal
+   * `stt:error` since ENG-3 and `onSttTerminalError` deliberately handles the
+   * RECORDING case ("exactly when a cold-open failure on `audio:start` arrives"),
+   * latching it until the press ends; `sttStallBannerMessage` then keys on the
+   * WIRE CODE. So a 0.3.1 build that will never be updated still says something
+   * true. Zero protocol change: same whitelisted event, same schema, same
+   * direction — only which frames survive the trip.
+   *
+   * ⚠️ It does NOT cover the `AUTH_TOKEN_INVALID` arm above on purpose: that
+   * socket is not an authenticated mobile, it has its own re-pair surface, and
+   * dressing an auth failure as an engine fault would be the 0.2.53 shape again.
+   */
+  function refuseStart(e: ErrorPayload): void {
+    log.warn('audio:start refused', {
+      code: e.error,
+      message: e.message ?? null,
+      room: getRoomUuid(socket),
+    });
+    socket.emit('stt:error', {
+      code: e.error,
+      message: e.message ?? 'audio:start refused',
+      retryable: false,
+    });
+  }
+
   socket.on('audio:start', (payload: unknown, ack: unknown) => {
     const auth = getAuth(socket);
     if (!auth || auth.kind !== 'mobile') return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
     const parsed = safeParseEvent('audio:start', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'STT_CONFIG_MISSING', message: 'invalid audio:start payload' });
+    if (!parsed.success) {
+      const e: ErrorPayload = { error: 'STT_CONFIG_MISSING', message: 'invalid audio:start payload' };
+      refuseStart(e);
+      return safeAck(ack, e);
+    }
 
     // *** billing call site (STT quota) — the ONE ensureQuota('stt') site ***
     // Live now (standalone NOOP). Over-quota fails loud → QUOTA_EXCEEDED.
@@ -187,6 +237,18 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       // refusal at all — recording those as `quota_refused` would be a row that
       // confidently states the wrong cause, which is worse than no row.
       if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'stt');
+      // QTA-1 — and SAY it. `recordQuotaRefusal` above writes a row that is
+      // invisible in production anyway (`FLOWMIC_USAGE_EVENTS_ENABLED` is unset
+      // on the relay — measured 2026-08-15, boot line "per-event usage log
+      // DISABLED"), so until this line the refusal existed nowhere a human or a
+      // phone could reach it.
+      //
+      // REVERSE CONTROL (2026-08-15, dev-pc-a): deleting this one line
+      // turns `audio-start-refusal-is-spoken.test.ts` from 5 passed to
+      // 「2 failed | 3 passed」, first message 「expected [] to have a length of
+      // 1」 — i.e. the silence itself. The parse arm above was measured the same
+      // way and fails its own row alone.
+      refuseStart(e);
       return safeAck(ack, e);
     }
 

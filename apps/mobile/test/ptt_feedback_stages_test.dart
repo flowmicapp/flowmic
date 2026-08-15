@@ -3,8 +3,14 @@
 //
 //   P5: 「轻记录…说话的按钮默认是灰色的…看起来是不能用的状态」 — the noted face
 //       was the mock's `.ptt.gry{#8B8996}`, the same grey vocabulary as the
-//       genuinely dead face. It is now the amber light-notes wash
-//       (FlowMicDockColors.notedSoft/notedInk) with a 1.5px outline.
+//       genuinely dead face.
+//   P5b (owner, same day): 「土黄色有边框的按钮看起来与整个 APP 的设计语言不一致」
+//       — P5's answer had been an amber WASH plus a 1.5 px outline, i.e. the
+//       app's chip/badge construction worn by the screen's primary action. The
+//       noted face is now the SAME solid `pri`+`onPri` every other resting face
+//       uses, and no face carries a border at all. Record-only identity lives
+//       where ptt_bar.dart's face table says it lives: the label, the caption
+//       and the header pill — never the fill.
 //   P6: 「按下后要小2秒左右才会有反馈」 — measured chain: 500 ms accept window
 //       with zero feedback, then the permission probe + a DUPLICATE in-capture
 //       probe + the native recorder open, with colour/haptic/timer all gated
@@ -50,30 +56,38 @@ class _CountingRecorder extends FakeAudioRecorder {
 }
 
 void main() {
-  group('P5 · the noted face is live-coloured', () {
-    testWidgets('noted ≠ disabled ≠ the old grey ≠ the armed overlay', (
+  group('P5b · the noted face speaks the dock\'s own vocabulary', () {
+    testWidgets('solid pri fill, no border — the same construction as idle', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_wrap(const PttBar(visual: PttVisual.noted)));
       final BoxDecoration noted = _barDecoration(tester);
-      expect(noted.color, FlowMicDockColors.notedSoft);
-      // The outline is what makes a translucent wash read as a bounded,
-      // pressable control — its absence would be the regression.
-      expect(noted.border, isNotNull);
+      expect(noted.color, FlowMicDockColors.pri);
+      // 🔴 The regression P5b exists to prevent: a hairline border is this
+      // app's CHIP construction, and the screen's primary action must not
+      // wear it. Asserted on the decoration, not on a token, because the
+      // owner's complaint was about the rendered shape.
+      expect(noted.border, isNull);
 
       await tester.pumpWidget(_wrap(const PttBar(visual: PttVisual.disabled)));
       final BoxDecoration disabled = _barDecoration(tester);
       expect(disabled.color, FlowMicDockColors.chipbg);
       expect(disabled.border, isNull);
 
-      // Pairwise distinct: the live face shares nothing with the dead one,
-      // and no resting face wears the armed-overlay grey any more.
+      // P5's finding still holds and is still pinned: a LIVE face must not wear
+      // the dock's 「off」 grey, nor the armed-overlay grey.
       expect(noted.color, isNot(disabled.color));
       expect(noted.color, isNot(const Color(0xFF8B8996)));
-      expect(FlowMicDockColors.notedInk, isNot(FlowMicDockColors.sub));
+    });
 
-      await tester.pumpWidget(_wrap(const PttBar(visual: PttVisual.idle)));
-      expect(_barDecoration(tester).color, isNot(noted.color));
+    testWidgets('no resting face carries a border', (WidgetTester tester) async {
+      // Stated as a property of the whole face table rather than of the one
+      // face that regressed — the next fill to be argued about should not be
+      // able to re-import the chip outline either.
+      for (final PttVisual v in PttVisual.values) {
+        await tester.pumpWidget(_wrap(PttBar(visual: v)));
+        expect(_barDecoration(tester).border, isNull, reason: 'face $v');
+      }
     });
   });
 

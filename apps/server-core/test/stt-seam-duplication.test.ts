@@ -75,6 +75,12 @@ async function runRollover(corpus: Corpus, flushDelayMs: number, seamPolicy: Sea
     {
       now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
       softSegmentMs: SOFT_SEGMENT_MS,
+      // card SEG-1 — zero grace ⇒ the boundary lands on the stopwatch, which is
+      // what these rows need: they MEASURE how much audio falls in the seam at a
+      // known instant. A boundary that moves to the next sentence would make the
+      // seam width a property of the corpus's punctuation instead of the flush
+      // latency being measured. Full note in stt-orchestrator.test.ts.
+      softSegmentGraceMs: 0,
     },
   );
   const finals: ServerFinal[] = [];

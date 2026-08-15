@@ -685,6 +685,7 @@
     "sttStallMessage__3": "'No se detectó voz — acércate al micrófono e inténtalo de nuevo'",
     "sttStallMessage__4": "'El micrófono no produjo audio — revisa el permiso del micrófono, o si otra app lo tiene'",
     "sttStallNoEngineReached": "'Esta grabación no llegó a ningún motor de voz, así que no se transcribió nada. Dilo de nuevo; si sigue pasando, revisa los ajustes del motor'",
+    "sttStallQuotaExceeded": "'La cuota de transcripción de este mes se agotó, así que esta grabación no se transcribió. Se restablece al principio del mes que viene'",
     "syncPendingNote": "'Guardado en local · sincronización pendiente'",
     "tabLogin": "'Iniciar sesión'",
     "tapToConnect": "'Toca para conectar'",

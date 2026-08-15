@@ -685,6 +685,7 @@
     "sttStallMessage__3": "'Keine Sprache erkannt — näher ans Mikro und erneut'",
     "sttStallMessage__4": "'Das Mikrofon lieferte kein Audio — Mikro-Recht prüfen, oder ob eine andere App es hält'",
     "sttStallNoEngineReached": "'Diese Aufnahme erreichte keine Sprach-Engine, daher keine Transkription. Noch einmal sagen; bleibt es so, Engine-Einstellungen prüfen'",
+    "sttStallQuotaExceeded": "'Das Transkriptionskontingent dieses Monats ist aufgebraucht, diese Aufnahme wurde daher nicht transkribiert. Es wird zu Beginn des nächsten Monats zurückgesetzt'",
     "syncPendingNote": "'Lokal gespeichert · Sync offen'",
     "tabLogin": "'Anmelden'",
     "tapToConnect": "'Tippen zum Verbinden'",

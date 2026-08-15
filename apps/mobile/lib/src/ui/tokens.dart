@@ -561,24 +561,21 @@ class FlowMicDockColors {
   /// there). THEME-INVARIANT for the same reason as [processing].
   static Color get recordOnly => const Color(0xFF8B8996);
 
-  /// P5 (0.3.1, owner 2026-08-15: 「轻记录…说话的按钮默认是灰色的…看起来是
-  /// 不能用的状态」/ the record-only talk button looks disabled). The mock's
-  /// `.ptt.gry{#8B8996}` put a LIVE control in the same grey vocabulary the
-  /// dock reserves for the genuinely dead face ([chipbg]+[sub]) — a named
-  /// deviation from the WP8 VF-2 fidelity contract, ordered by the owner.
-  ///
-  /// The replacement stays in the hue this app already gives light-notes
-  /// facts (plus_panel paints `noPcTarget` amber; timeline noted markers are
-  /// amber): a translucent amber wash with the theme's AA-verified amber ink
-  /// ([FlowMicColors.amber] — #92400E light / #FBBF24 dark, both pinned by
-  /// theme_tokens_test). Distinct from every other face by construction:
-  /// solid pri (idle), solid #DC2626 (recording), solid #D97706 (processing),
-  /// pale grey (disabled). MODE identity is still carried by the label +
-  /// header dot; the fill only answers 「can this be pressed」 — yes.
-  static Color get notedSoft => FlowMicColors.amberSoft;
-
-  /// Ink + border for the [notedSoft] face — see there.
-  static Color get notedInk => FlowMicColors.amber;
+  // ── P5's `notedSoft` / `notedInk` LIVED HERE AND ARE GONE (P5b, same day) ──
+  //
+  // They were the amber wash + amber ink of the record-only PTT face. owner
+  // 2026-08-15: 「土黄色有边框的按钮看起来与整个 APP 的设计语言不一致」, and the
+  // face went back to the solid [pri]+[onPri] every other resting face uses
+  // (ptt_bar.dart carries the full argument, including the trade it accepts).
+  //
+  // 🔴 REMOVED rather than left sitting here unused, on this repo's own
+  // precedent (`INJECT_NO_RECEIPT`): a named thing with zero consumers is a
+  // façade waiting for someone to answer a different question with it — and a
+  // *colour* token is the easiest of all to reach for by name without reading
+  // why it exists. The hue itself is not gone: [FlowMicColors.amber] /
+  // [FlowMicColors.amberSoft] are the real tokens, still worn by the timeline's
+  // noted markers and plus_panel's `noPcTarget`, which is where the light-notes
+  // hue actually belongs.
 
   /// Green flash face after a delivery lands. Its source is the interactive
   /// prototype rather than the static boards —

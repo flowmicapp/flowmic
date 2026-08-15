@@ -685,6 +685,7 @@
     "sttStallMessage__3": "'Aucune parole détectée — rapprochez-vous du micro et réessayez'",
     "sttStallMessage__4": "'Le microphone n\\'a produit aucun audio — vérifiez l\\'autorisation micro, ou si une autre app le tient'",
     "sttStallNoEngineReached": "'Cet enregistrement n\\'a atteint aucun moteur de parole, donc rien n\\'a été transcrit. Redites-le ; si cela continue, vérifiez les réglages du moteur'",
+    "sttStallQuotaExceeded": "'Le quota de transcription du mois est épuisé, cet enregistrement n\\'a donc pas été transcrit. Il se réinitialise au début du mois prochain'",
     "syncPendingNote": "'Enregistré localement · synchro en attente'",
     "tabLogin": "'Connexion'",
     "tapToConnect": "'Toucher pour connecter'",

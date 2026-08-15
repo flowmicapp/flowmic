@@ -41,8 +41,8 @@ function requireBool(name: string, raw: string): boolean {
 /** Orchestrator soft-segment / flush-timeout — omit fields when unset. */
 export function readOrchestratorTuningFromEnv(
   env: NodeJS.ProcessEnv = process.env,
-): Pick<OrchestratorOptions, 'engineFlushTimeoutMs' | 'softSegmentMs'> {
-  const out: Pick<OrchestratorOptions, 'engineFlushTimeoutMs' | 'softSegmentMs'> = {};
+): Pick<OrchestratorOptions, 'engineFlushTimeoutMs' | 'softSegmentMs' | 'softSegmentGraceMs'> {
+  const out: Pick<OrchestratorOptions, 'engineFlushTimeoutMs' | 'softSegmentMs' | 'softSegmentGraceMs'> = {};
   const flush = env.FLOWMIC_STT_FLUSH_TIMEOUT_MS;
   if (flush !== undefined && flush !== '') {
     out.engineFlushTimeoutMs = requirePositiveInt('FLOWMIC_STT_FLUSH_TIMEOUT_MS', flush);
@@ -50,6 +50,13 @@ export function readOrchestratorTuningFromEnv(
   const soft = env.FLOWMIC_STT_SOFT_SEGMENT_MS;
   if (soft !== undefined && soft !== '') {
     out.softSegmentMs = requirePositiveInt('FLOWMIC_STT_SOFT_SEGMENT_MS', soft);
+  }
+  // card SEG-1. Same shape as its sibling on purpose: an operator who can move
+  // the cadence must be able to move the grace, or the pair only ever holds the
+  // ratio it shipped with.
+  const grace = env.FLOWMIC_STT_SOFT_SEGMENT_GRACE_MS;
+  if (grace !== undefined && grace !== '') {
+    out.softSegmentGraceMs = requirePositiveInt('FLOWMIC_STT_SOFT_SEGMENT_GRACE_MS', grace);
   }
   return out;
 }

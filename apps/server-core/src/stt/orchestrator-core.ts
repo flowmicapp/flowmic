@@ -17,11 +17,12 @@ import type { FinalResult, InterimShape } from './engines/base';
 import { flushErrorVerdict } from './flush-error-verdict';
 import type { AudioSession } from './audio/session';
 import {
-  DEFAULT_SOFT_SEGMENT_MS, DEFAULT_REPLAY_WINDOW_MS,
+  DEFAULT_SOFT_SEGMENT_MS, DEFAULT_SOFT_SEGMENT_GRACE_MS, DEFAULT_REPLAY_WINDOW_MS,
   DEFAULT_ENGINE_SPAWN_TIMEOUT_MS, DEFAULT_ENGINE_FLUSH_TIMEOUT_MS,
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
+import { segmentCutVerdict, SoftSegmentCadence } from './segment-boundary';
 import { EngineSessionReconnectLadder, DEFAULT_BACKOFF_MS, type EngineSessionHooks } from './engine-session';
 import { EngineIdleHangup, type IdleHangupHooks } from './engine-idle-hangup';
 import { raceSpawnTimeout } from './spawn-timeout';
@@ -38,7 +39,9 @@ export class SttEngineOrchestrator extends EventEmitter {
   private engine: EngineSubscriber | null = null;
   private currentSegmentIdx = 0;
   private segmentStartMs = 0;
-  private softSegmentTimer: unknown = null;
+  /** card SEG-1 — composed like {@link idle}/{@link ladder}: it owns the timer,
+   *  both phases and `due`. Account: `stt/segment-boundary.ts`. */
+  private readonly cadence: SoftSegmentCadence;
   private terminated = false;
   /** F-405 / W2.5-B: synchronous fence raised by BOTH terminal paths — hard-limit
    *  fan-out and stop() — before their closing flush begins. It means "this
@@ -102,7 +105,6 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  longer. 🔴 It is READ FROM THE SCHEDULE, not chosen — "tuning a new number
    *  with no measurement behind it" is the mistake this whole card exists to not repeat. */
   private readonly unfedGraceMs: number;
-  private readonly softSegmentMs: number;
   private readonly replayWindowMs: number;
   private readonly engineSpawnTimeoutMs: number;
   private readonly engineFlushTimeoutMs: number;
@@ -156,7 +158,12 @@ export class SttEngineOrchestrator extends EventEmitter {
     options: OrchestratorOptions = {},
   ) {
     super();
-    this.softSegmentMs = options.softSegmentMs ?? DEFAULT_SOFT_SEGMENT_MS;
+    this.cadence = new SoftSegmentCadence(
+      options.softSegmentMs ?? DEFAULT_SOFT_SEGMENT_MS,
+      options.softSegmentGraceMs ?? DEFAULT_SOFT_SEGMENT_GRACE_MS,
+      { setTimeout: (fn, ms) => this._setTimeout(fn, ms), clearTimeout: (h) => this._clearTimeout(h),
+        hasEngine: () => this.engine !== null, cutNow: () => this.startRollover(),
+        isFinished: () => this.terminated || this.terminalizing });
     this.replayWindowMs = options.replayWindowMs ?? DEFAULT_REPLAY_WINDOW_MS;
     this.unfedGraceMs = (options.reconnectBackoffMs ?? DEFAULT_BACKOFF_MS).reduce((a, b) => a + b, 0);
     this.engineSpawnTimeoutMs = options.engineSpawnTimeoutMs ?? DEFAULT_ENGINE_SPAWN_TIMEOUT_MS;
@@ -169,7 +176,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       spawnEngine: () => this.spawnEngine(), closeEngine: () => this.closeEngine(),
       replayBufferTail: () => this.replayBufferTail(), currentEngineId: () => this.engine?.id ?? 'unknown',
       emitStatus: (p) => this.emit('engine-status', p), emitError: (p) => this.emit(vendorNoAudioIsOurSilence(p.code, this.voiceBytesCaptured) ? 'error-suppressed' : 'error', p), // ENG-4: this class holds the only copy of that counter; rule + production trace + why this is not a silent failure are all on the verdict, and `error-suppressed` is logged by engine/stt-session.ts
-      clearSoftSegmentTimer: () => this.clearSoftSegmentTimer(), isTerminated: () => this.terminated,
+      clearSoftSegmentTimer: () => this.cadence.clear(), isTerminated: () => this.terminated,
     };
     this.ladder = new EngineSessionReconnectLadder(hooks, {
       ...(options.reconnectBackoffMs !== undefined ? { reconnectBackoffMs: options.reconnectBackoffMs } : {}),
@@ -195,6 +202,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.startInput = input;
     this.segmentStartMs = this.now();
     this.currentSegmentIdx = 0;
+    this.cadence.reset(); // card SEG-1 — a fresh recording is never already due
     this.offlineAccum = '';
     this.onlineDraft = '';
     this.accumEmittedByFinal = false;
@@ -219,7 +227,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       throw err;
     }
     this.replayBufferTail(true); // feed chunks buffered during the cold-open spawn
-    this.armSoftSegmentTimer();
+    this.cadence.arm();
     this.emit('engine-status', { provider: this.engine!.id, status: 'ready' });
   }
 
@@ -264,7 +272,20 @@ export class SttEngineOrchestrator extends EventEmitter {
     // deliberately keeps unmarked audio "whatever its age" ⇒ the next leg was
     // replayed the ENTIRE silence, unbounded by the 5 s window. RT-2 makes that
     // routine (every pause), but the ladder could already reach it.
-    if (!this.shouldFeedEngine(c)) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return; }
+    const feed = this.shouldFeedEngine(c);
+    // 🔴 card SEG-1 — THE ONE PLACE A SEGMENT IS CUT (the grace ceiling is the
+    // only other, and it is the backstop). On the CHUNK path and not in the
+    // engine's `final` handler where the confirmed text changes: that handler
+    // runs inside the vendor adapter's callback and a rollover issues
+    // `engine.flush()`, i.e. it would re-enter the adapter from its own event.
+    // Chunks arrive every ~200 ms, so this costs one chunk of latency and keeps
+    // every cut on a stack we own. `feed` is passed, not re-derived — one gate
+    // reading per chunk, or the two become two opinions.
+    if (this.cadence.due
+      && segmentCutVerdict({ due: true, ceilingReached: false, confirmed: this.offlineAccum, gateOpen: feed }) === 'cut') {
+      this.startRollover();
+    }
+    if (!feed) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return; }
     // card fix-022 / G-23: the gate just said this audio is worth sending, so this
     // is the ONE site that can record "the user really did speak" — and it is the same
     // predicate the feed below consults, which is what stops the two from ever
@@ -302,14 +323,14 @@ export class SttEngineOrchestrator extends EventEmitter {
   async stop(): Promise<void> {
     if (this.terminated || this.terminalizing) return;
     this.terminalizing = true;
-    this.clearSoftSegmentTimer();
+    this.cadence.clear();
     this.idle.clear();
     this.ladder.clearReconnectTimer();
     if (this.rolloverWork) {
       try { await this.rolloverWork; } catch { /* the rollover's own path handles its cleanup */ }
       // A rollover that had already passed every fence check re-armed the soft
       // timer and spawned its next engine before we got here.
-      this.clearSoftSegmentTimer();
+      this.cadence.clear();
       this.idle.clear();
       this.ladder.clearReconnectTimer();
     }
@@ -342,7 +363,7 @@ export class SttEngineOrchestrator extends EventEmitter {
 
   async close(): Promise<void> {
     this.terminated = true;
-    this.clearSoftSegmentTimer();
+    this.cadence.clear();
     this.idle.clear();
     this.ladder.clearReconnectTimer();
     this.session.off('auto_stopped', this.onSessionAutoStopped);
@@ -355,35 +376,11 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  (see {@link handleAutoStop} for what still counts as an auto-stop). */
   waitForTerminal(): Promise<void> { return this.terminalWork; }
 
-  private armSoftSegmentTimer(): void {
-    this.clearSoftSegmentTimer();
-    this.softSegmentTimer = this._setTimeout(() => {
-      // 🔴 card RT-2 — RE-ARM when there is no engine, do not return.
-      //
-      // A segment boundary is a FLUSH, so it needs a leg to flush; with none
-      // attached `rolloverSegment()` returns at its first guard. The bug that
-      // hides in that return is that NOTHING RE-ARMS THIS TIMER, so soft
-      // segmentation dies for the REST OF THE SESSION and no test, log or user
-      // signal says it stopped — the recording simply settles as one late row.
-      //
-      // ⚠️ This is a PRE-EXISTING hole, not one RT-2 introduced: the ladder also
-      // leaves `engine === null` while a reconnect rung is in flight (and RT3-C
-      // records that this window is unbounded). RT-2 is what makes it ROUTINE —
-      // every pause now passes through exactly this state — which is why it is
-      // fixed here rather than left for someone to find later.
-      //
-      // ⚠️ Deliberately a plain re-arm, NOT a deferred rollover: the cadence may
-      // slip by up to one window across a pause, and nothing is lost by that.
-      // "roll over the moment the leg comes back" would mint an extra row for
-      // pausing, which is a product change (book 15 §2.0-c cardinality) that no
-      // one has ruled on.
-      if (!this.engine) { if (!this.terminated && !this.terminalizing) this.armSoftSegmentTimer(); return; }
-      this.rolloverWork = this.rolloverSegment().finally(() => { this.rolloverWork = null; });
-    }, this.softSegmentMs);
-  }
-
-  private clearSoftSegmentTimer(): void {
-    if (this.softSegmentTimer !== null) { this._clearTimeout(this.softSegmentTimer); this.softSegmentTimer = null; }
+  /** card SEG-1 — at most one rollover in flight; the ONE place a cut verdict
+   *  becomes work. Policy + full account: `stt/segment-boundary.ts`. */
+  private startRollover(): void {
+    if (this.rolloverWork || this.terminated || this.terminalizing || !this.engine) return;
+    this.rolloverWork = this.rolloverSegment().finally(() => { this.rolloverWork = null; });
   }
 
   /**
@@ -475,7 +472,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.engineFedBytes = 0; // a fresh engine has been handed nothing yet
     await this.spawnEngine();
     this.replayBufferTail(true);
-    this.armSoftSegmentTimer();
+    this.cadence.arm();
   }
 
   /**
@@ -495,6 +492,9 @@ export class SttEngineOrchestrator extends EventEmitter {
   private beginNextSegment(boundaryMs: number): void {
     this.currentSegmentIdx += 1;
     this.segmentStartMs = boundaryMs;
+    // card SEG-1 — the third fact that means "a new segment is open", moved
+    // here with the other two so they cannot drift apart (that WAS N1-B1).
+    this.cadence.reset();
   }
 
   /**
@@ -524,7 +524,7 @@ export class SttEngineOrchestrator extends EventEmitter {
    */
   private async handleAutoStop(reason: 'hard_limit'): Promise<void> {
     this.emit('auto-stopped', { reason, limit_origin: this.session.limitOrigin });
-    this.clearSoftSegmentTimer(); this.idle.clear(); this.ladder.clearReconnectTimer();
+    this.cadence.clear(); this.idle.clear(); this.ladder.clearReconnectTimer();
     if (this.rolloverWork) { try { await this.rolloverWork; } catch { /* terminal path handles cleanup */ } }
     if (this.idle.isBusy) await this.idle.settle(); // card RT-2, and the `if` is load-bearing — see stop()
     if (!this.engine) { this.emitNoEngineTerminalFinal(); this.terminated = true; return; }

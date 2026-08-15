@@ -71,7 +71,12 @@ function harness(engines: FakeEngine[], opts: Record<string, unknown> = {}): {
   let i = 0;
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
-    softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000, ...opts,
+    softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
+    // card SEG-1 — zero grace ⇒ pre-SEG-1 stopwatch. This file is about a release
+    // landing INSIDE a rollover's flush; when the rollover was decided is not part
+    // of that. Full note in stt-orchestrator.test.ts.
+    softSegmentGraceMs: 0,
+    ...opts,
   });
   const finals: FinalEvent[] = [];
   const errors: { code: string }[] = [];

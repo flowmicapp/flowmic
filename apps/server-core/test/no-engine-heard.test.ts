@@ -129,6 +129,11 @@ function harness(engines: FakeEngine[], opts: Record<string, unknown> = {}): Rig
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
     softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
+    // card SEG-1 — zero grace ⇒ the deadline cuts immediately, the pre-SEG-1
+    // stopwatch. These rows are about which BYTES a leg was handed and what
+    // that licenses us to say; WHERE a sentence ends is a different decision
+    // with its own file. Full note in stt-orchestrator.test.ts.
+    softSegmentGraceMs: 0,
     reconnectBackoffMs: [1_000, 1_000, 1_000], maxRetries: 3, ...opts,
   });
   const events: Record<EvKey, unknown[]> = { interim: [], final: [], 'engine-status': [], error: [], 'auto-stopped': [], 'error-suppressed': [] };

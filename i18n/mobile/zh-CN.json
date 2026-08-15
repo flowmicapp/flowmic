@@ -632,6 +632,7 @@
     "sttStallMessage__3": "'没有听到语音，请靠近麦克风再说一次'",
     "sttStallMessage__4": "'麦克风没有采到任何声音，请检查系统的麦克风权限或换个应用占用麦克风的情况'",
     "sttStallNoEngineReached": "'这段录音没有到达识别引擎，没有转成文字。请重新说一次；如果一直这样，请检查识别引擎设置'",
+    "sttStallQuotaExceeded": "'本月转录额度已用完，这段录音没有转成文字。额度每月月初重置'",
     "syncPendingNote": "'已存本地 · 待联网同步'",
     "tabLogin": "'登录'",
     "tapToConnect": "'点击连接'",

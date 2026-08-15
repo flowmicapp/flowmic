@@ -685,6 +685,7 @@
     "sttStallMessage__3": "'No speech detected — move closer to the mic and try again'",
     "sttStallMessage__4": "'The microphone produced no audio — check the mic permission, or whether another app is holding it'",
     "sttStallNoEngineReached": "'This recording reached no speech engine, so nothing was transcribed. Say it again; if it keeps happening, check the engine settings'",
+    "sttStallQuotaExceeded": "'The monthly transcription quota is used up, so this recording was not transcribed. It resets at the start of next month'",
     "syncPendingNote": "'Saved locally · pending sync'",
     "tabLogin": "'Sign in'",
     "tapToConnect": "'Tap to connect'",

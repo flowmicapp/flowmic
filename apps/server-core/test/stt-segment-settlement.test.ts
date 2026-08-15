@@ -79,6 +79,11 @@ function harness(engines: FakeEngine[], sessionOpts: { hardLimitMs?: number; cla
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
     softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
+    // card SEG-1 — zero grace ⇒ the deadline cuts immediately, the pre-SEG-1
+    // stopwatch. These rows are about `duration_ms` answering ONE question and
+    // about one final per segment_idx; WHERE a sentence ends is a different
+    // decision with its own file. See stt-orchestrator.test.ts for the full note.
+    softSegmentGraceMs: 0,
   });
   const finals: FinalEvent[] = [];
   const autoStops: AutoStopEvent[] = [];

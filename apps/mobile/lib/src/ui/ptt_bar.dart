@@ -297,14 +297,40 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
         FlowMicDockColors.onPri,
         s.pttHold,
       ),
-      // P5 (0.3.1, owner 2026-08-15) — a LIVE face, no longer the mock's
-      // `.ptt.gry` grey: that grey is the dock's 「off」 vocabulary (see
-      // [PttVisual.disabled] below) and the owner read this working button as
-      // unusable. Amber wash + amber ink = the app's existing light-notes hue;
-      // full reasoning at [FlowMicDockColors.notedSoft].
+      // ── P5 → P5b, the same control iterated twice in one day ──────────────
+      // P5 (0.3.1, owner 2026-08-15) took this face off the mock's `.ptt.gry`
+      // grey, because that grey is the dock's 「off」 vocabulary
+      // ([PttVisual.disabled] below) and the owner read a working button as
+      // unusable. It landed on an amber WASH with a 1.5 px amber outline.
+      //
+      // 🔴 P5b (owner, same day): 「土黄色有边框的按钮看起来与整个 APP 的设计
+      // 语言不一致」 — and he is right in the file's own terms. The rule two
+      // comments up is 「One solid fill + one ink per face」, and the outline
+      // branch that used to sit in the decoration below said so out loud:
+      // 「Absent on every other face, whose solid fills carry their own edge」.
+      // A translucent tint with a hairline border is this app's CHIP/BADGE
+      // construction (connection cards, status pills). Wearing it, the primary
+      // action of the whole screen read as a label strip that had wandered into
+      // the dock.
+      //
+      // ⇒ back to the shared construction, at the SAME `pri` fill as idle. The
+      // fill is not where this mode lives: P5's own token note stated the
+      // division of labour — 「MODE identity is carried by the label + header
+      // dot; the fill only answers 「can this be pressed」」 — and then P5 broke
+      // it by making the fill answer both. Record-only is said
+      // three times already and none of them is a colour: this button's own
+      // label (「按住 说话 · 仅记录」), the caption under it (「松开后只保存在
+      // 手机，不发往电脑」), and the header's 「→ 仅记录」 pill.
+      //
+      // ⚠️ THE TRADE, STATED: idle and record-only now differ by LABEL, not by
+      // fill. That is the deliberate half of the change, not a side effect — a
+      // fifth fill would have to be either a state colour already spoken for
+      // (red recording / amber processing / green flash / grey off) or a hue
+      // invented for this one control, and this file's header forbids the
+      // second (「the widgets must not invent colours」).
       PttVisual.noted => (
-        FlowMicDockColors.notedSoft,
-        FlowMicDockColors.notedInk,
+        FlowMicDockColors.pri,
+        FlowMicDockColors.onPri,
         s.pttHoldNoted,
       ),
       // 🔴 `recFill`, NOT `rec`. `.ptt.rec{background:#DC2626}` has no `.dk`
@@ -435,18 +461,12 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(17),
-        // P5 — the noted face's wash is translucent, so it borrows the dock
-        // panel's lightness; the 1.5px amber outline is what makes it read as
-        // a bounded, pressable control rather than a tinted strip. Same
-        // border recipe the amber connection-identity card already uses.
-        // Absent on every other face (and under the armed overlay), whose
-        // solid fills carry their own edge.
-        border: widget.visual == PttVisual.noted && !_cancelArmed
-            ? Border.all(
-                color: FlowMicDockColors.notedInk.withValues(alpha: 0.65),
-                width: 1.5,
-              )
-            : null,
+        // 🔴 P5b — NO `border` on any face, and that is the whole point rather
+        // than a cleanup. P5 needed one because its noted fill was translucent
+        // (a wash borrows the dock panel's lightness and stops reading as a
+        // bounded control); P5b's noted fill is the solid `pri` every other
+        // resting face uses, and a solid fill carries its own edge. Adding the
+        // outline back would re-import the chip vocabulary the owner rejected.
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

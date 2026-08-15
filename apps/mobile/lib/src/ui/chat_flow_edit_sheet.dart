@@ -106,19 +106,27 @@ void _syncSheetOnControllerRouted(_ChatFlowPageState s) {
   final String buffer = s.controller.buffer;
   final FlowMode mode = s.controller.mode;
   final bool modeChanged = s._lastModeSeen != null && mode != s._lastModeSeen;
+  // 「是不是有一句话正在进行中」 — ONE author, both consumers below. SEG-2 needed
+  // the predicate PA-5 already spelled out inline; two copies become two answers.
+  final bool utteranceInFlight =
+      s.controller.sessionState == SessionState.recording ||
+      s.controller.sessionState == SessionState.processing;
   // PA-5: the append face ends when the utterance does — the fold (release)
   // or the discard (swipe-up cancel) has settled once the FSM is out of
   // recording/processing. A LISTENER edge, not a callback from the gesture:
   // the finalize arrives async and the button's up-handler cannot know when.
-  if (s._sheetAppending &&
-      s.controller.sessionState != SessionState.recording &&
-      s.controller.sessionState != SessionState.processing) {
-    s._setSheetAppending(false);
-  }
+  if (s._sheetAppending && !utteranceInFlight) s._setSheetAppending(false);
+  // 🔴 SEG-2 (owner, 2026-08-15) — 「说话的按钮也没了」. Trigger (a) says 「manual
+  // voice FINALIZE ⇒ auto-open」 and never asked whether the finger is still
+  // DOWN — correct while a manual utterance grew the buffer once, at release;
+  // wrong once the server began settling SOFT SEGMENTS, which fold in MID-HOLD,
+  // sliding the sheet over the dock (it COVERS the PTT bar by design). ⇒ anti-
+  // façade ④. Account + reverse controls: edit_sheet_not_during_hold_test.dart.
   if (s._sheetOpen && modeChanged) {
     _collapseSheetRouted(s);
     s._sheetSrcVoice = false;
   } else if (!s._sheetOpen &&
+      !utteranceInFlight &&
       s.controller.sendPolicy == SendPolicy.manual &&
       buffer.trim().isNotEmpty &&
       buffer != s._lastBufferSeen) {
@@ -128,7 +136,12 @@ void _syncSheetOnControllerRouted(_ChatFlowPageState s) {
     s._sheetSrcVoice = true;
     s._setSheetOpen(true);
   }
-  s._lastBufferSeen = buffer;
+  // 🔴 SEG-2 — the watermark advances only once the change has been JUDGED.
+  // Unconditional (as it was) makes the guard above a WORSE bug: the mid-hold
+  // fold records as "seen", so at settle the sheet never opens at all — the
+  // manual flow's whole point, deleted, with every "no sheet during a hold"
+  // test still green. Freezing it is what makes this a DEFERRAL, not a drop.
+  if (!utteranceInFlight) s._lastBufferSeen = buffer;
   s._lastModeSeen = mode;
   _syncSheetAiAppliedRouted(s);
 }

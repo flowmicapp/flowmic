@@ -3269,6 +3269,11 @@
       "params": []
     },
     {
+      "key": "sttStallQuotaExceeded",
+      "leaf": "_lfSttStallQuotaExceeded",
+      "params": []
+    },
+    {
       "key": "syncPendingNote",
       "leaf": "_lfSyncPendingNote",
       "params": []
