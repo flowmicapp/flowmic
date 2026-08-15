@@ -287,3 +287,63 @@ describe('migration — the two columns land on a database that predates them', 
     expect(db.pcs.listByMachineUid('u1', '')).toEqual([]);
   });
 });
+
+// ── card ACC-1 (2026-08-15) — one machine, two accounts, stranded phones ─────
+// Measured on the relay that day (journal 11:06→11:17): the desktop signed into
+// a fresh account (new pc_id e4171936, new room); the tablet stayed
+// legitimately re-admitted into the OLD room c7dddf71 and every utterance ended
+// `relay: inject:request but no PC in room` — answered, queued, and waiting for
+// a PC whose return was impossible (the desktop app is single-account). Nothing
+// anywhere could ever tell it to stop waiting. The registration is the one
+// moment the server can KNOW the old registration is dead, and revocation (not
+// release) is what turns the forever-wait into the phone's existing one-scan
+// re-pair copy.
+describe('reapCrossAccountSiblings — a machine changing accounts frees its old phones', () => {
+  it('🔴 registering under account B revokes account A\'s pairings for the SAME machine', () => {
+    const reg = registry('saas');
+    db.users.insert({ id: 'u2', display_name: 'U2', plan: 'free' });
+    const a = reg.registerPc({ device_name: 'PC', user_id: 'u1', machine_uid: MACHINE_A });
+    const paired = reg.pairMobile({ short_code: a.pc.short_code, pcid: a.pc.pcid ?? undefined, mobile_name: 'tablet', device_uid: HANDSET_A, user_id: 'u1' });
+    expect(db.mobiles.listByPc(a.pc.id)).toHaveLength(1);
+
+    reg.registerPc({ device_name: 'PC', user_id: 'u2', machine_uid: MACHINE_A });
+    const displaced = reg.reapCrossAccountSiblings(MACHINE_A, 'u2');
+
+    expect(displaced).toEqual([{ room_uuid: a.pc.room_uuid, pairing_ids: [paired.mobile.id] }]);
+    // The pairing row is GONE — revoked, not released: the reconnect ladder must
+    // meet AUTH_TOKEN_INVALID and the phone must say re-pair, not keep waiting.
+    expect(db.mobiles.listByPc(a.pc.id)).toHaveLength(0);
+    expect(db.mobiles.findById(paired.mobile.id)).toBeNull();
+  });
+
+  it('the SAME account re-registering reaps nothing (the everyday path)', () => {
+    const reg = registry('saas');
+    const a = reg.registerPc({ device_name: 'PC', user_id: 'u1', machine_uid: MACHINE_A });
+    reg.pairMobile({ short_code: a.pc.short_code, pcid: a.pc.pcid ?? undefined, mobile_name: 'tablet', device_uid: HANDSET_A, user_id: 'u1' });
+    expect(reg.reapCrossAccountSiblings(MACHINE_A, 'u1')).toEqual([]);
+    expect(db.mobiles.listByPc(a.pc.id)).toHaveLength(1);
+  });
+
+  it('a DIFFERENT machine under another account is untouched — machines never merge', () => {
+    const reg = registry('saas');
+    db.users.insert({ id: 'u2', display_name: 'U2', plan: 'free' });
+    const a = reg.registerPc({ device_name: 'PC-A', user_id: 'u1', machine_uid: MACHINE_A });
+    reg.pairMobile({ short_code: a.pc.short_code, pcid: a.pc.pcid ?? undefined, mobile_name: 'tablet', device_uid: HANDSET_A, user_id: 'u1' });
+    reg.registerPc({ device_name: 'PC-B', user_id: 'u2', machine_uid: MACHINE_B });
+    expect(reg.reapCrossAccountSiblings(MACHINE_B, 'u2')).toEqual([]);
+    expect(db.mobiles.listByPc(a.pc.id)).toHaveLength(1);
+  });
+
+  it('no machine_uid claimed ⇒ no reap — a blank must never cross accounts', () => {
+    const reg = registry('saas');
+    expect(reg.reapCrossAccountSiblings(undefined, 'u1')).toEqual([]);
+  });
+
+  it('a sibling with NO pairings is skipped — nothing to free, nothing reported', () => {
+    const reg = registry('saas');
+    db.users.insert({ id: 'u2', display_name: 'U2', plan: 'free' });
+    reg.registerPc({ device_name: 'PC', user_id: 'u1', machine_uid: MACHINE_A });
+    reg.registerPc({ device_name: 'PC', user_id: 'u2', machine_uid: MACHINE_A });
+    expect(reg.reapCrossAccountSiblings(MACHINE_A, 'u2')).toEqual([]);
+  });
+});

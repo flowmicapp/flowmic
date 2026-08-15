@@ -7,12 +7,12 @@
 //     §9-2.1 (the page only reads the most recent result + timestamp), §9-2.2 (anti-cache ⇒ unknown),
 //     §9-2.5 (no SLA, no percentage anywhere on the page), §9-2.6 (W-5a acceptance)
 //   apps/server-core/src/http/status-routes.ts   (the handler)
-//   apps/server-core/src/http/router.ts:411 (`tryHandleStatusRoutes` — the MOUNT
+//   apps/server-core/src/http/router.ts:413 (`tryHandleStatusRoutes` — the MOUNT
 //     under test)
-//   apps/server-core/src/bootstrap-http-deps.ts:185 (`statusSnapshot` — the DEPS
+//   apps/server-core/src/bootstrap-http-deps.ts:189 (`statusSnapshot` — the DEPS
 //     wiring under test)
-//   apps/server-core/src/bootstrap.ts:346 (`makeStatusProbes` — the ONE runner)
-//   apps/server-core/src/bootstrap.ts:642 (`statusProbes.start()` — armed after
+//   apps/server-core/src/bootstrap.ts:361 (`makeStatusProbes` — the ONE runner)
+//   apps/server-core/src/bootstrap.ts:664 (`statusProbes.start()` — armed after
 //     listen, which is why the boot round is already landing)
 //   apps/server-core/test/health-db-probe-wiring.test.ts (the precedent this mirrors)
 //   CLAUDE.md anti-façade ③: "unit tests all green prove nothing about wiring; every real path needs one real-end run"
@@ -21,7 +21,7 @@
 // `test/status-probes.test.ts` is a good suite and it proves nothing about this.
 // Every one of its route assertions calls `tryHandleStatusRoutes` DIRECTLY and
 // hands it a `snapshot` the test itself wrote. Delete the router branch
-// (router.ts:411), or delete the `status:` field (bootstrap-http-deps.ts:185),
+// (router.ts:413), or delete the `status:` field (bootstrap-http-deps.ts:189),
 // and all 15 of those tests stay green while `GET /api/status` answers 404 on
 // every deployed relay — and the W-5b status page, whose entire job is to be
 // readable on the day the product is not, shows nothing. That is the exact shape
@@ -45,7 +45,7 @@
 // The card asked for "the route must serve the never-measured `unknown` shape
 // (`checked_at: null`) without the timer having fired」. MEASURED ON A REAL BOOT
 // (machine dev-pc-a, 2026-08-13): it does not, and it should not.
-// `statusProbes.start()` (bootstrap.ts:642) kicks `runOnce()` immediately — by
+// `statusProbes.start()` (bootstrap.ts:661) kicks `runOnce()` immediately — by
 // design, so a fresh relay is not blind for a whole interval — and with no
 // managed line configured both probes resolve to `null` in a microtask, long
 // before a fetch can land. The wire therefore shows `not_configured` with a real
@@ -160,13 +160,13 @@ describe('§1 the route is MOUNTED on a real server, in both modes, without a cr
     const url = await boot('standalone');
     const { status, type, body } = await get(url);
 
-    // 🔴 THE ONE ASSERTION THE WHOLE FILE IS FOR. 404 here ⇒ router.ts:411 or
-    // bootstrap-http-deps.ts:185 is gone, and status-probes.test.ts cannot see it.
+    // 🔴 THE ONE ASSERTION THE WHOLE FILE IS FOR. 404 here ⇒ router.ts:413 or
+    // bootstrap-http-deps.ts:189 is gone, and status-probes.test.ts cannot see it.
     expect(status, 'GET /api/status did not answer 200 — the route is not mounted').toBe(200);
     expect(type).toContain('application/json');
 
     // The envelope's own clock, distinct from each target's (§9-2.1). It is
-    // `Date.now()` and NOT the injected clock — bootstrap-http-deps.ts:185 does
+    // `Date.now()` and NOT the injected clock — bootstrap-http-deps.ts:189 does
     // not thread `overrides.now` into the route deps. That is registered as annex
     // §4-9 ("status deps single field, two clocks") and is harmless in production, where both
     // clocks are `Date.now()`; asserted as a NUMBER here rather than as a value,
@@ -194,7 +194,7 @@ describe('§1 the route is MOUNTED on a real server, in both modes, without a cr
     expect(body.targets.relay.checked_at).toBe(body.checked_at);
   });
 
-  it('saas: the same path answers 200 and names the OTHER mode — mounted in both, as router.ts:411 claims', async () => {
+  it('saas: the same path answers 200 and names the OTHER mode — mounted in both, as router.ts:413 claims', async () => {
     // Without this half, a mount accidentally placed inside a `config.mode ===
     // 'standalone'` block (the branch three lines below it in router.ts) would
     // pass the test above forever while the PUBLIC deployment — the only one a
@@ -310,7 +310,7 @@ describe('§4 the route serves the STARTED timer’s store, not a second instanc
     // 🔴 The timestamp is the fingerprint: `clock.t` is the value bootstrap
     // threaded into `makeStatusProbes` (bootstrap.ts, the `now` handed to `makeStatusProbes`). A row carrying it
     // came from THAT runner — the one `start()` armed — through the route's
-    // `snapshot` closure (bootstrap-http-deps.ts:185). An unstarted twin would
+    // `snapshot` closure (bootstrap-http-deps.ts:189). An unstarted twin would
     // read `null` here until the process died.
     expect(body.targets.managed_stt.checked_at).toBe(clock.t);
     expect(body.targets.managed_llm.checked_at).toBe(clock.t);
@@ -379,10 +379,10 @@ describe('§5 a stale store publishes unknown/null through the real route', () =
 // ────────────────────────────────────────────────────────────────────────────
 // 🔴 REVERSE CONTROL — SEEN RED FOR REAL (2026-08-13, machine dev-pc-a).
 //
-// The mount is unconditional in production (bootstrap-http-deps.ts:185 passes
+// The mount is unconditional in production (bootstrap-http-deps.ts:189 passes
 // `status:` with no env gate, deliberately — see its comment), so there is no
 // seam a test can drive to un-mount it. The control was therefore run as a
-// transient one-line edit to router.ts:411, the branch this whole file is about:
+// transient one-line edit to router.ts:413, the branch this whole file is about:
 //
 //     -    if (deps.status && tryHandleStatusRoutes(req, res, deps.status)) return true;
 //     +    // if (deps.status && tryHandleStatusRoutes(req, res, deps.status)) return true;
@@ -393,7 +393,7 @@ describe('§5 a stale store publishes unknown/null through the real route', () =
 //
 //   FAIL … §1 … > standalone: GET /api/status answers 200 JSON with the full envelope
 //   AssertionError: GET /api/status did not answer 200 — the route is not mounted: expected 404 to be 200 // Object.is equality
-//   FAIL … §1 … > saas: the same path answers 200 and names the OTHER mode — mounted in both, as router.ts:411 claims
+//   FAIL … §1 … > saas: the same path answers 200 and names the OTHER mode — mounted in both, as router.ts:413 claims
 //   AssertionError: expected 404 to be 200 // Object.is equality
 //   FAIL … §1 … > no credential is required — and the same server DOES refuse one that needs it
 //   AssertionError: expected 404 to be 200 // Object.is equality

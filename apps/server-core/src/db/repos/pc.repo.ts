@@ -51,6 +51,14 @@ export interface PcRepo {
    *  a machine that re-registered before 0.2.4 left older rows behind, and the
    *  caller has to be able to see that rather than be handed an arbitrary one. */
   listByMachineUid(user_id: string, machine_uid: string): PcRecord[];
+  /** card ACC-1 (2026-08-15) — the SAME physical machine's rows under OTHER
+   *  accounts, newest first. The one deliberate cross-account read on this
+   *  table besides `findByPcid`, and like that one the scoping is the point:
+   *  when a desktop registers under account B, account A's row for the same
+   *  machine describes a PC that can no longer come back (the desktop app is
+   *  single-account), and the registry uses this to stop A's phones waiting
+   *  forever for it. Never exposed over any wire. */
+  listByMachineUidOtherUsers(machine_uid: string, except_user_id: string): PcRecord[];
   /** 0.2.66 — the single PC a PCID addresses, or null.
    *
    *  🔴 DELIBERATELY NOT USER-SCOPED, unlike `findByClientInstance` and
@@ -175,6 +183,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     'SELECT * FROM pc_devices WHERE user_id=? AND machine_uid=? ORDER BY created_at DESC, rowid DESC',
   );
   const setMachineStmt = db.prepare('UPDATE pc_devices SET machine_uid=? WHERE id=?');
+  const byMachineOther = db.prepare(
+    'SELECT * FROM pc_devices WHERE machine_uid=? AND user_id<>? ORDER BY created_at DESC, rowid DESC',
+  );
   const byPcid = db.prepare('SELECT * FROM pc_devices WHERE pcid=?');
   const setPcidStmt = db.prepare('UPDATE pc_devices SET pcid=? WHERE id=?');
   const adoptInstanceStmt = db.prepare('UPDATE OR IGNORE pc_devices SET client_instance_id=? WHERE id=?');
@@ -233,6 +244,12 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
       // machines is the one outcome this whole feature must not produce.
       if (!machine_uid) return [];
       return (byMachine.all(user_id, machine_uid) as Record<string, unknown>[]).map(toRecord);
+    },
+    listByMachineUidOtherUsers(machine_uid, except_user_id): PcRecord[] {
+      // Same blank-uid refusal as above, for the same merging-machines reason —
+      // and here a blank would additionally cross ACCOUNTS, which is worse.
+      if (!machine_uid) return [];
+      return (byMachineOther.all(machine_uid, except_user_id) as Record<string, unknown>[]).map(toRecord);
     },
     setMachineUid(id, machine_uid): void {
       setMachineStmt.run(machine_uid, id);

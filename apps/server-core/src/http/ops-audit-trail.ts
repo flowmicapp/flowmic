@@ -133,6 +133,9 @@ export const ADMIN_GATED_ROUTES = [
   // because until the route existed `test/console-admin-gate-coverage.test.ts`
   // would have killed it as a fence entry for a route nobody serves.
   'GET /api/ops/usage/events',
+  // 2026-08-15 — first-party public-site aggregate reads (VPN ops console).
+  'GET /api/ops/site/summary',
+  'GET /api/ops/site/breakdown',
   // 🔴 A2-3 — THE FIRST MUTATING ENTRY. It does not rely on this module's
   // serve-but-shout policy: it writes its OWN business row first and refuses to
   // touch the account if that write fails (http/account-restriction-routes.ts).

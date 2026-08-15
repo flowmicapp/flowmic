@@ -53,6 +53,9 @@ interface SeamRun {
   merged: string;
   seamSeqs: number[];
   finals: ServerFinal[];
+  /** How many engine LEGS the run really produced — card SEG-4's control, now
+   *  that a leg seam no longer shows on the wire as a second segment_idx. */
+  legs: number;
 }
 
 async function runRollover(corpus: Corpus, flushDelayMs: number, seamPolicy: SeamPolicy): Promise<SeamRun> {
@@ -105,7 +108,7 @@ async function runRollover(corpus: Corpus, flushDelayMs: number, seamPolicy: Sea
   const stopped = orch.stop();
   await clock.advance(flushDelayMs + 3_000);
   await stopped;
-  return { merged: mergedFinalText(wire), seamSeqs: engines[0]!.seamSeqs, finals };
+  return { merged: mergedFinalText(wire), seamSeqs: engines[0]!.seamSeqs, finals, legs: engines.length };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -148,7 +151,17 @@ describe('RT-3 seam §6.2 — how much audio lands in the seam (the number the p
  * vendor property flipped.
  * ═════════════════════════════════════════════════════════════════════════════ */
 
-describe('RT-3 seam §6.1 — today\'s correctness rests entirely on an unmeasured vendor property', () => {
+// 🔴 card SEG-4: this describe used to be titled 『today's correctness rests
+// entirely on an unmeasured vendor property』, and its INCLUDES rows asserted the
+// duplication that property caused: a vendor whose flush includes late-arriving
+// audio made the wire say the seam twice, and nothing could heal it — segment 1
+// was already published. SEG-4 removed the publish: a leg seam folds into the
+// BANK, and the next leg's text folds through `mergeOverlap`, which dedups
+// exactly the span the include-vendor repeats. Both policies now merge exact —
+// measured, not hoped: the INCLUDES rows were watched failing against the old
+// expectation (merged EQUAL to spoken where the old model required duplication)
+// before being rewritten to pin the heal.
+describe('card SEG-4: the unmeasured vendor property stopped mattering at leg seams', () => {
   const DELAY = 1_000;
   const SEAM = DELAY / CHUNK_MS; // 5 chunks
 
@@ -156,23 +169,16 @@ describe('RT-3 seam §6.1 — today\'s correctness rests entirely on an unmeasur
     it(`[${corpus.lang}] vendor EXCLUDES late audio (what F-2152 assumes) ⇒ the merged final is exact`, async () => {
       const r = await runRollover(corpus, DELAY, 'vendor-excludes-late-audio');
       expect(r.merged).toBe(corpus.spoken(TOTAL));
-      // Two segments really were produced — otherwise this row proves nothing
-      // about seams.
-      expect(new Set(r.finals.map((f) => f.segment_idx)).size).toBeGreaterThan(1);
+      // Two LEGS really were produced — otherwise this row proves nothing about
+      // seams. (Two segment_idx values would prove it too, but a leg seam no
+      // longer mints one — that is the card.)
+      expect(r.legs).toBeGreaterThan(1);
     });
 
-    it(`[${corpus.lang}] vendor INCLUDES late audio ⇒ the merged final says the seam twice`, async () => {
+    it(`[${corpus.lang}] vendor INCLUDES late audio ⇒ the bank's overlap merge heals the seam`, async () => {
       const r = await runRollover(corpus, DELAY, 'vendor-includes-late-audio');
-      const spoken = corpus.spoken(TOTAL);
-      expect(r.merged).not.toBe(spoken);
-      expect(r.merged).toBe(corpus.slice(0, SEG0_CHUNKS + SEAM) + corpus.slice(SEG0_CHUNKS, TOTAL));
-      expect(r.merged.length - spoken.length).toBe(corpus.slice(SEG0_CHUNKS, SEG0_CHUNKS + SEAM).length);
-      // 🔴 Nothing on the wire distinguishes this run from the one above. The
-      // phone receives two finals under two indices in both cases; the only
-      // difference is inside the strings. That is §6.1 in one assertion.
-      expect(r.finals.map((f) => f.segment_idx)).toEqual(
-        (await runRollover(corpus, DELAY, 'vendor-excludes-late-audio')).finals.map((f) => f.segment_idx),
-      );
+      expect(r.legs).toBeGreaterThan(1);
+      expect(r.merged).toBe(corpus.spoken(TOTAL));
     });
   }
 });

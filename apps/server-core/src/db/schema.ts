@@ -650,6 +650,25 @@ CREATE TABLE IF NOT EXISTS usage_events (
 -- second index on (user_id, occurred_at); it is named here so nobody has to
 -- rediscover it.
 CREATE INDEX IF NOT EXISTS idx_usage_events_user_seq ON usage_events(user_id, id);
+
+-- ── site_daily_counts (2026-08-15 — first-party public-site aggregate counts) ─
+-- SPEC-REF: docs/strategy/2026-08-15-site-analytics-first-party-design.md
+--
+-- Daily BUCKETS only — never a per-visitor row. Primary key is the whole
+-- dimension tuple so concurrent increments UPSERT rather than race into
+-- duplicates. Not FK-linked to users: register_ok / login_ok are platform
+-- totals, not account-scoped events (privacy: no visitor id, no account id).
+-- Retention = 90 days (db/retention.ts SITE_COUNTS_RETENTION_DAYS), swept
+-- table-wide because there is no per-account owner to walk.
+CREATE TABLE IF NOT EXISTS site_daily_counts (
+  day        TEXT NOT NULL,               -- UTC YYYY-MM-DD
+  kind       TEXT NOT NULL,               -- pageview | download_click | register_ok | login_ok
+  dim        TEXT NOT NULL,               -- path | locale | referrer_host | utm | src | _
+  dim_value  TEXT NOT NULL,
+  count      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, kind, dim, dim_value)
+);
+CREATE INDEX IF NOT EXISTS idx_site_daily_counts_day ON site_daily_counts(day);
 `;
 
 /** Additive columns reconciled onto pre-existing DBs (guarded ADD COLUMN). On a

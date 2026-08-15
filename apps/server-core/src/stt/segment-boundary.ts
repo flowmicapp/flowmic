@@ -64,31 +64,131 @@ export function endsAtSentenceBoundary(confirmed: string): boolean {
   return SENTENCE_TERMINATORS.includes(t[t.length - 1]!);
 }
 
-/** The three inputs a cut decision is allowed to read, and nothing else. */
+/**
+ * card SEG-3 (2026-08-15) — WHY a span of audio was closed, kept because the
+ * text has to be repaired differently for each. See {@link seamText}.
+ *
+ * card SEG-4 (same day, owner: 「从处理逻辑上彻底优化，不要打补丁」) renamed the
+ * third member: 'ceiling' became **'leg'**, because the thing the timer closes
+ * is no longer a segment. A segment — the user-visible row — now ends ONLY at
+ * 'sentence' or 'pause' (or at the terminal stop, which never comes through
+ * here). What the clock bounds is the ENGINE LEG, an engineering constraint the
+ * user never sees: its flush text is seam-repaired and banked, and the same row
+ * keeps growing across the new leg.
+ */
+export type SegmentCutReason = 'sentence' | 'pause' | 'leg';
+
+/**
+ * card SEG-3 — how long the VAD gate must have been CONTINUOUSLY closed before
+ * a silence counts as a boundary.
+ *
+ * 🔴 SEG-1 accepted a bare `!gateOpen`, and owner's 2026-08-15 recording is the
+ * counter-example: 「…看看要怎么样实现」 / 「这个方案，…」 is ONE clause, and the
+ * only thing between its halves is the breath before 「这个」. Mandarin runs at
+ * roughly 4–6 syllables/s with sub-300 ms inter-phrase breaths, so an instant
+ * gate reading answers 「is there sound RIGHT NOW」 — not 「did the speaker stop」.
+ * 600 ms is longer than a breath and shorter than a thought; it is the first
+ * measured number here, so it is a named constant to be re-measured, not tuned
+ * in place.
+ */
+export const MIN_PAUSE_MS = 600;
+
+/** The three inputs a DELIVERY decision is allowed to read, and nothing else.
+ *  card SEG-4 removed `ceilingReached`: no timer can deliver a row any more —
+ *  the timer's whole authority is now the engine leg. */
 export interface SegmentCutInput {
   /** Has the `soft_segment_ms` cadence deadline already passed? Before it, the
    *  answer is always 'wait' — a pause at second 3 must not mint a 3-second row. */
   due: boolean;
-  /** Has the grace ceiling past the deadline expired? Forces the cut. */
-  ceilingReached: boolean;
   /** The engine's CONFIRMED text for the segment now open (never the draft). */
   confirmed: string;
-  /** Is the VAD gate currently OPEN (i.e. we are inside speech)? A closed gate
-   *  means the hangover has elapsed with no voiced frame — a real pause. */
-  gateOpen: boolean;
+  /** How long the VAD gate has been CONTINUOUSLY closed, in ms; 0 while open.
+   *  🔴 Required, not optional-with-a-default: a caller that cannot answer
+   *  「how long has it been quiet」 must not get 「long enough」 for free. */
+  gateClosedMs: number;
+}
+
+/** 'cut' + why, or 'wait'. The reason travels because {@link seamText} needs it. */
+export type SegmentCutDecision = { cut: false } | { cut: true; reason: SegmentCutReason };
+
+/**
+ * The DELIVERY policy, top-down: nothing before the deadline, and past it only
+ * the two boundaries we can defend. There is deliberately no third arm — card
+ * SEG-4's whole content is that time alone never again ends a row.
+ *
+ * 🔴 SENTENCE IS TESTED BEFORE PAUSE and the order is load-bearing, not tidiness:
+ * a speaker who ends a sentence and then breathes satisfies both, and the reason
+ * decides whether the engine's full stop is kept or removed. Reading that seam
+ * as 'pause' would strip a full stop the speaker really did produce.
+ */
+export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
+  if (!input.due) return { cut: false };
+  if (endsAtSentenceBoundary(input.confirmed)) return { cut: true, reason: 'sentence' };
+  if (input.gateClosedMs >= MIN_PAUSE_MS) return { cut: true, reason: 'pause' };
+  return { cut: false };
 }
 
 /**
- * 'cut' ⇒ roll the segment over now; 'wait' ⇒ keep recording into this segment.
+ * 🔴 card SEG-3 — THE ROOT CAUSE THIS ROUND FOUND, and it is not "where we cut".
  *
- * The order below IS the policy and reads top-down: nothing before the deadline,
- * everything at the ceiling, and in between the two boundaries we trust.
+ * owner, 2026-08-15, holding up one of his own dictations: 「这句被切成了 2 段，
+ * 中间用句号连起来，很明显不对」. The two halves were
+ *   「…所以呢要不断的去搜查记录与看看要怎么样实现。」  ← full stop nobody spoke
+ *   「这个方案，所以说不一定要怎么搞。」
+ * and the clause is 「看看要怎么样实现这个方案」.
+ *
+ * WHERE THE FULL STOP COMES FROM. Not from the flush, and not from us — from the
+ * recognizer, and our own engine layer already had it written down:
+ * `engines/sherpa-local.ts:196` — 「SenseVoice punctuates AS A FUNCTION OF THE
+ * SPAN, so a 「。」 turns into a 「，」 the moment more speech follows it」.
+ * ⇒ A segment boundary does not merely SPLIT the text. It changes what the
+ * engine DECIDES the text is: hand it half a clause as a closed span and it
+ * punctuates that half as a finished sentence, because to the engine it is one.
+ * The same mechanism explains owner's other symptom 「中间会丢失几个字」 — span 2
+ * decodes with NONE of span 1's acoustic context, so its opening syllables
+ * decode worst.
+ *
+ * ⇒ SEG-1 (cut in a better place) was necessary and CANNOT be sufficient: the
+ * ceiling must exist, so forced cuts must exist, so fabricated sentence
+ * terminators must exist — unless they are removed on the way out. That is this
+ * function, and it is the whole of it.
+ *
+ * WHAT IT DOES. On a span we closed for TIME (a 'leg' rotation) or for BREATH
+ * ('pause'), the confirmed text provably did NOT end at a sentence
+ * (`segmentCutDecision` tests that first and would have said 'sentence'), so a
+ * terminator on the end of the flush is a property of where the span closed,
+ * not of what was said: drop it. On a 'sentence' cut it is the speaker's own,
+ * and is kept. Under card SEG-4 the 'leg' arm matters MORE than it did as
+ * 'ceiling': the repaired text is banked and the NEXT LEG'S text is appended
+ * after it inside the same row, so a surviving fabricated 「。」 would now sever
+ * a clause in the middle of one row instead of across two.
+ *
+ * ⚠️ FAILURE DIRECTION, chosen deliberately. The lossy case is a sentence that
+ * completes DURING the flush round-trip: we then drop a full stop that had just
+ * become real, and two sentences run together at the seam. That is a missing
+ * mark between two intact sentences. The alternative is owner's defect: one
+ * sentence severed by a mark that was never spoken. A reader can punctuate the
+ * first; nobody can un-split the second.
+ *
+ * ⚠️ Exactly ONE terminator, and never the whole run: 「…吗？！」 is emphasis the
+ * speaker produced, and eating the lot would edit them rather than un-edit us.
+ *
+ * 🔴 WHITESPACE IS NOT OURS TO TOUCH, and this cost a real defect on the way in.
+ * The first version of this function did `trimEnd()` and returned the trimmed
+ * string — which silently ate the trailing SPACE that joins two English
+ * segments, turning 「…test reports 」+「before friday…」 into
+ * 「…test reportsbefore friday…」. `stt-seam-duplication.test.ts` caught it, which
+ * is the whole reason that suite exists. So: trimming is used only to FIND the
+ * last visible character; every byte that is not the one terminator being
+ * removed comes back out untouched. A seam repair that damages the seam is worse
+ * than no repair.
  */
-export function segmentCutVerdict(input: SegmentCutInput): 'cut' | 'wait' {
-  if (!input.due) return 'wait';
-  if (input.ceilingReached) return 'cut';
-  if (!input.gateOpen) return 'cut';
-  return endsAtSentenceBoundary(input.confirmed) ? 'cut' : 'wait';
+export function seamText(finalText: string, reason: SegmentCutReason): string {
+  if (reason === 'sentence') return finalText;
+  const end = finalText.trimEnd().length; // index just past the last visible char
+  if (end === 0) return finalText;
+  if (!SENTENCE_TERMINATORS.includes(finalText[end - 1]!)) return finalText;
+  return finalText.slice(0, end - 1) + finalText.slice(end);
 }
 
 /** What {@link SoftSegmentCadence} needs from the orchestrator, and nothing
@@ -104,26 +204,70 @@ export interface SoftSegmentCadenceHooks {
   hasEngine(): boolean;
   /** terminated || terminalizing — this recording is wrapping up, no segment work. */
   isFinished(): boolean;
-  /** Phase 2: the grace expired, cut regardless of what the speech is doing. */
-  cutNow(): void;
+  /** card SEG-4 — the leg span expired: rotate the ENGINE LEG (flush → seam-repair
+   *  → bank → fresh leg), and mint NOTHING. The row keeps growing. This used to
+   *  be `cutNow()` and used to deliver; the rename is the card. */
+  rotateLeg(): void;
 }
 
 /**
  * card SEG-1 — the cadence, as its own object.
+ * card SEG-4 — what its timer is allowed to do, narrowed by owner's ruling
+ * (「彻底优化，不要打补丁」): time can BOUND AN ENGINE LEG, it can never again
+ * END A ROW.
  *
- * TWO PHASES ON ONE TIMER. Phase 1 fires at `cadenceMs` and does NOT cut: it
- * raises {@link due} and re-arms itself for `graceMs`. The cut in between is
- * decided per audio chunk by {@link segmentCutVerdict} above — at a pause, or at
- * a sentence the engine has confirmed. Phase 2 is that grace expiring, and it
- * cuts unconditionally.
+ * TWO PHASES ON ONE TIMER. Phase 1 fires at `cadenceMs` and raises {@link due}:
+ * the segment starts LOOKING for a decent place to end. Delivery is decided per
+ * audio chunk by {@link segmentCutDecision} — a sentence the engine confirmed,
+ * or a pause that lasted. Phase 2 fires every `graceMs` after that and rotates
+ * the engine leg (an internal act, invisible on the wire); the search for a
+ * delivery boundary simply continues into the new leg.
  *
- * ⚠️ Worst case a row is `cadenceMs + graceMs` long instead of exactly
- * `cadenceMs`. That is the price, it is bounded, and it buys the thing rows are
- * for: one row is one stretch of speech, not one stretch of clock.
+ * ⚠️ A row therefore has a MINIMUM length (`cadenceMs`) and no maximum. That is
+ * deliberate and stated: the bounded resource was always the vendor session,
+ * and the leg rotation bounds it. A speaker who never pauses and never finishes
+ * a sentence accumulates one long row, which is the truth — cutting that
+ * speaker off mid-clause to make the row shorter is the defect this card
+ * removes, not a property worth keeping. The recording itself is still bounded
+ * (quota / hard limit / the user's own thumb), and the terminal final settles
+ * whatever the row had accumulated.
  */
 export class SoftSegmentCadence {
   private timer: unknown = null;
   private _due = false;
+  /** card SEG-3 — when the gate last went closed, or 0 while it is open. Lives
+   *  here rather than in the orchestrator so the three facts a cut is decided
+   *  from (deadline, silence run, confirmed text) are read in one place. */
+  private gateClosedAtMs = 0;
+  private _lastCutReason: SegmentCutReason = 'leg';
+
+  /** Why the span now closing was closed. Read by the orchestrator when it emits
+   *  a segment final (or banks a rotated leg), so {@link seamText} can undo a
+   *  full stop the span produced. Defaults to the strictest reading ('leg' ⇒
+   *  repair), so a path that forgets to ask errs toward removing a mark rather
+   *  than keeping a fabricated one — {@link seamText}'s failure direction. */
+  get lastCutReason(): SegmentCutReason { return this._lastCutReason; }
+
+  /**
+   * Called once per audio chunk. Returns true when this chunk is the DELIVERY
+   * boundary — the row ends here, by the speech's own shape, never by the clock.
+   *
+   * ⚠️ `gateOpen` is the SAME predicate that decides whether the chunk is fed to
+   * the engine, passed in rather than re-derived: two answers to 「is this voice」
+   * inside one decision is this repo's #1 bug shape.
+   */
+  shouldCut(gateOpen: boolean, nowMs: number, confirmed: string): boolean {
+    if (gateOpen) this.gateClosedAtMs = 0;
+    else if (this.gateClosedAtMs === 0) this.gateClosedAtMs = nowMs;
+    const d = segmentCutDecision({
+      due: this._due,
+      confirmed,
+      gateClosedMs: this.gateClosedAtMs === 0 ? 0 : nowMs - this.gateClosedAtMs,
+    });
+    if (!d.cut) return false;
+    this._lastCutReason = d.reason;
+    return true;
+  }
 
   constructor(
     private readonly cadenceMs: number,
@@ -144,7 +288,21 @@ export class SoftSegmentCadence {
         this.arm(this.graceMs);
         return;
       }
-      this.hooks.cutNow(); // phase 2 — the ceiling
+      // phase 2 — card SEG-4: the leg span expired. Rotate the ENGINE LEG and
+      // mint nothing; the row keeps waiting for a boundary it can defend. The
+      // reason is recorded BEFORE the hook so the orchestrator's bank read
+      // (`lastCutReason`) cannot see a stale 'sentence' from a previous
+      // delivery and skip the seam repair.
+      this._lastCutReason = 'leg';
+      this.hooks.rotateLeg();
+      // Re-arm for the NEXT leg span: legs keep rotating for as long as the
+      // boundary refuses to arrive. `cadence + grace` (the same span the FIRST
+      // leg got), not bare `graceMs`: every rotation is a seam and every seam
+      // costs acoustic context, so legs are kept as long as the vendor bound
+      // allows rather than as short as the grace. Also load-bearing for the
+      // suites that pin `graceMs: 0` — a bare-grace re-arm would be `arm(0)`,
+      // a timer that fires at the clock's every step.
+      this.arm(this.cadenceMs + this.graceMs);
     }, delayMs);
   }
 
@@ -155,5 +313,5 @@ export class SoftSegmentCadence {
   /** The boundary HAPPENED. Called from the orchestrator's `beginNextSegment`
    *  alongside the index and the clock anchor, so the three facts that together
    *  mean "a new segment is open" cannot drift apart (that drift WAS N1-B1). */
-  reset(): void { this._due = false; }
+  reset(): void { this._due = false; this.gateClosedAtMs = 0; }
 }

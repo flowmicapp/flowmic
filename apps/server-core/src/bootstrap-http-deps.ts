@@ -65,6 +65,8 @@ export interface HttpDepsWiring {
   db: DbConnection;
   authService: AuthService;
   registerLimiter: RegisterRateLimiter;
+  /** Separate per-IP limiter for POST /api/site/collect. */
+  siteAnalyticsLimiter: RegisterRateLimiter;
   passwordLimiter: RegisterRateLimiter;
   qrGrants: QrGrantStore;
   registry: Registry;
@@ -104,6 +106,7 @@ export interface HttpDepsWiring {
 export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
   const {
     config, billing, version, standaloneUserId, db, authService, registerLimiter,
+    siteAnalyticsLimiter,
     passwordLimiter, qrGrants, registry, store, injectPending, releaseSuppression,
     mail, lanTlsFingerprint, broadcastSettingsUpdated, statusSnapshot, now,
   } = w;
@@ -278,6 +281,31 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
               const written = [...byok, ...keys];
               if (written.length > 0) log.info('seeded default settings', { userId, keys: written });
             },
+            // Site analytics conversions — switch gates COLLECTION only.
+            siteCounts: {
+              counts: db.siteCounts,
+              enabled: config.siteAnalyticsEnabled,
+              ...(now ? { now } : {}),
+            },
+          },
+        }
+      : {}),
+    // First-party public-site collect + download hop. Mounted saas-only; the
+    // switch is inside the handler so a closed switch still 302s downloads.
+    ...(config.mode === 'saas'
+      ? {
+          siteCollect: {
+            counts: db.siteCounts,
+            limiter: siteAnalyticsLimiter,
+            enabled: config.siteAnalyticsEnabled,
+            allowLocalhostOrigin: process.env.NODE_ENV !== 'production',
+            ...(now ? { now } : {}),
+          },
+          opsSite: {
+            auth: authService,
+            counts: db.siteCounts,
+            audit: db.opsAudit,
+            ...(now ? { now } : {}),
           },
         }
       : {}),

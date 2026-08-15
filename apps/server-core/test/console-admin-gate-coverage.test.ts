@@ -104,6 +104,9 @@ const ROUTE_SOURCES = [
   // entry for a route no source serves dies as 「declared but gone」. The literal
   // was missing because the route was.
   join(SRC, 'http', 'ops-usage-events-routes.ts'),
+  // 2026-08-15 — first-party site aggregate ops reads. Same "register in the
+  // same commit that creates the file" rule as every entry above.
+  join(SRC, 'http', 'ops-site-routes.ts'),
 ];
 
 const SECRET = 'admin-gate-coverage-secret-32-bytes-x';
@@ -165,6 +168,9 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   // ADMIN_GATED_ROUTES stays a list of literals (ops-usage-events-routes.ts
   // §PATH SHAPE carries the full argument).
   'GET /api/ops/usage/events': 'admin',
+  // 2026-08-15 — first-party public-site aggregate reads (VPN ops console).
+  'GET /api/ops/site/summary': 'admin',
+  'GET /api/ops/site/breakdown': 'admin',
   'GET /api/cloud/devices': 'account',
   'GET /api/cloud/stt-routings': 'account',
   'POST /api/cloud/stt-routings': 'account',
@@ -291,6 +297,8 @@ describe('admin gate — route coverage is derived from the source, not from a l
     expect(admin).toEqual([
       'GET /api/cloud/billing/orphans',
       'GET /api/ops/audit/recent',
+      'GET /api/ops/site/breakdown',
+      'GET /api/ops/site/summary',
       'GET /api/ops/usage/events', // A2-5 — one account's usage DETAIL
       'GET /api/ops/usage/months',
       'GET /api/ops/usage/summary',

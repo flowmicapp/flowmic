@@ -66,7 +66,7 @@ import {
 } from './mail';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.3';
+export const SERVER_VERSION = '0.3.5';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -220,6 +220,13 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     ...(overrides.now ? { now: overrides.now } : {}),
   });
   const registerLimiter = new RegisterRateLimiter(overrides.now ? { now: overrides.now } : {});
+  // First-party site collect — SEPARATE bucket from register/login so a scrape
+  // of the landing page cannot lock out registration (and vice versa).
+  const siteAnalyticsLimiter = new RegisterRateLimiter(
+    overrides.now
+      ? { now: overrides.now, maxAttempts: 120, windowMs: 60_000 }
+      : { maxAttempts: 120, windowMs: 60_000 },
+  );
   // GA-31 QR-code login — one-time, 60 s account grants the console draws as a QR.
   // In-memory by design (a restart invalidating every pending QR is the correct
   // disposition for a 60-second credential); see auth/qr-grant.ts.
@@ -292,6 +299,13 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     events: db.usageEvents,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
+  // First-party site analytics — announced in BOTH directions, same standing as
+  // the usage-events switch log (an absence that could mean "off" or "this build
+  // has no switch" is worse than a line that says DISABLED).
+  log.info(
+    `site analytics: FLOWMIC_SITE_ANALYTICS ${config.siteAnalyticsEnabled ? 'ENABLED' : 'DISABLED'}`,
+    { env: 'FLOWMIC_SITE_ANALYTICS', enabled: config.siteAnalyticsEnabled, mode: config.mode },
+  );
   // D1 §6.1-bis — the guard asks for the NUMBERS, not for a tier it would then
   // look up itself. Same reason as the registry above: an exempt account has no
   // `Plan` that expresses its exemption, so a guard re-deriving limits from
@@ -321,6 +335,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // BOTH modes and NOT behind `config.usageEventsEnabled`: turning collection
     // off must not strand the rows that were written while it was on.
     usageEvents: db.usageEvents,
+    siteCounts: db.siteCounts,
     listUserIds: () => db.users.listAll().map((u) => u.id),
     limitsOf: (userId) => billing.effectiveLimits(userId),
     ...(overrides.now ? { nowMs: overrides.now } : {}),
@@ -396,6 +411,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     db,
     authService,
     registerLimiter,
+    siteAnalyticsLimiter,
     passwordLimiter,
     qrGrants,
     registry,
@@ -542,6 +558,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       io, guard: quotaGuard, usageTracker, store,
       sessions: audioRegistry,
       sttFactory: (args) => sttSessionFactory(socket, args),
+      // card QTA-2 — the PC owner's account, so the quota gate can ask BOTH
+      // sides when the phone and the desktop are signed into different ones.
+      pcOwnerUserId: (pcId) => registry.findPc(pcId)?.user_id ?? null,
     });
     registerComposeHandlers(socket, { io, guard: quotaGuard, usageTracker, store, composeFactory });
     registerRelayHandlers(socket, { store, pending: injectPending, cloudImages });

@@ -67,6 +67,19 @@ export interface ServerConfig {
    * switch.
    */
   usageEventsEnabled: boolean;
+  /**
+   * First-party public-site aggregate counts (2026-08-15).
+   *
+   * 🔴 DEFAULT OFF — same shape as `usageEventsEnabled`. The table, routes and
+   * retention ship regardless; this gates COLLECTION only. The privacy policy
+   * names the feature; flipping the switch before the policy page is live would
+   * collect under a promise that is not yet on the site. Owner gate.
+   *
+   * Retention still sweeps with the switch off (a 90-day promise that lapses
+   * when a feature is disabled is not a promise). Ops read routes stay mounted
+   * and honestly answer zeros for periods with no collection.
+   */
+  siteAnalyticsEnabled: boolean;
   /** GA-15: saas CORS allow-list (FLOWMIC_CORS_ORIGIN, comma separated).
    *  Defaults to the current production origin, so an unset env keeps today's
    *  behaviour exactly; standalone ignores it and stays '*'. */
@@ -346,6 +359,8 @@ export interface LoadConfigOverrides {
    *  touching process.env, and how the OFF case is asserted without depending on
    *  an env var simply not being set. */
   usageEventsEnabled?: boolean;
+  /** First-party site analytics collection (tests). Same override-wins shape. */
+  siteAnalyticsEnabled?: boolean;
   /** GA-15: explicit CORS allow-list (tests / embedded hosts). */
   corsOrigins?: string[];
   /** D1: explicit Paddle block (tests). Merged cell-by-cell over the env values;
@@ -484,6 +499,7 @@ export function loadConfig(overrides: LoadConfigOverrides = {}): ServerConfig {
     // which is the safe direction for a switch guarding a data-collection
     // promise.
     usageEventsEnabled: overrides.usageEventsEnabled ?? envFlag('FLOWMIC_USAGE_EVENTS_ENABLED'),
+    siteAnalyticsEnabled: overrides.siteAnalyticsEnabled ?? envFlag('FLOWMIC_SITE_ANALYTICS'),
     corsOrigins: overrides.corsOrigins ?? envCorsOrigins(),
     lanTls: overrides.lanTls !== undefined ? overrides.lanTls : resolveLanTls(mode),
     paddle: resolvePaddle(mode, overrides.paddle),

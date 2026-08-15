@@ -22,6 +22,9 @@ import { RegisterValidationError } from '../auth/auth-service';
 import type { RegisterRateLimiter } from '../auth/register-rate-limit';
 import type { QrGrantStore } from '../auth/qr-grant';
 import { UserConstraintError } from '../db/repos/user.repo';
+import type { SiteCountsRepo } from '../db/repos/site-counts.repo';
+import { SITE_TOTAL_DIM, SITE_TOTAL_VALUE } from '../db/repos/site-counts.repo';
+import { utcDay } from '../site/sanitize';
 import { log } from '../log';
 import { accountFromBearer, accountUserFromBearer } from './account-auth';
 import { clientIpFromRequest } from './trusted-proxy';
@@ -39,6 +42,17 @@ export interface AuthRoutesDeps {
    *  after the next server restart. bootstrap wires this to
    *  seedDefaultSettings; absent (unit tests) ⇒ registration is unchanged. */
   onUserCreated?: (userId: string) => void;
+  /**
+   * First-party site analytics — register_ok / login_ok are SERVER-authored.
+   * Absent or `enabled: false` ⇒ zero writes (tests that do not care about
+   * the site surface stay unchanged). Client-reported kinds of these names
+   * are refused at the collect route; only this path may bump them.
+   */
+  siteCounts?: {
+    counts: Pick<SiteCountsRepo, 'bump'>;
+    enabled: boolean;
+    now?: () => number;
+  };
 }
 
 const BODY_CAP = 64_000;
@@ -82,6 +96,16 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+function bumpAuthConversion(
+  deps: AuthRoutesDeps,
+  kind: 'register_ok' | 'login_ok',
+): void {
+  const sc = deps.siteCounts;
+  if (!sc?.enabled) return;
+  const day = utcDay(sc.now?.() ?? Date.now());
+  sc.counts.bump({ day, kind, dim: SITE_TOTAL_DIM, dim_value: SITE_TOTAL_VALUE });
+}
+
 /** Handle the saas account REST routes. Returns true iff it owned the request. */
 export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, deps: AuthRoutesDeps): boolean {
   const url = req.url ?? '/';
@@ -101,6 +125,7 @@ export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, d
         });
         deps.onUserCreated?.(user.id);
         const issued = deps.service.issueToken(user);
+        bumpAuthConversion(deps, 'register_ok');
         sendJson(res, 201, { token: issued.token, user: deps.service.publicUser(user) });
       } catch (err) {
         if (err instanceof UserConstraintError && err.field === 'email') {
@@ -152,6 +177,7 @@ export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, d
       const user = await deps.service.verifyCredentials(str(body.email), str(body.password));
       if (!user) return sendJson(res, 401, { error: 'AUTH_LOGIN_FAILED' });
       const issued = deps.service.issueToken(user);
+      bumpAuthConversion(deps, 'login_ok');
       sendJson(res, 200, { token: issued.token, user: deps.service.publicUser(user) });
     })();
     return true;

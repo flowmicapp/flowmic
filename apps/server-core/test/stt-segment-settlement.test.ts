@@ -79,17 +79,27 @@ function harness(engines: FakeEngine[], sessionOpts: { hardLimitMs?: number; cla
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
     softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
-    // card SEG-1 — zero grace ⇒ the deadline cuts immediately, the pre-SEG-1
-    // stopwatch. These rows are about `duration_ms` answering ONE question and
-    // about one final per segment_idx; WHERE a sentence ends is a different
-    // decision with its own file. See stt-orchestrator.test.ts for the full note.
-    softSegmentGraceMs: 0,
+    // card SEG-4 — rows are minted only at boundaries now, so the flows below
+    // deliver by confirming a sentence and pushing one chunk (the cut lives on
+    // the chunk path), inside the 15 s seek window past each 30 s deadline.
+    // ⚠️ NOT zero grace: at grace 0 the leg rotates the same instant `due`
+    // rises, and the rotation's seam repair eats the very terminator the flow
+    // was about to deliver on — the first draft of this harness proved it.
+    // These rows are about settlement fields, not about WHERE a sentence ends —
+    // that policy has its own file (stt-segment-boundary.test.ts).
+    softSegmentGraceMs: 15_000,
   });
   const finals: FinalEvent[] = [];
   const autoStops: AutoStopEvent[] = [];
   orch.on('final', (p: FinalEvent) => finals.push(p));
   orch.on('auto-stopped', (p: AutoStopEvent) => autoStops.push(p));
   return { orch, clock, session, finals, autoStops };
+}
+
+/** card SEG-4: deliveries happen on the CHUNK path, so settlement flows push
+ *  one chunk to turn a confirmed boundary into a row. */
+function boundaryChunk(orch: SttEngineOrchestrator, clock: FakeClock, seq: number): void {
+  orch.pushChunk({ seq, ts_ms: clock.now, payload: Buffer.alloc(6_400) });
 }
 
 /** The settlement-relevant key set. Written out rather than derived from one of
@@ -104,10 +114,16 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
     const { orch, clock, finals } = harness(engines);
     await orch.start({ language: 'zh', mode: 'realtime' });
 
-    engines[0]!.textOnFlush = '第一段';
+    engines[0]!.textOnFlush = '第一段。';
+    engines[0]!.emitFinal('第一段。');       // the engine confirms a sentence…
+    await clock.advance(30_000);             // …the cadence deadline passes…
+    boundaryChunk(orch, clock, 0);           // …and the next chunk delivers.
+    await drain();
+    engines[1]!.textOnFlush = '第二段。';
+    engines[1]!.emitFinal('第二段。');
     await clock.advance(30_000);
-    engines[1]!.textOnFlush = '第二段';
-    await clock.advance(30_000);
+    boundaryChunk(orch, clock, 1);
+    await drain();
     engines[2]!.textOnFlush = '第三段';
     await orch.stop();
 
@@ -132,8 +148,14 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
     const { orch, clock, finals } = harness(engines);
     await orch.start({ language: 'zh', mode: 'realtime' });
 
-    await clock.advance(30_000);                 // rollover 1 → segment final idx 0
-    await clock.advance(30_000);                 // rollover 2 → segment final idx 1
+    engines[0]!.emitFinal('第一段。');
+    await clock.advance(30_000);
+    boundaryChunk(orch, clock, 0);               // boundary 1 → segment final idx 0, t=30_000
+    await drain();
+    engines[1]!.emitFinal('第二段。');
+    await clock.advance(30_000);
+    boundaryChunk(orch, clock, 1);               // boundary 2 → segment final idx 1, t=60_000
+    await drain();
     await orch.stop();                           // terminal final idx 2, at t=60_000
 
     expect(finals.map((f) => f.duration_ms)).toEqual([30_000, 30_000, 0]);
@@ -143,12 +165,17 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
     expect(total).toBe(clock.now);
   });
 
-  it('🔴 the terminal exit that has NO engine left reports its own segment too', async () => {
-    // The FB-6 shape (stt-terminal-rollover-collision.test.ts case 2): the
-    // release lands while the rollover sits inside engine.close(), so stop()
-    // takes the `!this.engine` branch and emits an EMPTY terminal final under
-    // the NEXT index. That row is a real row under §2.0-c, and the old code had
-    // it claiming the whole session's duration while carrying no text at all.
+  it('🔴 a release landing inside a LEG rotation loses no text and skips no index', async () => {
+    // The FB-6 shape (stt-terminal-rollover-collision.test.ts case 2), remade by
+    // card SEG-4: the release lands while the rotation sits inside
+    // engine.close(). Under the old model that rotation had already DELIVERED a
+    // row and spent idx 0, so the terminal came out EMPTY under idx 1. A
+    // rotation delivers nothing now — so the same collision must hand the
+    // banked text to the terminal final, under the index the rotation never
+    // spent, with the duration measured from the segment's real start. The
+    // empty-terminal variant still exists and still settles (a row with no
+    // words is how a silent release looks); it just needs an emptier flow than
+    // this one to produce it.
     const a = new FakeEngine(); const b = new FakeEngine();
     const { orch, clock, finals } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
@@ -156,7 +183,7 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
     const closing = new Promise<void>((r) => { releaseClose = r; });
     a.close = async (): Promise<void> => { await closing; };
 
-    await clock.advance(30_000);
+    await clock.advance(45_000);   // deadline + grace ⇒ the leg rotates, banking 'text'
     const stopped = orch.stop();
     releaseClose();
     await drain();
@@ -165,12 +192,12 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
 
     const terminal = finals.find((f) => !f.is_segment)!;
     expect(terminal).toBeDefined();
-    expect(terminal.text).toBe('');
-    expect(terminal.segment_idx).toBe(1);
+    expect(terminal.text).toBe('text');           // the bank came out — no silent loss
+    expect(terminal.segment_idx).toBe(0);         // the rotation spent nothing
+    expect(finals).toHaveLength(1);               // and minted nothing of its own
     expect(Object.keys(terminal).sort()).toEqual(SETTLEMENT_KEYS);
-    // Its segment began when the rollover advanced the clock-anchor, so it is 0 —
-    // not 30_000, which is what the SESSION had been running for.
-    expect(terminal.duration_ms).toBe(0);
+    // The segment began at t=0 and never ended until the stop.
+    expect(terminal.duration_ms).toBe(45_000);
   });
 
   it('🔴 one final per segment_idx still holds ACROSS rollovers — the settlement idempotency key', async () => {
@@ -180,9 +207,12 @@ describe('N1-B1: both final exits are field-complete for settlement', () => {
     const engines = [new FakeEngine(), new FakeEngine(), new FakeEngine(), new FakeEngine()];
     const { orch, clock, finals } = harness(engines);
     await orch.start({ language: 'zh', mode: 'realtime' });
-    await clock.advance(30_000);
-    await clock.advance(30_000);
-    await clock.advance(30_000);
+    for (let k = 0; k < 3; k++) {
+      engines[k]!.emitFinal(`第${k}句。`);
+      await clock.advance(30_000);
+      boundaryChunk(orch, clock, k);
+      await drain();
+    }
     await orch.stop();
 
     const idxs = finals.map((f) => f.segment_idx);

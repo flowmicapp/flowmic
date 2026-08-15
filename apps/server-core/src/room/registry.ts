@@ -35,6 +35,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import type { ServerMode } from '@flowmic/protocol';
 import { ServerError } from '../errors';
 import { log } from '../log';
+import { reapCrossAccountSiblings } from './cross-account-reap';
 import { newToken } from '../auth/token';
 import type { PlanLimits } from '../billing/plans';
 import type { PcRecord, PcRepo } from '../db/repos/pc.repo';
@@ -364,6 +365,13 @@ export class Registry {
   private stampMachineUid(pc: PcRecord, machine_uid?: string): void {
     if (!machine_uid || pc.machine_uid === machine_uid) return;
     this.deps.pcs.setMachineUid(pc.id, machine_uid);
+  }
+
+  /** card ACC-1 — full account, evidence and the release-vs-revoke argument in
+   *  `room/cross-account-reap.ts`; this is only the registry-facing seam. */
+  reapCrossAccountSiblings(machine_uid: string | undefined, keep_user_id: string):
+    Array<{ room_uuid: string; pairing_ids: string[] }> {
+    return reapCrossAccountSiblings({ pcs: this.deps.pcs, mobiles: this.deps.mobiles }, machine_uid, keep_user_id);
   }
 
   reconnectPc(token: string, client_instance_id?: string, machine_uid?: string): { pc: PcRecord } | null {

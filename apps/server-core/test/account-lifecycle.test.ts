@@ -227,6 +227,10 @@ async function seedAccount(email: string): Promise<Seeded> {
   });
   db.billing.finishEvent(`evt_${user.id}`, { user_id: user.id, subscription_id: `sub_${user.id}`, outcome: 'applied' });
   db.opsAudit.append({ actor_user_id: user.id, action: 'ops.admin.granted', target_kind: 'route', target_id: 'GET /api/cloud/billing/orphans' });
+  // site_daily_counts: one platform-wide bucket, so the retained-tables positive
+  // control has a row to find. Deliberately carries NOTHING of this account —
+  // that is the table's design and exactly why deletion must leave it alone.
+  db.siteCounts.bump({ day: '2026-08-15', kind: 'register_ok', dim: '_', dim_value: '_' });
   return {
     id: user.id,
     email,
@@ -266,6 +270,10 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     email_verifications: rowsFor('email_verifications', 'user_id', userId),
     billing_events: rowsFor('billing_events', 'user_id', userId),
     ops_audit_log: rowsFor('ops_audit_log', 'actor_user_id', userId),
+    // site_daily_counts carries NO account column at all (that is its privacy
+    // design), so its 「retained」 probe is table-wide: the whole point is that
+    // an account deletion cannot even NAME rows here to sweep.
+    site_daily_counts: (db.raw.prepare('SELECT COUNT(*) AS n FROM site_daily_counts').get() as { n: number }).n,
   };
 }
 
@@ -284,7 +292,7 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // The scanner must actually see the schema — a probe that found no tables
     // would make every assertion below vacuously true.
     expect(tables).toContain('users');
-    expect(tables.length).toBe(13); // thirteen since A2-5's usage_events (2026-08-12)
+    expect(tables.length).toBe(14); // fourteen since site_daily_counts (2026-08-15)
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];

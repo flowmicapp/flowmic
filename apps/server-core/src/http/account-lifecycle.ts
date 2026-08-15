@@ -122,8 +122,12 @@ export const USER_CASCADING_TABLES = [
  *   record, and deleting an account is exactly the kind of action that most
  *   needs to leave a trace" (schema.ts). Its `actor_user_id` carries no FK for exactly this
  *   reason.
+ * · `site_daily_counts` — daily platform-wide buckets with no visitor id and no
+ *   account id at all (schema.ts, 2026-08-15): there is nothing account-scoped
+ *   in a row to delete WITH the account, and its lifecycle is retention's 90-day
+ *   sweep, not account deletion.
  */
-export const USER_RETAINED_TABLES = ['billing_events', 'ops_audit_log'] as const;
+export const USER_RETAINED_TABLES = ['billing_events', 'ops_audit_log', 'site_daily_counts'] as const;
 
 /** The `user_settings` keys an export must never carry. A SET, not a prefix
  *  match: "exclude everything that starts with account." would also swallow legitimate account

@@ -106,18 +106,22 @@ describe('SttEngineOrchestrator', () => {
     expect((events['engine-status'][0] as { status: string }).status).toBe('ready');
   });
 
-  it('rolls over at the soft-segment boundary (new session, segment_idx++)', async () => {
+  it('card SEG-4: the soft-segment timer rotates the LEG; the boundary delivers the row', async () => {
     const a = new FakeEngine(); const b = new FakeEngine();
     const { orch, clock, events } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
     a.finalOnFlush = 'segment one';
-    await clock.advance(30_000); // soft-segment timer fires
+    await clock.advance(30_000); // deadline + zero grace ⇒ the LEG rotates…
+    expect((events.final as { is_segment: boolean }[]).filter((f) => f.is_segment))
+      .toHaveLength(0);          // …and NO row was minted by the clock
+    expect(b.state).toBe('open');
+    // The engine confirms a sentence in the new leg; the next chunk delivers.
+    b.emitFinal('segment one 完毕。');
+    orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6400) });
+    await drain();
     const seg = events.final.find((f) => (f as { is_segment: boolean }).is_segment) as { text: string; segment_idx: number; is_segment: boolean };
     expect(seg.is_segment).toBe(true);
-    expect(seg.text).toBe('segment one');
     expect(seg.segment_idx).toBe(0);
-    // second engine is now live
-    b.finalOnFlush = 'segment two';
     await orch.stop();
     const fin = events.final.at(-1) as { text: string; segment_idx: number; is_segment: boolean };
     expect(fin.segment_idx).toBe(1);
@@ -183,17 +187,18 @@ describe('SttEngineOrchestrator', () => {
     // state the phone's FSM mirrors — never left `recording`.
     expect(events['auto-stopped']).toHaveLength(0);
     expect(session.state).toBe('recording');
-    // Everything emitted so far closed a SEGMENT, not the utterance. A single
+    // card SEG-4: the ceiling rotates the LEG and mints nothing at all now — a
+    // vendor session limit is not allowed to end the user's sentence. A single
     // `is_segment:false` here would mean the phone had been told the recording
     // was over while the user was still holding the button.
-    const finals = events.final as { is_segment: boolean }[];
-    expect(finals.length).toBeGreaterThan(0);
-    expect(finals.every((f) => f.is_segment)).toBe(true);
+    expect(events.final as unknown[]).toHaveLength(0);
 
-    // Positive control: the terminal final still exists — it is the RELEASE that
-    // produces it, which is the entire point of the change.
+    // Positive control: the terminal final still exists and carries the banked
+    // text — it is the RELEASE that produces it, which is the point.
     await orch.stop();
-    expect((events.final.at(-1) as { is_segment: boolean }).is_segment).toBe(false);
+    const fin = events.final.at(-1) as { is_segment: boolean; text: string };
+    expect(fin.is_segment).toBe(false);
+    expect(fin.text).toBe('the whole utterance');
   });
 });
 

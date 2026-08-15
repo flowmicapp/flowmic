@@ -91,6 +91,11 @@ export const RETENTION_SWEEP_INTERVAL_MS = DAY_MS;
  */
 export const USAGE_EVENTS_RETENTION_DAYS = 90;
 
+/** Public-site aggregate buckets — same 90-day horizon as usage_events, and
+ *  the same reason (a collection surface with a published retention promise).
+ *  Swept TABLE-WIDE: there is no per-account owner column. */
+export const SITE_COUNTS_RETENTION_DAYS = 90;
+
 export interface RetentionCounts {
   /** timeline_blobs rows hard-deleted (tombstones included). */
   blobs: number;
@@ -98,6 +103,8 @@ export interface RetentionCounts {
    *  `usageEvents` dep was wired, so a reader never has to tell "wasn't swept" from
    *  "was swept, but nothing had expired" by whether a key exists. */
   usageEvents: number;
+  /** site_daily_counts rows hard-deleted. 0 when no `siteCounts` dep. */
+  siteCounts: number;
   /** users visited without error. */
   users: number;
 }
@@ -121,6 +128,12 @@ export interface RetentionDeps {
    * retention promise.
    */
   usageEvents?: Pick<UsageEventsRepo, 'purgeOlderThan'>;
+  /**
+   * First-party site aggregate buckets. Table-wide purge (no user_id). OPTIONAL
+   * for the same book-13 reason as `usageEvents`: absent ⇒ no site rows deleted,
+   * never a silent 0 that looks like "nothing expired".
+   */
+  siteCounts?: Pick<import('./repos/site-counts.repo').SiteCountsRepo, 'purgeOlderThan'>;
   /** Every account whose rows are subject to a retention window. */
   listUserIds(): string[];
   /** EFFECTIVE limits for a user (billing.effectiveLimits — expiry, unlock-all
@@ -143,7 +156,7 @@ export interface RetentionSweeper {
 }
 
 function zero(): RetentionCounts {
-  return { blobs: 0, usageEvents: 0, users: 0 };
+  return { blobs: 0, usageEvents: 0, siteCounts: 0, users: 0 };
 }
 
 /**
@@ -190,6 +203,20 @@ export function startRetentionSweeper(deps: RetentionDeps): RetentionSweeper {
         });
       }
     }
+    // Site aggregates are platform-scoped (no user_id). One table-wide purge
+    // AFTER the per-user loop so a single account's failure cannot skip it.
+    if (deps.siteCounts) {
+      try {
+        const cutoffDay = new Date(now() - SITE_COUNTS_RETENTION_DAYS * DAY_MS)
+          .toISOString()
+          .slice(0, 10);
+        counts.siteCounts += deps.siteCounts.purgeOlderThan(cutoffDay);
+      } catch (err) {
+        log.error('retention: site_counts sweep failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     return counts;
   }
 
@@ -197,7 +224,9 @@ export function startRetentionSweeper(deps: RetentionDeps): RetentionSweeper {
     if (stopped) return zero(); // a tick that raced stop() must be inert
     try {
       const counts = sweep();
-      if (counts.blobs > 0 || counts.usageEvents > 0) log.info('retention: swept', { ...counts });
+      if (counts.blobs > 0 || counts.usageEvents > 0 || counts.siteCounts > 0) {
+        log.info('retention: swept', { ...counts });
+      }
       return counts;
     } catch (err) {
       // fail-loud, never silent (CLAUDE.md red line) — but a failed sweep must NOT

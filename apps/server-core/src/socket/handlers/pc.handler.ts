@@ -182,6 +182,22 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       setAuth(socket, { userId, deviceId: pc.id, kind: 'pc' });
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
+      // card ACC-1 — this machine now serves THIS account, so its rows under
+      // other accounts describe a PC that cannot return (single-account app).
+      // The registry has revoked their pairings; eject any live phone sockets
+      // so the reconnect ladder meets the dead token and the phone renders its
+      // existing 「电脑上已取消这台手机的配对，请重新配对连接」 instead of
+      // waiting forever in a room whose PC will never come back (measured
+      // stranding, relay journal 2026-08-15 11:06→11:17). Order matters: the
+      // revoke happened first, so an ejected phone cannot be re-admitted.
+      for (const stranded of registry.reapCrossAccountSiblings(parsed.data.machine_uid, userId)) {
+        log.info('pc:register reaped cross-account siblings', {
+          room: stranded.room_uuid, pairings: stranded.pairing_ids.length,
+        });
+        for (const pairingId of stranded.pairing_ids) {
+          store.getMobile(stranded.room_uuid, pairingId)?.disconnect(true);
+        }
+      }
       // book 18 §7.3 — same erase as the reconnect leg, and it belongs here too:
       // registerPc RECOGNISES a known machine and keeps its existing row and
       // room, so a desktop that cleared its credentials comes back through this

@@ -74,6 +74,16 @@ export interface AudioHandlerDeps {
   sessions?: AudioSessionRegistry;
   /** STT engine seam (R1-3). Absent in R1-2 → the handler fails loud. */
   sttFactory?: (args: SttStartArgs) => SttOrchestrator;
+  /**
+   * card QTA-2 (owner 2026-08-15: 「计费在 PC 和手机端都进行检查，两边有一方
+   * 不满足都不能继续」) — resolve the PC OWNER's account for this socket's
+   * paired PC. `auth.userId` is the acting account (`mobile.user_id ??
+   * pc.user_id` — the phone's own when it has one); when the desktop is signed
+   * into a DIFFERENT account, that second account's quota must also admit the
+   * session. Absent (old wiring, tests that predate the card) ⇒ single-account
+   * behaviour, which is also correct whenever the two ids are equal.
+   */
+  pcOwnerUserId?: (pc_device_id: string) => string | null;
 }
 
 export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): void {
@@ -222,8 +232,17 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
 
     // *** billing call site (STT quota) — the ONE ensureQuota('stt') site ***
     // Live now (standalone NOOP). Over-quota fails loud → QUOTA_EXCEEDED.
+    //
+    // card QTA-2 — BOTH accounts must admit the session (owner 2026-08-15,
+    // correcting his own earlier one-side ruling in the same conversation:
+    // 「两边有一方不满足都不能继续」). `auth.userId` is who the minutes are
+    // METERED to (the acting account — the phone's own when the pairing has
+    // one); the PC owner's account is checked as a GATE only, never billed —
+    // one recording must not decrement two ledgers for the same seconds.
     try {
       guard.ensureQuota(auth.userId, 'stt');
+      const pcUserId = deps.pcOwnerUserId?.(auth.deviceId ?? '') ?? null;
+      if (pcUserId !== null && pcUserId !== auth.userId) guard.ensureQuota(pcUserId, 'stt');
     } catch (err) {
       const e = errorPayload(err);
       // A2-5 — record that this user was TURNED AWAY. Until this card a quota

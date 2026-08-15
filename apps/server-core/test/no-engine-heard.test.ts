@@ -362,13 +362,19 @@ describe('G-23 positive controls — 「I cannot tell」 must not become either 
     const rig = harness([a, b]);
     await rig.orch.start({ language: 'zh', mode: 'realtime' });
     rig.speak(2);
-    a.emitFinal('第一段');
-    await rig.clock.advance(30_000); // soft-segment boundary: flush a, open b
+    a.emitFinal('第一段。');
+    await rig.clock.advance(30_000); // card SEG-4: the leg span expires — leg a
+                                     // rotates out, leg b opens, NO row minted
     await rig.orch.stop();           // b was never fed a chunk
 
     expect(a.pushes).toBe(2);
     expect(b.pushes).toBe(0);
-    expect((rig.events.final[0] as { text: string; is_segment: boolean })).toMatchObject({ text: '第一段', is_segment: true });
+    // The rotation banked leg a's text, so the terminal final carries it. The
+    // trailing 「。」 is gone by design: a forced leg seam cannot tell a
+    // speaker's mark from a span-fabricated one, and seamText's stated failure
+    // direction drops it (a missing mark beats a fabricated one).
+    expect((rig.events.final.at(-1) as { text: string; is_segment: boolean }))
+      .toMatchObject({ text: '第一段', is_segment: false });
     expect(rig.codes()).not.toContain('STT_NO_ENGINE_REACHED');
   });
 

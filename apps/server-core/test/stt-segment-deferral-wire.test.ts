@@ -141,12 +141,21 @@ describe('SEG-1 wiring — the deadline asks for a boundary, it does not take on
     await speak(orch, clock, 0, 2);
     expect(finals.filter((f) => f.is_segment)).toHaveLength(0);
 
-    voiced = false; // the VAD hangover elapsed — the speaker stopped
-    await speak(orch, clock, 2, 1);
+    // 🔴 card SEG-3 — the gate going quiet is NOT the boundary any more, because
+    // a breath does that. owner's 2026-08-15 seam was cut in the pause before
+    // 「这个方案」, mid-clause. The silence has to LAST (MIN_PAUSE_MS).
+    voiced = false;
+    await speak(orch, clock, 2, 3); // 0 / 200 / 400 ms of quiet — a breath
+    expect(finals.filter((f) => f.is_segment)).toHaveLength(0);
+
+    await speak(orch, clock, 5, 1); // 600 ms — the speaker really did stop
     expect(finals.filter((f) => f.is_segment)).toHaveLength(1);
   });
 
-  it('🔴 the ceiling ends a segment nothing else would: no pause, no punctuation', async () => {
+  it('🔴 card SEG-4: the leg span expiring rotates the ENGINE and mints NOTHING', async () => {
+    // Before this card the grace expiry was a CEILING that delivered a row —
+    // i.e. time could end the user's sentence, which is owner's 2026-08-15
+    // defect at its root. Now it only swaps the vendor leg.
     const engines = [new FakeEngine(), new FakeEngine()];
     const { orch, clock, finals } = harness(engines, () => true);
     await orch.start({ language: 'zh', mode: 'realtime' });
@@ -155,23 +164,78 @@ describe('SEG-1 wiring — the deadline asks for a boundary, it does not take on
 
     await clock.advance(30_000);
     expect(finals.filter((f) => f.is_segment)).toHaveLength(0); // deadline alone: nothing
-    await clock.advance(15_000);                                // the grace expires
-    expect(finals.filter((f) => f.is_segment)).toHaveLength(1);
+    await clock.advance(15_000);                                // the leg span expires
+    expect(finals.filter((f) => f.is_segment)).toHaveLength(0); // 🔴 still no row
+    expect(engines[1]!.state).toBe('open');                     // but the LEG rotated
+    // …and nothing was lost: the terminal final settles the banked text.
+    engines[1]!.textOnFlush = '';
+    await orch.stop();
+    const terminal = finals.find((f) => !f.is_segment)!;
+    expect(terminal.text).toBe('one two three four five');
   });
 
-  it('the deadline does not re-fire while the segment is waiting for its boundary', async () => {
-    // Guards against the obvious wrong fix — re-arming phase 1 instead of the
-    // ceiling — which would leave a session that never cuts at all.
+  it('leg spans keep rotating while the boundary refuses to arrive', async () => {
+    // Guards against the obvious wrong shape — a one-shot rotation — which
+    // would leave the SECOND leg unbounded for the rest of the recording.
     const engines = [new FakeEngine(), new FakeEngine(), new FakeEngine()];
     const { orch, clock, finals } = harness(engines, () => true);
     await orch.start({ language: 'zh', mode: 'realtime' });
     engines[0]!.textOnFlush = 'no boundary in sight';
     engines[0]!.emitFinal('no boundary in sight');
-    await clock.advance(30_000 + 15_000 + 30_000);
-    // Exactly one cut from the first ceiling; the second segment's own deadline
-    // has passed but its grace has not.
-    expect(finals.filter((f) => f.is_segment)).toHaveLength(1);
+    await clock.advance(30_000 + 15_000);      // leg 1 rotates out at t=45 s
+    expect(engines[1]!.state).toBe('open');
+    await clock.advance(45_000);               // a full leg span later, so does leg 2
+    expect(engines[2]!.state).toBe('open');
+    expect(finals.filter((f) => f.is_segment)).toHaveLength(0); // and still no row
   });
+
+  it('🔴 SEG-3/SEG-4: a leg seam does not leave a full stop nobody spoke inside the row',
+    async () => {
+      // owner's 2026-08-15 defect, end to end. The recognizer punctuates the
+      // SPAN (see SherpaLocalEngine's `interimShape` header), so the rotated
+      // leg's flush comes back 「…实现。」 mid-clause. Under SEG-4 that text stays
+      // INSIDE the row (the rotation delivers nothing), so an unrepaired seam
+      // would now sever the clause in the middle of one row. This asserts the
+      // EMITTED frame: `seamText` can be perfect and still not be called.
+      const engines = [new FakeEngine(), new FakeEngine()];
+      const { orch, clock, finals } = harness(engines, () => true);
+      await orch.start({ language: 'zh', mode: 'realtime' });
+      // Mid-clause 「…要怎么样实现」 handed back as a finished sentence.
+      engines[0]!.textOnFlush = '看看要怎么样实现。';
+      engines[0]!.emitFinal('看看要怎么样实现');
+
+      await clock.advance(30_000);
+      await clock.advance(15_000); // the leg span expires mid-clause: rotate
+      expect(finals.filter((f) => f.is_segment)).toHaveLength(0);
+      // The clause CONTINUES in the new leg and the engine confirms its end…
+      engines[1]!.textOnFlush = '这个方案，所以说不一定要怎么搞。';
+      engines[1]!.emitFinal('这个方案，所以说不一定要怎么搞。');
+      await speak(orch, clock, 0, 1); // …and the next chunk delivers the row.
+
+      const segs = finals.filter((f) => f.is_segment);
+      expect(segs).toHaveLength(1);
+      // 🔴 One row, one clause, and the seam's fabricated 「。」 is gone.
+      expect(segs[0]!.text).toBe('看看要怎么样实现这个方案，所以说不一定要怎么搞。');
+    });
+
+  it('SEG-3: a segment that ends on a sentence the SPEAKER finished keeps its mark',
+    async () => {
+      // The other direction, so the repair cannot be widened into "always strip".
+      const engines = [new FakeEngine(), new FakeEngine()];
+      const { orch, clock, finals } = harness(engines, () => true);
+      await orch.start({ language: 'zh', mode: 'realtime' });
+      engines[0]!.textOnFlush = '这句真的说完了。';
+      engines[0]!.emitFinal('这句真的说完了。'); // CONFIRMED ends the sentence
+
+      await clock.advance(30_000);
+      // No pause and no ceiling needed: the confirmed sentence IS the boundary,
+      // and it is reported as reason 'sentence', so the mark survives. It still
+      // takes a CHUNK to ask — cuts live on the chunk path, never on the timer.
+      await speak(orch, clock, 0, 1);
+      const segs = finals.filter((f) => f.is_segment);
+      expect(segs).toHaveLength(1);
+      expect(segs[0]!.text).toBe('这句真的说完了。');
+    });
 });
 
 // ── REVERSE CONTROL (2026-08-15, dev-pc-a, run and observed) ──────────
@@ -190,3 +254,27 @@ describe('SEG-1 wiring — the deadline asks for a boundary, it does not take on
 // The complementary control lives in the policy file, where widening
 // SENTENCE_TERMINATORS to include the ASCII period turns the "U.S." / "3.5" row
 // red.
+
+// ── REVERSE CONTROL, card SEG-4 (2026-08-15, dev-pc-a — run, observed, reverted) ──
+// ① Make the cadence's phase 2 deliver again (`rotateLeg: () => startRollover(true)`,
+//    the pre-SEG-4 ceiling) ⇒ 「5 failed | 20 passed」 across this file and
+//    stt-orchestrator.test.ts: every 「mints NOTHING」 row sees a row minted by
+//    the clock, and the one-clause row gets its clause severed again.
+// ② Bank the rotated leg's flush WITHOUT `seamText` ⇒ 「2 failed | 20 passed」,
+//    and the one-clause row prints owner's defect INSIDE a single row:
+//      Received: "看看要怎么样实现。这个方案，所以说不一定要怎么搞。"
+//    — which is why the repair matters MORE under SEG-4, not less: the seam
+//    moved inside the row, where no reader could even see it as a seam.
+//
+// ── REVERSE CONTROL, card SEG-3 (2026-08-15, dev-pc-a — run, observed, reverted) ──
+// ① Emit `r.text` instead of `seamText(r.text, …)` in `flushAndEmitFinal` ⇒
+//    「1 failed | 6 passed」, and the failure prints owner's defect verbatim:
+//      Expected: "看看要怎么样实现"   Received: "看看要怎么样实现。"
+//    That is the whole card in one line — the mark is added by the SPAN, and the
+//    only place it can be taken back off is the emit.
+// ② Relax the silence run back to `gateClosedMs > 0` (i.e. SEG-1's instant gate
+//    reading) ⇒ 「2 failed | 28 passed」 across this file and the policy file:
+//    the breath-length row cuts again ('cut' where 'wait' is expected) and the
+//    wire row mints a segment 400 ms into a pause. Those two ARE the reported
+//    seam: SEG-1 would have cut in the breath before 「这个方案」 as surely as the
+//    30 s stopwatch did, just one second later.

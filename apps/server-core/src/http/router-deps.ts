@@ -38,6 +38,8 @@ import type { EmailVerificationRoutesDeps } from './email-verification-routes';
 import type { PaddleRoutesDeps } from './paddle-routes';
 import type { UpdateRoutesDeps } from './update-routes';
 import type { StatusRoutesDeps } from './status-routes';
+import type { SiteCollectRoutesDeps } from './site-collect-routes';
+import type { OpsSiteRoutesDeps } from './ops-site-routes';
 import type { UserIdVerdict } from './account-auth';
 
 export interface HttpDeps {
@@ -193,6 +195,17 @@ export interface HttpDeps {
    *  exists to make visible — the same "one value answers one question only" split as `updates`
    *  above. See status-routes.ts for why it publishes no error strings. */
   status?: StatusRoutesDeps;
+  /**
+   * First-party public-site analytics intake (`POST /api/site/collect` +
+   * `GET /api/site/go/download`). SAAS ONLY. Absent → paths 404.
+   * 🔴 PUBLIC — not admin-gated (same standing as `/api/status`).
+   */
+  siteCollect?: SiteCollectRoutesDeps;
+  /**
+   * Operator read of site aggregates (`GET /api/ops/site/{summary,breakdown}`).
+   * SAAS ONLY, admin-gated. Absent → 404.
+   */
+  opsSite?: OpsSiteRoutesDeps;
   /** Absolute path of the server script this process is running, echoed by
    *  `/api/health` so the desktop's adopt probe can tell OUR sidecar from a stale
    *  one left by another build. Defaults to `process.argv[1]`; injectable so the

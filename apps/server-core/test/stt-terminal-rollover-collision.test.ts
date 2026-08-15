@@ -72,10 +72,12 @@ function harness(engines: FakeEngine[], opts: Record<string, unknown> = {}): {
   const orch = new SttEngineOrchestrator(session, () => engines[Math.min(i++, engines.length - 1)]!, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
     softSegmentMs: 30_000, engineFlushTimeoutMs: 1_000,
-    // card SEG-1 — zero grace ⇒ pre-SEG-1 stopwatch. This file is about a release
-    // landing INSIDE a rollover's flush; when the rollover was decided is not part
-    // of that. Full note in stt-orchestrator.test.ts.
-    softSegmentGraceMs: 0,
+    // card SEG-4 — a REAL grace window, not zero: delivering rollovers are
+    // chunk-driven now, and at grace 0 the leg rotates the same instant `due`
+    // rises, stealing the flow before its boundary chunk can. This file is about
+    // a release landing INSIDE a delivering rollover's flush; the rows confirm a
+    // sentence and push one chunk to start that rollover.
+    softSegmentGraceMs: 15_000,
     ...opts,
   });
   const finals: FinalEvent[] = [];
@@ -98,7 +100,9 @@ describe('W2.5-B: at most ONE server final per segment_idx', () => {
     const vendorAnswered = new Promise<void>((r) => { releaseVendor = r; });
     a.flush = async (): Promise<void> => { a.flushes++; await vendorAnswered; a.emitFinal('前半句'); };
 
-    await clock.advance(30_000);          // soft-segment boundary → rolloverSegment() parks in its flush
+    await clock.advance(45_000);          // card SEG-4: deadline + grace → the LEG
+                                          // rotation parks in its flush (a rotation
+                                          // is a rollover too — same collision)
     expect(finals).toHaveLength(0);       // the precondition this test rests on, asserted not assumed
     expect(a.flushes).toBe(1);
 
@@ -133,7 +137,10 @@ describe('W2.5-B: at most ONE server final per segment_idx', () => {
     const closing = new Promise<void>((r) => { releaseClose = r; });
     a.close = async (): Promise<void> => { await closing; };
 
-    await clock.advance(30_000);
+    a.emitFinal('第一句。');                     // the engine confirms a sentence
+    await clock.advance(30_000);                 // the deadline passes
+    orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6_400) });
+    await drain();                               // card SEG-4: the CHUNK delivers
     expect(finals).toHaveLength(1);              // the segment final for idx 0 is already out
     expect(finals[0]!.segment_idx).toBe(0);
     expect(finals[0]!.is_segment).toBe(true);
@@ -172,12 +179,15 @@ describe('W2.5-B: at most ONE server final per segment_idx', () => {
     const a = new FakeEngine(); const b = new FakeEngine();
     const { orch, clock, finals } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
-    a.flush = async (): Promise<void> => { a.emitFinal('segment one'); };
+    a.flush = async (): Promise<void> => { a.emitFinal('segment one。'); };
+    a.emitFinal('segment one。');
     await clock.advance(30_000);
+    orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6_400) });
+    await drain();                               // card SEG-4: boundary + chunk deliver idx 0
     b.flush = async (): Promise<void> => { b.emitFinal('segment two'); };
     await orch.stop();
     expect(finals.map((f) => [f.segment_idx, f.is_segment])).toEqual([[0, true], [1, false]]);
-    expect(finals[0]!.text).toBe('segment one');
+    expect(finals[0]!.text).toBe('segment one。');
     expect(finals[1]!.text).toBe('segment two');
   });
 });
@@ -218,7 +228,7 @@ describe('W2.5-B: the fix costs the common path nothing', () => {
       await terminalAnswered; a.emitFinal('前半句后半句');
     };
 
-    await clock.advance(30_000);
+    await clock.advance(45_000);          // card SEG-4: the LEG rotation parks in its flush
     const stopped = orch.stop();
     releaseRollover(); await drain();
     releaseTerminal(); await drain();

@@ -196,8 +196,8 @@ describe('GA-06 retention sweep', () => {
     // this sweeper has no usageEvents dep) rather than appearing only when the
     // leg ran, so a reader never has to tell "did not sweep" from "swept, nothing expired" by
     // whether a key exists.
-    expect(first).toEqual({ blobs: 2, usageEvents: 0, users: 2 });
-    expect(second).toEqual({ blobs: 0, usageEvents: 0, users: 2 });
+    expect(first).toEqual({ blobs: 2, usageEvents: 0, users: 2, siteCounts: 0 });
+    expect(second).toEqual({ blobs: 0, usageEvents: 0, users: 2, siteCounts: 0 });
     s.stop();
   });
 
@@ -220,7 +220,7 @@ describe('GA-06 retention sweep', () => {
     seedBlob(db, 'free-user', 'h-old-2', T0 - 60 * DAY_MS);
     sched.timers[0]?.fn();
     expect(blobAlive(db, 'free-user', 'h-old-2')).toBe(true);
-    expect(s.runOnce()).toEqual({ blobs: 0, usageEvents: 0, users: 0 });
+    expect(s.runOnce()).toEqual({ blobs: 0, usageEvents: 0, users: 0, siteCounts: 0 });
   });
 
   it('one bad user does not abort the sweep for the others (fail-loud, keep going)', () => {

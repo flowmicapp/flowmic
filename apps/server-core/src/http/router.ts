@@ -34,6 +34,8 @@ import { tryHandleTimelineGrantsRoutes } from './timeline-grants-routes';
 import { tryHandleEmailVerificationRoutes } from './email-verification-routes';
 import { makeUpdateRoutes } from './update-routes';
 import { tryHandleStatusRoutes } from './status-routes';
+import { tryHandleSiteCollectRoutes } from './site-collect-routes';
+import { tryHandleOpsSiteRoutes } from './ops-site-routes';
 import { tryHandlePaddleRoutes } from './paddle-routes';
 import { isLocalRequest, refuseNonLocal } from './local-only';
 import { refuseUnidentified } from './account-auth';
@@ -410,6 +412,11 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // strings and no percentages — status-routes.ts argues both.
     if (deps.status && tryHandleStatusRoutes(req, res, deps.status)) return true;
 
+    // First-party public-site analytics (2026-08-15). PUBLIC, saas-only via dep
+    // presence. Switch-off is INSIDE the handler (204 / still-302), not a missing
+    // mount — a missing mount would 404 the download hop and break the CTA.
+    if (deps.siteCollect && tryHandleSiteCollectRoutes(req, res, deps.siteCollect)) return true;
+
     // GA-12 "test connection" probes (POST /api/probe/llm | /api/probe/stt). STANDALONE
     // ONLY: the body names an arbitrary endpoint for the server to dial, which on
     // a public saas instance would be an SSRF pivot into its own network. On the
@@ -477,6 +484,11 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // field. Absent dep → these paths fall to the 404 below, which honestly means
     // "this deployment has no ops surface" rather than "you don't have permission".
     if (deps.ops && tryHandleOpsRoutes(req, res, deps.ops)) return true;
+
+    // 2026-08-15 — site aggregate reads for the VPN ops console. Separate file
+    // from ops-routes.ts so the gate-coverage scanner picks up its literals
+    // (ops-site-routes.ts is in ROUTE_SOURCES).
+    if (deps.opsSite && tryHandleOpsSiteRoutes(req, res, deps.opsSite)) return true;
 
     // A2-3 — saas-only `POST /api/ops/users/restrict` ("restrict usage" write).
     //

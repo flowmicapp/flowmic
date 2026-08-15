@@ -140,3 +140,64 @@ describe('QTA-1: audio:start refusals are spoken, not only acked', () => {
     expect(mobile.received('stt:error')).toHaveLength(0);
   });
 });
+
+// ── card QTA-2 (owner 2026-08-15, correcting his own same-day one-side ruling):
+// 「计费在 PC 和手机端都进行检查，两边有一方不满足都不能继续」 ─────────────────
+describe('QTA-2: BOTH accounts must admit the session', () => {
+  /** A guard that refuses ONE named account — the phone-signed-into-A,
+   *  desktop-signed-into-B shape from the production diagnosis. */
+  function dualWire(refusedUser: string | null, pcOwner: string | null): FakeSocket {
+    const asked: string[] = [];
+    const guard: QuotaGuard = {
+      ensureQuota(user_id: string): void {
+        asked.push(user_id);
+        if (user_id === refusedUser) throw new ServerError('QUOTA_EXCEEDED', `stt quota exceeded for ${user_id}`);
+      },
+      remainingSttMs: () => Infinity,
+    };
+    const mobile = new FakeSocket('mobile-sock');
+    mobile.data = { auth: { kind: 'mobile', userId: 'phone-acct', deviceId: 'pc-1' }, roomUuid: 'room-1' };
+    const deps: AudioHandlerDeps = {
+      io: {} as unknown as import('socket.io').Server,
+      guard,
+      usageTracker: noopUsage,
+      store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
+      sttFactory: () => stubOrchestrator as never,
+      pcOwnerUserId: () => pcOwner,
+    };
+    registerAudioHandlers(mobile as unknown as Socket, deps);
+    (mobile as FakeSocket & { asked: string[] }).asked = asked;
+    return mobile;
+  }
+
+  it('🔴 the PC owner being over quota blocks, even when the phone account is fine', () => {
+    const mobile = dualWire('pc-acct', 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')[0]).toMatchObject({ code: 'QUOTA_EXCEEDED', retryable: false });
+  });
+
+  it('the phone account being over quota blocks, whatever the PC owner has left', () => {
+    const mobile = dualWire('phone-acct', 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')[0]).toMatchObject({ code: 'QUOTA_EXCEEDED', retryable: false });
+  });
+
+  it('both accounts fine ⇒ admitted, and each was really ASKED once', () => {
+    const mobile = dualWire(null, 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')).toHaveLength(0);
+    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct', 'pc-acct']);
+  });
+
+  it('same account on both ends is asked ONCE — not double-jeopardy on one ledger', () => {
+    const mobile = dualWire(null, 'phone-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct']);
+  });
+
+  it('no resolver wired (old wiring) ⇒ single-account behaviour, unchanged', () => {
+    const mobile = wire(false);
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')).toHaveLength(0);
+  });
+});

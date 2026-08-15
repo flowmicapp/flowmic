@@ -22,7 +22,7 @@ import {
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
-import { segmentCutVerdict, SoftSegmentCadence } from './segment-boundary';
+import { seamText, SoftSegmentCadence } from './segment-boundary';
 import { EngineSessionReconnectLadder, DEFAULT_BACKOFF_MS, type EngineSessionHooks } from './engine-session';
 import { EngineIdleHangup, type IdleHangupHooks } from './engine-idle-hangup';
 import { raceSpawnTimeout } from './spawn-timeout';
@@ -119,38 +119,25 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.terminalWork = Promise.resolve().then(() => this.handleAutoStop(r));
   };
   /**
-   * 🔴 card N1-B4 — the engine-session ceiling fired and the RECORDING CONTINUES.
+   * 🔴 card N1-B4 — the engine-session ceiling fired and the RECORDING CONTINUES:
+   * new leg, no banner, the phone's FSM never leaves RECORDING. `AudioSession`
+   * already decided this is `engine_session` and not `quota_budget` (N1-B1).
    *
-   * Design §2.3: the wall stops applying to "the user's current utterance" and applies to "the
-   * engine session" instead — roll to a new leg, segment numbers continuous, no banner, the
-   * phone's FSM never leaves RECORDING. `AudioSession` has already decided this
-   * is the `engine_session` ceiling and not `quota_budget`; nothing is re-derived
-   * here, because by here there is only a number (N1-B1's whole point).
+   * ⚠️ IT ROLLS THROUGH `rolloverSegment`, IT DOES NOT INVENT A SECOND RECYCLE —
+   * that method owns the four seam facts (pre-flush seq gate F-2152, pre-flush
+   * clock N1-B1, replay into the new leg, flush-first ordering) whose drift
+   * already cost a real dropped-content incident (W2.5-B/FB-6). A rollover
+   * ALREADY IN FLIGHT satisfies the ceiling (a second would put two flushes on
+   * one engine); skipped while hung up for silence (RT-2 — no leg to recycle).
    *
-   * ⚠️ IT ROLLS THROUGH `rolloverSegment`, IT DOES NOT INVENT A SECOND RECYCLE.
-   * Design §2.3 marks this the highest-risk change on the card for one reason:
-   * "the rollover point must align with the soft-segment boundary, or the engine
-   * will get swapped mid-flush" — and §1.2 records
-   * that this exact shape has already caused a real dropped-content incident (W2.5-B/FB-6:
-   * a terminal final published under a segment index the rollover had not spent
-   * ⇒ the phone read it as a revision ⇒ REPLACE ⇒ a whole segment left the
-   * transcript with nothing reporting a failure). Reusing the boundary is the
-   * alignment: `rolloverSegment` flushes FIRST, spends the index, re-arms
-   * `lastEngineFedSeq` to the pre-flush boundary (F-2152) and replays the seam
-   * into the new leg. A bespoke "close and reopen" here would have all four of
-   * those to get right again.
-   *
-   * ⚠️ A rollover ALREADY IN FLIGHT satisfies the ceiling — it is closing this
-   * leg and opening a fresh one, which is the entire request. Starting a second
-   * one would put two flushes on one engine.
-   *
-   * ⚠️ Also skipped while hung up for silence (card RT-2): there is no leg to
-   * recycle, and the next redial produces a brand-new one anyway.
+   * card SEG-4: `deliver: false` — the ceiling is an ENGINE fact, so it rotates
+   * the leg and mints nothing. Before this card it delivered a row here, i.e.
+   * the vendor's session limit could end the user's sentence.
    */
   private readonly onEngineSessionExpired = (): void => {
     if (this.terminated || this.terminalizing) return;
     if (this.rolloverWork || this.idle.isBusy || !this.engine) return;
-    this.rolloverWork = this.rolloverSegment().finally(() => { this.rolloverWork = null; });
+    this.rolloverWork = this.rolloverSegment(false).finally(() => { this.rolloverWork = null; });
   };
   constructor(
     private readonly session: AudioSession,
@@ -162,7 +149,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       options.softSegmentMs ?? DEFAULT_SOFT_SEGMENT_MS,
       options.softSegmentGraceMs ?? DEFAULT_SOFT_SEGMENT_GRACE_MS,
       { setTimeout: (fn, ms) => this._setTimeout(fn, ms), clearTimeout: (h) => this._clearTimeout(h),
-        hasEngine: () => this.engine !== null, cutNow: () => this.startRollover(),
+        hasEngine: () => this.engine !== null, rotateLeg: () => this.startRollover(false),
         isFinished: () => this.terminated || this.terminalizing });
     this.replayWindowMs = options.replayWindowMs ?? DEFAULT_REPLAY_WINDOW_MS;
     this.unfedGraceMs = (options.reconnectBackoffMs ?? DEFAULT_BACKOFF_MS).reduce((a, b) => a + b, 0);
@@ -273,18 +260,14 @@ export class SttEngineOrchestrator extends EventEmitter {
     // replayed the ENTIRE silence, unbounded by the 5 s window. RT-2 makes that
     // routine (every pause), but the ladder could already reach it.
     const feed = this.shouldFeedEngine(c);
-    // 🔴 card SEG-1 — THE ONE PLACE A SEGMENT IS CUT (the grace ceiling is the
-    // only other, and it is the backstop). On the CHUNK path and not in the
-    // engine's `final` handler where the confirmed text changes: that handler
-    // runs inside the vendor adapter's callback and a rollover issues
+    // 🔴 card SEG-1/SEG-4 — THE ONE PLACE A ROW IS ENDED (timers only rotate
+    // legs now). On the CHUNK path, not in the engine's `final` handler: that
+    // handler runs inside the vendor adapter's callback and a rollover issues
     // `engine.flush()`, i.e. it would re-enter the adapter from its own event.
-    // Chunks arrive every ~200 ms, so this costs one chunk of latency and keeps
-    // every cut on a stack we own. `feed` is passed, not re-derived — one gate
-    // reading per chunk, or the two become two opinions.
-    if (this.cadence.due
-      && segmentCutVerdict({ due: true, ceilingReached: false, confirmed: this.offlineAccum, gateOpen: feed }) === 'cut') {
-      this.startRollover();
-    }
+    // ~200 ms chunks ⇒ one chunk of latency, every cut on a stack we own.
+    // `feed` is passed, not re-derived (one gate reading per chunk); the cadence
+    // owns the silence RUN too (SEG-3) — measured, not one instant reading.
+    if (this.cadence.shouldCut(feed, this.now(), this.offlineAccum)) this.startRollover(true);
     if (!feed) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return; }
     // card fix-022 / G-23: the gate just said this audio is worth sending, so this
     // is the ONE site that can record "the user really did speak" — and it is the same
@@ -377,10 +360,11 @@ export class SttEngineOrchestrator extends EventEmitter {
   waitForTerminal(): Promise<void> { return this.terminalWork; }
 
   /** card SEG-1 — at most one rollover in flight; the ONE place a cut verdict
-   *  becomes work. Policy + full account: `stt/segment-boundary.ts`. */
-  private startRollover(): void {
+   *  becomes work. `deliver` carries whether this is a ROW ending or only a LEG
+   *  (card SEG-4). Policy + full account: `stt/segment-boundary.ts`. */
+  private startRollover(deliver: boolean): void {
     if (this.rolloverWork || this.terminated || this.terminalizing || !this.engine) return;
-    this.rolloverWork = this.rolloverSegment().finally(() => { this.rolloverWork = null; });
+    this.rolloverWork = this.rolloverSegment(deliver).finally(() => { this.rolloverWork = null; });
   }
 
   /**
@@ -432,7 +416,17 @@ export class SttEngineOrchestrator extends EventEmitter {
     return true;
   }
 
-  private async rolloverSegment(): Promise<void> {
+  /**
+   * card SEG-4 — ONE method, TWO meanings, told apart by `deliver`:
+   * `true` = the row ends HERE (a boundary `segmentCutDecision` defended): flush
+   * → emit `is_segment` final → spend the index → fresh leg. `false` = only the
+   * ENGINE LEG's span expired (cadence phase 2 / N1-B4): flush →
+   * `seamText(…, 'leg')` → bank into `offlineAccum` (RT-2's own fold, see
+   * `flushAndCloseLegForSilence`) → fresh leg; nothing reaches the wire and the
+   * row keeps growing across the seam. One method, not two: the F-2152/N1-B1
+   * seam facts are identical in both, and two copies is how they drift apart.
+   */
+  private async rolloverSegment(deliver: boolean): Promise<void> {
     if (this.terminated || this.terminalizing || !this.engine) return;
     // F-2152: chunks fed during the flush round-trip aren't in segment N's final;
     // re-arm the gate to this PRE-flush boundary so the seam carries.
@@ -443,24 +437,33 @@ export class SttEngineOrchestrator extends EventEmitter {
     // flush round trip belongs to the NEXT segment, so the round trip must not
     // land inside the segment that is closing.
     const boundaryMs = this.now();
+    if (!deliver) {
+      this.flushErrored = false; this.flushing = true;
+      const { result } = await this.flushFinal();
+      this.flushing = false;
+      if (this.terminated) return;
+      // The bank; `accumEmittedByFinal` stays false — no wire final carried this.
+      this.offlineAccum = seamText(result.text, 'leg');
+      this.onlineDraft = '';
+      if (this.terminalizing) return; // stop() settles from the bank
+      await this.closeEngine();
+      if (this.terminated || this.terminalizing) return;
+      this.lastEngineFedSeq = finalizedSeq;
+      this.engineFedBytes = 0;
+      await this.spawnEngine();
+      this.replayBufferTail(true);
+      return; // the cadence re-arms its own leg timer; `due` stays raised
+    }
     const emitted = await this.flushAndEmitFinal(true, boundaryMs - this.segmentStartMs);
     if (this.terminated) return;
-    // W2.5-B: both fence checks now spend the index the same way — "once it's
-    // sent out, spend that number". The one below already did; this one returned without
-    // incrementing, i.e. the same fact was treated two ways four lines apart.
-    //
-    // ⚠️ THE CRITERION, written down so nobody burns an afternoon trying to test it:
-    // with TODAY's code this branch CANNOT be reached with `emitted === true`.
-    // There is no yield point between flushAndEmitFinal's own fence check
-    // (`isSegment && this.terminalizing`) and this one — just an async return —
-    // so `terminalizing` here implies it was already true there, and a SEGMENT
-    // final is not emitted once it is ⇒ `emitted === false`. The two treatments
-    // were INCONSISTENT, not divergent. This is written the safe way so that the
-    // day someone adds an await in between, the answer is already right instead
-    // of silently becoming a collision. REVERSE CONTROL (2026-08-07,
-    // dev-pc-a): reverting this one line leaves all 21 tests green. That
-    // is the honest result and the reason above is why — it is not a hole in
-    // stt-terminal-rollover-collision.test.ts.
+    // W2.5-B: both fence checks spend the index the same way ("once it's sent
+    // out, spend that number"). CRITERION, so nobody burns an afternoon testing
+    // it: today this branch cannot be reached with `emitted === true` — no yield
+    // point sits between flushAndEmitFinal's own fence check and this one, so
+    // `terminalizing` here implies `emitted === false`. Written the safe way for
+    // the day someone adds an await in between. REVERSE CONTROL (2026-08-07,
+    // dev-pc-a): reverting this line leaves all 21 tests green — honest result,
+    // reason above; not a hole in stt-terminal-rollover-collision.test.ts.
     if (this.terminalizing) { if (emitted) this.beginNextSegment(boundaryMs); return; }
     await this.closeEngine();
     if (this.terminated) return;
@@ -477,17 +480,12 @@ export class SttEngineOrchestrator extends EventEmitter {
 
   /**
    * 🔴 card N1-B1 — spend the index and re-anchor the segment clock TOGETHER.
-   *
-   * They used to move in different places: the index was spent at either of
-   * `rolloverSegment`'s two fence returns, while `segmentStartMs` was only
-   * advanced further down, on the path that actually opens the next engine. A
-   * release landing on a fence therefore spent idx N and left the clock anchored
-   * at segment N-1's start — so the terminal final measured a segment that had
-   * already settled and reported its 30 s a second time. Under book 15 §2.0-c that
-   * is a second ROW claiming the same seconds, not a cosmetic overlap.
-   *
-   * ⚠️ Same shape as the defect W2.5-B closed one field over: "the same fact
-   * handled once in each of two places". It is one method now so the two cannot drift apart again.
+   * They used to move in different places (index at the fence returns, clock
+   * only on the path that opens the next engine), so a release landing on a
+   * fence spent idx N with the clock still at N-1's start ⇒ the terminal final
+   * reported the settled segment's 30 s a second time — under book 15 §2.0-c a
+   * second ROW claiming the same seconds. One method now (W2.5-B's shape:
+   * "the same fact handled once in each of two places"), so no drift.
    */
   private beginNextSegment(boundaryMs: number): void {
     this.currentSegmentIdx += 1;
@@ -597,8 +595,10 @@ export class SttEngineOrchestrator extends EventEmitter {
     // the fact in one place; {@link emitNoEngineTerminalFinal} is its only reader.
     this.accumEmittedByFinal = true;
     if (!isSegment) return this.emitTerminalFinal(r, durationMs);
+    // 🔴 card SEG-3 — the one place a segment's text leaves this class, so the one
+    // place a full stop the SPAN produced (not the speaker) can be taken back off.
     this.emit('final', {
-      text: r.text, confidence: r.confidence, language: r.language,
+      text: seamText(r.text, this.cadence.lastCutReason), confidence: r.confidence, language: r.language,
       segment_idx: this.currentSegmentIdx, is_segment: isSegment, duration_ms: durationMs,
     });
     return true;

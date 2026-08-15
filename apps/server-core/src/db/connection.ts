@@ -45,6 +45,7 @@ import { makeTimelineGrantsRepo, type TimelineGrantsRepo } from './repos/timelin
 import { makeBillingRepo, type BillingRepo } from './repos/billing.repo';
 import { makeOpsAuditRepo, type OpsAuditRepo } from './repos/ops-audit.repo';
 import { makeEmailVerificationRepo, type EmailVerificationRepo } from './repos/email-verification.repo';
+import { makeSiteCountsRepo, type SiteCountsRepo } from './repos/site-counts.repo';
 
 export interface DbConnection {
   raw: DatabaseSync;
@@ -63,6 +64,12 @@ export interface DbConnection {
    *  sweep (db/retention.ts, the only deleter) and the read route
    *  (http/usage-events-routes.ts) — each sliced to the methods it needs. */
   usageEvents: UsageEventsRepo;
+  /** First-party public-site aggregate counts (`site_daily_counts`).
+   *
+   *  Written by site-collect-routes + auth success paths (when
+   *  `FLOWMIC_SITE_ANALYTICS=1`); read by ops-site-routes; swept table-wide by
+   *  retention (90 days). Not per-account — no FK to users. */
+  siteCounts: SiteCountsRepo;
   timeline: TimelineRepo;
   /** SALT-1 (2026-08-11) — per-account blind-store key metadata (KDF salt +
    *  verification sentinel, `timeline_keymeta`). Consumed by the saas-only
@@ -322,6 +329,7 @@ export function createDbConnection(opts: { dbPath: string; encryptionKey: Buffer
     settings: makeSettingsRepo(db, opts.encryptionKey),
     usage: makeUsageRepo(db),
     usageEvents: makeUsageEventsRepo(db),
+    siteCounts: makeSiteCountsRepo(db),
     timeline: makeTimelineRepo(db),
     timelineKeymeta: makeTimelineKeymetaRepo(db),
     timelineGrants: makeTimelineGrantsRepo(db),
