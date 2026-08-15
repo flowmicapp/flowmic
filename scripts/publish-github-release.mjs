@@ -6,6 +6,11 @@
 // CHANGELOG.md and git remote, but has never made a real network call — there
 // is no GitHub Releases entry anywhere that this script produced. The owner
 // runs this for real, when ready, with their own token.
+// ⚠️ The paragraph above is history as of 2026-08-15: the first real run
+// created the v0.3.0 DRAFT on flowmicapp/flowmic and uploaded five
+// byte-verified assets (two MSI, APK, two portable zips incl. the notarized
+// mac zip). Kept in place because it explains the tool's design stance; the
+// "never ran" claim is what expired.
 //
 // WHY NOT THE `gh` CLI: `gh` is the obvious tool for this, but on the machine
 // this was written on `gh` is authenticated to an unrelated GitHub account —
@@ -128,7 +133,13 @@ function collectArtifacts() {
     console.error('✗ no ./publish directory — run `node scripts/publish.mjs` first.');
     process.exit(1);
   }
-  const files = readdirSync(OUT).filter((f) => /\.(msi|apk)$/i.test(f) && f.includes(VERSION));
+  // .zip joined the family on 2026-08-15: the portable builds (owner's
+  // three-platform portable ruling) and the notarized macOS zip (adopted via
+  // adopt-artifact with a cross-machine hash) are release artifacts with the
+  // same .sha256 sidecar discipline as the installers — the 0.3.0 milestone
+  // release would have silently shipped without its mac half under the old
+  // msi|apk filter.
+  const files = readdirSync(OUT).filter((f) => /\.(msi|apk|zip)$/i.test(f) && f.includes(VERSION));
   if (files.length === 0) {
     console.error(`✗ no ${VERSION} installers in ./publish — run \`node scripts/publish.mjs\` first (did the version just bump? artifacts need rebuilding).`);
     process.exit(1);
