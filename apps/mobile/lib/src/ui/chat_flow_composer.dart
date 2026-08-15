@@ -302,62 +302,6 @@ Widget _recordingStripRouted(_ChatFlowPageState s, AppStrings strings) =>
       strings: strings,
     );
 
-// ── PA-2: the PTT caption line (Plan A′ §5-1/§5-2, dock table §4) ──────────
-/// The ONE selector for the caption under the PTT bar. Public and pure so the
-/// processing/justDone branches — unreachable in a widget test without the
-/// async PTT chain (the FakeAsync deadlock this repo keeps re-documenting) —
-/// are still testable directly, against the same author the composer renders.
-///
-/// MD-4: every branch promises the DELIVERY half only. MD-1: no branch invents
-/// a receipt claim — justDone keeps its existing face wording on the bar
-/// itself and carries NO caption here.
-String pttCaption({
-  required PttVisual visual,
-  required SendPolicy nextPolicy,
-  required SendPolicy activePolicy,
-  required bool recordOnly,
-  required String pcName,
-  required AppStrings strings,
-}) {
-  return switch (visual) {
-    // A1/A2 — the caption reads the NEXT utterance's policy (the chip's
-    // state), because that is what the promise is about.
-    PttVisual.idle => nextPolicy == SendPolicy.manual
-        ? strings.pttSubManual
-        : strings.pttSubDirect,
-    PttVisual.noted => strings.pttSubNoted,
-    // A4 — the caption reads the IN-FLIGHT utterance's snapshot
-    // (`activeSendPolicy`), not the chip: flipping ➤/⚡ mid-sentence must not
-    // change what is promised about the sentence already being finalized
-    // (§4.0 B fixed once per utterance). A record-only utterance gets the
-    // no-promise variant — 「投递到 X」("delivered to X") would be false there.
-    PttVisual.processing =>
-      activePolicy == SendPolicy.direct && !recordOnly
-          ? strings.pttSubProcessingDirect(pcName)
-          : strings.pttSubProcessingManual,
-    PttVisual.disabled => strings.pttSubDisabled,
-    // A3/A5 — recording carries the strip, justDone carries its flash face;
-    // neither has a caption (mock ③⑤; empty per state is contract §5-1).
-    PttVisual.recording || PttVisual.justDone => '',
-  };
-}
-
-/// The peer's display name for the processing caption — the SAME three-way
-/// expression `ChatHeader.build` resolves (cloud → cloud light record (云端轻记录); alias override;
-/// ack name; 'FlowMic' fallback).
-///
-/// ⚠️ A SECOND COPY of that expression, left deliberately and flagged in the
-/// WP7 return report: chat_header.dart is outside this package's touch scope
-/// (another lane holds it), so the expression could not be extracted to one
-/// author this round. If the header's name rule changes, this must follow.
-String _peerNameRouted(_ChatFlowPageState s, AppStrings strings) {
-  if (s.widget.isCloudInstance) return strings.cloudInstance;
-  final String? override = s.widget.deviceNameOverride;
-  if (override != null && override.isNotEmpty) return override;
-  final String ack = s.controller.session.connectedDeviceName.value;
-  return ack.isNotEmpty ? ack : 'FlowMic';
-}
-
 // ── the dock's five pieces, each built once ─────────────────────────────────
 // VF-8 gave the dock two ARRANGEMENTS (phone column / tablet two-column), and
 // the pieces inside them are identical. They are lifted out rather than written
@@ -420,13 +364,18 @@ Widget _dockPttRouted(_ChatFlowPageState s, AppStrings strings, PttVisual visual
       // release/cancel never fired and the FSM stayed red.
       // 🔴 WP8-P0 (device-measured): the key is a page-held GLOBAL key, not a
       // ValueKey, because VF-8 adds a second, harsher shape of the same bug —
-      // a REPARENT. The tablet branch is idle-only, which means the
-      // arrangement flips tablet→phone AT THE START of every hold (the
-      // previous note here argued idle-only made a mid-hold flip impossible;
-      // the premise refuted itself). A ValueKey pins identity only under the
+      // a REPARENT. When WP8 shipped, the tablet branch was idle-only, so the
+      // arrangement flipped tablet→phone AT THE START of every hold and the
+      // ValueKey-held element died mid-gesture.
+      // ⚠️ P3 (0.3.1) removed that on-press flip — the column count is
+      // (width × mode) now — but the GlobalKey STAYS: a reparent is still
+      // reachable mid-hold, because the dock's own WIDTH can change under a
+      // live gesture (split-screen drag, foldable posture, rotation) and the
+      // arrangement flips with it. A ValueKey pins identity only under the
       // same parent; the GlobalKey carries element, state and the live
       // gesture across the reparent in both directions.
-      // Pinned by tablet_hold_reparent_test.dart.
+      // Pinned by tablet_hold_reparent_test.dart, which now drives exactly
+      // that mid-hold resize.
       key: s._pttBarKey,
       visual: visual,
       strings: strings,
@@ -437,88 +386,10 @@ Widget _dockPttRouted(_ChatFlowPageState s, AppStrings strings, PttVisual visual
       onCancel: s.controller.pttCancel,
     );
 
-/// PA-2: the one-line caption under the bar — a SIBLING of PttBar
-/// (implementer's choice the contract allows) so the bar's own face, pulse and
-/// a11y toggle stay byte-untouched. Same `visual`, one selector ([pttCaption]).
-///
-/// ⚠️ This used to return null on the captionless faces (A3/A5) and both
-/// arrangements dropped the row entirely. That was true to the mock and WRONG
-/// under a finger (owner, device, 2026-08-14): the dock is bottom-anchored, so
-/// removing the row moved the PTT bar DOWN by the caption's height at the exact
-/// moment the user pressed it — the button slid out from under a finger that
-/// had not moved. 「按下时需要保持界面的稳定」("the interface needs to stay
-/// stable at the moment of press"). So the captionless faces now
-/// return an INVISIBLE GHOST of the caption the dock showed just before the
-/// press (the idle-family string for the same policy/destination — the chip is
-/// off the tree mid-hold, so those inputs cannot change under it), rendered
-/// with the byte-identical style via [_captionText] so its laid-out height —
-/// including a second line at large text scale — matches the visible one
-/// exactly. `Visibility(maintainSize)` keeps geometry and drops paint,
-/// semantics and hit-testing: nothing is announced, nothing reads, nothing
-/// moves. The mock's 「A3/A5 面无 caption」("faces A3/A5 have no caption")
-/// stays true on screen; only the GEOMETRY of the empty slot is now reserved.
-///
-/// 🔴 VF-8: the caption STAYS on the tablet even though A-TAB's frame elides it.
-/// It is not decoration — it is the state copy the mechanics contract owns
-/// (「松开即投递到电脑光标」("release delivers straight to the computer's
-/// cursor") vs 「松开后只保存在手机」("release only saves on the phone")), and
-/// a layout that drops it on a wider screen would be answering
-/// 「这一次松手会发生什么」("what happens when you release this time") only on
-/// phones.
-Widget? _dockCaptionRouted(
-  _ChatFlowPageState s,
-  AppStrings strings,
-  PttVisual visual,
-) {
-  final SendPolicy nextPolicy = s.controller.sendPolicy;
-  final SendPolicy activePolicy = s.controller.activeSendPolicy;
-  final bool recordOnly = s.controller.destination.isRecordOnly;
-  final String pcName = _peerNameRouted(s, strings);
-  final String caption = pttCaption(
-    visual: visual,
-    nextPolicy: nextPolicy,
-    activePolicy: activePolicy,
-    recordOnly: recordOnly,
-    pcName: pcName,
-    strings: strings,
-  );
-  if (caption.isEmpty) {
-    // The ghost: what this dock's caption row read the frame before the hold
-    // was accepted (idle, or noted when the destination is record-only).
-    final String ghost = pttCaption(
-      visual: recordOnly ? PttVisual.noted : PttVisual.idle,
-      nextPolicy: nextPolicy,
-      activePolicy: activePolicy,
-      recordOnly: recordOnly,
-      pcName: pcName,
-      strings: strings,
-    );
-    if (ghost.isEmpty) return null;
-    return Visibility(
-      visible: false,
-      maintainSize: true,
-      maintainAnimation: true,
-      maintainState: true,
-      child: _captionText(ghost, key: const ValueKey<String>('ptt.caption.ghost')),
-    );
-  }
-  return _captionText(caption, key: const ValueKey<String>('ptt.caption'));
-}
-
-/// ONE author for the caption's Text so the ghost above cannot drift in style
-/// (a ghost one font-size off would reserve the wrong height and re-open the
-/// press-shift it exists to close).
-Widget _captionText(String caption, {required Key key}) => Text(
-  caption,
-  key: key,
-  textAlign: TextAlign.center,
-  // Two lines at large text scale rather than a clip: a caption the OS was
-  // asked to enlarge is a caption someone wants to read (ptt_bar.dart's own
-  // text-scale reasoning, applied here).
-  maxLines: 2,
-  overflow: TextOverflow.ellipsis,
-  style: TextStyle(color: FlowMicDockColors.sub, fontSize: 10.5),
-);
+// The caption piece (pttCaption / _peerNameRouted / _dockCaptionRouted /
+// _captionText) lives in chat_flow_dock_caption.dart — a verbatim move at the
+// 800-line cap (P3 pushed this file over); see that file's header for the
+// split contract.
 
 /// V2-03: lift the press point off the physical bottom edge. SafeArea above
 /// already clears the gesture inset, but on a phone with none (or a small one)
@@ -528,6 +399,33 @@ Widget _captionText(String caption, {required Key key}) => Text(
 /// against the edge"), not 「更多留白」("more empty space").
 double _dockBottomLiftRouted(BuildContext context) =>
     MediaQuery.of(context).viewPadding.bottom > 0 ? 4 : 10;
+
+/// 🔴 P3 (0.3.1, design SSOT §5): the dock's COLUMN COUNT may depend only on
+/// (width × mode) — NEVER on transient session state.
+///
+/// Allowed inputs, and why they are the only ones:
+///   · `constraints.maxWidth` — the dock's own measured width (the
+///     LayoutBuilder constraint, NOT MediaQuery; the VF-8 split-screen
+///     reasoning above `kDockTabletMinWidth` is unchanged). It moves only
+///     when the window does, never at a press.
+///   · `destination.isRecordOnly` — the MODE. It is the mode-level source of
+///     the `noted` face and it does not flip when the FSM enters RECORDING;
+///     record-only keeps today's single column because its dock has no PC
+///     key column to put on the right (REQ-14-01), a MODE fact.
+/// Forbidden inputs: `PttVisual` / `sessionState` / `composeIdleRowsVisible`
+/// / `composePcKeysVisible` — every one of them flips the instant a press is
+/// accepted, and a column count wired to them is the 0.3.1 P3 defect (the
+/// speak key re-arranged under the owner's finger).
+///
+/// ⚠️ One corner deliberately changes with this: record-only while
+/// DISCONNECTED used to two-column at tablet width (the `disabled` face
+/// outranks `noted` in the visual mapping, and the old face-level predicate
+/// answered on the face). Mode now wins — record-only never two-columns —
+/// which is what REQ-14-01's own sentence (「a dock whose right column would
+/// be empty must not re-column」) asked for all along.
+bool _dockTwoColumnRouted(_ChatFlowPageState s, BoxConstraints constraints) =>
+    !s.controller.destination.isRecordOnly &&
+    constraints.maxWidth >= kDockTabletMinWidth;
 
 // ── composer ─────────────────────────────────────────────────────────────
 Widget _composerRouted(
@@ -574,16 +472,18 @@ Widget _composerRouted(
   // actually given is the only way to be right in both.
   return LayoutBuilder(
     builder: (BuildContext ctx, BoxConstraints constraints) {
-      // ⚠️ IDLE ONLY. Recording / processing / justDone keep the phone
-      // rendering on every width: A3's 「一次只做一件主事」("do only one main
-      // thing at a time") puts the whole band
-      // off the tree and gives the strip + bar the full dock, and the mock
-      // draws no tablet frame for any of them. Re-columning a dock whose right
-      // column would be empty is an arrangement nobody specified.
-      final bool twoColumn =
-          idleRows &&
-          composePcKeysVisible(visual) &&
-          constraints.maxWidth >= kDockTabletMinWidth;
+      // 🔴 P3 (0.3.1): (width × mode) ONLY — see [_dockTwoColumnRouted]. The
+      // predicate that stood here (`idleRows && composePcKeysVisible &&
+      // width >= 560`) re-arranged the whole dock at the instant a press was
+      // accepted: both face terms flip false when the FSM enters RECORDING,
+      // so the two-column dock fell back to the phone arrangement and the
+      // speak key widened 430 → dock−24 and dropped 47dp UNDER THE OWNER'S
+      // FINGER (device, 2026-08-15; measured red in
+      // tablet_dock_layout_test.dart's header). Its stated rationale —
+      // 「re-columning a dock whose right column would be empty is an
+      // arrangement nobody specified」 — collapsed with the fix: the right
+      // column is not empty mid-utterance, it is the dimmed inert skeleton.
+      final bool twoColumn = _dockTwoColumnRouted(s, constraints);
       return Container(
         // Identity for tests. The dock's TOP EDGE is a real acceptance surface
         // — the policy flash has to land above it (mock A-02 draws that pill in
@@ -600,7 +500,7 @@ Widget _composerRouted(
           border: Border(top: BorderSide(color: FlowMicDockColors.line)),
         ),
         child: twoColumn
-            ? _dockTabletRouted(s, ctx, strings, visual)
+            ? _dockTabletRouted(s, ctx, strings, visual, idleRows: idleRows)
             : _dockPhoneRouted(s, ctx, strings, visual, idleRows: idleRows),
       );
     },
@@ -612,12 +512,25 @@ Widget _composerRouted(
 ///
 /// ⚠️ The frame's `align-items:stretch` is the one A-TAB value NOT taken
 /// literally; the Row below says why, in full.
+///
+/// 🔴 P3 (0.3.1): this arrangement now renders EVERY face, not just the idle
+/// ones — [_dockTwoColumnRouted] keeps the dock two-column through
+/// recording/processing/justDone, and the press-stability contract (the
+/// speak key's rect must not move pixel-wise across the press edge) is met
+/// by holding the skeleton: the idle rows above the bar become a
+/// size-holding ghost (`Visibility(maintainSize)`, the caption-ghost idiom
+/// one row down), the recording strip is laid INSIDE the space they reserve,
+/// and the key column dims in place (compose_band.dart's `inertSkeleton`).
+/// Nothing above the bar may change height: the Row below hangs its columns
+/// from the top, so — unlike the bottom-anchored phone column — the bar's
+/// position DOES depend on everything above it in the speak column.
 Widget _dockTabletRouted(
   _ChatFlowPageState s,
   BuildContext context,
   AppStrings strings,
-  PttVisual visual,
-) {
+  PttVisual visual, {
+  required bool idleRows,
+}) {
   final Widget? caption = _dockCaptionRouted(s, strings, visual);
   return Column(
     mainAxisSize: MainAxisSize.min,
@@ -650,14 +563,55 @@ Widget _dockTabletRouted(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      _modePolicyRowRouted(s, strings, visual),
-                      const SizedBox(height: kDockRowGap),
-                      _dockBandRouted(
-                        s,
-                        context,
-                        strings,
-                        visual,
-                        ComposeBandPart.bufferRow,
+                      // 🔴 P3: the idle rows' SLOT. The ghost is the size
+                      // author on every face — same `Visibility(maintainSize)`
+                      // idiom as the caption ghost below, and for the same
+                      // reason: geometry kept, paint/semantics/hit-testing
+                      // dropped. The strip never sizes this Stack; it is
+                      // painted INTO the reserved space, bottom-aligned so it
+                      // sits right above the bar exactly as on the phone.
+                      //
+                      // Measured heights (800×600, zh, empty buffer): the
+                      // ghost reserves 91dp (mode row 38 + 9 gap + buffer row
+                      // 44 — slot spans y348..439), the strip needs 28
+                      // (2+24+2, lands at y411..439; its honesty/meta row —
+                      // degraded link or ≥2 segments — adds ~27 more, still
+                      // under 91). `clipBehavior: Clip.none` so an outsized
+                      // strip (huge OS text scale) would overpaint the ghost's
+                      // EMPTY upper region rather than being cut — layout
+                      // cannot move either way; that is the whole point.
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: <Widget>[
+                          Visibility(
+                            visible: idleRows,
+                            maintainSize: true,
+                            maintainAnimation: true,
+                            maintainState: true,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                _modePolicyRowRouted(s, strings, visual),
+                                const SizedBox(height: kDockRowGap),
+                                _dockBandRouted(
+                                  s,
+                                  context,
+                                  strings,
+                                  visual,
+                                  ComposeBandPart.bufferRow,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (visual == PttVisual.recording)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: _recordingStripRouted(s, strings),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: kDockRowGap),
                       _dockPttRouted(s, strings, visual),

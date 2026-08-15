@@ -39,6 +39,12 @@ mixin PairingStrings on AppStringsLeaves {
   /// the user hunting for a
   /// code problem that does not exist.
   String get pairScanForeign => _lfPairScanForeign;
+  /// P1b (0.3.1) — the manual re-arm button shown after a server refusal
+  /// STOPPED the scanner. A refusal is a property of the scanned QR (or of the
+  /// PC's row), not a transient: auto-retrying the same payload could never
+  /// succeed and only burned the pair rate-limit budget while the sheet
+  /// flickered. The user re-arms deliberately, usually after fixing the cause.
+  String get pairScanAgain => _lfPairScanAgain;
   /// The right app, the wrong screen.
   String get pairScanIsLogin => _lfPairScanIsLogin;
   String get pairScanNoCamera => _lfPairScanNoCamera;

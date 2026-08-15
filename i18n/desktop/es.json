@@ -7,6 +7,9 @@
     "app_name": "'FlowMic'",
     "dev_title": "'Dispositivos'",
     "dev_add_phone": "'Añadir teléfono'",
+    "dev_offline_toggle": "'Desconectado'",
+    "dev_offline_hint": "'Desconecta todos los teléfonos de este PC para reducir interrupciones; vuelve a alternar para reconectarte.'",
+    "dev_offline_active": "'Desconectado · los teléfonos no pueden conectarse a este PC ahora'",
     "dev_chan_lan": "'Red local'",
     "dev_chan_lan_ready": "'Servicio local listo · conexión directa en la misma red Wi-Fi'",
     "dev_chan_lan_loopback": "'Servicio en bucle local en este PC · en la misma red Wi-Fi, introduce en el teléfono la dirección de red local de este PC'",
@@ -186,6 +189,7 @@
     "dict_add": "'Añadir término'",
     "polish_title": "'Pulido con IA'",
     "polish_toggle": "'Activar el pulido con IA'",
+    "polish_hint": "'La frase final de una intervención puede ser pulida opcionalmente por un LLM — la fila de abajo muestra si está activado en este momento; si falla, se entrega el texto sin pulir con un aviso explícito — nunca una alternativa silenciosa.'",
     "polish_no_llm": "'La capacidad que necesita el pulido con IA no está configurada, así que no se aplica.'",
     "refine_title": "'Segunda transcripción (más precisa)'",
     "refine_hint": "'Cuando termina una frase larga, se vuelve a transcribir en segundo plano; solo se actualiza la línea de tiempo: el texto ya inyectado en el PC nunca se reescribe'",
@@ -487,9 +491,15 @@
     "disc_s1_title": "'1. Tu teléfono graba el audio'",
     "disc_s1_body": "'Mientras mantienes pulsado el botón de hablar, tu teléfono capta el audio y lo va enviando según hablas; nunca se escribe en nuestra base de datos.'",
     "disc_s2_title": "'2. Reconocimiento de voz'",
+    "disc_s2_body": "'Qué motor te escucha es un ajuste visible, no una suposición: el motor que tus ajustes indican para el idioma; si no lo hay, el motor genérico; si tampoco, el valor predeterminado gestionado por la plataforma; si tampoco, las dos rutas de motor que preconfiguramos para ti en el primer arranque. Si ninguna de esas existe tampoco, la transcripción se detiene con un error — el audio nunca se envía discretamente a otro lugar.'",
+    "disc_s2_cloud": "'· El motor en la nube integrado: el audio se transmite a través de nuestra retransmisión en la nube hacia Soniox. Si no están disponibles, podemos volver a dirigir este paso a servidores de reconocimiento de voz que operamos nosotros mismos. El cambio es una acción del operador — nunca cambia de ruta a mitad de una frase. El audio solo se mantiene en memoria, nunca se escribe en disco.'",
+    "disc_s2_byok": "'· Un motor que configuraste con tu propia clave: el audio va a ese proveedor bajo su política de privacidad, con tus credenciales. A través de la nube, el audio sigue pasando por nuestra retransmisión en la nube (en memoria, nunca almacenado). En tu propia red, no estamos en la ruta.'",
+    "disc_s2_local": "'· Un motor local: en este paso, nada sale de tu propio hardware — eso concierne a tu voz; a dónde va el texto después es el paso 3. (Tú mismo proporcionas el modelo de voz para el motor integrado; este solo descarga uno por internet si estableces explícitamente FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 en el ordenador.)'",
     "disc_s3_title": "'3. Procesado por el modelo de lenguaje (según tus ajustes)'",
+    "disc_s3_body": "'Traducir y Organizar siempre usan el modelo de lenguaje. Tiempo real depende del interruptor «pulido con IA» en Ajustes → Reconocimiento de voz (esa fila muestra el valor actual): mientras está activado, la transcripción final de cada grabación se envía una vez — incluida «Solo registro»; mientras está desactivado, Tiempo real no envía ningún texto. Las palabras provisionales nunca se envían. Lo que se envía va al punto de conexión del modelo que indican tus ajustes. El modelo de lenguaje de la plataforma lo ejecuta DeepSeek en nuestra cuenta. No conservamos ni la entrada ni la salida.'",
     "disc_s4_title": "'4. Se entrega a tu PC y se escribe en el campo enfocado'",
     "disc_s4_body": "'El texto se entrega al PC con el que te has emparejado y se escribe en el campo enfocado, por tu propia red o por nuestra retransmisión en la nube (que pasa las tramas y las olvida).'",
+    "disc_s4_lan_plain": "'⚠️ Que la ruta de la red local esté cifrada depende de cómo se hizo el emparejamiento. Un emparejamiento por QR está cifrado siempre que ese código lleve la identidad del ordenador; el teléfono lo comprueba en cada conexión posterior. Los emparejamientos creados antes de que existiera este cifrado siguen sin cifrar — volver a emparejar en el teléfono actualiza uno de ellos. En el teléfono, en «Cifrado de la conexión», se indica cuál de los dos es el caso de esta conexión. La retransmisión en la nube usa TLS. Establecer FLOWMIC_LAN_TLS en 0 en el ordenador desactiva el cifrado: los teléfonos ya emparejados bajo cifrado ya no pueden conectarse. Para recuperarlo hay que eliminar el ordenador en el teléfono y volver a emparejar.'",
     "disc_s5_title": "'5. Qué queda guardado'",
     "disc_s5_body": "'No guardamos tus transcripciones; la línea de tiempo vive en tu teléfono y en tu PC. Guardamos tu cuenta, los dispositivos emparejados, los ajustes sincronizados y los totales de uso mensual (nunca el contenido).'",
     "disc_legal_title": "'Política de privacidad y condiciones del servicio'",
@@ -580,6 +590,7 @@
       "(kept, when) =>",
       "  `No hay entradas coincidentes. La búsqueda solo abarca las ${kept} entradas conservadas en este PC; todo lo anterior a ${when} se ha eliminado.`"
     ],
-    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'palabra' : 'palabras'}`"
+    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'palabra' : 'palabras'}`",
+    "cloud_pair_hint": "'Con el relé en la nube, el teléfono debe conectarse primero a la misma nube (inicia sesión en el teléfono o apúntalo a este relé); luego escanea el QR o escribe en el teléfono el PCID de arriba más el código de 4 dígitos de abajo.'"
   }
 }

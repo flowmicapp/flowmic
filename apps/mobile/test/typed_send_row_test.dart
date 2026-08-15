@@ -274,8 +274,14 @@ void main() {
     await h.dispose();
   });
 
-  test('D10 does not fire on the blocked paths: empty buffer / disconnected / '
-      'cloud instance build NO row', () async {
+  test('D10 does not fire on the blocked paths: empty buffer / disconnected '
+      '(PC target) build NO row', () async {
+    // ⚠️ The third case that used to live here — cloud instance ⇒
+    // `ComposeSendFailure.noPcTarget`, NO row — was P4's defect pinned as a
+    // spec: the button read `canSend` (permanently false there), the field
+    // read another predicate, so the user could type and never commit. It is
+    // now the SUCCESS case below (a local noted row), mirroring what
+    // `ImageSendController.canSend` did for pictures first.
     final _Harness empty = _Harness();
     empty.connect();
     empty.controller.setBuffer('   ');
@@ -287,13 +293,76 @@ void main() {
     offline.controller.setBuffer('离线');
     expect(await offline.controller.sendBuffer(), ComposeSendFailure.notConnected);
     expect(offline.store.entries, isEmpty);
+    // Byte-identical PC-target control: the gate is still closed while the
+    // link is down, and canSend says so.
+    expect(offline.controller.canSend, isFalse);
     await offline.dispose();
+  });
 
+  test('P4 (0.3.1 §6): a typed commit on a cloud/light-record instance mints a '
+      'LOCAL noted row and emits NO frame — with the PC-target send as the '
+      'positive control for the zero-frame assertion', () async {
+    // ── REVERSE CONTROL — this test ran RED on the pre-P4 tree first
+    // (2026-08-15, both halves measured, verbatim):
+    //   the flipped pinned expectation (was `expect(..., noPcTarget)`):
+    //     Expected: null
+    //       Actual: ComposeSendFailure:<ComposeSendFailure.noPcTarget>
+    //   and the gate assertion:
+    //     Expected: true
+    //       Actual: <false>
+    //     P4: the commit affordance must be live on a fixed destination — ...
+    // Turned green by the P4 implementation itself; this comment is the record.
     final _Harness cloud = _Harness(cloudInstance: true);
     cloud.connect();
-    cloud.controller.setBuffer('云端');
-    expect(await cloud.controller.sendBuffer(), ComposeSendFailure.noPcTarget);
-    expect(cloud.store.entries, isEmpty);
+    cloud.controller.setBuffer('云端手输的一句');
+    expect(
+      cloud.controller.canSend,
+      isTrue,
+      reason: 'P4: the commit affordance must be live on a fixed destination — '
+          'the old !isFixed term kept it dead forever while the field typed on',
+    );
+    expect(await cloud.controller.sendBuffer(), isNull);
+
+    // The row exists, says what was typed, and wears the 仅记录 face — the
+    // SAME machinery a record-only spoken utterance lands through
+    // (store.buildFromUtterance, Delivery.none ⇒ EntryStatus.noted).
+    expect(cloud.store.entries, hasLength(1));
+    final TimelineEntry row = cloud.store.entries.single;
+    expect(row.sourceText, '云端手输的一句');
+    expect(row.displayText, '云端手输的一句');
+    expect(row.delivery, Delivery.none);
+    expect(row.status, EntryStatus.noted);
+    expect(row.origin, 'cloud');
+    // The buffer clears on success, same as a delivered send.
+    expect(cloud.controller.buffer, isEmpty);
+    // Negative half: nothing left the phone. (The positive control below
+    // proves this transport DOES record inject frames when one is emitted.)
+    expect(cloud.injects, isEmpty);
+    await cloud.dispose();
+
+    final _Harness paired = _Harness();
+    paired.connect();
+    paired.controller.setBuffer('有 PC 的对照');
+    expect(await paired.controller.sendBuffer(), isNull);
+    expect(
+      paired.injects,
+      hasLength(1),
+      reason: 'positive control: the same fake transport must show a PC-target '
+          'send emitting — otherwise the zero above could be a blind probe',
+    );
+    await paired.dispose();
+  });
+
+  test('P4: the local commit needs NO link — a disconnected light-record '
+      'session still saves (mirror of ImageSendController.canSend)', () async {
+    final _Harness cloud = _Harness(cloudInstance: true);
+    // Deliberately NOT connected: the row never goes on a wire, so the link
+    // is not a precondition — exactly the image path's rule.
+    cloud.controller.setBuffer('断网也要存下来');
+    expect(cloud.controller.canSend, isTrue);
+    expect(await cloud.controller.sendBuffer(), isNull);
+    expect(cloud.store.entries.single.status, EntryStatus.noted);
+    expect(cloud.injects, isEmpty);
     await cloud.dispose();
   });
 

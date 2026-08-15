@@ -29,6 +29,13 @@ class FakeMobileScannerPlatform extends MobileScannerPlatform {
   final StreamController<BarcodeCapture> _barcodes =
       StreamController<BarcodeCapture>.broadcast();
 
+  /// Feed one decoded capture into the sheet's `onDetect`, exactly the way the
+  /// package's own suite does it (detect_barcode_test.dart `addBarcode`). Until
+  /// P1b (0.3.1) no test ever fed this stream — every prior test pumped the
+  /// real sheet only so `initState` would not throw, which left the whole
+  /// scan→refusal path invisible to the suite (design §3-4 names this hole).
+  void addBarcode(BarcodeCapture capture) => _barcodes.add(capture);
+
   @override
   Stream<BarcodeCapture?> get barcodesStream => _barcodes.stream;
 

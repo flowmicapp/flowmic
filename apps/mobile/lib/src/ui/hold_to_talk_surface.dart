@@ -7,9 +7,9 @@
 // to send the utterance. The same reject fires when the widget moves under a
 // still-down finger (IME inset collapsing, dock yield-while-recording).
 //
-// Accept is a 500 ms TIMER on pointer-down, not a long-press recognizer:
-// movement does not abort the accept. Press-and-immediately-slide (the
-// WeChat habit) can still start a recording and still cancel it.
+// Accept is a TIMER on pointer-down ([acceptHold]), not a long-press
+// recognizer: movement does not abort the accept. Press-and-immediately-slide
+// (the WeChat habit) can still start a recording and still cancel it.
 //
 // Rules:
 //   · global dy from pointer-down < −60 → cancel ZONE (visual armed)
@@ -58,10 +58,15 @@ class HoldToTalkSurface extends StatefulWidget {
   /// Same 60dp the PTT bar and the append button have always used.
   static const double cancelThreshold = 60;
 
-  /// Same 500 ms Flutter's long-press default uses. Named here so a test
+  /// P6 (0.3.1, owner 2026-08-15: press feedback took ~2 s) — 500 ms → 300 ms.
+  /// The original value copied Flutter's long-press default, but this window
+  /// is a dead zone the user sits through on EVERY hold: nothing records and
+  /// (before 0.3.1) nothing rendered during it. 300 ms still rejects taps
+  /// (~80–120 ms) and keeps the press-and-immediately-slide habit working —
+  /// the accept is a timer, so movement never aborts it. Named here so a test
   /// that wants to land exactly on the accept edge does not invent a second
   /// number.
-  static const Duration acceptHold = Duration(milliseconds: 500);
+  static const Duration acceptHold = Duration(milliseconds: 300);
 
   @override
   State<HoldToTalkSurface> createState() => _HoldToTalkSurfaceState();

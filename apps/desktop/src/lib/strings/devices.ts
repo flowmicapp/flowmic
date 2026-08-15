@@ -10,6 +10,14 @@ export const DEVICES_KEYS = [
   // devices page
   'dev_title',
   'dev_add_phone',
+  // P7 (0.3.1, owner 2026-08-15) — the manual offline switch, top-right of
+  // this page (OfflineSwitch.vue) and mirrored in the tray (desktop-rust
+  // surface, Msg::TrayGoOffline family). `dev_offline_active` is the on-state
+  // truth line: while the switch is on, both sockets are down and the stale
+  // channel chips must not be the only thing on screen.
+  'dev_offline_toggle',
+  'dev_offline_hint',
+  'dev_offline_active',
   // Channel terminology discipline (R6 T-2): the whole repo uses only the
   // two terms「本地局域网」("Local LAN") and「云端中继」("Cloud relay").
   'dev_chan_lan',

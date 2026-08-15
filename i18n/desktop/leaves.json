@@ -37,6 +37,24 @@
       "name": "dev_add_phone"
     },
     {
+      "key": "dev_offline_toggle",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_offline_toggle"
+    },
+    {
+      "key": "dev_offline_hint",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_offline_hint"
+    },
+    {
+      "key": "dev_offline_active",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_offline_active"
+    },
+    {
       "key": "dev_chan_lan",
       "shard": "devices",
       "kind": "string",

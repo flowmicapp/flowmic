@@ -343,6 +343,10 @@ pub fn run() {
             inject::self_focus::self_focus_report,
             shell::autostart::autostart_state,
             shell::autostart::autostart_set,
+            // P7 (0.3.1) — the manual offline switch (devices page top-right;
+            // the tray toggle goes through the same shell::offline::apply).
+            shell::offline::offline_state,
+            shell::offline::offline_set,
             // UP-3b online update. 🔴 `update_check` takes the manifest BASE URL as a
             // parameter — the default lives in @flowmic/protocol, never as a
             // literal in Rust (shell/cloud.rs's standing rule), and it is
@@ -392,6 +396,9 @@ pub fn run() {
             //   • SidecarState — the lifecycle + pairing-endpoint source.
             app.manage(shell::SocketState::new(shell::Sessions::new(socket::Channel::Lan)));
             app.manage(shell::sidecar_ctl::SidecarState::new());
+            // P7 — the manual offline flag. Managed BEFORE setup_tray and any
+            // dial: connect_on_main reads it on every dial attempt.
+            app.manage(shell::offline::OfflineState::new());
             //   • CloudState — the R6 T-2 channel selection + Cloud Key (DPAPI at
             //     rest). Managed BEFORE the bring-up because `sidecar_ctl::start`
             //     reads it to decide whether to spawn a local server at all.

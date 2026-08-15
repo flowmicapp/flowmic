@@ -185,6 +185,16 @@ pub enum Msg {
     TrayStatusDisconnected,
     /// Tray tooltip, disconnected — socket/pump.rs `tray_state`, shell/tray.rs.
     TrayTooltipDisconnected,
+    /// Tray menu toggle, shown while ONLINE — shell/tray.rs `setup_tray`
+    /// (P7 offline switch, owner 2026-08-15).
+    TrayGoOffline,
+    /// Tray menu toggle, shown while OFFLINE — shell/tray.rs `setup_tray`.
+    TrayGoOnline,
+    /// Tray disabled status row while manually offline — shell/offline.rs
+    /// `apply` (the pump is dead in this state, so offline speaks for itself).
+    TrayStatusOffline,
+    /// Tray tooltip while manually offline — shell/offline.rs `apply`.
+    TrayTooltipOffline,
     /// Tray status row, recording — socket/pump.rs `tray_state`.
     TrayStatusRecording,
     /// Tray tooltip, recording — socket/pump.rs `tray_state`.

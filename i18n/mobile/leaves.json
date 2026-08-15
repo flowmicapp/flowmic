@@ -452,6 +452,11 @@
       "params": []
     },
     {
+      "key": "composeCardSaveNoted",
+      "leaf": "_lfComposeCardSaveNoted",
+      "params": []
+    },
+    {
       "key": "composeCardDiscard",
       "leaf": "_lfComposeCardDiscard",
       "params": []
@@ -2418,6 +2423,11 @@
       "params": []
     },
     {
+      "key": "pairScanAgain",
+      "leaf": "_lfPairScanAgain",
+      "params": []
+    },
+    {
       "key": "pairScanHint",
       "leaf": "_lfPairScanHint",
       "params": []
@@ -2593,6 +2603,11 @@
       "params": [
         "recordOnly"
       ]
+    },
+    {
+      "key": "pttStartingMic",
+      "leaf": "_lfPttStartingMic",
+      "params": []
     },
     {
       "key": "pttJustDone",

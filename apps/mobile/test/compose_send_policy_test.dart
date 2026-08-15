@@ -458,13 +458,20 @@ void main() {
     await h.dispose();
   });
 
-  test('cloud instance: ➤ is dead (no PC focus window) and says so', () async {
+  test('cloud instance (P4, 0.3.1 §6): ➤ commits a LOCAL noted row, no frame', () async {
+    // This test used to pin the DEFECT as the spec: 「➤ is dead (no PC focus
+    // window) and says so」 — canSend false + noPcTarget. But the button was
+    // dead while the FIELD stayed enabled, so typed text could never be
+    // committed anywhere and nothing said why. The commit now lands where a
+    // record-only utterance already lands (a local noted row); the full
+    // contract + reverse-control record live in typed_send_row_test.dart.
     final _Harness h = _Harness(cloudInstance: true);
     h.connect();
     h.controller.setBuffer('给云端实例的内容');
-    expect(h.controller.canSend, isFalse);
-    expect(await h.controller.sendBuffer(), ComposeSendFailure.noPcTarget);
-    expect(h.injects, isEmpty);
+    expect(h.controller.canSend, isTrue);
+    expect(await h.controller.sendBuffer(), isNull);
+    expect(h.injects, isEmpty, reason: 'the commit is local — nothing on the wire');
+    expect(h.store.entries.single.status, EntryStatus.noted);
     await h.dispose();
   });
 

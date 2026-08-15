@@ -74,5 +74,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- TestFlight/App Store export-compliance declaration: the app uses only
+	     standard encryption (HTTPS/TLS and the platform's crypto), which is
+	     exempt. Declaring it here answers the question once per binary instead
+	     of once per upload in the App Store Connect UI. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

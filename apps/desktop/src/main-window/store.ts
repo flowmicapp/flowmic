@@ -33,7 +33,7 @@ import {
   type RetentionFacts,
   type TimelineOpFailure,
 } from '../lib/timeline-store';
-import { CH, appendForensic, fetchConnectionSnapshot, fetchPairedMobiles, onChannel, settingsTransport, timelineTransport } from '../lib/bridge';
+import { CH, appendForensic, fetchConnectionSnapshot, fetchOfflineState, fetchPairedMobiles, onChannel, settingsTransport, timelineTransport } from '../lib/bridge';
 import { localKv } from '../lib/storage';
 import type { ChannelTag, ConnectionState, InjectResult, TimelineRow, WireHistoryItem } from '../lib/types';
 
@@ -94,6 +94,12 @@ export const conn = reactive<ConnectionState>({
   mobiles: 0,
   reason: 'init',
 });
+
+/** P7 (0.3.1) — the manual offline switch (shell::offline). While true, BOTH
+ *  sockets are down by request; the rows here are marked disconnected by the
+ *  OFFLINE_STATE handler because the pumps that normally push CONNECTION are
+ *  joined by the teardown — no frame will ever arrive to say they died. */
+export const offlineMode = ref(false);
 
 /** GA-28: one snapshot PER resident channel.
  *
@@ -265,6 +271,40 @@ export async function initBridge(): Promise<void> {
     lastConnected = p.connected;
     lastMobiles = p.mobiles;
   });
+
+  // P7 — the offline switch. Register-then-pull like everything else here.
+  // On `offline:true` the handler ALSO rewrites the connection rows to
+  // disconnected: their producers (the pumps) are joined by the teardown, so
+  // without this the chips would freeze on their last connected words — a
+  // status word with nothing behind it (R11).
+  await onChannel<{ offline: boolean }>(CH.offlineState, (p) => {
+    const off = p.offline === true;
+    offlineMode.value = off;
+    appendForensic('bridge', `OFFLINE_STATE ← ui (offline=${off})`);
+    if (off) {
+      for (const ch of Object.keys(connByChannel)) {
+        const row = connByChannel[ch];
+        if (row === undefined) continue;
+        connByChannel[ch] = {
+          ...row,
+          connected: false,
+          registered: false,
+          mobiles: 0,
+          reason: 'manual-offline',
+        };
+      }
+      Object.assign(conn, {
+        connected: false,
+        registered: false,
+        mobiles: 0,
+        reason: 'manual-offline',
+      });
+    }
+    // offline:false needs no synthetic rows — the redial's fresh pumps push
+    // real CONNECTION frames within their first tick.
+  });
+  const offSeed = await fetchOfflineState();
+  if (offSeed !== null) offlineMode.value = offSeed;
 
   // Seed from a PULL, AFTER the listener is registered.
   //

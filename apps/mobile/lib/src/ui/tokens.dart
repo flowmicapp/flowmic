@@ -554,10 +554,31 @@ class FlowMicDockColors {
   /// override for it, and contract §1 lists the same value in both columns.
   static Color get processing => const Color(0xFFD97706);
 
-  /// Gray PTT face in record-only mode (`.ptt.gry{background:#8B8996}`); the
-  /// same grey marks the header dot in the record-only frame (A-11).
-  /// THEME-INVARIANT for the same reason as [processing].
+  /// The mock's `.ptt.gry{background:#8B8996}`. Since 0.3.1 this is the
+  /// swipe-cancel ARMED overlay and the record-only header dot (A-11) ONLY —
+  /// the record-only PTT face itself moved to [notedSoft]/[notedInk] (owner
+  /// 2026-08-15: a live control must not wear the app's 「off」 grey; see
+  /// there). THEME-INVARIANT for the same reason as [processing].
   static Color get recordOnly => const Color(0xFF8B8996);
+
+  /// P5 (0.3.1, owner 2026-08-15: 「轻记录…说话的按钮默认是灰色的…看起来是
+  /// 不能用的状态」/ the record-only talk button looks disabled). The mock's
+  /// `.ptt.gry{#8B8996}` put a LIVE control in the same grey vocabulary the
+  /// dock reserves for the genuinely dead face ([chipbg]+[sub]) — a named
+  /// deviation from the WP8 VF-2 fidelity contract, ordered by the owner.
+  ///
+  /// The replacement stays in the hue this app already gives light-notes
+  /// facts (plus_panel paints `noPcTarget` amber; timeline noted markers are
+  /// amber): a translucent amber wash with the theme's AA-verified amber ink
+  /// ([FlowMicColors.amber] — #92400E light / #FBBF24 dark, both pinned by
+  /// theme_tokens_test). Distinct from every other face by construction:
+  /// solid pri (idle), solid #DC2626 (recording), solid #D97706 (processing),
+  /// pale grey (disabled). MODE identity is still carried by the label +
+  /// header dot; the fill only answers 「can this be pressed」 — yes.
+  static Color get notedSoft => FlowMicColors.amberSoft;
+
+  /// Ink + border for the [notedSoft] face — see there.
+  static Color get notedInk => FlowMicColors.amber;
 
   /// Green flash face after a delivery lands. Its source is the interactive
   /// prototype rather than the static boards —

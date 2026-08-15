@@ -105,6 +105,18 @@ LoginScan? parseLoginLink(String raw) {
 /// Which tab the 「添加配对」("add pairing") sheet opens on.
 enum PairTab { scan, manual }
 
+/// Which channel the MANUAL tab is set to (P2, 0.3.1 design §4).
+///
+/// Two segments because the two channels take different inputs, and one form
+/// that morphs on a host-comparison guess made the difference invisible:
+///   · [lan]   — address + 4-digit code (owner 2026-08-14: the LAN has no
+///     PCID). Self-hosted relays and bare-IP dials live here too, rescued by
+///     the server's `PAIR_PCID_REQUIRED` force-show when they need a PCID.
+///   · [cloud] — PCID + 4-digit code, NO address: the official relay's
+///     endpoint is resolved, not typed (owner: 「不用输端点URL，因为是确定的」
+///     "no need to type the endpoint URL, because it is fixed").
+enum PairChannel { lan, cloud }
+
 /// owner 2026-07-26:「扫码优先于手输」("scan takes priority over manual typing")
 /// — scan is the default entry.
 ///

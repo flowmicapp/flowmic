@@ -89,6 +89,10 @@ import 'tokens.dart';
 // button + panel, mode-chip tap confirm) moved out verbatim — see that
 // file's header for the exact diff-discipline contract.
 part 'chat_flow_composer.dart';
+// P3 0.3.1 (800-line cap again — the tablet press-stability skeleton pushed
+// the composer file over): the PTT caption family moved out of it verbatim.
+// Same contract as above; see that file's header.
+part 'chat_flow_dock_caption.dart';
 // W5a / FB-7 (800-line cap, this file stood at 797/800): the two families
 // that act on an EXISTING row — the long-press menu's dispatcher and the
 // send-failure banner's resend — moved out verbatim. Same contract as above.

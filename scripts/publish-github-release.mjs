@@ -230,6 +230,20 @@ async function main() {
   const section = changelogSection();
   const body = buildBody(section);
 
+  // 🔴 English only — owner iron rule, 2026-08-15, laid down pointing at the
+  // first public release page (its body had shipped in Chinese): version
+  // introductions are written in English; English is the project's first
+  // language. The gate lives HERE, on the bytes about to be published, not in
+  // anyone's memory — same shape as opensource-sync's commit-message refusal.
+  // CHANGELOG sections from 0.2.66 and earlier stay as written (history is
+  // not retranslated); they are also never what this script publishes next.
+  if (/[一-鿿㐀-䶿　-〿]/.test(body)) {
+    console.error('✗ the release body contains CJK text. Release notes are English-only');
+    console.error('  (owner iron rule 2026-08-15 — docs/decisions/2026-08-15-owner-english-first-release-notes.md).');
+    console.error('  Rewrite the CHANGELOG section for this version in English, then re-run.');
+    process.exit(1);
+  }
+
   console.log(`\n── GitHub Release preview ──`);
   console.log(`repo   : ${repo}`);
   console.log(`tag    : ${TAG}`);

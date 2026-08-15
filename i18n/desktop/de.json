@@ -7,6 +7,9 @@
     "app_name": "'FlowMic'",
     "dev_title": "'Geräte'",
     "dev_add_phone": "'Handy hinzufügen'",
+    "dev_offline_toggle": "'Offline'",
+    "dev_offline_hint": "'Trennt alle Telefone von diesem PC, um Störungen zu vermeiden; erneutes Umschalten stellt die Verbindung wieder her.'",
+    "dev_offline_active": "'Offline · Telefone können diesen PC gerade nicht erreichen'",
     "dev_chan_lan": "'Lokales Netzwerk'",
     "dev_chan_lan_ready": "'Lokaler Dienst bereit · Direktverbindung im selben Wi-Fi'",
     "dev_chan_lan_loopback": "'Loopback-Dienst auf diesem PC · im selben Wi-Fi auf dem Handy die LAN-Adresse dieses PCs eintragen'",
@@ -186,6 +189,7 @@
     "dict_add": "'Begriff hinzufügen'",
     "polish_title": "'KI-Feinschliff'",
     "polish_toggle": "'KI-Feinschliff aktivieren'",
+    "polish_hint": "'Der letzte Satz einer Äußerung kann optional von einem LLM überarbeitet werden – die Zeile darunter zeigt, ob dies gerade aktiviert ist; schlägt es fehl, wird der unbearbeitete Text mit einem ausdrücklichen Hinweis zugestellt – nie ein stiller Rückfall.'",
     "polish_no_llm": "'Die für den KI-Feinschliff nötige Funktion ist nicht konfiguriert, daher ist er nicht wirksam.'",
     "refine_title": "'Zweite Transkription (genauer)'",
     "refine_hint": "'Nach einem langen Satz wird er im Hintergrund noch einmal transkribiert; aktualisiert wird nur die Zeitleiste – bereits in den PC eingefügter Text wird nie nachträglich geändert'",
@@ -488,9 +492,15 @@
     "disc_s1_title": "'1. Dein Handy nimmt Audio auf'",
     "disc_s1_body": "'Solange du die Sprechtaste hältst, nimmt dein Handy Audio auf und sendet es beim Sprechen weiter; es wird nie in unsere Datenbank geschrieben.'",
     "disc_s2_title": "'2. Spracherkennung'",
+    "disc_s2_body": "'Welche Engine dich hört, ist eine sichtbare Einstellung, kein Rätselraten: die Engine, die deine Einstellungen für die Sprache benennen; falls keine, die Auffang-Engine; falls auch die nicht, der plattformseitig verwaltete Standard; falls auch der nicht, die zwei Engine-Routen, die wir beim ersten Start für dich voreingestellt haben. Existiert auch keine davon, bricht die Transkription mit einem Fehler ab – Audio wird nie stillschweigend woandershin gesendet.'",
+    "disc_s2_cloud": "'· Die eingebaute Cloud-Engine: Audio wird über unser Cloud-Relay als Stream zu Soniox gesendet. Sind sie nicht verfügbar, schalten wir diesen Schritt eventuell auf Spracherkennungsserver um, die wir selbst betreiben. Das Umschalten ist eine Aktion des Betreibers – es wechselt nie mitten im Satz die Route. Audio wird nur im Arbeitsspeicher gehalten, nie auf die Festplatte geschrieben.'",
+    "disc_s2_byok": "'· Eine Engine, die du mit deinem eigenen Schlüssel konfiguriert hast: Audio geht mit deinen Zugangsdaten an diesen Anbieter gemäß dessen Datenschutzrichtlinie. Über die Cloud durchläuft Audio weiterhin unser Cloud-Relay (im Arbeitsspeicher, nie gespeichert). In deinem eigenen Netzwerk sind wir nicht Teil des Übertragungswegs.'",
+    "disc_s2_local": "'· Eine lokale Engine: Bei diesem Schritt verlässt nichts deine eigene Hardware – das betrifft deine Stimme; wohin der Text als Nächstes geht, ist Schritt 3. (Das Spracherkennungsmodell für die eingebaute Engine stellst du selbst bereit; sie lädt eines nur dann über das Internet herunter, wenn du auf dem Computer ausdrücklich FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 setzt.)'",
     "disc_s3_title": "'3. Verarbeitung durch das Sprachmodell (abhängig von deinen Einstellungen)'",
+    "disc_s3_body": "'Übersetzen und Aufbereiten nutzen immer das Sprachmodell. Echtzeit hängt vom Schalter „KI-Politur\" unter Einstellungen → Spracherkennung ab (diese Zeile zeigt den aktuellen Wert): Ist er aktiviert, wird das abschließende Transkript jeder Aufnahme einmal gesendet – einschließlich bei „Nur Aufnahme\"; ist er deaktiviert, sendet Echtzeit keinen Text. Vorläufige Wörter werden nie gesendet. Was auch immer gesendet wird, geht an den Modell-Endpunkt, den deine Einstellungen benennen. Das Plattform-Sprachmodell wird von DeepSeek auf unserem Konto ausgeführt. Wir speichern weder die Eingabe noch die Ausgabe.'",
     "disc_s4_title": "'4. An deinen PC zugestellt und in das fokussierte Feld getippt'",
     "disc_s4_body": "'Der Text wird an den gekoppelten PC zugestellt und in das fokussierte Feld getippt – über dein eigenes Netzwerk oder unser Cloud-Relay (das Frames nur weiterreicht und wieder vergisst).'",
+    "disc_s4_lan_plain": "'⚠️ Ob die lokale Netzwerkroute verschlüsselt ist, hängt davon ab, wie die Kopplung erfolgt ist. Eine QR-Kopplung ist verschlüsselt, wenn dieser Code die Identität des Computers trägt; das Telefon prüft dies bei jeder späteren Verbindung. Kopplungen, die vor Einführung dieser Verschlüsselung erstellt wurden, sind weiterhin unverschlüsselt – erneutes Koppeln auf dem Telefon aktualisiert eine davon. Welche der beiden diese Verbindung ist, wird auf dem Telefon unter „Verschlüsselung\" angezeigt. Das Cloud-Relay nutzt TLS. Wird FLOWMIC_LAN_TLS auf dem Computer auf 0 gesetzt, wird die Verschlüsselung ausgeschaltet: Telefone, die bereits verschlüsselt gekoppelt wurden, können sich dann nicht mehr verbinden. Zur Wiederherstellung muss der Computer auf dem Telefon gelöscht und erneut gekoppelt werden.'",
     "disc_s5_title": "'5. Was zurückbleibt'",
     "disc_s5_body": "'Wir speichern deine Transkripte nicht; die Zeitleiste liegt auf deinem Handy und deinem PC. Wir speichern dein Konto, gekoppelte Geräte, synchronisierte Einstellungen und monatliche Nutzungssummen (nie die Inhalte).'",
     "disc_legal_title": "'Datenschutzerklärung und Nutzungsbedingungen'",
@@ -581,6 +591,7 @@
       "(kept, when) =>",
       "  `Keine passenden Einträge. Die Suche umfasst nur die ${kept} auf diesem PC behaltenen Einträge — alles vor ${when} wurde entfernt.`"
     ],
-    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'Wort' : 'Wörter'}`"
+    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'Wort' : 'Wörter'}`",
+    "cloud_pair_hint": "'Über das Cloud-Relais muss das Telefon zuerst dieselbe Cloud erreichen (am Telefon anmelden oder dieses Relais angeben); dann den QR-Code scannen oder am Telefon die PCID oben plus den 4-stelligen Code unten eingeben.'"
   }
 }

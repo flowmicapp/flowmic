@@ -95,6 +95,23 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
   bool _cancelled = false;
   bool _active = false;
 
+  /// P6 (0.3.1) — finger is physically down, accept edge not necessarily
+  /// reached. Drives the 0 ms pressed tint: before this existed the entire
+  /// accept window PLUS the recorder warm-up (measured ~2 s on the owner's
+  /// tablet) rendered nothing, so the press felt ignored. Purely visual, and
+  /// COLOUR-ONLY on purpose: this bar's geometry must never change under a
+  /// finger (the P3 tablet-dock lesson is the same rule one layer up).
+  bool _pressed = false;
+
+  /// P6 — the accept edge fired and [_handleDown] is awaiting the data layer
+  /// (permission gate + native recorder open). The face swaps its label to
+  /// `pttStartingMic` for this window: it claims only 「starting」, which is
+  /// true; the recording face, timer and waveform still wait for the real
+  /// capture start, because words spoken before the OS mic is open are
+  /// physically lost and a face that said 「recording」 here would be a wrong
+  /// status word with no failure anywhere (R11).
+  bool _starting = false;
+
   /// Finger is past the swipe-up threshold. Visual only — the utterance is
   /// still live until release (WeChat-style: gray 「松开 取消」("release to
   /// cancel"), slide back
@@ -163,7 +180,16 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
     if (!_enabled) return;
     _cancelled = false;
     _cancelArmed = false;
+    // P6 — render the 「starting microphone」 window instead of sitting silent
+    // through it. The await below covers the permission gate + the native
+    // recorder open (the slow half of the owner's measured ~2 s).
+    if (mounted) setState(() => _starting = true);
     final bool ok = (await widget.onDown?.call()) ?? false;
+    if (mounted) {
+      setState(() => _starting = false);
+    } else {
+      _starting = false;
+    }
     // A swipe-cancel can land during this await (the surface tracks the
     // pointer independently of this Future). If it did, the recording that
     // just started must be discarded — `_active` stays false so a later
@@ -177,6 +203,10 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
     // V2-04: confirm ONLY an accepted press — a refused one buzzes nothing.
     // R-UX-09 counts the same edge for the same reason: a refused press is not
     // usage, and counting it would inflate the very number ⑤ is judged on.
+    // (P6 deliberately did NOT move this buzz to the accept edge: doing so
+    // would confirm presses the gate is about to refuse, which is exactly
+    // what V2-04 exists to prevent. The instant feedback is visual —
+    // [_pressed] / [_starting].)
     if (ok) {
       _holdStartedAt = DateTime.now();
       countUsage(UsageEvent.pttHold);
@@ -267,9 +297,14 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
         FlowMicDockColors.onPri,
         s.pttHold,
       ),
+      // P5 (0.3.1, owner 2026-08-15) — a LIVE face, no longer the mock's
+      // `.ptt.gry` grey: that grey is the dock's 「off」 vocabulary (see
+      // [PttVisual.disabled] below) and the owner read this working button as
+      // unusable. Amber wash + amber ink = the app's existing light-notes hue;
+      // full reasoning at [FlowMicDockColors.notedSoft].
       PttVisual.noted => (
-        FlowMicDockColors.recordOnly,
-        FlowMicColors.onBrandInk,
+        FlowMicDockColors.notedSoft,
+        FlowMicDockColors.notedInk,
         s.pttHoldNoted,
       ),
       // 🔴 `recFill`, NOT `rec`. `.ptt.rec{background:#DC2626}` has no `.dk`
@@ -304,9 +339,27 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
     // Overlay, not a
     // sixth FSM face — the session is still RECORDING until release.
     if (_cancelArmed) {
+      // Since P5 recoloured the noted face, this grey is unambiguous again:
+      // it appears ONLY as the release-to-cancel overlay (the mock's own
+      // motion rule) and can no longer be mistaken for a resting face.
       bg = FlowMicDockColors.recordOnly;
       fg = FlowMicColors.onBrandInk;
       label = s.pttCancelArmed;
+    } else if (_starting) {
+      // P6 — accepted press, recorder not open yet. Label only; the fill
+      // stays the resting face's (with the pressed tint below), so the red
+      // recording vocabulary is not borrowed for a window that is not
+      // recording.
+      label = s.pttStartingMic;
+    }
+    // P6 — the 0 ms acknowledgement: finger down ⇒ the resting fill darkens
+    // one step. Gated to the two resting faces so it never repaints the
+    // recording/processing faces mid-hold (the finger stays down through the
+    // whole recording — a persistent tint there would dim the pulse).
+    final bool restingFace =
+        widget.visual == PttVisual.idle || widget.visual == PttVisual.noted;
+    if (_pressed && !_cancelArmed && restingFace) {
+      bg = Color.alphaBlend(fg.withValues(alpha: 0.12), bg);
     }
 
     // The leading glyph, per mock frame. Three faces deliberately have NONE:
@@ -382,6 +435,18 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(17),
+        // P5 — the noted face's wash is translucent, so it borrows the dock
+        // panel's lightness; the 1.5px amber outline is what makes it read as
+        // a bounded, pressable control rather than a tinted strip. Same
+        // border recipe the amber connection-identity card already uses.
+        // Absent on every other face (and under the armed overlay), whose
+        // solid fills carry their own edge.
+        border: widget.visual == PttVisual.noted && !_cancelArmed
+            ? Border.all(
+                color: FlowMicDockColors.notedInk.withValues(alpha: 0.65),
+                width: 1.5,
+              )
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -437,6 +502,16 @@ class _PttBarState extends State<PttBar> with SingleTickerProviderStateMixin {
         onRelease: _handleUp,
         onSwipeCancel: _handleSwipeCancel,
         onCancelZoneChanged: _onCancelZoneChanged,
+        // P6 — the surface's geometry hooks double as the pressed edge: down
+        // fires immediately on contact, settled fires exactly once on
+        // up/cancel (_finish). This is what makes the 0 ms tint possible
+        // without a second gesture layer.
+        onPointerDown: (_) {
+          if (_enabled && mounted) setState(() => _pressed = true);
+        },
+        onPointerSettled: () {
+          if (_pressed && mounted) setState(() => _pressed = false);
+        },
         child: _shouldPulse ? _pulsing(bar) : bar,
       ),
     );

@@ -168,9 +168,18 @@ class AudioCapture {
   /// F-2063: gate on microphone permission first — the legacy façade shipped
   /// [requestPermission] defined but never called, so `record` silently
   /// produced no PCM (PTT looked alive but zero chunks reached the server).
-  Future<void> start() async {
+  ///
+  /// P6 (0.3.1): [permissionPreflighted] lets a caller that JUST probed a
+  /// definitive GRANTED (MicPermissionFlow.gateForPtt, one platform hop ago on
+  /// the same press) skip the redundant probe here — this path is the press
+  /// latency the owner measured at ~2 s, and [requestPermission] costs one to
+  /// two more platform round trips on it. Only ever pass true for a
+  /// definitive grant: the F-2063 gate above stays the sole guard for every
+  /// other caller, and a stale `true` still fails loudly in [_attachRecorder]
+  /// (startStream throws, the caller renders captureStartFailed).
+  Future<void> start({bool permissionPreflighted = false}) async {
     if (_state == RecorderState.recording) return;
-    if (!await requestPermission()) {
+    if (!permissionPreflighted && !await requestPermission()) {
       throw StateError('microphone permission denied');
     }
     _seq = 0;

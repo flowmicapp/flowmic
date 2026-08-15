@@ -1,7 +1,7 @@
 // GENERATED — DO NOT EDIT BY HAND.
 // Source: packages/protocol/src/locales.ts (UI_LOCALES) + i18n/desktop-rust/<code>.json
 // Regenerate: node scripts/i18n/gen-desktop-rust.mjs
-// Count: 9 locale(s) x 22 message(s) = 198 cell(s).
+// Count: 9 locale(s) x 26 message(s) = 234 cell(s).
 // Every registry row has a data file on this surface.
 //
 // `include!`d by src/ui_i18n.rs, so this shares that module's namespace: `Msg`
@@ -142,6 +142,10 @@ impl Msg {
         Msg::TrayQuit,
         Msg::TrayStatusDisconnected,
         Msg::TrayTooltipDisconnected,
+        Msg::TrayGoOffline,
+        Msg::TrayGoOnline,
+        Msg::TrayStatusOffline,
+        Msg::TrayTooltipOffline,
         Msg::TrayStatusRecording,
         Msg::TrayTooltipRecording,
         Msg::TrayStatusConnected,
@@ -220,6 +224,50 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
             UiLocale::Ja => "FlowMic — 未接続",
             UiLocale::Ko => "FlowMic — 연결 안 됨",
             UiLocale::Ru => "FlowMic — нет подключения",
+        },
+        Msg::TrayGoOffline => match locale {
+            UiLocale::En => "Go offline (pause phone connections)",
+            UiLocale::ZhCn => "下线（暂停手机连接）",
+            UiLocale::ZhTw => "下線（暫停手機連線）",
+            UiLocale::Fr => "Passer hors ligne (suspendre les connexions du téléphone)",
+            UiLocale::Es => "Desconectarse (pausar conexiones del teléfono)",
+            UiLocale::De => "Offline gehen (Telefonverbindungen pausieren)",
+            UiLocale::Ja => "オフラインにする（スマホ接続を一時停止）",
+            UiLocale::Ko => "오프라인 전환 (휴대폰 연결 일시 중지)",
+            UiLocale::Ru => "Уйти в офлайн (приостановить подключения телефона)",
+        },
+        Msg::TrayGoOnline => match locale {
+            UiLocale::En => "Go online (resume phone connections)",
+            UiLocale::ZhCn => "上线（恢复手机连接）",
+            UiLocale::ZhTw => "上線（恢復手機連線）",
+            UiLocale::Fr => "Repasser en ligne (reprendre les connexions du téléphone)",
+            UiLocale::Es => "Conectarse (reanudar conexiones del teléfono)",
+            UiLocale::De => "Online gehen (Telefonverbindungen fortsetzen)",
+            UiLocale::Ja => "オンラインに戻る（スマホ接続を再開）",
+            UiLocale::Ko => "온라인 전환 (휴대폰 연결 재개)",
+            UiLocale::Ru => "Вернуться в онлайн (возобновить подключения телефона)",
+        },
+        Msg::TrayStatusOffline => match locale {
+            UiLocale::En => "● Offline",
+            UiLocale::ZhCn => "● 已下线",
+            UiLocale::ZhTw => "● 已下線",
+            UiLocale::Fr => "● Hors ligne",
+            UiLocale::Es => "● Desconectado",
+            UiLocale::De => "● Offline",
+            UiLocale::Ja => "● オフライン",
+            UiLocale::Ko => "● 오프라인",
+            UiLocale::Ru => "● Офлайн",
+        },
+        Msg::TrayTooltipOffline => match locale {
+            UiLocale::En => "FlowMic — offline (phone connections paused)",
+            UiLocale::ZhCn => "FlowMic — 已下线（手机连接已暂停）",
+            UiLocale::ZhTw => "FlowMic — 已下線（手機連線已暫停）",
+            UiLocale::Fr => "FlowMic — hors ligne (connexions du téléphone suspendues)",
+            UiLocale::Es => "FlowMic — desconectado (conexiones del teléfono en pausa)",
+            UiLocale::De => "FlowMic — offline (Telefonverbindungen pausiert)",
+            UiLocale::Ja => "FlowMic — オフライン（スマホ接続は一時停止中）",
+            UiLocale::Ko => "FlowMic — 오프라인 (휴대폰 연결 일시 중지됨)",
+            UiLocale::Ru => "FlowMic — офлайн (подключения телефона приостановлены)",
         },
         Msg::TrayStatusRecording => match locale {
             UiLocale::En => "● Recording",

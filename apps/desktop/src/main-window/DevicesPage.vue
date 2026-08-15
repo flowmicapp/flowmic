@@ -36,12 +36,11 @@ import CloudAccountLines from './components/CloudAccountLines.vue';
 // REQ-12-14: the head both channel cards wear (identity tile · name · state pill).
 // One component so the two cards cannot drift — read its header for the C-8 note.
 import ChannelCardHead from './components/ChannelCardHead.vue';
-// REQ-12-14: This-machine card, split out because it must NOT inherit `.chan`'s
-// new channel-identity chrome (see that file's 🔴 block).
+// REQ-12-14: This-machine card, split out because it must NOT inherit `.chan`'s new channel-identity chrome (see that file's 🔴 block).
 import SelfPcCard from './components/SelfPcCard.vue';
-// MAC-08: non-Windows plaintext credentials disclosure (full-width under
-// This-machine).
+// MAC-08: non-Windows plaintext credentials disclosure (full-width under This-machine).
 import CredentialsAtRestNote from './components/CredentialsAtRestNote.vue';
+import OfflineSwitch from './components/OfflineSwitch.vue'; // P7: see its header
 import { conn, connByChannel, currentChannel } from './store';
 import { S, SIDECAR_LABEL } from '../lib/strings';
 import {
@@ -581,7 +580,8 @@ onUnmounted(() => {
   <div>
     <div class="page-head">
       <h2>{{ S.dev_title }}</h2>
-      <span style="margin-left:auto">
+      <span style="margin-left:auto; display:inline-flex; align-items:center; gap:14px">
+        <OfflineSwitch />
         <button class="btn pri" @click="openModal"><Icon name="plus" />{{ S.dev_add_phone }}</button>
       </span>
     </div>

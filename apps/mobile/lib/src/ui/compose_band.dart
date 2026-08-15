@@ -78,9 +78,18 @@ bool composeIdleRowsVisible(PttVisual visual) =>
 
 /// REQ-14-01 — the four PC remote keys answer 「act on the focused PC field」.
 /// A record-only / light-record destination has no PC focus, so the keys are
-/// off the tree (not dimmed-and-explained). One author, shared with the
-/// composer's tablet two-column predicate: a dock whose right column would be
-/// empty must not re-column.
+/// off the tree (not dimmed-and-explained).
+///
+/// ⚠️ P3 (0.3.1): this is a FACE-level predicate, and it is no longer what
+/// the composer's tablet two-column arrangement reads. The dock's column
+/// count may depend only on (width × mode) — `_dockTwoColumnRouted`
+/// (chat_flow_composer.dart) reads `destination.isRecordOnly`, the MODE-level
+/// source of the `noted` face, because this predicate also flips false on the
+/// transient recording/processing faces, and a column count that followed
+/// those re-arranged the dock under the owner's pressed finger. The two
+/// agree on every idle frame (a dock whose right column would be empty still
+/// never re-columns); they differ only mid-utterance, where the dock now
+/// keeps its skeleton instead of re-arranging.
 bool composePcKeysVisible(PttVisual visual) =>
     composeIdleRowsVisible(visual) && visual != PttVisual.noted;
 
@@ -235,7 +244,9 @@ class ComposeBand extends StatefulWidget {
   /// from `sessionState` in here would give 「is it recording」 two authors.
   ///
   /// It answers two questions here, each through a named predicate:
-  ///   · [composeIdleRowsVisible] — whether the band lays out at all (SUP-4);
+  ///   · [composeIdleRowsVisible] — whether the STACKED band lays out at all
+  ///     (SUP-4; since P3 the two tablet parts hold their geometry instead —
+  ///     see [part]);
   ///   · `== PttVisual.noted` — the A9 record-only face of the key group.
   final PttVisual visual;
 
@@ -243,10 +254,18 @@ class ComposeBand extends StatefulWidget {
   /// phone's [ComposeBandPart.stacked] so every existing call site and test is
   /// untouched.
   ///
-  /// ⚠️ The visibility rule does NOT branch on it: all three parts still yield
-  /// through the one [composeIdleRowsVisible] predicate below, so the tablet's
-  /// key column disappears during recording for exactly the same reason — and
-  /// at exactly the same moment — as the phone's key group.
+  /// 🔴 P3 (0.3.1): outside the idle faces the three parts now behave
+  /// DIFFERENTLY, and that is the press-stability fix, not drift.
+  /// [ComposeBandPart.stacked] still yields to a zero-height box (the phone
+  /// dock's A3 「one main thing at a time」 is untouched), while the two
+  /// tablet parts HOLD THEIR GEOMETRY: the two-column dock must not move
+  /// under an accepted press, so [ComposeBandPart.bufferRow] keeps rendering
+  /// (the composer wraps it in a size-holding ghost and lays the recording
+  /// strip over it) and [ComposeBandPart.keyColumn] renders its idle skeleton
+  /// dimmed and inert (see [_ComposeBandState._pcKeyColumn]'s
+  /// `inertSkeleton`). The pre-P3 sentence here — 「the visibility rule does
+  /// not branch on it」 — described exactly the behavior that moved the speak
+  /// key under the owner's finger.
   final ComposeBandPart part;
 
   @override
@@ -256,11 +275,25 @@ class ComposeBand extends StatefulWidget {
 class _ComposeBandState extends State<ComposeBand> {
   @override
   Widget build(BuildContext context) {
-    // 🔴 SUP-4 / contract §4 A3–A5: outside the three idle faces the whole
-    // band yields — a FULL-WIDTH zero-height box, not `SizedBox.shrink()`
-    // (a 0×0 box would let the parent Column centre later siblings).
+    // 🔴 SUP-4 / contract §4 A3–A5 — phone: outside the three idle faces the
+    // stacked band yields — a FULL-WIDTH zero-height box, not
+    // `SizedBox.shrink()` (a 0×0 box would let the parent Column centre later
+    // siblings).
+    //
+    // 🔴 P3 (0.3.1) — tablet: the two column parts do NOT yield. Yielding is
+    // exactly what re-arranged the dock at the instant of an accepted press
+    // (the speak key widened 430 → full band and dropped 47dp under the
+    // owner's finger — tablet_dock_layout_test.dart's header records the
+    // measured red). The buffer row keeps its layout for the composer to
+    // ghost (size-holding, invisible, inert — the recording strip is laid
+    // over it); the key column keeps its size and dims to the inert skeleton.
     if (!composeIdleRowsVisible(widget.visual)) {
-      return const SizedBox(width: double.infinity, height: 0);
+      return switch (widget.part) {
+        ComposeBandPart.stacked =>
+          const SizedBox(width: double.infinity, height: 0),
+        ComposeBandPart.bufferRow => _bufferRow(),
+        ComposeBandPart.keyColumn => _pcKeyColumn(inertSkeleton: true),
+      };
     }
     return switch (widget.part) {
       ComposeBandPart.bufferRow => _bufferRow(),
@@ -353,14 +386,28 @@ class _ComposeBandState extends State<ComposeBand> {
   /// line border, its r10, its 44dp floor, its tooltip, its inert rule, its two
   /// haptics) is restated in this method, because a second statement of any of
   /// them is a second thing to keep in step.
-  Widget _pcKeyColumn() {
+  ///
+  /// 🔴 P3 (0.3.1) — [inertSkeleton]: the recording/processing/justDone face
+  /// of the TABLET key column. The column stays AT ITS SIZE (≈232dp: label +
+  /// 4×44dp keys + 3×6dp gaps + 2×6dp padding + border — vs the speak
+  /// column's ≈192dp; that 40dp difference is what sets the dock Row's
+  /// height, so a column that yielded here moved the speak key). Dim 0.4 is
+  /// the group's own existing idiom (noted/A8); [IgnorePointer] parks the
+  /// taps; [ExcludeSemantics] keeps a screen reader from being offered four
+  /// buttons that answer nothing — the phone hides these keys outright during
+  /// recording, and the tablet must not ANNOUNCE more than the phone shows.
+  Widget _pcKeyColumn({bool inertSkeleton = false}) {
     // Same hide as the phone row — the tablet right column is this group.
-    if (!composePcKeysVisible(widget.visual)) {
+    // (Skipped in skeleton mode: P3 makes the composer's two-column choice a
+    // (width × mode) decision that already excludes record-only — the one
+    // mode this check exists for — so a skeleton is only ever requested where
+    // the idle dock would draw the column.)
+    if (!inertSkeleton && !composePcKeysVisible(widget.visual)) {
       return const SizedBox(width: double.infinity, height: 0);
     }
     final bool noted = widget.visual == PttVisual.noted;
-    final bool dim = noted || !widget.enabled;
-    return Column(
+    final bool dim = inertSkeleton || noted || !widget.enabled;
+    final Widget column = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -424,6 +471,12 @@ class _ComposeBandState extends State<ComposeBand> {
         ],
       ],
     );
+    if (!inertSkeleton) return column;
+    // P3: taps parked and semantics withdrawn, geometry untouched. The dim
+    // itself is NOT restated here — `dim` above is already true whenever
+    // `inertSkeleton` is (a second Opacity would stack to 0.16, the
+    // two-authors-for-one-dim drift _controlButton's own note warns about).
+    return IgnorePointer(child: ExcludeSemantics(child: column));
   }
 
   /// A9's standing reason line — one author, two line budgets.

@@ -106,6 +106,19 @@ class RecordingPanel extends StatelessWidget {
   static const double _waveH = 24;
   static const double _barMinH = 4;
 
+  /// The meter's own content floor: 12 bars + 11 gaps = 69dp. Derived, not a
+  /// second literal — retuning the bar geometry above retunes this with it.
+  static const double _waveContentMinWidth =
+      kBars * _barW + (kBars - 1) * _barGap;
+
+  /// What the cancel hint must LEAVE the rest of its row (P3 0.3.1, see the
+  /// LayoutBuilder in [build]): the meter's content ([_waveContentMinWidth])
+  /// + the row's two 10dp gaps + a 60dp clock allowance. 60 is generous on
+  /// purpose: the clock's worst face before the 5-minute server cap is
+  /// 「4:59」 — 4 glyphs at 12sp tabular, 48dp even under the all-squares Ahem
+  /// test font — so the allowance holds in both font worlds.
+  static const double _hintReserve = _waveContentMinWidth + 20 + 60;
+
   /// dBFS floor under which the meter reads as silence (F-7 「silence turns grey」).
   static const double kSilenceFloorDb = -55;
 
@@ -141,7 +154,30 @@ class RecordingPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Row(
+          // 🔴 P3 (0.3.1) — A LATENT OVERFLOW SURFACED, AND THE ASSUMPTION WAS
+          // THIS FILE'S, so the fix lives here. This row was written as if it
+          // always had a full phone dock to itself, but two homes hand it
+          // less: the tablet's ≤430dp speak column (P3 lays the strip into
+          // the ghosted idle-row slot instead of falling back to the phone
+          // arrangement) and a 320dp phone's 296dp dock. The cancel hint is
+          // the row's ONLY width-unbounded child; in the Latin locales
+          // (es/fr/ru) its single line alone can exceed those lanes, and the
+          // row then overflowed on the right (measured: +50px at 430dp under
+          // Ahem — selection_wire_test's four-locale toast cases went red the
+          // moment the tablet stopped re-arranging; a real-font 320dp es
+          // phone was ALREADY over before P3, unwitnessed).
+          // The cap spends width in the order the strip's honesty contract
+          // ranks its tenants: the meter keeps its full 12-bar content, the
+          // clock keeps its worst pre-cap face, and the HINT takes everything
+          // left, ellipsizing past it ([_hintReserve] holds the arithmetic).
+          // ⚠️ Not `Flexible` on the hint: a loose flex child is CAPPED AT
+          // ITS FLEX SHARE, so the meter's Expanded would stop absorbing the
+          // slack behind a short hint and the clock would detach from the
+          // right edge on every phone — a visible relayout of the healthy
+          // case to pay for the squeezed one. The LayoutBuilder cap is a
+          // no-op whenever the hint fits, which is every real-font width.
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints lane) => Row(
             children: <Widget>[
               // ↑ cancel hint — the strip's left slot. The gesture itself is
               // unchanged (swipe-up on the held PTT). WP8 VF-5 §2: sub, 11sp.
@@ -167,12 +203,26 @@ class RecordingPanel extends StatelessWidget {
               // `excludeSemantics: true` drops that auto-generated node and
               // substitutes the raw, unprefixed sentence as the ONE label
               // announced.
-              Semantics(
-                label: strings.recSwipeCancel,
-                excludeSemantics: true,
-                child: Text(
-                  '↑ ${strings.recSwipeCancel}',
-                  style: TextStyle(color: FlowMicDockColors.sub, fontSize: 11),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: (lane.maxWidth - _hintReserve)
+                      .clamp(0.0, double.infinity)
+                      .toDouble(),
+                ),
+                child: Semantics(
+                  label: strings.recSwipeCancel,
+                  excludeSemantics: true,
+                  child: Text(
+                    '↑ ${strings.recSwipeCancel}',
+                    // One line under the cap: without this a squeezed hint
+                    // would WRAP and grow the strip's height instead of
+                    // overflowing its width — trading the exception for a
+                    // taller strip, which is the same instability sideways.
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        TextStyle(color: FlowMicDockColors.sub, fontSize: 11),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -195,6 +245,7 @@ class RecordingPanel extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
           // MD-3: the honesty line — present when and only when there is
           // something honest to say (unhealthy link / a second segment).

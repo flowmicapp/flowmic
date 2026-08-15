@@ -119,6 +119,31 @@ describe('0.2.66 · minting', () => {
     expect(back.pcid).toMatch(PCID_RE);
   });
 
+  it('🔴 a row that only ever RECONNECTS is backfilled too — the leg 0.2.66 missed', () => {
+    // The register-leg backfill above is real but unreachable for the machines
+    // that matter most: an established desktop holds a valid token and comes in
+    // through pc:reconnect forever — it never walks registerPc again. Measured
+    // on the owner's machine (2026-08-15): the row predated the column, every
+    // session was a token reconnect, so the cloud dialog showed no PCID, the QR
+    // carried no pcid=, and the relay (which enforces PAIR_PCID_REQUIRED)
+    // refused every scan.
+    const reg = registry('saas');
+    const { pc, token } = reg.registerPc({ device_name: 'PC-r', user_id: 'u1', client_instance_id: 'inst-r' });
+    db.pcs.setPcid(pc.id, null as unknown as string); // simulate a pre-0.2.66 row
+    expect(db.pcs.findById(pc.id)?.pcid).toBeNull();
+    const back = reg.reconnectPc(token);
+    expect(back?.pc.pcid).toMatch(PCID_RE);
+    // …and the stamp is not a rotation: a second reconnect keeps the value.
+    expect(reg.reconnectPc(token)?.pc.pcid).toBe(back?.pc.pcid);
+  });
+
+  it('a standalone reconnect still mints nothing (LAN control for the line above)', () => {
+    const reg = registry('standalone');
+    const { pc, token } = reg.registerPc({ device_name: 'PC-l', user_id: 'u1', client_instance_id: 'inst-l' });
+    expect(pc.pcid).toBeNull();
+    expect(reg.reconnectPc(token)?.pc.pcid).toBeNull();
+  });
+
   it('the virtual cloud-instance row never gets one (it is not a machine)', () => {
     const reg = registry('saas');
     reg.admitCloudInstance('u1');

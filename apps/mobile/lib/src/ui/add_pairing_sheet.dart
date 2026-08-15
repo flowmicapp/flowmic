@@ -73,8 +73,27 @@ class _AddPairingSheet extends StatefulWidget {
 }
 
 class _AddPairingSheetState extends State<_AddPairingSheet> {
-  late final TextEditingController _address =
-      TextEditingController(text: widget.initialEndpoint ?? '');
+  /// P2 (0.3.1 design §4) — segment preselection: an initialEndpoint whose
+  /// host IS the official relay means the last pairing (or the no-history
+  /// fallback, which is the relay) was cloud ⇒ open on the cloud segment.
+  /// Reuses [addressIsCloudRelay] — same guess, same single author.
+  late final bool _cloudPreselected = addressIsCloudRelay(
+    widget.initialEndpoint ?? '',
+    widget.controller.saasEndpoint,
+  );
+
+  /// Which manual-tab segment is active. Mutable — the segment row switches it.
+  late PairChannel _channel =
+      _cloudPreselected ? PairChannel.cloud : PairChannel.lan;
+
+  /// The address is a LAN-segment input, so the prefill only applies when the
+  /// LAN segment is what opens. Carrying the relay URL into this box (the
+  /// pre-P2 behaviour) is exactly the confusion the segment split removes: a
+  /// user flipping to the LAN segment would find the cloud relay's URL posing
+  /// as a LAN address.
+  late final TextEditingController _address = TextEditingController(
+    text: _cloudPreselected ? '' : (widget.initialEndpoint ?? ''),
+  );
   final TextEditingController _code = TextEditingController();
   String? _localError; // client-side validation before hitting the controller
 
@@ -178,10 +197,38 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
     // (the QR will keep not carrying one), and manual entry is the way out ⇒
     // the field is revealed for when the user switches tabs.
     _noteRefusal(outcome.error);
-    // Fail-loud: the controller's error renders below, and the camera is armed
-    // again so the user can simply re-scan (a consumed-forever scanner after a
-    // transient failure would look like the app ignoring them).
-    setState(() => _scanConsumed = false);
+    // P1b (0.3.1 design §3) — the scanner STAYS consumed after a refusal.
+    // The pre-P1b line here was `setState(() => _scanConsumed = false)`, and
+    // it read like kindness: 「a consumed-forever scanner would look like the
+    // app ignoring them」. What it actually did on a real device:
+    // DetectionSpeed.noDuplicates resets its native dedup on barcode-free
+    // frames, so the SAME QR refired several times a second, each retry
+    // cleared-then-reset the error banner (sheet-height oscillation = the
+    // flicker the owner reported) and burned another pairLimiter token until
+    // PAIR_RATE_LIMITED. A refusal is a property of the scanned QR (or of the
+    // PC's row), not a transient — auto-retrying the identical payload can
+    // never succeed. The way back in is the 「重新扫描」 button ([_rearmScanner]),
+    // a deliberate user action, so the consumed-forever fear does not apply.
+    //
+    // 'BUSY' is addByCode's guard-arm early exit and sets NO lastError, so
+    // without this line the stopped scanner would sit over pure silence — the
+    // banned shape. 「配对中…」 is the honest reusable sentence: BUSY means a
+    // pair attempt IS in flight (no new copy invented for a defensive arm).
+    setState(() {
+      if (outcome.error == 'BUSY') _scanNotice = widget.strings.pairing;
+    });
+  }
+
+  /// P1b — the one way a stopped scanner comes back. Deliberate (a tap), and
+  /// it clears every stale refusal first: a live camera under last round's
+  /// error sentence would be a status word nothing currently backs (R11).
+  void _rearmScanner() {
+    widget.controller.clearError();
+    setState(() {
+      _scanConsumed = false;
+      _localError = null;
+      _scanNotice = null;
+    });
   }
 
   @override
@@ -194,9 +241,17 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
     super.dispose();
   }
 
-  /// Is the PCID field on screen right now? Recomputed on every build, because
-  /// its first input — what is currently typed in the address box — changes as
-  /// the user types (see the address field's `onChanged`).
+  /// Is the PCID field on screen on the LAN SEGMENT right now? Recomputed on
+  /// every build, because its first input — what is currently typed in the
+  /// address box — changes as the user types (see the address field's
+  /// `onChanged`).
+  ///
+  /// P2 — this governs the LAN segment only: the cloud segment shows the PCID
+  /// field unconditionally (it has no address to guess from). 🔴 The LAN half
+  /// must stay alive even though the cloud segment now exists: a SELF-HOSTED
+  /// relay (or the relay reached by bare IP) is typed into the LAN segment's
+  /// address box, and the `PAIR_PCID_REQUIRED` force-show below is the only
+  /// road those users have to the field the server just demanded.
   bool get _pcidVisible =>
       _pcidForcedByServer ||
       addressIsCloudRelay(_address.text, widget.controller.saasEndpoint);
@@ -218,17 +273,28 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
   Future<void> _submit() async {
     if (widget.controller.busy) return;
     final String code = _code.text.trim();
-    final String addr = _address.text.trim();
     final bool isLink = code.startsWith('flowmic://');
-    // A bare code needs an address; a pasted link carries its own endpoint.
+    final bool cloud = _channel == PairChannel.cloud;
+    // P2 — the cloud segment has no address box: the endpoint is RESOLVED,
+    // not typed (owner 2026-08-14: 「不用输端点URL，因为是确定的」). Same source
+    // the sheet's caller uses for its initialEndpoint fallback
+    // (connections_page.dart → controller.saasEndpoint).
+    final String addr =
+        cloud ? widget.controller.saasEndpoint : _address.text.trim();
+    // A bare code needs an address; a pasted link carries its own endpoint —
+    // ON EITHER SEGMENT. The link is its own carrier: endpoint (and `pcid=`,
+    // for a cloud QR) ride in its query string and `PairEntry.parse` reads
+    // them from there, so gating it on this form's fields would refuse a
+    // frame over inputs the frame will not use.
     if (!isLink && addr.isEmpty) {
       setState(() => _localError = widget.strings.pairNeedAddress);
       return;
     }
-    // 0.2.66 — only when the field is actually on screen. Validating a hidden
-    // field would refuse LAN pairing over a value the user was never shown.
+    // 0.2.66 — only when the field is actually on screen (always, on the
+    // cloud segment). Validating a hidden field would refuse LAN pairing over
+    // a value the user was never shown.
     final String? pcid = readPcid(_pcid.text);
-    final bool wantPcid = !isLink && _pcidVisible;
+    final bool wantPcid = !isLink && (cloud || _pcidVisible);
     if (wantPcid && pcid == null) {
       setState(() => _localError = widget.strings.pairNeedPcid);
       _pcidFocus.requestFocus();
@@ -242,9 +308,9 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
     final ConnectOutcome outcome = await widget.controller.addByCode(
       rawEndpoint: addr,
       code: code,
-      // Gated on visibility, not on emptiness: a PCID typed for the relay and
-      // then followed by a LAN address must not ride along to a sidecar that
-      // has no idea what it is.
+      // Gated on the active segment's own rules, not on emptiness: a PCID
+      // typed on the cloud segment and then followed by a switch to the LAN
+      // segment must not ride along to a sidecar that has no idea what it is.
       pcid: wantPcid ? pcid : null,
     );
     if (!mounted) return;
@@ -339,13 +405,19 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
                   )
                 else ...<Widget>[
                 _tabs(s),
-                if (_scanNotice != null) ...<Widget>[
-                  const SizedBox(height: 12),
-                  _errorBanner(_scanNotice!),
-                ],
                 const SizedBox(height: 14),
                 if (_tab == PairTab.scan) ...<Widget>[
+                  // P1b (0.3.1 design §3-3) — every notice renders BELOW the
+                  // scan pane. Inserting one above it changes MobileScanner's
+                  // slot in this unkeyed Column: geometry aside (the sheet is
+                  // bottom-anchored), a child-list re-sync that remounts the
+                  // platform view restarts the camera preview. The pane stays
+                  // the branch's first child, always.
                   _scanPane(s),
+                  if (_scanNotice != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _errorBanner(_scanNotice!),
+                  ],
                   const SizedBox(height: 10),
                   Center(
                     child: Text(
@@ -357,7 +429,29 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
                     const SizedBox(height: 12),
                     _errorBanner(error),
                   ],
+                  // P1b — a consumed scanner with no attempt in flight is
+                  // STOPPED, and this button is the only way it re-arms. Not
+                  // gated on 「an error is visible」: after e.g. a tab
+                  // round-trip cleared the copy, a stopped camera with no way
+                  // back in would look exactly like a working one.
+                  if (_scanConsumed && !busy) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _primaryButton(
+                      label: s.pairScanAgain,
+                      enabled: true,
+                      onTap: _rearmScanner,
+                    ),
+                  ],
                 ] else ...<Widget>[
+                if (_scanNotice != null) ...<Widget>[
+                  _errorBanner(_scanNotice!),
+                  const SizedBox(height: 12),
+                ],
+                // P2 (0.3.1 design §4) — the channel is picked FIRST, because
+                // it decides what the form even asks for.
+                _channelSegments(s),
+                const SizedBox(height: 14),
+                if (_channel == PairChannel.lan) ...<Widget>[
                 _label(s.pcAddressLabel),
                 // URL keyboard + fullwidth→halfwidth normalization: a Chinese IME
                 // otherwise rewrites '.'/':' to '。'/'：' and the address never
@@ -372,10 +466,15 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
                   // look like it appears at random.
                   onEdited: () => setState(() {}),
                 ),
-                // 0.2.66 — cloud relay only (owner: 「local LAN … has no PCID」).
-                // Placed ABOVE the code so it reads in the order the desktop
-                // prints the two: PCID identifies the machine, the code is the
-                // 5-minute secret.
+                // 0.2.66 — hidden on the LAN segment until the host guess (or
+                // the server's PAIR_PCID_REQUIRED force-show) says otherwise.
+                // 🔴 THIS RESCUE MUST STAY even though the cloud segment now
+                // exists: a self-hosted relay or one reached by bare IP is
+                // typed HERE, and the force-show is the only road those users
+                // have to the field the server just demanded (design §4:
+                // 「这是自建 saas 中继用户唯一的路，不许删」). Placed ABOVE the
+                // code so it reads in the order the desktop prints the two:
+                // PCID identifies the machine, the code is the 5-minute secret.
                 if (_pcidVisible) ...<Widget>[
                   const SizedBox(height: 12),
                   _label(s.pcidLabel),
@@ -387,6 +486,23 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
                     keyboard: TextInputType.number,
                     digits: kPcidLength,
                   ),
+                ],
+                ] else ...<Widget>[
+                // P2 — the cloud segment: PCID always on screen (no address to
+                // guess from), and NO address box. Same controller, focus node
+                // and key as the LAN segment's field — only one of the two is
+                // ever built, and a value typed on one segment survives a
+                // round-trip through the other (whether it goes on the WIRE is
+                // [_submit]'s `wantPcid`, which answers per segment).
+                _label(s.pcidLabel),
+                _field(
+                  fieldKey: const ValueKey<String>('pair.pcid'),
+                  controller: _pcid,
+                  focusNode: _pcidFocus,
+                  hint: s.pcidInputHint,
+                  keyboard: TextInputType.number,
+                  digits: kPcidLength,
+                ),
                 ],
                 const SizedBox(height: 12),
                 _label(s.pairCodeLabel),
@@ -423,6 +539,75 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
       _tabButton(s.pairTabManual, PairTab.manual),
     ],
   );
+
+  /// P2 — the manual tab's channel selector: 「本地局域网 | 云端中继」.
+  Widget _channelSegments(AppStrings s) => Row(
+    children: <Widget>[
+      _channelSegment(s.localLan, PairChannel.lan),
+      const SizedBox(width: 8),
+      _channelSegment(s.cloudRelay, PairChannel.cloud),
+    ],
+  );
+
+  void _selectChannel(PairChannel channel) {
+    if (_channel == channel) return;
+    // A refusal earned on one segment's inputs is stale on the other's form —
+    // same reason a tab tap clears _scanNotice.
+    widget.controller.clearError();
+    setState(() {
+      _channel = channel;
+      _localError = null;
+    });
+  }
+
+  /// One segment face. Same box grammar as [_tabButton] (this sheet's own
+  /// selector idiom), but wearing the CHANNEL's visual identity — the same
+  /// icon+ink pairs [ChannelBadge] (tokens.dart) uses everywhere else: wifi +
+  /// teal for the LAN, cloud_outlined + indigo for the relay. Owner 2026-08-01
+  /// ruled channel identity is an icon+color COMBINATION defined once — color
+  /// alone must not be the only distinguisher.
+  Widget _channelSegment(String label, PairChannel channel) {
+    final bool on = _channel == channel;
+    final bool cloud = channel == PairChannel.cloud;
+    final Color ink =
+        cloud ? FlowMicChannelColors.cloudInk : FlowMicChannelColors.lanInk;
+    final Color soft =
+        cloud ? FlowMicChannelColors.cloudSoft : FlowMicChannelColors.lanSoft;
+    return Expanded(
+      child: GestureDetector(
+        key: ValueKey<String>(cloud ? 'pair.channel.cloud' : 'pair.channel.lan'),
+        onTap: () => _selectChannel(channel),
+        child: Container(
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? soft : Colors.transparent,
+            border: Border.all(color: on ? ink : FlowMicColors.line),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                cloud ? Icons.cloud_outlined : Icons.wifi,
+                size: 13,
+                color: on ? ink : FlowMicColors.t2,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: on ? ink : FlowMicColors.t2,
+                  fontSize: 13,
+                  fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _tabButton(String label, PairTab tab) {
     final bool on = _tab == tab;

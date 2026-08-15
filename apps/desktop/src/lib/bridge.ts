@@ -75,6 +75,11 @@ export const CH = {
    *  the fail-loud readiness verdict. Both windows listen — the device page
    *  renders the cloud relay (云端中继) card, the capsule takes its channel label from it. */
   cloudState: 'flowmic://cloud-state',
+  /** P7 (0.3.1) — the manual offline switch flipped (`shell::offline::apply`,
+   *  its only emitter). The store marks both channel rows disconnected off it:
+   *  going offline JOINS the pump threads, so no CONNECTION frame will ever
+   *  arrive to say the sockets are gone — this event is that sentence. */
+  offlineState: 'flowmic://offline-state',
 } as const;
 
 /** Frontend-only Tauri event, capsule window → main window (R6 T-5c): switch the
@@ -559,6 +564,33 @@ export async function setAutostartEnabled(enable: boolean): Promise<{ ok: true; 
     return { ok: true, info };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── P7 (0.3.1) — the manual offline switch ──
+
+/** Read the current offline flag. `null` = could not ask (no bridge / bad
+ *  shape) — the switch renders an unknown state, never a guess. */
+export async function fetchOfflineState(): Promise<boolean | null> {
+  if (!hasTauri()) return null;
+  try {
+    const v = (await invoke('offline_state')) as Record<string, unknown> | null;
+    return v !== null && typeof v === 'object' && typeof v.offline === 'boolean' ? v.offline : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flip the switch. The returned value is the Rust side's post-apply state —
+ *  the caller renders THAT, not its own intention (the OFFLINE_STATE push
+ *  will confirm it a moment later; both carry the same fact). */
+export async function setOfflineMode(enable: boolean): Promise<boolean | null> {
+  if (!hasTauri()) return null;
+  try {
+    const v = (await invoke('offline_set', { enable })) as Record<string, unknown> | null;
+    return v !== null && typeof v === 'object' && typeof v.offline === 'boolean' ? v.offline : null;
+  } catch {
+    return null;
   }
 }
 

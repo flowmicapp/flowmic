@@ -145,6 +145,18 @@ void main() {
     // becomes an absence assertion; the 08 §2 guarantee itself (a
     // mid-recording switch moves nothing) is still real and still pinned, at
     // the layer that still has an entry point: setMode.
+    //
+    // 🔴 P3 (0.3.1): the structural absence is now the PHONE dock's shape
+    // only, so this case pins the viewport to a phone width instead of
+    // inheriting flutter_test's default 800×600 surface — which has been a
+    // TABLET dock since VF-8 re-columned at ≥560dp. At tablet width the
+    // segments deliberately STAY in the tree while recording, as a
+    // size-holding ghost (invisible, inert — press stability, design SSOT
+    // §5); 「a mis-tap is impossible」 still holds there and is pinned by
+    // tablet_dock_layout_test.dart's press case via `.hitTestable()`.
+    tester.view.physicalSize = const Size(400 * 3, 800 * 3);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
     final ChatController controller = await pumpPage(tester);
     controller.setBuffer('录音中误点的内容');
     controller.session.fsm.onPttDown();

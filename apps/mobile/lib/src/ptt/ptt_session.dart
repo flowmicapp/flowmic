@@ -759,7 +759,7 @@ class PttSession {
     if (!await micPermission.gateForPtt()) return false;
     segments.clear();
     try {
-      await audio.start();
+      await audio.start(permissionPreflighted: micPermission.lastGateSawGranted);
     } on Object {
       // U2 ④ — this branch used to `return false` behind a comment claiming
       // 「fail-loud」 while surfacing nothing (anti-façade ④: the comment was an

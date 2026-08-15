@@ -102,11 +102,14 @@ mixin GuideStrings on AppStringsLeaves {
   /// §4.2-3. [manualTab] is the live tab name; [addressLabel] / [codeLabel]
   /// are the live field labels from that tab.
   String guidePairingManualTitle(String manualTab) => _lfGuidePairingManualTitle(manualTab);
-  /// 0.2.66 — [pcidLabel] is the third field, which the manual tab shows only
-  /// when the address is the cloud relay (owner 2026-08-14: 「本地局域网……没有
-  /// PCID」 — "the local LAN … has no PCID"). The sentence therefore says WHEN it appears rather than describing
-  /// three unconditional boxes: a LAN user who is told to fill a field that is
-  /// not on their screen has been sent looking for something that does not exist.
+  /// 0.3.1 (P2) — the manual tab is SEGMENTED now (LAN | cloud relay), so the
+  /// copy walks the two segments: LAN = [addressLabel] + [codeLabel]; cloud =
+  /// [pcidLabel] + [codeLabel], no address (the official relay's endpoint is
+  /// fixed — owner 2026-08-15: 「不用输端点URL，因为是确定的」). The 0.2.66
+  /// wording described a conditional third box on ONE pane; that UI no longer
+  /// exists, and a guide describing it would send the user hunting for an
+  /// address field the cloud segment deliberately does not have. owner
+  /// 2026-08-14's 「本地局域网……没有 PCID」 still governs the LAN half.
   String guidePairingManualBody(String addressLabel, String codeLabel, String pcidLabel) => _lfGuidePairingManualBody(addressLabel, codeLabel, pcidLabel);
 
   /// §4.2-4 — two sentences, no code table.

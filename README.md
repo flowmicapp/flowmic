@@ -14,30 +14,23 @@ timeline on the phone, whether or not a computer was listening.
 
 ---
 
-## Status
+## Download & platform status
 
-**This repository is the 0.2.x line being prepared for its first public
-release.** It is under active daily development by a very small team. The code
-is real and runs — the desktop and Android apps are used daily — but the public
-release process (signed installers, store listings, CI) is being assembled right
-now, in the open.
+**Every release is on [the Releases page](https://github.com/flowmicapp/flowmic/releases/latest)**,
+with a SHA-256 checksum beside every file. The project is under active daily
+development by a very small team; the desktop and mobile apps are used daily
+on real devices before anything is tagged.
 
-### Platform status
-
-Dates below are the dates we actually expect, not aspirations. Where there is no
-link, it is because there is nothing to link to yet — we would rather show you a
-blank than a 404.
-
-| Platform | State | Detail |
+| Platform | State | What you get |
 |---|---|---|
-| **Windows 10/11** | ✅ **Working** | MSI installer, Tauri v2 + a native injection layer. The primary development target. |
-| **Android** | ✅ **Working** | Flutter, APK. Tested on real devices every round. |
-| **macOS** | 🚧 **In progress — no build yet** | The injection layer is being abstracted behind a platform trait; the macOS backend is written but **has never run on real hardware**. First build and notarization once the machine lands, expected **2026-08-07**. |
-| **iOS** | 🚧 **In progress — no target in the tree yet** | `apps/mobile` currently has an `android/` directory and no `ios/` one. TestFlight is planned after the developer account (expected **2026-08-06**) and a Mac to build on. App Review is an external clock we do not control. |
-| **Linux** | ⏳ **Not in the first release** | The server runs on Linux today — that is what the relay is. The *desktop* app does not; nobody has written the injection layer for X11/Wayland. Contributions very welcome. |
+| **Windows 10/11** | ✅ **Shipped** | MSI installer (en-US / zh-CN) and a portable zip. Tauri v2 + a native injection layer; the primary development target. |
+| **Android** | ✅ **Shipped** | APK, installed directly. Tested on real devices every round. |
+| **macOS (Apple Silicon)** | ✅ **Shipped** | Notarized, stapled `FlowMic.app` zip (arm64) — Gatekeeper opens it without warnings. |
+| **iOS / iPadOS** | 🚧 **Built, TestFlight-internal** | Builds from the same tree and runs on real iPads, uploaded to TestFlight — but not yet publicly installable. Store review is an external clock we do not control. |
+| **Linux** | ⏳ **Server yes, desktop not yet** | The server runs on Linux today — that is what the relay is. The *desktop* app does not; nobody has written the injection layer for X11/Wayland. Contributions very welcome. |
 
-**We will not put a download link here until the artifact behind it exists and
-is signed.** If you see a platform marked 🚧, that is the honest state.
+A platform marked 🚧 has no download link because no public artifact exists —
+we would rather show you a blank than a 404.
 
 ---
 
@@ -76,7 +69,7 @@ Deepgram, FunASR, and any OpenAI-compatible endpoint you point it at.
 | `apps/server-core` | Node server — LAN sidecar *and* relay, seven STT engines |
 | `apps/desktop` | Windows desktop — Tauri v2 + Vue 3 + Rust injection layer |
 | `apps/mobile` | Flutter app (Android; iOS in progress) |
-| `verify/` | The gates: 10 static lint rules + 18 end-to-end golden paths against a real server |
+| `verify/` | The gates: the static lint rules and the end-to-end golden paths, run against a real server (counts drift; the runner's own output is the truth) |
 | `docs/rebuild/` | Behaviour contracts — protocol, data, engine, desktop, mobile, delivery states, portable record format |
 | `docs/decisions/` | Decision log. Why the obvious refactor is usually wrong |
 

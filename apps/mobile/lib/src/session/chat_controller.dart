@@ -364,10 +364,23 @@ class ChatController extends ChangeNotifier
   @override
   bool get canCompose => _conn == ConnectionState.connected;
 
-  /// ➤ enable gate: connected, something to send, a real PC to send it to
-  /// (§4.0 E: a cloud instance has no focus window, so ➤ stays dead there),
-  /// no delivery already inside the RCA-v3 ack gate (no double-send), and no
-  /// AI compose run streaming into the buffer right now.
+  /// The explicit commit gate (➤ / the sheet's footer): something to send, no
+  /// delivery already inside the RCA-v3 ack gate (no double-send), no AI
+  /// compose run streaming into the buffer right now — and a leg that can
+  /// actually commit it:
+  ///   · paired PC ([noPcTarget] false): needs the live link ([canCompose]);
+  ///     the commit is a delivery (`inject:request`).
+  ///   · fixed destination (light-record / cloud instance): NO link term —
+  ///     the commit is a LOCAL noted row ([commitNotedLocal]), the same split
+  ///     [ImageSendController.canSend] made for pictures first.
+  ///
+  /// P4 (0.3.1, design SSOT §6): this used to carry `!destination.isFixed`
+  /// (reading §4.0 E 「a cloud instance has no focus window, so ➤ stays dead
+  /// there」), which held the getter false FOREVER on those sessions while
+  /// the FIELD stayed enabled (`_composeFieldEnabled` has no isFixed term) —
+  /// the user could type but never commit, and nothing on screen said why.
+  /// §4.0 E's fact is untouched (nothing is injected there); what changed is
+  /// that the commit now lands where a record-only utterance already lands.
   ///
   /// W2.5-1: the AI-compose term lives HERE, not only at the one call site
   /// that reads this getter (chat_flow_composer.dart), because W5b is about
@@ -377,8 +390,8 @@ class ChatController extends ChangeNotifier
   /// getter named `canSend` must itself answer "may this be sent", not
   /// require every caller to remember one more AND term.
   bool get canSend =>
-      canCompose && _buffer.trim().isNotEmpty && !destination.isFixed &&
-      !delivery.sendPending && !isAiComposing;
+      _buffer.trim().isNotEmpty && !delivery.sendPending && !isAiComposing &&
+      (noPcTarget || canCompose);
 
   // Per-utterance snapshot: delivery + mode are FIXED at audio:start and must
   // NOT follow a later destination/mode toggle (§4.0 B).

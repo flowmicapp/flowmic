@@ -66,8 +66,21 @@ const String _kDeliverGlyph = '➤';
 /// AI run streams into the buffer the box is not the user's to type in. Also
 /// feeds the idle dock's preview strip via the composer, so "can it be
 /// edited" and "does this cell accept taps" cannot disagree.
+///
+/// P4 (0.3.1): the leg split is ALIGNED with [ChatController.canSend], so the
+/// field and the footer button can never answer 「能不能提交」 ("can this be
+/// committed") differently — the measured defect was exactly that split: the
+/// field typed on (`canCompose` only) while the button read a `!isFixed` term
+/// and stayed dead forever, with nothing on screen saying why.
+///   · fixed destination ([ChatController.noPcTarget]): typing and committing
+///     are both LOCAL (a noted row), so neither carries a link term;
+///   · paired PC: both carry [ChatController.canCompose] — unchanged.
+/// The one remaining difference is deliberate and answers a DIFFERENT
+/// question: the button also needs a non-empty draft; an empty field must
+/// stay editable, because that is how a draft starts.
 bool _composeFieldEnabled(_ChatFlowPageState s) =>
-    s.controller.canCompose && !s.controller.isAiComposing;
+    (s.controller.noPcTarget || s.controller.canCompose) &&
+    !s.controller.isAiComposing;
 
 /// Adopt an EXTERNAL buffer move into the page-owned edit controller — at
 /// CONTROLLER-NOTIFICATION time (an event handler), never during build: the
@@ -398,20 +411,7 @@ Widget _sheetBody(
                 const SizedBox(width: 10),
                 Expanded(
                   flex: 2,
-                  child: _sheetFooterButton(
-                    key: const ValueKey<String>('compose.card.deliver'),
-                    label: strings.composeCardDeliver,
-                    primary: true,
-                    // The SAME gate as ever (`canSend` carries the
-                    // !isAiComposing term — W2.5-1). Not recomputed here.
-                    onTap: s.controller.canSend
-                        ? () {
-                            s.controller.sendBuffer();
-                            _collapseSheetRouted(s);
-                            s._sheetSrcVoice = false;
-                          }
-                        : null,
-                  ),
+                  child: _sheetCommitButton(s, strings),
                 ),
               ],
             ),
@@ -647,6 +647,59 @@ class _SheetAiRow extends StatelessWidget {
 // live in chat_flow_edit_sheet_append.dart (800-line cap split, moved
 // VERBATIM — that file's header carries the contract).
 
+/// The footer's PRIMARY button — 「投递 ➤」 ("deliver") with a PC target,
+/// 「保存」 ("save", a LOCAL noted row) on a fixed destination (P4, 0.3.1).
+///
+/// 🔴 The label swaps WITH the mechanism, not as a synonym: 「投递」 may not
+/// stand on a button whose action has no delivery machinery behind it (15
+/// §2.0 — the same rule that governs 「待投递」), and the ➤ glyph goes with it
+/// (it draws a send; a local save sends nothing). On a fixed destination the
+/// tap runs the SAME `sendBuffer`, whose `deliverText` forks to
+/// `commitNotedLocal` — one entry point, two honestly-named faces.
+///
+/// Honest disabled state (P4): with a PC target, a non-empty draft and the
+/// link down, the button LOOKS dead (`canSend` false) but still ANSWERS the
+/// tap — the PA-1 rule the dock's control keys already follow
+/// (compose_band.dart `onControlKey`: 「a DISCONNECTED tap now goes through
+/// here too, instead of the key playing dead」). The tap runs the SAME
+/// [ChatController.sendBuffer]; its first wire gate raises
+/// `ComposeSendFailure.notConnected` on the persistent banner slot (the
+/// page's `_toast` doc routes delivery failures THERE, not to a snackbar),
+/// and the collapse below keeps that banner readable instead of occluded —
+/// the draft survives in the preview strip, exactly like today's race-loss
+/// tap. One authority answers 「为什么发不出去」 ("why won't it send"): the
+/// gate. A reason recomputed here could drift from it.
+Widget _sheetCommitButton(_ChatFlowPageState s, AppStrings strings) {
+  final bool noted = s.controller.noPcTarget;
+  void commit() {
+    s.controller.sendBuffer();
+    _collapseSheetRouted(s);
+    s._sheetSrcVoice = false;
+  }
+
+  // Wired ONLY for the link-down story. The other dead faces already explain
+  // themselves on screen: an empty draft has nothing to commit, an AI run
+  // shows the pills' spinner (and the field is inert), and a send already in
+  // flight owns its own outcome (`sendPending`).
+  final bool explainLinkDown = s.controller.buffer.trim().isNotEmpty &&
+      !noted &&
+      !s.controller.canCompose &&
+      !s.controller.delivery.sendPending &&
+      !s.controller.isAiComposing;
+  return _sheetFooterButton(
+    // The key is the BUTTON's identity, not the label's — both faces are the
+    // one commit control, so tests and tooling address it the same way.
+    key: const ValueKey<String>('compose.card.deliver'),
+    label: noted ? strings.composeCardSaveNoted : strings.composeCardDeliver,
+    primary: true,
+    glyph: noted ? null : _kDeliverGlyph,
+    // The SAME gate as ever (`canSend` carries the !isAiComposing term —
+    // W2.5-1). Not recomputed here.
+    onTap: s.controller.canSend ? commit : null,
+    onDisabledTap: explainLinkDown ? commit : null,
+  );
+}
+
 /// The footer pair — mock `.gbtn` ("discard" 丢弃) and `.pbtn` ("deliver ➤" 投递 ➤).
 ///
 ///   `.gbtn{flex:1;height:48;border-radius:14;border:1px solid var(--line);
@@ -671,6 +724,14 @@ Widget _sheetFooterButton({
   required String label,
   required VoidCallback? onTap,
   required bool primary,
+  // P4: the trailing glyph is now the CALLER's statement (the deliver face
+  // passes [_kDeliverGlyph], the save face passes null — ➤ draws a send and a
+  // local save sends nothing). It used to ride `primary` unconditionally.
+  String? glyph,
+  // P4: answered even while the button LOOKS disabled — the dead-control ban
+  // (PA-1 / the AI pills' `onDisabledTap`). The VISUAL state stays keyed on
+  // [onTap] alone, so an explained-dead button never dresses up as live.
+  VoidCallback? onDisabledTap,
 }) {
   final bool on = onTap != null;
   final Color ink = primary
@@ -682,7 +743,7 @@ Widget _sheetFooterButton({
       : null;
   return InkWell(
     key: key,
-    onTap: onTap,
+    onTap: onTap ?? onDisabledTap,
     borderRadius: BorderRadius.circular(14),
     child: Container(
       height: 48,
@@ -712,10 +773,10 @@ Widget _sheetFooterButton({
           // 15sp, and so `find.text(composeCardDeliver)` still matches the
           // label alone. The four-locale copy is untouched: [Icons.send], the
           // Material glyph that stood here, is what this replaces.
-          if (primary) ...<Widget>[
+          if (glyph != null) ...<Widget>[
             const SizedBox(width: 8),
             Text(
-              _kDeliverGlyph,
+              glyph,
               style: TextStyle(color: ink, fontSize: 15),
             ),
           ],

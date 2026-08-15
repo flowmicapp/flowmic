@@ -674,8 +674,10 @@ export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> 
   // 0.2.66 `pcid` — the PUBLIC addressing half of a cloud pairing (owner
   // 2026-08-14). Nullable TEXT with no default is the honest shape: a row that
   // predates this column has no PCID, and NULL says exactly that. It is filled
-  // lazily on the row's next `pc:register` (registry.stampPcid), the same
-  // 「backfill on next connection」 shape `machine_uid` uses — deliberately NOT a
+  // lazily on the row's next connection — register OR token reconnect
+  // (registry.stampPcid; the reconnect leg was added in 0.3.1 after the
+  // register-only backfill proved unreachable for established desktops) — the
+  // same 「backfill on next connection」 shape `machine_uid` uses — deliberately NOT a
   // table sweep, because a row that has never reached the relay cannot be paired
   // by PCID anyway (its PCID has never been displayed to anyone).
   //

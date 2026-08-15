@@ -164,12 +164,23 @@ class MicPermissionFlow {
   /// re-reads the current value on every build.
   final ValueNotifier<MicFlowFace> face = ValueNotifier<MicFlowFace>(MicFlowFace.none);
 
+  /// P6 (0.3.1) — whether the LAST [gateForPtt] saw a definitive GRANTED.
+  /// `AudioCapture.start(permissionPreflighted:)` reads this to skip its own
+  /// redundant permission round trip (each one is a platform-channel hop on
+  /// the press-latency path). Deliberately false on `unavailable`: that arm
+  /// means 「could not classify」, and capture's own probe is the fallback
+  /// that arm has always relied on — skipping it there would change behavior,
+  /// not just latency.
+  bool get lastGateSawGranted => _lastGateSawGranted;
+  bool _lastGateSawGranted = false;
+
   /// PTT-down gate — runs BEFORE capture, shows NO OS UI. Returns whether the
   /// press may proceed to `AudioCapture.start()`. A false return has ALWAYS
   /// just written the face the surface must render, so a refused press is a
   /// rendered fact by construction, never a silent no-op.
   Future<bool> gateForPtt() async {
     final MicPermissionProbe probe = await _port.status();
+    _lastGateSawGranted = probe == MicPermissionProbe.granted;
     switch (probe) {
       case MicPermissionProbe.granted:
         // Self-clears the moment the OS says yes (e.g. granted in system

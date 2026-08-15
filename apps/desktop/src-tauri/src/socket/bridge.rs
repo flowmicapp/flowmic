@@ -111,6 +111,13 @@ pub mod channel {
     /// tick — the command clears the change-only memo). A Tauri IPC channel,
     /// not a wire event.
     pub const UI_LOCALE_CHANGED: &str = "flowmic://ui-locale-changed";
+    /// P7 (0.3.1) — the manual offline switch flipped (`shell::offline::apply`,
+    /// its ONLY emitter). Two listeners: shell/tray.rs swaps the menu item's
+    /// label, and the webview store marks both channel rows disconnected /
+    /// re-arms them (the pumps that normally own CONNECTION are dead while
+    /// offline — see shell/offline.rs's module header). A Tauri IPC channel,
+    /// not a wire event.
+    pub const OFFLINE_STATE: &str = "flowmic://offline-state";
 }
 
 /// Convenience: forward a raw server payload on a fixed channel if a sink exists.

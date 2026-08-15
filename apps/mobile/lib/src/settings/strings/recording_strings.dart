@@ -298,6 +298,14 @@ mixin RecordingStrings on AppStringsLeaves {
   // 「仅记录」("record only") is interpolated from recordOnly — the term is
   // only translated once (V2-07.7).
   String get pttHoldNoted => _lfPttHoldNoted(recordOnly);
+
+  /// P6 (0.3.1) — the transitional face between the accepted press and the
+  /// recorder actually opening. It claims ONLY 「starting」: the timer and the
+  /// recording face still wait for the real capture start, because words
+  /// spoken before the OS microphone is open are physically lost and a face
+  /// that says 「recording」 during that window would be a wrong status word
+  /// with no failure anywhere (R11).
+  String get pttStartingMic => _lfPttStartingMic;
   String get pttRecording => _lfPttRecording;
 
   /// Mock motion table: when displacement exceeds the threshold, the bar turns

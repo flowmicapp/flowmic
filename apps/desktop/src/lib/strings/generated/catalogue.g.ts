@@ -30,6 +30,9 @@ const S_EN_OWN = {
   app_name: 'FlowMic',
   dev_title: 'Devices',
   dev_add_phone: 'Add phone',
+  dev_offline_toggle: 'Offline',
+  dev_offline_hint: 'Disconnects every phone from this PC to cut interruptions; toggle again to come back online.',
+  dev_offline_active: 'Offline · phones cannot reach this PC right now',
   dev_chan_lan: 'Local LAN',
   dev_chan_lan_ready: 'Local service ready · direct connection on the same Wi-Fi',
   dev_chan_lan_loopback: "Loopback service on this PC · on the same Wi-Fi, fill in this PC's LAN address on the phone",
@@ -128,7 +131,7 @@ const S_EN_OWN = {
   cloud_acct_stale: 'Cannot reach the server — the values below are from {t}',
   cloud_acct_unknown: 'Cannot reach the server for account details',
   cloud_acct_retry: 'Check again',
-  cloud_pair_hint: 'On the cloud relay, the phone must join the same cloud first (sign in to the cloud account on the phone, or point it at this relay address), then enter the 4-digit pairing code below; the QR code carries the relay address and the pairing code.',
+  cloud_pair_hint: 'Over the cloud relay the phone must first reach the same cloud (sign in on the phone, or point it at this relay); then scan the QR, or type the PCID above plus the 4-digit code below on the phone.',
   cloud_pair_offline: 'Cloud relay not connected — cannot generate a pairing code',
   cloud_err_expired: 'Your login has expired. Please sign in again.',
   cloud_err_malformed: 'The Cloud Key is malformed — copy it in full from the console and try again',
@@ -592,7 +595,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 558/558 translated;
+// zh-CN (中文) — 561/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -602,6 +605,9 @@ const S_ZH_CN_OWN = {
   app_name: 'FlowMic',
   dev_title: '设备',
   dev_add_phone: '添加手机',
+  dev_offline_toggle: '下线',
+  dev_offline_hint: '主动断开与所有手机的连接，减少打扰；再次切换即恢复在线。',
+  dev_offline_active: '已下线 · 手机暂时无法连接这台电脑',
   dev_chan_lan: '本地局域网',
   dev_chan_lan_ready: '本地服务就绪 · 同一 Wi-Fi 直连',
   dev_chan_lan_loopback: '本机回环服务 · 手机需在同一 Wi-Fi 填入本机局域网地址',
@@ -700,7 +706,7 @@ const S_ZH_CN_OWN = {
   cloud_acct_stale: '暂时问不到，下面是 {t} 问到的',
   cloud_acct_unknown: '暂时问不到账号信息',
   cloud_acct_retry: '重新查询',
-  cloud_pair_hint: '云端中继下，手机需先接入同一云端（在手机端登录云端账号或指向该中继地址），再输入下方 4 位配对码；二维码携带的是中继地址与配对码。',
+  cloud_pair_hint: '云端中继下，手机需先接入同一云端（在手机端登录云端账号或指向该中继地址）；扫描二维码，或在手机上输入上方 PCID 加下方 4 位配对码。',
   cloud_pair_offline: '云端中继未连接，无法生成配对码',
   cloud_err_expired: '登录已过期，请重新登录。',
   cloud_err_malformed: 'Cloud Key 格式不正确，请从控制台完整复制后重试',
@@ -1164,7 +1170,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 546/558 translated;
+// zh-TW (繁體中文) — 557/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1174,6 +1180,9 @@ const S_ZH_TW_OWN = {
   app_name: 'FlowMic',
   dev_title: '裝置',
   dev_add_phone: '新增手機',
+  dev_offline_toggle: '下線',
+  dev_offline_hint: '主動斷開與所有手機的連線，減少打擾；再次切換即恢復上線。',
+  dev_offline_active: '已下線 · 手機暫時無法連線這台電腦',
   dev_chan_lan: '本機區域網路',
   dev_chan_lan_ready: '本機服務就緒 · 同一 Wi-Fi 直接連線',
   dev_chan_lan_loopback: '本機回送服務 · 手機需在同一 Wi-Fi 下填入這台電腦的區域網路位址',
@@ -1271,6 +1280,7 @@ const S_ZH_TW_OWN = {
   cloud_acct_stale: '暫時問不到，下面是 {t} 問到的',
   cloud_acct_unknown: '暫時問不到帳號資訊',
   cloud_acct_retry: '重新查詢',
+  cloud_pair_hint: '雲端中繼下，手機需先接入同一雲端（在手機端登入雲端帳號或指向該中繼位址）；掃描二維碼，或在手機上輸入上方 PCID 加下方 4 位配對碼。',
   cloud_pair_offline: '雲端中繼未連線，無法產生配對碼',
   cloud_err_expired: '登入已過期，請重新登入。',
   cloud_err_malformed: 'Cloud Key 格式不正確，請從主控台完整複製後重試',
@@ -1352,6 +1362,7 @@ const S_ZH_TW_OWN = {
   dict_title: '個人字典',
   dict_add: '新增術語',
   polish_title: 'AI 潤飾',
+  polish_hint: '一段話的最後一句可以選擇性地由 LLM 潤飾——下方那一列會顯示目前是否開啟；若潤飾失敗，會改為傳送未經潤飾的文字並附上明確提示——絕不會悄悄使用備援方案。',
   polish_toggle: '啟用 AI 潤飾',
   polish_no_llm: 'AI 潤飾所需的能力尚未設定，未生效',
   refine_title: '二次重新轉錄（更準）',
@@ -1655,9 +1666,15 @@ const S_ZH_TW_OWN = {
   disc_s1_title: '① 手機擷取音訊',
   disc_s1_body: '按住說話時，手機會擷取音訊並邊說邊送出，不會寫入我們的資料庫。',
   disc_s2_title: '② 語音辨識',
+  disc_s2_body: '由哪個引擎聽你說話是一項可見的設定，不是用猜的：先用你的設定中為該語言指定的引擎；若沒有，用萬用引擎；再沒有，用平台代管的預設值；再沒有，用我們在你第一次啟動時為你預先設定的兩條引擎路徑。如果連這些也都不存在，轉錄會顯示錯誤並停止——音訊絕不會被悄悄送往別處。',
+  disc_s2_cloud: '· 內建的雲端引擎：音訊透過我們的雲端中繼串流到 Soniox。若 Soniox 無法使用，我們可能會把這一步切回我們自行營運的語音辨識伺服器。切換是由營運方執行的動作——絕不會在一句話說到一半時改道。音訊只會保留在記憶體中，絕不會寫入磁碟。',
+  disc_s2_byok: '· 你用自己金鑰設定的引擎：音訊會依該服務商的隱私權政策、用你的憑證送到該服務商。經雲端傳送時，音訊仍會通過我們的雲端中繼（僅存於記憶體，絕不儲存）。在你自己的網路上，我們不會出現在傳輸路徑中。',
+  disc_s2_local: '· 本機引擎：在這一步，任何東西都不會離開你自己的硬體——這一步只關乎你的語音；文字接下來要送去哪裡是第 3 步的事。（內建引擎所用的語音模型由你自行提供；只有在你於電腦上明確設定 FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 時，它才會透過網際網路下載模型。）',
   disc_s3_title: '③ 語言模型處理（取決於你的設定）',
+  disc_s3_body: '翻譯與整理一律使用語言模型。即時則取決於設定 → 語音辨識底下的「AI 潤飾」開關（下方那一列顯示的是目前的值）：開啟時，每次錄音結束後的最終逐字稿會傳送一次——包含「僅紀錄」的內容；關閉時，即時不會傳送任何文字。暫時性的文字絕不會被傳送。凡是被傳送的內容，都會送到你的設定所指定的模型端點。平台語言模型是由 DeepSeek 在我們的帳號下執行。我們既不保留輸入內容，也不保留輸出內容。',
   disc_s4_title: '④ 送到電腦，打進目前的輸入框',
   disc_s4_body: '文字送到你配對的電腦，打進此刻取得焦點的輸入框；路徑是區域網路直接連線，或經過我們的雲端中繼（只過手，不儲存）。',
+  disc_s4_lan_plain: '⚠️ 區域網路路徑是否加密，取決於配對當時的方式。QR 碼配對只要該條碼帶有該電腦的身分識別，就是加密的；手機在之後每次連線時都會檢查這一點。在此加密機制出現之前建立的配對，仍然是未加密的——在手機上重新配對可以將其升級。這次連線屬於哪一種，答案會顯示在手機上的「連線加密」底下。雲端中繼採用 TLS。若在電腦上將 FLOWMIC_LAN_TLS 設為 0，會關閉加密：已在加密狀態下配對過的手機將無法再連線。要恢復連線，需要在手機上刪除該電腦並重新配對。',
   disc_s5_title: '⑤ 留下什麼',
   disc_s5_body: '我們不儲存轉錄內容；時間軸在你自己的手機和電腦上。我們只儲存帳號、配對裝置、同步設定與每月用量總數（不含內容）。',
   disc_legal_title: '隱私權政策與服務條款',
@@ -1724,7 +1741,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 545/558 translated;
+// fr (Français) — 556/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -1734,6 +1751,9 @@ const S_FR_OWN = {
   app_name: 'FlowMic',
   dev_title: 'Appareils',
   dev_add_phone: 'Ajouter un téléphone',
+  dev_offline_toggle: 'Hors ligne',
+  dev_offline_hint: "Déconnecte tous les téléphones de ce PC pour limiter les interruptions ; rebasculez pour revenir en ligne.",
+  dev_offline_active: "Hors ligne · les téléphones ne peuvent pas joindre ce PC pour le moment",
   dev_chan_lan: 'Réseau local',
   dev_chan_lan_ready: 'Service local prêt · connexion directe sur le même Wi-Fi',
   dev_chan_lan_loopback: "Service en boucle locale sur ce PC · sur le même Wi-Fi, saisissez l'adresse réseau local de ce PC sur le téléphone",
@@ -1831,6 +1851,7 @@ const S_FR_OWN = {
   cloud_acct_stale: 'Serveur injoignable — les valeurs ci-dessous datent de {t}',
   cloud_acct_unknown: 'Impossible de joindre le serveur pour les informations du compte',
   cloud_acct_retry: 'Consulter à nouveau',
+  cloud_pair_hint: "Via le relais cloud, le téléphone doit d\'abord joindre le même cloud (connectez-vous sur le téléphone ou pointez-le vers ce relais) ; scannez ensuite le QR, ou saisissez sur le téléphone le PCID ci-dessus plus le code à 4 chiffres ci-dessous.",
   cloud_pair_offline: "Relais cloud non connecté — impossible de générer un code d'appairage",
   cloud_err_expired: 'Votre session a expiré. Veuillez vous reconnecter.',
   cloud_err_malformed: 'La Cloud Key est mal formée — copiez-la intégralement depuis la console et réessayez',
@@ -1912,6 +1933,7 @@ const S_FR_OWN = {
   dict_title: 'Dictionnaire personnel',
   dict_add: 'Ajouter un terme',
   polish_title: 'Amélioration IA',
+  polish_hint: "La dernière phrase d'un énoncé peut être retouchée en option par un LLM — la ligne ci-dessous indique si c'est activé actuellement ; en cas d'échec, le texte non retouché est délivré avec une notification explicite — jamais un repli silencieux.",
   polish_toggle: "Activer l'amélioration IA",
   polish_no_llm: "La capacité requise par l'amélioration IA n'est pas configurée ; elle n'est donc pas active.",
   refine_title: 'Seconde transcription (plus précise)',
@@ -2214,9 +2236,15 @@ const S_FR_OWN = {
   disc_s1_title: "1. Votre téléphone capte l'audio",
   disc_s1_body: "Tant que vous maintenez le bouton de parole, votre téléphone capte l'audio et l'envoie au fil de vos paroles ; il n'est jamais écrit dans notre base de données.",
   disc_s2_title: '2. Reconnaissance vocale',
+  disc_s2_body: "Le moteur qui vous écoute est un paramètre visible, pas une supposition : le moteur que vos réglages désignent pour la langue ; à défaut, le moteur générique ; à défaut, le moteur par défaut géré par la plateforme ; à défaut, les deux voies de moteur que nous avons préconfigurées pour vous au premier démarrage. Si aucun de ceux-ci n'existe non plus, la transcription s'arrête avec une erreur — l'audio n'est jamais envoyé discrètement ailleurs.",
+  disc_s2_cloud: "· Le moteur cloud intégré : l'audio est diffusé en flux via notre relais cloud vers Soniox. S'ils sont indisponibles, nous pouvons faire basculer cette étape vers des serveurs de reconnaissance vocale que nous exploitons nous-mêmes. Ce basculement est une action de l'opérateur — il ne change jamais de route en plein milieu d'une phrase. L'audio n'est conservé qu'en mémoire, jamais écrit sur disque.",
+  disc_s2_byok: "· Un moteur que vous avez configuré avec votre propre clé : l'audio est envoyé à ce fournisseur selon sa politique de confidentialité, avec vos identifiants. En passant par le cloud, l'audio transite tout de même par notre relais cloud (en mémoire, jamais stocké). Sur votre propre réseau, nous ne sommes pas dans le chemin.",
+  disc_s2_local: "· Un moteur local : à cette étape, rien ne quitte votre propre matériel — cela concerne votre voix ; où le texte va ensuite, c'est l'étape 3. (Vous fournissez vous-même le modèle vocal pour le moteur intégré ; il n'en télécharge un depuis internet que si vous définissez explicitement FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 sur l'ordinateur.)",
   disc_s3_title: '3. Traitement par le modèle de langage (selon vos paramètres)',
+  disc_s3_body: "Traduction et Organisation utilisent toujours le modèle de langage. Temps réel dépend du commutateur « retouche IA » sous Paramètres → Reconnaissance vocale (cette ligne indique la valeur actuelle) : lorsqu'il est activé, la transcription finale de chaque enregistrement est envoyée une fois — y compris pour « Enregistrement seul » ; lorsqu'il est désactivé, Temps réel n'envoie aucun texte. Les mots provisoires ne sont jamais envoyés. Tout ce qui est envoyé va au point de terminaison du modèle que vos réglages désignent. Le modèle de langage de la plateforme est exécuté par DeepSeek sur notre compte. Nous ne conservons ni l'entrée ni la sortie.",
   disc_s4_title: '4. Livré à votre PC et saisi dans le champ actif',
   disc_s4_body: 'Le texte est livré au PC avec lequel vous êtes appairé et saisi dans le champ actif, via votre propre réseau ou notre relais cloud (qui transmet les trames et les oublie).',
+  disc_s4_lan_plain: "⚠️ Le chiffrement de la voie du réseau local dépend de la façon dont l'appairage a été effectué. Un appairage par QR est chiffré dès lors que ce code porte l'identité de l'ordinateur ; le téléphone le vérifie à chaque connexion ultérieure. Les appairages créés avant l'existence de ce chiffrement restent en clair — un nouvel appairage sur le téléphone en met un à niveau. Le type dont relève cette connexion est indiqué sous « Chiffrement de la connexion » sur le téléphone. Le relais cloud utilise TLS. Définir FLOWMIC_LAN_TLS à 0 sur l'ordinateur désactive le chiffrement : les téléphones déjà appairés sous chiffrement ne peuvent plus se connecter. Pour rétablir la connexion, il faut supprimer l'ordinateur sur le téléphone et le réappairer.",
   disc_s5_title: '5. Ce qui reste',
   disc_s5_body: "Nous ne stockons pas vos transcriptions ; la chronologie vit sur votre téléphone et sur votre PC. Nous stockons votre compte, vos appareils appairés, vos paramètres synchronisés et vos totaux d'utilisation mensuels (jamais le contenu).",
   disc_legal_title: "Politique de confidentialité et conditions d'utilisation",
@@ -2283,7 +2311,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 545/558 translated;
+// es (Español) — 556/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2293,6 +2321,9 @@ const S_ES_OWN = {
   app_name: 'FlowMic',
   dev_title: 'Dispositivos',
   dev_add_phone: 'Añadir teléfono',
+  dev_offline_toggle: 'Desconectado',
+  dev_offline_hint: 'Desconecta todos los teléfonos de este PC para reducir interrupciones; vuelve a alternar para reconectarte.',
+  dev_offline_active: 'Desconectado · los teléfonos no pueden conectarse a este PC ahora',
   dev_chan_lan: 'Red local',
   dev_chan_lan_ready: 'Servicio local listo · conexión directa en la misma red Wi-Fi',
   dev_chan_lan_loopback: 'Servicio en bucle local en este PC · en la misma red Wi-Fi, introduce en el teléfono la dirección de red local de este PC',
@@ -2390,6 +2421,7 @@ const S_ES_OWN = {
   cloud_acct_stale: 'No se puede llegar al servidor; los valores de abajo son de {t}',
   cloud_acct_unknown: 'No se puede llegar al servidor para consultar la cuenta',
   cloud_acct_retry: 'Volver a consultar',
+  cloud_pair_hint: 'Con el relé en la nube, el teléfono debe conectarse primero a la misma nube (inicia sesión en el teléfono o apúntalo a este relé); luego escanea el QR o escribe en el teléfono el PCID de arriba más el código de 4 dígitos de abajo.',
   cloud_pair_offline: 'La retransmisión en la nube no está conectada: no se puede generar un código de emparejamiento',
   cloud_err_expired: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
   cloud_err_malformed: 'El Cloud Key no tiene el formato correcto: cópialo entero desde la consola e inténtalo de nuevo',
@@ -2471,6 +2503,7 @@ const S_ES_OWN = {
   dict_title: 'Diccionario personal',
   dict_add: 'Añadir término',
   polish_title: 'Pulido con IA',
+  polish_hint: 'La frase final de una intervención puede ser pulida opcionalmente por un LLM — la fila de abajo muestra si está activado en este momento; si falla, se entrega el texto sin pulir con un aviso explícito — nunca una alternativa silenciosa.',
   polish_toggle: 'Activar el pulido con IA',
   polish_no_llm: 'La capacidad que necesita el pulido con IA no está configurada, así que no se aplica.',
   refine_title: 'Segunda transcripción (más precisa)',
@@ -2773,9 +2806,15 @@ const S_ES_OWN = {
   disc_s1_title: '1. Tu teléfono graba el audio',
   disc_s1_body: 'Mientras mantienes pulsado el botón de hablar, tu teléfono capta el audio y lo va enviando según hablas; nunca se escribe en nuestra base de datos.',
   disc_s2_title: '2. Reconocimiento de voz',
+  disc_s2_body: 'Qué motor te escucha es un ajuste visible, no una suposición: el motor que tus ajustes indican para el idioma; si no lo hay, el motor genérico; si tampoco, el valor predeterminado gestionado por la plataforma; si tampoco, las dos rutas de motor que preconfiguramos para ti en el primer arranque. Si ninguna de esas existe tampoco, la transcripción se detiene con un error — el audio nunca se envía discretamente a otro lugar.',
+  disc_s2_cloud: '· El motor en la nube integrado: el audio se transmite a través de nuestra retransmisión en la nube hacia Soniox. Si no están disponibles, podemos volver a dirigir este paso a servidores de reconocimiento de voz que operamos nosotros mismos. El cambio es una acción del operador — nunca cambia de ruta a mitad de una frase. El audio solo se mantiene en memoria, nunca se escribe en disco.',
+  disc_s2_byok: '· Un motor que configuraste con tu propia clave: el audio va a ese proveedor bajo su política de privacidad, con tus credenciales. A través de la nube, el audio sigue pasando por nuestra retransmisión en la nube (en memoria, nunca almacenado). En tu propia red, no estamos en la ruta.',
+  disc_s2_local: '· Un motor local: en este paso, nada sale de tu propio hardware — eso concierne a tu voz; a dónde va el texto después es el paso 3. (Tú mismo proporcionas el modelo de voz para el motor integrado; este solo descarga uno por internet si estableces explícitamente FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 en el ordenador.)',
   disc_s3_title: '3. Procesado por el modelo de lenguaje (según tus ajustes)',
+  disc_s3_body: 'Traducir y Organizar siempre usan el modelo de lenguaje. Tiempo real depende del interruptor «pulido con IA» en Ajustes → Reconocimiento de voz (esa fila muestra el valor actual): mientras está activado, la transcripción final de cada grabación se envía una vez — incluida «Solo registro»; mientras está desactivado, Tiempo real no envía ningún texto. Las palabras provisionales nunca se envían. Lo que se envía va al punto de conexión del modelo que indican tus ajustes. El modelo de lenguaje de la plataforma lo ejecuta DeepSeek en nuestra cuenta. No conservamos ni la entrada ni la salida.',
   disc_s4_title: '4. Se entrega a tu PC y se escribe en el campo enfocado',
   disc_s4_body: 'El texto se entrega al PC con el que te has emparejado y se escribe en el campo enfocado, por tu propia red o por nuestra retransmisión en la nube (que pasa las tramas y las olvida).',
+  disc_s4_lan_plain: '⚠️ Que la ruta de la red local esté cifrada depende de cómo se hizo el emparejamiento. Un emparejamiento por QR está cifrado siempre que ese código lleve la identidad del ordenador; el teléfono lo comprueba en cada conexión posterior. Los emparejamientos creados antes de que existiera este cifrado siguen sin cifrar — volver a emparejar en el teléfono actualiza uno de ellos. En el teléfono, en «Cifrado de la conexión», se indica cuál de los dos es el caso de esta conexión. La retransmisión en la nube usa TLS. Establecer FLOWMIC_LAN_TLS en 0 en el ordenador desactiva el cifrado: los teléfonos ya emparejados bajo cifrado ya no pueden conectarse. Para recuperarlo hay que eliminar el ordenador en el teléfono y volver a emparejar.',
   disc_s5_title: '5. Qué queda guardado',
   disc_s5_body: 'No guardamos tus transcripciones; la línea de tiempo vive en tu teléfono y en tu PC. Guardamos tu cuenta, los dispositivos emparejados, los ajustes sincronizados y los totales de uso mensual (nunca el contenido).',
   disc_legal_title: 'Política de privacidad y condiciones del servicio',
@@ -2842,7 +2881,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 546/558 translated;
+// de (Deutsch) — 557/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -2852,6 +2891,9 @@ const S_DE_OWN = {
   app_name: 'FlowMic',
   dev_title: 'Geräte',
   dev_add_phone: 'Handy hinzufügen',
+  dev_offline_toggle: 'Offline',
+  dev_offline_hint: 'Trennt alle Telefone von diesem PC, um Störungen zu vermeiden; erneutes Umschalten stellt die Verbindung wieder her.',
+  dev_offline_active: 'Offline · Telefone können diesen PC gerade nicht erreichen',
   dev_chan_lan: 'Lokales Netzwerk',
   dev_chan_lan_ready: 'Lokaler Dienst bereit · Direktverbindung im selben Wi-Fi',
   dev_chan_lan_loopback: 'Loopback-Dienst auf diesem PC · im selben Wi-Fi auf dem Handy die LAN-Adresse dieses PCs eintragen',
@@ -2949,6 +2991,7 @@ const S_DE_OWN = {
   cloud_acct_stale: 'Server nicht erreichbar – die Werte unten stammen von {t}',
   cloud_acct_unknown: 'Server für Kontodaten nicht erreichbar',
   cloud_acct_retry: 'Erneut abfragen',
+  cloud_pair_hint: 'Über das Cloud-Relais muss das Telefon zuerst dieselbe Cloud erreichen (am Telefon anmelden oder dieses Relais angeben); dann den QR-Code scannen oder am Telefon die PCID oben plus den 4-stelligen Code unten eingeben.',
   cloud_pair_offline: 'Cloud-Relay nicht verbunden – es kann kein Kopplungscode erzeugt werden',
   cloud_err_expired: 'Deine Anmeldung ist abgelaufen. Bitte melde dich erneut an.',
   cloud_err_malformed: 'Der Cloud Key hat ein ungültiges Format – kopiere ihn vollständig aus der Konsole und versuche es erneut',
@@ -3030,6 +3073,7 @@ const S_DE_OWN = {
   dict_title: 'Persönliches Wörterbuch',
   dict_add: 'Begriff hinzufügen',
   polish_title: 'KI-Feinschliff',
+  polish_hint: 'Der letzte Satz einer Äußerung kann optional von einem LLM überarbeitet werden – die Zeile darunter zeigt, ob dies gerade aktiviert ist; schlägt es fehl, wird der unbearbeitete Text mit einem ausdrücklichen Hinweis zugestellt – nie ein stiller Rückfall.',
   polish_toggle: 'KI-Feinschliff aktivieren',
   polish_no_llm: 'Die für den KI-Feinschliff nötige Funktion ist nicht konfiguriert, daher ist er nicht wirksam.',
   refine_title: 'Zweite Transkription (genauer)',
@@ -3333,9 +3377,15 @@ const S_DE_OWN = {
   disc_s1_title: '1. Dein Handy nimmt Audio auf',
   disc_s1_body: 'Solange du die Sprechtaste hältst, nimmt dein Handy Audio auf und sendet es beim Sprechen weiter; es wird nie in unsere Datenbank geschrieben.',
   disc_s2_title: '2. Spracherkennung',
+  disc_s2_body: 'Welche Engine dich hört, ist eine sichtbare Einstellung, kein Rätselraten: die Engine, die deine Einstellungen für die Sprache benennen; falls keine, die Auffang-Engine; falls auch die nicht, der plattformseitig verwaltete Standard; falls auch der nicht, die zwei Engine-Routen, die wir beim ersten Start für dich voreingestellt haben. Existiert auch keine davon, bricht die Transkription mit einem Fehler ab – Audio wird nie stillschweigend woandershin gesendet.',
+  disc_s2_cloud: '· Die eingebaute Cloud-Engine: Audio wird über unser Cloud-Relay als Stream zu Soniox gesendet. Sind sie nicht verfügbar, schalten wir diesen Schritt eventuell auf Spracherkennungsserver um, die wir selbst betreiben. Das Umschalten ist eine Aktion des Betreibers – es wechselt nie mitten im Satz die Route. Audio wird nur im Arbeitsspeicher gehalten, nie auf die Festplatte geschrieben.',
+  disc_s2_byok: '· Eine Engine, die du mit deinem eigenen Schlüssel konfiguriert hast: Audio geht mit deinen Zugangsdaten an diesen Anbieter gemäß dessen Datenschutzrichtlinie. Über die Cloud durchläuft Audio weiterhin unser Cloud-Relay (im Arbeitsspeicher, nie gespeichert). In deinem eigenen Netzwerk sind wir nicht Teil des Übertragungswegs.',
+  disc_s2_local: '· Eine lokale Engine: Bei diesem Schritt verlässt nichts deine eigene Hardware – das betrifft deine Stimme; wohin der Text als Nächstes geht, ist Schritt 3. (Das Spracherkennungsmodell für die eingebaute Engine stellst du selbst bereit; sie lädt eines nur dann über das Internet herunter, wenn du auf dem Computer ausdrücklich FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 setzt.)',
   disc_s3_title: '3. Verarbeitung durch das Sprachmodell (abhängig von deinen Einstellungen)',
+  disc_s3_body: 'Übersetzen und Aufbereiten nutzen immer das Sprachmodell. Echtzeit hängt vom Schalter „KI-Politur" unter Einstellungen → Spracherkennung ab (diese Zeile zeigt den aktuellen Wert): Ist er aktiviert, wird das abschließende Transkript jeder Aufnahme einmal gesendet – einschließlich bei „Nur Aufnahme"; ist er deaktiviert, sendet Echtzeit keinen Text. Vorläufige Wörter werden nie gesendet. Was auch immer gesendet wird, geht an den Modell-Endpunkt, den deine Einstellungen benennen. Das Plattform-Sprachmodell wird von DeepSeek auf unserem Konto ausgeführt. Wir speichern weder die Eingabe noch die Ausgabe.',
   disc_s4_title: '4. An deinen PC zugestellt und in das fokussierte Feld getippt',
   disc_s4_body: 'Der Text wird an den gekoppelten PC zugestellt und in das fokussierte Feld getippt – über dein eigenes Netzwerk oder unser Cloud-Relay (das Frames nur weiterreicht und wieder vergisst).',
+  disc_s4_lan_plain: '⚠️ Ob die lokale Netzwerkroute verschlüsselt ist, hängt davon ab, wie die Kopplung erfolgt ist. Eine QR-Kopplung ist verschlüsselt, wenn dieser Code die Identität des Computers trägt; das Telefon prüft dies bei jeder späteren Verbindung. Kopplungen, die vor Einführung dieser Verschlüsselung erstellt wurden, sind weiterhin unverschlüsselt – erneutes Koppeln auf dem Telefon aktualisiert eine davon. Welche der beiden diese Verbindung ist, wird auf dem Telefon unter „Verschlüsselung" angezeigt. Das Cloud-Relay nutzt TLS. Wird FLOWMIC_LAN_TLS auf dem Computer auf 0 gesetzt, wird die Verschlüsselung ausgeschaltet: Telefone, die bereits verschlüsselt gekoppelt wurden, können sich dann nicht mehr verbinden. Zur Wiederherstellung muss der Computer auf dem Telefon gelöscht und erneut gekoppelt werden.',
   disc_s5_title: '5. Was zurückbleibt',
   disc_s5_body: 'Wir speichern deine Transkripte nicht; die Zeitleiste liegt auf deinem Handy und deinem PC. Wir speichern dein Konto, gekoppelte Geräte, synchronisierte Einstellungen und monatliche Nutzungssummen (nie die Inhalte).',
   disc_legal_title: 'Datenschutzerklärung und Nutzungsbedingungen',
@@ -3402,7 +3452,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 558/558 translated;
+// ja (日本語) — 561/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -3412,6 +3462,9 @@ const S_JA_OWN = {
   app_name: 'FlowMic',
   dev_title: 'デバイス',
   dev_add_phone: 'スマホを追加',
+  dev_offline_toggle: 'オフライン',
+  dev_offline_hint: 'すべてのスマホとの接続を切断して割り込みを減らします。もう一度切り替えるとオンラインに戻ります。',
+  dev_offline_active: 'オフライン · 現在スマホはこのPCに接続できません',
   dev_chan_lan: 'ローカルLAN',
   dev_chan_lan_ready: 'ローカルサービス準備完了 · 同じWi-Fiで直接接続',
   dev_chan_lan_loopback: 'このPCのループバックサービス · スマホで同じWi-Fi上のこのPCのLANアドレスを入力してください',
@@ -3510,7 +3563,7 @@ const S_JA_OWN = {
   cloud_acct_stale: 'サーバーに問い合わせできません — 下の値は {t} 時点のものです',
   cloud_acct_unknown: 'アカウント情報を問い合わせできません',
   cloud_acct_retry: '再照会',
-  cloud_pair_hint: 'クラウドリレーでは、スマホ側で先に同じクラウドに接続し（スマホでクラウドアカウントにログインするか、このリレーアドレスを指定）、下の4桁のペアリングコードを入力してください。QRコードにはリレーアドレスとペアリングコードが含まれています。',
+  cloud_pair_hint: 'クラウドリレーでは、スマホがまず同じクラウドに接続している必要があります（スマホでログインするか、このリレーを指定）。その上で QR をスキャンするか、上の PCID と下の 4 桁のペアリングコードをスマホで入力します。',
   cloud_pair_offline: 'クラウドリレーに未接続のため、ペアリングコードを生成できません',
   cloud_err_expired: 'ログインの有効期限が切れました。もう一度ログインしてください。',
   cloud_err_malformed: 'Cloud Keyの形式が正しくありません — コンソールから全体をコピーして再試行してください',
@@ -3974,7 +4027,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 558/558 translated;
+// ko (한국어) — 561/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -3984,6 +4037,9 @@ const S_KO_OWN = {
   app_name: 'FlowMic',
   dev_title: '기기',
   dev_add_phone: '휴대폰 추가',
+  dev_offline_toggle: '오프라인',
+  dev_offline_hint: '모든 휴대폰과의 연결을 끊어 방해를 줄입니다. 다시 전환하면 온라인으로 돌아갑니다.',
+  dev_offline_active: '오프라인 · 지금은 휴대폰이 이 PC에 연결할 수 없습니다',
   dev_chan_lan: '로컬 LAN',
   dev_chan_lan_ready: '로컬 서비스 준비 완료 · 같은 Wi-Fi에서 직접 연결',
   dev_chan_lan_loopback: '이 PC의 루프백 서비스 · 휴대폰에서 같은 Wi-Fi의 이 PC LAN 주소를 입력해야 합니다',
@@ -4082,7 +4138,7 @@ const S_KO_OWN = {
   cloud_acct_stale: '서버에 물어볼 수 없습니다 — 아래 값은 {t} 기준입니다',
   cloud_acct_unknown: '계정 정보를 물어볼 수 없습니다',
   cloud_acct_retry: '다시 조회',
-  cloud_pair_hint: '클라우드 릴레이에서는 휴대폰이 먼저 같은 클라우드에 접속해야 합니다(휴대폰에서 클라우드 계정에 로그인하거나 이 릴레이 주소를 지정). 그다음 아래 4자리 페어링 코드를 입력하세요. QR 코드에는 릴레이 주소와 페어링 코드가 담겨 있습니다.',
+  cloud_pair_hint: '클라우드 릴레이에서는 휴대폰이 먼저 같은 클라우드에 접속해야 합니다(휴대폰에서 로그인하거나 이 릴레이를 지정). 그런 다음 QR을 스캔하거나 위의 PCID와 아래 4자리 페어링 코드를 휴대폰에 입력하세요.',
   cloud_pair_offline: '클라우드 릴레이에 연결되지 않아 페어링 코드를 생성할 수 없습니다',
   cloud_err_expired: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
   cloud_err_malformed: 'Cloud Key 형식이 올바르지 않습니다 — 콘솔에서 전체를 복사해 다시 시도하세요',
@@ -4546,7 +4602,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 546/558 translated;
+// ru (Русский) — 557/561 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -4556,6 +4612,9 @@ const S_RU_OWN = {
   app_name: 'FlowMic',
   dev_title: 'Устройства',
   dev_add_phone: 'Добавить телефон',
+  dev_offline_toggle: 'Офлайн',
+  dev_offline_hint: 'Отключает все телефоны от этого ПК, чтобы уменьшить помехи; переключите снова, чтобы вернуться в онлайн.',
+  dev_offline_active: 'Офлайн · телефоны сейчас не могут подключиться к этому ПК',
   dev_chan_lan: 'Локальная сеть',
   dev_chan_lan_ready: 'Локальная служба готова · прямое подключение в той же сети Wi-Fi',
   dev_chan_lan_loopback: 'Служба доступна только через локальную петлю · в той же сети Wi-Fi укажите на телефоне локальный адрес этого компьютера',
@@ -4653,6 +4712,7 @@ const S_RU_OWN = {
   cloud_acct_stale: 'Сервер недоступен — данные ниже получены в {t}',
   cloud_acct_unknown: 'Не удаётся получить данные аккаунта с сервера',
   cloud_acct_retry: 'Запросить снова',
+  cloud_pair_hint: 'Через облачный релей телефон сначала должен подключиться к тому же облаку (войдите на телефоне или укажите этот релей); затем отсканируйте QR или введите на телефоне PCID выше и 4-значный код ниже.',
   cloud_pair_offline: 'Облачный ретранслятор не подключён — создать код сопряжения нельзя',
   cloud_err_expired: 'Срок входа истёк. Войдите заново.',
   cloud_err_malformed: 'Cloud Key имеет неверный формат — скопируйте его из консоли целиком и повторите',
@@ -4734,6 +4794,7 @@ const S_RU_OWN = {
   dict_title: 'Личный словарь',
   dict_add: 'Добавить термин',
   polish_title: 'AI-улучшение',
+  polish_hint: 'Заключительное предложение высказывания может быть по желанию доработано с помощью LLM — строка ниже показывает, включено ли это прямо сейчас; в случае сбоя доставляется недоработанный текст с явным уведомлением — никогда без предупреждения.',
   polish_toggle: 'Включить AI-улучшение',
   polish_no_llm: 'Возможность, необходимая для AI-улучшения, не настроена — оно не работает.',
   refine_title: 'Повторная транскрипция (точнее)',
@@ -5037,9 +5098,15 @@ const S_RU_OWN = {
   disc_s1_title: '1. Телефон записывает звук',
   disc_s1_body: 'Пока вы удерживаете кнопку разговора, телефон записывает звук и передаёт его по мере речи; в нашу базу данных он не попадает.',
   disc_s2_title: '2. Распознавание речи',
+  disc_s2_body: 'Какой движок вас слышит — это видимая настройка, а не догадка: сначала используется движок, который ваши настройки указывают для данного языка; если такого нет — универсальный движок; если и его нет — вариант по умолчанию, управляемый платформой; если и его нет — два маршрута движка, которые мы предварительно настроили для вас при первом запуске. Если не существует и их, распознавание останавливается с ошибкой — звук никогда не отправляется незаметно куда-то ещё.',
+  disc_s2_cloud: '· Встроенный облачный движок: звук передаётся потоком через наш облачный ретранслятор в Soniox. Если он недоступен, мы можем переключить этот шаг обратно на серверы распознавания речи, которые эксплуатируем сами. Переключение — это действие оператора, оно никогда не меняет маршрут посреди фразы. Звук хранится только в памяти и никогда не записывается на диск.',
+  disc_s2_byok: '· Движок, который вы настроили со своим собственным ключом: звук отправляется этому провайдеру в соответствии с его политикой конфиденциальности, с вашими учётными данными. При передаче через облако звук всё равно проходит через наш облачный ретранслятор (в памяти, никогда не сохраняется). В вашей собственной сети мы не находимся на этом пути.',
+  disc_s2_local: '· Локальный движок: на этом шаге ничего не покидает ваше собственное оборудование — это касается вашего голоса; куда текст отправляется дальше, решается на шаге 3. (Модель распознавания речи для встроенного движка вы предоставляете сами; она загружается через интернет только в том случае, если вы явно установите на компьютере FLOWMIC_SHERPA_AUTO_DOWNLOAD=1.)',
   disc_s3_title: '3. Обработка языковой моделью (зависит от ваших настроек)',
+  disc_s3_body: 'Перевод и Структурирование всегда используют языковую модель. Реальное время зависит от переключателя «ИИ-доработка» в разделе Настройки → Распознавание речи (эта строка показывает текущее значение): пока он включён, финальная расшифровка каждой записи отправляется один раз — включая случаи «Только запись»; пока он выключен, Реальное время не отправляет текст. Предварительные слова никогда не отправляются. Всё, что отправляется, идёт на конечную точку модели, которую указывают ваши настройки. Языковая модель платформы выполняется компанией DeepSeek на нашем аккаунте. Мы не сохраняем ни входные, ни выходные данные.',
   disc_s4_title: '4. Доставка на компьютер и ввод в активное поле',
   disc_s4_body: 'Текст доставляется на сопряжённый компьютер и вводится в активное поле — через вашу собственную сеть или через наш облачный ретранслятор (он передаёт кадры дальше и не запоминает их).',
+  disc_s4_lan_plain: '⚠️ Зашифрован ли локальный сетевой маршрут, зависит от того, как было выполнено сопряжение. Сопряжение по QR-коду зашифровано всякий раз, когда этот код несёт в себе идентификатор компьютера; телефон проверяет это при каждом последующем подключении. Сопряжения, созданные до появления этого шифрования, по-прежнему остаются незашифрованными — повторное сопряжение на телефоне обновляет одно из них. К какому из этих типов относится текущее подключение, указано на телефоне в разделе «Шифрование связи». Облачный ретранслятор использует TLS. Установка FLOWMIC_LAN_TLS в 0 на компьютере отключает шифрование: телефоны, уже сопряжённые с шифрованием, больше не смогут подключиться. Чтобы восстановить подключение, нужно удалить компьютер на телефоне и выполнить сопряжение заново.',
   disc_s5_title: '5. Что остаётся',
   disc_s5_body: 'Мы не храним ваши транскрипции; хронология находится на вашем телефоне и вашем компьютере. Мы храним аккаунт, сопряжённые устройства, синхронизируемые настройки и месячные итоги использования (но не содержимое).',
   disc_legal_title: 'Политика конфиденциальности и условия использования',

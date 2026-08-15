@@ -7,6 +7,9 @@
     "app_name": "'FlowMic'",
     "dev_title": "'Appareils'",
     "dev_add_phone": "'Ajouter un téléphone'",
+    "dev_offline_toggle": "'Hors ligne'",
+    "dev_offline_hint": "\"Déconnecte tous les téléphones de ce PC pour limiter les interruptions ; rebasculez pour revenir en ligne.\"",
+    "dev_offline_active": "\"Hors ligne · les téléphones ne peuvent pas joindre ce PC pour le moment\"",
     "dev_chan_lan": "'Réseau local'",
     "dev_chan_lan_ready": "'Service local prêt · connexion directe sur le même Wi-Fi'",
     "dev_chan_lan_loopback": "\"Service en boucle locale sur ce PC · sur le même Wi-Fi, saisissez l'adresse réseau local de ce PC sur le téléphone\"",
@@ -186,6 +189,7 @@
     "dict_add": "'Ajouter un terme'",
     "polish_title": "'Amélioration IA'",
     "polish_toggle": "\"Activer l'amélioration IA\"",
+    "polish_hint": "\"La dernière phrase d'un énoncé peut être retouchée en option par un LLM — la ligne ci-dessous indique si c'est activé actuellement ; en cas d'échec, le texte non retouché est délivré avec une notification explicite — jamais un repli silencieux.\"",
     "polish_no_llm": "\"La capacité requise par l'amélioration IA n'est pas configurée ; elle n'est donc pas active.\"",
     "refine_title": "'Seconde transcription (plus précise)'",
     "refine_hint": "\"Une fois une longue phrase terminée, elle est transcrite une seconde fois en arrière-plan ; seule la chronologie est mise à jour — le texte déjà injecté dans le PC n'est jamais réécrit\"",
@@ -487,9 +491,15 @@
     "disc_s1_title": "\"1. Votre téléphone capte l'audio\"",
     "disc_s1_body": "\"Tant que vous maintenez le bouton de parole, votre téléphone capte l'audio et l'envoie au fil de vos paroles ; il n'est jamais écrit dans notre base de données.\"",
     "disc_s2_title": "'2. Reconnaissance vocale'",
+    "disc_s2_body": "\"Le moteur qui vous écoute est un paramètre visible, pas une supposition : le moteur que vos réglages désignent pour la langue ; à défaut, le moteur générique ; à défaut, le moteur par défaut géré par la plateforme ; à défaut, les deux voies de moteur que nous avons préconfigurées pour vous au premier démarrage. Si aucun de ceux-ci n'existe non plus, la transcription s'arrête avec une erreur — l'audio n'est jamais envoyé discrètement ailleurs.\"",
+    "disc_s2_cloud": "\"· Le moteur cloud intégré : l'audio est diffusé en flux via notre relais cloud vers Soniox. S'ils sont indisponibles, nous pouvons faire basculer cette étape vers des serveurs de reconnaissance vocale que nous exploitons nous-mêmes. Ce basculement est une action de l'opérateur — il ne change jamais de route en plein milieu d'une phrase. L'audio n'est conservé qu'en mémoire, jamais écrit sur disque.\"",
+    "disc_s2_byok": "\"· Un moteur que vous avez configuré avec votre propre clé : l'audio est envoyé à ce fournisseur selon sa politique de confidentialité, avec vos identifiants. En passant par le cloud, l'audio transite tout de même par notre relais cloud (en mémoire, jamais stocké). Sur votre propre réseau, nous ne sommes pas dans le chemin.\"",
+    "disc_s2_local": "\"· Un moteur local : à cette étape, rien ne quitte votre propre matériel — cela concerne votre voix ; où le texte va ensuite, c'est l'étape 3. (Vous fournissez vous-même le modèle vocal pour le moteur intégré ; il n'en télécharge un depuis internet que si vous définissez explicitement FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 sur l'ordinateur.)\"",
     "disc_s3_title": "'3. Traitement par le modèle de langage (selon vos paramètres)'",
+    "disc_s3_body": "\"Traduction et Organisation utilisent toujours le modèle de langage. Temps réel dépend du commutateur « retouche IA » sous Paramètres → Reconnaissance vocale (cette ligne indique la valeur actuelle) : lorsqu'il est activé, la transcription finale de chaque enregistrement est envoyée une fois — y compris pour « Enregistrement seul » ; lorsqu'il est désactivé, Temps réel n'envoie aucun texte. Les mots provisoires ne sont jamais envoyés. Tout ce qui est envoyé va au point de terminaison du modèle que vos réglages désignent. Le modèle de langage de la plateforme est exécuté par DeepSeek sur notre compte. Nous ne conservons ni l'entrée ni la sortie.\"",
     "disc_s4_title": "'4. Livré à votre PC et saisi dans le champ actif'",
     "disc_s4_body": "'Le texte est livré au PC avec lequel vous êtes appairé et saisi dans le champ actif, via votre propre réseau ou notre relais cloud (qui transmet les trames et les oublie).'",
+    "disc_s4_lan_plain": "\"⚠️ Le chiffrement de la voie du réseau local dépend de la façon dont l'appairage a été effectué. Un appairage par QR est chiffré dès lors que ce code porte l'identité de l'ordinateur ; le téléphone le vérifie à chaque connexion ultérieure. Les appairages créés avant l'existence de ce chiffrement restent en clair — un nouvel appairage sur le téléphone en met un à niveau. Le type dont relève cette connexion est indiqué sous « Chiffrement de la connexion » sur le téléphone. Le relais cloud utilise TLS. Définir FLOWMIC_LAN_TLS à 0 sur l'ordinateur désactive le chiffrement : les téléphones déjà appairés sous chiffrement ne peuvent plus se connecter. Pour rétablir la connexion, il faut supprimer l'ordinateur sur le téléphone et le réappairer.\"",
     "disc_s5_title": "'5. Ce qui reste'",
     "disc_s5_body": "\"Nous ne stockons pas vos transcriptions ; la chronologie vit sur votre téléphone et sur votre PC. Nous stockons votre compte, vos appareils appairés, vos paramètres synchronisés et vos totaux d'utilisation mensuels (jamais le contenu).\"",
     "disc_legal_title": "\"Politique de confidentialité et conditions d'utilisation\"",
@@ -580,6 +590,7 @@
       "(kept, when) =>",
       "  `Aucune entrée correspondante. La recherche ne porte que sur les ${kept} entrées conservées sur ce PC — tout ce qui précède ${when} en a été supprimé.`"
     ],
-    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'mot' : 'mots'}`"
+    "tlMetricsMsg.wordCount": "(n) => `${n} ${n === 1 ? 'mot' : 'mots'}`",
+    "cloud_pair_hint": "\"Via le relais cloud, le téléphone doit d\\'abord joindre le même cloud (connectez-vous sur le téléphone ou pointez-le vers ce relais) ; scannez ensuite le QR, ou saisissez sur le téléphone le PCID ci-dessus plus le code à 4 chiffres ci-dessous.\""
   }
 }

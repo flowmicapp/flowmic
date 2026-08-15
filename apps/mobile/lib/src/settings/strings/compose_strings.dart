@@ -328,6 +328,14 @@ mixin ComposeStrings on AppStringsLeaves {
   String get composeCardDeliver =>
       _lfComposeCardDeliver;
 
+  /// P4 (0.3.1) — the same primary button when the destination is fixed
+  /// (light-record / cloud instance): the action commits the typed draft as a
+  /// LOCAL noted row, so the label must not promise a delivery no mechanism
+  /// backs (the 「待投递」 red line, 15 §2.0). The image path made this split
+  /// first (`ImageSendController.canSend` treats `noPcTarget` as a local save);
+  /// this is the text half catching up.
+  String get composeCardSaveNoted => _lfComposeCardSaveNoted;
+
   /// The card's secondary button / the card-header ✕. **What gets discarded is
   /// THIS BUFFER, not anything on the PC** — it goes through
   /// `ChatController.discardBuffer` (local), not the remote ✕

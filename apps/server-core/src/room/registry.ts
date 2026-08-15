@@ -253,16 +253,24 @@ export class Registry {
    *    pair with by address (same reason its short code `'0000'` is never
    *    stamped active).
    *
-   *  Backfill is LAZY BY DESIGN — this runs on registration, so a row acquires
-   *  its PCID the next time that PC connects, exactly like `stampMachineUid`
-   *  above. There is deliberately no table sweep: a row that has never reached
-   *  the relay cannot be paired by PCID anyway, because its PCID has never been
+   *  Backfill is LAZY BY DESIGN — this runs on BOTH connection legs (registerPc
+   *  and reconnectPc, 0.3.1), so a row acquires its PCID the next time that PC
+   *  connects, exactly like `stampMachineUid`. It originally ran on the register
+   *  leg only, which left every established desktop (valid token ⇒ reconnects
+   *  forever) without a PCID — see the reconnectPc call site. There is
+   *  deliberately no table sweep: a row that has never reached the relay cannot
+   *  be paired by PCID anyway, because its PCID has never been
    *  displayed to a human. */
   private stampPcid(pc: PcRecord): void {
     if (this.deps.mode !== 'saas') return;
     if (!isRealPc(pc)) return;
     if (pc.pcid) return;
-    this.mintPcid(pc.id);
+    const minted = this.mintPcid(pc.id);
+    // A backfill is a ONE-TIME event per row (the value never rotates), worth
+    // its own line: 「这台 PC 的 pcid 是什么时候补上的」 is the first question
+    // the 0.3.1 reconnect-leg fix gets asked in production. Doubles as the
+    // OPS-4 deploy byte criterion for that fix.
+    if (minted) log.info('pcid.backfilled', { pc_id: pc.id });
   }
 
   /** GA-10 — rename ONE pc_devices row (04 §3.7 F-3101). Caller has already
@@ -369,6 +377,13 @@ export class Registry {
     // on this path — only a backfill. That is what makes it safe to do on a
     // reconnect: it cannot move this connection to a different row.
     this.stampMachineUid(pc, machine_uid);
+    // 0.3.1 — the PCID backfill 0.2.66 wired onto the register leg only. An
+    // established desktop holds a valid token and comes in HERE forever, never
+    // through registerPc, so a row predating the pcid column stayed NULL: no
+    // PCID in the dialog, no pcid= in the cloud QR, and the relay (which
+    // enforces PAIR_PCID_REQUIRED) refused every scan of that QR. stampPcid is
+    // a no-op once the row has one, so this can never rotate an address.
+    this.stampPcid(pc);
     this.deps.pcs.setOnline(pc.id, true);
     return { pc: this.deps.pcs.findById(pc.id) ?? pc };
   }

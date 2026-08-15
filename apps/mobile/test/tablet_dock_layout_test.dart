@@ -33,6 +33,33 @@
 // so the ceiling and the centring are one fact measured two ways. Reverted;
 // residual marker search after restore: `REVERSE-CONTROL-VF8` has 0 hits under
 // `lib/` — the only occurrence in the repo is this sentence naming it.
+//
+// ── P3 (0.3.1) — THE OLD PRESS CASE ASSERTED THE DEFECT AS SPEC ─────────────
+// Until 2026-08-15 this file's press case ('scope fence') did the OPPOSITE of
+// today's: after `onPttDown()` at 800dp it asserted
+// `expect(bar.width, closeTo(dock.width - 24, 0.5))` — i.e. it REQUIRED the
+// dock to fall back to the phone arrangement mid-press, widening the speak
+// key 430 → 776 and dropping it under the finger. The owner's device report
+// (0.3.1 P3: pressing the talk button moves the button) is that assertion,
+// experienced from above the glass. This is the 0.2.52 lesson verbatim: a
+// reverse control aimed in the wrong direction is worse than none — it does
+// not miss the defect, it writes the defect into the acceptance criteria,
+// and it goes red on the day of the fix, telling whoever fixes it that THEY
+// are wrong. (The old case's stated rationale — 「the right column would be
+// an empty 92dp gutter」 — was refuted by the fix itself: the column is not
+// empty, it is the dimmed inert skeleton.)
+//
+// ── REVERSE CONTROL for the press case (run RED against the pre-fix code) ──
+// 2026-08-15, this exact case against the pre-P3 `twoColumn` predicate
+// (`idleRows && composePcKeysVisible && width >= 560`), at 800×600:
+//
+//   Expected: Rect:<Rect.fromLTRB(133.0, 448.0, 563.0, 508.0)>   (idle)
+//     Actual: Rect:<Rect.fromLTRB(12.0, 495.0, 788.0, 555.0)>    (on press)
+//   🔴 P3: the speak key moved at the press edge
+//
+// — width 430 → 776 (the phone full-band fallback), left 133 → 12, top
+// 448 → 495: the bar dropped 47dp at the instant the FSM entered RECORDING.
+// Those two numbers ARE the two symptoms the owner reported (widen + drop).
 
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
@@ -44,6 +71,7 @@ import 'package:flowmic/src/signaling/wire_payloads.dart' show ControlKeyKind;
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/ui/compose_band.dart';
+import 'package:flowmic/src/ui/recording_panel.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -58,6 +86,7 @@ final Finder _preview = find.byKey(const ValueKey<String>('compose.preview'));
 final Finder _bar = find.byKey(const ValueKey<String>('ptt.bar'));
 final Finder _caption = find.byKey(const ValueKey<String>('ptt.caption'));
 final Finder _policy = find.byKey(const ValueKey<String>('compose.policy'));
+final Finder _strip = find.byType(RecordingPanel);
 
 Finder _key(ControlKeyKind k) =>
     find.byKey(ValueKey<String>('compose.ctrl.${k.name}'));
@@ -319,36 +348,78 @@ void main() {
     controller.session.debugStopIdlePresencePoll();
   });
 
-  testWidgets('🔴 scope fence: at tablet width, RECORDING still renders the '
-      'phone dock (A3 "do only one main thing at a time")', (WidgetTester tester) async {
-    // The card re-columns the IDLE arrangement only, and the reason is not
-    // caution: during recording the whole band leaves the tree, so the right
-    // column would be an empty 92dp gutter next to a speak key that the mock
-    // draws full width. There is no A-TAB frame for any non-idle face.
+  testWidgets('🔴 P3 (0.3.1): a press at tablet width moves NOTHING — the '
+      'bar, the key column and the dock hold their rects through recording '
+      'and back to idle', (WidgetTester tester) async {
     final ChatController controller =
         await _pumpPage(tester, width: 800, height: 600);
+
+    final Rect idleBar = tester.getRect(_bar);
+    final Rect idleGroup = tester.getRect(_group);
+    final Rect idleDock = tester.getRect(_dock);
+
     controller.session.fsm.onPttDown();
     await tester.pump();
-    expect(controller.isRecording, isTrue, reason: 'harness did not reach RECORDING');
+    expect(controller.isRecording, isTrue,
+        reason: 'harness did not reach RECORDING');
 
-    expect(
-      _group,
-      findsNothing,
-      reason: '🔴 the key column survived into RECORDING — the tablet branch '
-          'is not obeying composeIdleRowsVisible',
-    );
-    expect(_preview, findsNothing);
+    // 🔴 THE assertions — whole-Rect equality (left, top, width and height in
+    // one comparison), so neither a slide nor a resize can pass. This is the
+    // owner's 2026-08-15 report in one line: the button he pressed must be
+    // the button he is still pressing.
+    expect(tester.getRect(_bar), idleBar,
+        reason: '🔴 P3: the speak key moved at the press edge — the dock '
+            're-arranged under the finger');
+    expect(tester.getRect(_group), idleGroup,
+        reason: '🔴 P3: the key column moved or resized on press — the '
+            'skeleton must stay AT ITS SIZE (dim + inert), or the Row\'s '
+            'height and the bar\'s rect go with it');
+    expect(tester.getRect(_dock), idleDock,
+        reason: '🔴 P3: the dock itself changed on press — its padding must '
+            'not flip to the phone values');
 
-    final Rect dock = tester.getRect(_dock);
-    final Rect bar = tester.getRect(_bar);
+    // The recording strip took the slot the ghosted idle rows reserve —
+    // inside the speak column, above the bar. NOT full-band: full-band is
+    // the phone arrangement, the exact thing P3 removes at tablet width.
+    final Rect strip = tester.getRect(_strip);
+    expect(strip.width, lessThanOrEqualTo(kDockTabletSpeakMaxWidth),
+        reason: 'the strip left the speak column ⇒ the phone arrangement is '
+            'back');
+    expect(strip.bottom, lessThanOrEqualTo(tester.getRect(_bar).top),
+        reason: 'the strip is not above the bar');
+
+    // The skeleton is INERT: the keys hold the geometry but answer nothing;
+    // the ghosted rows keep their layout but take no taps. The mode-segment
+    // line carries mode_direct_select_widget_test's guard at THIS width:
+    // there the segments leave the tree (phone SUP-4); here they stay as a
+    // ghost, and 「a mis-tap of a segment while recording is impossible」
+    // must hold either way.
+    expect(_key(ControlKeyKind.enter).hitTestable(), findsNothing,
+        reason: 'P3: the dimmed key column must not answer taps mid-recording');
+    expect(_preview.hitTestable(), findsNothing,
+        reason: 'P3: the ghosted buffer row must not answer taps '
+            'mid-recording');
     expect(
-      bar.width,
-      closeTo(dock.width - 24, 0.5),
-      reason: '🔴 the recording bar is not full-width — it is still sitting in '
-          'a 430dp speak column with nothing beside it. (24 = the PHONE dock\'s '
-          'horizontal padding, which is the other half of this assertion: the '
-          'padding must fall back too.)',
-    );
+        find
+            .byKey(const ValueKey<String>('compose.mode.translate'))
+            .hitTestable(),
+        findsNothing,
+        reason: 'P3: the ghosted mode segments must not answer taps '
+            'mid-recording (08 §2\'s mis-tap guard, tablet form)');
+
+    // Round trip: back to idle with every rect exactly where it began.
+    controller.session.fsm.onPttCancel();
+    await tester.pump();
+    expect(controller.isRecording, isFalse,
+        reason: 'harness: cancel did not return the FSM to idle');
+    expect(tester.getRect(_bar), idleBar,
+        reason: 'the round trip must land the bar exactly where it began');
+    expect(tester.getRect(_group), idleGroup);
+    expect(tester.getRect(_dock), idleDock);
+    expect(_strip, findsNothing,
+        reason: 'the strip must leave with the recording');
+    expect(_preview.hitTestable(), findsOneWidget,
+        reason: 'idle again ⇒ the buffer row is live again');
 
     expect(tester.takeException(), isNull);
     controller.session.debugStopIdlePresencePoll();

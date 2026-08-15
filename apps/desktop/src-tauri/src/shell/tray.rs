@@ -153,6 +153,13 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         MenuItem::with_id(app, "show_main", tr(Msg::TrayShowMain), true, None::<&str>)?;
     let show_capsule_i =
         MenuItem::with_id(app, "show_capsule", tr(Msg::TrayShowCapsule), true, None::<&str>)?;
+    // P7 (0.3.1) — the offline toggle (owner: 「托盘菜单…增加开关」). A plain
+    // MenuItem whose LABEL flips between the two verbs, not a CheckMenuItem:
+    // label-swap is this file's proven live-update idiom (the locale listener
+    // below), and the verb form (「下线…」/「上线…」) says what a click DOES,
+    // which a checkmark on a noun would leave ambiguous.
+    let offline_i =
+        MenuItem::with_id(app, "offline_toggle", tr(Msg::TrayGoOffline), true, None::<&str>)?;
     // Disabled status row (redesign §5.4). Text is live-updated from the same
     // pump TRAY_STATE payload that drives tooltip + icon — never a second source.
     let status_i =
@@ -162,7 +169,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit_i = MenuItem::with_id(app, "quit", tr(Msg::TrayQuit), true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&show_main_i, &show_capsule_i, &sep1, &status_i, &sep2, &quit_i],
+        &[&show_main_i, &show_capsule_i, &offline_i, &sep1, &status_i, &sep2, &quit_i],
     )?;
 
     // Three-state icons (disconnected/idle/recording). Prebuilt once; set_icon only on state change.
@@ -178,6 +185,16 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             "show_main" => show_main_window(app),
             // R6-C2: summon (surface + FSM re-sync to persistent), not a bare surface.
             "show_capsule" => tray_summon_capsule(app),
+            // P7 — toggle from the CURRENT state; `apply` is the same single
+            // write path the devices-page switch invokes, so the two
+            // entrances cannot disagree about what a click means.
+            "offline_toggle" => {
+                use tauri::Manager;
+                let enable = !app
+                    .state::<super::offline::OfflineState>()
+                    .is_offline();
+                let _ = super::offline::apply(app, enable);
+            }
             // Match guard keeps the confirm dialog as the only gate before exit;
             // false → fall through to `_` (same as the previous nested `if`).
             //
@@ -219,13 +236,44 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         let quit_c = quit_i.clone();
         let status_c = status_i.clone();
         let tray_c = tray.clone();
+        let offline_c = offline_i.clone();
+        let app_c = app.clone();
         app.listen(crate::socket::bridge::channel::UI_LOCALE_CHANGED, move |_event| {
+            use tauri::Manager;
             let _ = show_main_c.set_text(tr(Msg::TrayShowMain));
             let _ = show_capsule_c.set_text(tr(Msg::TrayShowCapsule));
             let _ = quit_c.set_text(tr(Msg::TrayQuit));
+            // P7 — the toggle's label depends on the current state, so the
+            // locale re-render reads it rather than assuming the boot value.
+            let offline_now = app_c
+                .state::<super::offline::OfflineState>()
+                .is_offline();
+            let _ = offline_c.set_text(tr(if offline_now {
+                Msg::TrayGoOnline
+            } else {
+                Msg::TrayGoOffline
+            }));
             if crate::socket::pump::tray_showing_snapshot().is_none() {
                 let _ = status_c.set_text(tr(Msg::TrayStatusDisconnected));
                 let _ = tray_c.set_tooltip(Some(tr(Msg::TrayTooltipDisconnected)));
+            }
+        });
+    }
+
+    // P7 — flip the toggle's label when the switch flips, whichever entrance
+    // flipped it (tray click or the devices-page switch — one write path,
+    // shell::offline::apply, is the only emitter).
+    {
+        let offline_c = offline_i.clone();
+        app.listen(crate::socket::bridge::channel::OFFLINE_STATE, move |event| {
+            if let Ok(v) = serde_json::from_str::<Value>(event.payload()) {
+                if let Some(off) = v.get("offline").and_then(Value::as_bool) {
+                    let _ = offline_c.set_text(tr(if off {
+                        Msg::TrayGoOnline
+                    } else {
+                        Msg::TrayGoOffline
+                    }));
+                }
             }
         });
     }

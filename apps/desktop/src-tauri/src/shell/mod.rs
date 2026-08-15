@@ -28,6 +28,8 @@ pub mod sidecar_ctl;
 mod marshal_fallback;
 /// V2-10 boot autostart — real-state, read-back-verified, fail-loud; see module header.
 pub mod autostart;
+// P7 (0.3.1) — the manual go-offline switch (tray + devices page).
+pub mod offline;
 /// U6 — the `ui_locale_set` command: the frontend mirrors its persisted UI
 /// locale here so the Rust surface (tray / exit dialog / autostart errors)
 /// speaks the app language; see module header for the full bridge shape.

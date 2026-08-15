@@ -122,6 +122,21 @@ fn admission_of(app: &AppHandle) -> std::sync::Arc<socket::Admission> {
 /// is non-blocking (the socket.io client + pump run on their own threads), so this
 /// does not stall the event loop.
 pub(super) fn connect_on_main(app: &AppHandle, url: &str, channel: Channel, jwt: Option<String>) {
+    // P7 (0.3.1) — the manual offline switch gates EVERY dial here, because
+    // this is the one funnel all four redial paths share (sidecar_retry →
+    // start, ensure_dialed, cloud_save_key redial, health supervisor after a
+    // sidecar death). Gating any single caller instead would leave the others
+    // able to bring the machine quietly back online.
+    {
+        let offline: State<super::offline::OfflineState> = app.state();
+        if offline.is_offline() {
+            forensic::record(
+                "offline",
+                &format!("dial refused while manually offline (channel={})", channel.tag()),
+            );
+            return;
+        }
+    }
     let app_cl = app.clone();
     let url_owned = url.to_string();
     let jwt_cl = jwt.clone();

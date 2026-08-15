@@ -57,8 +57,8 @@ import 'platform_device_info.dart';
 // file's header: it is a move, not an edit.
 export 'manual_delivery_host.dart';
 
-// 800-line cap: `reInject` lives in this part (see its header).
-part 'manual_delivery_reinject.dart';
+part 'manual_delivery_reinject.dart'; // 800-line cap: `reInject` (header there).
+part 'manual_delivery_noted.dart'; // P4: noPcTarget noted commit (header there).
 
 /// ONE delivery awaiting the PC's `inject:result`: which send it was, which
 /// rows its verdict settles, and the deadline that makes its SILENCE visible.
@@ -291,7 +291,7 @@ class ManualDelivery {
   /// The single manual-delivery path (➤ and favorite phrases / 常用). Emits
   /// `inject:request{text, source:'manual', mode}` — F-2361 reserves `mode` for
   /// exactly this frame so the server records the delivery row under the mode
-  /// the user picked.
+  /// the user picked. P4 (0.3.1): a FIXED destination forks to [commitNotedLocal].
   ///
   /// **D10**: when the send settles NO existing rows — the plain typed-text
   /// (手打) case, which the T-3a real-device run found left the timeline with
@@ -305,9 +305,9 @@ class ManualDelivery {
     required List<String> covered,
     String? originalText,
   }) async {
+    if (_host.noPcTarget) return commitNotedLocal(this, text, covered: covered);
     if (!_host.canCompose) return raise(ComposeSendFailure.notConnected);
     if (text.isEmpty) return raise(ComposeSendFailure.emptyBuffer);
-    if (_host.noPcTarget) return raise(ComposeSendFailure.noPcTarget);
     // Card F4 — over the wire's ceiling. FOURTH gate, same mechanism as the three
     // above (a `raise` before anything is enqueued), not a new one.
     //
@@ -318,11 +318,11 @@ class ManualDelivery {
     // keep owing the item and every drain would re-offer it to the same
     // boundary.
     //
-    // ⚠️ LAST of the four on purpose. The first three answer 「这个会话能不能发」
-    // ("can this session send at all") and their sentences are unchanged by
-    // this card; this one answers 「这一段字能不能发」("can this particular
-    // chunk of text be sent"), which is only worth saying once sending is
-    // otherwise possible.
+    // ⚠️ LAST of the wire gates on purpose. The two above answer 「这个会话能
+    // 不能发」("can this session send at all") — and P4's fork above THEM
+    // answers where the commit lands; this one answers 「这一段字能不能发」
+    // ("can this particular chunk of text be sent"), which is only worth
+    // saying once a wire send is otherwise possible.
     // ⚠️ Refuses the WHOLE text. Truncating to fit would deliver something the
     // user never wrote and report success for it (15 册 §2.0), and the desktop's
     // own cap says the same thing in its own words ('reject, never silently
@@ -419,8 +419,9 @@ class ManualDelivery {
       //   · ptt_session.dart:340-342 stamps all three identities from ONE
       //     enriched ack and clears them together 「fails CLOSED」 ⇒ same
       //     lifetime by construction. (Re-verified in source, not on trust.)
-      //   · `noPcTarget` (`destination.isFixed`) already hard-refuses it above.
-      // ⇒ The queue's refusal is the SAME line `noPcTarget` already draws. The
+      //   · `noPcTarget` (`destination.isFixed`) forks OFF the wire path above
+      //     (P4, 0.3.1 — was a hard refusal; now a local noted commit).
+      // ⇒ The queue's refusal guards the SAME line that fork draws. The
       //   17 reds were fixtures connecting without pairing; giving them a real
       //   pairing makes them MORE like production — a fix, not a bypass.
       //
@@ -479,7 +480,6 @@ class ManualDelivery {
       _host.deliveryNotify();
     }
   }
-
 
   bool _deliverInFlight = false;
 

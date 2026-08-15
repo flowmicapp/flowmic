@@ -1,19 +1,31 @@
 // 0.2.66 PCID — the WIRING half, driven through the real add-pairing sheet.
+// P2 (0.3.1 design §4) reshaped the manual tab into two channel segments and
+// this file moved with it: 「relay address typed into the address box」 became
+// 「the cloud segment」 for the common path, while the LAN segment keeps every
+// pre-P2 behaviour (including the force-show rescue, ③).
 //
 // 🔴 WHY THIS FILE EXISTS SEPARATELY FROM `pcid_rules_test.dart`. Every
 // assertion over there stays green if the sheet never calls any of it: the
 // predicate would still return the right answers, the payload would still
 // serialise, and the user would still face a screen with no PCID field and a
 // frame with no PCID on it. This repo has paid for that shape more than once
-// (「单测全绿对『接线』零证明力」), so the four claims that actually matter are
+// (「单测全绿对『接线』零证明力」), so the claims that actually matter are
 // asserted HERE, against the widget a user touches:
 //
-//   ① the field appears for the relay address and NOT for a LAN one;
-//   ② typing a relay address into a LAN-opened sheet reveals it;
+//   ① a relay initialEndpoint opens the CLOUD segment: PCID field, NO address
+//      box; a LAN initialEndpoint opens the LAN segment: address + code only;
+//   ② typing a relay address into the LAN segment's address box still reveals
+//      the field live (the heuristic did not die with the segments);
 //   ③ 🔴 a `PAIR_PCID_REQUIRED` refusal FORCE-SHOWS and FOCUSES it even when
-//      our host guess said 「this is LAN」 (the bare-IP / self-hosted-relay user);
-//   ④ the nine digits the user typed reach the emitted `mobile:pair` frame —
-//      the anti-façade claim: a dropped parameter anywhere between the field
+//      our host guess said 「this is LAN」 (the bare-IP / self-hosted-relay
+//      user). 🔴 THIS IS THE REVERSE CONTROL FOR THE RESCUE: it is the test
+//      that goes red if anyone deletes the LAN segment's force-show on the
+//      grounds that 「cloud users have their own segment now」 — the self-
+//      hosted-relay user types an address, not a segment, and this rescue is
+//      their only road to the field;
+//   ④ the nine digits the user typed reach the emitted `mobile:pair` frame,
+//      and the cloud segment dials the RESOLVED saas endpoint — the
+//      anti-façade claims: a dropped parameter anywhere between the field
 //      and `emitWithAck` is invisible to every other test in this repo.
 //
 // The pair ack is seeded as a REFUSAL on purpose in the frame-content tests:
@@ -109,25 +121,60 @@ void main() {
 
   const AppStrings s = AppStringsZh();
 
-  testWidgets('① relay address ⇒ the PCID field is on screen', (tester) async {
-    await openManual(tester, strings: s, initialEndpoint: kRelay);
+  testWidgets(
+    '① relay initialEndpoint ⇒ CLOUD segment: PCID field, NO address box',
+    (tester) async {
+      await openManual(tester, strings: s, initialEndpoint: kRelay);
 
-    expect(find.byKey(kPcidField), findsOneWidget);
-    expect(find.text(s.pcidLabel), findsOneWidget);
-    // Positive control for the negative test below: three fields, not two.
-    expect(find.byType(TextField), findsNWidgets(3));
-  });
+      // Both segment faces are on screen; cloud is the preselected one.
+      expect(find.text(s.localLan), findsOneWidget);
+      expect(find.text(s.cloudRelay), findsOneWidget);
+      expect(find.byKey(kPcidField), findsOneWidget);
+      expect(find.text(s.pcidLabel), findsOneWidget);
+      // P2: no address box on the cloud segment — the endpoint is resolved,
+      // not typed. Exactly two fields: PCID + code.
+      expect(find.text(s.pcAddressLabel), findsNothing);
+      expect(find.byType(TextField), findsNWidgets(2));
+      expect(find.byKey(kCodeField), findsOneWidget);
+    },
+  );
 
   testWidgets(
-    '① LAN address ⇒ NO PCID field (owner: 「本地局域网……没有 PCID」)',
+    '① LAN address ⇒ LAN segment, NO PCID field (owner: 「本地局域网……没有 PCID」)',
     (tester) async {
       await openManual(tester, strings: s, initialEndpoint: kLanAddress);
 
       expect(find.byKey(kPcidField), findsNothing);
       expect(find.text(s.pcidLabel), findsNothing);
-      // …and the LAN sheet is otherwise EXACTLY what 0.2.65 showed.
+      // …and the LAN segment is otherwise EXACTLY what 0.2.65 showed:
+      // address + code, with the initialEndpoint prefilled.
+      expect(find.text(s.pcAddressLabel), findsOneWidget);
       expect(find.byType(TextField), findsNWidgets(2));
       expect(find.byKey(kCodeField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+        kLanAddress,
+      );
+    },
+  );
+
+  testWidgets(
+    '①b the segments swap the form: LAN→cloud drops the address, gains PCID',
+    (tester) async {
+      await openManual(tester, strings: s, initialEndpoint: kLanAddress);
+      expect(find.byKey(kPcidField), findsNothing);
+
+      await tester.tap(find.text(s.cloudRelay));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(kPcidField), findsOneWidget);
+      expect(find.text(s.pcAddressLabel), findsNothing);
+
+      await tester.tap(find.text(s.localLan));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(kPcidField), findsNothing);
+      expect(find.text(s.pcAddressLabel), findsOneWidget);
     },
   );
 
@@ -169,7 +216,8 @@ void main() {
   );
 
   testWidgets(
-    '🔴 ④ ANTI-FAÇADE — the nine digits typed reach the emitted mobile:pair frame',
+    '🔴 ④ ANTI-FAÇADE — the nine digits typed on the CLOUD segment reach the '
+    'emitted mobile:pair frame, and the dial is the RESOLVED saas endpoint',
     (tester) async {
       transport.ackQueue.add(<String, Object?>{'error': 'PAIR_INVALID_CODE'});
       await openManual(tester, strings: s, initialEndpoint: kRelay);
@@ -183,6 +231,13 @@ void main() {
       expect(frame, isNotNull, reason: 'no frame left the phone at all');
       expect(frame!['short_code'], '1234');
       expect(frame['pcid'], '123456789');
+      // P2 — with no address box, the dial has exactly one honest source:
+      // the controller's saasEndpoint. A hardcoded domain would pass every
+      // other assertion in this file (kRelay is deliberately NOT flowmic.app,
+      // see its doc above).
+      expect(transport.lastConnectUrl, isNotNull,
+          reason: 'the attempt must actually have dialled');
+      expect(transport.lastConnectUrl, contains(kRelayHost));
     },
   );
 
@@ -262,22 +317,51 @@ void main() {
   );
 
   testWidgets(
-    '⑥ a PCID typed, then a LAN address ⇒ it does NOT ride along to the sidecar',
+    '⑥ a PCID typed on the CLOUD segment, then a switch to LAN ⇒ it does NOT '
+    'ride along to the sidecar',
     (tester) async {
       transport.ackQueue.add(<String, Object?>{'error': 'PAIR_INVALID_CODE'});
       await openManual(tester, strings: s, initialEndpoint: kRelay);
 
       await tester.enterText(find.byKey(kPcidField), '123456789');
-      await tester.enterText(find.byType(TextField).at(0), kLanAddress);
-      await tester.pump();
+      await tester.tap(find.text(s.localLan));
+      await tester.pumpAndSettle();
       // The field is gone, and with it the value's right to be on the wire.
       expect(find.byKey(kPcidField), findsNothing);
 
+      await tester.enterText(find.byType(TextField).at(0), kLanAddress);
       await tester.enterText(find.byKey(kCodeField), '1234');
       await tester.tap(find.text(s.pairConnect));
       await tester.pumpAndSettle();
 
       expect(lastPairFrame(), <String, Object?>{'short_code': '1234'});
+    },
+  );
+
+  testWidgets(
+    '⑥b …and the value SURVIVES the round-trip: back on cloud, it is still '
+    'there and still reaches the wire',
+    (tester) async {
+      // Positive twin for ⑥: 「not on the LAN frame」 must mean 「gated per
+      // segment」, not 「the switch wiped the field and the user retypes」.
+      transport.ackQueue.add(<String, Object?>{'error': 'PAIR_INVALID_CODE'});
+      await openManual(tester, strings: s, initialEndpoint: kRelay);
+
+      await tester.enterText(find.byKey(kPcidField), '123456789');
+      await tester.tap(find.text(s.localLan));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(s.cloudRelay));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byKey(kPcidField)).controller?.text,
+        '123456789',
+      );
+      await tester.enterText(find.byKey(kCodeField), '1234');
+      await tester.tap(find.text(s.pairConnect));
+      await tester.pumpAndSettle();
+
+      expect(lastPairFrame()?['pcid'], '123456789');
     },
   );
 }
