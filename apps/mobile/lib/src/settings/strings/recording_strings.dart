@@ -240,6 +240,36 @@ mixin RecordingStrings on AppStringsLeaves {
   /// that was never even asked: the 0.2.53 shape for the sixth time in this file.
   String get sttStallPoolNoRoute => _lfSttStallPoolNoRoute;
 
+  /// `STT_LANGUAGE_UNSUPPORTED` — an engine WAS selected and its model cannot
+  /// recognise the spoken language that was asked for (owner-granted code,
+  /// 2026-08-17; producer `stt/engine-factory.ts`, the `sherpa-local` arm).
+  ///
+  /// 🔴 THIS IS THE ONE STALL WITH A ROUTE. The other two refusals on this path
+  /// both mean 「nothing was selected」 — [sttStallConfigMissing] because nothing
+  /// is configured, [sttStallPoolNoRoute] because the platform's pool declined.
+  /// Here the engine exists, is configured, was chosen, and simply does not know
+  /// the language. Saying 「no engine is configured」 to someone looking at their
+  /// configured engine is a contradiction, which is precisely why the code was
+  /// minted rather than folded.
+  ///
+  /// ⚠️ IT NAMES TWO ACTIONS, NOT ONE, because either really works and only the
+  /// user knows which suits them: point this language at a different engine, or
+  /// speak one the current engine knows. A single instruction would be a guess
+  /// about which of the two they would rather do.
+  ///
+  /// 🔴 WHAT IT REPLACES ON SCREEN, measured: on a self-hosted box the built-in
+  /// engine took French and answered 「La Mer.」 — a clean exit, no error, the
+  /// requested language echoed back (WP-3 §2, real audio). The user saw a
+  /// two-word "transcript" of a 22-word sentence and had nothing to act on. The
+  /// refusal converts silence-reporting-success into a sentence.
+  ///
+  /// Mirrors `ERROR_CODES.STT_LANGUAGE_UNSUPPORTED`. Hand-maintained for the
+  /// usual reason (the phone cannot import TypeScript, and nothing binds the two
+  /// tables — the open account in CLAUDE.md). Without it the code prints as
+  /// 「转写引擎报错（STT_LANGUAGE_UNSUPPORTED）」, a raw identifier: the 0.2.53
+  /// shape for the seventh time in this file.
+  String get sttStallLanguageUnsupported => _lfSttStallLanguageUnsupported;
+
   /// `QUOTA_EXCEEDED` — the account's monthly transcription allowance is spent
   /// (QTA-1, 2026-08-15). The server refuses at the `audio:start` entry, before
   /// any engine is picked.
@@ -323,6 +353,11 @@ mixin RecordingStrings on AppStringsLeaves {
       if (code == 'STT_NO_ENGINE_REACHED') return sttStallNoEngineReached;
       // Card C1: the platform pool refused. NOT an engine speaking — see its doc.
       if (code == 'STT_POOL_NO_ROUTE') return sttStallPoolNoRoute;
+      // 2026-08-17: a route WAS found and the engine cannot do this language.
+      // Ordered after the two 「nothing selected」 codes so the reading order of
+      // this list matches the order of the questions: is anything configured,
+      // did the platform give us a line, can what we got do the job.
+      if (code == 'STT_LANGUAGE_UNSUPPORTED') return sttStallLanguageUnsupported;
       if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
       // Neither of these two is an engine speaking — see their own docs above.
       if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;
@@ -380,7 +415,9 @@ mixin RecordingStrings on AppStringsLeaves {
       _lfRecNoSound;
 
   /// 📍 soft-segment counter. Kept as the demo's technical 「seg N」label in both
-  /// languages (docs/ui-design/demo/mobile.html frame 3), like [langEn].
+  /// languages (docs/ui-design/demo/mobile.html frame 3) — a deliberately
+  /// untranslated technical chip (the same ruling that keeps language names
+  /// as endonyms).
   String recSegments(int n) => _lfRecSegments(n);
 
   /// 📡 link row — the panel shows the CONNECTION STATE, never an invented

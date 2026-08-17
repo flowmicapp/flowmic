@@ -481,25 +481,33 @@ export async function clearCloudKey(): Promise<CloudStatus> {
 // only caller, and both channels are resident anyway. A binding whose command no
 // longer exists is worse than no binding — it fails at runtime only.
 
-/** Open the desktop diagnostics directory in the system file manager.
+/** The second calling convention this boundary has, named once.
  *
- * Deliberately NOT routed through `invokeSafe`: that helper folds every rejection
- * into `undefined` and a console.warn, which would throw away the one thing this
- * call produces on failure — the reason. "the log directory doesn't exist at all" and "the shell won't open"
- * are different problems with different fixes, and this is the forensic path; a
- * forensic feature whose own failure is unreadable is the joke it exists to prevent.
- * The reason goes to the user AND to window-forensics.log. */
-export async function openLogDirectory(): Promise<{ ok: true } | { ok: false; reason: string }> {
+ *  ⚠️ EXPORTED FOR THE SPLIT FILES (`bridge-permissions.ts`), same rule as
+ *  `invokeSafe` above: a new caller outside this family should be adding a door
+ *  HERE. It exists because `invokeSafe`'s single `undefined` is the wrong shape
+ *  for a command whose ONLY product on failure is the reason — "the pane does
+ *  not exist" and "the shell would not start" are different problems with
+ *  different fixes, and a console.warn is not a place a user can read.
+ *
+ *  🔴 `ok:true` means the command RETURNED, nothing more. Whether whatever it
+ *  asked the OS to do actually happened is a separate question each caller must
+ *  answer for itself — see `openAccessibilitySettings`, which does. */
+export async function invokeVerbose(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (!hasTauri()) return { ok: false, reason: 'bridge unavailable (not running under Tauri)' };
   try {
-    await invoke<boolean>('open_log_directory');
+    await invoke<unknown>(cmd, args);
     return { ok: true };
   } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
-    appendForensic('logdir', `open failed: ${reason}`);
-    return { ok: false, reason };
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// `openLogDirectory` MOVED to ./bridge-os.ts (0.3.8, the 800-line cap) with the
+// two Accessibility doors — that file's header has the cut and the one caller.
 
 // ── autostart, "launch at startup" (开机自启) (V2-10) ──
 // The toggle in Settings → Preferences (设置→偏好) reads its displayed state from the SYSTEM registry on

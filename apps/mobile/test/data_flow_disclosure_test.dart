@@ -646,26 +646,39 @@ void main() {
               'moves them.',
         );
       }
-      expect(
-        line,
-        contains(kLanKillSwitch),
-        reason:
-            '$loc: the LAN paragraph does not name $kLanKillSwitch. Claim ① is '
-            'written as a condition precisely because this switch can turn it '
-            'off; without naming it the condition has no referent.',
-      );
-      for (final String m in kLanKillSwitchCost[loc]!) {
-        expect(
-          line,
-          contains(m),
-          reason:
-              '$loc: the switch is described without what it costs (「$m」). W6R: '
-              'it is NOT a rollback — phones paired under TLS can no longer '
-              'connect and are told only that the connection failed, and '
-              'delete-and-re-pair is the only recovery. Naming the switch '
-              'without this half strands the user.',
-        );
+      // 🔴 In-place correction (WP3 C16, 2026-08-18): the two REQUIRED
+      // kill-switch assertions that stood here are retired, not weakened by
+      // stealth. Owner 2026-08-17 ruled the disclosure surfaces down to a
+      // diagram with short captions, with the fine print behind the web
+      // links; the FLOWMIC_LAN_TLS=0 mechanics — an operator-side env toggle,
+      // its lockout cost, and the delete-and-re-pair recovery — moved to
+      // docs/legal/privacy-policy.md (its LAN channel section already carried
+      // all three), and `discDetailsOnSite` is the on-screen pointer. Claim ①
+      // keeps its referent without the switch: the condition is now 「how the
+      // pairing was made」, which the copy states directly.
+      //
+      // ⚠️ What survives of W6R's rule is the TRAVEL-TOGETHER half, as a
+      // conditional: if any future copy edit brings the switch's name back
+      // onto this screen, its cost must come back with it — naming the switch
+      // without the cost is the exact stranded-user state W6R found.
+      if (line.contains(kLanKillSwitch)) {
+        for (final String m in kLanKillSwitchCost[loc]!) {
+          expect(
+            line,
+            contains(m),
+            reason:
+                '$loc: the switch came back without what it costs (「$m」). W6R: '
+                'it is NOT a rollback — phones paired under TLS can no longer '
+                'connect, and delete-and-re-pair is the only recovery.',
+          );
+        }
       }
+      // The pointer to where the moved fine print lives must itself be real.
+      expect(
+        s.discDetailsOnSite.trim(),
+        isNotEmpty,
+        reason: '$loc: the moved LAN fine print has no on-screen pointer',
+      );
     }
   });
 

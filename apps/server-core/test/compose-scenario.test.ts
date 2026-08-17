@@ -141,9 +141,9 @@ describe('resolveScenarioContext — merges the three sources', () => {
 describe('resolveLlmConfigWithSource — inline, preset overlay, byok, fail-loud', () => {
   it('reads a full inline config and decrypts the api_key on the way (repo path)', () => {
     const db = freshDb();
-    db.settings.write(U, 'llm.config', { protocol: 'openai-compatible', endpoint: 'http://100.64.7.179:8000/v1', api_key: 'EMPTY', model: 'Qwen3.5-4B' });
+    db.settings.write(U, 'llm.config', { protocol: 'openai-compatible', endpoint: 'http://localhost:8000/v1', api_key: 'EMPTY', model: 'Qwen3.5-4B' });
     const selected = resolveLlmConfigWithSource(db.settings, U);
-    expect(selected.cfg).toEqual({ protocol: 'openai-compatible', endpoint: 'http://100.64.7.179:8000/v1', api_key: 'EMPTY', model: 'Qwen3.5-4B' });
+    expect(selected.cfg).toEqual({ protocol: 'openai-compatible', endpoint: 'http://localhost:8000/v1', api_key: 'EMPTY', model: 'Qwen3.5-4B' });
     expect(selected.source).toBe('user');
     expect(resolveByokLlm(selected)).toBe(false); // 'EMPTY' is the platform sentinel
   });
@@ -153,7 +153,7 @@ describe('resolveLlmConfigWithSource — inline, preset overlay, byok, fail-loud
     db.settings.write(U, 'llm.config', { preset_id: 'lan-ollama-gemma3', model: 'gemma3:27b' });
     const cfg = resolveLlmConfigWithSource(db.settings, U).cfg;
     expect(cfg.protocol).toBe('openai-compatible');
-    expect(cfg.endpoint).toBe('http://100.64.7.68:11434/v1');
+    expect(cfg.endpoint).toBe('http://localhost:11434/v1');
     expect(cfg.model).toBe('gemma3:27b'); // explicit override wins
   });
 
@@ -300,7 +300,7 @@ describe('M4 — a platform managed-default LLM key is NEVER BYOK', () => {
     const selected = resolveLlmConfigWithSource(db.settings, U, () => managedLlmConfig({} as NodeJS.ProcessEnv));
     expect(selected.source).toBe('seed');
     expect(selected.cfg.endpoint).not.toBe('https://api.deepseek.com/v1');
-    expect(selected.cfg.model).toBe('/mnt/nvme-data/vllm-work/models/Qwen3.5-4B');
+    expect(selected.cfg.model).toBe('Qwen3.5-4B');
     // Today's seeded preset carries the 'EMPTY' sentinel, so it was already metered
     // before provenance existed. It is now metered for the RIGHT reason (whose row
     // it is), which is what keeps it false if the seed ever gains a real key.

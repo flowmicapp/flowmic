@@ -32,11 +32,12 @@ import {
   fetchSidecarState,
   navigateMain,
   onChannel,
-  openLogDirectory,
   setAutostartEnabled,
   type AutostartInfo,
   type SidecarStatus,
 } from '../lib/bridge';
+// 0.3.8 — the OS-owned doors moved out of bridge.ts when the 800-line cap bit.
+import { openLogDirectory } from '../lib/bridge-os';
 import { settingsSyncNotice } from '../lib/settings-sync-notice';
 import {
   asCloudStatus,

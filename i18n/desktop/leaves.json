@@ -3599,6 +3599,48 @@
       "params": [
         "n"
       ]
+    },
+    {
+      "key": "perm_ax_title",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_title"
+    },
+    {
+      "key": "perm_ax_body",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_body"
+    },
+    {
+      "key": "perm_ax_how",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_how"
+    },
+    {
+      "key": "perm_ax_pane",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_pane"
+    },
+    {
+      "key": "perm_ax_open",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_open"
+    },
+    {
+      "key": "perm_ax_selfclears",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_selfclears"
+    },
+    {
+      "key": "perm_ax_open_failed",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_open_failed"
     }
   ]
 }

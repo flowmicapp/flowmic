@@ -10,6 +10,8 @@ import {
 } from '../src/stt/engine-router';
 import { managedDefaultRouting } from '../src/stt/managed-default';
 import { defaultEngineFactory, resolveByok } from '../src/stt/engine-factory';
+import { sherpaModelCanRecognize } from '../src/stt/sherpa/model-manifest';
+import { UI_LOCALES } from '@flowmic/protocol';
 import type { SttEngineId } from '@flowmic/protocol';
 import type { SttEngine, SttEngineConfig } from '../src/stt/engines/base';
 
@@ -139,5 +141,79 @@ describe('defaultEngineFactory — id → constructor switch (all 7)', () => {
       const e = defaultEngineFactory(id, { id, language: 'zh', sample_rate: 16_000 });
       expect(e.id).toBe(id);
     }
+  });
+});
+
+// ── WP3 C13 (2026-08-18): the built-in engine refuses what its model cannot do ──
+describe('sherpa-local refuses a language outside its model, BY NAME', () => {
+  const cfg = (language: string) =>
+    ({ id: 'sherpa-local', language, sample_rate: 16_000 }) as const;
+
+  // DERIVED from the registry, not hand-rolled (the i18n-add-locale-cost gate
+  // is right to bite here): the product's wire tags are the registry codes'
+  // base forms, so a tenth language lands on the correct SIDE of this split
+  // the day its registry row exists, with no edit to this file.
+  const wireTags = [...new Set(UI_LOCALES.map((l) => l.code.split('-')[0]!))];
+  const refused = wireTags.filter((t) => !sherpaModelCanRecognize(t));
+  const accepted = wireTags.filter((t) => sherpaModelCanRecognize(t));
+
+  it('🔴 the spoken languages the model does not know are refused with STT_LANGUAGE_UNSUPPORTED — never "recognised" as something nearby', () => {
+    // Measured (WP3 handback): these came back as punctuation dressed as a
+    // transcript with a clean exit ('de' → 「.」). The refusal replaces that.
+    // Positive control on the derivation itself: today that set is exactly the
+    // four languages WP3 added to the spoken picker.
+    expect(refused.sort()).toEqual(['de', 'es', 'fr', 'ru']);
+    for (const lang of refused) {
+      let thrown: unknown;
+      try { defaultEngineFactory('sherpa-local', cfg(lang)); } catch (e) { thrown = e; }
+      expect(thrown, lang).toBeInstanceOf(SttConfigMissingError);
+      // ⚠️ THIS ASSERTION SAID `STT_CONFIG_MISSING` FOR ONE ROUND, and it was
+      // correct then: WP3 shipped the nearest TRUE code while the precise one
+      // was owner-pending. owner granted it 2026-08-17. The old code is not
+      // wrong here so much as misdirecting — it tells a reader nothing is
+      // configured while they are looking at the engine that is.
+      expect((thrown as SttConfigMissingError).code, lang).toBe('STT_LANGUAGE_UNSUPPORTED');
+      // 🔴 The diagnostic message travels to a support log and must not have
+      // inherited the old sentence — a message/code pair that disagrees is
+      // worse than either alone, because only one of them is ever read.
+      expect((thrown as Error).message, lang).toContain('cannot recognise');
+      expect((thrown as Error).message, lang).not.toContain('No STT engine configured');
+    }
+  });
+
+  // 🔴 THE OTHER TWO REFUSALS MUST NOT HAVE MOVED. Minting a code is only safe
+  // if the codes it was folded into keep their own meanings, and this is the
+  // positive control that says so rather than a paragraph claiming it.
+  it('a language with NO route at all still answers STT_CONFIG_MISSING — the new code narrowed nothing else', () => {
+    const router = makeEngineRouter({});
+    let thrown: unknown;
+    try { router.pickEngine('de', [], defaultEngineFactory); } catch (e) { thrown = e; }
+    expect(thrown).toBeInstanceOf(SttConfigMissingError);
+    expect((thrown as SttConfigMissingError).code).toBe('STT_CONFIG_MISSING');
+    expect((thrown as Error).message).toContain('No STT engine configured');
+  });
+
+  it("the model's languages, the wildcard, auto, and a region-tagged form all still construct", () => {
+    for (const lang of [...accepted, 'yue', '*', 'auto', 'zh-CN', '']) {
+      const e = defaultEngineFactory('sherpa-local', cfg(lang));
+      expect(e.id, lang).toBe('sherpa-local');
+    }
+  });
+
+  it('the refusal is the FACTORY arm, not the routing layer — a seeded wildcard row that selects sherpa still refuses at construction', () => {
+    // The exact production shape of a stranger's first boot: no user rows, no
+    // managed default, the seeded '*' row points at the built-in engine. The
+    // selection legitimately matches (the wildcard IS the general-purpose
+    // entry point); the refusal must come from the layer that knows the
+    // MODEL — otherwise the route "works" and the recogniser answers 「.」.
+    const seeded: Routing[] = [
+      { language: 'zh', engine_id: 'sherpa-local', provenance: 'seed' },
+      { language: '*', engine_id: 'sherpa-local', provenance: 'seed' },
+    ];
+    const router = makeEngineRouter({});
+    expect(() => router.pickEngine('de', seeded, defaultEngineFactory))
+      .toThrow(SttConfigMissingError);
+    // Positive control on the same wiring: a language the model knows builds.
+    expect(router.pickEngine('ja', seeded, defaultEngineFactory).id).toBe('sherpa-local');
   });
 });

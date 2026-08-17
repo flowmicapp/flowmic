@@ -429,9 +429,36 @@ pub fn update_apply(app: AppHandle, state: State<'_, UpdateState>) -> UpdateStat
             ) {
                 crate::forensic::record("update", &format!("breadcrumb write failed: {}", e.kind()));
             }
-            update::msi::launch_installer(&pkg_path).map(|pid| {
-                crate::forensic::record("update", &format!("msiexec started (pid {pid})"));
-            })
+            // 0.3.8 — the installer is started BY A DETACHED COPY OF THIS BINARY,
+            // which then waits on it and starts the app again. Before this, we
+            // spawned msiexec ourselves and exited, and the install succeeded
+            // while「新版本也没启动起来」("the new version never started"), with the
+            // instruction to reopen it printed on the window this chain closes.
+            // See update/msi.rs for why the relaunch is not a WiX change.
+            let source = std::env::current_exe();
+            match source {
+                Ok(source) => update::msi::spawn_installer_runner(
+                    &update::msi::InstallJob {
+                        package: pkg_path.clone(),
+                        // MSI upgrades replace the file at this path, so it names
+                        // the new build afterwards — and the old one if nothing
+                        // was installed, which is the point.
+                        relaunch_exe: source.clone(),
+                        from: from.clone(),
+                        to: to.clone(),
+                    },
+                    &source,
+                )
+                .map(|pid| {
+                    crate::forensic::record("update", &format!("installer runner started (pid {pid})"));
+                }),
+                // Refused rather than improvised: without our own path there is
+                // nothing to relaunch, and starting msiexec anyway would recreate
+                // exactly the defect this replaces.
+                Err(e) => Err(UpdateFailure::InstallerNotLaunched {
+                    detail: format!("current_exe:{}", e.kind()),
+                }),
+            }
         }
         // A verified package that does not match this form. Refused rather than
         // improvised: handing an MSI to the portable swap (or the reverse) is a

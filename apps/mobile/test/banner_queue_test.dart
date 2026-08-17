@@ -578,6 +578,74 @@ void main() {
           contains('Nothing on this phone'));
     });
 
+    // ── owner grant 2026-08-17: the engine WAS found and cannot do it ────────
+    //
+    // The third refusal on this path, and the only one where a route exists.
+    // Server side: `stt/engine-factory.ts` now names it `STT_LANGUAGE_UNSUPPORTED`
+    // instead of `STT_CONFIG_MISSING`, which WP-3 shipped as the nearest TRUE
+    // code while the grant was pending. Without a sentence HERE that grant only
+    // moves the defect: the build would print 「转写引擎报错
+    // （STT_LANGUAGE_UNSUPPORTED）」 — a raw identifier, and a WORSE read than the
+    // sentence it replaced. Re-pointing a wire code and giving it a sentence are
+    // one piece of work; only the first half has a compiler behind it.
+    //
+    // REVERSE CONTROL (executed 2026-08-17). Break: delete
+    // `if (code == 'STT_LANGUAGE_UNSUPPORTED') return sttStallLanguageUnsupported;`
+    // from `sttStallBannerMessage` (recording_strings.dart).
+    // OBSERVED: one red, this test, on the first locale:
+    //   Actual: 'Speech engine reported an error (STT_LANGUAGE_UNSUPPORTED)'
+    // — the raw-identifier fallback, verbatim. Every other case in this group
+    // stayed green, including the fallback for a genuinely unknown code, so the
+    // break is one arm wide. Restored; suite back to green.
+    test('STT_LANGUAGE_UNSUPPORTED gets its own nine-language sentence — never '
+        'the "nothing configured" copy, never a bare identifier', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'STT_LANGUAGE_UNSUPPORTED',
+            message: 'The selected STT engine cannot recognise language fr',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallLanguageUnsupported, reason: '$locale');
+        expect(
+          q.top!.message,
+          isNot(s.sttStallEngineErrorCoded('STT_LANGUAGE_UNSUPPORTED')),
+          reason: '$locale',
+        );
+        expect(q.top!.message, isNot(contains('STT_LANGUAGE_UNSUPPORTED')),
+            reason: '$locale');
+        // 🔴 And not any of the three neighbours. Four refusals now share this
+        // path and they send the user to four different places; two reading
+        // alike is the fold the grant was spent to avoid.
+        expect(q.top!.message, isNot(s.sttStallConfigMissing), reason: '$locale');
+        expect(q.top!.message, isNot(s.sttStallPoolNoRoute), reason: '$locale');
+        expect(q.top!.message, isNot(s.sttStallNoEngineReached), reason: '$locale');
+      }
+      // 🔴 THE CLAIM BEING RETIRED. The old code told the reader nothing was
+      // configured while they were looking at the engine that is; this sentence
+      // must not carry that shape in either spelling this suite can pin.
+      expect(zh.sttStallLanguageUnsupported, isNot(contains('尚未配置')));
+      expect(AppStrings.of(AppLocale.en).sttStallLanguageUnsupported,
+          isNot(contains('No STT engine configured')));
+      // …nor the neighbour's advice: saying it again re-runs the same refusal.
+      expect(zh.sttStallLanguageUnsupported, isNot(contains('重新说一次')));
+      expect(AppStrings.of(AppLocale.en).sttStallLanguageUnsupported,
+          isNot(contains('Say it again')));
+      // ⚠️ IT NAMES BOTH ACTIONS, and that is the product decision, not a style
+      // note: either genuinely works and only the user knows which suits them.
+      expect(AppStrings.of(AppLocale.en).sttStallLanguageUnsupported,
+          contains('settings'));
+      expect(AppStrings.of(AppLocale.en).sttStallLanguageUnsupported,
+          contains('speak'));
+      expect(zh.sttStallLanguageUnsupported, contains('设置'));
+    });
+
     test('ENG-3: a code-less engine stall keeps the pre-existing generic '
         'sentence byte-for-byte', () {
       final BannerQueue q = buildChatBanners(

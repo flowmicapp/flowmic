@@ -71,6 +71,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'composeCardDeliver': (AppStrings s) => s.composeCardDeliver,
     'composeCardDiscard': (AppStrings s) => s.composeCardDiscard,
     'composeCardHeader': (AppStrings s) => s.composeCardHeader,
+    'composeCardSaveNoted': (AppStrings s) => s.composeCardSaveNoted,
     'composeCollapse': (AppStrings s) => s.composeCollapse,
     'composeDisabled': (AppStrings s) => s.composeDisabled,
     'composeEntryStrip': (AppStrings s) => s.composeEntryStrip,
@@ -115,6 +116,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'diagUploadNoSink': (AppStrings s) => s.diagUploadNoSink,
     'diagUploadUnreachable': (AppStrings s) => s.diagUploadUnreachable,
     'discCopyLink': (AppStrings s) => s.discCopyLink,
+    'discDetailsOnSite': (AppStrings s) => s.discDetailsOnSite,
     'discEntry': (AppStrings s) => s.discEntry,
     'discEntrySub': (AppStrings s) => s.discEntrySub,
     'discLead': (AppStrings s) => s.discLead,
@@ -150,6 +152,8 @@ final Map<String, String Function(AppStrings)> _getters =
     'emailHint': (AppStrings s) => s.emailHint,
     'enterCloudInstance': (AppStrings s) => s.enterCloudInstance,
     'entryCopy': (AppStrings s) => s.entryCopy,
+    'entryCopyOriginal': (AppStrings s) => s.entryCopyOriginal,
+    'entryCopyOriginalSub': (AppStrings s) => s.entryCopyOriginalSub,
     'entryCopyPreview': (AppStrings s) => s.entryCopyPreview,
     'entryEdit': (AppStrings s) => s.entryEdit,
     'entryReInject': (AppStrings s) => s.entryReInject,
@@ -200,6 +204,8 @@ final Map<String, String Function(AppStrings)> _getters =
     'guideStatusOffline': (AppStrings s) => s.guideStatusOffline,
     'guideStatusOnline': (AppStrings s) => s.guideStatusOnline,
     'guideStatusPcOffline': (AppStrings s) => s.guideStatusPcOffline,
+    'guideStatusPcOtherAccount': (AppStrings s) => s.guideStatusPcOtherAccount,
+    'guideStatusPcSignedOut': (AppStrings s) => s.guideStatusPcSignedOut,
     'guideStatusRelayOnly': (AppStrings s) => s.guideStatusRelayOnly,
     'guideStatusTitle': (AppStrings s) => s.guideStatusTitle,
     'guideStatusUnmeasured': (AppStrings s) => s.guideStatusUnmeasured,
@@ -241,10 +247,6 @@ final Map<String, String Function(AppStrings)> _getters =
     'keyEnterHint': (AppStrings s) => s.keyEnterHint,
     'keyUndo': (AppStrings s) => s.keyUndo,
     'keyUndoHint': (AppStrings s) => s.keyUndoHint,
-    'langEn': (AppStrings s) => s.langEn,
-    'langJa': (AppStrings s) => s.langJa,
-    'langKo': (AppStrings s) => s.langKo,
-    'langZh': (AppStrings s) => s.langZh,
     'lastKnownCloudRelay': (AppStrings s) => s.lastKnownCloudRelay,
     'lastKnownLocalLan': (AppStrings s) => s.lastKnownLocalLan,
     'lightRecordImageNoOriginal': (AppStrings s) => s.lightRecordImageNoOriginal,
@@ -307,6 +309,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'pairNeedAddress': (AppStrings s) => s.pairNeedAddress,
     'pairNeedCode': (AppStrings s) => s.pairNeedCode,
     'pairNeedPcid': (AppStrings s) => s.pairNeedPcid,
+    'pairScanAgain': (AppStrings s) => s.pairScanAgain,
     'pairScanDenied': (AppStrings s) => s.pairScanDenied,
     'pairScanForeign': (AppStrings s) => s.pairScanForeign,
     'pairScanHint': (AppStrings s) => s.pairScanHint,
@@ -315,12 +318,15 @@ final Map<String, String Function(AppStrings)> _getters =
     'pairTabManual': (AppStrings s) => s.pairTabManual,
     'pairTabScan': (AppStrings s) => s.pairTabScan,
     'pairing': (AppStrings s) => s.pairing,
+    'pairingRevokedChip': (AppStrings s) => s.pairingRevokedChip,
     'passwordHint': (AppStrings s) => s.passwordHint,
     'pcAddressHint': (AppStrings s) => s.pcAddressHint,
     'pcAddressLabel': (AppStrings s) => s.pcAddressLabel,
     'pcKeysGroupLabel': (AppStrings s) => s.pcKeysGroupLabel,
     'pcKeysUnavailableNoted': (AppStrings s) => s.pcKeysUnavailableNoted,
     'pcOfflineChip': (AppStrings s) => s.pcOfflineChip,
+    'pcOtherAccountChip': (AppStrings s) => s.pcOtherAccountChip,
+    'pcSignedOutChip': (AppStrings s) => s.pcSignedOutChip,
     'pcidInputHint': (AppStrings s) => s.pcidInputHint,
     'pcidLabel': (AppStrings s) => s.pcidLabel,
     'plusPanelTitle': (AppStrings s) => s.plusPanelTitle,
@@ -335,6 +341,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'pttJustDone': (AppStrings s) => s.pttJustDone,
     'pttProcessing': (AppStrings s) => s.pttProcessing,
     'pttRecording': (AppStrings s) => s.pttRecording,
+    'pttStartingMic': (AppStrings s) => s.pttStartingMic,
     'pttSubDirect': (AppStrings s) => s.pttSubDirect,
     'pttSubDisabled': (AppStrings s) => s.pttSubDisabled,
     'pttSubManual': (AppStrings s) => s.pttSubManual,
@@ -428,7 +435,12 @@ final Map<String, String Function(AppStrings)> _getters =
     'statusRefused': (AppStrings s) => s.statusRefused,
     'statusUndelivered': (AppStrings s) => s.statusUndelivered,
     'sttStallConfigMissing': (AppStrings s) => s.sttStallConfigMissing,
+    'sttStallLanguageUnsupported': (AppStrings s) => s.sttStallLanguageUnsupported,
     'sttStallNoEngineReached': (AppStrings s) => s.sttStallNoEngineReached,
+    'sttStallPoolNoRoute': (AppStrings s) => s.sttStallPoolNoRoute,
+    'sttStallQuotaExceeded': (AppStrings s) => s.sttStallQuotaExceeded,
+    'sttStallServerFault': (AppStrings s) => s.sttStallServerFault,
+    'sttStallSettingsInvalid': (AppStrings s) => s.sttStallSettingsInvalid,
     'syncPendingNote': (AppStrings s) => s.syncPendingNote,
     'tabLogin': (AppStrings s) => s.tabLogin,
     'tapToConnect': (AppStrings s) => s.tapToConnect,
@@ -443,6 +455,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'themeLight': (AppStrings s) => s.themeLight,
     'themeSystem': (AppStrings s) => s.themeSystem,
     'themeTitle': (AppStrings s) => s.themeTitle,
+    'translateTargetSheetTitle': (AppStrings s) => s.translateTargetSheetTitle,
     'uiLanguage': (AppStrings s) => s.uiLanguage,
     'unknownInstance': (AppStrings s) => s.unknownInstance,
     'updateAutoCheckLabel': (AppStrings s) => s.updateAutoCheckLabel,
@@ -492,29 +505,10 @@ void main() {
     if (!file.existsSync()) {
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(now));
-      // A run that only WROTE the baseline has compared nothing, and a silent
-      // green tick would be the most misleading possible result. It used to
-      // `fail()` for that reason — correct on the machine this was written on,
-      // where the baseline already existed and its absence meant someone had
-      // deleted it.
-      //
-      // 🔴 CORRECTED 2026-08-14: the baseline lives under .local/, which is
-      // gitignored, so it is absent on EVERY fresh clone and in every CI run.
-      // Failing there means the first command CONTRIBUTING asks a contributor to
-      // run is red for everyone, once, with a message about re-running — and in
-      // CI, which starts clean each time, it is red FOREVER while proving
-      // nothing. Measured inside an exported tree on the day this was written.
-      //
-      // So the first run now says exactly what it did and stops, rather than
-      // claiming a comparison it did not make. The protection is unchanged where
-      // it matters: on any run that HAS a baseline (this machine, and CI once it
-      // caches one), a drifted string still fails below.
-      markTestSkipped(
-        'baseline did not exist and was just written '
-        '(${now.values.first.length} getters x ${now.length} locales). '
-        'NOTHING WAS COMPARED in this run — re-run to compare against it.',
-      );
-      return;
+      // Fail loudly rather than passing: a run that only WROTE the baseline has
+      // compared nothing, and a green tick there would be the most misleading
+      // possible result.
+      fail('golden written (${now.values.first.length} getters x ${now.length} locales) — re-run to compare');
     }
 
     final Map<String, dynamic> golden =

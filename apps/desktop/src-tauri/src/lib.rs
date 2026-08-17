@@ -159,6 +159,22 @@ pub fn run() {
         return;
     }
 
+    // 0.3.8 — the MSI chain's sibling of the above, under the same rule and for
+    // the same reason: this copy runs the installer, waits for it, and starts the
+    // application again. Taking the instance lock here would be holding the lock
+    // the app it is about to start needs, so it is intercepted at the same depth.
+    //
+    // 🔴 AFTER the mover's intercept, not before, because the two flags are
+    // mutually exclusive and the mover's is the older contract — a process that
+    // somehow carried both should behave the way it always did.
+    if update::msi::intercept() {
+        exit_reason::record_exit(
+            exit_reason::ExitPath::UpdateMoverFinished,
+            &exit_reason::ExitContext::from_process(),
+        );
+        return;
+    }
+
     // From here down this process IS the application, so its lifetime becomes a
     // fact worth carrying to the exit line ("it had been up 3d02h" is the
     // difference between 「the user quit」 and 「it just died on its own」).
@@ -287,6 +303,8 @@ pub fn run() {
             Some(vec![shell::autostart::AUTOSTART_ARG]),
         ))
         .invoke_handler(tauri::generate_handler![
+            shell::accessibility::accessibility_status,
+            shell::accessibility::open_accessibility_settings,
             shell::settings_update,
             shell::settings_list,
             // 0.2.27: `history_list` / `history_update` / `history_delete` /

@@ -69,15 +69,26 @@ pub const JOB_FILE_NAME: &str = "swap-job.json";
 /// parse is testable against fabricated command lines. Matches `--flag value`;
 /// a flag with no value is `None`, because a mover with no job is not a mover.
 pub fn job_path_from_args(args: &[String]) -> Option<PathBuf> {
+    job_path_for(APPLY_UPDATE_ARG, args)
+}
+
+/// The same parse, for any of this crate's job-carrying flags.
+///
+/// Generalised (0.3.8) when the MSI chain grew its own detached helper — see
+/// `msi::RUN_INSTALLER_ARG`. One parser, so the two flags cannot acquire
+/// different opinions about `--flag=value`; a second copy is how the two would
+/// drift, and the drift would only show up as a detached process that quietly
+/// starts the normal app instead of doing its job.
+pub fn job_path_for(flag: &str, args: &[String]) -> Option<PathBuf> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        if a == APPLY_UPDATE_ARG {
+        if a == flag {
             return it.next().map(PathBuf::from);
         }
         // `--flag=value` — accepted because it is the spelling a human debugging
         // this will reach for first, and refusing it would produce a process that
         // silently starts the normal app instead of moving anything.
-        if let Some(rest) = a.strip_prefix(&format!("{APPLY_UPDATE_ARG}=")) {
+        if let Some(rest) = a.strip_prefix(&format!("{flag}=")) {
             if !rest.is_empty() {
                 return Some(PathBuf::from(rest));
             }
@@ -175,7 +186,7 @@ fn run_swap_with(
                 "update",
                 &format!("mover FAILED — {detail} (rolled back: {rolled_back})"),
             );
-            note_outcome(job, breadcrumb_dir, detail);
+            note_outcome_for(&job.to, breadcrumb_dir, detail);
             // The old tree is back (or never left). Start it, so the user gets
             // their application back without having to find the icon themselves.
             if *rolled_back || detail.starts_with("nothing_moved") {
@@ -187,27 +198,31 @@ fn run_swap_with(
     outcome
 }
 
-/// Append the mover's verdict to the breadcrumb the app left behind.
+/// Append a detached helper's verdict to the breadcrumb the app left behind.
 ///
 /// 🔴 This is the ONLY way a failure that happened after the app exited can reach
 /// a user. Read-modify-write rather than a fresh file: the app owns `from`/`to`
-/// and the mover owns `detail`, and inventing the first two here would put a
+/// and the helper owns `detail`, and inventing the first two here would put a
 /// second author on fields that already have one.
 ///
 /// `dir` is a parameter for the same reason `breadcrumb::write_in`'s is — and for
 /// one more: a test that reached this line while it resolved `%LOCALAPPDATA%`
 /// itself would be rewriting the developer's own pending-update file.
-fn note_outcome(job: &SwapJob, dir: &Path, detail: &str) {
+///
+/// ⚠️ `to` rather than a whole job (0.3.8): both detached helpers annotate the
+/// same file now, and 「is this attempt mine to annotate」 is the same question
+/// for both. The MSI runner passes its own `to` — see `msi::run_install_with`.
+pub(crate) fn note_outcome_for(to: &str, dir: &Path, detail: &str) {
     let Some(mut crumb) = breadcrumb::read_in(dir) else {
         // No breadcrumb to annotate. Do not fabricate one: a breadcrumb the app
         // never wrote would claim an attempt the app does not know it made.
         crate::forensic::record(
             "update",
-            &format!("mover has no breadcrumb to annotate (detail was: {detail})"),
+            &format!("helper has no breadcrumb to annotate (detail was: {detail})"),
         );
         return;
     };
-    if crumb.to != job.to {
+    if crumb.to != to {
         // Somebody else's attempt. Leave it alone.
         return;
     }

@@ -45,6 +45,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { RANGES, CONTROL } from './scan-artifact-lan-ip.mjs';
+// The account itself, not just the number derived from it — see §1 on why a
+// budget of 0 and a missing row must not read the same.
+import { WAIVERS } from '../verify/lint/no-lan-ip.mjs';
 import {
   DECLARED_CARRIERS,
   LAN_IP_SCAN_TARGETS,
@@ -117,7 +120,25 @@ section('§1 the gate reads the artifacts about to ship, not last round’s outp
     !LAN_IP_SCAN_TARGETS.some((t) => t === 'publish' || t.startsWith('publish/')),
     'publish/ is deliberately NOT a target (it holds the previous round at gate time)',
   );
-  assertTrue(BUDGET > 0, `the declared preset-catalogue budget is a real number (${BUDGET})`);
+  // 🔴 THIS ASSERTION USED TO BE `BUDGET > 0`, AND 0.3.8 MADE IT FALSE ON A
+  // CORRECT TREE. The catalogue stopped carrying the owner's office addresses
+  // (owner 2026-08-17: no built-in personalised configuration in the STT/LLM
+  // settings), so the declared budget is legitimately 0 — and the old assertion
+  // was the only thing standing between「the account says zero because the
+  // catalogue is clean」and「the account says zero because the waiver row
+  // vanished」. Deleting it would have thrown that distinction away, which is
+  // the same 「unknown must not share a verdict with fine」 rule this whole gate
+  // is built on.
+  //
+  // ⇒ the guard moved to the TABLE instead of the number: the row must still be
+  // there, and it must still explain itself. A missing row also yields 0 (§3
+  // pins that separately), and now the two are told apart here.
+  assertTrue(Number.isInteger(BUDGET) && BUDGET >= 0, `the declared budget is a count (${BUDGET})`);
+  {
+    const row = WAIVERS.find((w) => w.file === 'packages/protocol/src/engine-presets.ts');
+    assertTrue(row !== undefined, 'the preset catalogue still has a waiver ROW — 0 is an account, not an absence');
+    assertTrue(row?.code === BUDGET, 'and the budget this gate reads is that row’s own code count');
+  }
 }
 
 // ── §2 the four verdicts ────────────────────────────────────────────────────
@@ -129,8 +150,30 @@ section('§2 leak / blind / nothing-to-scan / ok are four different answers');
     try {
       const scan = scanPublishArtifactsForLanIp([SIDECAR_REL], root);
       assertTrue(scan.verdict === 'ok', 'declared carrier with exactly the catalogue → ok');
-      assertTrue(scan.declared.length === 1 && scan.undeclared.length === 0, '…the hits land in the DECLARED column');
+      assertTrue(scan.undeclared.length === 0, '…and nothing lands in the UNDECLARED column');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+  // (a-bis) 🔴 THE DECLARED COLUMN ITSELF, which case (a) stopped exercising the
+  // day the real budget became 0: with nothing to find, `declared` is empty for
+  // the right reason and an empty `declared` proves nothing about the machinery.
+  // So it is driven directly, with a SYNTHETIC budget — `classifyFindings` takes
+  // one precisely so this can be asked without a catalogue to point at.
+  // ⚠️ Synthetic on purpose. Making the fixture match today's real budget would
+  // re-couple this assertion to a number that is now expected to stay 0 forever,
+  // i.e. it would go quiet again and stay quiet.
+  {
+    const synthetic = 3;
+    const finding = { file: SIDECAR_REL, range: OFFICE_LAN, count: synthetic };
+    const exact = classifyFindings([finding], synthetic);
+    assertTrue(
+      exact.declared.length === 1 && exact.undeclared.length === 0,
+      'a carrier whose count IS the budget lands in the DECLARED column',
+    );
+    const fewer = classifyFindings([{ ...finding, count: synthetic - 1 }], synthetic);
+    assertTrue(
+      fewer.undeclared.length === 1,
+      '…and one FEWER is undeclared — a stale account reads as evidence somebody checked',
+    );
   }
   // (b) one address beside the catalogue → leak
   {

@@ -31,7 +31,7 @@
 > alike; most of this codebase was written by agents under these rules, and the
 > rules exist because each one was paid for with a real bug.
 
-**Current version: <!--version:current-->0.3.7<!--/version:current-->**
+**Current version: <!--version:current-->0.3.8<!--/version:current-->**
 
 ## What this is
 

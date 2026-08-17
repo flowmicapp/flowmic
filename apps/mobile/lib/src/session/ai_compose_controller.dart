@@ -51,6 +51,19 @@ abstract class AiComposeHost {
 
   /// Request a repaint.
   void aiNotify();
+
+  /// 🔴 The translate target THIS SCREEN is set to — the same field the PTT
+  /// path reads (`ChatController._translateTarget`), not a second copy.
+  ///
+  /// Added 0.3.8, when the target stopped being a two-way toggle and became a
+  /// nine-language picker. Before that this controller sent no `target_lang` at
+  /// all and the server defaulted translate to English, which was defensible
+  /// while the choice was 「中文 / English」 and the buffer was usually the
+  /// other one. It stopped being defensible the moment a user could pick
+  /// Russian: the chip said Russian, and this one path quietly produced
+  /// English. The picker and the request must read the same value or the
+  /// control is decoration.
+  String get aiTranslateTarget;
 }
 
 class AiComposeController {
@@ -194,8 +207,17 @@ class AiComposeController {
         task: task,
         sourceText: source,
         requestId: requestId,
-        // target_lang omitted on purpose: the server prompt defaults translate
-        // to `en` (compose/prompt.ts), so the phone hardcodes no pair.
+        // 🔴 0.3.8 — THIS USED TO BE OMITTED, and the comment that justified it
+        // is kept because it explains why the change was needed rather than
+        // wrong: 「target_lang omitted on purpose: the server prompt defaults
+        // translate to `en` (compose/prompt.ts), so the phone hardcodes no
+        // pair.」 True, and harmless while the choice was 中文/English. It became
+        // a silent contradiction the moment the chip became a nine-language
+        // picker: the screen said Russian and this path produced English.
+        // Now it reads the same field the PTT path reads.
+        // ⚠️ Only on `translate` — sending a target on organize/draft_polish
+        // would be handing the prompt a parameter for a job that has none.
+        targetLang: task == ComposeTask.translate ? _host.aiTranslateTarget : null,
       ),
     );
     if (!ok) {

@@ -29,10 +29,23 @@
 //      means "these bytes are not the ones we published" — it does **not**
 //      constitute "someone is attacking you"; design §2.1 explicitly notes
 //      a compromised VPS could swap out the hash along with everything else.
-//   ② Installing the MSI **must not promise an automatic restart** (§4.3 ⑥:
-//      the WiX template has no launch-after-install step at all), so
-//      `upd_msi_hint` says "please reopen FlowMic after installation
-//      completes."
+//   ② 🔴 REWRITTEN 0.3.8, and the original is kept because it was right about
+//      the mechanism and wrong about the product. It read:
+//        「Installing the MSI **must not promise an automatic restart** (§4.3 ⑥:
+//         the WiX template has no launch-after-install step at all), so
+//         `upd_msi_hint` says "please reopen FlowMic after installation
+//         completes."」
+//      True, honest, and it described a bad experience without fixing it —
+//      owner, 2026-08-17, after an MSI update of 0.3.7 that SUCCEEDED:
+//      「出现安装窗口后就没了后续，新版本也没启动起来」("an installer window
+//      appeared and then nothing, and the new version never started"). Worse,
+//      the instruction stood on the window this chain closes a second later.
+//      There is now a real relaunch (update/msi.rs — a detached copy of the
+//      running binary runs the installer, waits for it, and starts the app),
+//      so the hint SAYS it restarts itself. The rule did not go away, it moved:
+//      the sentence still names the Start-menu route, because a relaunch can
+//      fail and「it comes back by itself」alone would be a promise with no
+//      fallback for the reader who is looking at an empty desktop.
 
 import { shardCatalogue } from './shard';
 

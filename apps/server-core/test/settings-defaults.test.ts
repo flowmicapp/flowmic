@@ -198,29 +198,46 @@ describe('⓪ OSS-DEFAULTS: what a stranger who configures nothing gets', () => 
   });
 });
 
-describe("⓪-bis the owner's deployment is byte-identical to before the card", () => {
-  // 🔴 THE CONSTRAINT, MEASURED RATHER THAN ASSERTED. The card's rule is that a
-  // machine with the FLOWMIC_DEFAULT_* variables set must behave EXACTLY as it
-  // did. These are the literal values the old code produced, transcribed from
-  // the pre-card assertions further down this file — so if the seed shape ever
-  // drifts, this goes red on the owner's behalf rather than on a stranger's.
-  it('preset selection alone reproduces the old LAN seeds verbatim', () => {
+describe('⓪-bis naming a preset seeds that preset, and a host override still lands', () => {
+  // 🔴 THIS BLOCK WAS CALLED 「the owner's deployment is byte-identical to before
+  // the card」 AND THAT IS NO LONGER TRUE — 0.3.8 deliberately broke it, and the
+  // old title is kept here so the break is visible rather than quietly renamed.
+  //
+  // The 0.3.0 OSS-defaults card promised that a deployment naming the three
+  // FLOWMIC_DEFAULT_*_PRESET variables would get exactly the old LAN seeds. It
+  // could promise that because the catalogue still carried the owner's office
+  // addresses. 0.3.8 removed them (owner: no built-in personalised configuration
+  // in the STT/LLM settings), so what a named preset seeds is now the CATALOGUE
+  // value — `localhost` and a generic model.
+  //
+  // What survives, and is the half that was actually load-bearing: with
+  // FLOWMIC_DEFAULT_*_HOST set, the resolved ENDPOINTS are byte-identical to
+  // before, because the override was only ever replacing the host. The second
+  // test below is that claim, unchanged. The MODEL is not host-shaped and is
+  // therefore genuinely different — a deployment that needs a specific model
+  // path now sets it in settings, which is the point of the ruling.
+  //
+  // [measured, 2026-08-17] the one production deployment that named these
+  // variables had them RETIRED in the same change (the LA origin cannot reach
+  // that office LAN at all, and managed STT + managed LLM serve every request
+  // there), so nothing in flight depends on the old promise.
+  it('preset selection alone seeds the catalogue values', () => {
     // beforeEach already set exactly the three preset variables and no hosts.
     const zh = routings().find((r) => r.language === 'zh')!;
     const wild = routings().find((r) => r.language === '*')!;
-    expect(zh).toEqual({ language: 'zh', engine_id: 'funasr', endpoint: 'ws://100.64.7.68:10095' });
+    expect(zh).toEqual({ language: 'zh', engine_id: 'funasr', endpoint: 'ws://localhost:10095' });
     expect(wild).toEqual({
       language: '*',
       engine_id: 'custom-openai-compatible',
-      endpoint: 'http://100.64.7.68:50000/v1',
+      endpoint: 'http://localhost:50000/v1',
       model: 'SenseVoiceSmall',
       api_key: '',
     });
     expect(llm()).toEqual({
       protocol: 'openai-compatible',
-      endpoint: 'http://100.64.7.179:8000/v1',
+      endpoint: 'http://localhost:8000/v1',
       api_key: 'EMPTY',
-      model: '/mnt/nvme-data/vllm-work/models/Qwen3.5-4B',
+      model: 'Qwen3.5-4B',
     });
   });
 
@@ -236,8 +253,8 @@ describe("⓪-bis the owner's deployment is byte-identical to before the card", 
 describe('① deployment host override', () => {
   it('with the presets named and no host env, the presets are used verbatim', () => {
     const zh = routings().find((r) => r.language === 'zh')!;
-    expect(zh.endpoint).toBe('ws://100.64.7.68:10095');
-    expect(llm().endpoint).toBe('http://100.64.7.179:8000/v1');
+    expect(zh.endpoint).toBe('ws://localhost:10095');
+    expect(llm().endpoint).toBe('http://localhost:8000/v1');
   });
 
   it('rewrites ONLY the host — scheme, port and path survive', () => {
@@ -252,7 +269,7 @@ describe('① deployment host override', () => {
     expect(wild.endpoint).toBe('http://10.0.0.68:50000/v1');
     const l = llm();
     expect(l.endpoint).toBe('http://10.0.0.179:8000/v1');
-    expect(l.model).toBe('/mnt/nvme-data/vllm-work/models/Qwen3.5-4B');
+    expect(l.model).toBe('Qwen3.5-4B');
     expect(l.protocol).toBe('openai-compatible');
   });
 
@@ -260,7 +277,7 @@ describe('① deployment host override', () => {
     process.env[STT_HOST_ENV] = '10.0.0.1';
     const zh = routings().find((r) => r.language === 'zh')!;
     expect(zh.endpoint).toContain('10.0.0.1');
-    expect(llm().endpoint).toContain('100.64.7.179'); // untouched
+    expect(llm().endpoint).toContain('localhost'); // untouched
   });
 
   it('a nonsense host THROWS at boot rather than seeding an unreachable default', () => {
@@ -272,7 +289,7 @@ describe('① deployment host override', () => {
 
   it('an empty/whitespace env value means「not configured」, not「blank host」', () => {
     process.env[STT_HOST_ENV] = '   ';
-    expect(routings().find((r) => r.language === 'zh')!.endpoint).toBe('ws://100.64.7.68:10095');
+    expect(routings().find((r) => r.language === 'zh')!.endpoint).toBe('ws://localhost:10095');
   });
 });
 

@@ -255,6 +255,52 @@ export const ERROR_CODES = {
   // degrades to `sttStallEngineErrorCoded` (a readable sentence plus the raw
   // identifier) and the stall still converges. `whitelist=54` is untouched.
   STT_POOL_NO_ROUTE:         { zh_CN: '平台这边没有可用于这次识别的引擎线路。这不是你的设置的问题——如果一直这样，请联系我们。', en: 'The service has no speech engine route available for this request. This is not a problem with your settings — if it keeps happening, tell us.' },
+  // 72 → 73. owner approved on 2026-08-17, answering the request registered in the
+  // WP-3 handback §7-2 (`docs/strategy/2026-08-18-lan-fable-wp3-report.md`).
+  // A route WAS found and an engine WAS selected — and that engine's model cannot
+  // recognise the language this request asked for. Producer:
+  // `apps/server-core/src/stt/engine-factory.ts`, the `sherpa-local` arm, guarded by
+  // `SHERPA_MODEL_LANGUAGES` (`stt/sherpa/model-manifest.ts`).
+  //
+  // 🔴 WHY THIS IS A CODE AND NOT A REUSE, measured rather than argued. The seeded
+  // `'*'` route sends every spoken language to the built-in engine on a self-hosted
+  // box, and outside its five languages the recogniser EXITS CLEANLY with punctuation
+  // dressed as a transcript — 22 words of French came back as 「La Mer.」, German and
+  // Russian as 「.」, with the requested language echoed back on the frame (WP-3 §2,
+  // real audio). Silence that reports success is the worst shape this product has;
+  // the refusal exists to convert it into something a user can act on, and the action
+  // is specific: pick a different engine for this language, or speak one it knows.
+  //
+  // 🔴 WHY NOT STT_CONFIG_MISSING, the code that shipped here for one round. Its
+  // sentence is 「该语言尚未配置识别引擎」 ("no STT engine has been configured for this
+  // language"). That is the NEAREST TRUE sentence and it is why it was allowed to
+  // stand while the code was pending — but it is true only in the sense that no
+  // configured engine CAN do the job, and it sends the reader to look for an absence
+  // when what they have is a MISMATCH. A user who has configured an engine, sees it
+  // configured, and is told nothing is configured, has been handed a contradiction.
+  // ⚠️ STT_CONFIG_MISSING KEEPS ITS MEANING EXACTLY: a language with no route at all
+  // still answers with it, and `stt-routing.test.ts` holds a positive control for
+  // that rather than trusting this paragraph.
+  //
+  // 🔴 WHY NOT STT_POOL_NO_ROUTE, the code directly above. Both halves of its copy
+  // are false here: this is not the platform's pool (a self-hosted box has none), and
+  // it very much IS something the reader's own settings can change. That mismatch is
+  // exactly what WP-3 recorded when it considered and rejected the reuse.
+  //
+  // ⚠️ NAME LENGTH: `STT_LANGUAGE_UNSUPPORTED` is 24 characters, under the phone's
+  // 28-char raw-code slot (`chat_message_tile.dart` `_truncateFailureReason`). Not a
+  // naming preference — a product constraint, and the reason the more descriptive
+  // `STT_ENGINE_LANGUAGE_UNSUPPORTED` (31) was not chosen. The measurement is the
+  // over-length guard in approved-codes-2026-08-10.test.ts, not this comment.
+  //
+  // ZERO wire-shape change and NO relay-before-client order on the FRAME:
+  // `SttErrorSchema.code` is `NonEmpty`, not a closed enum. ⚠️ But the deployment
+  // order still matters for a different reason: an old phone has no sentence for this
+  // code and degrades to `sttStallEngineErrorCoded` — a readable sentence plus the
+  // raw identifier — which is a worse read than the STT_CONFIG_MISSING sentence it
+  // used to get. Relay and client ship together this round; a relay deployed alone
+  // would make every affected phone read the identifier.
+  STT_LANGUAGE_UNSUPPORTED:  { zh_CN: '这次识别用的引擎不支持你选的说话语种。请到设置里为这个语种换一个引擎，或者改说它支持的语种。', en: 'The speech engine used for this recording does not support the spoken language you selected. Choose a different engine for this language in settings, or speak one it supports.' },
   STT_PROBE_FAIL:            { zh_CN: '连接测试失败，请检查地址或密钥。',      en: 'Connection test failed, check endpoint or key.' },
   STT_PROBE_SCHEME_MISMATCH: { zh_CN: '服务可经 ws:// 访问，但 wss:// 握手失败 — 该服务未启用 TLS，请把端点改为 ws://。', en: 'Server reachable via ws:// but wss:// handshake failed — endpoint has no TLS, change scheme to ws://.' },
   STT_HARD_LIMIT_REACHED:    { zh_CN: '已达 5 分钟单次最长录音限制。',         en: 'Reached 5-minute single-recording hard limit.' },

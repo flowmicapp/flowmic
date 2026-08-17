@@ -114,28 +114,59 @@ class DataFlowDisclosurePage extends StatelessWidget {
                   style: TextStyle(color: FlowMicColors.t3, fontSize: 12.5, height: 1.65),
                 ),
                 const SizedBox(height: 14),
+                // WP3 C16 (owner 2026-08-17: a simple DIAGRAM plus short
+                // explanation — the diagram is the explanation, the text is
+                // the caption). Five nodes on one vertical rail, drawn with
+                // widgets and tokens — never a raster image: an image cannot
+                // be localised and a screen reader cannot read it. Step 2's
+                // three engine cases hang off their node as branches.
                 _card(<Widget>[
-                  _stepTitle(s.discStep1Title),
-                  _body(s.discStep1Body),
-                  _divider(),
-                  _stepTitle(s.discStep2Title),
-                  _body(s.discStep2Body),
-                  _subItem(s.discStep2Cloud),
-                  _subItem(s.discStep2Byok),
-                  _subItem(s.discStep2Local),
-                  _divider(),
-                  _stepTitle(s.discStep3Title),
-                  _body(s.discStep3Body),
-                  _divider(),
-                  _stepTitle(s.discStep4Title),
-                  _body(s.discStep4Body),
-                  // An unfinished thing, stated as unfinished. It stays until the
-                  // encryption ships — not until it becomes inconvenient.
-                  _warn(s.discStep4LanPlain),
-                  _divider(),
-                  _stepTitle(s.discStep5Title),
-                  _body(s.discStep5Body),
+                  _node(
+                    icon: Icons.mic_none_rounded,
+                    title: s.discStep1Title,
+                    body: s.discStep1Body,
+                    first: true,
+                  ),
+                  _node(
+                    icon: Icons.graphic_eq_rounded,
+                    title: s.discStep2Title,
+                    body: s.discStep2Body,
+                    branches: <String>[
+                      s.discStep2Cloud,
+                      s.discStep2Byok,
+                      s.discStep2Local,
+                    ],
+                  ),
+                  _node(
+                    icon: Icons.auto_awesome_outlined,
+                    title: s.discStep3Title,
+                    body: s.discStep3Body,
+                  ),
+                  _node(
+                    icon: Icons.computer_rounded,
+                    title: s.discStep4Title,
+                    body: s.discStep4Body,
+                    // State-dependent truth, amber: which pairings are
+                    // encrypted depends on how each was made, and the copy
+                    // points at 「Connection encryption」 for THIS one's state.
+                    warn: s.discStep4LanPlain,
+                  ),
+                  _node(
+                    icon: Icons.inventory_2_outlined,
+                    title: s.discStep5Title,
+                    body: s.discStep5Body,
+                    last: true,
+                  ),
                 ]),
+                const SizedBox(height: 10),
+                // Where the two moved claim families went (WP3 C16: the
+                // engine-selection order and the LAN-TLS fine print live in
+                // the privacy policy; this line is the pointer, so shortening
+                // the page never silently shortened the product's story).
+                Text(
+                  s.discDetailsOnSite,
+                  style: TextStyle(color: FlowMicColors.t3, fontSize: 11.5, height: 1.6),
+                ),
                 const SizedBox(height: 12),
                 _card(<Widget>[
                   _stepTitle(s.discLegalTitle),
@@ -187,38 +218,98 @@ class DataFlowDisclosurePage extends StatelessWidget {
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
   );
 
+  /// One diagram node: an icon dot on the shared vertical rail, the step's
+  /// name beside it, the caption underneath, optional engine branches and the
+  /// amber state-dependent note. [IntrinsicHeight] is what lets the rail's
+  /// connector stretch to the node's full height, so the line is continuous
+  /// whatever each caption's wrap count is.
+  Widget _node({
+    required IconData icon,
+    required String title,
+    required String body,
+    List<String> branches = const <String>[],
+    String? warn,
+    bool first = false,
+    bool last = false,
+  }) => IntrinsicHeight(
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        SizedBox(
+          width: 26,
+          child: Column(
+            children: <Widget>[
+              SizedBox(
+                height: 4,
+                child: first ? null : Center(child: _railLine()),
+              ),
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: FlowMicColors.tealSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 14, color: FlowMicColors.teal),
+              ),
+              if (!last) Expanded(child: _railLine()),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: last ? 0 : 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 4),
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: FlowMicColors.t1,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  body,
+                  style: TextStyle(color: FlowMicColors.t2, fontSize: 12.5, height: 1.6),
+                ),
+                for (final String branch in branches)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, left: 2),
+                    child: Text(
+                      branch,
+                      style: TextStyle(color: FlowMicColors.t3, fontSize: 12, height: 1.55),
+                    ),
+                  ),
+                if (warn != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      warn,
+                      style: TextStyle(color: FlowMicColors.amber, fontSize: 12, height: 1.55),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _railLine() => Container(width: 2, color: FlowMicColors.line);
+
   Widget _stepTitle(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 5),
     child: Text(
       text,
       style: TextStyle(color: FlowMicColors.t1, fontSize: 13, fontWeight: FontWeight.w600),
     ),
-  );
-
-  Widget _body(String text) => Text(
-    text,
-    style: TextStyle(color: FlowMicColors.t2, fontSize: 12.5, height: 1.7),
-  );
-
-  Widget _subItem(String text) => Padding(
-    padding: const EdgeInsets.only(top: 6, left: 2),
-    child: Text(
-      text,
-      style: TextStyle(color: FlowMicColors.t3, fontSize: 12.5, height: 1.7),
-    ),
-  );
-
-  Widget _warn(String text) => Padding(
-    padding: const EdgeInsets.only(top: 8),
-    child: Text(
-      text,
-      style: TextStyle(color: FlowMicColors.amber, fontSize: 12.5, height: 1.7),
-    ),
-  );
-
-  Widget _divider() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Divider(height: 1, thickness: 1, color: FlowMicColors.line),
   );
 }
 

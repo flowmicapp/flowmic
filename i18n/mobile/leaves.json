@@ -790,6 +790,11 @@
       "params": []
     },
     {
+      "key": "discDetailsOnSite",
+      "leaf": "_lfDiscDetailsOnSite",
+      "params": []
+    },
+    {
       "key": "discEntry",
       "leaf": "_lfDiscEntry",
       "params": []
@@ -991,6 +996,16 @@
     {
       "key": "entryCopy",
       "leaf": "_lfEntryCopy",
+      "params": []
+    },
+    {
+      "key": "entryCopyOriginal",
+      "leaf": "_lfEntryCopyOriginal",
+      "params": []
+    },
+    {
+      "key": "entryCopyOriginalSub",
+      "leaf": "_lfEntryCopyOriginalSub",
       "params": []
     },
     {
@@ -1818,11 +1833,6 @@
     {
       "key": "keyUndoHint",
       "leaf": "_lfKeyUndoHint",
-      "params": []
-    },
-    {
-      "key": "langZh",
-      "leaf": "_lfLangZh",
       "params": []
     },
     {
@@ -3299,6 +3309,11 @@
       "params": []
     },
     {
+      "key": "sttStallLanguageUnsupported",
+      "leaf": "_lfSttStallLanguageUnsupported",
+      "params": []
+    },
+    {
       "key": "sttStallQuotaExceeded",
       "leaf": "_lfSttStallQuotaExceeded",
       "params": []
@@ -3404,8 +3419,8 @@
       "params": []
     },
     {
-      "key": "translateTargetLabel",
-      "leaf": "_lfTranslateTargetLabel",
+      "key": "translateTargetSheetTitle",
+      "leaf": "_lfTranslateTargetSheetTitle",
       "params": []
     },
     {

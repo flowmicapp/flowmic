@@ -538,6 +538,16 @@ mixin ChatStrings on AppStringsLeaves {
   String get entryCopyPreview =>
       _lfEntryCopyPreview;
 
+  /// WP3 C15 (owner 2026-08-17): 「copy the original text」 behind a
+  /// translated/organized row. Offered only when the row has a source that
+  /// differs from what is displayed (`TimelineEntry.showsSourceLine` — the
+  /// row-local truth, NOT the session's current mode; the menu widget owns
+  /// that gate and its reasoning). The sub-line says WHICH string the user
+  /// will get, because right above it sits plain copy — two copy items with
+  /// no distinction would force a guess.
+  String get entryCopyOriginal => _lfEntryCopyOriginal;
+  String get entryCopyOriginalSub => _lfEntryCopyOriginalSub;
+
   // ── the edit page (edit_entry_page) ────────────────────────────────────────────────
   String get editEntryTitle => _lfEditEntryTitle;
 

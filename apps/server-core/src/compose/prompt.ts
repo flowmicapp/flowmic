@@ -61,6 +61,42 @@ const TRANSLATE_TEMPLATE =
   'no quotation marks. ' + dataRegionNote('translate', 'translation') + ' ' +
   SCENARIO_USAGE_NOTE;
 
+// ─── WP3 C12 (owner 2026-08-17): the wire tag becomes a language NAME here ───
+//
+// This file's own header has said "translate interpolates only the language
+// names" since it was written — while the implementation interpolated the raw
+// wire TAG, so the model received "from zh to ru". A tag is a lookup key, not
+// an instruction; "Russian" is unambiguous to the model in a way "ru" merely
+// tends to be, and for the two Chinese targets the tag cannot even express the
+// half the user actually chose (Simplified vs Traditional output script).
+//
+// ⚠️ NOT the registry's endonym table (packages/protocol/src/locales.ts): that
+// one answers "what does this language call ITSELF" for pickers; this one
+// answers "what does the ENGLISH prompt call it" — the templates are English
+// by restraint #13 (no multilingual prompt templates), so the names are too.
+// The value space stays open: a tag with no row here passes through verbatim
+// (an invented name for an unknown tag would be a guess dressed as a fact),
+// and 'auto' — the historical absent-source placeholder — becomes the honest
+// English phrase for what it means.
+const PROMPT_LANGUAGE_NAMES: Record<string, string> = {
+  auto: 'the source language',
+  en: 'English',
+  zh: 'Simplified Chinese',
+  'zh-cn': 'Simplified Chinese',
+  'zh-tw': 'Traditional Chinese',
+  fr: 'French',
+  es: 'Spanish',
+  de: 'German',
+  ja: 'Japanese',
+  ko: 'Korean',
+  ru: 'Russian',
+};
+
+/** Wire tag → the English name the prompt uses; unknown tags pass verbatim. */
+export function promptLanguageName(tag: string): string {
+  return PROMPT_LANGUAGE_NAMES[tag.trim().toLowerCase().replace(/_/g, '-')] ?? tag;
+}
+
 const ORGANIZE_TEMPLATE =
   "You are an editor. Take the user's stream-of-thought speech transcript and " +
   'tighten it into clear written prose in the same language. Preserve meaning, ' +
@@ -84,8 +120,8 @@ export function renderTaskTemplate(ctx: PromptContext): string {
   switch (ctx.task) {
     case 'translate':
       return TRANSLATE_TEMPLATE
-        .replace('{source_lang}', ctx.source_lang ?? 'auto')
-        .replace('{target_lang}', ctx.target_lang ?? 'en');
+        .replace('{source_lang}', promptLanguageName(ctx.source_lang ?? 'auto'))
+        .replace('{target_lang}', promptLanguageName(ctx.target_lang ?? 'en'));
     case 'organize':
       return ORGANIZE_TEMPLATE;
     case 'draft_polish':

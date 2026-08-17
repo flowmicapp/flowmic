@@ -15,6 +15,41 @@ import { join } from 'node:path';
 /** k2-fsa pre-exported SenseVoice model repo id. */
 export const SHERPA_REPO = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17';
 
+/**
+ * WP3 C13 (2026-08-18): the languages this model can actually recognise — as a
+ * DATA STRUCTURE, not a substring of the repo id. Until this constant existed,
+ * the five-language set lived only inside [SHERPA_REPO]'s file name and nothing
+ * could read it, so the seeded `'*'` route happily fed the model languages it
+ * physically does not know.
+ *
+ * 🔴 MEASURED before declared (the WP3 handback carries the transcripts and
+ * names the machine, 2026-08-18): the four in-set languages we could
+ * drive came back correct (zh/en/ja/ko, ~25 s utterances each); the four
+ * out-of-set spoken languages came back DESTROYED with a clean exit — French
+ * (22 words) → 「La Mer.」, Spanish → 「,on.」, German → 「.」, Russian → 「.」
+ * with the engine claiming `lang=<|ko|>`. That is not degraded accuracy, it is
+ * silence dressed as a transcript, and it is why [sherpaModelCanRecognize]
+ * exists and why the factory refuses rather than "trying anyway".
+ * (`yue` is declared by the model card and repo id; not measured here — no
+ * Cantonese utterance was available — and it is not a phone-offered value.)
+ */
+export const SHERPA_MODEL_LANGUAGES: readonly string[] = ['zh', 'en', 'ja', 'ko', 'yue'];
+
+/**
+ * Can the built-in model recognise this requested language? `'*'` / `'auto'` /
+ * empty mean "no specific language was requested" and pass — the recogniser
+ * itself runs with `language:'auto'` and picks among ITS five. A concrete tag
+ * is region-stripped the same way the engine adapters do (`'zh-CN'` → `'zh'`;
+ * `toShortLang` in engines/wav.ts) before the membership test.
+ */
+export function sherpaModelCanRecognize(language: string): boolean {
+  const raw = language.trim().toLowerCase();
+  if (raw === '' || raw === '*' || raw === 'auto') return true;
+  const dash = raw.indexOf('-');
+  const base = dash === -1 ? raw : raw.slice(0, dash);
+  return SHERPA_MODEL_LANGUAGES.includes(base);
+}
+
 export interface ModelFile {
   /** repo-relative path (also the on-disk relative path). */
   path: string;

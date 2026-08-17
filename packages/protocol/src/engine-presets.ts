@@ -1,13 +1,20 @@
 // SPEC-REF:
 //   docs/rebuild/06-STT-ENGINE-LAYER.md (reference infrastructure / presets)
-//   F-1903 (engine-presets.ts with LAN presets — FunASR ws / Whisper http /
-//     SenseVoice / vLLM Qwen / Ollama gemma3)
+//   F-1903 (engine-presets.ts with self-hosted presets — FunASR ws / Whisper
+//     http / SenseVoice / vLLM / Ollama)
 //
-// Bundled preset catalogue surfaced in Settings → STT and Settings →
-// LLM. LAN IPs and model paths are not secrets and are kept in source
-// (per CLAUDE.md: docs/code LAN presets are R&D config, not production).
+// Bundled preset catalogue surfaced in Settings → STT and Settings → LLM.
 // User-supplied API keys are never co-located here; they live in
 // `user_settings` (encrypted, prefix `enc:v1:`) per F-705.
+//
+// 🔴 IN-PLACE CORRECTION (0.3.8). This header used to continue:
+//   「LAN IPs and model paths are not secrets and are kept in source (per
+//    CLAUDE.md: docs/code LAN presets are R&D config, not production).」
+// Kept because it names the mistake exactly: the question was never whether
+// those addresses are SECRET. They are not. The question is whether one
+// person's office machines belong in every user's settings menu, and they do
+// not — see the note above STT_PRESETS for the owner's ruling and what replaced
+// them. 「not a secret」 answered a question nobody had asked.
 
 import type { LlmProtocol, SttEngineId } from './types';
 
@@ -131,6 +138,38 @@ export interface LlmPreset {
   model: string;
 }
 
+/**
+ * 🔴 0.3.8 — THE CATALOGUE IS A LIST OF ENGINE KINDS, NOT A LIST OF MACHINES.
+ *
+ * owner 2026-08-17: 「PC 端的设置中的 STT 和 LLM 的配置是没有定制的内容的，需要让
+ * 用户决定如何选择和配置，不要有任何的内置个性化配置」 ("the STT and LLM settings
+ * on the PC must carry no customised content — the user decides what to choose
+ * and configure; there must be no built-in personalised configuration").
+ *
+ * Until this card, six entries below carried `100.64.7.68` / `100.64.7.179`
+ * and one carried `/mnt/nvme-data/vllm-work/models/Qwen3.5-4B`. Those are one
+ * person's office machines and one person's disk layout, and they were not
+ * merely present in the source — they were IN THE DROPDOWN: picking 「FunASR
+ * (LAN, streaming)」 on any install on earth wrote that address into that user's
+ * settings. The 0.3.0 OSS-defaults card had already made the SEED neutral
+ * (`settings/defaults.ts`); what it did not do was clear the menu, so a stranger
+ * still had to be told not to choose the wrong item.
+ *
+ * What each entry now contributes is the part that is genuinely product
+ * knowledge — the engine kind, its protocol, and the port that engine
+ * conventionally listens on — with `localhost` standing where a host belongs.
+ * The user (or a deployment's `FLOWMIC_DEFAULT_*_HOST`) supplies the machine.
+ *
+ * ⚠️ THE IDs DID NOT CHANGE, and the `lan-` prefix is now a historical spelling
+ * rather than a claim. Renaming them would invalidate every `preset_id` already
+ * stored in `user_settings` and every deployment env that names one, to buy a
+ * nicer word. Read `lan-` as 「self-hosted」.
+ *
+ * ⚠️ WHAT THIS CARD DID **NOT** DO: it did not verify that any of these ports or
+ * model names is right for a reader's own deployment. They are the values this
+ * project ran against, minus the address — a starting point in a field the user
+ * is expected to edit, not a promise about their machine.
+ */
 export const STT_PRESETS: readonly SttPreset[] = [
   // Built-in offline engine (WP-R23-0): the 7th bundled engine, runs in-process
   // (sherpa-onnx SenseVoice-small int8) — the zero-config / offline safety net.
@@ -145,34 +184,34 @@ export const STT_PRESETS: readonly SttPreset[] = [
   },
   {
     id: 'lan-funasr-ws',
-    label: 'FunASR (LAN, streaming)',
+    label: 'FunASR (self-hosted, streaming)',
     engine: 'funasr',
-    endpoint: 'ws://100.64.7.68:10095',
+    endpoint: 'ws://localhost:10095',
     language_hint: 'zh-CN',
   },
   {
     id: 'lan-whisper-http',
-    label: 'Whisper large-v3-turbo (LAN, batch)',
+    label: 'Whisper large-v3-turbo (self-hosted, batch)',
     engine: 'openai-whisper',
-    endpoint: 'http://100.64.7.68:8200/v1',
+    endpoint: 'http://localhost:8200/v1',
     api_key: '',
     model: 'whisper-large-v3-turbo',
     language_hint: '*',
   },
   {
     id: 'lan-sensevoice',
-    label: 'SenseVoice-Small (LAN)',
+    label: 'SenseVoice-Small (self-hosted)',
     engine: 'custom-openai-compatible',
-    endpoint: 'http://100.64.7.68:50000/v1',
+    endpoint: 'http://localhost:50000/v1',
     api_key: '',
     model: 'SenseVoiceSmall',
     language_hint: '*',
   },
   {
     id: 'lan-funspeech',
-    label: 'FunSpeech Paraformer (LAN, batch)',
+    label: 'FunSpeech Paraformer (self-hosted, batch)',
     engine: 'funspeech-http',
-    endpoint: 'http://100.64.7.68:9000/stream/v1/asr',
+    endpoint: 'http://localhost:9000/stream/v1/asr',
     language_hint: 'zh-CN',
   },
   // Cloud BYOK entries — R-engines-1 Behavior bullet 3: defined in code
@@ -199,17 +238,17 @@ export const STT_PRESETS: readonly SttPreset[] = [
 export const LLM_PRESETS: readonly LlmPreset[] = [
   {
     id: 'lan-vllm-qwen35',
-    label: 'vLLM Qwen3.5-4B (LAN)',
+    label: 'vLLM (self-hosted, OpenAI-compatible)',
     protocol: 'openai-compatible',
-    endpoint: 'http://100.64.7.179:8000/v1',
+    endpoint: 'http://localhost:8000/v1',
     api_key: 'EMPTY',
-    model: '/mnt/nvme-data/vllm-work/models/Qwen3.5-4B',
+    model: 'Qwen3.5-4B',
   },
   {
     id: 'lan-ollama-gemma3',
-    label: 'Ollama gemma3:12b (LAN)',
+    label: 'Ollama gemma3:12b (self-hosted)',
     protocol: 'openai-compatible',
-    endpoint: 'http://100.64.7.68:11434/v1',
+    endpoint: 'http://localhost:11434/v1',
     api_key: '',
     model: 'gemma3:12b',
   },

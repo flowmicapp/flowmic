@@ -355,21 +355,35 @@ mixin ComposeStrings on AppStringsLeaves {
   String get composeModeSwitchClearsHint => _lfComposeModeSwitchClearsHint;
 
   // ── translate target chip (GA-01 / D4; V2-07.7 absorbed mode_chip._labels) ─
-  /// The chip beside the mode chip showing where translate is aimed. '→ EN'
-  /// is Latin in both locales; the zh target keeps the native glyph under a zh
-  /// UI (same call as [SettingsStrings.langZh]) and falls back to the ISO code
-  /// for other UI languages — an English user cannot read 「中」. Unknown tags
-  /// render as the uppercased tag itself (data, not copy).
+  /// The chip beside the mode chip showing where translate is aimed.
+  ///
+  /// WP3 C12 (2026-08-18): with nine targets the label is the ENDONYM
+  /// (`→ Русский`, `→ 繁體中文`) via [appLocaleForLanguageTag] — the same
+  /// registry-mirrored source every other language label now reads, and the
+  /// same reasoning as the spoken row: the person who aims translation at a
+  /// language is someone who reads that language, so its self-name is the
+  /// recognisable form. This replaces the two-arm scheme ('→ EN' + a
+  /// localized zh leaf) whose own rationale (「two languages is not a list」)
+  /// ended when the list stopped being two. Unknown tags render as the
+  /// uppercased tag itself (data, not copy).
   String translateTargetLabel(String target) {
-    switch (target) {
-      case 'en':
-        return '→ EN';
-      case 'zh':
-        return _lfTranslateTargetLabel;
-      default:
-        return '→ ${target.toUpperCase()}';
-    }
+    final AppLocale? l = appLocaleForLanguageTag(target);
+    return l != null ? '→ ${l.endonym}' : '→ ${target.toUpperCase()}';
   }
+
+  /// WP3 C12: one row of the translate-target picker sheet — endonym plus the
+  /// tag it ships as (`target_lang` on the wire), the same two-part shape as
+  /// the spoken-language chips and for the same reason (the tag is the value;
+  /// showing it lets a user line the choice up against what arrives).
+  String translateTargetRowLabel(String tag) {
+    final AppLocale? l = appLocaleForLanguageTag(tag);
+    return l != null ? '${l.endonym} ($tag)' : tag;
+  }
+
+  /// The sheet's one-line title. It must answer 「choosing WHAT」 — nine bare
+  /// language names in a sheet opened from a small chip would otherwise read
+  /// as a UI-language picker (the exact conflation §0 of WP3 bans).
+  String get translateTargetSheetTitle => _lfTranslateTargetSheetTitle;
 
   // ── AI action row (R6 T-3b ④ / §6.2 ④ / F-3) ──────────────────────────────
   /// The three buffer operations. Wire names are frozen (`draft_polish`); these

@@ -200,9 +200,12 @@ void main() {
     // mixing them would make the English cell look like a different kind of
     // thing. The registry also ruled this verbatim (`packages/protocol/src/locales.ts`
     // `endonym`: language names use the self-name on every UI and are not
-    // translated with the UI language). The `langEn` string **was not deleted**
-    // — it still serves `spokenLangLabel`, which answers 「which language am I
-    // speaking」, a different question and a different set of four values.
+    // translated with the UI language). The `langEn` string was kept at the
+    // time because it still served `spokenLangLabel` — 「which language am I
+    // speaking」, a different question. WP3 C11 (2026-08-18) moved that last
+    // reader onto [AppLocale] endonyms too (the spoken list grew 4 → 8), so
+    // the four hand-written name getters are now deleted; the reasoning above
+    // about endonym chips is unchanged.
     await tester.ensureVisible(find.text('English'));
     await tester.tap(find.text('English'));
     await tester.pumpAndSettle();

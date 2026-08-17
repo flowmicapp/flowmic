@@ -59,6 +59,13 @@ Future<void> _onLongPressRouted(
       final String? note = strings.imageCopyResult(copied);
       if (note == null || !context.mounted) return;
       s._toast(context, note);
+    case EntryAction.copyOriginal:
+      // WP3 C15: the value copied is `source_text` — immutable by product red
+      // line — never the rendered line. Silent on success, the same posture as
+      // a plain text copy above. The menu's gate ([showsSourceLine]) already
+      // guarantees a non-empty, distinct source; the helper re-checks and
+      // no-ops on an empty one rather than writing '' over the clipboard.
+      await copyEntrySourceText(entry);
     case EntryAction.favorite:
       // F-5 turning a history row into a favourite: local only — the row itself is untouched (no status
       // change, no edit bit, no wire traffic). Feedback is mandatory: a

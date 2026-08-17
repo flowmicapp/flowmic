@@ -122,6 +122,20 @@ Future<void> _systemTextCopy(String text) =>
 /// A transcript row is untouched behaviour. A picture row copies its preview
 /// when it has one, and otherwise degrades to the descriptor — loudly, via the
 /// returned outcome, never by quietly doing the old thing.
+/// WP3 C15: copy the ORIGINAL words behind a translated/organized row.
+///
+/// Copies [TimelineEntry.sourceText] — the immutable `source_text`, never the
+/// rendered/processed face. The caller's menu gate ([TimelineEntry.showsSourceLine])
+/// only offers the action when a distinct, non-empty source exists; this
+/// re-check makes the empty case a no-op instead of overwriting the user's
+/// clipboard with an empty string (a copy that "succeeds" by destroying what
+/// was there is the overclaiming half of "no silent failure").
+Future<void> copyEntrySourceText(TimelineEntry entry, {TextCopy? text}) async {
+  final String source = entry.sourceText ?? '';
+  if (source.isEmpty) return;
+  await (text ?? _systemTextCopy)(source);
+}
+
 Future<ImageCopyOutcome> copyEntryToClipboard(
   TimelineEntry entry, {
   ImageClipboardPort? image,

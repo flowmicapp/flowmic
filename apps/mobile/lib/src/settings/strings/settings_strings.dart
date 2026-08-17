@@ -179,12 +179,16 @@ mixin SettingsStrings on AppStringsLeaves {
   // ── preferences (WP-R4-3: language = an explicit choice, never follows
   //    the OS locale) ──────────────────────────────────────────────────────
   String get uiLanguage => _lfUiLanguage;
-  String get langZh => _lfLangZh;
-  String get langEn => 'EN';
-  // Language names always use their endonym, never translated by the UI
-  // language — the same existing ruling as langEn.
-  String get langJa => '日本語';
-  String get langKo => '한국어';
+  // WP3 C11 (2026-08-18): the four hand-written language-name getters that
+  // used to sit here (`langZh`/`langEn`/`langJa`/`langKo`) are DELETED, not
+  // moved. Their last production reader was [spokenLangLabel], which now
+  // reads endonyms from [AppLocale] — the registry-generated set every other
+  // picker already uses. Keeping a parallel four-name table beside a
+  // nine-name enum would be this repo's #1 defect shape (two tables
+  // answering one question), and the 2026-08-14 comment in
+  // settings_page_widget_test.dart that once justified keeping `langEn`
+  // (「it still serves spokenLangLabel」) stopped being true the moment that
+  // reader switched source.
 
   // ── Spoken language (the source_lang that ships on the wire — a
   //    DIFFERENT question from the row above; don't conflate them) ─────────
@@ -207,8 +211,13 @@ mixin SettingsStrings on AppStringsLeaves {
   /// The spoken-language chip's copy = **endonym + the tag it ships as**,
   /// e.g. 「中文 (zh)」("Chinese (zh)").
   ///
-  /// The language names reuse the same endonym set as [langZh] etc. (an
-  /// existing ruling: language names are not translated by the UI language).
+  /// WP3 C11 (2026-08-18): the endonyms come from [AppLocale] — the enum the
+  /// registry (`packages/protocol/src/locales.ts`) mirrors — via `l.name ==
+  /// tag`, which holds for every value [kSpokenLangs] offers (bare codes; the
+  /// one enum member whose name is NOT a wire tag, `zhTw`, is deliberately
+  /// not a spoken value — the decision is written at [kSpokenLangs]). The
+  /// hand-written four-arm switch this replaces was a second name table, and
+  /// authoring a nine-arm one was exactly the card's named trap.
   /// ⚠️ What is shared is the **copy**, not the value — the storage key, the
   /// type, and the value space are each independent.
   ///
@@ -228,13 +237,10 @@ mixin SettingsStrings on AppStringsLeaves {
   ///      settings_theme tests would hit 「Found 2 widgets」).
   ///      **The ambiguity is real, not a test artifact.**
   /// An unknown tag is returned as-is (it is data, not copy).
-  String spokenLangLabel(String tag) => switch (tag) {
-    'zh' => '$langZh ($tag)',
-    'en' => '$langEn ($tag)',
-    'ja' => '$langJa ($tag)',
-    'ko' => '$langKo ($tag)',
-    _ => tag,
-  };
+  String spokenLangLabel(String tag) {
+    final AppLocale? l = appLocaleForLanguageTag(tag);
+    return l != null ? '${l.endonym} ($tag)' : tag;
+  }
 
   // ── theme (V2-07.4: the theme CAN follow the system — a DIFFERENT ruling
   //    from language; don't conflate them) ────────────────────────────────

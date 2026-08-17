@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildScenarioBlock,
   SCENARIO_DELIMITERS,
+  promptLanguageName,
   renderSystemPrompt,
   renderTaskTemplate,
   type ScenarioContext,
@@ -117,10 +118,46 @@ describe('system prompt = stable scenario prefix + task template', () => {
     expect(sys.indexOf(block)).toBeLessThan(sys.indexOf('You are an editor.'));
   });
 
-  it('translate interpolates the language pair but keeps the template English', () => {
+  it('translate interpolates the language pair AS NAMES but keeps the template English', () => {
+    // WP3 C12: the header of prompt.ts has promised "interpolates only the
+    // language names" since day one — this assertion used to pin the raw tags
+    // ("from zh to en") and now pins the promise instead.
     const sys = renderSystemPrompt({ task: 'translate', source_lang: 'zh', target_lang: 'en' }, '');
-    expect(sys).toContain('Translate the user\'s text from zh to en');
+    expect(sys).toContain('Translate the user\'s text from Simplified Chinese to English');
     expect(sys).not.toContain('{source_lang}');
+  });
+
+  // ── WP3 C12: the chosen target REACHES the prompt, by name ────────────────
+  it('🔴 target ru → the prompt names Russian (and a changed target changes the prompt — reverse control)', () => {
+    const ru = renderTaskTemplate({ task: 'translate', source_lang: 'zh', target_lang: 'ru' });
+    expect(ru).toContain('to Russian');
+    // Reverse control inside the same fact: a picker whose value is dropped
+    // between the phone and the prompt renders BOTH prompts identical.
+    const de = renderTaskTemplate({ task: 'translate', source_lang: 'zh', target_lang: 'de' });
+    expect(de).toContain('to German');
+    expect(de).not.toContain('Russian');
+    expect(de).not.toBe(ru);
+  });
+
+  it('all nine offered targets resolve to a real English name (never a bare tag in the prompt)', () => {
+    const names: Record<string, string> = {
+      en: 'English', zh: 'Simplified Chinese', 'zh-TW': 'Traditional Chinese',
+      fr: 'French', es: 'Spanish', de: 'German', ja: 'Japanese', ko: 'Korean', ru: 'Russian',
+    };
+    for (const [tag, name] of Object.entries(names)) {
+      const sys = renderTaskTemplate({ task: 'translate', source_lang: 'en', target_lang: tag });
+      expect(sys, `target ${tag}`).toContain(`to ${name}`);
+    }
+  });
+
+  it('an unknown tag passes through verbatim — an invented name would be a guess dressed as a fact', () => {
+    expect(promptLanguageName('tlh')).toBe('tlh');
+    expect(renderTaskTemplate({ task: 'translate', target_lang: 'tlh' })).toContain('to tlh');
+  });
+
+  it('absent source/target keep their historical defaults, now in words: "the source language" → English', () => {
+    const sys = renderTaskTemplate({ task: 'translate' });
+    expect(sys).toContain('from the source language to English');
   });
 
   it('no scenario block → system is exactly the task template', () => {

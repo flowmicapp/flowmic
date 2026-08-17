@@ -63,8 +63,26 @@ async function runTurn(factory, label, args, input) {
 async function main() {
   const preset = LLM_PRESETS.find((p) => p.id === 'lan-vllm-qwen35');
   if (!preset) throw new Error('preset lan-vllm-qwen35 not found');
-  const llmConfig = { protocol: preset.protocol, endpoint: preset.endpoint, api_key: preset.api_key, model: preset.model };
-  console.log('LAN endpoint:', llmConfig.endpoint, '| model:', llmConfig.model);
+  // 🔴 0.3.8 — THE PRESET NO LONGER NAMES A MACHINE. It carries `localhost` and
+  // a generic model, because the catalogue stopped shipping one person's office
+  // addresses to every install (see engine-presets.ts). This script is a
+  // developer tool pointed at a REAL self-hosted vLLM, so it now asks for the
+  // host and model the way the server does — from the environment.
+  //
+  // ⚠️ Without them it will talk to `http://localhost:8000/v1`, which on most
+  // machines is nothing at all. Named here rather than defaulted to somebody's
+  // address: a smoke test that quietly dialled an office box would be the exact
+  // thing this change removed.
+  const host = (process.env.FLOWMIC_DEFAULT_LLM_HOST ?? '').trim();
+  const endpoint = host === ''
+    ? preset.endpoint
+    : Object.assign(new URL(preset.endpoint), { hostname: host }).toString();
+  const model = (process.env.FLOWMIC_DEFAULT_LLM_MODEL ?? '').trim() || preset.model;
+  const llmConfig = { protocol: preset.protocol, endpoint, api_key: preset.api_key, model };
+  console.log('endpoint:', llmConfig.endpoint, '| model:', llmConfig.model);
+  if (host === '') {
+    console.log('(set FLOWMIC_DEFAULT_LLM_HOST / FLOWMIC_DEFAULT_LLM_MODEL to point this at your own server)');
+  }
 
   const { createComposeFactory } = await loadModule();
   const factory = createComposeFactory({ settings: stubSettingsRepo(llmConfig), budgetMs: 30_000 });

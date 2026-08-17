@@ -188,16 +188,25 @@ describe('UpdateBlock (rendered)', () => {
   });
 
   /**
-   * 🔴 The MSI hint must be on screen with the MSI button, and it must ask the
-   * user to reopen FlowMic rather than promise to.
+   * 🔴 The MSI hint must be on screen with the MSI button, and it must still
+   * name a route the user can walk themselves.
+   *
+   * ⚠️ 0.3.8: the literal used to be 「请重新打开」, from the era when the chain
+   * did not relaunch anything. It does now (update/msi.rs), so the literal is
+   * 「开始菜单」 — the fallback for the case where the relaunch fails, which is
+   * the half of the old rule that was actually protecting anyone. The assertion
+   * stays a LITERAL rather than only `S.upd_msi_hint`, because
+   * `toContain(S.upd_msi_hint)` is satisfied by any string at all: it compares
+   * the rendered output against whatever the catalogue currently says, so it
+   * cannot notice the day the sentence stops carrying an exit.
    */
-  it('🔴 the MSI button carries the “reopen it yourself” hint', async () => {
+  it('🔴 the MSI button carries the hint, which still names the manual route', async () => {
     const html = await render(
       state({ plan: 'available', latest: '0.2.60', form: 'msi', verified_sha256: SHA }),
     );
     expect(html).toContain(S.upd_install_msi);
     expect(html).toContain(S.upd_msi_hint);
-    expect(html).toContain('请重新打开');
+    expect(html).toContain('开始菜单');
   });
 
   /** A location the preflight already refused shows the page link, not a button. */

@@ -1,12 +1,12 @@
 {
-  "total": 588,
+  "total": 595,
   "aliases": 4,
   "generated": "scripts/i18n/gen-desktop-ts.mjs",
   "locales": [
     {
       "code": "en",
       "endonym": "English",
-      "translated": 588,
+      "translated": 595,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -14,7 +14,7 @@
     {
       "code": "zh-CN",
       "endonym": "中文",
-      "translated": 588,
+      "translated": 595,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -22,7 +22,7 @@
     {
       "code": "zh-TW",
       "endonym": "繁體中文",
-      "translated": 584,
+      "translated": 591,
       "inheritsBase": 4,
       "percent": 99.3,
       "inApp": true
@@ -30,23 +30,23 @@
     {
       "code": "fr",
       "endonym": "Français",
-      "translated": 583,
+      "translated": 590,
       "inheritsBase": 5,
-      "percent": 99.1,
+      "percent": 99.2,
       "inApp": true
     },
     {
       "code": "es",
       "endonym": "Español",
-      "translated": 583,
+      "translated": 590,
       "inheritsBase": 5,
-      "percent": 99.1,
+      "percent": 99.2,
       "inApp": true
     },
     {
       "code": "de",
       "endonym": "Deutsch",
-      "translated": 584,
+      "translated": 591,
       "inheritsBase": 4,
       "percent": 99.3,
       "inApp": true
@@ -54,7 +54,7 @@
     {
       "code": "ja",
       "endonym": "日本語",
-      "translated": 588,
+      "translated": 595,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -62,7 +62,7 @@
     {
       "code": "ko",
       "endonym": "한국어",
-      "translated": 588,
+      "translated": 595,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -70,7 +70,7 @@
     {
       "code": "ru",
       "endonym": "Русский",
-      "translated": 584,
+      "translated": 591,
       "inheritsBase": 4,
       "percent": 99.3,
       "inApp": true

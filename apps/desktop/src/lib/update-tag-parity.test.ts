@@ -118,37 +118,62 @@ describe('update failure tags: Rust ↔ the per-locale sentences', () => {
   });
 
   /**
-   * 🔴 The MSI hint must not promise an automatic relaunch.
+   * 🔴 The MSI hint must still name a route the user can walk themselves.
    *
-   * [measured, design §4.1] the default Tauri WiX template carries no
-   * launch-after-install. Promising it is the second direction of the
-   * no-silent-failure line — "saying something got done when it didn't" — and it is
-   * the direction that gets forgotten, because the promise costs nothing to write and the
-   * person writing it is not the one waiting for a window that never appears.
+   * ⚠️ 0.3.8 TURNED THIS TEST AROUND, and the original wording is kept because
+   * the reversal is the lesson. It read:
+   *   「🔴 The MSI hint must not promise an automatic relaunch. [measured,
+   *    design §4.1] the default Tauri WiX template carries no
+   *    launch-after-install. Promising it is the second direction of the
+   *    no-silent-failure line …」
+   * and it asserted, per language, that the sentence says *please reopen* and
+   * never says *reopens itself*. Every word of that was true, and it pinned a
+   * bad product in place: the install worked, nothing came back, and the
+   * instruction was printed on the window the chain closes (owner, 2026-08-17).
+   *
+   * There IS a relaunch now (update/msi.rs), so the old assertion would forbid
+   * the copy from describing what the product does. What survives is the half
+   * that was actually load-bearing: **a relaunch can fail, and the reader
+   * looking at an empty desktop needs the manual route in the same sentence.**
+   * So the test now demands BOTH halves, per language — and the negative
+   * assertion is inverted: the sentence may no longer be only an instruction.
+   *
+   * 🔴 Per language, not one regex, for the reason the original gave: the claim
+   * is about the sentence a user in that language actually reads.
    */
-  it('🔴 the MSI hint asks the user to reopen FlowMic rather than promising to', () => {
-    const asksUser: Record<string, RegExp> = {
-      'zh-CN': /请重新打开/,
-      en: /please reopen/i,
-      ja: /開き直して/,
-      ko: /다시 열어/,
-      // 2026-08-14 — five more languages, each asking the user to do it. The
-      // regex is per language because the claim is per language: "we do not
-      // promise an automatic relaunch" can only be checked against the sentence
-      // a user in that language actually reads.
-      'zh-TW': /請重新開啟/,
-      fr: /rouvrir/i,
-      es: /vuelve a abrir|vuelva a abrir/i,
-      de: /wieder öffnen|erneut öffnen/i,
-      ru: /откройте .* заново|заново откройте|снова откройте/i,
+  it('🔴 the MSI hint says it comes back by itself AND names the manual route', () => {
+    const comesBack: Record<string, RegExp> = {
+      'zh-CN': /自己重新启动|自动重新启动/,
+      en: /starts itself again|restarts itself/i,
+      ja: /自動で起動し直し|自動的に起動/,
+      ko: /자동으로 다시 시작/,
+      'zh-TW': /自己重新啟動|自動重新啟動/,
+      fr: /redémarre tout seul|se relance/i,
+      es: /vuelve a abrirse solo|se reinicia solo/i,
+      de: /startet sich anschließend selbst|startet sich selbst/i,
+      ru: /запустится сам/i,
+    };
+    const manualRoute: Record<string, RegExp> = {
+      'zh-CN': /开始菜单/,
+      en: /start menu/i,
+      ja: /スタートメニュー/,
+      ko: /시작 메뉴/,
+      'zh-TW': /「開始」功能表|開始功能表/,
+      fr: /menu démarrer/i,
+      es: /menú inicio/i,
+      de: /startmenü/i,
+      ru: /меню «пуск»|меню пуск/i,
     };
     for (const loc of UI_LOCALES) {
       const s = (UPDATE_STRINGS[loc] as Record<string, string>).upd_msi_hint ?? '';
-      expect((asksUser[loc] as RegExp).test(s), `${loc} MSI hint must ask the user to reopen: “${s}”`).toBe(true);
-      // …and must not say it happens by itself.
-      for (const bad of ['自动重新打开', 'automatically reopen', 'reopens itself', '自動的に開き直']) {
-        expect(s.toLowerCase().includes(bad.toLowerCase()), `${loc}: “${s}”`).toBe(false);
-      }
+      expect(
+        (comesBack[loc] as RegExp).test(s),
+        `${loc} MSI hint must say the app starts itself again: “${s}”`,
+      ).toBe(true);
+      expect(
+        (manualRoute[loc] as RegExp).test(s),
+        `${loc} MSI hint must still name the manual route, because a relaunch can fail: “${s}”`,
+      ).toBe(true);
     }
   });
 });

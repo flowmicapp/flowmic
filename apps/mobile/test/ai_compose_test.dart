@@ -141,15 +141,57 @@ void main() {
       // Tier-1 auto-compose intent, which DOES inject.
       expect(p['draft'], isTrue);
       expect(p['request_id'], isNotEmpty);
-      // The phone does not hardcode a language pair — the server defaults
-      // translate to `en`.
-      expect(p.containsKey('target_lang'), isFalse);
+      // 🔴 0.3.8 — THIS ASSERTION USED TO BE `expect(p.containsKey('target_lang'),
+      // isFalse)` with the note 「the phone does not hardcode a language pair —
+      // the server defaults translate to `en`」. It was accurate and it pinned a
+      // contradiction: WP-3 turned the target into a nine-language picker, so
+      // 「the chip says Russian」 and 「this path produces English」 became two
+      // answers to one question. The row now sends the screen's own target.
+      // ⚠️ And ONLY on translate — a target on organize or draft_polish would be
+      // a parameter for a job that has none.
+      if (task == ComposeTask.translate) {
+        expect(p['target_lang'], h.controller.translateTarget);
+      } else {
+        expect(p.containsKey('target_lang'), isFalse);
+      }
       // Settle the run so the next iteration is not blocked.
       h.pushDone('ok');
       await pumpEventQueue();
     }
     // The AI row NEVER delivers: not one inject:request came out of any of it.
     expect(h.transport.emittedWhere(FlowMicEvents.injectRequest), isEmpty);
+    await h.dispose();
+  });
+
+  /// 🔴 CHANGING THE TARGET MUST CHANGE THE FRAME — the assertion above cannot
+  /// say that, because it compares the frame against whatever the controller
+  /// currently holds and would stay green if both were frozen at the default.
+  ///
+  /// This is the defect WP-3 left open in its own §7: the chip became a
+  /// nine-language picker while this path still sent nothing, so a user who
+  /// chose Russian got English here and Russian everywhere else. One control,
+  /// two answers — the shape this repo is loudest about.
+  test('the AI row translates into the target THIS SCREEN is set to, not a '
+      'hardcoded default', () async {
+    final _Harness h = _Harness();
+    h.connect();
+
+    await h.controller.setTranslateTarget('ru');
+    h.controller.setBuffer('明天的会议改到四点半');
+    expect(h.controller.startAiCompose(ComposeTask.translate), isNull);
+    expect(h.lastStart['target_lang'], 'ru');
+    h.pushDone('ok');
+    await pumpEventQueue();
+
+    // A second, different choice — so the value is proven to FOLLOW the picker
+    // rather than to have been set once at construction.
+    await h.controller.setTranslateTarget('de');
+    h.controller.setBuffer('明天的会议改到四点半');
+    expect(h.controller.startAiCompose(ComposeTask.translate), isNull);
+    expect(h.lastStart['target_lang'], 'de');
+    h.pushDone('ok');
+    await pumpEventQueue();
+
     await h.dispose();
   });
 

@@ -92,12 +92,45 @@ const SRC = path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src');
 // scanner widening, not code moving; the 11th is the NL-1 stub, whose owed
 // Mac run is registered in audit-queue row 13) and 26 long-form windows
 // sites as an added control.
+// 0.3.8 (2026-08-17) — two non-Windows rows moved, and this time the Mac run
+// the note demands HAS happened. `shell/autostart.rs` gained a real macOS
+// read-back:
+//   · `cfg(not(windows))` 24 → 23 — the do-nothing `registered_run_value`
+//     narrowed from `not(windows)` to `not(any(windows, target_os = "macos"))`,
+//     because macOS is no longer one of the platforms that cannot answer;
+//   · `cfg(target_os = "macos")` 26 → 29 — two of the three are real
+//     attributes (`registered_run_value`, `launch_agent_path`); ⚠️ THE THIRD IS
+//     A COMMENT, the doc line on `launch_agent_command` explaining that a
+//     `cfg(target_os = "macos")` change has zero proof on Windows. That is the
+//     behaviour already written down below ("this scanner counts attribute text
+//     wherever it appears, including inside comments") — recorded here as well
+//     because a reader reconciling 3 against `grep -c '#\[cfg'` finds 2.
+// 🔴 WHAT THAT STUB COST, since it is the reason the row moved: it returned
+// `None`, `verify_enabled` read `None` as「not registered」, and so enabling
+// autostart on a Mac reported FAILURE ON EVERY SUCCESS — with a correct
+// LaunchAgent on disk the whole time (owner's Mac, 2026-08-17 08:35:29: the
+// error line and the plist share a second).
+// MEASURED ON THE MAC (Mac mini, FlowMic-app@100.64.7.142, macOS 26.5.1;
+// exit codes captured, not inferred):
+//   cargo test --lib --features app  → 688 passed; 0 failed  TESTS_EXIT=0
+//   cargo test --lib                 → TESTS_NOFEAT_EXIT=0
+//   cargo clippy --lib --features app -- -D warnings → CLIPPY_EXIT=0, 0 warnings
+//   the four `launch_agent_tests` in particular: 4 passed; 0 failed
+// ⚠️ That is NOT `pnpm verify:delivery` on the Mac — that machine has no pnpm.
+// Say what ran, not what the gate is called (scripts/mac-verify.sh header).
+//
+// `cfg(target_os = "macos")` 29 → 32 in the very next commit: `shell/
+// accessibility.rs`, which reports the Accessibility permission to the machine
+// that can grant it (the switch is in System Settings on the Mac; the refusal
+// only ever travelled to the phone in the user's pocket). Same Mac run as
+// above — both files were on that machine for it, and the 688-test figure
+// includes them.
 const EXPECTED = {
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
-  'cfg(not(windows))': 24,
+  'cfg(not(windows))': 23,
   'cfg(not(target_os = "windows"))': 11,
   'cfg(unix)': 9,
-  'cfg(target_os = "macos")': 26,
+  'cfg(target_os = "macos")': 32,
   // Windows side, kept as a CONTROL. If every count collapses at once the
   // scanner broke; if only the non-Windows ones move, the code did. Those two
   // states must not produce the same verdict (the UP-7 marker lesson).
@@ -125,7 +158,19 @@ const EXPECTED = {
 // carry the same risk as the counted rows: 9× `all(not(target_os =
 // "windows"), not(target_os = "macos"))`, 1× `all(not(windows),
 // not(target_os = "macos"))`, 1× `all(feature = "app", not(target_os =
-// "windows"))`, 1× `all(target_os = "macos", not(test))`. Pinning those
+// "windows"))`, 1× `all(target_os = "macos", not(test))`.
+// 0.3.8 adds five more to this hand-kept census, as the paragraph below
+// requires — and all five are genuinely uncounted, because the `macos` pattern
+// wants `cfg(` immediately followed by `target_os` and every one of these has
+// something in between: 1× `#[cfg(not(any(windows, target_os = "macos")))]`,
+// 1× `#[cfg(any(target_os = "macos", test))]` and 1× MACRO-form
+// `cfg!(any(windows, target_os = "macos"))` — the constant
+// `READ_BACK_IMPLEMENTED`, which exists so that 「no read-back on this
+// platform」 and 「nothing is registered」 stop being the same `None` (all three
+// in `shell/autostart.rs`); plus 3× `#[cfg(not(target_os = "macos"))]` in
+// `shell/accessibility.rs`, the arms that make a Windows build answer
+// 「this platform has no such permission」 rather than 「not granted」.
+// Pinning those
 // needs a cfg-expression parser, which would trade the tripwire's main
 // virtue (nobody can misread what it counts) for coverage; rejected for the
 // same reason the subtree-hash design above was. If a card adds MORE

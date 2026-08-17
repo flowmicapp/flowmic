@@ -29,6 +29,7 @@ import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fakes.dart';
 import 'support/di.dart';
@@ -294,6 +295,46 @@ void main() {
     await h.controller.setTranslateTarget('en');
     expect(h.payloadOf(h.starts.single)['target_lang'], 'zh');
     await h.dispose();
+  });
+
+  test('WP3 C12: every offered target — including the new seven — ships on '
+      'compose:start.target_lang exactly as chosen', () async {
+    // One utterance per target through the real controller chain. This is the
+    // phone's half of the C12 proof; the server half (the tag becomes a
+    // language NAME in the prompt the LLM receives) is
+    // apps/server-core/test/compose-orchestrator.test.ts.
+    for (final String target in kTranslateTargets) {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.setTranslateTarget(target);
+      h.controller.setMode(FlowMode.translate);
+      await h.speak('translate me');
+      expect(h.payloadOf(h.starts.single)['target_lang'], target,
+          reason: 'target $target was chosen and must ship verbatim');
+      await h.dispose();
+    }
+  });
+
+  test('WP3 C12: a stored stranger degrades to the default at the REAL prefs '
+      'boundary — the chip never wears a fake choice', () async {
+    // Driven on SharedPrefsLocalPrefs, not the in-memory fake: the whitelist
+    // lives at the storage boundary (the same place the spoken language's
+    // does), and a fake that is more permissive than the real thing would let
+    // this test pass on a state the app cannot reach.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      kTranslateTargetKey: 'tlh',
+    });
+    final SharedPrefsLocalPrefs real =
+        SharedPrefsLocalPrefs(await SharedPreferences.getInstance());
+    expect(await real.translateTarget(), kTranslateTargetDefault,
+        reason: 'a value the picker does not offer must not come back');
+    // …while both values real phones have stored since 0.1.0 still do.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      kTranslateTargetKey: 'zh',
+    });
+    final SharedPrefsLocalPrefs zh =
+        SharedPrefsLocalPrefs(await SharedPreferences.getInstance());
+    expect(await zh.translateTarget(), 'zh');
   });
 
   test('a wire failure at compose:start settles the row instead of stranding it',

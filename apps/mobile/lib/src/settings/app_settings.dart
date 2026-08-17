@@ -104,6 +104,25 @@ enum AppLocale {
   final LocaleScript script;
 }
 
+/// WP3 (2026-08-18): resolve a WIRE language tag to its [AppLocale] row, or
+/// null for a stranger. Serves the two language-tag label sites
+/// (`spokenLangLabel`, `translateTargetLabel`) so neither authors a second
+/// name table beside this enum.
+///
+/// Two spellings meet here and the mapping is stated rather than derived:
+/// the wire vocabularies use BARE codes (`zh`, `en`, `ru` — spoken tags and
+/// translate targets alike, and `zh` means Simplified in both), plus the one
+/// regioned tag `zh-TW` that only the translate-target space carries (the
+/// registry's `code` for it; a bare enum-name match cannot find it because
+/// the Dart member is spelled `zhTw`).
+AppLocale? appLocaleForLanguageTag(String tag) {
+  if (tag == 'zh-TW') return AppLocale.zhTw;
+  for (final AppLocale l in AppLocale.values) {
+    if (l.name == tag) return l;
+  }
+  return null;
+}
+
 /// Fresh-install / never-chosen / unrecognised UI language. NEVER the OS.
 /// owner 2026-08-14: "a fresh install boots in English" (「全新安装以英文
 /// 启动」).
@@ -189,12 +208,33 @@ const AppLocale kDefaultUiLocale = AppLocale.en;
 ///     delete the `pttDown` line ⇒ group ① stays all-green, groups ②③ go red).
 const String kSpokenLangDefault = 'zh';
 
-/// The label set the picker offers. Four of them, matching the four UI
-/// languages, and coincidentally exactly the languages the wildcard-routed
-/// SenseVoice covers; not a protocol-level closed set (the server accepts any
-/// label) — this picker simply does not invent a longer language table on
-/// behalf of a private-line user.
-const List<String> kSpokenLangs = <String>['zh', 'en', 'ja', 'ko'];
+/// The label set the picker offers. Grown 4 → 8 by WP3 C11 (owner 2026-08-17:
+/// the spoken language must reach the nine settled languages, not stay at the
+/// four UI languages of the first cut). Order mirrors the UI-locale registry's
+/// picker order (owner 2026-08-14; `packages/protocol/src/locales.ts`
+/// `UI_LOCALES`) so the two language rows on the settings page list languages
+/// the same way — shared ORDER, still two independent value spaces.
+///
+/// 🔴 EIGHT entries covering NINE UI languages — `zh-TW` is deliberately not
+/// here, and that is a DECISION written where the card asked for it, not an
+/// omission. This picker answers 「what language am I SPEAKING」; Traditional
+/// vs Simplified is a property of the OUTPUT SCRIPT, not of the speech. Every
+/// engine leg this product routes Mandarin to today exposes ONE Mandarin
+/// model and emits Simplified (measured in the WP3 handback's
+/// engine × language matrix, 2026-08-18: Soniox rejects a `zh-TW` hint as an
+/// invalid language code, and its `zh` output is Simplified; the seeded
+/// SenseVoice model emits Simplified). A 繁體中文 spoken entry would promise
+/// Traditional output that no engine on the path delivers — the user who
+/// picked it would read Simplified output as a bug, and they would be right.
+/// The day a leg can genuinely emit Traditional (an output-script hint or a
+/// conversion stage), the entry is `'zh-TW'` HERE plus that leg's mapping —
+/// keeping the acoustic question separate from the script question is exactly
+/// why this list is not the UI-locale registry.
+///
+/// Still not a protocol-level closed set (the server accepts any label); this
+/// picker simply does not offer labels the managed engine has not been
+/// measured on.
+const List<String> kSpokenLangs = <String>['en', 'zh', 'fr', 'es', 'de', 'ja', 'ko', 'ru'];
 
 // ── FB-4 THREE GLOBAL TEXT-SIZE TIERS (mobile only; owner ruling D3, 2026-08-06) ──
 //

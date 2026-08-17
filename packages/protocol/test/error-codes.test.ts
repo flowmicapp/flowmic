@@ -254,7 +254,7 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // ⚠️ Name is 17 characters, inside the phone's 28-char raw-code slot.
 // ZERO wire-shape change (`SttErrorSchema.code` is `NonEmpty`, not a closed enum)
 // and `whitelist=54` is untouched.
-const EXPECTED_ERROR_CODE_COUNT = 72;
+const EXPECTED_ERROR_CODE_COUNT = 73;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {

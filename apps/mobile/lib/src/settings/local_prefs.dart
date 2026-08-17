@@ -56,10 +56,23 @@ const String kTranslateTargetDefault = 'en';
 // key is device-local and was never synced, so nothing on any server knows it
 // existed.
 
-/// The pair the chip offers in 0.1.0. Not a closed set on the wire — the server
-/// takes any language tag — but the chip does not invent a language picker for
-/// a private-domain build with one owner.
-const List<String> kTranslateTargets = <String>['en', 'zh'];
+/// The targets the chip offers. Grown 2 → 9 by WP3 C12 (owner 2026-08-17: the
+/// switchable translation languages must reach the nine settled languages).
+/// Registry picker order (owner 2026-08-14; `packages/protocol/src/locales.ts`
+/// `UI_LOCALES`). Still not a closed set on the wire — the server takes any
+/// language tag; this is what the phone offers, not what the protocol allows.
+///
+/// 🔴 UNLIKE the spoken list ([kSpokenLangs]), `zh-TW` IS here, and the split
+/// is the whole point of keeping the two lists separate: a translation target
+/// names the OUTPUT SCRIPT the model should write, and the language model can
+/// genuinely write Traditional (the prompt names 「Traditional Chinese」 —
+/// `apps/server-core/src/compose/prompt.ts` `promptLanguageName`), whereas no
+/// STT engine on the path emits it. `'zh'` stays the bare tag it has always
+/// been (stored on phones since 0.1.0; the prompt names it 「Simplified
+/// Chinese」).
+const List<String> kTranslateTargets = <String>[
+  'en', 'zh', 'zh-TW', 'fr', 'es', 'de', 'ja', 'ko', 'ru',
+];
 
 abstract class LocalPrefs {
   /// 08 §5: direct-send is the DEFAULT; manual is the opt-in habit.
@@ -139,9 +152,13 @@ class SharedPrefsLocalPrefs implements LocalPrefs {
   @override
   Future<String> translateTarget() async {
     final String? stored = _prefs.getString(kTranslateTargetKey);
-    // An empty / absent value is the documented default, never a blank tag
-    // that would make the server guess.
-    return (stored == null || stored.isEmpty)
+    // WP3 C12: whitelist parse, the same posture as the spoken language
+    // (`AppSettingsController.load`). Before this, any stored stranger came
+    // back verbatim and the chip rendered it as a fake choice; now a value
+    // the picker does not offer (or an empty one) degrades to the documented
+    // default. The two values stored by real phones since 0.1.0 ('en'/'zh')
+    // are both still offered, so no existing choice moves.
+    return (stored == null || !kTranslateTargets.contains(stored))
         ? kTranslateTargetDefault
         : stored;
   }

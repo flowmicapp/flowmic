@@ -25,7 +25,9 @@ import 'tokens.dart';
 /// taken by this menu / a single tap is deliberately left unused / two
 /// rejected candidates) is in the file header of
 /// `ui/selection/entry_selection.dart`.
-enum EntryAction { reInject, reprocess, edit, copy, favorite, select, delete }
+/// WP3 C15 (owner 2026-08-17) added [copyOriginal] — copy the ORIGINAL words
+/// behind a translated/organized row; the gate is [_ContextSheet._canCopyOriginal].
+enum EntryAction { reInject, reprocess, edit, copy, copyOriginal, favorite, select, delete }
 
 /// [strings] is required, deliberately — the menu's copy is user-visible, and
 /// a zh default would render Chinese to an English user while looking fine
@@ -116,6 +118,22 @@ class _ContextSheet extends StatelessWidget {
   /// descriptor (and its own preview-copy wording); a remote-key row has nothing at
   /// all, so both are withheld rather than handed an empty string.
   bool get _canCopy => !entry.isControl;
+
+  /// WP3 C15 (owner 2026-08-17): copy the ORIGINAL words behind a translated or
+  /// organized result.
+  ///
+  /// 🔴 The gate is [TimelineEntry.showsSourceLine] — "this row has a source
+  /// that DIFFERS from what is displayed" — and deliberately NOT the session's
+  /// current mode. The mode lives on the controller and describes the session
+  /// NOW; the row is what the user is looking at, and a history list holds rows
+  /// from several modes. A realtime row long-pressed while the session happens
+  /// to be in translate mode has no distinct original, and offering the item
+  /// there would copy the same string under a name that promises something
+  /// else. [showsSourceLine] also carries the two absence rules for free:
+  /// a null/empty `sourceText` (old rows predate the field) and a source that
+  /// equals the display (nothing "original" to reveal) both hide the item —
+  /// a menu item that silently copies nothing is worse than no menu item.
+  bool get _canCopyOriginal => entry.showsSourceLine;
 
   @override
   Widget build(BuildContext context) {
@@ -209,6 +227,21 @@ class _ContextSheet extends StatelessWidget {
                   action: EntryAction.copy,
                 ),
                 _divider(),
+                // WP3 C15: directly under plain copy, so the two copy actions
+                // read as one cluster — 「copy what is shown」 then 「copy what
+                // was said」. Nested under [_canCopy] without loss:
+                // [_canCopyOriginal] requires a processed transcript row, which
+                // is never a control row.
+                if (_canCopyOriginal) ...<Widget>[
+                  _row(
+                    context,
+                    icon: Icons.format_quote_rounded,
+                    label: strings.entryCopyOriginal,
+                    sub: strings.entryCopyOriginalSub,
+                    action: EntryAction.copyOriginal,
+                  ),
+                  _divider(),
+                ],
               // F-5 turning a history row into a favorite. Local-only (no wire, no timeline mutation), so it
               // is offered for cloud records too — unlike deferred re-delivery
               // (补投) there is no PC dependency to lie about.

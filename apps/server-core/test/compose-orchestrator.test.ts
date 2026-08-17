@@ -102,6 +102,37 @@ describe('createComposeFactory — happy path streams with scenario injected', (
     expect(usage).toEqual({ tokensIn: 9, tokensOut: 4, isByok: false });
   });
 
+  // ── WP3 C12: the chosen target reaches the LLM through the REAL path ──────
+  it('🔴 target_lang ru through the real factory+run path → the system prompt the LLM receives names Russian', async () => {
+    const db = freshDb();
+    seedLlm(db);
+    let seen: { system: string; user: string } | undefined;
+    const factory = createComposeFactory({ settings: db.settings, usage: NOOP_USAGE, streamerFor: fakeStreamer([{ kind: 'done', full: '' }], (o) => { seen = o; }) });
+    const orch = factory({ userId: U, task: 'translate', sourceText: 'привет мир', sourceLang: 'zh', targetLang: 'ru' });
+    await drain(orch, { task: 'translate', source_text: 'привет мир', source_lang: 'zh', target_lang: 'ru' });
+    expect(seen?.system).toContain('to Russian');
+    expect(seen?.system).toContain('from Simplified Chinese');
+  });
+
+  it('🔴 reverse control on the real path: changing the target CHANGES the prompt the LLM receives', async () => {
+    const db = freshDb();
+    seedLlm(db);
+    const capture = async (target: string): Promise<string> => {
+      let seen: { system: string; user: string } | undefined;
+      const factory = createComposeFactory({ settings: db.settings, usage: NOOP_USAGE, streamerFor: fakeStreamer([{ kind: 'done', full: '' }], (o) => { seen = o; }) });
+      const orch = factory({ userId: U, task: 'translate', sourceText: 'x', sourceLang: 'en', targetLang: target });
+      await drain(orch, { task: 'translate', source_text: 'x', source_lang: 'en', target_lang: target });
+      return seen?.system ?? '';
+    };
+    const ru = await capture('ru');
+    const de = await capture('de');
+    // A picker whose value is dropped between the phone and the prompt renders
+    // both prompts identical — this is the assertion that catches it.
+    expect(ru).not.toBe(de);
+    expect(de).toContain('to German');
+    expect(de).not.toContain('Russian');
+  });
+
   it('BYOK config surfaces isByok=true through readComposeUsage', async () => {
     const db = freshDb();
     seedLlm(db, 'user-byok-key-xyz');

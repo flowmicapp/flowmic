@@ -364,6 +364,12 @@ class _AiHost implements AiComposeHost {
   String? get aiInstanceId => instanceId;
   @override
   void aiNotify() {}
+  // 0.3.8: this file's subject is the instance bucket, not the wire, and
+  // `aiCanStart` is false here so no run ever reads this. A concrete value
+  // rather than a throw because the compiler asked for a member, not for a
+  // decision — the value that MATTERS is asserted in ai_compose_test.
+  @override
+  String get aiTranslateTarget => 'en';
 }
 
 class _Picker implements ImagePickerPort {

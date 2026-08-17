@@ -226,6 +226,11 @@ pub mod timeline_images; // RV-93 opening the full-size picture + eviction drop;
 
 pub mod connection;
 
+/// macOS Accessibility permission, reported to the machine that can grant it.
+/// The check itself is old and lives in `inject::preflight`; what was missing was
+/// a way for the Mac's own window to say so — see the module header.
+pub mod accessibility;
+
 /// UP-3b online update: the command surface over `crate::update` — check, download,
 /// and the two install chains (portable in-place swap / msiexec). Everything
 /// decidable lives in the tauri-free core; this only owns the `AppHandle`.

@@ -56,15 +56,18 @@ extension SettingsPagePreferences on SettingsPage {
               //      on install could never have got back to it, and no test and
               //      no gate would have said a word.
               //
-              // ⚠️ The chip label is the ENDONYM, not `s.langZh`/`s.langEn`.
-              // Those four strings stay exactly where they are and keep their
-              // only remaining reader: `spokenLangLabel`, which answers a
-              // DIFFERENT question (「which language am I speaking in」, a separate closed set
-              // of four that goes on the wire as `audio:start.source_lang`).
-              // Deleting them here and reusing them there would have been the
-              // repo's #1 defect shape. In particular `s.langEn` is `'EN'` — a
-              // two-letter chip label — and using it for the UI language chip
-              // would put `EN` next to `Français` and `Русский`.
+              // ⚠️ The chip label is the ENDONYM.
+              // In-place correction (WP3 C11, 2026-08-18): the paragraph that
+              // stood here said the four hand-written name strings
+              // (`s.langZh`/`s.langEn`…) 「stay exactly where they are and
+              // keep their only remaining reader: spokenLangLabel」. That
+              // reader now derives from [AppLocale] endonyms too (the spoken
+              // row grew 4 → 8 and a nine-arm hand table would have been the
+              // #1 defect shape this comment warned about), so the four
+              // getters are DELETED — both rows now read the one
+              // registry-mirrored source, and the spoken row's `(tag)`
+              // suffix keeps the two rows distinguishable on screen and in
+              // every `find.text`.
               Wrap(
                 spacing: 8,
                 runSpacing: 8,

@@ -31,16 +31,17 @@ import 'tokens.dart';
 /// does not translate, so this screen reads the same to everybody.
 ///
 /// GREPPED BEFORE WRITING (card U1 asks for exactly this): the settings row's
-/// labels live in `settings/strings/settings_strings.dart` — `langZh` / `langJa`
-/// / `langKo` are the same three strings, and are already locale-invariant
-/// there for this same reason. They are NOT reused here for one measured
-/// reason: `langEn` in that shard is **`'EN'`**, a two-letter chip label sized
-/// for a row of chips next to a title that already says「界面语言」("UI
-/// language"). On a screen
-/// whose entire job is to be recognisable to someone who cannot read the rest of
-/// the app, the full word is the product requirement (the card spells it
-/// `English`), and that shard is owned by another lane in this window — so the
-/// divergence is declared here rather than silently forked.
+/// labels lived in `settings/strings/settings_strings.dart` — `langZh` /
+/// `langJa` / `langKo` were the same three strings, locale-invariant there for
+/// this same reason. They were NOT reused here for one measured reason:
+/// `langEn` in that shard was **`'EN'`**, a two-letter chip label sized for a
+/// row of chips next to a title that already said「界面语言」("UI language").
+/// On a screen whose entire job is to be recognisable to someone who cannot
+/// read the rest of the app, the full word is the product requirement (the
+/// card spells it `English`), and that shard was owned by another lane in this
+/// window — so the divergence was declared here rather than silently forked.
+/// (WP3 C11, 2026-08-18: those four getters are gone — every reader,
+/// including the spoken-language labels, now derives from [AppLocale].)
 ///
 /// 🔴 原地更正 (2026-08-14): this used to be a hand-written map of four entries,
 /// and it is now DERIVED from [AppLocale] — the endonym rides on the enum member.

@@ -156,7 +156,7 @@ export {
 export { resolveScenarioContext, resolveReplacementRules } from './scenario-context';
 export { buildDictionaryReplacer, type DictionaryReplacer, type TermRule } from './dictionary-replace';
 export { buildScenarioBlock, SCENARIO_DELIMITERS, type ScenarioContext } from './scenario';
-export { renderSystemPrompt, renderTaskTemplate } from './prompt';
+export { renderSystemPrompt, renderTaskTemplate, promptLanguageName } from './prompt';
 // M4: the provenance-carrying resolver + judgement are the billing surface;
 // isByokLlm stays exported for the DIAG probe only (see its 🔴 warning).
 export {

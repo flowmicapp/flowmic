@@ -59,7 +59,16 @@ export interface EngineFactory {
  *  configured and visible in the pool — the pool had simply refused. The full
  *  argument is at the `STT_POOL_NO_ROUTE` entry in
  *  `packages/protocol/src/error-codes.ts`. */
-export type SttRoutingRefusalCode = 'STT_CONFIG_MISSING' | 'STT_POOL_NO_ROUTE';
+/** 🔴 THREE, since 2026-08-17 (owner grant). `STT_LANGUAGE_UNSUPPORTED` is the
+ *  third fact and the only one where a route WAS found: the engine exists, was
+ *  selected, and its model cannot recognise the language. The other two are both
+ *  「nothing was selected」 — one because nothing is configured, one because the
+ *  platform pool refused. Three actions, three codes; the full argument for each
+ *  fold is at the registry entries in `packages/protocol/src/error-codes.ts`. */
+export type SttRoutingRefusalCode =
+  | 'STT_CONFIG_MISSING'
+  | 'STT_POOL_NO_ROUTE'
+  | 'STT_LANGUAGE_UNSUPPORTED';
 
 /** Thrown when no routing matches the requested language and no universal `'*'`
  *  entry (and no managed default) is configured. Surfaced verbatim — there is
@@ -71,6 +80,20 @@ export type SttRoutingRefusalCode = 'STT_CONFIG_MISSING' | 'STT_POOL_NO_ROUTE';
  *  the name is what every existing `instanceof` test reads — so the honest move
  *  is to say so here rather than to leave a reader inferring 「config missing」
  *  from the identifier. Callers must report [code], never the literal. */
+function messageFor(code: SttRoutingRefusalCode, language: string): string {
+  switch (code) {
+    case 'STT_POOL_NO_ROUTE':
+      return `The platform STT pool had no route for language ${language}`;
+    case 'STT_LANGUAGE_UNSUPPORTED':
+      // Names the selection AND the mismatch: a support log that only said
+      // 「unsupported」 would leave the reader unable to tell this from
+      // 「nothing was selected」, which is the whole reason the code was minted.
+      return `The selected STT engine cannot recognise language ${language}`;
+    case 'STT_CONFIG_MISSING':
+      return `No STT engine configured for language ${language}`;
+  }
+}
+
 export class SttConfigMissingError extends Error {
   constructor(
     public readonly requested_language: string,
@@ -83,11 +106,12 @@ export class SttConfigMissingError extends Error {
     // phone's own string table). It still has to be true: a pool refusal that
     // says "no STT engine configured" would put the false sentence back on the
     // one surface that survives into a support log.
-    super(
-      code === 'STT_POOL_NO_ROUTE'
-        ? `The platform STT pool had no route for language ${requested_language}`
-        : `No STT engine configured for language ${requested_language}`,
-    );
+    // ⚠️ A switch, not a ternary chain, and exhaustive on the union: a fourth
+    // code added without a message here would otherwise silently inherit the
+    // 「no STT engine configured」 sentence — the exact drift this whole class
+    // of comment exists to prevent, on the one surface that reaches a support
+    // log.
+    super(messageFor(code, requested_language));
     this.name = 'SttConfigMissingError';
   }
 }

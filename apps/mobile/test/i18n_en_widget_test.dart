@@ -245,12 +245,19 @@ void main() {
       );
     }
 
-    // The translate target chip: an English user gets the ISO code, not 「中」.
+    // The translate target chip — WP3 C12 REVERSED the earlier line here.
+    // It used to assert 「an English user gets the ISO code, not 中」
+    // (`find.text('→ ZH')`), written when the chip had two targets and its
+    // label was the only face of the choice. With nine targets the label is
+    // the ENDONYM in every UI language (the same registry source as every
+    // other language label), and the picker sheet the chip now opens carries
+    // `endonym (tag)` rows plus a title, so a user who cannot read 中文 still
+    // has the tag to line the row up with. The old assertion inverted:
     await tester.pumpWidget(
       _wrap(const TranslateTargetChip(target: 'zh', strings: _en)),
     );
-    expect(find.text('→ ZH'), findsOneWidget);
-    expect(find.text('→ 中'), findsNothing);
+    expect(find.text('→ 中文'), findsOneWidget);
+    expect(find.text('→ ZH'), findsNothing);
   });
 
   testWidgets('EN: the edit page speaks English end to end', (

@@ -727,6 +727,13 @@ class ChatController extends ChangeNotifier
   @override
   void aiNotify() => notifyListeners();
 
+  @override // 🔴 THE SAME FIELD the PTT path reads, not a second copy of it —
+  // `chat_utterance.dart` and `chat_utterance_settle.dart` both send
+  // `_translateTarget` on their compose frames. Before 0.3.8 this row sent no
+  // target at all and the server defaulted to English, which was invisible while
+  // the picker had two entries and became a contradiction the moment it had nine.
+  String get aiTranslateTarget => _translateTarget;
+
   /// The task currently streaming, or null when the row is idle.
   ComposeTask? get aiTask => aiCompose.task;
   bool get isAiComposing => aiCompose.isRunning;

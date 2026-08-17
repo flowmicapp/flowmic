@@ -285,13 +285,22 @@ export function auditFile(relPath, found, waiver) {
 export const WAIVERS = [
   {
     file: 'packages/protocol/src/engine-presets.ts',
-    code: 6,
-    comments: 4,
-    why: 'The bundled preset CATALOGUE — four LAN STT presets + two LAN LLM presets. '
-      + 'CLAUDE.md 「预设走 presets 包」 puts the R&D addresses here on purpose. Nothing '
-      + 'SELECTS them any more (settings/defaults.ts seeds builtin-sherpa-local and no '
-      + 'LLM); a deployment names one through FLOWMIC_DEFAULT_*_PRESET. Still a live '
-      + 'menu a stranger can pick — see the note above this list.',
+    // 🔴 0.3.8: 6 code → 0. The previous waiver ended with its own indictment —
+    // 「Still a live menu a stranger can pick」 — and that is what owner ruled out
+    // on 2026-08-17: no built-in personalised configuration in the STT/LLM
+    // settings. The six endpoints now say `localhost`; what the entries carry is
+    // the engine kind and its conventional port, which is product knowledge.
+    // ⚠️ The comment count went 4 → 6 in the same change, and that is not drift:
+    // the two new ones are the note explaining the removal and the in-place
+    // correction of this file's own header. Deleting the addresses from the
+    // record of WHY they were there would be the other failure.
+    code: 0,
+    comments: 6,
+    why: 'The bundled preset CATALOGUE. No address is SELECTABLE any more (0.3.8 — '
+      + 'the entries carry localhost and the user or a deployment supplies the host); '
+      + 'what remains is prose: the ADDITIONAL_PRIVATE_CIDRS env example, the measured '
+      + 'esbuild `define` note, the record of the range the default used to carry, and '
+      + 'the note above STT_PRESETS explaining what was removed and why.',
   },
   {
     file: 'apps/server-core/src/settings/defaults.ts',

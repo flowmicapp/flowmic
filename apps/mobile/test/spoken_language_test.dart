@@ -53,6 +53,7 @@ import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -277,10 +278,40 @@ void main() {
       });
     }
 
-    test('the four tags the picker offers are the shape of the routing-table keys (shape assertion on the gate itself)', () {
-      expect(kSpokenLangs, <String>['zh', 'en', 'ja', 'ko']);
+    test('the eight tags the picker offers are the shape of the routing-table keys (shape assertion on the gate itself)', () {
+      // WP3 C11 (owner 2026-08-17): grown 4 → 8, registry picker order.
+      expect(kSpokenLangs, <String>['en', 'zh', 'fr', 'es', 'de', 'ja', 'ko', 'ru']);
       expect(kSpokenLangDefault, 'zh');
       expect(kSpokenLangs, contains(kSpokenLangDefault));
+    });
+
+    test('🔴 zh-TW is deliberately NOT a spoken value (decision at kSpokenLangs: '
+        'no engine on the path emits Traditional — measured, Soniox 400s the hint), '
+        'and a stored zh-TW degrades to the default instead of shipping', () async {
+      expect(kSpokenLangs, isNot(contains('zh-TW')));
+      final _Harness h = await _Harness.create(
+        seed: <String, Object>{_kSpokenLangPrefKey: 'zh-TW'},
+      );
+      addTearDown(h.dispose);
+      expect(h.appSettings.spokenLang, kSpokenLangDefault,
+          reason: 'a value the picker no longer (or never) offered must fall '
+              'back, never throw and never ship a label the routing table has '
+              'no row for');
+    });
+
+    test('every offered tag resolves to a REAL endonym label from AppLocale '
+        '(the no-second-table invariant), and an unknown tag passes through as data', () {
+      final AppStrings s = AppStrings.of(AppLocale.en);
+      for (final String tag in kSpokenLangs) {
+        final AppLocale l =
+            AppLocale.values.firstWhere((AppLocale l) => l.name == tag);
+        expect(s.spokenLangLabel(tag), '${l.endonym} ($tag)',
+            reason: 'a spoken tag with no AppLocale row would silently render '
+                'as a bare code — if this fires, the tag was added to '
+                'kSpokenLangs without a registry row to name it');
+      }
+      expect(s.spokenLangLabel('xx'), 'xx',
+          reason: 'unknown tags are data, not copy — never invent a name');
     });
   });
 
@@ -360,6 +391,105 @@ void main() {
       expect(appSettings.locale, AppLocale.en,
           reason: 'tapped the spoken-language row; UI language must not follow');
       expect(prefs.getString('flowmic.pref.locale'), isNull);
+    });
+
+    testWidgets('0.2.53 law — all eight spoken chips RENDER un-clipped on a '
+        '360dp phone (endonyms are locale-invariant, so one locale suffices)', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(360 * 3, 800 * 3);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      // ⚠️ MEASURED before tolerating (WP3 C11, 2026-08-18): pumping this page
+      // at 360dp under Ahem trips RenderFlex overflows in rows this card does
+      // not touch — the SAME two (99px and 50px) fire on the pre-C11 tree with
+      // an identical probe, so they are pre-existing page defects DISCOVERED
+      // by this width, not caused by the chips (registered in the WP3
+      // handback). They are filtered here so this test can keep a ruler on
+      // ITS surface; the chips' own legibility is asserted directly below,
+      // per chip, and the spoken row's Wrap cannot horizontally overflow by
+      // construction (it wraps).
+      final List<String> pageOverflows = <String>[];
+      final void Function(FlutterErrorDetails)? prevOnError =
+          FlutterError.onError;
+      FlutterError.onError = (FlutterErrorDetails d) {
+        if (d.exceptionAsString().contains('overflowed')) {
+          pageOverflows.add(d.exceptionAsString());
+          return;
+        }
+        prevOnError?.call(d);
+      };
+      addTearDown(() => FlutterError.onError = prevOnError);
+
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppSettingsController appSettings =
+          AppSettingsController(prefs: prefs);
+      await appSettings.load();
+      final FakeSocketTransport t = FakeSocketTransport();
+      final SettingsClient settingsClient =
+          SettingsClient(transport: t, roomJoins: ValueNotifier<int>(0));
+      final ScenarioCardController scenario = ScenarioCardController(
+        settingsClient: settingsClient,
+        cache: InMemoryScenarioCardCache(),
+      );
+      await scenario.load();
+      final PttSession session = newTestSession(
+        transport: FakeSocketTransport(),
+        audio: AudioCapture(recorder: FakeAudioRecorder()),
+      );
+      final LoginController login = newTestLogin(transport: session.transport);
+      final DestinationController destination = DestinationController();
+      addTearDown(() async {
+        await settingsClient.dispose();
+        login.dispose();
+        scenario.dispose();
+        appSettings.dispose();
+        destination.dispose();
+        await session.dispose();
+        await t.close();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsPage(
+            scenario: scenario,
+            appSettings: appSettings,
+            login: login,
+            destination: destination,
+            session: session,
+            portable: newTestPortableController(),
+            inventory: newTestInventory(
+              rows: const <TimelineEntry>[],
+              images: InMemoryOutboxBlobStore(),
+            ),
+            timeline: newTestStore(),
+            version: const FixedAppVersion('0.0.0-test'),
+            update: newTestUpdateController(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final AppStrings s = AppStrings.of(appSettings.locale);
+      for (final String tag in kSpokenLangs) {
+        final Finder chip = find.text(s.spokenLangLabel(tag));
+        await tester.scrollUntilVisible(chip, 120);
+        await tester.pumpAndSettle();
+        expect(chip, findsOneWidget, reason: 'chip for $tag did not render');
+        expect(
+          tester.renderObject<RenderParagraph>(chip).didExceedMaxLines,
+          isFalse,
+          reason: 'chip label for $tag was eaten by an ellipsis at 360dp',
+        );
+        expect(
+          tester.getTopRight(chip).dx,
+          lessThanOrEqualTo(360.0),
+          reason: 'chip label for $tag ran off the right edge of a 360dp '
+              'screen — the Wrap stopped wrapping',
+        );
+      }
     });
   });
 }

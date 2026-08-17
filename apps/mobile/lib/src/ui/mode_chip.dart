@@ -40,7 +40,8 @@
 // buffer is non-empty).
 
 import 'package:flutter/widgets.dart';
-import 'package:flutter/material.dart' show InkWell;
+import 'package:flutter/material.dart'
+    show Colors, Icons, InkWell, showModalBottomSheet;
 
 import '../settings/app_strings.dart';
 import '../settings/local_prefs.dart' show kTranslateTargets;
@@ -207,10 +208,15 @@ class ModeSegmentedControl extends StatelessWidget {
 
 /// GA-01 ruling 2: the translate target language, offered right beside the mode
 /// chip and ONLY while translate is selected (REDESIGN D4「chosen in place
-/// alongside the translate mode」). Tapping cycles the pair rather than
-/// opening a picker — two languages
-/// is not a list, and a private-domain build with one owner does not need a
-/// language browser.
+/// alongside the translate mode」).
+///
+/// WP3 C12 (2026-08-18): tapping now opens a PICKER SHEET. The cycling tap it
+/// replaces argued for itself in this very comment — 「two languages is not a
+/// list, and a private-domain build with one owner does not need a language
+/// browser」 — and both halves of that sentence have since been reversed by
+/// owner rulings (nine targets IS a list; the product ships beyond the
+/// private line). Cycling through nine with repeated taps would make the
+/// seventh language cost seven taps and a mis-tap cost eight more.
 ///
 /// It is a DEVICE-LOCAL habit, so it is deliberately not in the settings page:
 /// the choice belongs next to the mode it modifies.
@@ -236,15 +242,86 @@ class TranslateTargetChip extends StatelessWidget {
   /// chip goes inert rather than accepting a tap that does nothing visible.
   final bool enabled;
 
-  String _next() {
-    final int i = kTranslateTargets.indexOf(target);
-    return kTranslateTargets[(i < 0 ? 0 : i + 1) % kTranslateTargets.length];
+  Future<void> _pick(BuildContext context) async {
+    final String? chosen = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          decoration: BoxDecoration(
+            color: FlowMicColors.surface2,
+            border: Border.all(color: FlowMicColors.line),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          // Scrollable for the same measured reason as the entry context
+          // menu: showModalBottomSheet caps a sheet at half the screen, and
+          // nine rows plus a title do not fit that cap on a short phone.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(15, 12, 15, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      strings.translateTargetSheetTitle,
+                      style: TextStyle(
+                        color: FlowMicColors.t3,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                for (final String tag in kTranslateTargets)
+                  InkWell(
+                    onTap: () => Navigator.of(ctx).pop(tag),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 11,
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              strings.translateTargetRowLabel(tag),
+                              style: TextStyle(
+                                color: tag == target
+                                    ? FlowMicColors.teal
+                                    : FlowMicColors.t1,
+                                fontSize: 13.5,
+                                fontWeight: tag == target
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                          if (tag == target)
+                            Icon(Icons.check_rounded,
+                                size: 16, color: FlowMicColors.teal),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    // Dismissed with no choice → nothing changes; re-choosing the current one
+    // is a no-op at the controller (`ChatController.setTranslateTarget`
+    // early-returns on an unchanged or empty value — grep the guard).
+    if (chosen != null && onTap != null) onTap!(chosen);
   }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: enabled && onTap != null ? () => onTap!(_next()) : null,
+      onTap: enabled && onTap != null ? () => _pick(context) : null,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         height: 38,

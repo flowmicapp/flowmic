@@ -36,6 +36,7 @@ import { SttEngineOrchestrator } from './orchestrator-core';
 import { DEFAULT_ENGINE_IDLE_HANGUP_MS, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
 import type { VadGate } from './vad-gate';
+import { sherpaModelCanRecognize } from './sherpa/model-manifest';
 import { FunasrEngine } from './engines/funasr';
 import { DeepgramEngine } from './engines/deepgram';
 import { OpenAiRealtimeEngine } from './engines/openai-realtime';
@@ -129,7 +130,38 @@ export const defaultEngineFactory: EngineFactory = (
     case 'openai-whisper':           return new OpenAiWhisperEngine(cfg);
     case 'custom-openai-compatible': return new CustomOpenAiCompatibleEngine(cfg);
     case 'funspeech-http':           return new FunspeechHttpEngine(cfg);
-    case 'sherpa-local':             return new SherpaLocalEngine(cfg);
+    case 'sherpa-local': {
+      // 🔴 WP3 C13 (2026-08-18): refuse BY NAME what the model cannot do,
+      // never "recognise" it as something nearby. The seeded `'*'` route sends
+      // every spoken language here on a self-hosted box, and for a language
+      // outside the model's five the recogniser returns punctuation dressed as
+      // a transcript with a clean exit (measured: French → 「La Mer.」, German
+      // → 「.」 — see SHERPA_MODEL_LANGUAGES beside the model manifest). A user
+      // whose words silently become 「.」 has no error to act on; this throw
+      // rides the same rails as an unroutable language and reaches the phone
+      // as a coded stt:error.
+      //
+      // 🔴 THE CODE IS NOW THE PRECISE ONE (owner granted it 2026-08-17). The
+      // paragraph this replaces is kept, because it is the record of what a
+      // pending grant costs and it was right to ship the nearest TRUE sentence
+      // in the meantime rather than an invented one:
+      //   「⚠️ The CODE is the nearest true sentence, not the ideal one.
+      //    STT_CONFIG_MISSING says 「该语言尚未配置识别引擎」/"No STT engine
+      //    configured for this language" — true here (no configured engine CAN
+      //    do this language) and its action … is the right action. The precise
+      //    sentence … would be a NEW code, and codes are owner-granted; the
+      //    proposal is registered in the WP3 handback. STT_POOL_NO_ROUTE was
+      //    considered and does NOT fit …」
+      // What the old code got wrong was not truth but DIRECTION: it sends a
+      // reader to look for an absence when what they have is a mismatch — an
+      // engine is configured, they can see it configured, and the message says
+      // nothing is. The registry entry for STT_LANGUAGE_UNSUPPORTED carries the
+      // full argument and the measurements behind it.
+      if (!sherpaModelCanRecognize(cfg.language)) {
+        throw new SttConfigMissingError(cfg.language, 'STT_LANGUAGE_UNSUPPORTED');
+      }
+      return new SherpaLocalEngine(cfg);
+    }
     case 'soniox':                   return requireCloudEngine(id, cfg);
     default: {
       const _exhaustive: never = id;

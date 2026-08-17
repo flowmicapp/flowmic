@@ -82,17 +82,25 @@ import { DISCLOSURE_STRINGS } from './strings/disclosure';
 // Rust's UpdateFailure::tag(); update-tag-parity.test.ts reads failure.rs as
 // data to guard it.
 import { UPDATE_STRINGS } from './strings/update';
+// 0.3.8 — OS permissions we cannot grant ourselves and the user can. Today:
+// macOS Accessibility, which is why 「手机说话、胶囊有字、窗口里什么都没有」 happens
+// on a fresh Mac (measured, owner 2026-08-17).
+import { PERMISSION_STRINGS } from './strings/permission';
 import type { StringKey } from './strings/generated/catalogue.g';
 import { getLocale, onLocaleChange, UI_LOCALES, type UiLocale } from './strings/locale';
 
-// 🔴 THE FIFTEEN SHARDS, LISTED ONCE — and the reason it is a list and not a
+// 🔴 EVERY SHARD, LISTED ONCE — and the reason it is a list and not a
 // generated table. Each shard's `*_STRINGS` is a VIEW of the generated
 // catalogue sliced by that shard's own key contract, so this array is what
 // keeps every shard file wired into production: a shard that stops being
 // listed here stops contributing keys to `S`, and the parity/coverage numbers
-// say so immediately. Written as data rather than as fifteen spreads per
+// say so immediately. Written as data rather than as one spread per shard per
 // locale because the per-locale dimension is exactly what this migration
 // removed — the old form was 15 × 4 spread lines and would have been 15 × 9.
+// ⚠️ 🔴 The heading used to read 「THE FIFTEEN SHARDS」 and it went stale the
+// first time one was added (0.3.8, `permission`). A count in a comment is a
+// second copy of something the array below already says — same rule as
+// CLAUDE.md's 「不在这里写死面数」 for the version faces. Count the array.
 const SHARD_VIEWS = [
   NAV_STRINGS,
   DEVICES_STRINGS,
@@ -109,6 +117,7 @@ const SHARD_VIEWS = [
   STATS_STRINGS,
   DISCLOSURE_STRINGS,
   UPDATE_STRINGS,
+  PERMISSION_STRINGS,
 ] as const;
 
 export type { StringKey };

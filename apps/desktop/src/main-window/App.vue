@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './components/Icon.vue';
 import BrandMark from './components/BrandMark.vue';
 import FirstRunLocale from './components/FirstRunLocale.vue';
+import AccessibilityNotice from './components/AccessibilityNotice.vue';
 import DevicesPage from './DevicesPage.vue';
 import ConnDiagPage from './ConnDiagPage.vue';
 import TimelinePage from './TimelinePage.vue';
@@ -178,6 +179,12 @@ onUnmounted(() => {
     </nav>
 
     <main ref="contentEl" class="content">
+      <!-- 0.3.8 — above the pages, not inside one. The permission does not
+           belong to Devices or to Settings: while it is missing, NOTHING this
+           product does reaches another window, so it is true on whichever page
+           the reader happens to open. It renders only on macOS and only while
+           the permission is actually absent (see the component). -->
+      <AccessibilityNotice />
       <DevicesPage v-show="page === 'devices'" />
       <ConnDiagPage v-if="page === 'diag'" />
       <TimelinePage v-show="page === 'timeline'" />

@@ -234,6 +234,22 @@ part of '../app_strings.dart';
 
 mixin DisclosureStrings on AppStringsLeaves {
 
+  // 🔴 WP3 C16 (owner 2026-08-17: 「a simple diagram plus short explanation —
+  // no long text; privacy and terms live on the web」). The step BODIES were
+  // rewritten as diagram captions on 2026-08-18. Two claim families MOVED
+  // behind the privacy-policy link rather than being deleted (the policy is
+  // the authority and already carries both in full):
+  //   ① the four-tier engine resolution ORDER, incl. the two seeded routes
+  //     (docs/legal/privacy-policy.md, engine resolution section);
+  //   ② the FLOWMIC_LAN_TLS=0 switch-off, its lockout consequence and the
+  //     recovery steps (privacy-policy.md, LAN channel section).
+  // [discDetailsOnSite] is the on-screen pointer to where they went. Every
+  // OTHER claim in the pre-rewrite copy is still on this screen — the WP3
+  // handback carries the full before/after claims diff. The release gate's
+  // three zh-CN canaries in [discStep4LanPlain] survive byte-identical
+  // (scripts/apk-disclosure-copy-marker.mjs answers 「did the CLAIM survive」,
+  // and it did — verified by that script's own marker list).
+
   // ── Entry points (home screen / settings) ────────────────────────────────
   String get discEntry => _lfDiscEntry;
 
@@ -334,4 +350,10 @@ mixin DisclosureStrings on AppStringsLeaves {
   String get discLinkCopied => _lfDiscLinkCopied;
 
   String get discScopeNote => _lfDiscScopeNote;
+
+  /// WP3 C16: the pointer to where the two MOVED claim families live (the
+  /// engine-selection order; the LAN-TLS fine print). It exists so shortening
+  /// this screen never silently shortened the product's story — the sentence
+  /// names what moved and where to read it, right above the links that open it.
+  String get discDetailsOnSite => _lfDiscDetailsOnSite;
 }

@@ -263,6 +263,21 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    */
   STT_POOL_NO_ROUTE: 'none',
   /**
+   * A route was found and the engine's model cannot recognise the requested
+   * language (owner-granted 2026-08-17; producer `stt/engine-factory.ts`).
+   *
+   * Same shape as every other `STT_*` code: it rides `stt:error`, never an
+   * `inject:result`, and it is raised at engine CONSTRUCTION — before any audio
+   * has been sent anywhere, and long before a phone→PC delivery segment exists to
+   * have an opinion about ⇒ `'none'`.
+   *
+   * ⚠️ This entry is not paperwork. The build refused the whole package until it
+   * existed — which is the mechanism CLAUDE.md credits for closing the desktop
+   * half of the bare-identifier account, and it fired on the first run of this
+   * card. A test run against the stale `dist` was GREEN in the same minute.
+   */
+  STT_LANGUAGE_UNSUPPORTED: 'none',
+  /**
    * 🔴 **This is the only one of the four with real doubt attached, so its reasoning
    * has to be spelled out in full.**
    *
