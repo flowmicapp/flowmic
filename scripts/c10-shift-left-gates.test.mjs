@@ -69,10 +69,29 @@ console.log('§1 toolchain preflight (C10-1)');
     m.majorOf('some banner with no version') === null);
 
   // The real thing, end to end, on this machine.
+  //
+  // 🔴 THIS ASSERTS THE CONTRACT, NOT THE BOX. The first version of it required
+  // `status === 0` — i.e. it assumed every machine that runs the gate has all
+  // four tools installed. Measured 2026-08-17 on the public CI: the node-side
+  // job and the macOS job both install node/pnpm/cargo but NOT flutter (the
+  // Flutter work has its own job), so the preflight correctly refused and this
+  // test called that a failure. Both public checks went red on a green tree.
+  //
+  // A preflight whose whole job is to report honestly cannot be tested by
+  // asserting that the report is always the happy one. So: on a complete box it
+  // must exit 0 and name every tool; on an incomplete box it must exit non-zero,
+  // name the tool that is missing, and hand back the toolchain-free subset —
+  // which is the behaviour the four checks above already pin in isolation, here
+  // driven through the real script instead of through its exports.
   const real = spawnSync(node, [path.join(ROOT, 'scripts', 'preflight-toolchain.mjs')], { encoding: 'utf8', cwd: ROOT });
-  check('running it on this box exits 0 and prints a version per tool',
-    real.status === 0 && m.TOOLS.every((t) => (real.stdout ?? '').includes(t.id)),
-    `status=${real.status} ${(real.stdout ?? '').slice(0, 200)}`);
+  const out = `${real.stdout ?? ''}${real.stderr ?? ''}`;
+  const namesEveryTool = m.TOOLS.every((t) => out.includes(t.id));
+  const complete = real.status === 0;
+  check('running it on this box reports every tool, and its exit code agrees with what it found',
+    namesEveryTool && (complete
+      ? !/MISSING/.test(out)
+      : /MISSING/.test(out) && out.includes(m.NODE_ONLY_SUBSET)),
+    `status=${real.status} ${out.slice(0, 240)}`);
 }
 
 // ── § 2  gate receipt ───────────────────────────────────────────────────────
