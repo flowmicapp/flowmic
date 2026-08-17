@@ -28,10 +28,15 @@ const SRC_SET = new Set<string>(DOWNLOAD_SRC_ALLOWLIST);
  *  table with arbitrary query junk). */
 export const SITE_DIM_VALUE_MAX = 120;
 
-// One base per line, www. derived: the opensource export waives forbidden
-// literals per occurrence-pin (one reviewed line = one pin, duplicates refused),
-// so a line carrying the legacy domain twice is structurally unwaivable.
-const SELF_HOST_BASES = ['flowmic.app', 'flowmic.online'] as const;
+// One base per line, www. derived.
+//
+// The retired relay domain was removed from this list on 2026-08-17 (owner
+// ruling: docs/decisions/2026-08-17-owner-retires-flowmic-online-public-service.md).
+// This is a REFERRER classifier, so the change is exactly this: a referrer from
+// that host is now counted as an external site rather than as this one — which is
+// what it is, since the domain no longer serves anything publicly. It never
+// affected who may reach an endpoint.
+const SELF_HOST_BASES = ['flowmic.app'] as const;
 const SELF_HOSTS = new Set(SELF_HOST_BASES.flatMap((h) => [h, `www.${h}`]));
 
 export function utcDay(nowMs: number = Date.now()): string {
@@ -73,7 +78,7 @@ export function sanitizeReferrerHost(raw: unknown): string {
   }
   host = host.replace(/:\d+$/, '');
   if (host.length === 0) return '(direct)';
-  if (SELF_HOSTS.has(host) || host.endsWith('.flowmic.app') || host.endsWith('.flowmic.online')) {
+  if (SELF_HOSTS.has(host) || host.endsWith('.flowmic.app')) {
     return '(self)';
   }
   if (host.length > SITE_DIM_VALUE_MAX) host = host.slice(0, SITE_DIM_VALUE_MAX);

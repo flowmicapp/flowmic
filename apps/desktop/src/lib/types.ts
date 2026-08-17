@@ -339,10 +339,56 @@ export interface ConnectionState {
 
 // ── transports (injected so the stores are testable without Tauri) ──
 
+/** One server-authoritative settings row from a settings:list snapshot.
+ *
+ *  ⚠️ MOVED HERE FROM bridge.ts (card C3) rather than grown in place: that file
+ *  sits one line under the 800-line cap and two cards were widening it in the
+ *  same round. Nothing else changed — this is the same shape, with the wire's
+ *  optional stamp added. */
+export interface ServerSettingItem {
+  key: string;
+  value: unknown;
+  /** 04 §3.7-a — when the WRITER last changed this value. Absent means UNKNOWN
+   *  (an older relay strips the field; a synthesized row never had one), and
+   *  unknown must never be read as epoch — see `ABSENCE MEANS UNKNOWN, NEVER
+   *  EPOCH` in protocol-schemas-sync.ts. */
+  updated_at?: string;
+}
+
 export interface SettingsTransport {
   /** Fire a settings:update through the Rust socket. Resolves to whether the
-   *  frame reached the wire (false → hold pending, re-flush on reconnect). */
-  settingsUpdate(key: string, value: unknown): Promise<boolean>;
+   *  frame reached the wire (false → hold pending, re-flush on reconnect).
+   *
+   *  `updatedAt` (card C3) is WHEN THE USER MADE THIS EDIT, ISO-8601 UTC — not
+   *  when the queue drained, and not when the server received it. It is what
+   *  lets the server's regress guard refuse a stale replay from this machine
+   *  (the `existingMs > incomingMs` guard in settings.handler.ts); without it
+   *  the desktop can never LOSE an
+   *  arbitration, so a day-old offline edit replayed on reconnect still
+   *  overwrites a card edited on the phone five minutes ago. Optional because
+   *  absence must keep meaning UNKNOWN: a caller that does not know the edit
+   *  time omits it and gets exactly the pre-stamp behaviour.
+   *
+   *  The whole path is live: bridge.ts hands it to the `settings_update` command
+   *  as `stamp`, `SocketOut::emit_settings_update` passes it on, and
+   *  `wire::build_settings_update` puts `updated_at` on the frame — omitting the
+   *  key entirely when it is `None`, because absent means UNKNOWN and an explicit
+   *  `null` would fail `Iso8601.optional()` at the server's zod boundary, where a
+   *  refusal is anonymous. Pinned by `socket::wire::wire_tests`
+   *  (`settings_update_carries_the_edit_moment_when_the_frontend_knows_it`,
+   *  `settings_update_omits_the_key_entirely_when_the_moment_is_unknown`).
+   *
+   *  ⚠️ ONE settings write is deliberately never stamped: `device.pc_name`. The
+   *  server's G2 arbitration stops at that branch (settings.handler.ts — no KV
+   *  row, no column, one writer, nothing to race) so `build_pc_name_update`
+   *  passes `None`, pinned from both ends by `pc_name_update_carries_no_stamp`
+   *  here and `test/pc-rename.test.ts` there.
+   *
+   *  ⚠️ The IPC argument is named `stamp`, not `updatedAt`: this file's header
+   *  says the boundary uses single-word argument names precisely to keep
+   *  camelCase↔snake_case off the table. The WIRE field is still `updated_at`
+   *  — the two names answer to different layers. */
+  settingsUpdate(key: string, value: unknown, updatedAt?: string): Promise<boolean>;
 }
 
 /** The timeline's ONE remaining native call (0.2.27).

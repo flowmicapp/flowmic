@@ -183,10 +183,21 @@ pub(crate) fn current_channel(state: &State<'_, SocketState>) -> crate::socket::
 
 /// Change-immediately-persist-immediately settings write (07 §8). Returns whether the frame reached the wire;
 /// `false` → the frontend holds it pending and re-flushes on reconnect.
+///
+/// `stamp` is the frontend's `updated_at` — WHEN THE USER MADE THE EDIT (04 §3.7-a,
+/// card C3), minted in `apps/desktop/src/lib/settings-client.ts` and persisted with
+/// the durable queue, so a replayed offline edit carries its own moment rather than
+/// the reconnect's. Passed through untouched and omitted from the frame when
+/// `None`: absent means UNKNOWN, which is exactly the pre-C3 behaviour.
+///
+/// ⚠️ The IPC argument is one word on purpose. `apps/desktop/src/lib/bridge.ts`
+/// states that this boundary uses single-word argument names so that
+/// camelCase↔snake_case never has to be reasoned about; `stamp` honours that,
+/// while the WIRE field stays `updated_at`. The two names answer to two layers.
 #[tauri::command]
-pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value) -> bool {
+pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value, stamp: Option<String>) -> bool {
     // owner ⑤: settings target the LAN server only — see with_lan_socket.
-    with_lan_socket(&state, |s| s.emit_settings_update(&key, value), false)
+    with_lan_socket(&state, |s| s.emit_settings_update(&key, value, stamp.as_deref()), false)
 }
 
 /// settings:list snapshot pull (WP-R3.5; 07 §8). Unlike history_list this AWAITS
@@ -235,11 +246,19 @@ pub use tray::setup_tray;
 /// technique `setup_tray` uses just above.
 ///
 /// ⚠️ Declared HERE, next to the other cap-driven split, rather than beside
-/// `sidecar_ctl` at the top of this file: `settings-sync-notice.ts:2` carries a
-/// line-number anchor to `mod.rs:162`, and inserting six lines above it silently
+/// `sidecar_ctl` at the top of this file: `settings-sync-notice.ts` used to carry
+/// a LINE-NUMBER anchor into this file, and inserting six lines above it silently
 /// unpinned that anchor in `coordinate-anchors-baseline.mjs` (caught by
-/// `verify:lint`, not by review). Adding a module declaration above line 162
-/// costs someone that rot; adding it below costs nothing.
+/// `verify:lint`, not by review). Adding a module declaration above that point
+/// cost someone that rot; adding it below cost nothing.
+///
+/// 🔴 UPDATE (2026-08-17, card C3): the rot came due a SECOND time anyway — a doc
+/// block added above `settings_update` moved it again — so that citation was
+/// rewritten to the symbol-only form (`settings_update` / `with_lan_socket`, no
+/// number), which the anchors lint cannot see at all. The placement rule above is
+/// therefore no longer load-bearing for THAT anchor, and it is kept because the
+/// lesson generalises: this file is cited from several places, and the durable
+/// repair is to delete the number, not to be careful about where lines go in.
 mod channel_session;
 
 /// The phones PAIRED to this PC — the device page's 「paired phones」 table (R6 T-8).

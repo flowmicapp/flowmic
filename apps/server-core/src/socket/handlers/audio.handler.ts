@@ -312,7 +312,18 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       // reaches `effectiveLimits`, which can fail for reasons that are not a
       // refusal at all — recording those as `quota_refused` would be a row that
       // confidently states the wrong cause, which is worse than no row.
-      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'stt');
+      //
+      // 🔴 2026-08-17 (owner ruling) — AND SAY WHOSE QUOTA REFUSED. `auth.userId`
+      // is whose attempt this was; `judged` is whose ceiling was hit, and since
+      // QTA-2 they are two different accounts whenever the desktop is signed
+      // into another one. The row used to carry only the first, so it asserted
+      // that the phone's account was out of minutes in exactly the case where
+      // its account was fine — the row's SUBJECT was wrong. `judged` is the same
+      // value K-5 puts in the log line below (`gate` + `user_id`); this makes it
+      // durable, because the journal rotates and the ledger is what a billing
+      // question gets answered from months later. `user_id`'s meaning is
+      // untouched, so rows written before today still mean what they meant.
+      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'stt', judged);
       // QTA-1 — and SAY it. `recordQuotaRefusal` above writes a row that is
       // invisible in production anyway (`FLOWMIC_USAGE_EVENTS_ENABLED` is unset
       // on the relay — measured 2026-08-15, boot line "per-event usage log
@@ -413,10 +424,21 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       // regardless would tear down a session this press never created.
       if (state) state.orchestrator = null;
       // #16 no-implicit-fallback: the router's SttConfigMissingError (not a
-      // ServerError) maps to the whitelisted STT_CONFIG_MISSING; anything else
-      // goes through errorPayload. Either way it is fail-loud, never swallowed.
+      // ServerError) carries its own whitelisted code; anything else goes
+      // through errorPayload. Either way it is fail-loud, never swallowed.
+      // ⚠️ That first sentence used to read 「maps to the whitelisted
+      // STT_CONFIG_MISSING」 and card C1 made it false in the same edit that
+      // fixed the line below — corrected here rather than left as an expired
+      // truth, which is the anti-façade ④ rule (a comment asserting behaviour
+      // elsewhere goes stale silently, because nothing recompiles a sentence).
+      // 🔴 card C1 (2026-08-17): `err.code`, NEVER the literal. Selection ending
+      // in nothing has two causes and two registered sentences — 「你没配引擎」 and
+      // 「我们的池子没有可用线路」 — and the thrower is the only layer that holds
+      // the fact that separates them (engine-factory.ts). Hard-coding one here is
+      // what made the relay tell users to go configure engines that were already
+      // configured. Both codes are whitelisted registry entries.
       const e: ErrorPayload = err instanceof SttConfigMissingError
-        ? { error: 'STT_CONFIG_MISSING', message: err.message }
+        ? { error: err.code, message: err.message }
         : errorPayload(err);
       // 🔴 card K-4 — through `refuseStart`, not a bare emit. This arm used to
       // emit `stt:error` by hand, which meant it produced the FRAME but not the

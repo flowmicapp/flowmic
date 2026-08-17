@@ -1,6 +1,6 @@
 {
   "name": "flowmic",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "description": "FlowMic — speak on your phone, type on your PC. Open-source cross-device voice input.",
   "license": "AGPL-3.0-only",
@@ -11,6 +11,8 @@
   "scripts": {
     "prepare": "husky",
     "i18n:gen": "node scripts/i18n/gen-desktop-rust.mjs && node scripts/i18n/gen-desktop-ts.mjs && node scripts/i18n/gen-web-locale-snapshot.mjs --skip-missing && node scripts/i18n/gen-mobile-dart.mjs",
+    "verify:preflight": "node scripts/preflight-toolchain.mjs && node scripts/gate-receipt.mjs --begin",
+    "verify:receipt": "node scripts/gate-receipt.mjs --end",
     "verify:lint": "node verify/lint/run-all.mjs",
     "verify:types": "pnpm --filter @flowmic/protocol --fail-if-no-match typecheck && pnpm --filter @flowmic/server-core --fail-if-no-match typecheck",
     "verify:sidecar-resources": "node scripts/preflight-sidecar-resources.mjs",
@@ -24,7 +26,7 @@
     "verify:mobile-tests": "cd apps/mobile && flutter test --timeout 90s --reporter compact",
     "golden": "node verify/golden/run-golden.mjs",
     "verify:scripts": "node scripts/run-script-tests.mjs",
-    "verify:delivery": "pnpm verify:lint && pnpm verify:types && pnpm verify:clippy && pnpm verify:rust-tests && pnpm verify:doctests && pnpm verify:scripts && pnpm golden && pnpm verify:protocol-tests && pnpm verify:server-tests && pnpm verify:desktop-tests && pnpm verify:types:desktop && pnpm verify:mobile-tests",
+    "verify:delivery": "pnpm verify:preflight && pnpm verify:lint && pnpm verify:types && pnpm verify:clippy && pnpm verify:rust-tests && pnpm verify:doctests && pnpm verify:scripts && pnpm golden && pnpm verify:protocol-tests && pnpm verify:server-tests && pnpm verify:desktop-tests && pnpm verify:types:desktop && pnpm verify:mobile-tests && pnpm verify:receipt",
     "install:local": "node scripts/install-local.mjs",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build"

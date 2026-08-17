@@ -65,6 +65,30 @@ export interface PoolRoutingDeps {
 export interface PoolManagedDefault {
   /** The `managedDefault` resolver the engine router calls, per audio:start. */
   resolve: (language: string) => Routing | null;
+  /**
+   * 🔴 THE SECOND QUESTION, AND IT NEEDS ITS OWN VALUE (card C1, 2026-08-17).
+   *
+   * `resolve()` returns `null` for four different facts — nothing is configured,
+   * the pool refused, the pool was not consulted, the config drifted — and the
+   * caller that has to name the failure needs to tell the FIRST two apart:
+   * "you have no engine" and "our pool had no route" send the user to opposite
+   * places, and only one of them is something they can act on. Making `resolve`
+   * return a richer value would have been the other shape, and it is worse here:
+   * that return feeds `selectRoutingWithSource`'s PRECEDENCE decision, which must
+   * keep meaning exactly 「is there a managed routing」 and nothing else.
+   *
+   * Answers ONLY: did the pool have routes and refuse to select one for this
+   * language? PURE — it re-runs the deterministic half of the resolution (no
+   * liveness probe, no logging, no background refresh), so it is safe to call
+   * from a throw site and cannot change what a session got.
+   *
+   * ⚠️ Probe-free ON PURPOSE, and that is not a shortcut: `resolve()` already
+   * re-resolves without the probe when every candidate fails liveness (see the
+   * `POOL_ALL_UNAVAILABLE` arm below), so a route that exists but is dead never
+   * reaches a `null` — meaning the deterministic answer is exactly the one that
+   * produced the `null` this is being asked about.
+   */
+  noRouteFor: (language: string) => boolean;
   /** Exposed for the ops/forensic side and for the failover drill. */
   health: RouteHealthRegistry | null;
   pool: LoadedPool;
@@ -168,6 +192,15 @@ export function makePoolManagedDefault(deps: PoolRoutingDeps = {}): PoolManagedD
       return null;
     }
     if (selection.outcome === 'refused') {
+      // 🔴 THE REFUSAL SITE (card C1). This `null` used to be indistinguishable
+      // downstream from 「nothing is configured」, so the phone read
+      // STT_CONFIG_MISSING 「该语言尚未配置识别引擎」 — false on any relay with a
+      // pool. The fact is now recoverable through [[PoolManagedDefault.noRouteFor]]
+      // and the throw site in engine-factory.ts names it STT_POOL_NO_ROUTE.
+      // ⚠️ It still returns null rather than throwing, and that is deliberate:
+      // throwing here would skip steps 4–5 of `selectRoutingWithSource` (the
+      // SEEDED rows), i.e. a pool refusal would delete the platform's own fallback
+      // line. Precedence is unchanged; only the NAME of the eventual failure moved.
       log.error('stt.pool refused to select a route', {
         code: selection.code, group_id: selection.group_id, detail: selection.detail, language,
       });
@@ -237,5 +270,14 @@ export function makePoolManagedDefault(deps: PoolRoutingDeps = {}): PoolManagedD
     return routing;
   };
 
-  return { resolve, health, pool };
+  const noRouteFor = (language: string): boolean => {
+    // An EMPTY pool is not a refusal — nothing was configured, which is the one
+    // case STT_CONFIG_MISSING states truthfully. Same guard, same order and the
+    // same reason as `resolve`'s first line; keeping them in step is what makes
+    // "the pool refused" and "resolve returned null" the same population.
+    if (pool.pool.length === 0) return false;
+    return resolvePoolRouting(pool, language).selection.outcome === 'refused';
+  };
+
+  return { resolve, noRouteFor, health, pool };
 }

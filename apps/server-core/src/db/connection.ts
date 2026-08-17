@@ -274,6 +274,27 @@ export function reconcileSchema(db: DatabaseSync): void {
   //
   // Idempotent by the same guard as the two steps above: on a fresh DB the
   // CREATE already made both columns, so no ALTER runs.
+  //
+  // ── 2026-08-17: usage_events.refused_user_id, in this SAME block ────────────
+  //
+  // 🔴 IT IS A NULLABLE TEXT COLUMN WITH NO DEFAULT — exactly what the
+  // `ADDITIVE_TEXT_COLUMNS` loop emits — SO WHY IS IT NOT IN THAT LOOP. Because
+  // that loop runs ~100 lines ABOVE this block, and on a database that predates
+  // BOTH rounds it would append this column BEFORE the two character counts,
+  // while a fresh `CREATE` appends it AFTER them. The two shapes would then
+  // differ in column ORDER, and "the forward-ported usage_events is
+  // INDISTINGUISHABLE from a fresh one" (test/migration-idempotency.test.ts)
+  // compares `PRAGMA table_info` element by element. Keeping every ALTER for
+  // this table in one block, in DDL order, is what makes that convergence hold
+  // for every legacy shape rather than only for the ones a test happens to
+  // build today.
+  //
+  // 🔴 NO BACKFILL, and here the reason is neither danger nor arithmetic — it is
+  // that the answer is not knowable. Only the refusal path knows WHICH account's
+  // quota threw; stamping legacy rows with their own `user_id` would manufacture
+  // exactly the claim this column exists to stop manufacturing ("A hit A's
+  // ceiling"), on the rows least able to defend themselves. NULL says "nobody
+  // recorded it", which is the truth.
   {
     const usageEventCols = tableColumns(db, 'usage_events');
     if (!usageEventCols.has('transcript_chars')) {
@@ -281,6 +302,12 @@ export function reconcileSchema(db: DatabaseSync): void {
     }
     if (!usageEventCols.has('delivered_chars')) {
       db.exec('ALTER TABLE usage_events ADD COLUMN delivered_chars INTEGER');
+    }
+    // No `REFERENCES users(id)`: a second cascade into this table would let one
+    // account's deletion erase another account's usage rows (schema.ts argues it
+    // at the DDL). The cascade census pins the FK count at one.
+    if (!usageEventCols.has('refused_user_id')) {
+      db.exec('ALTER TABLE usage_events ADD COLUMN refused_user_id TEXT');
     }
   }
   // v0.2.4 machine-level identity lookups. Created AFTER the ALTER loop above —

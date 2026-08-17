@@ -240,6 +240,11 @@ pub struct CloudConfig {
     /// The relay base URL. Empty until the user saves one — the DEFAULT comes from
     /// the protocol package (`DEFAULT_SAAS_ENDPOINT`) on the frontend and is passed
     /// in on save, so no endpoint literal is hardcoded anywhere in this crate.
+    ///
+    /// C7: a value stored while an older address was canonical is migrated ONCE by
+    /// [`crate::socket::cloud_endpoint`], which keeps the rule above intact — the
+    /// retired list and the canonical value arrive as arguments on `cloud_status`.
+    /// A value that is anything else (a self-hosted relay) is never touched.
     #[serde(default)]
     pub endpoint: String,
     /// The Cloud Key (account JWT). `None` = logged out.

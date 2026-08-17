@@ -52,7 +52,11 @@ clone.** Both produce a gitignored artifact that a later stage resolves by path:
   exists, so an empty one buys you a build that gets further and is wrong.)
 
 If you are not set up for Rust, skip the second one — lint, types, and the
-golden suite all still run in full. The `scripts` segment also still runs, but
+golden suite all still run in full **when invoked individually**. The combined
+`pnpm verify:delivery` now begins with a toolchain preflight that hard-fails on
+a missing tool and prints the exact toolchain-free subset command to run
+instead, so a Rust-less checkout gets the subset from that message rather than
+from partial progress through the chain. The `scripts` segment also still runs, but
 one test in it (`it27-publish-node-pin.test.mjs`) is gated on a binary that
 same build step stages: without it, that single test reports **SKIP**, not
 PASS or FAIL, and names the command that would produce it.

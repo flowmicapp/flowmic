@@ -203,11 +203,17 @@ impl DesktopSocket {
         rx.recv_timeout(timeout + Duration::from_millis(500)).ok().flatten()
     }
 
-    /// settings:update{key, value} — save instantly on change (07 §8). Returns whether the frame
-    /// reached the transport (false → the frontend keeps the edit pending).
-    pub fn emit_settings_update(&self, key: &str, value: Value) -> bool {
+    /// settings:update{key, value, updated_at?} — save instantly on change (07 §8).
+    /// Returns whether the frame reached the transport (false → the frontend keeps
+    /// the edit pending).
+    ///
+    /// `updated_at` is the frontend's own edit moment (card C3) and is passed
+    /// straight through: this layer neither mints nor re-stamps it, because the
+    /// frame may be a replay of an edit made a week ago and re-stamping is exactly
+    /// what would let that replay overwrite a newer card on the phone.
+    pub fn emit_settings_update(&self, key: &str, value: Value, updated_at: Option<&str>) -> bool {
         self.client
-            .emit(events::SETTINGS_UPDATE, wire::build_settings_update(key, value))
+            .emit(events::SETTINGS_UPDATE, wire::build_settings_update(key, value, updated_at))
             .is_ok()
     }
 

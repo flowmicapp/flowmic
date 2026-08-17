@@ -71,10 +71,19 @@
 //                 to one delivery") or a new socket event: an additive JSON
 //                 field moves neither the 54-event whitelist nor the 61 error
 //                 codes, and a phone that does not know the key ignores it and
-//                 keeps showing today's "offline". Present ONLY when the server
-//                 actually recorded a reason (room/pc-absence.ts) — an ordinary
-//                 shutdown records none, so that response is byte-identical to
-//                 the one this route has always sent.
+//                 keeps showing today's "offline". Present ONLY when there is a
+//                 reason to give — an ordinary shutdown has none, so that
+//                 response is byte-identical to the one this route has always
+//                 sent.
+//
+// 🔴 THE REASON HAS TWO SOURCES, AND THEY ARE NOT THE SAME KIND OF FACT (C9,
+// 2026-08-17). One is RECORDED — `room/pc-absence.ts` is a table a watchdog and
+// a refusal gate write into. The other is DERIVED here, at read time, from rows
+// that were never about this pairing: `machine_reassigned` asks whether the
+// physical machine behind this row is in a room right now under a DIFFERENT
+// account. Keeping them separate is deliberate; the derived one has no write
+// site and must not become a member of the stored set (the argument is at
+// `MACHINE_REASSIGNED_REASON`).
 // Nothing else. No device name, no user id, no room_uuid — a token buys the one
 // bit it asked for, plus (when there is one) the reason behind that bit, and not
 // an inventory.
@@ -85,7 +94,13 @@ import { RateGate } from '../error-handling';
 import { log } from '../log';
 import type { Registry } from '../room/registry';
 import type { RoomStore } from '../room/store';
+import type { PcRepo } from '../db/repos/pc.repo';
 import { pcAbsenceReasons } from '../room/pc-absence';
+import type { PcAbsentReason } from '../room/pc-absence';
+import {
+  MACHINE_REASSIGNED_REASON,
+  isMachineServingAnotherAccount,
+} from '../room/machine-reassigned';
 import { sendJson } from './body';
 
 /** The route path.
@@ -153,12 +168,30 @@ export function hashedRoomId(roomUuid: string): string {
   return createHash('sha256').update(roomUuid).digest('hex').slice(0, 12);
 }
 
+/** What may appear in `pc_absent_reason` on the wire: the RECORDED set plus the
+ *  one reason this route DERIVES. A union rather than one enum because the two
+ *  halves have different lifetimes — see the header. */
+export type PcAbsentWireReason = PcAbsentReason | typeof MACHINE_REASSIGNED_REASON;
+
 export interface PresenceRoutesDeps {
   /** Typed as a slice of the real Registry so there is no second interface to
    *  drift from it. `findPairingByToken` is the PURE lookup (no last_seen_at). */
   registry: Pick<Registry, 'findPairingByToken'>;
   /** Live room presence — the same instance the socket handlers mutate. */
   store: Pick<RoomStore, 'getPc'>;
+  /** C9 — the ONE cross-account read this route makes, and it is READ-ONLY:
+   *  「is this machine in a room under another account right now」
+   *  (room/machine-reassigned.ts owns the question and the disclosure argument).
+   *
+   *  🔴 REQUIRED, not optional, and that is the whole wiring guarantee. Every
+   *  other dep on this surface documents what its absence means because absence
+   *  is a legitimate deployment shape there; here it is not — a relay that
+   *  answered presence without this slice would answer 「offline」 to exactly the
+   *  phones this card exists for, and nothing would say so. This repo's #1
+   *  historical defect is a capability defined and never called, and an optional
+   *  dep with a friendly fallback is how one is built. The compiler is the gate:
+   *  bootstrap cannot construct these deps without supplying it. */
+  pcs: Pick<PcRepo, 'listByMachineUidOtherUsers'>;
   /** Forensic seams. Defaults are the REAL logger and the REAL shared gate —
    *  never no-ops (DI-default rule: a friendly empty implementation is how a
    *  capability ends up wired to nothing). */
@@ -209,7 +242,22 @@ export function tryHandlePresenceRoutes(
   // injectable seam here could only ever be passed by a test — and a dependency
   // production cannot supply is the shape this repo keeps finding as a façade.
   // The socket handlers write to this same one instance (room/pc-absence.ts).
-  const absentReason = online ? null : pcAbsenceReasons.reasonFor(pc);
+  //
+  // 🔴 C9 — REASSIGNMENT OUTRANKS A RECORDED REASON, and the order is a product
+  // decision rather than a preference. Both can be true at once: the account
+  // this row belongs to may well have had its cloud sign-in lapse BEFORE the
+  // machine was signed into another account, leaving an `auth_expired` entry
+  // that is still perfectly accurate about a row nobody will ever use again.
+  // Answering with it would send the user to re-enter a Cloud Key for the OLD
+  // account on a machine that is currently working under the new one — an
+  // instruction that is not merely useless but would displace the account
+  // actually in use. `machine_reassigned` is the one of the two whose action
+  // ("pair again") is right.
+  const absentReason: PcAbsentWireReason | null = online
+    ? null
+    : isMachineServingAnotherAccount({ pcs: deps.pcs, store: deps.store }, pc)
+      ? MACHINE_REASSIGNED_REASON
+      : pcAbsenceReasons.reasonFor(pc);
   if (!online) {
     // ONLY the absent answer gets a line. The online path carries no information
     // — it is the expected state, it is the overwhelming majority of the traffic,

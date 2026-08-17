@@ -1153,6 +1153,30 @@
       "name": "polish_no_llm"
     },
     {
+      "key": "polish_strength_label",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_strength_label"
+    },
+    {
+      "key": "polish_strength_strict",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_strength_strict"
+    },
+    {
+      "key": "polish_strength_smooth",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_strength_smooth"
+    },
+    {
+      "key": "polish_strength_hint",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_strength_hint"
+    },
+    {
       "key": "settings_scope_lan",
       "shard": "settings",
       "kind": "string",

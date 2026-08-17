@@ -511,6 +511,73 @@ void main() {
           contains('nothing on this phone'));
     });
 
+    // ── card C1 (2026-08-17): the PLATFORM's pool had no route ─────────────
+    //
+    // Server side: `apps/server-core/src/stt/engine-factory.ts` now names this
+    // refusal `STT_POOL_NO_ROUTE` instead of `STT_CONFIG_MISSING`. Without a
+    // sentence HERE that change only moves the defect — this build would print
+    // 「转写引擎报错（STT_POOL_NO_ROUTE）」, a raw identifier blaming an engine that
+    // was never asked. Re-pointing a wire code and giving it a sentence are the
+    // same piece of work and only the first half has a compiler behind it.
+    //
+    // REVERSE CONTROL (executed 2026-08-17). Break: delete
+    // `if (code == 'STT_POOL_NO_ROUTE') return sttStallPoolNoRoute;`
+    // from `sttStallBannerMessage` (recording_strings.dart).
+    // OBSERVED: one red, this test, failing on the FIRST locale of the loop:
+    //   Expected: 'The service has no speech engine available for this
+    //             recording. Nothing on this phone needs changing — if it keeps
+    //             happening, tell us'
+    //     Actual: 'Speech engine reported an error (STT_POOL_NO_ROUTE)'
+    // — the raw-identifier sentence, verbatim, which is the defect being fixed.
+    // CONTROL-ON-CONTROL: every other case in this group stayed GREEN, including
+    // the raw-identifier fallback for a genuinely unknown code — the break is one
+    // arm wide. Restored; `flutter test` back to all green.
+    test('C1: STT_POOL_NO_ROUTE gets its own nine-language sentence — never the '
+        'install copy, never a bare identifier', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'STT_POOL_NO_ROUTE',
+            message: 'The platform STT pool had no route for language ko',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallPoolNoRoute, reason: '$locale');
+        // THE assertion this card exists for: not the raw-identifier fallback.
+        expect(
+          q.top!.message,
+          isNot(s.sttStallEngineErrorCoded('STT_POOL_NO_ROUTE')),
+          reason: '$locale',
+        );
+        expect(q.top!.message, isNot(contains('STT_POOL_NO_ROUTE')),
+            reason: '$locale');
+        // 🔴 And not either NEIGHBOUR. These three refusals send the user to
+        // three different places (check your install / say it again / nothing
+        // you can do), so two of them reading alike would be the fold this code
+        // was minted to avoid.
+        expect(q.top!.message, isNot(s.sttStallConfigMissing), reason: '$locale');
+        expect(q.top!.message, isNot(s.sttStallNoEngineReached), reason: '$locale');
+      }
+      // The claim being retired — an install fault — must be absent, in both
+      // spellings this suite can pin.
+      expect(zh.sttStallPoolNoRoute, isNot(contains('引擎组件')));
+      expect(AppStrings.of(AppLocale.en).sttStallPoolNoRoute,
+          isNot(contains('model files')));
+      // …and so must the advice that belongs to the neighbouring code: repeating
+      // the utterance re-runs the same refusal.
+      expect(zh.sttStallPoolNoRoute, isNot(contains('重新说一次')));
+      expect(AppStrings.of(AppLocale.en).sttStallPoolNoRoute,
+          isNot(contains('Say it again')));
+      // The one thing the user can know for certain.
+      expect(AppStrings.of(AppLocale.en).sttStallPoolNoRoute,
+          contains('Nothing on this phone'));
+    });
+
     test('ENG-3: a code-less engine stall keeps the pre-existing generic '
         'sentence byte-for-byte', () {
       final BannerQueue q = buildChatBanners(

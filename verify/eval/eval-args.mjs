@@ -20,5 +20,11 @@ const LINE = arg('line', 'managed');
 const LIMIT = Number(arg('limit', '0')) || 0;
 const OUT = arg('out', null);
 const CONC = Number(arg('concurrency', '4')) || 4;
+/**
+ * Card C8 — which correction strength the `realtime` suite is measured at.
+ * Defaults to `strict`, which is the product default, so an unflagged run keeps
+ * measuring exactly what it measured before this flag existed.
+ */
+const STRENGTH = arg('strength', 'strict');
 
-export { argv, arg, MODE, ONLY_SUITE, LINE, LIMIT, OUT, CONC };
+export { argv, arg, MODE, ONLY_SUITE, LINE, LIMIT, OUT, CONC, STRENGTH };

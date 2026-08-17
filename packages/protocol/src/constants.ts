@@ -21,6 +21,65 @@
 // re-deciding that, which is the point of removing them.
 export const DEFAULT_SAAS_ENDPOINT = 'https://flowmic.app';
 
+// Relay addresses this product HAS served from and has since RETIRED as the
+// address it hands out. Not a decommission notice: per card C7's own measurement
+// (docs/strategy/2026-08-17-lan-cc-agent-work-package-2.md §1 C7 — restated here,
+// NOT re-measured by this change), the one entry below still answers
+// `/api/health` byte-identically to the canonical host and still completes a
+// socket.io handshake, because it IS the same box. What is retired is the address
+// an install should CARRY, which is why the migration below is safe: it changes
+// no connectivity.
+//
+// WHY THIS EXISTS AT ALL. `CloudConfig.endpoint` on the desktop is a stored
+// value, not a label — only an EMPTY one falls back to DEFAULT_SAAS_ENDPOINT. An
+// install that was configured while the legacy host was canonical keeps dialing
+// (and displaying) that host forever, and the web console mints the endpoint from
+// `window.location.origin`, so logging in over the legacy domain hands it back
+// again. The desktop therefore performs a ONE-TIME migration of a stored endpoint
+// that equals one of these to DEFAULT_SAAS_ENDPOINT.
+//
+// CONSUMERS (the anti-façade anchor — a constant with no live reader is this
+// repo's #1 bug class):
+//   · apps/desktop/src/lib/channel.ts  `cloudEndpointSsot()` — packs this list
+//     plus the canonical value into the `cloud_status` IPC arguments;
+//   · apps/desktop/src-tauri/src/socket/cloud_endpoint.rs `plan_migration()` —
+//     the migration itself RUNS in Rust (the Cloud Key never crosses back to the
+//     frontend, so the frontend cannot re-save the endpoint on its own) while the
+//     LITERALS stay here, which is what keeps socket/channel.rs's standing rule
+//     true: no endpoint literal is hardcoded anywhere in that crate.
+//
+// COMPARISON CONTRACT (implemented in cloud_endpoint.rs, restated here because
+// this list is where someone will add an entry): both sides are normalised by
+// trimming whitespace, stripping trailing `/`, and ASCII-lowercasing — so a
+// stored `https://host/` and `HTTPS://Host` both migrate. Nothing else is
+// normalised: the SCHEME is part of the identity (`http://…` is a different
+// entry, add it here if it is ever wanted) and a subdomain is not a match.
+// UNDER-matching is the safe direction on purpose. This field exists so a
+// self-hosted relay can override the default, and rewriting one of THOSE would be
+// a worse bug than the one this fixes.
+//
+// 🔴 THIS LIST MUST NEVER CONTAIN DEFAULT_SAAS_ENDPOINT (asserted by
+// test/saas-endpoints.test.ts). The migration is idempotent by construction —
+// rewriting the value removes the thing that triggered it — and an entry equal to
+// the canonical value would break exactly that: every status read would "migrate"
+// the endpoint onto itself, writing the config and a forensic line forever.
+//
+// 🔴 THE VALUE BELOW IS DEPLOYMENT DATA, NOT A PROTOCOL CONSTANT, AND THE
+// OPEN-SOURCE EXPORT SHIPS IT EMPTY (scripts/opensource-manifest-strips.mjs).
+// A build of this project that is not our hosted service has retired nothing, so
+// `[]` is the CORRECT value there and the migration simply has no work — that is
+// an empty set, not an inert mechanism. This is the same category as not
+// exporting our API keys: the code is identical, the operator's data is not.
+// It is also the last place in this repository that names the address the owner
+// retired on 2026-08-17 (the ruling is
+// docs/decisions/2026-08-17-owner-retires-flowmic-online-public-service.md, and
+// it says to take that domain out of the project — this line survives it only
+// because deleting it would strand every install still carrying that address,
+// which is the very thing the retirement needs finished).
+// ⚠️ DELETE THIS ENTRY (and its strip) once the repair window closes. It is not
+// meant to outlive the installs it exists to heal.
+export const LEGACY_SAAS_ENDPOINTS: readonly string[] = [];
+
 // V2.0 timeline E2EE (A-49 / F-3005 / F-3008 redline). Ciphertext persisted in
 // timeline_blobs.ciphertext (and the timeline:grant wrap) MUST carry this
 // prefix. STRICTLY distinct from F-705's server-decryptable 'enc:v1:'

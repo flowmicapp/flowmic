@@ -207,6 +207,39 @@ mixin RecordingStrings on AppStringsLeaves {
   /// install is fine.
   String get sttStallNoEngineReached => _lfSttStallNoEngineReached;
 
+  /// `STT_POOL_NO_ROUTE` — the PLATFORM's engine pool was consulted, refused to
+  /// give this request a route, and nothing else covered the language either
+  /// (owner-approved code, WP-2 card C1, 2026-08-17).
+  ///
+  /// 🔴 WHY IT IS NOT [sttStallConfigMissing], which is what this path answered
+  /// with until today. That sentence tells the user their engine components or
+  /// model files are missing and sends them to check an install. On the relay
+  /// every clause of it is false — engines are configured, several of them, and
+  /// the install being checked is not even the machine that refused. It is the
+  /// same defect as the Soniox 「No audio received.」 mis-map two cards earlier,
+  /// arriving from the other direction: there the vendor's fault was reported as
+  /// a configuration fault; here OUR configuration is reported as THEIRS.
+  ///
+  /// 🔴 AND NOT [sttStallNoEngineReached] either, even though the two read alike.
+  /// That one means a route WAS selected and the audio still reached nobody, so
+  /// its instruction —「请重新说一次」("say it again") — is the right one there and
+  /// exactly wrong here: no route was ever selected, so repeating the utterance
+  /// re-runs the same refusal. Two codes because the actions differ.
+  ///
+  /// ⚠️ LEADS WITH THE FACT AND THEN CLOSES THE USER'S OWN SEARCH. The one thing
+  /// they can know for certain is that nothing on this phone is the cause — the
+  /// same restraint [sttStallServerFault] carries, and for the same reason: the
+  /// fault is server-side by construction, so hunting through their own settings
+  /// cannot help. No 「try again later」: the pool does not heal on a timer, and
+  /// promising that it might is the kind of unbacked wait this repo bans.
+  ///
+  /// Mirrors `ERROR_CODES.STT_POOL_NO_ROUTE`. Hand-maintained — the phone cannot
+  /// import TypeScript, and nothing binds the two tables (the open account in
+  /// CLAUDE.md). Without this sentence the code would print as
+  /// 「转写引擎报错（STT_POOL_NO_ROUTE）」, i.e. a raw identifier blaming an engine
+  /// that was never even asked: the 0.2.53 shape for the sixth time in this file.
+  String get sttStallPoolNoRoute => _lfSttStallPoolNoRoute;
+
   /// `QUOTA_EXCEEDED` — the account's monthly transcription allowance is spent
   /// (QTA-1, 2026-08-15). The server refuses at the `audio:start` entry, before
   /// any engine is picked.
@@ -288,6 +321,8 @@ mixin RecordingStrings on AppStringsLeaves {
       final String? code = stall.code;
       if (code == 'STT_CONFIG_MISSING') return sttStallConfigMissing;
       if (code == 'STT_NO_ENGINE_REACHED') return sttStallNoEngineReached;
+      // Card C1: the platform pool refused. NOT an engine speaking — see its doc.
+      if (code == 'STT_POOL_NO_ROUTE') return sttStallPoolNoRoute;
       if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
       // Neither of these two is an engine speaking — see their own docs above.
       if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;

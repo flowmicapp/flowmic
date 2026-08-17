@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_SAAS_ENDPOINT, ERROR_CODES } from '@flowmic/protocol';
+import { DEFAULT_SAAS_ENDPOINT, ERROR_CODES, LEGACY_SAAS_ENDPOINTS } from '@flowmic/protocol';
 import {
   asCloudStatus,
   CHANNEL_LABEL,
   CHANNEL_VISUAL,
+  cloudEndpointSsot,
   cloudLoudReason,
   DEFAULT_CLOUD_ENDPOINT,
+  LEGACY_CLOUD_ENDPOINTS,
   deriveCloudCard,
   deriveLanCard,
   EMPTY_CLOUD_STATUS,
@@ -33,6 +35,34 @@ describe('channel labels', () => {
 
   it('takes the default relay endpoint from the protocol SSOT, not a literal', () => {
     expect(DEFAULT_CLOUD_ENDPOINT).toBe(DEFAULT_SAAS_ENDPOINT);
+  });
+
+  it('takes the RETIRED relay endpoints from the same SSOT', () => {
+    expect(LEGACY_CLOUD_ENDPOINTS).toEqual(LEGACY_SAAS_ENDPOINTS);
+  });
+});
+
+// ── C7: the endpoint SSOT crossing the Tauri boundary ────────────────────────
+//
+// The desktop's stored `CloudConfig.endpoint` is migrated off a retired address
+// by Rust, using literals that must NOT live in that crate. This is the packing
+// half; the decision half is src-tauri/src/socket/cloud_endpoint.rs.
+describe('cloudEndpointSsot — what the cloud_status read carries inward', () => {
+  it('carries the canonical value and the retired list, under the arg names Rust takes', () => {
+    // Single-word keys on purpose (bridge.ts header: "single-word args to avoid
+    // any camelCase↔snake_case ambiguity across the boundary"). Renaming either
+    // one here without renaming the Rust parameter makes the command reject the
+    // call at runtime, where only a console warning would show it.
+    expect(cloudEndpointSsot()).toEqual({
+      canonical: DEFAULT_SAAS_ENDPOINT,
+      legacy: [...LEGACY_SAAS_ENDPOINTS],
+    });
+  });
+
+  it('hands over a plain mutable array (the readonly SSOT itself must not travel)', () => {
+    const sent = cloudEndpointSsot().legacy;
+    expect(Array.isArray(sent)).toBe(true);
+    expect(sent).not.toBe(LEGACY_SAAS_ENDPOINTS);
   });
 });
 

@@ -42,6 +42,7 @@ import {
 } from './publish-apk-gates.mjs';
 import { verifyArtifactsCarryNoLanIp } from './publish-lan-ip-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
+import { readValidReceipt, reuseBanner } from './gate-receipt.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = join(ROOT, 'apps', 'desktop');
@@ -113,8 +114,28 @@ if (WITH_MANIFEST && process.argv.includes('--skip-lan')) {
 // invisible to the next reader; a flag becomes the thing everyone types. If this
 // gate has to be skipped, the honest way is to delete these lines in a commit —
 // then the bypass is a diff somebody can see, which is the whole point.
+//
+// ── C10-4: a RECENT PROOF OF THE SAME TREE MAY STAND IN FOR A RERUN ─────────
+// Measured on 0.3.6: this gate and deploy/delivery_gate.py each ran the full
+// chain, twice on a tree that had not changed a byte since the previous green
+// run — six to ten minutes per round re-deriving a proof that already existed.
+//
+// 🔴 THE RULE, AND IT IS NOT A CACHE. A receipt stands in ONLY when HEAD sha,
+// the working-tree fingerprint, the toolchain readings AND the age window all
+// match (scripts/gate-receipt.mjs owns every one of those judgements). When it
+// does, that fact is ANNOUNCED at the same volume as the gate's own heading,
+// naming the minute the proof was made — a silent skip would make a reused
+// proof and a fresh one look identical in this log, which is the precise defect
+// this repo keeps paying for. When any condition fails, the reason is printed
+// and the full chain runs; there is no path where "reused" is quiet and no flag
+// that forges a receipt (the only writer is the last link of the chain itself).
 {
+  const proof = readValidReceipt();
+  if (proof.ok) {
+    console.log(reuseBanner(proof));
+  } else {
   console.log('── verify:delivery (lint + types + clippy + golden) ─────────────');
+  console.log(`   (no reusable gate proof: ${proof.reason})`);
   const t0 = Date.now();
   const gate = spawnSync('pnpm', ['verify:delivery'], { cwd: ROOT, stdio: 'inherit', shell: true });
   if (gate.error) {
@@ -129,6 +150,7 @@ if (WITH_MANIFEST && process.argv.includes('--skip-lan')) {
     process.exit(1);
   }
   ok(`verify:delivery green (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  }
 }
 
 // ── GATE 0b: aggregate NOTICE current (card L4) ─────────────────────────────

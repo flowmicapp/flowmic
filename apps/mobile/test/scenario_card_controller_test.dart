@@ -33,6 +33,19 @@
 // specific to stamp arbitration, not to adoption in general. Had the absent-
 // stamp case gone red too, the break would have been "stop adopting" rather
 // than "stop arbitrating", and this reverse control would have proved nothing.
+//
+// ── CARD C3 (2026-08-17): the arbitration compares two CLOCKS ────────────────
+// The stamp the commit path mints now comes from the settings client's skew
+// clock rather than from `DateTime.now()`, because a phone running behind stamps
+// a genuinely newer edit into the server's past and loses it. The ACCEPTANCE
+// case at the bottom of this file is where that is proved through the REAL
+// client, and its two reverse controls were:
+//   · break the clock itself → `+29 -3` across the three settings files;
+//   · leave the clock perfect and delete `_clock.observe(stamp)` from
+//     `SettingsClient._publish` → `+31 -1`, the single red being the case below.
+// The second is the one worth keeping: every unit test of the clock stayed green
+// while nothing on this device was feeding it. Transcripts in
+// settings_stamp_clock_test.dart's header.
 
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/generated/flowmic_settings.g.dart';
@@ -57,10 +70,14 @@ class _Joins extends ValueNotifier<int> {
   FakeSocketTransport transport,
   ScenarioCardController ctrl,
   _Joins joins,
-}) _wire({CachedScenarioCard cached = CachedScenarioCard.empty}) {
+}) _wire({
+  CachedScenarioCard cached = CachedScenarioCard.empty,
+  DateTime Function()? now,
+}) {
   final FakeSocketTransport t = FakeSocketTransport();
   final _Joins joins = _Joins();
-  final SettingsClient client = SettingsClient(transport: t, roomJoins: joins);
+  final SettingsClient client =
+      SettingsClient(transport: t, roomJoins: joins, now: now);
   final ScenarioCardController ctrl = ScenarioCardController(
     settingsClient: client,
     cache: InMemoryScenarioCardCache(cached),
@@ -82,6 +99,19 @@ Map<String, Object?> _card(String term) => <String, Object?>{
       'packs': <String>[],
       'terms': <String>[term],
     };
+
+/// Mirror of the server's regress guard — the `existingMs > incomingMs` check in
+/// apps/server-core/src/socket/handlers/settings.handler.ts — so the C3
+/// case below can say「the server would refuse this frame」rather than compare
+/// two strings. Its authority is that citation — the phone cannot import
+/// TypeScript, the same reason its error-copy table is hand-mirrored, and the
+/// wire-level proof lives in the server's own suite.
+bool _serverRefuses(String? storedIso, String? incomingIso) {
+  final DateTime? stored = storedIso == null ? null : DateTime.tryParse(storedIso);
+  final DateTime? incoming = incomingIso == null ? null : DateTime.tryParse(incomingIso);
+  if (stored == null || incoming == null) return false; // unknown ⇒ write it
+  return stored.isAfter(incoming);
+}
 
 void main() {
   test('toggling a profession pushes settings:update{scenario.card} with the '
@@ -422,6 +452,59 @@ void main() {
     expect(w2.ctrl.card.terms, <String>['v1 server'],
         reason: 'one unknown stamp is enough to disqualify the comparison');
     await w2.client.dispose();
+  });
+
+  // ── C3: the arbitration compares two CLOCKS, so a lagging one must not lose ──
+
+  test('ACCEPTANCE (a): a phone whose clock is AN HOUR BEHIND still wins with '
+      'its genuinely newer edit', () async {
+    // 🔴 THE FAILURE THIS CLOSES, in the user's words: they add a term on the
+    // phone, and a moment later it is gone and nothing on screen says why. The
+    // stamp they authored was an hour in the server's past, so the write was
+    // refused, the stored card was pushed back, and rule 5 adopted it.
+    //
+    // Everything here runs through the real SettingsClient and the real
+    // controller; only the device clock is a double.
+    final DateTime trueNoon = DateTime.utc(2026, 8, 17, 12);
+    DateTime local = trueNoon.subtract(const Duration(hours: 1)); // reads 11:00
+    final w = _wire(now: () => local);
+
+    // The desktop edited the card at 12:00; the room-join snapshot says so, and
+    // that one row is the whole of the evidence needed.
+    w.transport.ackQueue.add(<String, Object?>{
+      'items': <Object?>[
+        <String, Object?>{
+          'key': FlowMicSettingsKeys.scenarioCard,
+          'value': _card('desktop at noon'),
+          'updated_at': '2026-08-17T12:00:00.000Z',
+        },
+      ],
+    });
+    w.joins.join();
+    await Future<void>.delayed(Duration.zero);
+    expect(w.ctrl.card.terms, <String>['desktop at noon']);
+    expect(w.client.stampCorrection, const Duration(hours: 1));
+    w.transport.emitted.clear();
+
+    // True 12:05: the user adds a term. This phone's clock still says 11:05.
+    local = trueNoon.subtract(const Duration(minutes: 55));
+    expect(w.ctrl.addTerm('灰度发布'), TermAddOutcome.added);
+
+    final Map<String, Object?> p = _lastSettingsUpdate(w.transport);
+    final String stamp = p['updated_at']! as String;
+    expect((p['value']! as Map)['terms'], contains('灰度发布'));
+    expect(_serverRefuses('2026-08-17T12:00:00.000Z', stamp), isFalse,
+        reason: 'the later edit must survive a slow clock');
+    expect(stamp, '2026-08-17T12:05:00.000Z',
+        reason: 'and it is stamped when it really happened, not merely one '
+            'millisecond past whatever it had seen');
+
+    // The counterfactual, so the assertion above means something: the stamp this
+    // device would have authored off its own clock is exactly the one the server
+    // refuses.
+    expect(_serverRefuses('2026-08-17T12:00:00.000Z', '2026-08-17T11:05:00.000Z'),
+        isTrue);
+    await w.client.dispose();
   });
 
   test('an UNPARSEABLE stamp is treated as unknown, not ranked as a string',

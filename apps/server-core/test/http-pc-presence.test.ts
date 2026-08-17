@@ -25,6 +25,7 @@ import { PC_PRESENCE_PATH, PRESENCE_AUTH_REQUIRED, tryHandlePresenceRoutes } fro
 import { Registry } from '../src/room/registry';
 import { RoomStore } from '../src/room/store';
 import { createDbConnection } from '../src/db/connection';
+import type { DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 
 function request(method: string, url: string, token?: string): IncomingMessage {
@@ -70,12 +71,18 @@ function world() {
   return { db, registry, store, a: mk('PC-A', 'inst-a-000000000000'), b: mk('PC-B', 'inst-b-000000000000') };
 }
 
-function ask(deps: { registry: Registry; store: RoomStore<{ id: string }> }, token?: string, method = 'GET') {
+function ask(
+  deps: { db: DbConnection; registry: Registry; store: RoomStore<{ id: string }> },
+  token?: string,
+  method = 'GET',
+) {
   const { res, read } = response();
   const handled = tryHandlePresenceRoutes(
     request(method, PC_PRESENCE_PATH, token),
     res,
-    { registry: deps.registry, store: deps.store as unknown as RoomStore },
+    // `pcs` is the C9 cross-account read. The REAL repo, not a stub: the point of
+    // this world is that the two 「is it in the room」 answers cannot drift.
+    { registry: deps.registry, store: deps.store as unknown as RoomStore, pcs: deps.db.pcs },
   );
   return { handled, ...read() };
 }
@@ -112,7 +119,11 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
     const { res, read } = response();
     const req = request('GET', PC_PRESENCE_PATH);
     (req as { headers: Record<string, string> }).headers = { authorization: w.a.token }; // no 「Bearer 」
-    tryHandlePresenceRoutes(req, res, { registry: w.registry, store: w.store as unknown as RoomStore });
+    tryHandlePresenceRoutes(req, res, {
+      registry: w.registry,
+      store: w.store as unknown as RoomStore,
+      pcs: w.db.pcs,
+    });
     expect(read()).toMatchObject({ status: 401, body: { error: PRESENCE_AUTH_REQUIRED } });
   });
 
@@ -140,7 +151,7 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
     tryHandlePresenceRoutes(
       request('GET', `${PC_PRESENCE_PATH}?pc_id=${w.b.pc.id}`, w.a.token),
       res,
-      { registry: w.registry, store: w.store as unknown as RoomStore },
+      { registry: w.registry, store: w.store as unknown as RoomStore, pcs: w.db.pcs },
     );
     expect(read().body).toMatchObject({ pc_id: w.a.pc.id, pc_online: false });
   });
@@ -175,6 +186,7 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
       tryHandlePresenceRoutes(request('GET', '/api/health'), res, {
         registry: w.registry,
         store: w.store as unknown as RoomStore,
+        pcs: w.db.pcs,
       }),
     ).toBe(false);
   });
@@ -203,7 +215,11 @@ describe('mounting — the relay is the deployment that needs this', () => {
     it(`is mounted in ${mode}`, () => {
       const w = world();
       w.store.joinPc(w.a.pc.room_uuid, { id: 'sock' });
-      const handler = handlerFor(mode, { registry: w.registry, store: w.store as unknown as RoomStore });
+      const handler = handlerFor(mode, {
+        registry: w.registry,
+        store: w.store as unknown as RoomStore,
+        pcs: w.db.pcs,
+      });
       const { res, read } = response();
       expect(handler(request('GET', PC_PRESENCE_PATH, w.a.token), res)).toBe(true);
       expect(read()).toMatchObject({ status: 200, body: { pc_online: true } });

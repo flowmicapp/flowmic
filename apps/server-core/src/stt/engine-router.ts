@@ -50,12 +50,44 @@ export interface EngineFactory {
   (id: SttEngineId, cfg: SttEngineConfig): SttEngine;
 }
 
+/** Which registered sentence a routing-resolution failure has to be reported as.
+ *
+ *  🔴 TWO CODES, BECAUSE THERE ARE TWO FACTS (card C1, 2026-08-17). Selection
+ *  returning null used to be answered with one code no matter what produced it,
+ *  and on the relay that made the user read 「该语言尚未配置识别引擎」 ("no STT
+ *  engine has been configured for this language") while several engines were
+ *  configured and visible in the pool — the pool had simply refused. The full
+ *  argument is at the `STT_POOL_NO_ROUTE` entry in
+ *  `packages/protocol/src/error-codes.ts`. */
+export type SttRoutingRefusalCode = 'STT_CONFIG_MISSING' | 'STT_POOL_NO_ROUTE';
+
 /** Thrown when no routing matches the requested language and no universal `'*'`
  *  entry (and no managed default) is configured. Surfaced verbatim — there is
- *  NO implicit fallback to a default engine (#16). */
+ *  NO implicit fallback to a default engine (#16).
+ *
+ *  🔴 THE CLASS NAME IS NOW NARROWER THAN THE CLASS. It covers every way §4
+ *  selection can end in nothing, and [code] is what says WHICH of those it was.
+ *  Renaming it would touch six call sites in three files for zero behaviour, and
+ *  the name is what every existing `instanceof` test reads — so the honest move
+ *  is to say so here rather than to leave a reader inferring 「config missing」
+ *  from the identifier. Callers must report [code], never the literal. */
 export class SttConfigMissingError extends Error {
-  constructor(public readonly requested_language: string) {
-    super(`No STT engine configured for language ${requested_language}`);
+  constructor(
+    public readonly requested_language: string,
+    /** Defaults to the historical code so every existing throw site is
+     *  byte-identical in behaviour; only the pool arm passes the other one. */
+    public readonly code: SttRoutingRefusalCode = 'STT_CONFIG_MISSING',
+  ) {
+    // The message is DIAGNOSTIC (it rides `stt:error.message`, which the phone
+    // keeps for the diagnostic upload and never renders — the banner uses the
+    // phone's own string table). It still has to be true: a pool refusal that
+    // says "no STT engine configured" would put the false sentence back on the
+    // one surface that survives into a support log.
+    super(
+      code === 'STT_POOL_NO_ROUTE'
+        ? `The platform STT pool had no route for language ${requested_language}`
+        : `No STT engine configured for language ${requested_language}`,
+    );
     this.name = 'SttConfigMissingError';
   }
 }

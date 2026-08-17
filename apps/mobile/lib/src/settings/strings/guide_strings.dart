@@ -58,6 +58,18 @@ mixin GuideStrings on AppStringsLeaves {
   /// credential on a computer that is running fine, and the sentence has to say
   /// so or the reader will go and stare at a working machine.
   String get guideStatusPcSignedOut => _lfGuideStatusPcSignedOut;
+
+  /// 🔴 C9 — and the only status line whose action is on THIS phone. The
+  /// sentence has three jobs and drops none of them: it says the machine
+  /// changed accounts (the cause), it says to pair again (the fix), and it says
+  /// the computer is fine (which is what stops the reader walking over to it
+  /// anyway, the way the plain 「离线」 sentence made them).
+  ///
+  /// ⚠️ Its first clause is owner-supplied wording (card C9,
+  /// 「这台电脑现在属于另一个账号，请重新配对」) and the rest was written around
+  /// it; do not "tighten" it by deleting the third clause, which is the half
+  /// that makes the first two believable.
+  String get guideStatusPcOtherAccount => _lfGuideStatusPcOtherAccount;
   String get guideStatusRelayOnly => _lfGuideStatusRelayOnly;
   String get guideStatusChecking => _lfGuideStatusChecking;
   String get guideStatusUnmeasured => _lfGuideStatusUnmeasured;

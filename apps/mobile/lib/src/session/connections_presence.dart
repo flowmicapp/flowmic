@@ -103,6 +103,14 @@ mixin ConnectionsPresenceHost on ChangeNotifier {
   PcAbsentReason? pcAbsentReasonOf(MobileSession pairing) =>
       _presence[ConnectionsController.keyFor(pairing)]?.absentReason;
 
+  /// 🔴 C4 — did the server tell us, in as many words, that it does not know
+  /// this pairing? `false` for every other case, including 「never asked」 and
+  /// 「could not ask」 — the default has to be the one that claims nothing,
+  /// because this flag is the only thing on the page that tells a user to go
+  /// and pair again.
+  bool pairingRejectedFor(MobileSession pairing) =>
+      _presence[ConnectionsController.keyFor(pairing)]?.pairingRejected ?? false;
+
   /// The ONE writer of [_presence]. Every non-answer lands on
   /// [PcPresence.unknown]; nothing here can produce a `offline` that was not
   /// measured, and nothing can keep a previous `online` alive.
@@ -158,9 +166,24 @@ mixin ConnectionsPresenceHost on ChangeNotifier {
     // reason describes whichever computer actually answered, and pinning
     // someone else's lapsed sign-in onto this row would be the crosstalk this
     // check exists to stop, wearing a more convincing sentence.
+    //
+    // ⚠️ `pairingRejected` survives the mismatch check on purpose, and it is
+    // the one field that may: a refusal is about the TOKEN this row sent, and
+    // an answer that named no `pc_id` (there is no pairing to name one for)
+    // cannot be cross-wired to another row's computer. Zeroing it here would
+    // throw away the only actionable answer on this path for a mismatch that
+    // structurally cannot have happened.
     _presence[key] = mismatched
-        ? (presence: PcPresence.unknown, absentReason: null)
-        : (presence: reading.presence, absentReason: reading.absentReason);
+        ? (
+            presence: PcPresence.unknown,
+            absentReason: null,
+            pairingRejected: reading.pairingRejected,
+          )
+        : (
+            presence: reading.presence,
+            absentReason: reading.absentReason,
+            pairingRejected: reading.pairingRejected,
+          );
     notifyListeners();
   }
 }

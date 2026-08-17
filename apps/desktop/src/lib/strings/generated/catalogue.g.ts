@@ -216,6 +216,10 @@ const S_EN_OWN = {
   polish_hint: 'The final sentence of an utterance can optionally be polished by an LLM — the row below shows whether it is on right now; on failure the unpolished text is delivered with an explicit notice — never a silent fallback.',
   polish_toggle: 'Enable AI polish',
   polish_no_llm: 'The capability AI polish needs is not configured, so it is not in effect.',
+  polish_strength_label: 'Correction strength',
+  polish_strength_strict: 'Strict',
+  polish_strength_smooth: 'Smooth',
+  polish_strength_hint: 'Strict only repairs mis-recognitions and punctuation, so the text stays word-for-word what you said. Smooth also removes fillers and false starts and tidies the grammar around them — easier to read, but no longer word-for-word.',
   settings_scope_lan: 'The settings below apply to the "Local LAN" channel (this PC\'s self-hosted service). Configure recognition routing and models for the cloud relay in the web console — changes here have no effect on the cloud relay.',
   refine_title: 'Second-pass transcription (more accurate)',
   refine_hint: 'After a long sentence finishes, it is transcribed once more in the background; only the timeline is updated — text already injected into the PC is never rewritten',
@@ -595,7 +599,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 561/561 translated;
+// zh-CN (中文) — 565/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -791,6 +795,10 @@ const S_ZH_CN_OWN = {
   polish_hint: '收尾句可选 LLM 润色，当前是开是关以下面这一栏为准；失败时投递未润色文本并如实提示，不会静默回退。',
   polish_toggle: '启用 AI 润色',
   polish_no_llm: 'AI优化所需的能力未配置，未生效',
+  polish_strength_label: '纠错力度',
+  polish_strength_strict: '严格',
+  polish_strength_smooth: '顺滑',
+  polish_strength_hint: '严格只修正识别错误和标点，屏幕上的字与你说的逐字一致。顺滑还会删掉口水词和说错重来的部分，并顺一下语法——更好读，但不再是逐字原话。',
   settings_scope_lan: '以下设置作用于「本地局域网」通道（本机自托管服务）。云端中继的识别路由与模型请在网页控制台配置，这里的修改对云端中继无效。',
   refine_title: '二次重转（更准）',
   refine_hint: '长句说完后在后台再转一遍，只改时间线，不回改已注入 PC 的文字',
@@ -1170,7 +1178,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 557/561 translated;
+// zh-TW (繁體中文) — 561/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1365,6 +1373,10 @@ const S_ZH_TW_OWN = {
   polish_hint: '一段話的最後一句可以選擇性地由 LLM 潤飾——下方那一列會顯示目前是否開啟；若潤飾失敗，會改為傳送未經潤飾的文字並附上明確提示——絕不會悄悄使用備援方案。',
   polish_toggle: '啟用 AI 潤飾',
   polish_no_llm: 'AI 潤飾所需的能力尚未設定，未生效',
+  polish_strength_label: '糾錯力度',
+  polish_strength_strict: '嚴格',
+  polish_strength_smooth: '順滑',
+  polish_strength_hint: '嚴格只修正辨識錯誤和標點，螢幕上的字與你說的逐字一致。順滑還會刪掉口水詞和說錯重來的部分，並順一下語法——更好讀，但不再是逐字原話。',
   refine_title: '二次重新轉錄（更準）',
   refine_hint: '長句說完後在背景再轉一遍，只改時間軸，不會回頭改已注入 PC 的文字',
   refine_toggle: '開啟二次重新轉錄',
@@ -1741,7 +1753,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 556/561 translated;
+// fr (Français) — 560/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -1936,6 +1948,10 @@ const S_FR_OWN = {
   polish_hint: "La dernière phrase d'un énoncé peut être retouchée en option par un LLM — la ligne ci-dessous indique si c'est activé actuellement ; en cas d'échec, le texte non retouché est délivré avec une notification explicite — jamais un repli silencieux.",
   polish_toggle: "Activer l'amélioration IA",
   polish_no_llm: "La capacité requise par l'amélioration IA n'est pas configurée ; elle n'est donc pas active.",
+  polish_strength_label: 'Intensité de correction',
+  polish_strength_strict: 'Stricte',
+  polish_strength_smooth: 'Fluide',
+  polish_strength_hint: 'Stricte ne corrige que les erreurs de reconnaissance et la ponctuation : le texte reste mot pour mot ce que vous avez dit. Fluide supprime en plus les hésitations et les faux départs et ajuste la grammaire autour — plus lisible, mais ce n’est plus du mot pour mot.',
   refine_title: 'Seconde transcription (plus précise)',
   refine_hint: "Une fois une longue phrase terminée, elle est transcrite une seconde fois en arrière-plan ; seule la chronologie est mise à jour — le texte déjà injecté dans le PC n'est jamais réécrit",
   refine_toggle: 'Activer la seconde transcription',
@@ -2311,7 +2327,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 556/561 translated;
+// es (Español) — 560/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2506,6 +2522,10 @@ const S_ES_OWN = {
   polish_hint: 'La frase final de una intervención puede ser pulida opcionalmente por un LLM — la fila de abajo muestra si está activado en este momento; si falla, se entrega el texto sin pulir con un aviso explícito — nunca una alternativa silenciosa.',
   polish_toggle: 'Activar el pulido con IA',
   polish_no_llm: 'La capacidad que necesita el pulido con IA no está configurada, así que no se aplica.',
+  polish_strength_label: 'Intensidad de corrección',
+  polish_strength_strict: 'Estricta',
+  polish_strength_smooth: 'Fluida',
+  polish_strength_hint: 'Estricta solo corrige errores de reconocimiento y puntuación, así que el texto queda palabra por palabra lo que dijiste. Fluida además quita muletillas y frases empezadas y ajusta la gramática alrededor: se lee mejor, pero ya no es palabra por palabra.',
   refine_title: 'Segunda transcripción (más precisa)',
   refine_hint: 'Cuando termina una frase larga, se vuelve a transcribir en segundo plano; solo se actualiza la línea de tiempo: el texto ya inyectado en el PC nunca se reescribe',
   refine_toggle: 'Activar la segunda transcripción',
@@ -2881,7 +2901,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 557/561 translated;
+// de (Deutsch) — 561/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3076,6 +3096,10 @@ const S_DE_OWN = {
   polish_hint: 'Der letzte Satz einer Äußerung kann optional von einem LLM überarbeitet werden – die Zeile darunter zeigt, ob dies gerade aktiviert ist; schlägt es fehl, wird der unbearbeitete Text mit einem ausdrücklichen Hinweis zugestellt – nie ein stiller Rückfall.',
   polish_toggle: 'KI-Feinschliff aktivieren',
   polish_no_llm: 'Die für den KI-Feinschliff nötige Funktion ist nicht konfiguriert, daher ist er nicht wirksam.',
+  polish_strength_label: 'Korrekturstärke',
+  polish_strength_strict: 'Streng',
+  polish_strength_smooth: 'Geglättet',
+  polish_strength_hint: 'Streng korrigiert nur Erkennungsfehler und Zeichensetzung, der Text bleibt also wortwörtlich das, was Sie gesagt haben. Geglättet entfernt zusätzlich Füllwörter und Satzabbrüche und passt die Grammatik drumherum an — besser lesbar, aber nicht mehr wortwörtlich.',
   refine_title: 'Zweite Transkription (genauer)',
   refine_hint: 'Nach einem langen Satz wird er im Hintergrund noch einmal transkribiert; aktualisiert wird nur die Zeitleiste – bereits in den PC eingefügter Text wird nie nachträglich geändert',
   refine_toggle: 'Zweite Transkription aktivieren',
@@ -3452,7 +3476,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 561/561 translated;
+// ja (日本語) — 565/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -3648,6 +3672,10 @@ const S_JA_OWN = {
   polish_hint: '発話の最終文を任意で LLM が推敲します。今オンかオフかは下の行の表示が答えです。失敗時は未推敲のテキストを配信してその旨を明示し、サイレントフォールバックはしません。',
   polish_toggle: 'AI 推敲を有効化',
   polish_no_llm: 'AI 推敲に必要な機能が設定されていないため、有効になりません。',
+  polish_strength_label: '補正の強さ',
+  polish_strength_strict: '厳密',
+  polish_strength_smooth: 'なめらか',
+  polish_strength_hint: '「厳密」は認識ミスと句読点だけを直すので、画面の文字は話したとおりの一字一句のままです。「なめらか」はさらに言いよどみや言い直しを取り除き、そのまわりの文法も整えます。読みやすくなりますが、一字一句そのままではなくなります。',
   settings_scope_lan: '以下の設定は「ローカルLAN」チャネル（このPCのセルフホストサービス）に適用されます。クラウドリレーの認識ルーティングとモデルはWebコンソールで設定してください — ここでの変更はクラウドリレーには無効です。',
   refine_title: '二次文字起こし（より正確）',
   refine_hint: '長い文を話し終えた後、バックグラウンドでもう一度文字起こしします。タイムラインのみ更新され、PCに注入済みのテキストは書き換えられません',
@@ -4027,7 +4055,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 561/561 translated;
+// ko (한국어) — 565/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4223,6 +4251,10 @@ const S_KO_OWN = {
   polish_hint: '발화의 마지막 문장을 선택적으로 LLM이 윤문합니다. 지금 켜져 있는지는 아래 행의 표시가 답입니다. 실패 시 윤문되지 않은 텍스트를 전달하고 그 사실을 명시하며, 조용히 폴백하지 않습니다.',
   polish_toggle: 'AI 윤문 사용',
   polish_no_llm: 'AI 윤문에 필요한 기능이 구성되지 않아 적용되지 않습니다.',
+  polish_strength_label: '교정 강도',
+  polish_strength_strict: '엄격',
+  polish_strength_smooth: '매끄럽게',
+  polish_strength_hint: '「엄격」은 인식 오류와 문장 부호만 고치므로 화면의 글이 말한 그대로 한 글자도 다르지 않습니다. 「매끄럽게」는 군말과 말을 고쳐 시작한 부분까지 지우고 그 주변 문법도 다듬습니다. 읽기는 쉬워지지만 더 이상 말한 그대로는 아닙니다.',
   settings_scope_lan: '아래 설정은 「로컬 LAN」 채널(이 PC의 자체 호스팅 서비스)에 적용됩니다. 클라우드 릴레이의 인식 라우팅과 모델은 웹 콘솔에서 구성하세요 — 여기서의 변경은 클라우드 릴레이에 적용되지 않습니다.',
   refine_title: '2차 전사(더 정확)',
   refine_hint: '긴 문장이 끝난 후 백그라운드에서 한 번 더 전사합니다. 타임라인만 갱신되며 PC에 이미 주입된 텍스트는 다시 쓰지 않습니다',
@@ -4602,7 +4634,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 557/561 translated;
+// ru (Русский) — 561/565 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -4797,6 +4829,10 @@ const S_RU_OWN = {
   polish_hint: 'Заключительное предложение высказывания может быть по желанию доработано с помощью LLM — строка ниже показывает, включено ли это прямо сейчас; в случае сбоя доставляется недоработанный текст с явным уведомлением — никогда без предупреждения.',
   polish_toggle: 'Включить AI-улучшение',
   polish_no_llm: 'Возможность, необходимая для AI-улучшения, не настроена — оно не работает.',
+  polish_strength_label: 'Сила исправления',
+  polish_strength_strict: 'Строгая',
+  polish_strength_smooth: 'Сглаженная',
+  polish_strength_hint: 'Строгая исправляет только ошибки распознавания и пунктуацию, поэтому текст остаётся дословно тем, что вы сказали. Сглаженная дополнительно убирает слова-паразиты и оборванные начала и правит грамматику вокруг них — читать легче, но это уже не дословно.',
   refine_title: 'Повторная транскрипция (точнее)',
   refine_hint: 'После длинной фразы она ещё раз транскрибируется в фоне; обновляется только хронология — текст, уже вставленный в компьютер, никогда не переписывается',
   refine_toggle: 'Включить повторную транскрипцию',

@@ -950,9 +950,18 @@ describe('migration idempotency', () => {
     );
     expect(migrated.prepare('SELECT transcript_chars, delivered_chars FROM usage_events').get())
       .toEqual({ transcript_chars: null, delivered_chars: null });
+
+    // 2026-08-17 — `refused_user_id`, and the two properties that make it safe.
+    // NULLABLE TEXT: a NOT NULL column would force every writer to name an
+    // account, and the `ok` legs have none to name. NO BACKFILL: a legacy row's
+    // refusing account is not merely unmeasured, it is UNKNOWABLE — stamping it
+    // with its own `user_id` would manufacture the exact claim ("A hit A's
+    // ceiling") that this column exists to stop manufacturing.
+    expect(columnInfo(migrated, 'usage_events', 'refused_user_id')).toMatchObject({ type: 'TEXT', notnull: 0 });
+    expect(migrated.prepare('SELECT refused_user_id FROM usage_events').get()).toEqual({ refused_user_id: null });
     migrated.exec('DELETE FROM usage_events');
 
-    // ③ 🔴 THE WHITELIST CENSUS. These TWELVE columns and nothing else. The
+    // ③ 🔴 THE WHITELIST CENSUS. These THIRTEEN columns and nothing else. The
     // privacy design's forbidden list is not enforceable by review alone — this
     // is the assertion that a `source_text`, an excerpt, an `ip`, a
     // `window_title` or a `request_id` column cannot be added without somebody
@@ -965,17 +974,25 @@ describe('migration idempotency', () => {
     // the assertion was right, which is the safe direction — but it is worth
     // recording that the number in a comment drifted from the array under it
     // within one card.
+    // ⚠️ 2026-08-17: `refused_user_id` joined the list. It is the first column
+    // here that can hold an id belonging to a DIFFERENT account than the row's
+    // own, which is precisely why it had to pass through this census rather than
+    // arrive quietly.
     const cols = (migrated.prepare('PRAGMA table_info(usage_events)').all() as unknown as { name: string }[])
       .map((c) => c.name)
       .sort();
     expect(cols).toEqual([
       'channel', 'delivered_chars', 'id', 'is_byok', 'kind', 'occurred_at', 'outcome',
-      'stt_ms', 'tokens_in', 'tokens_out', 'transcript_chars', 'user_id',
+      'refused_user_id', 'stt_ms', 'tokens_in', 'tokens_out', 'transcript_chars', 'user_id',
     ]);
 
     // ④ FK CASCADE to users, and it really fires (FKs are ON — openDatabase).
     // A per-utterance record outliving the account that asked to be erased is
     // the worst leftover the delete census could miss.
+    // 🔴 AND EXACTLY ONE FK, which since 2026-08-17 guards a second thing:
+    // `refused_user_id` deliberately carries no `REFERENCES users(id)`. A second
+    // cascade into this table would let the PC OWNER deleting their account
+    // delete the PHONE user's usage rows — one account erasing another's record.
     const fks = migrated.prepare('PRAGMA foreign_key_list(usage_events)').all() as unknown as {
       table: string; from: string; on_delete: string;
     }[];

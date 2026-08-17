@@ -53,6 +53,33 @@ mixin ConnectionStrings on AppStringsLeaves {
   /// where the fix itself is spelled out — this chip only has room to say WHICH
   /// kind of absence it is.
   String get pcSignedOutChip => _lfPcSignedOutChip;
+
+  /// 🔴 C9 (2026-08-17) — one more step along the axis [pcSignedOutChip]
+  /// travelled: that computer is on, in a room, and answering — **for a
+  /// different account**. This pairing points at the row that account left
+  /// behind, and nothing will ever put a PC back into it.
+  ///
+  /// 🔴 **Must stay a different sentence from BOTH neighbours**, and the reason
+  /// is that all three imply a different next move. 「电脑已离线」 sends this user
+  /// to a machine that is running; [pcSignedOutChip] sends them to re-enter a
+  /// Cloud Key that would displace the account currently using it; only this one
+  /// points at the phone, which is the only place the fix exists. The guide line
+  /// ([GuideStrings.guideStatusPcOtherAccount]) spells the fix out — this chip
+  /// only has room to say WHICH kind of absence it is.
+  String get pcOtherAccountChip => _lfPcOtherAccountChip;
+
+  /// 🔴 C4 (2026-08-17) — the server answered about the PAIRING rather than
+  /// about the computer: it does not recognise this token
+  /// (`401 PRESENCE_AUTH_REQUIRED`). Until this line existed that answer was
+  /// painted as [relayUpPcUnknown] 「电脑是否在线未知」 ("PC status unknown"),
+  /// i.e. a revoked pairing and a dropped packet said the same thing — and one
+  /// of them will never resolve no matter how long the user waits.
+  ///
+  /// ⚠️ The full explanation is deliberately NOT duplicated here: the sentence
+  /// for 「this pairing is gone, pair again」 already exists and owner ruled on
+  /// its wording (`PairingStrings.pairError('AUTH_TOKEN_INVALID')`). The guide
+  /// sheet renders THAT one; this is its chip-sized label.
+  String get pairingRevokedChip => _lfPairingRevokedChip;
   String get checkingReach => _lfCheckingReach;
   String get connectingRow => _lfConnectingRow;
   String get tapToConnect =>

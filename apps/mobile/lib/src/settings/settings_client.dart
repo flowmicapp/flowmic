@@ -82,6 +82,17 @@
 //     would then be confidently wrong instead of correctly abstaining.
 //     Absence degrades to exactly the pre-stamp behaviour, which is what makes
 //     this safe against an older relay that strips the field.
+//
+//  6. 🔴 THE STAMP IS MINTED THROUGH [nowStamp], NOT OFF THE BARE CLOCK (card
+//     C3). Arbitration compares two stamps authored on two machines, i.e. two
+//     CLOCKS: a phone running Δ behind stamps a genuinely newer edit into the
+//     other side's past, the server refuses it, pushes the stored value back,
+//     and the user's custom terms revert with nothing said. Every stamp this
+//     client SEES is evidence about that other timebase, and [_publish] is the
+//     one funnel both sources land in — so this class is where the correction is
+//     learned, and [nowStamp] is where it is applied. Reasoning, bounds and the
+//     residual are in settings_stamp_clock.dart; the desktop's twin is
+//     apps/desktop/src/lib/settings-stamp.ts.
 
 import 'dart:async';
 
@@ -89,6 +100,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../generated/flowmic_events.g.dart';
 import '../signaling/socket_core.dart';
+import 'settings_stamp_clock.dart';
 
 /// One server-authoritative settings value, from either the connect-time
 /// snapshot (settings:list) or a peer push (settings:updated). Deliberately ONE
@@ -128,8 +140,10 @@ class SettingsClient {
   SettingsClient({
     required SocketTransport transport,
     required ValueListenable<int> roomJoins,
+    DateTime Function()? now,
   }) : _transport = transport,
-       _roomJoins = roomJoins {
+       _roomJoins = roomJoins,
+       _clock = SettingsStampClock(now: now) {
     // THE settings rising edge — see header point 4 for why it is this edge and
     // not `connected`. Both halves, in this order, because the order is
     // load-bearing: a pending offline edit must be on the wire BEFORE
@@ -156,8 +170,20 @@ class SettingsClient {
 
   final SocketTransport _transport;
   final ValueListenable<int> _roomJoins;
+  final SettingsStampClock _clock;
   StreamSubscription<SocketStatus>? _statusSub;
   StreamSubscription<EventEnvelope>? _incomingSub;
+
+  /// The edit moment to attach to a change being made RIGHT NOW, corrected for
+  /// this device's clock skew (header point 6). The one production caller is
+  /// [ScenarioCardController]'s commit path — the single moment in the app at
+  /// which a human actually changed a setting, which is the only thing
+  /// `updated_at` is allowed to mean.
+  String nowStamp() => _clock.nowIso();
+
+  /// How far behind the observed timebase this device's clock is measuring, for
+  /// tests and diagnostics.
+  Duration get stampCorrection => _clock.correction;
 
   /// The admission edge, re-exposed for the settings consumers this client
   /// already feeds ([ScenarioCardController] subscribes here). Deliberately a
@@ -256,11 +282,16 @@ class SettingsClient {
   void _publish(Object? key, Object? value, Object? updatedAt) {
     if (key is! String || key.isEmpty) return;
     if (_entriesCtl.isClosed) return;
-    _entriesCtl.add(SettingsEntry(
-      key: key,
-      value: value,
-      updatedAt: updatedAt is String && updatedAt.isNotEmpty ? updatedAt : null,
-    ));
+    final String? stamp =
+        updatedAt is String && updatedAt.isNotEmpty ? updatedAt : null;
+    // 🔴 C3 — EVERY stamp that arrives is evidence about the clock our own
+    // writes are judged against, including keys nothing on this device consumes
+    // and the value the server pushed back because it REFUSED our write. Fed
+    // here rather than in the consumer for the same reason [entries] exists at
+    // all: this is the one place both sources meet, and a second learning site
+    // would be a second answer to "how far behind are we".
+    _clock.observe(stamp);
+    _entriesCtl.add(SettingsEntry(key: key, value: value, updatedAt: stamp));
   }
 
   /// Generic settings:update wire verb — VARIABLE key. The sole literal-key

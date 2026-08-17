@@ -341,8 +341,20 @@ pub fn build_pc_release_mobile(mobile_id: &str, revoke: bool) -> Value {
 /// ordinary settings:update event (zero new event names) but the SERVER routes it
 /// to `pc_devices.device_name` instead of the KV store, and refuses it outright
 /// from a mobile: owner iron law "the naming on the PC side can only be controlled by the PC side".
+///
+/// 🔴 NO `updated_at`, AND THAT IS THE RULE RATHER THAN AN OMISSION (card C3).
+/// The server's G2 arbitration deliberately stops at this branch
+/// (`apps/server-core/src/socket/handlers/settings.handler.ts`, the
+/// `key === PC_NAME_KEY` branch): the name does not live in the KV at all, so
+/// there is no `user_settings.updated_at` for a stamp to be honest about and
+/// `pc_devices` has no equivalent column — stamping it would invent a time from
+/// nothing. It also has no convergence problem to solve: a PC's name is a fact
+/// about ONE machine, room-scoped and single-writer by the owner's iron law
+/// above, so there is no second copy to race. `test/pc-rename.test.ts` pins the
+/// exact un-stamped payload; anyone tempted to "finish the job" by threading a
+/// stamp through here will turn that test red for the right reason.
 pub fn build_pc_name_update(name: &str) -> Value {
-    build_settings_update(crate::events::KEY_DEVICE_PC_NAME, json!({ "pc_name": name }))
+    build_settings_update(crate::events::KEY_DEVICE_PC_NAME, json!({ "pc_name": name }), None)
 }
 
 /// GA-29: the "capsule already occupied by another phone" refusal, sent when a SECOND phone joins on
@@ -398,10 +410,32 @@ pub fn build_heartbeat(ts_ms: i64) -> Value {
 //    serde_json::Value; each builder shapes the exact zod payload the server's
 //    settings.handler / history.handler expects. ──────────────────────────────
 
-/// settings:update{key, value}. `value` is the raw JSON the settings UI produced
-/// (an LlmConfig / stt.routings array / ScenarioCard object) — passed verbatim.
-pub fn build_settings_update(key: &str, value: Value) -> Value {
-    json!({ "key": key, "value": value })
+/// settings:update{key, value, updated_at?}. `value` is the raw JSON the settings
+/// UI produced (an LlmConfig / stt.routings array / ScenarioCard object) — passed
+/// verbatim.
+///
+/// 🔴 `updated_at` (04 §3.7-a, card C3) is WHEN THE USER MADE THE EDIT. It is
+/// authored by the frontend (`apps/desktop/src/lib/settings-client.ts`, minted at
+/// the edit and persisted with the durable queue) and carried through here
+/// unchanged — this layer must never mint one, because "when the frame left the
+/// desktop" and "when the human changed the value" are different facts and only
+/// the second can arbitrate. `scenario.card` has two writers, the phone and this
+/// machine, and until C3 this builder emitted no stamp at all: with nothing to
+/// compare, the server's regress guard could never fire against a desktop write,
+/// so an offline edit replayed a day later still overwrote a card the phone had
+/// edited minutes ago.
+///
+/// ⚠️ `None` OMITS THE KEY rather than emitting `null`, and the difference is not
+/// cosmetic. Absent is UNKNOWN — the server writes unconditionally, i.e. exactly
+/// the pre-C3 behaviour — whereas `null` fails `Iso8601.optional()` at the zod
+/// boundary and takes the WHOLE frame down, anonymously, because a boundary
+/// refusal has no error code to show anyone. Same rule, same reason as
+/// `build_pc_release_mobile` above and as the server's own `withStamp` helper.
+pub fn build_settings_update(key: &str, value: Value, updated_at: Option<&str>) -> Value {
+    match updated_at {
+        Some(t) => json!({ "key": key, "value": value, "updated_at": t }),
+        None => json!({ "key": key, "value": value }),
+    }
 }
 
 /// settings:list payload (empty object per SettingsListSchema — the whole

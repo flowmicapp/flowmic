@@ -325,8 +325,17 @@ export function makeSttOrchestratorFactory(
   // The visible difference is one forensic line per selection — including
   // `candidates:1`, which is exactly the degenerate state card §-0b says must not
   // be reportable as "smart routing selection has been implemented".
-  const managedDefault = deps.managedDefault
-    ?? makePoolManagedDefault({ factory: engineFactory }).resolve;
+  //
+  // 🔴 card C1 (2026-08-17) — THE OBJECT IS HELD, NOT JUST ITS `resolve`.
+  // The throw site below has to name WHICH failure this was, and only the pool
+  // knows whether it refused. `noRouteFor` is a pure second question (see its doc
+  // in pool-routing.ts); nothing about precedence changed.
+  // ⚠️ A test that injects its own `managedDefault` gets `null` here and therefore
+  // the historical code — correct, because an injected resolver is not a pool and
+  // has nothing to refuse. The pool arm is proved through the PRODUCTION wiring
+  // instead (apps/server-core/test/stt-pool-refusal.test.ts injects no resolver).
+  const pooled = deps.managedDefault ? null : makePoolManagedDefault({ factory: engineFactory });
+  const managedDefault = deps.managedDefault ?? pooled!.resolve;
   return (session, language, userId, vad) => {
     const routings = loadRoutings(deps.settings, userId);
     const hotwords = loadHotwords(deps.settings, userId);
@@ -338,7 +347,17 @@ export function makeSttOrchestratorFactory(
     // the billing decisions, and they need "who supplied the key", not "whether
     // there is a key".
     const selected = selectRoutingWithSource(language, routings, managedDefault);
-    if (!selected) throw new SttConfigMissingError(language);
+    if (!selected) {
+      // 🔴 card C1 — WHICH true sentence, decided here because this is the first
+      // layer that holds both facts (R11): that selection produced nothing, AND
+      // why the pool contributed nothing. `STT_CONFIG_MISSING` stays the answer
+      // whenever the pool is empty/absent — that sentence is true then, and a
+      // positive control pins it.
+      throw new SttConfigMissingError(
+        language,
+        pooled?.noRouteFor(language) === true ? 'STT_POOL_NO_ROUTE' : 'STT_CONFIG_MISSING',
+      );
+    }
     const isByok = resolveByok(selected);
     const gated = vad !== undefined && !isByok && isStreamingEngine(selected.routing.engine_id);
     // 🔴 card RT-2 — `gated` is ALSO the answer to "is this leg billed by the

@@ -121,6 +121,21 @@ export interface UsageEventInput {
    */
   transcript_chars?: number | null;
   delivered_chars?: number | null;
+  /**
+   * 2026-08-17 — WHOSE QUOTA REFUSED, on a `quota_refused` row.
+   *
+   * 🔴 A DIFFERENT QUESTION FROM `user_id`, which is why it is a different
+   * column. `user_id` says whose ATTEMPT this was and whose ledger the minutes
+   * would have been metered to; this says whose CEILING was hit. Since QTA-2
+   * those can be two accounts — the phone's own and the paired PC owner's — and
+   * a row that answered both with one value asserted that the acting account was
+   * out of minutes when it was not.
+   *
+   * Omit (or `null`) for "nobody recorded it": every `outcome:'ok'` row (nothing
+   * refused anything) and every row written before this column existed. `null`
+   * is NOT "the acting account" — that inference is the defect.
+   */
+  refused_user_id?: string | null;
 }
 
 /** One row, as it is read back. `channel` is `string | null` rather than the
@@ -144,6 +159,17 @@ export interface UsageEventRow {
    *  AS `null` — a surface that renders it as 0 has invented a measurement. */
   transcript_chars: number | null;
   delivered_chars: number | null;
+  // 🔴 `refused_user_id` IS STORED AND IS DELIBERATELY NOT READ BACK HERE
+  // (2026-08-17). This interface is the wire shape of BOTH read surfaces —
+  // `GET /api/cloud/usage/events` returns these rows verbatim to the account
+  // itself — and on a PC-owner refusal the stored value is ANOTHER ACCOUNT'S id.
+  // Handing that to the phone's owner would be a cross-account identifier
+  // disclosure to fix a wording problem. What the USER needs to be told is
+  // "it was not your quota", which is a rendered sentence in nine locales and a
+  // product decision, not a raw id; the ops surface shares this same projection,
+  // so exposing it there means deciding this one first. Registered as the
+  // follow-up rather than smuggled onto the wire as a side effect of a storage
+  // card.
 }
 
 /** One page of events for one account. */
@@ -253,8 +279,8 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO usage_events
        (user_id, occurred_at, kind, stt_ms, tokens_in, tokens_out, is_byok, channel, outcome,
-        transcript_chars, delivered_chars)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        transcript_chars, delivered_chars, refused_user_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   // Two statements rather than one with an `id > 0` sentinel: 0 happens to sort
   // below every AUTOINCREMENT rowid, but that is an assumption about the key
@@ -302,6 +328,10 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
         // (没量)). Two helpers because there are two questions.
         nonNegIntOrNull(input.transcript_chars),
         nonNegIntOrNull(input.delivered_chars),
+        // 🔴 `?? null` and nothing else — no coercion, no substitution of
+        // `input.user_id`. An absent value means the caller did not know whose
+        // quota refused, and the one thing this column must never do is guess.
+        input.refused_user_id ?? null,
       );
       return Number(info.lastInsertRowid);
     },

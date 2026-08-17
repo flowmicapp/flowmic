@@ -8,7 +8,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { judgeCase } from './judges/index.mjs';
 import { ROOT } from './eval-paths.mjs';
-import { ONLY_SUITE, LINE, LIMIT, OUT, CONC } from './eval-args.mjs';
+import { ONLY_SUITE, LINE, LIMIT, OUT, CONC, STRENGTH } from './eval-args.mjs';
 import { loadProductionPrompts } from './eval-prod-bundle.mjs';
 // ---------------------------------------------------------------------------
 // live
@@ -171,6 +171,9 @@ async function live(loaded) {
     const rows = await mapLimit(cases, CONC, async (k) => {
       try {
         let output;
+        let modelOutput;
+        let admitted;
+        let guardReason = null;
         if (k.suite === 'translate' || k.suite === 'organize') {
           // 🔴 The field names are source_lang / target_lang (snake_case). They were
           // camelCase here, and because this file is JS the extra keys were silently
@@ -186,13 +189,36 @@ async function live(loaded) {
           output = await callLlm(line, model, system, k.input, extra);
         } else {
           // realtime = the production two-stage text pipeline, then LLM polish.
+          //
+          // 🔴 THE GUARD RUNS HERE TOO, AND IT USED NOT TO. Production does not
+          // deliver what the model returned; it delivers what the model returned
+          // AND `checkMeaningPreserved` admitted, or else the unpolished text.
+          // Scoring only the model's output answers "was the prompt good",
+          // which is a question about our ruler, while the user's question is
+          // "what appeared on my screen". Those two numbers can differ by a lot:
+          // measured 2026-08-17, the `filler` family scored ~100% on the judges
+          // while the strict guard refused 10 of 10 of the very outputs being
+          // scored. A harness that reports only the first number will report a
+          // healthy score for a feature the user never receives.
           const staged = prod.normalizeFinalText(k.input, { ensureTerminalPunctuation: true });
-          output = await callLlm(line, model, prod.POLISH_SYSTEM_PROMPT, staged, extra);
+          const raw = await callLlm(line, model, prod.polishSystemPrompt(STRENGTH), staged, extra);
+          const g = prod.checkMeaningPreserved(staged, raw, { strength: STRENGTH });
+          admitted = g.ok;
+          guardReason = g.ok ? null : g.reason;
+          // What the user would actually see: the polished text if the guard
+          // admitted it, otherwise the pure two-stage text.
+          output = g.ok ? raw : staged;
+          modelOutput = raw;
         }
         const v = judgeCase(k, output);
-        return { id: k.id, suite: k.suite, family: k.family, ok: v.ok, failures: v.failures, output };
+        return {
+          id: k.id, suite: k.suite, family: k.family, lang: k.lang ?? null,
+          ok: v.ok, failures: v.failures, output,
+          ...(modelOutput !== undefined ? { model_output: modelOutput } : {}),
+          ...(admitted !== undefined ? { guard_admitted: admitted, guard_reason: guardReason } : {}),
+        };
       } catch (e) {
-        return { id: k.id, suite: k.suite, family: k.family, ok: false, failures: [{ judge: 'transport', detail: e.message }], output: '' };
+        return { id: k.id, suite: k.suite, family: k.family, lang: k.lang ?? null, ok: false, failures: [{ judge: 'transport', detail: e.message }], output: '' };
       }
     });
     results.push(...rows);
@@ -214,6 +240,45 @@ async function live(loaded) {
   const pass = results.filter((r) => r.ok).length;
   console.log(`\nTOTAL ${pass}/${results.length} (${((pass / results.length) * 100).toFixed(1)}%) on line '${LINE}' model '${model}'`);
 
+  // ─── card C8: the two breakdowns the old report could not produce ─────────
+  //
+  // PER LANGUAGE. The prompt is one English template applied to nine locales and
+  // "smoothing" is not the same operation in all of them. Before the corpus
+  // carried a `lang`, a run could be 100% green with every case in it Chinese,
+  // and the report had no way to say so. Do not tune on zh/en and declare the
+  // rest shipped — this table is what makes that visible rather than arguable.
+  const guarded = results.filter((r) => r.guard_admitted !== undefined);
+  if (guarded.length) {
+    const byLang = new Map();
+    for (const r of guarded) {
+      const key = r.lang ?? '(none)';
+      const cur = byLang.get(key) ?? { n: 0, pass: 0, admitted: 0 };
+      cur.n += 1;
+      if (r.ok) cur.pass += 1;
+      if (r.guard_admitted) cur.admitted += 1;
+      byLang.set(key, cur);
+    }
+    console.log(`\n── realtime per-language, strength='${STRENGTH}' ──`);
+    console.log('   n   judged-ok   guard-admitted   language');
+    for (const [k, v] of [...byLang.entries()].sort()) {
+      const pj = ((v.pass / v.n) * 100).toFixed(0);
+      const pa = ((v.admitted / v.n) * 100).toFixed(0);
+      console.log(`  ${String(v.n).padStart(2)}   ${String(pj).padStart(3)}% ${String(v.pass).padStart(3)}/${String(v.n).padStart(3)}   ${String(pa).padStart(3)}% ${String(v.admitted).padStart(3)}/${String(v.n).padStart(3)}      ${k}`);
+    }
+
+    // GUARD ADMISSION. "judged ok" scores the model; "admitted" scores what the
+    // user receives. They are reported side by side precisely because the gap
+    // between them is the finding, not a footnote.
+    const adm = guarded.filter((r) => r.guard_admitted).length;
+    console.log(`\nGUARD ADMISSION ${adm}/${guarded.length} (${((adm / guarded.length) * 100).toFixed(1)}%) at strength='${STRENGTH}'`);
+    const why = new Map();
+    for (const r of guarded) if (!r.guard_admitted) why.set(r.guard_reason, (why.get(r.guard_reason) ?? 0) + 1);
+    if (why.size) {
+      console.log('  refused because:');
+      for (const [k, n] of [...why.entries()].sort((a, b) => b[1] - a[1])) console.log(`    ${String(n).padStart(4)}  ${k}`);
+    }
+  }
+
   const judges = new Map();
   for (const r of results) for (const f of r.failures ?? []) judges.set(f.judge, (judges.get(f.judge) ?? 0) + 1);
   if (judges.size) {
@@ -223,7 +288,7 @@ async function live(loaded) {
 
   if (OUT) {
     mkdirSync(dirname(OUT), { recursive: true });
-    writeFileSync(OUT, JSON.stringify({ line: LINE, model, when: new Date().toISOString(), machine: process.env.COMPUTERNAME ?? 'unknown', results }, null, 2));
+    writeFileSync(OUT, JSON.stringify({ line: LINE, model, strength: STRENGTH, when: new Date().toISOString(), machine: process.env.COMPUTERNAME ?? 'unknown', results }, null, 2));
     console.log(`\nwrote ${OUT}`);
   }
   return pass === results.length;

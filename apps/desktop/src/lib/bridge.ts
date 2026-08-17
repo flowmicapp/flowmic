@@ -10,7 +10,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { InjectResult, SettingsTransport, TimelineTransport, ConnectionState} from './types';
+import type { InjectResult, ServerSettingItem, SettingsTransport, TimelineTransport, ConnectionState} from './types';
 import type { PairingInfo } from './pairing';
 import {
   asPairedMobiles,
@@ -18,7 +18,7 @@ import {
   type PairedMobile,
   type PairedMobilesView,
 } from './paired-mobiles';
-import { asCloudStatus, type ChannelId, type CloudStatus } from './channel';
+import { asCloudStatus, cloudEndpointSsot, type ChannelId, type CloudStatus } from './channel';
 import { asCloudAccountRaw, type CloudAccountRaw } from './cloud-account';
 
 /** Bridge channel names — must equal apps/desktop/src-tauri/src/socket/bridge.rs. */
@@ -175,16 +175,10 @@ export async function invokeSafe<T>(cmd: string, args?: Record<string, unknown>)
 
 // ── transports consumed by SettingsClient / TimelineStore ──
 export const settingsTransport: SettingsTransport = {
-  async settingsUpdate(key, value) {
-    return (await invokeSafe<boolean>('settings_update', { key, value })) === true;
+  async settingsUpdate(key, value, updatedAt) { // C3: IPC arg is `stamp` (single-word, per this file's header); the wire field is `updated_at`
+    return (await invokeSafe<boolean>('settings_update', { key, value, stamp: updatedAt })) === true;
   },
 };
-
-/** One server-authoritative settings row from a settings:list snapshot. */
-export interface ServerSettingItem {
-  key: string;
-  value: unknown;
-}
 
 /** Pull the server settings snapshot (settings:list) so the desktop can adopt it
  *  into the local display cache on the connected rising edge (07 §8, WP-R3.5). The
@@ -441,7 +435,7 @@ export async function retrySidecar(): Promise<SidecarStatus | null> {
 /** Read the cloud-channel status. Outside Tauri → the LAN default (never null,
  *  so the page renders its honest "not configured" state instead of blanking). */
 export async function fetchCloudStatus(): Promise<CloudStatus> {
-  return asCloudStatus(await invokeSafe<unknown>('cloud_status'));
+  return asCloudStatus(await invokeSafe<unknown>('cloud_status', cloudEndpointSsot()));
 }
 
 /** Store a pasted Cloud Key + relay endpoint. Rust refuses a value that is not

@@ -181,7 +181,7 @@ describe('the switch — FLOWMIC_USAGE_EVENTS_ENABLED', () => {
     const t = tracker(db, false);
     t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
     t.recordLlmUsage(USER, { is_byok: false }, 10, 20);
-    t.recordQuotaRefusal(USER, 'stt');
+    t.recordQuotaRefusal(USER, 'stt', USER);
 
     expect(allEvents(db)).toEqual([]);
     // The positive control for that zero: metering DID happen, so the empty
@@ -308,7 +308,7 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
 
   it('🔴 a refusal records stt_ms=0 AND outcome!=ok, and the two are DISTINGUISHABLE from a real zero', () => {
     const t = tracker(db, true);
-    t.recordQuotaRefusal(USER, 'stt');
+    t.recordQuotaRefusal(USER, 'stt', USER);
     // The thing a refusal must not be confusable with: an `llm` event, whose
     // stt_ms is also 0 — and which succeeded.
     t.recordLlmUsage(USER, { is_byok: false }, 5, 5);
@@ -325,6 +325,32 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
     expect(rows[0]?.outcome).not.toBe(rows[1]?.outcome);
   });
 
+  it('🔴 2026-08-17 — the row says WHOSE QUOTA refused, which is not always whose attempt it was', () => {
+    const t = tracker(db, true);
+    // ① the acting account's own ceiling. The two ids AGREE, and the agreement
+    //    is a measurement — the caller looked and found they were the same.
+    t.recordQuotaRefusal(USER, 'stt', USER);
+    // ② the QTA-2 shape: the phone acts, the paired PC OWNER's ledger says no.
+    //    The row stays the ACTING account's (those are the minutes that would
+    //    have been metered) and must stop asserting that THAT account is out.
+    t.recordQuotaRefusal(USER, 'stt', OTHER);
+    // ③ a successful row names nobody — nothing refused anything, and NULL is
+    //    the only value that says so. Filling it with `user_id` here would put
+    //    "not recorded" and "the acting account" back into one sentence.
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
+
+    expect(db.raw.prepare('SELECT user_id, outcome, refused_user_id FROM usage_events ORDER BY id').all()).toEqual([
+      { user_id: USER, outcome: 'quota_refused', refused_user_id: USER },
+      { user_id: USER, outcome: 'quota_refused', refused_user_id: OTHER },
+      { user_id: USER, outcome: 'ok', refused_user_id: null },
+    ]);
+    // 🔴 `user_id` DID NOT CHANGE MEANING (owner's ruling, 2026-08-17): all three
+    // rows are still the acting account's, so a row written before this column
+    // existed reads exactly as it always did. And the gate account gets no row
+    // of its own — being asked is not being metered.
+    expect(allEvents(db, OTHER)).toEqual([]);
+  });
+
   it('🔴 C5 — every row the METER writes says channel=cloud, and none says lan', () => {
     // owner 2026-08-12: 「channel」 is the DELIVERY channel and the detail table
     // records only cloud-relay traffic. This layer answers that from a fact it
@@ -333,7 +359,7 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
     const t = tracker(db, true);
     t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
     t.recordLlmUsage(USER, { is_byok: false }, 5, 7);
-    t.recordQuotaRefusal(USER, 'stt');
+    t.recordQuotaRefusal(USER, 'stt', USER);
     const channels = allEvents(db).map((r) => r.channel);
     expect(channels).toEqual(['cloud', 'cloud', 'cloud']);
     // 🔴 The negative half, stated as its own assertion because owner's ② is
@@ -345,7 +371,7 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
 
   it('a refusal moves NO counter — it is not a metering call wearing a different name', () => {
     const t = tracker(db, true);
-    t.recordQuotaRefusal(USER, 'llm');
+    t.recordQuotaRefusal(USER, 'llm', USER);
     expect(db.usage.get(USER, MONTH)).toBeNull();
   });
 
@@ -354,7 +380,7 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
       mode: 'standalone', usageEventsEnabled: true, events: db.usageEvents, now: () => NOW,
     });
     t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordQuotaRefusal(USER, 'stt');
+    t.recordQuotaRefusal(USER, 'stt', USER);
     expect(allEvents(db)).toEqual([]);
   });
 });
@@ -378,7 +404,7 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
       // uncaught throw kills the relay process.
       expect(() => t.recordSttUsage(USER, { is_byok: false }, 120_000, CHARS)).not.toThrow();
       expect(() => t.recordLlmUsage(USER, { is_byok: false }, 4, 6)).not.toThrow();
-      expect(() => t.recordQuotaRefusal(USER, 'stt')).not.toThrow();
+      expect(() => t.recordQuotaRefusal(USER, 'stt', USER)).not.toThrow();
       // The meter is untouched: this is the 「degrade to the month bucket staying accurate, the detail log missing one row」
       // direction the design chose (§5.6).
       expect(db.usage.get(USER, MONTH)).toMatchObject({ stt_minutes: 2, llm_tokens_in: 4, llm_tokens_out: 6 });
@@ -532,6 +558,51 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     expect(allEvents(db)).toEqual([]);
   });
 
+  /** One real audio:start through real handler → real guard → real tracker →
+   *  real DB, with the PC OWNER account wired the way bootstrap wires it
+   *  (QTA-2's `pcOwnerUserId`). Returns the ack so a caller can prove the
+   *  refusal actually happened rather than inferring it from an empty table. */
+  function fireAudioStart(conn: DbConnection, pcOwner: string): Record<string, unknown> | undefined {
+    const { guard, usageTracker } = realWiring(conn);
+    const mobile = new FakeSocket('m');
+    registerAudioHandlers(mobile as unknown as Socket, {
+      io: {} as unknown as import('socket.io').Server,
+      guard,
+      usageTracker,
+      store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
+      pcOwnerUserId: () => pcOwner,
+    });
+    let ack: Record<string, unknown> | undefined;
+    mobile.fire('audio:start', AUDIO_START, (r) => { ack = r as Record<string, unknown>; });
+    return ack;
+  }
+
+  it('🔴 a PC-owner-quota refusal names the PC OWNER as the refuser, on the PHONE account\'s row', () => {
+    // The DESKTOP account is out of minutes; the phone's own budget is intact.
+    // Before this card the row read "user_id=USER, quota_refused" and nothing
+    // else — a sentence that was FALSE about USER.
+    db.usage.increment(OTHER, MONTH, { stt_minutes: 999 });
+    expect(fireAudioStart(db, OTHER)?.error).toBe('QUOTA_EXCEEDED');
+    // 🔴 Taken at the HANDLER and not at the tracker: "the tracker has a third
+    // parameter" and "audio.handler.ts forwards the JUDGED account" are two
+    // different sentences, and only the second one repairs the row.
+    expect(db.raw.prepare('SELECT user_id, outcome, refused_user_id FROM usage_events').all())
+      .toEqual([{ user_id: USER, outcome: 'quota_refused', refused_user_id: OTHER }]);
+    // The gate account is ASKED, never metered and never logged: QTA-2's rule
+    // that one recording may not decrement two ledgers.
+    expect(allEvents(db, OTHER)).toEqual([]);
+  });
+
+  it('positive control: the acting account\'s own refusal names ITSELF — equal, never absent', () => {
+    // Without this row, an implementation that always wrote the PC owner's id —
+    // or that wrote whatever the second gate last touched — passes the test
+    // above perfectly. The PC owner here has budget and is never the refuser.
+    db.usage.increment(USER, MONTH, { stt_minutes: 999 });
+    expect(fireAudioStart(db, OTHER)?.error).toBe('QUOTA_EXCEEDED');
+    expect(db.raw.prepare('SELECT user_id, refused_user_id FROM usage_events').all())
+      .toEqual([{ user_id: USER, refused_user_id: USER }]);
+  });
+
   it('🔴 compose:start over quota ⇒ ONE quota_refused row of kind llm', async () => {
     // `_out`: since owner 2026-08-14 only OUTPUT tokens accrue against the budget.
     db.usage.increment(USER, MONTH, { llm_tokens_out: 99_000_000 });
@@ -554,6 +625,14 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     expect(allEvents(db).map((r) => ({ kind: r.kind, outcome: r.outcome }))).toEqual([
       { kind: 'llm', outcome: 'quota_refused' },
     ]);
+    // 2026-08-17 — this leg has exactly ONE `ensureQuota` and exactly one
+    // account (there is no PC-owner gate on compose:start), so the refuser is
+    // the acting account and saying so is a measurement, not a filler. Pinned
+    // here so that adding a second gate to this handler without revisiting the
+    // refusal record turns this row red instead of shipping the STT leg's old
+    // defect one file over.
+    expect(db.raw.prepare('SELECT user_id, refused_user_id FROM usage_events').get())
+      .toEqual({ user_id: USER, refused_user_id: USER });
   });
 
   it('🔴 the row carries the two REAL character counts, straight off the metering seam', () => {
@@ -607,7 +686,7 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     // 「0 characters」 beside every AI turn as though we had counted.
     const t = tracker(db, true);
     t.recordLlmUsage(USER, { is_byok: false }, 12, 34);
-    t.recordQuotaRefusal(USER, 'stt');
+    t.recordQuotaRefusal(USER, 'stt', USER);
     const rows = allEvents(db);
     expect(rows.map((r) => ({ k: r.kind, o: r.outcome, tc: r.transcript_chars, dc: r.delivered_chars }))).toEqual([
       { k: 'llm', o: 'ok', tc: null, dc: null },

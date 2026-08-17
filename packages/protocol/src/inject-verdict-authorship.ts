@@ -254,6 +254,15 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    */
   STT_NO_ENGINE_REACHED: 'none',
   /**
+   * The platform's engine pool had no route for this request (card C1, 2026-08-17).
+   * It rides `stt:error` — emitted by `audio.handler.ts refuseStart` on the
+   * synchronous arm and by `engine/stt-session.ts onColdOpenRejection` on the
+   * async one — so like every other `STT_*` code it never appears on an
+   * `inject:result` and says nothing about whether the phone→PC delivery segment
+   * succeeded ⇒ `'none'`.
+   */
+  STT_POOL_NO_ROUTE: 'none',
+  /**
    * 🔴 **This is the only one of the four with real doubt attached, so its reasoning
    * has to be spelled out in full.**
    *

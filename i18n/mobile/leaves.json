@@ -1339,6 +1339,11 @@
       "params": []
     },
     {
+      "key": "guideStatusPcOtherAccount",
+      "leaf": "_lfGuideStatusPcOtherAccount",
+      "params": []
+    },
+    {
       "key": "guideStatusRelayOnly",
       "leaf": "_lfGuideStatusRelayOnly",
       "params": []
@@ -2498,8 +2503,18 @@
       "params": []
     },
     {
+      "key": "pairingRevokedChip",
+      "leaf": "_lfPairingRevokedChip",
+      "params": []
+    },
+    {
       "key": "pcSignedOutChip",
       "leaf": "_lfPcSignedOutChip",
+      "params": []
+    },
+    {
+      "key": "pcOtherAccountChip",
+      "leaf": "_lfPcOtherAccountChip",
       "params": []
     },
     {
@@ -3276,6 +3291,11 @@
     {
       "key": "sttStallNoEngineReached",
       "leaf": "_lfSttStallNoEngineReached",
+      "params": []
+    },
+    {
+      "key": "sttStallPoolNoRoute",
+      "leaf": "_lfSttStallPoolNoRoute",
       "params": []
     },
     {

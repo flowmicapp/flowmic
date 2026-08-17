@@ -32,7 +32,16 @@ async function loadProductionPrompts() {
     entry,
     [
       `export { renderSystemPrompt, renderTaskTemplate } from '${src('compose/prompt')}';`,
-      `export { POLISH_SYSTEM_PROMPT } from '${src('stt/stt-polish')}';`,
+      // 🔴 `polishSystemPrompt` is exported ALONGSIDE the constant, not instead
+      // of it, and the distinction is the whole reason this line is a comment.
+      // Card C8 made the prompt a function of the correction strength. If this
+      // harness kept sending only the constant, it would still be measuring a
+      // real prompt — but only ONE of the two the product now sends, while
+      // reporting a number that reads as "realtime". The function is what
+      // production calls, so it is what the harness calls; the constant stays
+      // because `strict` resolves to it by identity and other assertions depend
+      // on that being true.
+      `export { POLISH_SYSTEM_PROMPT, POLISH_SMOOTH_SYSTEM_PROMPT, polishSystemPrompt } from '${src('stt/stt-polish')}';`,
       `export { normalizeFinalText } from '${src('stt/final-text-normalizer')}';`,
       `export { checkMeaningPreserved } from '${src('stt/stt-polish-guard')}';`,
       `export { mergeOnlineDraft, mergeOverlap, overlapLen, foldConfirmedWithDraft } from '${src('stt/text-merge')}';`,

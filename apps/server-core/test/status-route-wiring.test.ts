@@ -9,7 +9,7 @@
 //   apps/server-core/src/http/status-routes.ts   (the handler)
 //   apps/server-core/src/http/router.ts:413 (`tryHandleStatusRoutes` — the MOUNT
 //     under test)
-//   apps/server-core/src/bootstrap-http-deps.ts:189 (`statusSnapshot` — the DEPS
+//   apps/server-core/src/bootstrap-http-deps.ts:195 (`statusSnapshot` — the DEPS
 //     wiring under test)
 //   apps/server-core/src/bootstrap.ts:361 (`makeStatusProbes` — the ONE runner)
 //   apps/server-core/src/bootstrap.ts:688 (`statusProbes.start()` — armed after

@@ -163,8 +163,13 @@ export class SttSessionBridge implements SttOrchestrator {
       language: this.deps.sourceLang,
       error: err.message,
     });
+    // 🔴 card C1 (2026-08-17): the THROWER's code, not a literal. The async arm
+    // has to agree with the synchronous one in audio.handler.ts — the same
+    // failure reaching the phone by a different route must not get a different
+    // sentence, and a pool refusal answered with 「该语言尚未配置识别引擎」 is
+    // false on every relay that has a pool.
     this.deps.emitter.emit('stt:error', {
-      code: 'STT_CONFIG_MISSING',
+      code: err.code,
       message: err.message,
       retryable: false,
     });

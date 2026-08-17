@@ -254,6 +254,13 @@ Widget _pairingCardRouted(_ConnectionsPageState page, AppStrings s, MobileSessio
                         // so the two cannot describe different moments.
                         pcAbsentReason:
                             page.widget.connections.pcAbsentReasonOf(p),
+                        // 🔴 C4 — and, when the server refused this row's token
+                        // BY NAME, say so. Read from the same map entry as the
+                        // two above for the same reason: a refusal, a presence
+                        // and a reason that came from three different rounds
+                        // would be a sentence assembled out of three moments.
+                        pairingRejected:
+                            page.widget.connections.pairingRejectedFor(p),
                       ),
                     ),
                   ],

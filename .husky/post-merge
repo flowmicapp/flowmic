@@ -1,0 +1,23 @@
+# C10-3 — after `git pull` / `git merge`, rebuild what the merge just
+# invalidated. POSIX sh: husky runs this with `sh -e`, and it must work under a
+# git invoked from PowerShell, cmd, git-bash or an editor alike.
+#
+# ORIG_HEAD is what git sets to the pre-merge tip, so `ORIG_HEAD..HEAD` is the
+# range this merge actually brought in. When it is absent (a first pull into a
+# fresh clone) there is no range and refresh-derived.mjs is handed nothing,
+# which makes it exit silently — a clone's setup is CONTRIBUTING.md's job.
+#
+# Diff-scoped and silent when nothing moved; it never fails the hook, because
+# git ignores this hook's exit status entirely (the merge already happened) —
+# see the header of scripts/refresh-derived.mjs for what it prints instead.
+#
+# 🔴 `if`, NOT `test && test && cmd`, and `|| x=""` on both reads. husky runs
+# this under `sh -e`, where a bare AND-list whose first test is false returns 1
+# and kills the shell — so the short form would print "husky - post-merge script
+# failed (code 1)" on the very first pull into a fresh clone.
+old=$(git rev-parse --verify --quiet ORIG_HEAD) || old=""
+new=$(git rev-parse --verify --quiet HEAD) || new=""
+if [ -n "$old" ] && [ -n "$new" ]; then
+  node scripts/refresh-derived.mjs "$old" "$new"
+fi
+exit 0

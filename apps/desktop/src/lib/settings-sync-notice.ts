@@ -1,6 +1,12 @@
 // SPEC-REF:
-//   apps/desktop/src-tauri/src/shell/mod.rs:184 (`settings_update` → `with_lan_socket`,
-//     `false` fallback — the ONLY reason a settings write fails)
+//   apps/desktop/src-tauri/src/shell/mod.rs — `settings_update` → `with_lan_socket`,
+//     `false` fallback: the ONLY reason a settings write fails.
+//     🔴 Cited by SYMBOL, not by line. The number rotted on 2026-08-17 when card
+//     C3 added a doc block above that command — precisely the hazard the
+//     `mod channel_session;` note in that same file was written to avoid, and it
+//     came due anyway. A name that moves greps to zero and fails loud at the
+//     moment of use; a number that moves lands the reader on the wrong line with
+//     no signal at all.
 //   apps/desktop/src-tauri/src/shell/sidecar_ctl.rs (bring_up_and_connect / connect_socket
 //     — the LAN socket slot `with_lan_socket` reads is populated ONLY on Healthy /
 //     AdoptedExternal, and emptied on every other phase)

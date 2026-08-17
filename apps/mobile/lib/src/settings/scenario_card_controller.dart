@@ -279,7 +279,16 @@ class ScenarioCardController extends ChangeNotifier {
     // app at which a human actually changed this card, which is the only thing
     // `updated_at` is allowed to mean. UTC because the server parses it and two
     // devices in two zones must be comparable.
-    final String stamp = DateTime.now().toUtc().toIso8601String();
+    //
+    // 🔴 C3 — it comes from the settings client rather than from
+    // `DateTime.now()` directly, and that is not indirection for its own sake.
+    // The stamp is only ever compared against a stamp authored on ANOTHER
+    // machine, so a phone whose clock lags stamps this genuinely newer edit into
+    // the server's past: the write is refused, the stored card is pushed back,
+    // rule 5 below adopts it, and the terms the user just typed vanish with
+    // nothing said. The client corrects for the lag it has measured from the
+    // stamps it has seen — see settings_stamp_clock.dart.
+    final String stamp = _settings.nowStamp();
     _cardUpdatedAt = stamp;
     // A local edit supersedes whatever the last remote refresh said, so the
     // note about it stops being true here.

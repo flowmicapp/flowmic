@@ -358,9 +358,57 @@ fn expires_in_ms_is_read_only_when_the_server_really_sent_a_number() {
 
 #[test]
 fn settings_update_wraps_key_and_value_verbatim() {
-    let v = build_settings_update("llm.config", json!({ "model": "qwen", "api_key": "EMPTY" }));
+    let v = build_settings_update("llm.config", json!({ "model": "qwen", "api_key": "EMPTY" }), None);
     assert_eq!(v["key"], json!("llm.config"));
     assert_eq!(v["value"]["model"], json!("qwen"));
+}
+
+/// Card C3 — the desktop is the SECOND writer of `scenario.card`, so its frames
+/// have to say when the user edited. Before this, the builder emitted no stamp at
+/// all and the server's regress guard could therefore never fire against a
+/// desktop write: a stale offline edit replayed on reconnect still overwrote a
+/// card the phone had edited minutes ago, silently.
+#[test]
+fn settings_update_carries_the_edit_moment_when_the_frontend_knows_it() {
+    let v = build_settings_update(
+        "scenario.card",
+        json!({ "terms": ["灰度发布"] }),
+        Some("2026-08-17T12:00:00.000Z"),
+    );
+    assert_eq!(v["key"], json!("scenario.card"));
+    assert_eq!(v["updated_at"], json!("2026-08-17T12:00:00.000Z"));
+    // Verbatim: this layer neither re-formats nor re-stamps. The frame may be a
+    // replay of an edit made a week ago, and re-stamping it here is precisely
+    // what would let that replay win.
+    assert_eq!(v["value"]["terms"][0], json!("灰度发布"));
+}
+
+/// 🔴 ABSENT, NOT NULL. Absent means UNKNOWN and the server writes
+/// unconditionally — exactly the pre-C3 behaviour, which is what makes the phone
+/// and desktop shippable in any order. An explicit `null` would fail
+/// `Iso8601.optional()` at the zod boundary and take the WHOLE frame down, and a
+/// boundary refusal is anonymous: the user would see a setting that simply never
+/// syncs, with nothing anywhere saying why.
+#[test]
+fn settings_update_omits_the_key_entirely_when_the_moment_is_unknown() {
+    let v = build_settings_update("stt.routings", json!([]), None);
+    assert!(v.get("updated_at").is_none(), "absent must be ABSENT, never null: {v}");
+    assert_eq!(v, json!({ "key": "stt.routings", "value": [] }));
+}
+
+/// 🔴 The rename is the ONE settings write that must stay un-stamped, and this
+/// pins it from our side. The server's G2 arbitration deliberately stops at the
+/// `device.pc_name` branch (settings.handler.ts): the name is not in the KV, so
+/// there is no `updated_at` for a stamp to be honest about, and `pc_devices` has
+/// no such column — a stamp here would be a time invented from nothing. The
+/// server's own `test/pc-rename.test.ts` asserts the same payload from the other
+/// end; this is the half that fails on the machine that would introduce the bug.
+#[test]
+fn pc_name_update_carries_no_stamp() {
+    let v = build_pc_name_update("dev-pc-a");
+    assert!(v.get("updated_at").is_none(), "the rename must not be stamped: {v}");
+    assert_eq!(v["key"], json!(crate::events::KEY_DEVICE_PC_NAME));
+    assert_eq!(v["value"]["pc_name"], json!("dev-pc-a"));
 }
 
 #[test]

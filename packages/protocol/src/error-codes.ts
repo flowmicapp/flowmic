@@ -198,6 +198,63 @@ export const ERROR_CODES = {
   // unknown as a definite answer is the very defect this code exists to fix, one
   // level up.
   STT_NO_ENGINE_REACHED:     { zh_CN: '这段录音没有到达任何识别引擎，没有转成文字。请重新说一次；如果一直这样，请检查识别引擎设置。', en: 'This recording reached no speech engine, so nothing was transcribed. Say it again; if it keeps happening, check the engine settings.' },
+  // 71 → 72. owner approved on 2026-08-17 (WP-2 card C1; the ruling is recorded in
+  // docs/strategy/2026-08-17-wp2-task-book-settings-and-presence-followups.md §3-2).
+  // The PLATFORM's engine pool was consulted and had no route it could give this
+  // request — `selectRoute` answered `outcome:'refused'`
+  // (`apps/server-core/src/pool/select-route.ts`), so `makePoolManagedDefault`'s
+  // resolver returned null, and no user row and no seeded row covered the language
+  // either. Producer: `apps/server-core/src/stt/engine-factory.ts`, the
+  // `SttConfigMissingError` throw site, which now chooses between two codes instead
+  // of always saying one of them.
+  //
+  // 🔴 WHY NOT STT_CONFIG_MISSING, the code this path used to answer with. Its
+  // sentence is 「该语言尚未配置识别引擎」 ("no STT engine has been configured for this
+  // language"), and on the relay every clause of that is FALSE: engines are
+  // configured, several of them, and the operator can see them in the pool. Worse
+  // than vague — it hands the user a task ("go configure an engine") on a surface
+  // they do not own and cannot reach, so every minute spent acting on it is wasted.
+  // The pool is OUR configuration, not theirs, which is why this sentence's second
+  // half is the load-bearing half: nothing they can change will help.
+  // ⚠️ STT_CONFIG_MISSING KEEPS ITS MEANING EXACTLY — a deployment with no pool and
+  // no routings at all still answers with it, and that is pinned by a positive
+  // control in `apps/server-core/test/stt-pool-refusal.test.ts` rather than assumed.
+  //
+  // 🔴 WHY NOT STT_NO_ENGINE_REACHED, the nearest neighbour. That code's own
+  // registration above says it is for the case where 「an engine WAS selected and
+  // the audio still reached none of them」 — i.e. a route existed and the audio got
+  // lost on the way. Here NO route was ever selected and no audio was ever sent, so
+  // its advice ("say it again") is exactly wrong: repeating the utterance re-runs
+  // the same refusal. Two codes because the actions differ — wait/report vs. speak
+  // again — which is the test this registry applies to every fold.
+  //
+  // ⚠️ THE SENTENCE DELIBERATELY DOES NOT NAME THE LANGUAGE. The refusal is not
+  // always language-shaped: `POOL_GROUP_EMPTY` / `POOL_GROUP_UNKNOWN` mean the
+  // group has no usable routes at all, and only `POOL_NO_CANDIDATE` is about the
+  // language. One sentence that is true of all of them beats a more specific one
+  // that is false for two thirds of its producers.
+  //
+  // ⚠️ NO 「稍后再试」/「try again later」, and that is a deliberate removal rather
+  // than an omission — an earlier draft of this sentence had it. A pool refusal
+  // does not heal on a timer: it lifts when an operator changes the pool, which
+  // may be minutes or never. 「待…」-shaped promises are only allowed here when
+  // something mechanically redeems them (CLAUDE.md red line, the 0.1.x 「待投递」
+  // account). The phone mirror `sttStallPoolNoRoute` makes the same refusal in the
+  // same words for the same reason; if one of the two ever grows the clause back,
+  // the other one is now a written contradiction rather than a silent drift.
+  //
+  // ⚠️ NAME LENGTH: `STT_POOL_NO_ROUTE` is 17 characters, under the phone's 28-char
+  // raw-code slot (`chat_message_tile.dart` `_truncateFailureReason`). A product
+  // constraint, not a naming preference — and it is MEASURED, not counted by hand:
+  // approved-codes-2026-08-10.test.ts asserts that the set of over-length codes is
+  // exactly the two pinned exceptions, so a third would have gone red here.
+  //
+  // ZERO wire-shape change and NO relay-before-client deployment order:
+  // `SttErrorSchema.code` is `NonEmpty`, not a closed enum, and the phone's
+  // `stt:error` path has no closed set anywhere on it — an unrecognised code
+  // degrades to `sttStallEngineErrorCoded` (a readable sentence plus the raw
+  // identifier) and the stall still converges. `whitelist=54` is untouched.
+  STT_POOL_NO_ROUTE:         { zh_CN: '平台这边没有可用于这次识别的引擎线路。这不是你的设置的问题——如果一直这样，请联系我们。', en: 'The service has no speech engine route available for this request. This is not a problem with your settings — if it keeps happening, tell us.' },
   STT_PROBE_FAIL:            { zh_CN: '连接测试失败，请检查地址或密钥。',      en: 'Connection test failed, check endpoint or key.' },
   STT_PROBE_SCHEME_MISMATCH: { zh_CN: '服务可经 ws:// 访问，但 wss:// 握手失败 — 该服务未启用 TLS，请把端点改为 ws://。', en: 'Server reachable via ws:// but wss:// handshake failed — endpoint has no TLS, change scheme to ws://.' },
   STT_HARD_LIMIT_REACHED:    { zh_CN: '已达 5 分钟单次最长录音限制。',         en: 'Reached 5-minute single-recording hard limit.' },

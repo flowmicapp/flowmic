@@ -68,7 +68,7 @@ import {
 } from './mail';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.6';
+export const SERVER_VERSION = '0.3.7';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a

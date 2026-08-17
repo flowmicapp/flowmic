@@ -81,8 +81,13 @@ Widget _statusLabelRouted(
   PcPresence pcPresence = PcPresence.unknown,
   /// 🔴 The server's own reason for that computer being absent, when it gave
   /// one. Defaulted to null so every existing caller and test keeps the face it
-  /// had; only `auth_expired` changes anything, and only on an `offline` row.
+  /// had; only a reason this build recognises changes anything, and only on an
+  /// `offline` row.
   PcAbsentReason? pcAbsentReason,
+  /// 🔴 C4 — the server refused this row's token by name. Not a fact about the
+  /// computer at all, which is why it is a parameter of its own rather than a
+  /// value squeezed into [pcPresence].
+  bool pairingRejected = false,
 }) {
   if (page.widget.connections.connectingKey == key) {
     return Row(
@@ -111,6 +116,7 @@ Widget _statusLabelRouted(
     target: target,
     pcPresence: pcPresence,
     pcAbsentReason: pcAbsentReason,
+    pairingRejected: pairingRejected,
   );
   // `unmeasured` = never probed. It renders as the old neutral hint, never as a
   // colour that would claim knowledge we do not have.
@@ -130,6 +136,18 @@ Widget _statusLabelRouted(
     // strongest colour on the page to send someone to check a computer that has
     // nothing wrong with it.
     InstanceLivenessFace.pcSignedOut => (s.pcSignedOutChip, FlowMicColors.amber),
+    // 🔴 C9 — AMBER for [pcSignedOut]'s reason and one more of its own: red
+    // would be recruiting the page's strongest colour to describe a machine
+    // that is powered on, in a room, and working perfectly for whoever owns it
+    // now. Nothing is wrong over there; this pairing is simply pointed at a row
+    // that account abandoned, and the only fix is on this phone.
+    InstanceLivenessFace.pcOtherAccount => (s.pcOtherAccountChip, FlowMicColors.amber),
+    // 🔴 C4 — the server said it does not know this pairing. **Deliberately not
+    // [relayUpPcUnknown]**: that sentence means 「我们没问到」 ("we did not get an
+    // answer"), and here we did — this row will never resolve on its own, and
+    // saying 「unknown」 asks the user to keep waiting for something that has
+    // already happened.
+    InstanceLivenessFace.pairingRevoked => (s.pairingRevokedChip, FlowMicColors.amber),
     // 🔴 The relay answered, the computer was never asked. **Deliberately does
     // NOT reuse [AppStrings.offline]**: saying 「offline」 turns
     // 「don't know」 into 「know it's gone」, which is the lie in the other
@@ -142,6 +160,8 @@ Widget _statusLabelRouted(
       face == InstanceLivenessFace.unreachable ||
       face == InstanceLivenessFace.pcOffline ||
       face == InstanceLivenessFace.pcSignedOut ||
+      face == InstanceLivenessFace.pcOtherAccount ||
+      face == InstanceLivenessFace.pairingRevoked ||
       face == InstanceLivenessFace.relayOnlyPcUnknown;
   return Row(
     mainAxisSize: MainAxisSize.min,

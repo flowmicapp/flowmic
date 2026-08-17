@@ -18,6 +18,8 @@ import {
   SCENARIO_MAX_PACKS,
   SCENARIO_MAX_PROFESSIONS,
   SCENARIO_MAX_TERMS,
+  DEFAULT_POLISH_STRENGTH,
+  POLISH_STRENGTHS,
   SETTINGS_KEY_CAPABILITY_LLM,
   SETTINGS_KEY_SCENARIO_INFERENCE,
   STT_PRESETS,
@@ -30,11 +32,13 @@ import {
   type InferenceBlockedReason,
   type ModelDestination,
   type ScenarioCard,
+  type PolishStrength,
   type ScenarioInferenceConsent,
   type SttEngineId,
 } from '@flowmic/protocol';
 import { localKv } from '../lib/storage';
-import { CH, fetchServerSettings, onChannel, type ServerSettingItem } from '../lib/bridge';
+import { CH, fetchServerSettings, onChannel } from '../lib/bridge';
+import type { ServerSettingItem } from '../lib/types';
 import { SETTINGS_ANCHOR_KEYS } from '../lib/settings-client';
 import { S } from '../lib/strings';
 import { settings } from './store';
@@ -76,6 +80,10 @@ const CAPABILITY_LLM_KEY = SETTINGS_KEY_CAPABILITY_LLM;
 const K_ROUTINGS = 'flowmic.ui.stt.routings';
 const K_DICT = 'flowmic.ui.stt.dictionary';
 const K_POLISH = 'flowmic.ui.stt.polish';
+// Card C8. A SEPARATE local key rather than a second field inside K_POLISH's
+// value: the existing key holds a bare boolean, so widening it would make every
+// already-cached value unparseable on the first launch after an update.
+const K_POLISH_STRENGTH = 'flowmic.ui.stt.polish.strength';
 const K_REFINE = 'flowmic.settings.sttRefine';
 const K_LLM = 'flowmic.ui.llm.config';
 const K_SCENARIO = 'flowmic.ui.scenario.card';
@@ -130,6 +138,16 @@ function asStr(v: unknown, fb = ''): string {
 }
 function asBoolean(v: unknown): boolean | null {
   return typeof v === 'boolean' ? v : null;
+}
+
+/** Card C8 — the correction strength, narrowed against the protocol's own
+ *  enum rather than a string literal copied into this file. An unrecognised
+ *  value returns null so [loadWith] falls back to the default, which is the
+ *  same stance every other key here takes. */
+function asPolishStrength(v: unknown): PolishStrength | null {
+  return typeof v === 'string' && (POLISH_STRENGTHS as readonly string[]).includes(v)
+    ? (v as PolishStrength)
+    : null;
 }
 
 function asRoutings(v: unknown): Routing[] | null {
@@ -327,6 +345,20 @@ export const model = reactive({
    */
   polishEnabled: loadWith<boolean>(K_POLISH, false, asBoolean),
   /**
+   * Card C8 — how far the polish layer may go. Only meaningful while
+   * `polishEnabled` is true, and deliberately NOT cleared when the toggle goes
+   * off: a user who turns polish off and back on should find the choice they
+   * made, not a silently reset one.
+   *
+   * ⚠️ The default is the PRODUCT default (`strict`), not a neutral one, and
+   * the difference matters on this side specifically: this value is what a user
+   * sees before the first `settings:list` lands, so a wrong placeholder here
+   * would show `smooth` to someone whose account is on `strict` — the exact
+   * "the switch reports whether a row exists rather than what the server does"
+   * shape that card POLISH-CFG was written to close.
+   */
+  polishStrength: loadWith<PolishStrength>(K_POLISH_STRENGTH, DEFAULT_POLISH_STRENGTH, asPolishStrength),
+  /**
    * Card POLISH-CFG — "can a usable language model be resolved," answered by
    * the SERVER (`capability.llm`, value `{usable:boolean}`) and rendered
    * beside the polish switch as "the capability AI polish needs is not
@@ -415,10 +447,29 @@ export function removeDictEntry(term: string): void {
 // ── AI polish (stt.polish — literal SET anchor via settings.setSttPolish) ──
 function pushPolish(): void {
   save(K_POLISH, model.polishEnabled);
-  settings.setSttPolish({ enabled: model.polishEnabled });
+  save(K_POLISH_STRENGTH, model.polishStrength);
+  // 🔴 CARD C8 DEPLOYMENT ORDER LIVES ON THIS LINE. `SttPolishSchema` is
+  // `.strict()`, so a server that predates the `strength` field REJECTS this
+  // write outright (SETTINGS_SCHEMA_INVALID) — the write does not degrade to
+  // "enabled only", it fails, and the user's toggle stops working. Both server
+  // halves therefore ship first: the relay, AND the LAN server that ships
+  // inside this same desktop installer.
+  //
+  // ⚠️ The second half is the one that is easy to miss, and it is also the one
+  // that makes this safe in practice: the LAN server travels in the installer
+  // with this UI, so for the LAN path the two are never out of step by
+  // construction. The exposure is a NEW desktop talking to an OLD relay.
+  settings.setSttPolish({ enabled: model.polishEnabled, strength: model.polishStrength });
 }
 export function setPolishEnabled(enabled: boolean): void {
   model.polishEnabled = enabled;
+  pushPolish();
+}
+/** Card C8. Deliberately reachable while polish is OFF (the control is rendered
+ *  disabled, not hidden) so the value the user picks is the value they get when
+ *  they turn it on — rather than a choice silently discarded in between. */
+export function setPolishStrength(strength: PolishStrength): void {
+  model.polishStrength = strength;
   pushPolish();
 }
 
@@ -572,7 +623,15 @@ export const SCENARIO_CAPS = {
 /** Adopt a server settings:list snapshot into the reactive model + display cache.
  *  Pure w.r.t. the network (takes the already-fetched items) so it is unit-testable. */
 export function applyServerSettings(items: ServerSettingItem[]): void {
-  for (const { key, value } of items) {
+  for (const { key, value, updated_at } of items) {
+    // 🔴 C3 — EVERY item is evidence about the clock our own writes are judged
+    // against, including the ones this model does not own and the one the server
+    // pushed back because it refused our write (that loser frame arrives as a
+    // settings:updated notification and lands here via the re-pull below). Fed
+    // BEFORE the pending check on purpose: whether we adopt a value and what it
+    // tells us about the other side's timebase are two different questions, and
+    // skipping the second is how a lagging clock keeps losing silently.
+    settings.observeStamp(updated_at);
     if (settings.isKeyPending(key)) continue; // a pending local edit wins (already saved locally)
     switch (key) {
       case SETTINGS_ANCHOR_KEYS.sttRoutings: // 'stt.routings'
@@ -594,6 +653,16 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
             model.polishEnabled = enabled;
             save(K_POLISH, model.polishEnabled);
           }
+          // Card C8. ABSENT is a real answer, not a missing one: every row
+          // written before this field existed omits it, and it means `strict`.
+          // Adopting the default here rather than leaving the cached value
+          // alone is what makes the control report what the SERVER will do —
+          // the same rule the `enabled` half already follows, and the reason
+          // `capability.llm` above is documented as the opposite case (there,
+          // unparseable really does mean "no new answer").
+          const strength = asPolishStrength((value as { strength?: unknown }).strength);
+          model.polishStrength = strength ?? DEFAULT_POLISH_STRENGTH;
+          save(K_POLISH_STRENGTH, model.polishStrength);
         }
         break;
       }

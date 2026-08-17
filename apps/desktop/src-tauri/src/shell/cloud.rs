@@ -28,6 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::forensic;
 use crate::socket::bridge;
 use crate::socket::channel::{self, Channel, CloudConfig, KEY_MALFORMED};
+use crate::socket::cloud_endpoint::{self, EndpointMigration};
 use crate::socket::pairing::{is_account_auth_failure, AuthFailureHook};
 
 use super::sidecar_ctl;
@@ -75,6 +76,27 @@ impl CloudState {
             forensic::record("cloud", &format!("config save FAILED: {e}"));
         }
         g.clone()
+    }
+
+    /// C7 — retire a stored relay address that this product no longer hands out.
+    /// `Some(_)` = the config was rewritten and persisted; `None` = untouched,
+    /// which is the answer on every read after the first (and on every read of an
+    /// endpoint that is anything other than a listed retired value).
+    ///
+    /// Deliberately NOT written on top of `update`: that helper saves
+    /// unconditionally, and `cloud_status` is called on every page mount. Decide
+    /// and write under ONE lock so two windows reading at once cannot both migrate
+    /// and log the same rewrite twice.
+    fn migrate_endpoint(&self, canonical: &str, legacy: &[String]) -> Option<EndpointMigration> {
+        let mut g = self.cfg.lock().unwrap_or_else(|p| p.into_inner());
+        let migration = cloud_endpoint::migrate(&mut g, canonical, legacy)?;
+        if let Err(e) = g.save(&self.path) {
+            // The value moved in memory for this session and the disk did not:
+            // say so, exactly like `update` does. The next launch will simply see
+            // the retired address again and re-run this.
+            forensic::record("cloud", &format!("config save FAILED after endpoint migration: {e}"));
+        }
+        Some(migration)
     }
 }
 
@@ -189,8 +211,46 @@ pub fn auth_failure_hook(app: &AppHandle) -> AuthFailureHook {
 // ── commands ─────────────────────────────────────────────────────────────────
 
 /// Read the cloud-channel status for the device page / capsule.
+///
+/// 🔴 THIS READ CARRIES THE ENDPOINT SSOT INWARD AND CAN THEREFORE WRITE ONCE.
+/// `canonical` + `legacy` are `DEFAULT_SAAS_ENDPOINT` and `LEGACY_SAAS_ENDPOINTS`
+/// from `@flowmic/protocol`, packed by `lib/channel.ts` `cloudEndpointSsot()`.
+/// They come in on the READ rather than on a command of their own because:
+///   · the migration must run for a user who never re-saves — the stored endpoint
+///     is otherwise permanent, and only an EMPTY one falls back to the default;
+///   · the Cloud Key never crosses back to the frontend, so the frontend cannot
+///     re-save the config itself — the write has to happen on this side;
+///   · `channel.rs` forbids an endpoint literal in this crate, so the values have
+///     to arrive from the frontend;
+///   · `fetchCloudStatus` is the ONE funnel through which the frontend can learn
+///     the endpoint, so no call site can forget to bring them, and the DTO that
+///     goes back is post-migration by construction.
+/// A separate command would have been a call someone can drop — and a status read
+/// that answered with the value we had just decided to replace.
+///
+/// The write is bounded: value equality against a listed retired address, once
+/// (the rewrite removes its own trigger), never for a self-hosted endpoint, and
+/// never silently — see `socket::cloud_endpoint`.
 #[tauri::command]
-pub fn cloud_status(state: State<'_, CloudState>) -> CloudStatusDto {
+pub fn cloud_status(
+    app: AppHandle,
+    state: State<'_, CloudState>,
+    canonical: String,
+    legacy: Vec<String>,
+) -> CloudStatusDto {
+    if let Some(m) = state.migrate_endpoint(&canonical, &legacy) {
+        forensic::record("cloud", &m.forensic_line());
+        // The other window is holding the old address in its own copy of this DTO.
+        // Push, or the capsule keeps showing a value that is no longer stored.
+        emit_state(&app);
+    }
+    // ⚠️ NOT a redial, and that is the one bounded gap in this fix. `CloudState`
+    // is loaded and `sidecar_ctl::start` dials BEFORE any window's first status
+    // read, so the session that is already up on an upgrade launch was dialed at
+    // the retired address. It stays there: both hosts are the same box (card C7's
+    // measurement), so tearing a live relay session down to re-dial an equivalent
+    // address would cost a reconnect to buy nothing. The stored value is corrected
+    // within that first read, and the NEXT launch dials the corrected one.
     dto(&state.snapshot())
 }
 

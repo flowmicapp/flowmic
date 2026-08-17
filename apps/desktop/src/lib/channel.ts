@@ -21,7 +21,7 @@
 //
 // Terminology iron rule (术语军规) (T-2): the two channels are named ONLY "local LAN" (本地局域网) and "cloud relay" (云端中继).
 
-import { DEFAULT_SAAS_ENDPOINT, type ErrorCode } from '@flowmic/protocol';
+import { DEFAULT_SAAS_ENDPOINT, LEGACY_SAAS_ENDPOINTS, type ErrorCode } from '@flowmic/protocol';
 import { S } from './strings';
 import type { ChannelTag } from './types';
 
@@ -52,6 +52,39 @@ export const CHANNEL_LABEL: Record<ChannelId, string> = {
 /** The relay endpoint a fresh install proposes. SSOT = @flowmic/protocol, never a
  *  literal on this side (a self-hosted relay is just a different saved value). */
 export const DEFAULT_CLOUD_ENDPOINT = DEFAULT_SAAS_ENDPOINT;
+
+/** Relay addresses this product has RETIRED. Same SSOT rule as the line above:
+ *  mirrored from @flowmic/protocol, never a literal on this side. */
+export const LEGACY_CLOUD_ENDPOINTS: readonly string[] = LEGACY_SAAS_ENDPOINTS;
+
+/** The `cloud_status` IPC arguments — the endpoint SSOT, packed for the boundary.
+ *
+ *  🔴 WHY A READ CARRIES THIS. `CloudConfig.endpoint` is a STORED value that
+ *  only falls back to the default when it is empty, so an install configured
+ *  while a now-retired address was canonical keeps that address forever. The fix is a
+ *  one-time migration, and it has to RUN in Rust — the Cloud Key never crosses
+ *  back to this side, so the frontend cannot re-save the config by itself —
+ *  while the LITERALS have to stay on this side, because src-tauri's standing
+ *  rule (socket/channel.rs) is that no endpoint literal is hardcoded in that
+ *  crate. Handing both values inward on every status read is what satisfies
+ *  both halves.
+ *
+ *  It is folded into `fetchCloudStatus` rather than given its own command on
+ *  purpose: there is exactly ONE funnel through which the frontend can learn the
+ *  cloud endpoint, so no call site can forget to bring the SSOT along, and the
+ *  status that comes back is post-migration by construction (a separate call
+ *  would leave a window in which the card renders the value we just decided to
+ *  replace).
+ *
+ *  🔴 THIS IS A REQUIRED ARGUMENT OF THE `cloud_status` COMMAND, not a decoration
+ *  on the call in bridge.ts. Dropping it there makes every cloud-status invoke
+ *  fail argument deserialisation, and `invokeSafe` turns that into `undefined` +
+ *  a console warning — i.e. the cloud card blanks on both windows and nothing in
+ *  the type system says why. (The note lives here rather than at the call site
+ *  because bridge.ts is at the 800-line cap.) */
+export function cloudEndpointSsot(): { canonical: string; legacy: string[] } {
+  return { canonical: DEFAULT_CLOUD_ENDPOINT, legacy: [...LEGACY_CLOUD_ENDPOINTS] };
+}
 
 /** Channel visual identity (owner 2026-08-01: colour + icon combination, cannot rely
  *  on colour alone; define once,

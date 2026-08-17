@@ -108,8 +108,27 @@ export interface UsageTracker {
    * The row it writes has every count at 0 and `outcome:'quota_refused'`, which
    * is exactly why `outcome` is a column of its own: "zero minutes" and "blocked"
    * must be two statements.
+   *
+   * ── 2026-08-17 (owner ruling): `refused_user_id` — WHOSE QUOTA SAID NO ──────
+   *
+   * `user_id` is whose ATTEMPT this was, and it keeps that meaning exactly;
+   * `refused_user_id` is whose CEILING was hit. Since QTA-2 those are two
+   * accounts on the STT leg (the acting phone account, and the paired PC
+   * owner's, which is a gate and is never metered), so the row used to name the
+   * acting account as the subject of a sentence that was true of the other one.
+   *
+   * 🔴 REQUIRED, NOT OPTIONAL, for the same reason `chars` above is: an optional
+   * third argument lets both call sites keep passing two, and the column then
+   * sits at NULL forever with every test green and the feature absent. The
+   * compiler is the only thing that reliably notices a caller that did not
+   * think about this — "a capability is defined but nobody calls it" is this
+   * repo's number-one historical bug class.
+   *
+   * On the LLM leg it is `user_id` again, and that is a measurement rather than
+   * a filler: `compose:start` has exactly one `ensureQuota` and exactly one
+   * account, so "the acting account's own quota refused" is what happened.
    */
-  recordQuotaRefusal(user_id: string, kind: UsageEventKind): void;
+  recordQuotaRefusal(user_id: string, kind: UsageEventKind, refused_user_id: string): void;
 }
 
 export interface UsageTrackerConfig {
@@ -221,6 +240,9 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
      *  LLM legs, and both quota refusals). Omitted ⇒ stored NULL ⇒ read back as
      *  `null`, which is "not measured" and not "zero". */
     chars?: SttCharCounts;
+    /** 2026-08-17 — omitted by both `ok` legs, because nothing refused anything
+     *  there and NULL is what says so. See {@link UsageTracker.recordQuotaRefusal}. */
+    refused_user_id?: string;
   }): void {
     if (!enabled || !events) return;
     try {
@@ -255,6 +277,10 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           ? { transcript_chars: input.chars.transcript, delivered_chars: input.chars.delivered }
           : {}),
         outcome: input.outcome,
+        // Spread-or-nothing, same discipline as `chars` above: an `ok` row must
+        // store NULL here, and NULL must keep meaning "nobody recorded which
+        // account's quota refused" rather than "the acting one did".
+        ...(input.refused_user_id !== undefined ? { refused_user_id: input.refused_user_id } : {}),
       });
     } catch (err) {
       log.error('usage_events: append FAILED — the meter is unaffected, the detail row is lost', {
@@ -320,12 +346,17 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
         outcome: 'ok',
       });
     },
-    recordQuotaRefusal(user_id, kind): void {
+    recordQuotaRefusal(user_id, kind, refused_user_id): void {
       if (config.mode !== 'saas') return; // standalone has no quota to refuse
       // Every count stays at its 0 default and `is_byok` stays 0 — nothing was
       // consumed, on anybody's key. The row's meaning is carried entirely by
-      // `outcome`, which is the separation the DDL argues for.
-      appendEvent({ user_id, kind, is_byok: false, outcome: 'quota_refused' });
+      // `outcome`, which is the separation the DDL argues for — plus, since
+      // 2026-08-17, by `refused_user_id`, which is the separation between "whose
+      // attempt" and "whose ceiling". This layer does NOT compare the two ids or
+      // derive anything from them: the caller is the only layer that knows which
+      // gate threw, and a meter that second-guessed it would become a second
+      // author of a fact the handler already owns.
+      appendEvent({ user_id, kind, is_byok: false, outcome: 'quota_refused', refused_user_id });
     },
   };
 }

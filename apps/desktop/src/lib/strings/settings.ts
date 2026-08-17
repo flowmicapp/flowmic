@@ -111,6 +111,28 @@ export const SETTINGS_KEYS = [
   // server can't reach (data-flow-disclosure.test.ts's DEFAULT_VALUE_CLAIMS
   // exists precisely for this rule).
   'polish_no_llm',
+  // ─── card C8: the correction-strength dial (owner ruling 2026-08-17) ───────
+  //
+  // 🔴 `polish_strength_hint` MUST STATE THE TRADE, and the trade is not a
+  // quality ranking. `smooth` is not "better polish": it buys readability by
+  // giving up the guarantee that the text on screen is word-for-word what was
+  // said. Someone dictating a quotation, a name list, or evidence needs to be
+  // able to read that off the screen and choose `strict`, so the sentence names
+  // both halves ("easier to read, but no longer word-for-word") rather than
+  // describing smooth as an improvement.
+  //
+  // ⚠️ Statement of fact, no imperative — the same copy discipline as
+  // `polish_no_llm` above and `INJECT_PC_MISMATCH`. This layer knows what the
+  // two values do; it does not know which one this user should want.
+  //
+  // ⚠️ Deliberately NOT a claim about the default. The effective value comes
+  // from the server on every `settings:list`, and a sentence like "strict by
+  // default" compiled into this binary is exactly the shape
+  // data-flow-disclosure.test.ts's DEFAULT_VALUE_CLAIMS exists to catch.
+  'polish_strength_label',
+  'polish_strength_strict',
+  'polish_strength_smooth',
+  'polish_strength_hint',
   // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on both
   // model sections because the alternative is a user tuning a dictionary here
   // and wondering why the phone-on-relay ignores it.

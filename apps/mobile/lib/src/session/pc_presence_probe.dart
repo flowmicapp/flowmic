@@ -105,6 +105,53 @@ enum PcPresenceMiss {
       this == PcPresenceMiss.timeout || this == PcPresenceMiss.network;
 }
 
+/// 🔴 **The forensic half of a miss, and it answers a DIFFERENT question from
+/// [PcPresenceMiss].** That enum answers 「再问一次有没有用」 ("is asking again
+/// worth it") and is consumed by the retry loop; this one answers 「到底是哪种
+/// 失败」 ("which failure was it, exactly") and is consumed by nothing but the
+/// diagnostic trail.
+///
+/// 🔴 WHY THEY ARE TWO VALUES AND NOT ONE. Folding these into [PcPresenceMiss]
+/// would force every new forensic distinction to also be a retry decision — so
+/// the next person who wants to tell a TLS fault from a dead DNS lookup would
+/// have to re-open the retry policy to get it, and would reasonably decide not
+/// to bother. Keeping them apart is what makes the trail cheap to sharpen. It
+/// is also this repo's standing rule that one value answers one question.
+///
+/// ⚠️ EVERY MEMBER IS A FIXED LITERAL AND CARRIES NO USER CONTENT. The trail is
+/// uploaded to the PC on request, so an exception's `message` — which contains
+/// the host on a lookup failure — must never be written down. What rides
+/// alongside instead is one integer ([PcPresenceReading.faultCode]).
+enum PcPresenceFault {
+  /// A TLS fault: the handshake did not complete. `HandshakeException` extends
+  /// `TlsException`, so a **pin mismatch** lands here too — measured
+  /// 2026-08-17 (dart 3.11.5): speaking https to a plain listener throws
+  /// `HandshakeException`, `osError` **null**, so there is no code to carry.
+  tls,
+
+  /// A socket-layer fault. **Deliberately NOT split into 「DNS」 and 「refused」
+  /// here**: the honest discriminator is the OS's own error code, which rides
+  /// in [PcPresenceReading.faultCode], and guessing at the class from the
+  /// exception's shape is not measurable from this side. Measured 2026-08-17
+  /// on Windows/dart 3.11.5: a refused connection carries
+  /// `osError.errorCode = 1225` with the address set — while a **nonexistent
+  /// host did not raise a SocketException at all**, because a middlebox on that
+  /// network answered `502`. Which is precisely why a fault class alone was
+  /// never going to be enough, and why the status code below exists.
+  socket,
+
+  /// `HttpException` — the exchange itself was malformed (a truncated response,
+  /// a connection closed mid-message).
+  http,
+
+  /// A non-200 answer. The status rides in [PcPresenceReading.faultCode], which
+  /// is the field that separates 「an old relay with no such route」 (404) from
+  /// 「something in front of the relay refused」 (403/502/503) — two reports that
+  /// were byte-identical in the trail until this landed, and that have entirely
+  /// different fixes.
+  status,
+}
+
 /// The result of one presence question-and-answer. [pcId] is the server's own
 /// echo of 「我答的是哪台」 ("which one I'm answering for"), `null` = the
 /// question never got answered.
@@ -114,15 +161,40 @@ class PcPresenceReading {
     this.pcId,
     this.miss,
     this.absentReason,
-  });
+    this.fault,
+    this.faultCode,
+  }) : pairingRejected = false;
 
   /// A question that went unanswered, carrying WHY. The presence is
   /// [PcPresence.unknown] by construction — there is no way to build one of
   /// these that claims a measurement it does not have.
-  const PcPresenceReading.unanswered(PcPresenceMiss this.miss)
+  const PcPresenceReading.unanswered(
+    PcPresenceMiss this.miss, {
+    this.fault,
+    this.faultCode,
+  }) : presence = PcPresence.unknown,
+       pcId = null,
+       absentReason = null,
+       pairingRejected = false;
+
+  /// 🔴 The server answered, and its answer was **about this pairing**: it does
+  /// not know the token (`401` carrying the route's own `PRESENCE_AUTH_REQUIRED`
+  /// body). C4, 2026-08-17.
+  ///
+  /// 🔴 A CONSTRUCTOR OF ITS OWN so that [pairingRejected] cannot be set beside
+  /// a miss that contradicts it. The miss stays [PcPresenceMiss.unauthorized] —
+  /// the retry layer's answer is unchanged and must be, because 「the server
+  /// said no」 is exactly as unretryable as it was yesterday. What is new is
+  /// that the answer now reaches the UI instead of dying as an unexplained
+  /// 「unknown」.
+  const PcPresenceReading.pairingGone()
     : presence = PcPresence.unknown,
       pcId = null,
-      absentReason = null;
+      absentReason = null,
+      miss = PcPresenceMiss.unauthorized,
+      fault = PcPresenceFault.status,
+      faultCode = 401,
+      pairingRejected = true;
 
   final PcPresence presence;
 
@@ -158,6 +230,32 @@ class PcPresenceReading {
   /// alone can never make a row absent. A reason with no absence attached is
   /// carried and then ignored, exactly as it should be.
   final PcAbsentReason? absentReason;
+
+  /// 🔴 WHICH failure this was, at a granularity the retry layer must not care
+  /// about — see [PcPresenceFault]. `null` when the class carries the whole
+  /// story already ([PcPresenceMiss.timeout], `malformed`, `unexpected`) or
+  /// when an injected test double did not say.
+  ///
+  /// ⚠️ Read by the DIAGNOSTIC TRAIL only. It must not reach the UI: every
+  /// member still renders as the same 「不知道」 ("don't know"), and a screen
+  /// naming the class would invite the reader to act on a distinction that
+  /// changes nothing they can do.
+  final PcPresenceFault? fault;
+
+  /// The one integer that goes with [fault]: an HTTP status for
+  /// [PcPresenceFault.status], the OS error code for [PcPresenceFault.socket],
+  /// `null` when the fault has no number to give. A tagged pair rather than a
+  /// free string, because the string that would be natural here is the
+  /// exception's `message` — and that contains the host.
+  final int? faultCode;
+
+  /// 🔴 The server refused to answer BECAUSE IT DOES NOT KNOW THIS PAIRING.
+  ///
+  /// The one non-answer on this path that is knowledge rather than the absence
+  /// of it: the revoked pairing this row points at is never coming back, and
+  /// the user's next move (pair again) is not the one 「unknown」 implies (wait,
+  /// or check the network). Set only by [PcPresenceReading.pairingGone].
+  final bool pairingRejected;
 
   /// 「这一次没问到」 ("this question went unanswered"). Distinct from
   /// `offline` — do not merge the two.
@@ -215,10 +313,36 @@ Future<PcPresenceReading> httpPcPresenceRead(
     pin: pin,
     connectionTimeout: timeout,
   ).client;
+  // 🔴 ONE DEADLINE FOR THE WHOLE ATTEMPT, not one per stage (2026-08-17).
+  //
+  // This used to be `.timeout(timeout)` on each of connect / send / read, so a
+  // 3-second budget bounded an attempt at **nine seconds**, and every figure
+  // written about this path — `PcPresenceRetryBudget.worstCase`, the
+  // instance-list's 「≈10.2 s」, and the in-session poll's 「6.5 s, 35 %
+  // headroom inside a 10 s tick」 — was arithmetic over a number that did not
+  // bound what it named. The tick argument in particular is load-bearing: it is
+  // why the session budget has two attempts and not three.
+  //
+  // ⚠️ WHAT THIS COSTS, STATED RATHER THAN DISCOVERED LATER: an exchange that
+  // was slow in more than one stage (a cellular link where connect takes 2 s
+  // AND the first byte takes 2 s) used to squeak through and now does not. The
+  // compensation is the retry — a fresh connection is what recovers a stalled
+  // one, and the budgets already spend 2–3 attempts on it. A relay that needs
+  // more than `timeout` to answer at all was ALREADY failing here before this
+  // change (the send stage had its own identical budget), so this narrows the
+  // window for slow LINKS, never for slow SERVERS.
+  final DateTime deadline = DateTime.now().add(timeout);
+  Duration left() {
+    final Duration remaining = deadline.difference(DateTime.now());
+    // Never negative and never zero: a `.timeout(Duration.zero)` fires on the
+    // next microtask, which would report a timeout we did not actually wait for.
+    return remaining > Duration.zero ? remaining : const Duration(milliseconds: 1);
+  }
+
   try {
-    final HttpClientRequest req = await client.getUrl(url).timeout(timeout);
+    final HttpClientRequest req = await client.getUrl(url).timeout(left());
     req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    final HttpClientResponse res = await req.close().timeout(timeout);
+    final HttpClientResponse res = await req.close().timeout(left());
     if (res.statusCode != 200) {
       // 404 = the old server doesn't have this endpoint yet; 401 = this token
       // is not recognised. Both mean 「问不到」 ("couldn't get an answer"),
@@ -228,15 +352,32 @@ Future<PcPresenceReading> httpPcPresenceRead(
       // and the reason is read exclusively by the retry layer. Each of these is
       // a case where the server ANSWERED, which is why none of them is
       // retryable — see [PcPresenceMiss].
-      await res.drain<void>().timeout(timeout);
-      return PcPresenceReading.unanswered(switch (res.statusCode) {
-        404 => PcPresenceMiss.notFound,
-        401 || 403 => PcPresenceMiss.unauthorized,
-        _ => PcPresenceMiss.serverError,
-      });
+      //
+      // 🔴 C4 — EXCEPT that one of them is not merely a non-answer. A 401 that
+      // carries this route's OWN refusal body says 「我不认识这条配对」 ("I do
+      // not know this pairing"), which is a fact about the pairing and the one
+      // thing on this path a user can act on. Read the body to find out;
+      // `_refusalBody` is capped and deadline-bounded, and it drains whatever
+      // it did not read.
+      final String refusal = await _refusalBody(res, left());
+      if (res.statusCode == 401 && _saysPresenceAuthRequired(refusal)) {
+        return const PcPresenceReading.pairingGone();
+      }
+      return PcPresenceReading.unanswered(
+        switch (res.statusCode) {
+          404 => PcPresenceMiss.notFound,
+          401 || 403 => PcPresenceMiss.unauthorized,
+          _ => PcPresenceMiss.serverError,
+        },
+        // 🔴 The status itself, so the trail can tell an old relay (404) from
+        // something in front of it (403/502/503). Without it every non-200 that
+        // is not 401/404 arrives in the log as the single word `serverError`.
+        fault: PcPresenceFault.status,
+        faultCode: res.statusCode,
+      );
     }
     final String body =
-        await res.transform(utf8.decoder).join().timeout(timeout);
+        await res.transform(utf8.decoder).join().timeout(left());
     final Object? decoded = jsonDecode(body);
     if (decoded is! Map<String, Object?> || decoded['ok'] != true) {
       return const PcPresenceReading.unanswered(PcPresenceMiss.malformed);
@@ -267,17 +408,39 @@ Future<PcPresenceReading> httpPcPresenceRead(
     // cannot escape past a list of Exception types.
   } on TimeoutException {
     return const PcPresenceReading.unanswered(PcPresenceMiss.timeout);
-  } on SocketException {
-    return const PcPresenceReading.unanswered(PcPresenceMiss.network);
+  } on SocketException catch (e) {
+    // 🔴 The OS's own error code, and NOTHING else off this exception. Its
+    // `message` is the field that would name a host lookup out loud — and it
+    // spells the host while doing so, which may not leave the phone. The code
+    // is what makes 「域名根本没解析出来」 ("the name never resolved") and
+    // 「连上去被拒了」 ("the connection was refused") two different lines in the
+    // trail without us guessing at either.
+    return PcPresenceReading.unanswered(
+      PcPresenceMiss.network,
+      fault: PcPresenceFault.socket,
+      faultCode: e.osError?.errorCode,
+    );
   } on TlsException {
     // `HandshakeException` extends this, so a pin mismatch lands here too. It
     // is classed **network** and therefore retried, which is deliberate: a
     // genuine mismatch fails identically on every attempt and costs one extra
     // round trip, while the far commoner cause of a TLS fault on this path is
     // a relay restart mid-handshake.
-    return const PcPresenceReading.unanswered(PcPresenceMiss.network);
+    //
+    // 🔴 `network` no longer means 「we cannot tell which of three things this
+    // was」: the fault below separates it from a socket fault in the trail,
+    // while the retry decision above stays exactly as it was. Measured
+    // 2026-08-17 (dart 3.11.5, Windows): a handshake against a plain listener
+    // gives `osError == null`, so there is deliberately no code here to carry.
+    return const PcPresenceReading.unanswered(
+      PcPresenceMiss.network,
+      fault: PcPresenceFault.tls,
+    );
   } on HttpException {
-    return const PcPresenceReading.unanswered(PcPresenceMiss.network);
+    return const PcPresenceReading.unanswered(
+      PcPresenceMiss.network,
+      fault: PcPresenceFault.http,
+    );
   } on FormatException {
     // `jsonDecode` on a body that is not JSON.
     return const PcPresenceReading.unanswered(PcPresenceMiss.malformed);
@@ -287,6 +450,53 @@ Future<PcPresenceReading> httpPcPresenceRead(
     client.close(force: true);
   }
 }
+
+/// How much of a refusal body this probe will read before giving up on it.
+///
+/// The route's own refusal is `{"ok":false,"error":"PRESENCE_AUTH_REQUIRED"}` —
+/// well under 100 bytes. The cap is what keeps 「read the body to see who
+/// refused」 from becoming 「stream whatever an unknown server feels like
+/// sending onto a phone」: the deadline bounds it in TIME, and this bounds it in
+/// MEMORY. A body larger than this is, by construction, not our refusal.
+const int kPresenceRefusalBodyCap = 4096;
+
+/// The first [kPresenceRefusalBodyCap] bytes of a non-200 body, or `''` when it
+/// could not be read. Never throws: this runs on a path that has already
+/// decided its answer, and a failure to read the explanation must not change
+/// that answer into a different one.
+Future<String> _refusalBody(HttpClientResponse res, Duration budget) async {
+  try {
+    return await () async {
+      final List<int> buf = <int>[];
+      await for (final List<int> chunk in res) {
+        buf.addAll(chunk);
+        if (buf.length >= kPresenceRefusalBodyCap) break;
+      }
+      return utf8.decode(buf, allowMalformed: true);
+    }().timeout(budget);
+  } on Object {
+    return '';
+  }
+}
+
+/// Is this the presence route's OWN refusal?
+///
+/// 🔴 THE NARROWNESS IS THE POINT. A bare 401 is not enough to tell a user
+/// their pairing is gone: a corporate proxy, a captive portal or an nginx basic
+/// auth in front of the relay all answer 401 without any opinion about pairings
+/// at all. `PRESENCE_AUTH_REQUIRED` is minted by
+/// `apps/server-core/src/http/presence-routes.ts` and by nothing else, so
+/// requiring it means the sentence 「这条配对没了」 ("this pairing is gone") is
+/// only ever said by the one party entitled to say it. Everything else degrades
+/// to the 「unknown」 this path has always produced — the safe direction.
+///
+/// A substring test rather than a JSON parse, deliberately: this is a REFUSAL
+/// body from a server we have just learned does not trust us, and parsing it
+/// would be doing more work on less trustworthy input to learn the same one
+/// bit. The token cannot appear here (it is only ever a request header) and the
+/// result is a bool, so nothing read here can escape into the trail.
+bool _saysPresenceAuthRequired(String body) =>
+    body.contains('PRESENCE_AUTH_REQUIRED');
 
 // ── bounded retry, within ONE poll cycle ────────────────────────────────────
 //
@@ -338,6 +548,16 @@ class PcPresenceRetryBudget {
 
   /// Worst case for one cycle, for the comments and the tests that pin it. Pure
   /// arithmetic over the fields — never a second, hand-maintained number.
+  ///
+  /// 🔴 THIS FIGURE WAS A FICTION UNTIL 2026-08-17, and the repair is in
+  /// `httpPcPresenceRead` rather than here. `perAttemptTimeout` used to be
+  /// applied SEPARATELY to connect, to send-and-await-headers and to reading the
+  /// body, so an attempt could spend three times its budget and this sum
+  /// understated the real ceiling by 3×. Nothing in the arithmetic was wrong;
+  /// the number it multiplied did not bound what its name said it bounded. The
+  /// probe now runs one deadline per attempt, which is what makes every figure
+  /// derived from this getter — including the in-session poll's headroom
+  /// argument below — true for the first time.
   Duration get worstCase =>
       perAttemptTimeout * attempts +
       backoff.fold<Duration>(Duration.zero, (Duration a, Duration b) => a + b);
@@ -361,8 +581,15 @@ const PcPresenceRetryBudget kInstanceListPresenceBudget = PcPresenceRetryBudget(
 /// 🔴 The IN-SESSION poll's budget. Tight on purpose, and the constraint is
 /// arithmetic rather than taste: this runs on `kIdlePcPresencePollInterval`
 /// (10 s, an owner ruling that must not be "optimised"), so a cycle that can
-/// outlast a tick would leave polls overlapping. Worst case = 3 × 2 + 0.5 =
+/// outlast a tick would leave polls overlapping. Worst case = 2 × 3 + 0.5 =
 /// 6.5 s, which leaves 35 % headroom.
+///
+/// 🔴 THAT HEADROOM ONLY BECAME REAL ON 2026-08-17 — see [worstCase]. Until the
+/// probe took one deadline per attempt, a cycle here could spend ~18 s inside a
+/// 10 s tick; what kept that from stacking polls was `_presencePollInFlight`
+/// (ptt_presence_poll.dart), i.e. the belt, while this argument — the braces —
+/// was describing a bound that did not exist. Both are kept: the sum is now
+/// true, and the in-flight guard still catches whatever the sum does not.
 ///
 /// ⚠️ It is also the CHEAPER path to be wrong on: a miss here is corrected by
 /// the next tick 10 seconds later, which is exactly the correction the instance
@@ -483,6 +710,21 @@ Future<PcPresenceReading> readPcPresenceRetrying(
     // already told us. WHICH kind of not-getting-an-answer is the whole
     // question.
     'miss': reading.miss?.name ?? 'unclassified',
+    // 🔴 C4 — the class alone could not carry the whole answer, because THREE
+    // different faults share `miss=network`: a name that never resolved, a
+    // connection that was refused, and a TLS handshake that failed. They have
+    // three different fixes (the relay's DNS / the relay being down / a
+    // certificate or a pin), and until these two fields existed a field report
+    // could not tell them apart after the fact — which was the entire point of
+    // the line. `fault_code` is a status for `status`, an OS error code for
+    // `socket`; both are integers, so neither can smuggle an address out.
+    if (reading.fault != null) 'fault': reading.fault!.name,
+    if (reading.faultCode != null) 'fault_code': reading.faultCode,
+    // 🔴 The refusal that is not a miss. Written only when the server answered
+    // with its own `PRESENCE_AUTH_REQUIRED`, so a report of 「it just says
+    // unknown」 can be read as 「no — it was told, on this date, that the
+    // pairing does not exist」.
+    if (reading.pairingRejected) 'pairing_rejected': true,
     'attempts': used,
     'elapsed_ms': elapsed.elapsedMilliseconds,
     'endpoint_h': presenceEndpointFingerprint(url),

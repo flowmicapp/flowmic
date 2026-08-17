@@ -137,7 +137,13 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     // `registry` and `store` instances the socket handlers use: the answer is
     // literally `store.getPc(room) !== null`, the expression already behind the
     // `pc_online` field on the pair/reconnect acks, not a second definition.
-    presence: { registry, store },
+    // C9 (2026-08-17) — `db.pcs` is the read-only half of the same table the
+    // registry writes: the route asks it whether this machine is in a room under
+    // another account, so a stranded phone is told to re-pair instead of being
+    // sent to check a computer that is powered on and fine. The dep is REQUIRED
+    // (presence-routes.ts states why), so forgetting this line is a type error
+    // rather than a feature that silently is not there.
+    presence: { registry, store, pcs: db.pcs },
     // D6 (2026-08-04) — the pairing registry `POST /api/diag/mobile` judges its
     // Bearer against, wired in BOTH modes because the route is now mounted in
     // both. The SAME `registry` the socket handlers use; a dep of its own rather

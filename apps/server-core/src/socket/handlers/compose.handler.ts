@@ -132,7 +132,17 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       // ⚠️ Unlike the STT leg, this refusal IS rendered by the phone
       // (compose_strings.dart 'QUOTA_EXCEEDED'); the row is for the ops/user
       // usage view, not a substitute for the message.
-      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'llm');
+      // 🔴 2026-08-17 — the third argument is `auth.userId` AGAIN, and that is a
+      // measurement rather than a filler. `recordQuotaRefusal` now records whose
+      // QUOTA refused as well as whose ATTEMPT it was, because the STT leg has
+      // had two candidate accounts since QTA-2. This leg has exactly one
+      // `ensureQuota` call and exactly one account in play — there is no PC-owner
+      // gate on `compose:start` — so "the acting account's own quota refused" is
+      // what actually happened here.
+      // ⚠️ If a second gate is ever added to this handler, this line is one of
+      // the things that has to change with it; passing `auth.userId` blindly
+      // would then re-create on this leg the exact defect the STT leg just fixed.
+      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'llm', auth.userId);
       socket.emit('compose:error', { code: e.error, message: e.message ?? 'quota exceeded', ...echo });
       return safeAck(ack, e);
     }

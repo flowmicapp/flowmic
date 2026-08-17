@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { EVENT_SCHEMAS, safeParseEvent } from '../src/protocol-schemas';
-import { SttPolishSchema, SETTINGS_KEY_STT_POLISH } from '../src';
+import {
+  SttPolishSchema,
+  SETTINGS_KEY_STT_POLISH,
+  DEFAULT_POLISH_STRENGTH,
+  POLISH_STRENGTHS,
+} from '../src';
 
 // WP-R4-6 ②/④ — stt:final additive polish honest-signal fields + the stt.polish
 // settings-value schema. Absence ⇔ polish not enabled this session; old payloads
@@ -86,5 +91,48 @@ describe('WP-R4-6 SttPolishSchema (stt.polish settings value)', () => {
 
   it('is STRICT — rejects unexpected keys', () => {
     expect(SttPolishSchema.safeParse({ enabled: true, extra: 1 }).success).toBe(false);
+  });
+});
+
+// ─── card C8: the correction-strength dial inside the same toggle ───────────
+//
+// The value is additive-optional on the wire and TOTAL in the code. These cases
+// pin both halves, because they fail in opposite directions: a non-optional
+// field breaks every row written before today, and an un-defaulted read makes
+// `undefined` a third strength that no consumer handles.
+describe('C8 SttPolishSchema.strength (correction strength)', () => {
+  it('accepts both strengths', () => {
+    expect(SttPolishSchema.safeParse({ enabled: true, strength: 'strict' }).success).toBe(true);
+    expect(SttPolishSchema.safeParse({ enabled: true, strength: 'smooth' }).success).toBe(true);
+  });
+
+  it('ABSENT is legal and parses to undefined — every row written before C8 is one of these', () => {
+    const r = SttPolishSchema.safeParse({ enabled: true });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.strength).toBeUndefined();
+  });
+
+  it('the documented default for an absent value is strict (the UNCHANGED behaviour)', () => {
+    expect(DEFAULT_POLISH_STRENGTH).toBe('strict');
+    expect(POLISH_STRENGTHS).toContain(DEFAULT_POLISH_STRENGTH);
+  });
+
+  it('rejects an unknown strength rather than silently degrading to strict', () => {
+    // A permissive string here would let a typo ('smoooth', or a value from a
+    // FUTURE client) parse and then resolve to strict, so the user would flip a
+    // control and read no error while nothing changed — the 0.2.27 "a control
+    // that changes nothing" shape. Rejecting makes it a loud
+    // SETTINGS_SCHEMA_INVALID at the read boundary instead.
+    expect(SttPolishSchema.safeParse({ enabled: true, strength: 'smoooth' }).success).toBe(false);
+    expect(SttPolishSchema.safeParse({ enabled: true, strength: null }).success).toBe(false);
+  });
+
+  it('🔴 STILL STRICT with the new field — this is the deployment order, stated as a test', () => {
+    // The mirror image of this assertion is the fact that governs the rollout: a
+    // server built BEFORE this field rejects `{enabled, strength}` exactly the
+    // way this rejects an unknown key. So the server halves ship first — the
+    // relay AND the LAN server inside the desktop installer — and only then a
+    // client that can emit `strength`.
+    expect(SttPolishSchema.safeParse({ enabled: true, strength: 'smooth', extra: 1 }).success).toBe(false);
   });
 });

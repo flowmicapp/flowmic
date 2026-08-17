@@ -89,15 +89,35 @@ enum PcPresence {
 enum PcAbsentReason {
   /// `'auth_expired'` — that computer's cloud sign-in lapsed, so the relay
   /// stopped admitting it to its room.
-  authExpired;
+  authExpired,
+
+  /// 🔴 `'machine_reassigned'` (card C9, 2026-08-17) — that computer is powered
+  /// on and in a room right now, **under a different account**. This pairing
+  /// points at the row that account left behind when the desktop was signed
+  /// into another one, and nothing can ever put a PC back into it.
+  ///
+  /// 🔴 The SECOND absence whose correct action is not 「去把电脑打开」 ("go turn
+  /// the computer on") — and unlike [authExpired], the fix is not on that
+  /// computer at all: this phone has to pair again. Diagnosed on production
+  /// from a live failure where `pc_devices` held NINE rows for one machine and
+  /// the phone was waiting on the abandoned one, told only 「电脑已离线」.
+  ///
+  /// ⚠️ The server DERIVES this one at read time (it is not in the relay's
+  /// stored `PC_ABSENT_REASONS` table — see `room/machine-reassigned.ts`), so
+  /// it appears and disappears with the other account's socket. That changes
+  /// nothing here: this layer reads whatever the wire said about THIS moment.
+  machineReassigned;
 
   /// The wire value → this enum. **An unrecognised string is `null`, never a
   /// guess**, and null means the row renders exactly as it did before this
   /// enum existed (a plain absence). That is the safe failure direction: a
   /// reason we do not understand must degrade to today's honest-if-vague
   /// sentence, never to a confident sentence about a cause we invented.
-  static PcAbsentReason? parse(Object? raw) =>
-      raw == 'auth_expired' ? PcAbsentReason.authExpired : null;
+  static PcAbsentReason? parse(Object? raw) => switch (raw) {
+    'auth_expired' => PcAbsentReason.authExpired,
+    'machine_reassigned' => PcAbsentReason.machineReassigned,
+    _ => null,
+  };
 }
 
 /// What the instance list knows about one row's computer right now.
@@ -108,7 +128,16 @@ enum PcAbsentReason {
 /// different rounds would be a sentence assembled out of two different moments.
 /// The reason is only ever meaningful alongside the presence it belongs to, so
 /// they travel as one value.
-typedef PcPresenceRow = ({PcPresence presence, PcAbsentReason? absentReason});
+typedef PcPresenceRow = ({
+  PcPresence presence,
+  PcAbsentReason? absentReason,
+  /// 🔴 C4 — the server said it does not know this pairing. It travels in the
+  /// SAME entry for the reason the record above gives: it is only ever
+  /// meaningful as part of one round's answer, and a phone that learned it in
+  /// one cycle must not still be painting it after the next cycle said
+  /// something else.
+  bool pairingRejected,
+});
 
 /// The two codes the server sends back to the phone when 「there is no PC in the
 /// room」. Receiving them IS **measured evidence the PC is absent** —
@@ -360,6 +389,42 @@ enum InstanceLivenessFace {
   /// the machine is neither. What lapsed is a credential.
   pcSignedOut,
 
+  /// 🔴 C9 — the server answered 「that computer is not in its room」 **and the
+  /// machine is in someone else's room right now**:
+  /// [PcAbsentReason.machineReassigned].
+  ///
+  /// **Split off from [pcSignedOut] by the same argument that split THAT off
+  /// from [pcOffline]** — one more step along the same axis. For `pcSignedOut`
+  /// the fix is ten seconds at that computer's keyboard; here **there is
+  /// nothing to do at that computer at all**: it is signed into another
+  /// account and working fine for whoever owns it. The only thing that helps is
+  /// pairing this phone again. Rendering it as `pcOffline` sends someone to
+  /// look at a running machine; rendering it as `pcSignedOut` sends them to
+  /// re-enter a Cloud Key that would displace the account currently using it.
+  ///
+  /// ⚠️ **Amber, not red**, for [pcSignedOut]'s reason and one more: this is
+  /// the only face on this page whose fix is entirely on the PHONE.
+  pcOtherAccount,
+
+  /// 🔴 C4 — the server answered, and what it said was about **this pairing**
+  /// rather than about that computer: it does not recognise the token at all
+  /// (`401 PRESENCE_AUTH_REQUIRED`).
+  ///
+  /// 🔴 **This is knowledge, not the absence of knowledge**, and that is the
+  /// whole reason it is not [relayOnlyPcUnknown]. Until this face existed a
+  /// revoked pairing and a dropped packet painted the identical sentence —
+  /// 「中继可达 · 电脑是否在线未知」 ("relay reachable · PC status unknown") —
+  /// so a phone whose pairing had been revoked (by the PC, by a re-install, or
+  /// by ACC-1's cross-account reap) sat on a row that would never resolve,
+  /// being told we simply had not managed to ask. We had asked. We were told.
+  ///
+  /// ⚠️ It is set ONLY when the refusal carries the route's own
+  /// `PRESENCE_AUTH_REQUIRED` body, never on a bare 401 — a proxy or a captive
+  /// portal in front of the relay must not be able to tell a user their pairing
+  /// is gone. That degradation lands on [relayOnlyPcUnknown], which is exactly
+  /// today's answer.
+  pairingRevoked,
+
   /// 🔴 The relay answered 「I'm here」, but **this time it could not ask that
   /// computer** — 「is the computer here or not」 has no answer.
   ///
@@ -389,12 +454,18 @@ enum InstanceLivenessFace {
 /// the relay ever supplies it. `null` — an old server, a LAN sidecar, or a
 /// reason string this build does not recognise — lands on exactly the face this
 /// function returned before the parameter existed.
+///
+/// ⚠️ [pairingRejected] is a **fifth** independently measured input and it is
+/// NOT about the PC: it says the server refused to answer because it does not
+/// know this pairing (C4). Defaulted to `false`, so every existing caller and
+/// test keeps the face it had.
 InstanceLivenessFace instanceLivenessFaceOf({
   required InstanceReach reach,
   required ServerChannel? answeringChannel,
   required InstanceTarget target,
   required PcPresence pcPresence,
   PcAbsentReason? pcAbsentReason,
+  bool pairingRejected = false,
 }) {
   switch (reach) {
     case InstanceReach.unknown:
@@ -414,6 +485,14 @@ InstanceLivenessFace instanceLivenessFaceOf({
       // false, and owner explicitly said this row should not be bound by it (so
       // the caller never even sends that question).
       if (target == InstanceTarget.cloudNotes) return InstanceLivenessFace.pcOnline;
+      // 🔴 C4 — BEFORE any question about the PC, because it is not one. The
+      // server told us it does not know this pairing, so 「那台电脑在不在」
+      // ("is that computer there") has no meaning for this row: there is no
+      // pairing left to have a computer. It sits after the [reach] switch on
+      // purpose — a refusal recorded on the last cycle must not outrank
+      // 「现在连这个地址都够不着」 ("right now we cannot even reach this
+      // address"), which is the more immediate thing to tell someone.
+      if (pairingRejected) return InstanceLivenessFace.pairingRevoked;
       // 🔴 RV-98: now **that computer itself has been asked**. This branch is
       // ordered before the channel check because it is
       // a direct measurement, while the one below is an inference — **when
@@ -429,6 +508,7 @@ InstanceLivenessFace instanceLivenessFaceOf({
           // [PcAbsentReason] without deciding its face is a compile error.
           return switch (pcAbsentReason) {
             PcAbsentReason.authExpired => InstanceLivenessFace.pcSignedOut,
+            PcAbsentReason.machineReassigned => InstanceLivenessFace.pcOtherAccount,
             null => InstanceLivenessFace.pcOffline,
           };
         case PcPresence.unknown:

@@ -334,7 +334,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
  *  🔴 Why not "fall back to the email in the JWT" (the handoff report's leaning):
  *  **there is no email in the JWT.** `JwtClaims` is exactly `{ sub, plan, iat, exp }`
  *  (`apps/server-core/src/auth/jwt.ts:34-39,107`), and the `subject` field of
- *  `shell/cloud.rs:103-106` says so verbatim: "the email only exists".
+ *  `shell/cloud.rs:125-128` says so verbatim: "the email only exists".
  *
  *  🔴 Why no replacement sentence in this row: every phase that returns `null` here
  *  ALREADY carries its own sentence elsewhere on the card —— `unknown` ⇒ ⑦

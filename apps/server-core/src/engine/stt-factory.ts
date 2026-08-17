@@ -26,7 +26,7 @@ import type { SttOrchestrator } from './orchestrator';
 import { SttSessionBridge, type SttEmitter, type SttSessionDeps } from './stt-session';
 import { loadRoutings, makeSttOrchestratorFactory } from '../stt/engine-factory';
 import { configFromRouting, selectRouting } from '../stt/engine-router';
-import type { SttRefine } from '@flowmic/protocol';
+import { DEFAULT_POLISH_STRENGTH, type SttRefine } from '@flowmic/protocol';
 import { log } from '../log';
 import { readOrchestratorTuningFromEnv, assertSttTuningEnv } from '../stt/tuning-env';
 import { makeFinalTextPipeline } from '../stt/final-text-pipeline';
@@ -392,9 +392,10 @@ export type PolishArming =
  * research.md §3.2) proposed keeping fail-loud for users who explicitly opted in;
  * the lead controller ruled the red line wins, because a refused recording is the same product
  * outcome whoever flipped the switch. Two things fall out and both were checked
- * rather than assumed: `SttPolishSchema` is `{enabled:boolean}.strict()`, so there
- * is no provenance to branch on today and a split would have needed a settings-
- * schema change (human-review gate); and nothing in the repo consumes such a distinction —
+ * rather than assumed: there is no PROVENANCE to branch on (the value records
+ * WHAT was chosen, never WHO chose it — card C8 added `strength`, so the schema
+ * is no longer `{enabled}` alone, but it still carries no provenance and the
+ * argument is unchanged); and nothing in the repo consumes such a distinction —
  * there is no LLM availability/health/last-error surface anywhere (P-8 handoff §5
  * row 1: the compose frames carry no engine identity at all). Building the
  * distinction would have been a capability with no caller (anti-façade).
@@ -480,7 +481,10 @@ export function resolvePolishDep(
   return {
     armed: true,
     llm,
-    deps: { protectedTerms: [...protectedTerms] },
+    // Card C8: the per-session correction strength travels with the other
+    // per-session polish input. `readSttPolish` has already resolved an absent
+    // field to the default, so this is total by the time it gets here.
+    deps: { protectedTerms: [...protectedTerms], strength: polishSetting.strength ?? DEFAULT_POLISH_STRENGTH },
   };
 }
 

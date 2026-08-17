@@ -35,7 +35,9 @@
 // (email_verifications, same batch — plus the guarded `users.email_verified_at`
 // step in reconcileSchema, the one ALTER in this repo that also BACKFILLS),
 // THIRTEEN since A2-5 / REQ-12-08 (usage_events, 2026-08-12 — one CREATE plus
-// one index).
+// one index), FOURTEEN since the first-party site analytics card
+// (site_daily_counts, 2026-08-15 — dd715e2c registered it in the three schema
+// guards but this ledger line was missed; corrected 2026-08-17).
 // ⚠️ That last entry used to end "no ALTER and no new reconcileSchema step".
 // It was true the day it was written and is not any more: the same card's second
 // round added `transcript_chars` / `delivered_chars` as NULLABLE columns, which
@@ -621,6 +623,29 @@ CREATE TABLE IF NOT EXISTS email_verifications (
 -- read as evidence.
 -- Adding it needs the seam to carry the fact first.
 --
+-- 🔴 refused_user_id (2026-08-17) -- WHOSE QUOTA SAID NO. Since QTA-2 there are
+-- TWO accounts in front of an audio:start: the ACTING one (this row's user_id,
+-- the account the minutes are metered to) and the PAIRED PC OWNER's, which is a
+-- GATE only and is never billed. Either can refuse, and until this column the
+-- row named only the acting one -- so a row reading "user_id=A, quota_refused"
+-- asserted that A had hit A's ceiling when A's ceiling was fine. The SUBJECT of
+-- the sentence was wrong, which is a worse failure than a missing one.
+--   · equals user_id  -- the acting account's own quota refused;
+--   · differs         -- the PC owner's quota did, and this account's is intact.
+-- Same pair the refusal LOG line already names (audio.handler.ts K-5 writes
+-- gate + the judged user_id); this makes it durable, since the journal rotates
+-- and the ledger is what a billing question is answered from months later.
+-- 🔴 IT DOES NOT CHANGE user_id's MEANING (owner's ruling, 2026-08-17): that
+-- column still says whose attempt this was, so rows written before today keep
+-- meaning exactly what they meant. NULL = "not recorded" -- a pre-column row,
+-- or an outcome='ok' row where nobody refused anything. NOT backfilled: only
+-- the refusal path knows the answer, and inventing user_id there would forge
+-- the very statement this column exists to stop forging.
+-- 🔴 NULLABLE TEXT WITH NO FK, DELIBERATELY. A second REFERENCES users(id) ON
+-- DELETE CASCADE here would let the PC OWNER deleting their account delete the
+-- PHONE user's usage rows -- one account erasing another's record. The FK count
+-- on this table therefore stays at exactly one, pinned by the cascade census.
+--
 -- FK CASCADE to users like every per-account table here: the delete census
 -- (http/account-lifecycle.ts USER_CASCADING_TABLES) relies on the FK graph
 -- being THE answer to "which tables does deleting an account delete", and a
@@ -638,7 +663,8 @@ CREATE TABLE IF NOT EXISTS usage_events (
   channel      TEXT,                      -- 'lan' | 'cloud' | NULL = unknown
   outcome      TEXT NOT NULL,             -- 'ok' | 'quota_refused'
   transcript_chars INTEGER,                -- 🔴 NULLABLE = "this leg does not measure character counts", see above
-  delivered_chars  INTEGER                 -- 🔴 NULLABLE, same reason
+  delivered_chars  INTEGER,                -- 🔴 NULLABLE, same reason
+  refused_user_id  TEXT                    -- 🔴 NULLABLE, and NO FK on purpose, see above
 );
 -- "this account's events, in the order they occurred" -- the ONLY read shape both APIs use, so the index
 -- is exactly it. (user_id, id) rather than (user_id, occurred_at): id is both

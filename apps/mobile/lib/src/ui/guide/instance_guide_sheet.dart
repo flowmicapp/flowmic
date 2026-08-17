@@ -89,6 +89,16 @@ const List<InstanceLivenessFace> kGuideStatusOrder = <InstanceLivenessFace>[
   // 「电脑已离线」("PC is offline") means is exactly the reader who needs to be
   // told that the next word is a DIFFERENT thing with a different fix.
   InstanceLivenessFace.pcSignedOut,
+  // 🔴 Third in the absence run, and the order is the reading order the three
+  // sentences need: 「不在」 → 「在，但登录失效了」 → 「在，但已经是别人的了」
+  // ("not there" → "there, but its sign-in lapsed" → "there, but it belongs to
+  // someone else now"). Each one narrows the one before it, and a reader who
+  // stops after the first two has learned the wrong lesson about the third.
+  InstanceLivenessFace.pcOtherAccount,
+  // 🔴 Deliberately NOT in the absence run: this one is not about the computer
+  // at all. It sits next to [relayOnlyPcUnknown] because that is the face it
+  // was mistaken for, and telling them apart is the whole point of it existing.
+  InstanceLivenessFace.pairingRevoked,
   InstanceLivenessFace.relayOnlyPcUnknown,
   InstanceLivenessFace.checking,
   InstanceLivenessFace.unmeasured,
@@ -101,6 +111,8 @@ String guideStatusLabel(AppStrings s, InstanceLivenessFace face) => switch (face
   InstanceLivenessFace.unreachable => s.offline,
   InstanceLivenessFace.pcOffline => s.pcOfflineChip,
   InstanceLivenessFace.pcSignedOut => s.pcSignedOutChip,
+  InstanceLivenessFace.pcOtherAccount => s.pcOtherAccountChip,
+  InstanceLivenessFace.pairingRevoked => s.pairingRevokedChip,
   InstanceLivenessFace.relayOnlyPcUnknown => s.relayUpPcUnknown,
   InstanceLivenessFace.checking => s.checkingReach,
   InstanceLivenessFace.unmeasured => s.tapToConnect,
@@ -114,6 +126,19 @@ String _statusNote(AppStrings s, InstanceLivenessFace face) => switch (face) {
   InstanceLivenessFace.unreachable => s.guideStatusOffline,
   InstanceLivenessFace.pcOffline => s.guideStatusPcOffline,
   InstanceLivenessFace.pcSignedOut => s.guideStatusPcSignedOut,
+  InstanceLivenessFace.pcOtherAccount => s.guideStatusPcOtherAccount,
+  // 🔴 C4 — the ONE line on this sheet that is not its own string, and that is
+  // deliberate rather than lazy. 「这条配对没了，请重新配对」 ("this pairing is
+  // gone, pair again") is a fact this product already states, in a sentence
+  // owner ruled on in 2026-08-03, on the path where the same refusal arrives
+  // during a reconnect (`pairError`'s `AUTH_TOKEN_INVALID` arm). A second
+  // translation of one fact is how two screens end up disagreeing about it —
+  // and that arm's own comment already records that it covers a WIDER set of
+  // causes than its name suggests (a re-install, a reset database, a different
+  // computer on the same address), because the action is identical in all of
+  // them. A relay-side revocation is one more member of that set, not a new
+  // fact needing new words.
+  InstanceLivenessFace.pairingRevoked => s.pairError('AUTH_TOKEN_INVALID'),
   InstanceLivenessFace.relayOnlyPcUnknown => s.guideStatusRelayOnly,
   InstanceLivenessFace.checking => s.guideStatusChecking,
   InstanceLivenessFace.unmeasured => s.guideStatusUnmeasured,

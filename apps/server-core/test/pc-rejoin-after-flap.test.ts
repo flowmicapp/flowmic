@@ -235,6 +235,7 @@ describe('the forensic line for an absent PC', () => {
     const handled = tryHandlePresenceRoutes(request(w.token), response(), {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
+      pcs: w.db.pcs,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -260,6 +261,7 @@ describe('the forensic line for an absent PC', () => {
     tryHandlePresenceRoutes(request(w.token), response(), {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
+      pcs: w.db.pcs,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -275,6 +277,7 @@ describe('the forensic line for an absent PC', () => {
     tryHandlePresenceRoutes(request(w.token), response(), {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
+      pcs: w.db.pcs,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -293,6 +296,7 @@ describe('the forensic line for an absent PC', () => {
       tryHandlePresenceRoutes(request(w.token), response(), {
         registry: w.registry,
         store: w.store as unknown as RoomStore,
+        pcs: w.db.pcs,
         logger,
         absentLogGate: gate,
       });

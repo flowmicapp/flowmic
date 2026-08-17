@@ -176,6 +176,7 @@ function askPresence(mobileToken: string): { status: number; body: Record<string
   tryHandlePresenceRoutes(request(PC_PRESENCE_PATH, mobileToken), res, {
     registry,
     store: store as unknown as RoomStore,
+    pcs: db.pcs,
   });
   return read();
 }

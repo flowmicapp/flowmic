@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
 import ProbePanel from './ProbePanel.vue';
+import { POLISH_STRENGTHS } from '@flowmic/protocol';
 import { S } from '../../lib/strings';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
 import {
@@ -11,6 +12,7 @@ import {
   removeDictEntry,
   removeRouting,
   setPolishEnabled,
+  setPolishStrength,
   setRefineEnabled,
   setPresetForRouting,
   sttPresets,
@@ -149,6 +151,35 @@ onBeforeUnmount(() => watcher?.disconnect());
            and does nothing. The fact comes from the SERVER (`capability.llm`);
            this side never infers it from an empty llm.config — see settings-model.ts. -->
       <div class="sub" style="padding:0 14px 12px" v-if="!model.llmCapabilityUsable">{{ S.polish_no_llm }}</div>
+      <!-- Card C8: correction strength. NOT a fourth mode — a dial inside this
+           same toggle, so the three-mode lock is untouched.
+
+           🔴 Rendered DISABLED rather than hidden while polish is off. Hiding it
+           would make the control appear only after the toggle is flipped, so a
+           user could not see what they were about to get before getting it; and
+           `setPolishStrength` deliberately still stores the choice, so turning
+           polish off and on again returns the value they picked rather than a
+           silently reset one.
+
+           🔴 The hint states the TRADE, not a ranking. `smooth` is not "better":
+           it gives up word-for-word fidelity for readability, and someone
+           dictating a quotation needs that written down where they can read it
+           BEFORE choosing. -->
+      <div class="polish-strength" :class="{ off: !model.polishEnabled }">
+        <div class="sub">{{ S.polish_strength_label }}</div>
+        <div class="seg">
+          <button
+            v-for="s in POLISH_STRENGTHS"
+            :key="s"
+            class="pick"
+            type="button"
+            :class="{ on: model.polishStrength === s }"
+            :disabled="!model.polishEnabled"
+            @click="setPolishStrength(s)"
+          >{{ s === 'smooth' ? S.polish_strength_smooth : S.polish_strength_strict }}</button>
+        </div>
+        <div class="sub note">{{ S.polish_strength_hint }}</div>
+      </div>
     </div>
 
     <!-- GA-14 two-pass refine. The precondition is stated on the row itself:
@@ -186,6 +217,18 @@ onBeforeUnmount(() => watcher?.disconnect());
 </template>
 
 <style scoped>
+.polish-strength { padding: 0 14px 12px; }
+/* Same .seg/.pick vocabulary as TimelineClear's segmented control — this is the
+   app's existing two-choice idiom, not a new visual. */
+.polish-strength .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.polish-strength .pick { border: 1px solid var(--line); background: transparent; color: var(--t2);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.polish-strength .pick.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+/* Disabled rather than hidden while polish is off: the user can read what the
+   choice means before turning the feature on. */
+.polish-strength .pick:disabled { cursor: default; opacity: 0.55; }
+.polish-strength.off { opacity: 0.7; }
+.polish-strength .note { line-height: 1.6; }
 .ops-del { color: var(--t3); width: 26px; height: 26px; border-radius: 7px; }
 .ops-del:hover { color: var(--red); background: var(--line-soft); }
 .ops-del .icon { width: 14px; height: 14px; }

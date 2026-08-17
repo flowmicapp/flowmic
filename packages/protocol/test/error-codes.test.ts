@@ -241,7 +241,20 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // ⚠️ Both names are ≤28 characters (18 and 17) — the phone's raw-code slot; see
 // approved-codes-2026-08-10.test.ts for why that is a product constraint and not
 // a naming preference.
-const EXPECTED_ERROR_CODE_COUNT = 71;
+// 🔴 71 → 72 on 2026-08-17 (WP-2 card C1): `STT_POOL_NO_ROUTE`. Owner approved
+// minting it (task book §3-2). The platform's STT pool was consulted, refused to
+// select a route, and nothing else covered the language — a fact no existing code
+// could state truthfully. The full argument lives at the entry in
+// src/error-codes.ts; the short form is the usual test (does it send the user
+// somewhere different?):
+//   · STT_CONFIG_MISSING 「该语言尚未配置识别引擎」 is FALSE on the relay — engines
+//     ARE configured — and it hands the user a task on a surface they do not own;
+//   · STT_NO_ENGINE_REACHED is for 「a route WAS selected and the audio reached
+//     none of them」, so its 「say it again」 advice re-runs the same refusal here.
+// ⚠️ Name is 17 characters, inside the phone's 28-char raw-code slot.
+// ZERO wire-shape change (`SttErrorSchema.code` is `NonEmpty`, not a closed enum)
+// and `whitelist=54` is untouched.
+const EXPECTED_ERROR_CODE_COUNT = 72;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {
