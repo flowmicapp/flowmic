@@ -328,7 +328,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // gate's remaining jobs are the delivery link probe and the http image
     // ingress's item shape.
     _syncGate = TimelineSyncGate(transport: _session.transport);
-    _settingsClient = SettingsClient(transport: _session.transport);
+    _settingsClient = SettingsClient(transport: _session.transport, roomJoins: _session.roomJoins);
     _scenario = ScenarioCardController(
       settingsClient: _settingsClient,
       cache: SharedPrefsScenarioCardCache(widget.prefs),

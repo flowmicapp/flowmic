@@ -80,6 +80,7 @@ import { G18 } from './g18-paddle-yearly-cycle.mjs';
 import { G19 } from './g19-deferred-not-autoinjected.mjs';
 import { G20 } from './g20-cloud-leg-roundtrip.mjs';
 import { G21 } from './g21-pcid-cloud-pairing.mjs';
+import { G22 } from './g22-settings-cross-channel.mjs';
 
 const AUDIO = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh' };
 
@@ -588,6 +589,10 @@ const GOLDEN = [
   G19,
   G20,
   G21,
+  // G2 cross-channel settings convergence. Own module, same 800-line-cap reason —
+  // and it is the only path that needs a standalone AND a saas server alive at the
+  // same moment, because the divergence it asserts on cannot exist inside one KV.
+  G22,
 ];
 
 async function main() {

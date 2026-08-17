@@ -22,6 +22,7 @@ import type { ServerMode, SttEngineId } from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../db/repos/settings.repo';
 import { isByokEnabled } from '../settings/byok';
 import { isSeedMarked } from '../settings/provenance';
+import { resolveReplacementRules } from '../compose/scenario-context';
 import type { SttEngine, SttEngineConfig } from './engines/base';
 import { SttEngineError, unexpectedCloseError } from './engines/base';
 import {
@@ -170,17 +171,73 @@ export function loadRoutings(settings: SettingsRepo, userId: string): Routing[] 
   return all;
 }
 
-/** Load stt.dictionary and build the FunASR open-frame hotwords JSON-string
- *  (undefined when empty/absent → the open frame stays baseline-identical). */
+/**
+ * Build the FunASR open-frame hotwords JSON-string from the user's preferred
+ * terminology (undefined when there is nothing → the open frame stays
+ * baseline-identical).
+ *
+ * 🔴 The source is `resolveReplacementRules` — the SAME three-source merge the
+ * LLM-reference block and the deterministic replacer already use (card terms ∪
+ * dictionary packs ∪ stt.dictionary). It used to read `stt.dictionary` ALONE,
+ * which is the narrowest of the three, and the consequence landed on the primary
+ * persona: a MOBILE user's custom terms UI writes exclusively to
+ * `scenario.card.terms`, and the phone has no way to reach `stt.dictionary` at
+ * all — so their terminology never reached any engine. Dictionary packs never
+ * reached an engine from any client either. (This is NOT "a source with no write
+ * surface": `stt.dictionary` does have a mounted desktop UI. It is "engine
+ * biasing read the narrowest source".)
+ *
+ * Threading cost: zero. This function already had exactly the two arguments
+ * `resolveReplacementRules` takes, of identical type, and its one call site
+ * already passes them. No import cycle: `stt/` already imports `compose/` and
+ * `compose/` never imports `stt/`.
+ *
+ * MERGE ORDER + CAP, stated as decisions rather than left as accidents:
+ *  • Order is card terms → packs → stt.dictionary, inherited verbatim from
+ *    resolveReplacementRules so the two consumers can never disagree about what
+ *    "the user's terminology" is.
+ *  • `buildHotwords` truncates at HOTWORDS_MAX_ENTRIES (300) from the FRONT, so
+ *    the earlier legs win a collision with the cap. Worst case ahead of the
+ *    user's personal list is card terms ≤100 (protocol SCENARIO_MAX_TERMS) +
+ *    all six curated packs enabled at once = 66 ⇒ ≤166. The personal dictionary
+ *    therefore keeps at least 134 slots even in the worst configuration.
+ *    (66, not the 67 you get by adding the pack lengths up: `composeDictionary`
+ *    dedupes by term and `GitHub` ships in BOTH tech-dev and proper-noun. Both
+ *    numbers are MEASURED and pinned by a test rather than left to arithmetic in
+ *    a comment — see test/hotwords.test.ts, which recomputes them from the
+ *    packs so growth in the curated content cannot rot this line silently.)
+ *  • That 300 counts ACCEPTED INPUT ENTRIES, not distinct output keys
+ *    (`hotwords.ts` increments its counter on every accepted entry, including
+ *    one whose term repeats). Duplicates across legs are now possible (the same
+ *    term may sit in the card AND a pack), so input-count and key-count can
+ *    differ. Kept deliberately: the cap exists to bound what we hand the FST,
+ *    and re-deriving it from output keys would change a shipped, tested rule for
+ *    no engine-side benefit.
+ *  • Last write wins on a duplicate term, so an `stt.dictionary` weight beats a
+ *    pack weight for a colliding term — the user's own entry is the more
+ *    specific authority, and it is the later leg.
+ */
 export function loadHotwords(settings: SettingsRepo, userId: string): string | undefined {
-  const row = settings.read(userId, 'stt.dictionary');
-  const value = row?.value;
-  if (!Array.isArray(value)) return undefined;
-  return buildHotwords(value as SttDictionaryEntry[]);
+  // Fails LOUD on a present-but-malformed scenario.card (SETTINGS_SCHEMA_INVALID),
+  // same contract as every other reader of this resolver. This runs inside the
+  // synchronous factory closure the audio handler invokes in its try, so the
+  // throw already surfaces as stt:error with no new plumbing.
+  const rules = resolveReplacementRules(settings, userId);
+  const entries: SttDictionaryEntry[] = rules.map((r) => ({
+    term: r.canonical,
+    ...(r.weight !== undefined ? { weight: r.weight } : {}),
+  }));
+  return buildHotwords(entries);
 }
 
 /** Wrap an EngineFactory so FunASR engines carry the resolved hotwords. No-op
- *  when hotwords is undefined; non-FunASR engines pass through untouched. */
+ *  when hotwords is undefined; non-FunASR engines pass through untouched.
+ *
+ *  ⚠️ Deliberately still FunASR-ONLY after loadHotwords was widened to the full
+ *  three-source merge. Widening the SOURCE (which terms we know about) and
+ *  widening the DESTINATION (which engines get told) are two separate decisions;
+ *  only the first was made here. Carrying terminology to any other vendor's
+ *  biasing API is an owner call, not a tidy-up. */
 function withHotwords(inner: EngineFactory, hotwords: string | undefined): EngineFactory {
   if (hotwords === undefined) return inner;
   return (id, cfg) => inner(id, id === 'funasr' ? { ...cfg, hotwords } : cfg);

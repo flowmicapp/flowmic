@@ -45,7 +45,8 @@ class _Rig {
     r.appSettings = AppSettingsController(prefs: prefs);
     await r.appSettings.load();
     final FakeSocketTransport transport = FakeSocketTransport();
-    r.settingsClient = SettingsClient(transport: transport);
+    r.settingsClient =
+        SettingsClient(transport: transport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
       settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),

@@ -197,9 +197,9 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.engineFedBytes = 0; this.voiceBytesCaptured = 0; this.sessionFedBytes = 0;
     this.session.on('auto_stopped', this.onSessionAutoStopped);
     this.session.on('engine_session_expired', this.onEngineSessionExpired); // card N1-B4
-    // no implicit fallback #16: an unreachable engine surfaces a terminal error →
-    // engine-status{failed} + stt:error, so audio:start acks fail; the ROUTER's
-    // SttConfigMissingError propagates raw (audio.handler maps it).
+    // no implicit fallback #16: an unreachable engine surfaces a terminal error → engine-status{failed} + stt:error, so audio:start acks fail.
+    // 🔴 card K-7 CORRECTION — the ROUTER's SttConfigMissingError is rethrown UNSPOKEN below, and this line used to end "propagates raw (audio.handler maps it)", which cannot be true: the BRIDGE fires start() and forgets it (stt-session.ts `.catch`), so by the time this rejects, audio.handler has already answered `safeAck(ack,{ok:true})`. Nothing maps it.
+    // Its answer is now SttSessionBridge.onColdOpenRejection, which is the exact COMPLEMENT of the `instanceof` rethrow below — keep them complementary or a cold-open failure gets narrated twice.
     // card ENG-2 (fix-029): STT_NETWORK_DROP is the FALLBACK only — an engine that
     // NAMED its open failure (e.g. sherpa-local's STT_CONFIG_MISSING for a
     // missing addon/model) keeps its code + message; see cold-open-verdict.ts.

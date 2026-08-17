@@ -12,7 +12,7 @@
 //   apps/server-core/src/bootstrap-http-deps.ts:189 (`statusSnapshot` — the DEPS
 //     wiring under test)
 //   apps/server-core/src/bootstrap.ts:361 (`makeStatusProbes` — the ONE runner)
-//   apps/server-core/src/bootstrap.ts:664 (`statusProbes.start()` — armed after
+//   apps/server-core/src/bootstrap.ts:688 (`statusProbes.start()` — armed after
 //     listen, which is why the boot round is already landing)
 //   apps/server-core/test/health-db-probe-wiring.test.ts (the precedent this mirrors)
 //   CLAUDE.md anti-façade ③: "unit tests all green prove nothing about wiring; every real path needs one real-end run"

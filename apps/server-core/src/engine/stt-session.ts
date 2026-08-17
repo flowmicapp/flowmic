@@ -16,6 +16,7 @@ import { AudioSession } from '../stt/audio/session';
 import { VadGate } from '../stt/vad-gate';
 import { RetainedAudio, runRefine, shouldRefine } from '../stt/stt-refine';
 import type { SttEngineOrchestrator } from '../stt/orchestrator-core';
+import { SttConfigMissingError } from '../stt/engine-router';
 import type { StartInput } from '../stt/orchestrator-types';
 
 /** Loudest |sample| in a PCM16-LE buffer (0..32767). The one number that tells
@@ -120,7 +121,53 @@ export class SttSessionBridge implements SttOrchestrator {
     // Engine connect is async; spawn failures already surface via the 'error'
     // handler (→ stt:error). Catch the rejection so a connect failure is never
     // an unhandled promise rejection (fail-loud already happened via emit).
-    this.startPromise = this.orchestrator.start(input).catch(() => undefined);
+    //
+    // 🔴 card K-7 — "already surface via the 'error' handler" is true of EVERY
+    // cold-open failure EXCEPT ONE, and the exception used to land here as a
+    // bare `.catch(() => undefined)`. See [[onColdOpenRejection]].
+    this.startPromise = this.orchestrator.start(input).catch((err: unknown) => this.onColdOpenRejection(err));
+  }
+
+  /**
+   * 🔴 card K-7 — THE ONE COLD-OPEN FAILURE NOBODY WAS TOLD ABOUT.
+   *
+   * `SttEngineOrchestrator.start()` narrates every spawn failure on its own
+   * 'error' event (→ `stt:error` through [[wireEvents]]) and then rethrows —
+   * every failure but one. The ROUTER's `SttConfigMissingError` is rethrown
+   * BEFORE those two emits (orchestrator-core.ts, `if (err instanceof
+   * SttConfigMissingError) throw err`), on the documented premise that it
+   * "propagates raw (audio.handler maps it)".
+   *
+   * That premise has been false since this constructor started firing `start()`
+   * and forgetting it. Nothing above this line awaits `startPromise`, so the
+   * rejection reaches no handler; `audio.handler` has already called
+   * `safeAck(ack, {ok:true})` by the time it arrives. So the honest description
+   * of the old `.catch(() => undefined)` is: a silent swallow AND a false
+   * success — the two halves of the red line, at once, on the failure whose
+   * whole job is to say "this account has no engine for this language".
+   *
+   * ⚠️ NOT a second copy of the other arms' reporting: this branch is the exact
+   * complement of the `throw err` above (`instanceof` on one side, everything
+   * else on the other), so a code that already spoke never speaks twice. A
+   * non-config rejection returns silently here for that reason and no other.
+   *
+   * ⚠️ There is a SYNCHRONOUS `SttConfigMissingError` path too — `deps.build`
+   * throwing out of this constructor, which reaches `audio.handler`'s engine
+   * catch and is answered there. This is the ASYNC one, at spawn time, and it
+   * had no answer at all.
+   */
+  private onColdOpenRejection(err: unknown): void {
+    if (!(err instanceof SttConfigMissingError)) return;
+    log.error('stt cold open: no engine configured for this session — the phone was never told', {
+      user_id: this.deps.userId,
+      language: this.deps.sourceLang,
+      error: err.message,
+    });
+    this.deps.emitter.emit('stt:error', {
+      code: 'STT_CONFIG_MISSING',
+      message: err.message,
+      retryable: false,
+    });
   }
 
   private wireEvents(): void {

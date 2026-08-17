@@ -86,6 +86,21 @@ export interface AudioHandlerDeps {
   pcOwnerUserId?: (pc_device_id: string) => string | null;
 }
 
+/**
+ * card K-5 — WHICH of `audio:start`'s four gates turned this press away.
+ *
+ * Before QTA-2 the log line "audio:start refused" + a code was enough, because
+ * there was exactly one account and exactly one thing that could refuse. There
+ * are now TWO accounts (acting phone / PC owner) and the same `QUOTA_EXCEEDED`
+ * string comes out of both, so the line could name the failure without naming
+ * WHOSE ledger produced it — and telling those two apart is precisely what cost
+ * an afternoon of archaeology in the QTA-1 diagnosis.
+ *
+ * Ids, codes and the delivery intent only; never payload text (error-handling.ts
+ * PRIVACY: audio frames carry user speech, the log file must not).
+ */
+type StartRefusalGate = 'payload' | 'acting' | 'pc_owner' | 'engine';
+
 export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): void {
   const { guard, usageTracker, store, sessions } = deps;
   // The fallback slot for a socket that has no (roomUuid, pairingId) key: the
@@ -207,11 +222,20 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
    * socket is not an authenticated mobile, it has its own re-pair surface, and
    * dressing an auth failure as an engine fault would be the 0.2.53 shape again.
    */
-  function refuseStart(e: ErrorPayload): void {
+  function refuseStart(e: ErrorPayload, at: {
+    gate: StartRefusalGate;
+    /** The account this gate JUDGED — not always the acting one (see K-5). */
+    userId: string | null;
+    /** null only on the payload arm, where there is no parsed frame to read it from. */
+    delivery: Delivery | null;
+  }): void {
     log.warn('audio:start refused', {
       code: e.error,
       message: e.message ?? null,
       room: getRoomUuid(socket),
+      gate: at.gate,
+      user_id: at.userId,
+      delivery: at.delivery,
     });
     socket.emit('stt:error', {
       code: e.error,
@@ -226,9 +250,24 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     const parsed = safeParseEvent('audio:start', payload);
     if (!parsed.success) {
       const e: ErrorPayload = { error: 'STT_CONFIG_MISSING', message: 'invalid audio:start payload' };
-      refuseStart(e);
+      refuseStart(e, { gate: 'payload', userId: auth.userId, delivery: null });
       return safeAck(ack, e);
     }
+
+    // 🔴 card K-1 — READ THE DELIVERY INTENT BEFORE THE GATE THAT DEPENDS ON IT.
+    //
+    // This const used to live ~30 lines below, immediately before the fan-out.
+    // Everything above it therefore ran WITHOUT KNOWING whether this utterance
+    // targets a PC at all — including the QTA-2 PC-owner quota check, which is
+    // only meaningful when it does. That is this repo's canonical structural
+    // bug (CLAUDE.md R11): the layer making the judgement did not have the fact
+    // it needed, and the fact was sitting two statements away in `parsed.data`.
+    //
+    // NOTE (delivery red line): delivery:'none' entries are record-only — the
+    // server must NOT initiate injection and the PC capsule must not surface.
+    // That branch lives in the finalize path the R1-3 orchestrator drives; the
+    // intent is fixed here and passed through immutably.
+    const delivery: Delivery = parsed.data.delivery ?? 'inject';
 
     // *** billing call site (STT quota) — the ONE ensureQuota('stt') site ***
     // Live now (standalone NOOP). Over-quota fails loud → QUOTA_EXCEEDED.
@@ -239,10 +278,28 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // METERED to (the acting account — the phone's own when the pairing has
     // one); the PC owner's account is checked as a GATE only, never billed —
     // one recording must not decrement two ledgers for the same seconds.
+    //
+    // 🔴 card K-1 — and the SECOND account is asked only when the utterance is
+    // actually going to that account's machine. A record-only press is one the
+    // PC is contractually forbidden to hear anything at all about (the GA-02 red
+    // line enforced by `mirrorToPc` above); judging it against that PC's ledger
+    // would let a desktop's exhausted minutes silence a recording that never
+    // leaves the phone — a refusal whose stated reason ("quota") is true of an
+    // account this utterance does not touch.
+    // ⚠️ The FIRST check stays unconditional: the acting account's own minutes
+    // are spent transcribing either way, whoever the words end up in front of.
+    let gate: StartRefusalGate = 'acting';
+    let judged = auth.userId;
     try {
       guard.ensureQuota(auth.userId, 'stt');
-      const pcUserId = deps.pcOwnerUserId?.(auth.deviceId ?? '') ?? null;
-      if (pcUserId !== null && pcUserId !== auth.userId) guard.ensureQuota(pcUserId, 'stt');
+      if (delivery !== 'none') {
+        const pcUserId = deps.pcOwnerUserId?.(auth.deviceId ?? '') ?? null;
+        if (pcUserId !== null && pcUserId !== auth.userId) {
+          gate = 'pc_owner';
+          judged = pcUserId;
+          guard.ensureQuota(pcUserId, 'stt');
+        }
+      }
     } catch (err) {
       const e = errorPayload(err);
       // A2-5 — record that this user was TURNED AWAY. Until this card a quota
@@ -267,15 +324,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       // 「2 failed | 3 passed」, first message 「expected [] to have a length of
       // 1」 — i.e. the silence itself. The parse arm above was measured the same
       // way and fails its own row alone.
-      refuseStart(e);
+      refuseStart(e, { gate, userId: judged, delivery });
       return safeAck(ack, e);
     }
-
-    const delivery: Delivery = parsed.data.delivery ?? 'inject';
-    // NOTE (delivery red line): delivery:'none' entries are record-only — the
-    // server must NOT initiate injection and the PC capsule must not surface.
-    // That branch lives in the finalize path the R1-3 orchestrator drives; the
-    // intent is fixed here and passed through immutably.
 
     // WP-R2-1b (F-2375): S→PC audio fan-out. The session is accepted (quota gate
     // passed), so additively re-emit the VALIDATED audio:start to the paired PC
@@ -288,28 +339,47 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // wiring — the lock is about focus capture at speak-start, not STT success.
     const roomUuid = getRoomUuid(socket);
     const fannedOut = delivery !== 'none' && roomUuid !== null;
-    if (fannedOut && roomUuid) store.getPc(roomUuid)?.emit('audio:start', parsed.data);
 
-    // Install the session slot BEFORE building the engine: a same-key survivor
-    // (previous utterance, or a session still inside its grace window) is
-    // disposed first — a new audio:start is a new utterance — and the fan-out
-    // bookkeeping survives an engine build failure, so a later audio:stop still
-    // mirrors the edge the PC did see begin.
-    const key = keyOf();
-    let state: AudioSessionState;
-    if (key !== null && sessions && roomUuid !== null && auth.pairingId) {
-      state = sessions.put({ key, roomUuid, pairingId: auth.pairingId, socket, fannedOut });
-    } else {
-      local.orchestrator?.dispose();
-      local.orchestrator = null;
-      local.paused = false;
-      local.fannedOut = fannedOut;
-      state = local;
-    }
-
+    // 🔴 card K-3 — THE INVARIANT THIS BLOCK EXISTS TO HOLD:
+    //   no statement between the auth check and the ack may sit outside a block
+    //   that ends in a NAMED FRAME.
+    //
+    // The fan-out emit and the session install used to sit BETWEEN the quota
+    // catch and the engine try — guarded by neither. Both can throw: `put()`
+    // disposes a same-key survivor, and `SttSessionBridge.dispose()` runs
+    // `orchestrator.close()`, `session.finalize()` and `vad.finish()` with only
+    // the middle one wrapped. A throw there was caught by `wrapSocketHandlers`,
+    // which rate-gate logs it and DROPS the event: no ack, no `stt:error` — the
+    // phone holds the button down against a server that has already given up.
+    // A dead mic and total silence is the exact shape QTA-1 was about, one
+    // window over. Reaching the ack is not the same as reaching an answer.
+    //
+    // `state` is nullable ONLY so the catch can tell "we never got a slot" from
+    // "we got one and the engine failed"; it is non-null for every line that
+    // reads it below.
+    let state: AudioSessionState | null = null;
     try {
+      if (fannedOut && roomUuid) store.getPc(roomUuid)?.emit('audio:start', parsed.data);
+
+      // Install the session slot BEFORE building the engine: a same-key survivor
+      // (previous utterance, or a session still inside its grace window) is
+      // disposed first — a new audio:start is a new utterance — and the fan-out
+      // bookkeeping survives an engine build failure, so a later audio:stop still
+      // mirrors the edge the PC did see begin.
+      const key = keyOf();
+      if (key !== null && sessions && roomUuid !== null && auth.pairingId) {
+        state = sessions.put({ key, roomUuid, pairingId: auth.pairingId, socket, fannedOut });
+      } else {
+        local.orchestrator?.dispose();
+        local.orchestrator = null;
+        local.paused = false;
+        local.fannedOut = fannedOut;
+        state = local;
+      }
+      const slot: AudioSessionState = state;
+
       if (!deps.sttFactory) throw new EngineNotWiredError('stt');
-      state.orchestrator = deps.sttFactory({
+      slot.orchestrator = deps.sttFactory({
         userId: auth.userId,
         mode: parsed.data.mode,
         delivery,
@@ -330,22 +400,36 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         // socket) still resolve correctly because adopt/beginGrace mutate THIS
         // same object. `?? socket` covers the local (unpaired) fallthrough.
         resolveSocket:
-          state !== local
-            ? (): Pick<Socket, 'emit'> | null => (state as AudioSessionEntry).socket
+          slot !== local
+            ? (): Pick<Socket, 'emit'> | null => (slot as AudioSessionEntry).socket
             : (): Socket => socket,
         onComplete: (durationMs, isByok, chars) => commitSttUsage(auth.userId, durationMs, isByok, chars),
         onPolishUsage: (tIn, tOut, isByok) => commitPolishUsage(auth.userId, tIn, tOut, isByok),
       });
       safeAck(ack, { ok: true });
     } catch (err) {
-      state.orchestrator = null;
+      // K-3: null when the throw happened at the fan-out, i.e. before any slot
+      // was installed. There is then nothing to clear, and clearing `local`
+      // regardless would tear down a session this press never created.
+      if (state) state.orchestrator = null;
       // #16 no-implicit-fallback: the router's SttConfigMissingError (not a
       // ServerError) maps to the whitelisted STT_CONFIG_MISSING; anything else
       // goes through errorPayload. Either way it is fail-loud, never swallowed.
       const e: ErrorPayload = err instanceof SttConfigMissingError
         ? { error: 'STT_CONFIG_MISSING', message: err.message }
         : errorPayload(err);
-      socket.emit('stt:error', { code: e.error, message: e.message ?? 'STT engine unavailable', retryable: false });
+      // 🔴 card K-4 — through `refuseStart`, not a bare emit. This arm used to
+      // emit `stt:error` by hand, which meant it produced the FRAME but not the
+      // LOG LINE the other three arms write. QTA-1's diagnosis rested on the
+      // relay journal being able to say a press was turned away; on this arm —
+      // the engine arm, the one that fires when STT is misconfigured — the
+      // journal stayed empty, so half of QTA-1 never reached the failure most
+      // likely to need it. The wire message is preserved verbatim by filling the
+      // fallback here rather than letting refuseStart's generic one apply.
+      refuseStart(
+        { ...e, message: e.message ?? 'STT engine unavailable' },
+        { gate: 'engine', userId: auth.userId, delivery },
+      );
       safeAck(ack, e);
     }
   });

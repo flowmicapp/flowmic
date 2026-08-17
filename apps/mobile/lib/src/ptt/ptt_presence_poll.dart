@@ -22,9 +22,26 @@
 //
 // Same as ptt_inbound.dart, this is a `part` file in the same library as
 // ptt_session.dart, so the private members referenced below (`fsm`/`reconnect`/
-// `_pcId`/`_channel`/`presenceReader`/`presencePollTimeout`/`_pcPresence`/
+// `_pcId`/`_channel`/`presenceReader`/`_pcPresence`/
 // `_presencePollInFlight`) are all this class's own fields — not a new,
 // disconnected pile of state.
+//
+// 🔴 **`PttSession.presencePollTimeout` IS THE PER-ATTEMPT BUDGET FOR THIS
+// POLL, and saying so here is the point** — because for one window it was not.
+// The retry loop landed with a hard-coded `kSessionPollPresenceBudget` whose
+// `perAttemptTimeout` (2.5 s) was a DIFFERENT number from that field's 3 s, so
+// the field stopped being read at all: not merely redundant, but a knob that
+// silently did nothing, which this repo holds to be worse than no knob. This
+// paragraph used to declare it dead and name deleting it as the follow-up. The
+// lead's ruling went the other way — keep the control and make it live — so the
+// budget below is now assembled from the field, and `pc_presence_probe.dart`'s
+// constant carries the same ⚠️ note the instance-list budget already carried.
+//
+// ⚠️ The arithmetic, restated for 3 s: worst case has to fit inside one
+// `kIdlePcPresencePollInterval` tick (10 s, an owner ruling). 2 × 3 + 0.5 =
+// 6.5 s, 35 % headroom. That is comfortable, and it is NOT comfortable for a
+// third attempt (3 × 3 + 1.0 = 10 s exactly, i.e. no headroom at all) — so
+// anyone adding one has to re-do this sum rather than assume it still holds.
 //
 // ── WHERE EACH OF THE FIVE IMPLEMENTATION CONSTRAINTS LANDS ─────────────────
 // ① Only ask while "idle AND connected" — the two predicates
@@ -159,15 +176,31 @@ extension PttSessionPresencePoll on PttSession {
       // [PcPresenceReader] seam does not carry; an injected double is called
       // exactly as before, which is why the seam did not change and no existing
       // fake had to be touched.
-      final PcPresenceReader? injected = presenceReader;
-      reading = injected != null
-          ? await injected(url, token, presencePollTimeout)
-          : await httpPcPresenceRead(
-              url,
-              token,
-              presencePollTimeout,
-              pin: lanPin,
-            );
+      //
+      // 🔴 Bounded retry within this ONE tick
+      // ([kSessionPollPresenceBudget], 2 attempts / 500 ms). The budget is the
+      // TIGHT one of the two, and the constraint is arithmetic rather than
+      // taste: the tick is `kIdlePcPresencePollInterval` (10 s, an owner
+      // ruling), so a cycle that could outlast it would leave polls
+      // overlapping — 6.5 s worst case leaves 35 % headroom, and
+      // `_presencePollInFlight` above is the belt to that braces.
+      reading = await readPcPresenceRetrying(
+        url,
+        token,
+        budget: PcPresenceRetryBudget(
+          attempts: kSessionPollPresenceBudget.attempts,
+          // ⚠️ NOT the budget constant's own 3 s — the SAME split the instance
+          // list makes (`connections_presence.dart`): the constant declares the
+          // intent, [PttSession.presencePollTimeout] is the injectable value
+          // production and the tests actually dial with. Reading the constant
+          // directly here is what killed the knob once already; see this file's
+          // header.
+          perAttemptTimeout: presencePollTimeout,
+          backoff: kSessionPollPresenceBudget.backoff,
+        ),
+        reader: presenceReader,
+        pin: lanPin,
+      );
     } on Object {
       // 🔴 The RV-89 shape: catch Object, not Exception. `httpPcPresenceRead`
       // itself already resolves every failure path (404/401/network flap/a

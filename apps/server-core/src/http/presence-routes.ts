@@ -79,7 +79,10 @@
 // bit it asked for, plus (when there is one) the reason behind that bit, and not
 // an inventory.
 
+import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { RateGate } from '../error-handling';
+import { log } from '../log';
 import type { Registry } from '../room/registry';
 import type { RoomStore } from '../room/store';
 import { pcAbsenceReasons } from '../room/pc-absence';
@@ -108,12 +111,59 @@ export const PC_PRESENCE_PATH = '/api/pc/presence';
  *  whatever the reason) so minting one would add a string with no reader. */
 export const PRESENCE_AUTH_REQUIRED = 'PRESENCE_AUTH_REQUIRED';
 
+/** How often the ABSENT answer may put a line in the log.
+ *
+ *  A resting instance list polls this route roughly every 10 s per pairing, and
+ *  the answer it is polling for is 「still not here」 — so an ungated line would
+ *  be 6 lines/minute/pairing describing one unchanging fact, which buries the
+ *  answers that matter under the answer that does not. Same shape and the same
+ *  remedy as `HEARTBEAT_WRITE_FAILURE_LOG_WINDOW_MS`; a longer window because a
+ *  PC being away is a state, not an event. */
+export const PRESENCE_ABSENT_LOG_WINDOW_MS = 60_000;
+
+/** ONE gate per process, shared across every caller — same reasoning as the
+ *  heartbeat handler's: the flood this defends against is 「many phones polling
+ *  about many dead PCs」, and per-pairing gates would multiply it right back.
+ *  What the sharing costs is stated rather than hidden: the line that survives
+ *  names ONE pc_id, and `suppressedSinceLastLine` says how many other absent
+ *  answers went unlogged — volume reduced, never volume hidden. The alternative
+ *  (a gate per pairing) is an unbounded map keyed by caller-supplied input, i.e.
+ *  a second thing to bound. */
+const sharedAbsentLogGate = new RateGate(PRESENCE_ABSENT_LOG_WINDOW_MS);
+
+/** The slice of the logger this route needs. Deliberately not `GuardLogger`
+ *  (`error`-only): an absent PC is not an error, it is the normal answer to a
+ *  normal question — logging it at ERROR would train the reader to ignore it. */
+export interface PresenceLogger {
+  info(msg: string, fields?: Record<string, unknown>): void;
+}
+
+/** A room you can CORRELATE without writing the room id down.
+ *
+ *  `room_uuid` is the address an inject frame is delivered to, so it does not
+ *  belong in a log file in the clear; 12 hex of its sha256 is enough to join two
+ *  lines about the same room and useless for addressing one.
+ *
+ *  🔴 It is exported for exactly ONE other caller — the `pc left its room` line
+ *  in `bootstrap.ts`'s disconnect handler. The two lines exist to be read
+ *  together (that one says why the PC went away, this one says a phone later
+ *  asked and was told it is not there), and two independent 「hash the room」
+ *  expressions would join only until one of them was edited. */
+export function hashedRoomId(roomUuid: string): string {
+  return createHash('sha256').update(roomUuid).digest('hex').slice(0, 12);
+}
+
 export interface PresenceRoutesDeps {
   /** Typed as a slice of the real Registry so there is no second interface to
    *  drift from it. `findPairingByToken` is the PURE lookup (no last_seen_at). */
   registry: Pick<Registry, 'findPairingByToken'>;
   /** Live room presence — the same instance the socket handlers mutate. */
   store: Pick<RoomStore, 'getPc'>;
+  /** Forensic seams. Defaults are the REAL logger and the REAL shared gate —
+   *  never no-ops (DI-default rule: a friendly empty implementation is how a
+   *  capability ends up wired to nothing). */
+  logger?: PresenceLogger;
+  absentLogGate?: RateGate;
 }
 
 /** `Authorization: Bearer <token>` → the token, or '' when absent/malformed.
@@ -160,6 +210,33 @@ export function tryHandlePresenceRoutes(
   // production cannot supply is the shape this repo keeps finding as a façade.
   // The socket handlers write to this same one instance (room/pc-absence.ts).
   const absentReason = online ? null : pcAbsenceReasons.reasonFor(pc);
+  if (!online) {
+    // ONLY the absent answer gets a line. The online path carries no information
+    // — it is the expected state, it is the overwhelming majority of the traffic,
+    // and logging it would be the surest way to make this file unreadable on the
+    // day someone actually needs it.
+    //
+    // `absent_reason` is the field the line exists for. Without it the record
+    // says 「a phone asked about a PC that is not here」, which is precisely what
+    // the caller already knew; with it, an absence is ATTRIBUTABLE after the fact
+    // ('auth_expired' is a different incident from a machine someone switched
+    // off, and today they are indistinguishable in every server-side artefact).
+    // 'none' rather than an omitted key: 「we recorded no reason」 is an answer,
+    // and a missing key would read as 「this line predates the field」.
+    //
+    // No `timestamp` field on purpose: `log.ts` stamps every line with an ISO
+    // prefix, and a second copy inside the fields would be a second answer to
+    // one question — the shape this repo keeps paying for.
+    const suppressed = (deps.absentLogGate ?? sharedAbsentLogGate).tryAcquire();
+    if (suppressed !== null) {
+      (deps.logger ?? log).info('presence: PC is not in its room', {
+        pc_id: pc.id,
+        room: hashedRoomId(pc.room_uuid),
+        absent_reason: absentReason ?? 'none',
+        suppressedSinceLastLine: suppressed,
+      });
+    }
+  }
   sendJson(res, 200, {
     ok: true,
     pc_id: pc.id,

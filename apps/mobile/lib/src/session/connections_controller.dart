@@ -38,6 +38,12 @@ import 'instance_probe.dart';
 import 'pc_presence.dart';
 import 'pc_presence_probe.dart';
 
+// 🔴 The 800-line gate (`verify/lint/file-size.mjs` SRC_MAX=800) — the presence
+// half (「这一行背后那台电脑在不在」/ "is the computer behind this row there") was
+// moved character-for-character over there before this round added to it. Same
+// library, so `_pruneStaleProbeKeys` below still reaches `_presence`.
+part 'connections_presence.dart';
+
 /// Normalize a user-typed PC address into a socket.io-dialable http(s) URL.
 /// Accepts `host:port`, `http(s)://…`, and `ws(s)://…` (mapped to http(s)).
 ///
@@ -75,7 +81,7 @@ class ConnectOutcome {
   final String? error;
 }
 
-class ConnectionsController extends ChangeNotifier {
+class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost {
   ConnectionsController({
     required this.session,
     required this.login,
@@ -152,11 +158,17 @@ class ConnectionsController extends ChangeNotifier {
   /// invalidated every test double implementing it. Null means 「走生产实现，
   /// 带上这一行自己的 pin」("go through the production implementation, carrying
   /// this row's own pin"), never 「不探测」("don't probe").
+  ///
+  /// ⚠️ Declared here and consumed in connections_presence.dart, which sees it
+  /// through the abstract getter [ConnectionsPresenceHost._presenceRead] this
+  /// field satisfies.
+  @override
   final PcPresenceReader? _presenceRead;
 
   /// Per-probe budget. 3 s is long enough for a LAN RTT and short enough that a
   /// dead address does not hold the row at 检测中("checking…") while the user
   /// stares at it.
+  @override
   final Duration probeTimeout;
 
   final Map<String, InstanceReach> _reach = <String, InstanceReach>{};
@@ -173,24 +185,8 @@ class ConnectionsController extends ChangeNotifier {
   final Map<String, ServerChannel> _channel = <String, ServerChannel>{};
   final Set<String> _probing = <String>{};
 
-  /// 🔴 RV-98 — the list-scope [PcPresence], keyed by [keyFor] (the PAIRING),
-  /// **never by endpoint**: two pairings can share one relay address and point at
-  /// two different computers, so an endpoint key would paint A's answer on B's
-  /// row — the instance-list variant of ID crosstalk (串号).
-  ///
-  /// [_probePresenceOne] is the ONLY writer (volume 15 §1.4 「唯一写者」/ "sole
-  /// writer"). Absent =
-  /// [PcPresence.unknown] = 「这一趟没问到」("didn't get an answer this round").
-  ///
-  /// ⚠️ **Cleared, not kept, when a poll starts or fails** — the deliberate
-  /// OPPOSITE of [_channel]'s RV-54 rule. `_channel` answers 「这是台什么服务器」
-  /// ("what kind of server is this"),
-  /// which barely changes, so a stale value is still informative; presence
-  /// answers 「此刻在不在」("is it here right now"), whose entire value is being
-  /// current. Keeping the last
-  /// `online` through a failed poll would re-create the exact lie owner reported.
-  final Map<String, PcPresence> _presence = <String, PcPresence>{};
-  final Set<String> _presenceProbing = <String>{};
+  // 🔴 RV-98's `_presence` / `_presenceProbing` moved to
+  // connections_presence.dart (same library) — see the part directive above.
 
   String? _connectingKey;
 
@@ -232,13 +228,6 @@ class ConnectionsController extends ChangeNotifier {
     if (_reach[key] != InstanceReach.online) return null;
     return _channel[key];
   }
-
-  /// 🔴 RV-98 — what the last poll said about the PC behind [pairing].
-  /// [PcPresence.unknown] until one has answered; callers must render that as
-  /// 「不知道」("don't know"), **never as offline** (that would be saying we know it is not
-  /// there) and never as online.
-  PcPresence presenceOf(MobileSession pairing) =>
-      _presence[keyFor(pairing)] ?? PcPresence.unknown;
 
   /// Probe every listed endpoint, the cloud relay included, in parallel. Deduped
   /// by normalized endpoint (two pairings on one host are one request) and
@@ -286,45 +275,8 @@ class ConnectionsController extends ChangeNotifier {
     await Future.wait(jobs);
   }
 
-  /// The ONE writer of [_presence]. Every non-answer lands on
-  /// [PcPresence.unknown]; nothing here can produce a `offline` that was not
-  /// measured, and nothing can keep a previous `online` alive.
-  Future<void> _probePresenceOne(MobileSession pairing, String key) async {
-    PcPresenceReading reading;
-    try {
-      final Uri url = pcPresenceUri(pairing.endpoint);
-      final PcPresenceReader? injected = _presenceRead;
-      reading = injected != null
-          ? await injected(url, pairing.token, probeTimeout)
-          // 🔴 THE PIN COMES FROM THIS ROW, not from 「当前连着哪台」("which one is
-          // currently connected"). The list
-          // probes every remembered pairing, and two rows can share one relay
-          // address while pointing at two different computers — the same reason
-          // ② in pc_presence_probe.dart's header gives for probing per pairing
-          // rather than per address.
-          : await httpPcPresenceRead(
-              url,
-              pairing.token,
-              probeTimeout,
-              pin: pairing.lanTlsFp,
-            );
-    } on Object {
-      reading = PcPresenceReading.unknown; // could-not-reach IS an answer, not a swallowed failure
-    } finally {
-      _presenceProbing.remove(key);
-    }
-    // 🔴 ID crosstalk is never allowed: if the server-echoed `pc_id` does not
-    // match the one this row has stored ⇒ **it is not this row's answer** —
-    // treat it as no answer received. (`pcId == null` means an old server / no
-    // echo, nothing to check against ⇒ do not block; `pairing.pcId == null`
-    // means a row saved before 0.2.4, same reasoning.)
-    final String? expected = pairing.pcId;
-    final String? answered = reading.pcId;
-    final bool mismatched =
-        expected != null && answered != null && expected != answered;
-    _presence[key] = mismatched ? PcPresence.unknown : reading.presence;
-    notifyListeners();
-  }
+  // 🔴 RV-98's sole writer `_probePresenceOne` moved to
+  // connections_presence.dart (same library) — see the part directive above.
 
   Future<void> _probeOne(String endpoint) async {
     HealthReading reading;
@@ -428,13 +380,15 @@ class ConnectionsController extends ChangeNotifier {
     }..removeWhere((String e) => e.isEmpty);
     _reach.removeWhere((String k, InstanceReach _) => !live.contains(k));
     _channel.removeWhere((String k, ServerChannel _) => !live.contains(k));
+    // (the presence prune below drops the absence REASON with it, because the
+    // two live in one map value — see [ConnectionsPresenceHost._presence])
     // RV-98 — same rule, PAIRING-keyed (see [_presence]): a forgotten pairing
     // must not leave a presence answer behind for a row key that could be minted
     // again by a re-pair to the same PC.
     final Set<String> liveRows = <String>{
       for (final MobileSession p in _pairings) keyFor(p),
     };
-    _presence.removeWhere((String k, PcPresence _) => !liveRows.contains(k));
+    _presence.removeWhere((String k, PcPresenceRow _) => !liveRows.contains(k));
   }
 
   /// Leave the room the user just backed out of (owner 2026-07-27).

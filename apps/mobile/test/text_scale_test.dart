@@ -154,7 +154,8 @@ class _SettingsRig {
     final _SettingsRig r = _SettingsRig();
     r.appSettings = c;
     r.settingsTransport = FakeSocketTransport();
-    r.settingsClient = SettingsClient(transport: r.settingsTransport);
+    r.settingsClient = SettingsClient(
+        transport: r.settingsTransport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
       settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),

@@ -79,6 +79,10 @@ Widget _statusLabelRouted(
   /// (`GET /api/pc/presence`). Default unknown = didn't get an answer (the
   /// cloud light-record card never asks).
   PcPresence pcPresence = PcPresence.unknown,
+  /// 🔴 The server's own reason for that computer being absent, when it gave
+  /// one. Defaulted to null so every existing caller and test keeps the face it
+  /// had; only `auth_expired` changes anything, and only on an `offline` row.
+  PcAbsentReason? pcAbsentReason,
 }) {
   if (page.widget.connections.connectingKey == key) {
     return Row(
@@ -106,6 +110,7 @@ Widget _statusLabelRouted(
     answeringChannel: page.widget.connections.channelOf(endpoint),
     target: target,
     pcPresence: pcPresence,
+    pcAbsentReason: pcAbsentReason,
   );
   // `unmeasured` = never probed. It renders as the old neutral hint, never as a
   // colour that would claim knowledge we do not have.
@@ -118,6 +123,13 @@ Widget _statusLabelRouted(
     // the transcription page's top bar gives the same answer to the same
     // question.
     InstanceLivenessFace.pcOffline => (s.pcOfflineChip, FlowMicColors.red),
+    // 🔴 AMBER, NOT RED, and the colour is the argument. Red on this page means
+    // 「够不着」("can't be reached") / 「不在」("not there") — both false here:
+    // that machine is powered on and running. What lapsed is a credential, and
+    // the fix is ten seconds at the keyboard. Painting it red would recruit the
+    // strongest colour on the page to send someone to check a computer that has
+    // nothing wrong with it.
+    InstanceLivenessFace.pcSignedOut => (s.pcSignedOutChip, FlowMicColors.amber),
     // 🔴 The relay answered, the computer was never asked. **Deliberately does
     // NOT reuse [AppStrings.offline]**: saying 「offline」 turns
     // 「don't know」 into 「know it's gone」, which is the lie in the other
@@ -129,6 +141,7 @@ Widget _statusLabelRouted(
   final bool dotted = face == InstanceLivenessFace.pcOnline ||
       face == InstanceLivenessFace.unreachable ||
       face == InstanceLivenessFace.pcOffline ||
+      face == InstanceLivenessFace.pcSignedOut ||
       face == InstanceLivenessFace.relayOnlyPcUnknown;
   return Row(
     mainAxisSize: MainAxisSize.min,

@@ -52,6 +52,12 @@ mixin GuideStrings on AppStringsLeaves {
   /// for the reason pc_presence.dart gives at the `pcOffline` face: the action
   /// they call for is different (go turn the PC on / go look at the network).
   String get guideStatusPcOffline => _lfGuideStatusPcOffline;
+  /// 🔴 The only status line on this page that names an action the user takes
+  /// on the OTHER machine. Every other absence resolves to 「看看那台电脑/看看
+  /// 网络」("check that computer / check the network"); this one is a lapsed
+  /// credential on a computer that is running fine, and the sentence has to say
+  /// so or the reader will go and stare at a working machine.
+  String get guideStatusPcSignedOut => _lfGuideStatusPcSignedOut;
   String get guideStatusRelayOnly => _lfGuideStatusRelayOnly;
   String get guideStatusChecking => _lfGuideStatusChecking;
   String get guideStatusUnmeasured => _lfGuideStatusUnmeasured;

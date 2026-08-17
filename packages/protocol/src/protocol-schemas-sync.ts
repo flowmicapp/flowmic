@@ -133,9 +133,45 @@ export const HistoryInjectSchema     = z.object({ id: NonEmpty });
 // upload was never ported to this line: no mobile emitter, no server handler.
 
 // ─── §3.7 settings sync ───────────────────────────────────────────────
+//
+// G2 (0.3.x) — WHEN this value was last changed, so two channels can converge.
+//
+// The two channels are two independent servers holding two independent KVs (05
+// §5). Edit `scenario.card` over the LAN and the cloud copy never hears about
+// it; speak on the other channel and the correction pipeline quietly runs off a
+// different card. That is DESIGN, not a defect — the cure is client convergence,
+// and a client can only converge if it can answer "which copy is newer".
+//
+// 🔴 `updated_at` answers WHEN A HUMAN CHANGED THIS VALUE, not "when a server
+// received it". It is therefore supplied by the WRITER, and the server refuses
+// to move a row backwards in time (settings.handler.ts): a stamp minted on
+// arrival would make every copy look equally fresh the moment it landed, which
+// is the same as having no stamp at all. Because clients author it, there are
+// two writers of `scenario.card` (the phone AND the desktop), and without that
+// refusal a phone holding a week-old card would clobber a desktop edit made five
+// minutes ago — a data-loss path that does not exist today.
+//
+// 🔴 ABSENCE MEANS UNKNOWN, NEVER EPOCH. A missing stamp must never let a value
+// win or lose a comparison: absent ⇒ fall back to exactly today's behaviour
+// (write it, broadcast it). Reading absence as 1970 would make every older
+// client's write look stale and be silently dropped — precisely the failure this
+// field was added to remove, which is why it is `.optional()` and not defaulted.
+//
+// It is deliberately a SIBLING of `value`, not a field inside it. `value` is
+// `z.unknown()` at this boundary but is re-parsed downstream by
+// `ScenarioCardSchema`; burying a WIRE concern inside the card would force the
+// compose-side reader to read it too.
+//
+// Additive/optional so a v1 client that never sends it still parses byte for
+// byte — EVENT_NAMES and the 54-count guard are untouched, same shape as
+// `HistoryItemSchema.edited` and `HistoryUpdateSchema.origin` above.
 export const SettingsListSchema      = z.object({});
-export const SettingsUpdateSchema    = z.object({ key: NonEmpty, value: z.unknown() });
-export const SettingsUpdatedSchema   = z.object({ key: NonEmpty, value: z.unknown() });
+// ⚠️ The `settings:list` ACK is not schema'd here — it never has been; its shape
+// is the handler literal, which G2 widens to `{ key, value, updated_at? }` in
+// step with these two. Stated so the asymmetry reads as known, not as an
+// oversight someone should "complete".
+export const SettingsUpdateSchema    = z.object({ key: NonEmpty, value: z.unknown(), updated_at: Iso8601.optional() });
+export const SettingsUpdatedSchema   = z.object({ key: NonEmpty, value: z.unknown(), updated_at: Iso8601.optional() });
 
 // Sub-map spread into protocol-schemas.ts's EVENT_SCHEMAS registry so that
 // file only needs one spread line per split-out module.

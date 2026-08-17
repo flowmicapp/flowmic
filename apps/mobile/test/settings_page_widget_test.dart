@@ -14,7 +14,6 @@ import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/scenario_card_controller.dart';
 import 'package:flowmic/src/settings/settings_client.dart';
-import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +27,7 @@ import 'support/update_fakes.dart';
 class _Rig {
   late final FakeSocketTransport settingsTransport;
   late final SettingsClient settingsClient;
+  late final ValueNotifier<int> settingsJoins;
   late final ScenarioCardController scenario;
   late final AppSettingsController appSettings;
   late final PttSession session;
@@ -41,7 +41,12 @@ class _Rig {
     r.appSettings = AppSettingsController(prefs: prefs);
     await r.appSettings.load();
     r.settingsTransport = FakeSocketTransport();
-    r.settingsClient = SettingsClient(transport: r.settingsTransport);
+    // The settings edge is `PttSession.roomJoins`, not the socket's connected
+    // status (settings_client.dart header point 4 — F-1 on the settings path).
+    // Bumping this notifier is what "the server admitted us" looks like here.
+    r.settingsJoins = ValueNotifier<int>(0);
+    r.settingsClient = SettingsClient(
+        transport: r.settingsTransport, roomJoins: r.settingsJoins);
     r.scenario = ScenarioCardController(
       settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
@@ -121,7 +126,7 @@ void main() {
   });
 
   testWidgets('GA-11: the hydrated server card is what the SCREEN shows '
-      '(connect edge → settings:list → rendered term + counter + note)',
+      '(room-join edge → settings:list → rendered term + counter + note)',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 4200);
     tester.view.devicePixelRatio = 1.0;
@@ -139,7 +144,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('服务端术语'), findsNothing);
 
-    // The server snapshot lands on the connected rising edge.
+    // The server snapshot lands when the server ADMITS us, not when the socket
+    // connects — the connected edge fires before `mobile:reconnect` is even
+    // sent, so a pull there comes back AUTH_TOKEN_INVALID and never retries.
     rig.settingsTransport.ackQueue.add(<String, Object?>{
       'items': <Object?>[
         <String, Object?>{
@@ -153,7 +160,7 @@ void main() {
         },
       ],
     });
-    rig.settingsTransport.pushStatus(SocketStatus.connected);
+    rig.settingsJoins.value++;
     await tester.pumpAndSettle();
 
     // The wire really carried the pull…

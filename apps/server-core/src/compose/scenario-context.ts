@@ -64,23 +64,33 @@ function readCard(repo: SettingsRepo, userId: string): ScenarioCard {
   return parsed.data;
 }
 
-/** Best-effort extraction of {term, aliases} from the stt.dictionary value. The
- *  effective dictionary is an array of {term, weight?, aliases?}; anything else
- *  contributes nothing (the dictionary is a hint source, not a hard schema gate
- *  here — the STT layer owns its validation). Aliases are kept so the
- *  deterministic-replacement leg can map a homophone/variant → the canonical. */
-function readDictionaryEntries(repo: SettingsRepo, userId: string): { term: string; aliases?: string[] }[] {
+/** Best-effort extraction of {term, weight, aliases} from the stt.dictionary
+ *  value. The effective dictionary is an array of {term, weight?, aliases?};
+ *  anything else contributes nothing (the dictionary is a hint source, not a
+ *  hard schema gate here — the STT layer owns its validation). Aliases are kept
+ *  so the deterministic-replacement leg can map a homophone/variant → the
+ *  canonical; the weight is kept for the FunASR-hotwords consumer (it is inert
+ *  in the replacer — see TermRule.weight). A non-finite weight is dropped, not
+ *  coerced: the hotword builder's own clamp already owns "absent → default 20",
+ *  and forwarding a NaN would ask it to answer a question it was not asked. */
+function readDictionaryEntries(repo: SettingsRepo, userId: string): { term: string; weight?: number; aliases?: string[] }[] {
   const row = repo.read(userId, STT_DICTIONARY_KEY);
   const value = row?.value;
   if (!Array.isArray(value)) return [];
-  const out: { term: string; aliases?: string[] }[] = [];
+  const out: { term: string; weight?: number; aliases?: string[] }[] = [];
   for (const e of value) {
     if (e && typeof e === 'object' && typeof (e as { term?: unknown }).term === 'string') {
       const rawAliases = (e as { aliases?: unknown }).aliases;
       const aliases = Array.isArray(rawAliases)
         ? rawAliases.filter((a): a is string => typeof a === 'string')
         : undefined;
-      out.push({ term: (e as { term: string }).term, ...(aliases && aliases.length > 0 ? { aliases } : {}) });
+      const rawWeight = (e as { weight?: unknown }).weight;
+      const weight = typeof rawWeight === 'number' && Number.isFinite(rawWeight) ? rawWeight : undefined;
+      out.push({
+        term: (e as { term: string }).term,
+        ...(weight !== undefined ? { weight } : {}),
+        ...(aliases && aliases.length > 0 ? { aliases } : {}),
+      });
     }
   }
   return out;
@@ -148,10 +158,18 @@ export function resolveScenarioContext(
  * terminology sources the LLM-reference block
  * uses, but keeping each source's alias→canonical mapping:
  *   ① scenario-card custom terms — canonical only (Latin casing normalisation)
- *   ② enabled dictionary packs   — term + curated homophone aliases
- *   ③ stt.dictionary entries     — user term + aliases
+ *   ② enabled dictionary packs   — term + curated homophone aliases + weight
+ *   ③ stt.dictionary entries     — user term + aliases + weight
  * Reuses readCard, so a present-but-malformed card fails loud here too (same
  * SETTINGS_SCHEMA_INVALID contract as resolveScenarioContext).
+ *
+ * Rules carry an OPTIONAL `weight` (legs ② and ③ only — the scenario card has
+ * no weight field, so ① is left to the consumer's default). It is inert for the
+ * deterministic replacer, which reads canonical/aliases only; the consumer that
+ * reads it is `stt/engine-factory.ts loadHotwords`, which turns these rules into
+ * the FunASR open-frame hotword weights. See TermRule.weight for why the field
+ * has to exist at all (without it the curated pack weights would collapse to the
+ * default on the way to the engine, invisibly).
  */
 export function resolveReplacementRules(repo: SettingsRepo, userId: string): TermRule[] {
   const card = readCard(repo, userId);
@@ -161,10 +179,18 @@ export function resolveReplacementRules(repo: SettingsRepo, userId: string): Ter
     if (canonical.length > 0) rules.push({ canonical });
   }
   for (const e of composeDictionary(card.packs)) {
-    rules.push({ canonical: e.term, ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}) });
+    rules.push({
+      canonical: e.term,
+      ...(typeof e.weight === 'number' ? { weight: e.weight } : {}),
+      ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}),
+    });
   }
   for (const e of readDictionaryEntries(repo, userId)) {
-    rules.push({ canonical: e.term, ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}) });
+    rules.push({
+      canonical: e.term,
+      ...(e.weight !== undefined ? { weight: e.weight } : {}),
+      ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}),
+    });
   }
   return rules;
 }

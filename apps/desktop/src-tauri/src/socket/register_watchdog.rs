@@ -48,11 +48,30 @@ use crate::socket::pairing::REGISTER_ACK_TIMEOUT;
 const REGISTER_RETRY_FIRST: Duration = REGISTER_ACK_TIMEOUT.saturating_add(Duration::from_secs(1));
 /// Backoff ceiling: a server that is up but not answering gets a steady slow
 /// knock, never a faster one and never an ever-growing one.
-const REGISTER_RETRY_CEIL: Duration = Duration::from_secs(60);
-/// Re-emits allowed per CONNECTION. A cap, not forever: if six registers across
-/// ~2.5 minutes all went unanswered, the honest move is to SAY so and leave the
-/// next attempt to the socket ladder's next real reconnect, not to hammer a server
-/// that has clearly decided not to answer.
+pub(super) const REGISTER_RETRY_CEIL: Duration = Duration::from_secs(60);
+/// Re-emits after which the ladder ANNOUNCES that it is getting nowhere.
+///
+/// A cap on the RATE, not on the DURATION: past this count the watchdog says so
+/// once (`GiveUp`) and then keeps knocking at [`REGISTER_RETRY_CEIL`] for as long
+/// as the channel stays connected-but-unregistered. Steady-state cost of knocking
+/// forever is ONE frame per minute, on a channel that is already broken.
+///
+/// 🔴 IT USED TO BE A CAP ON THE DURATION, AND THAT WAS THE DEFECT. The old
+/// rationale read: "the honest move is to SAY so and leave the next attempt to the
+/// socket ladder's next real reconnect". Saying so was right; leaving the next
+/// attempt to the socket ladder was not, because on this path the socket ladder
+/// never gets another turn:
+///   · the transport is HEALTHY — engine.io ping/pong keeps it up, so no `close`
+///     and no reconnect edge ever fires;
+///   · our own app heartbeat is gated on the handshake (`pump.rs`, `if acked &&
+///     last_hb.elapsed() >= 5s`), so an unregistered channel emits nothing that
+///     could provoke a drop either;
+///   · `open` — the only other sender of `pc:register`/`pc:reconnect`
+///     (`client.rs`) — fires on a connection edge that will therefore not come.
+/// ⇒ after the fifth unanswered re-emit the desktop sat roomless (server-side
+/// `store.getPc` null, presence honestly answering offline, the phone unable to
+/// pair) until the whole app was restarted. Same shape as 49-3 and W8-2: a
+/// recovery ladder armed by an edge that never comes again.
 pub(super) const REGISTER_RETRY_MAX: u32 = 5;
 
 /// The wait before the NEXT action, after `done` re-emits on this connection:
@@ -78,7 +97,18 @@ pub(super) enum RegisterAction {
     Resend { attempt: u32, waited: Duration },
     /// The cap is reached. Reported ONCE and out loud — a watchdog that quietly
     /// stops watching is itself a silent failure (red line).
+    ///
+    /// It does NOT stop the ladder: the very next elapsed window produces another
+    /// [`RegisterAction::Resend`], now at [`REGISTER_RETRY_CEIL`]. This variant is
+    /// an announcement, not a terminal state (see [`REGISTER_RETRY_MAX`]).
     GiveUp { attempts: u32 },
+    /// The handshake finally landed on a ladder that had already announced
+    /// `GiveUp`. Reported ONCE, for the same reason `GiveUp` is: a recovery that
+    /// leaves no trace is indistinguishable from a bug that fixed itself, and this
+    /// one can arrive minutes or hours after the announcement. `attempts` is how
+    /// many re-emits went unanswered, `waited` is how long this channel was
+    /// connected-but-unregistered.
+    Recovered { attempts: u32, waited: Duration },
 }
 
 /// Per-connection retry ledger for the register watchdog.
@@ -89,7 +119,13 @@ pub(super) struct RegisterWatchdog {
     /// When the current window opened: the first tick that saw
     /// `connected && !handshake_acked`, or the last re-emit.
     since: Option<Instant>,
-    /// `GiveUp` already reported for this connection.
+    /// When THIS ladder started — the first tick that saw
+    /// `connected && !handshake_acked`. Unlike [`Self::since`] it is not moved by a
+    /// re-emit, so it is the only field that can answer "how long has this channel
+    /// been roomless" in the recovery line.
+    started: Option<Instant>,
+    /// `GiveUp` already reported for this connection. Still an announce-once latch;
+    /// it no longer stops the ladder (see [`REGISTER_RETRY_MAX`]).
     gave_up: bool,
     /// Previous tick's `connected`, so a NEW socket can be recognised.
     was_connected: bool,
@@ -99,6 +135,7 @@ impl RegisterWatchdog {
     fn reset(&mut self) {
         self.attempts = 0;
         self.since = None;
+        self.started = None;
         self.gave_up = false;
     }
 
@@ -116,31 +153,48 @@ impl RegisterWatchdog {
         // later starts over with a full budget rather than none.
         let reconnected = connected && !self.was_connected;
         self.was_connected = connected;
+        // The one transition that has to be said out loud on the way OUT of this
+        // state: the handshake landed on a ladder that had already announced it was
+        // getting nowhere. Computed BEFORE the reset below, which is what erases the
+        // evidence. Deliberately silent when `gave_up` is false — a ladder that
+        // recovers inside its first five re-emits is the normal case and its
+        // `Resend` lines already tell that story.
+        let recovered = (handshake_acked && self.gave_up).then(|| RegisterAction::Recovered {
+            attempts: self.attempts,
+            waited: self
+                .started
+                .map(|s| now.saturating_duration_since(s))
+                .unwrap_or_default(),
+        });
         if !connected || handshake_acked || reconnected {
             self.reset();
         }
         if !connected || handshake_acked {
-            return RegisterAction::Idle;
+            return recovered.unwrap_or(RegisterAction::Idle);
         }
         let Some(since) = self.since else {
             // First tick in this state: start the clock, do not fire. The `open`
             // handler's own emit is in flight and owns its full ack window.
             self.since = Some(now);
+            self.started = Some(now);
             return RegisterAction::Idle;
         };
-        if self.gave_up {
-            return RegisterAction::Idle;
-        }
         let waited = now.saturating_duration_since(since);
         if waited < register_retry_after(self.attempts) {
             return RegisterAction::Idle;
         }
-        if self.attempts >= REGISTER_RETRY_MAX {
+        if self.attempts >= REGISTER_RETRY_MAX && !self.gave_up {
+            // Announce once. Re-arm the window from HERE so the first post-cap knock
+            // is a full ceiling interval away rather than immediate — the cap on the
+            // rate survives; only the cap on the duration is gone.
             self.gave_up = true;
+            self.since = Some(now);
             return RegisterAction::GiveUp { attempts: self.attempts };
         }
         self.attempts += 1;
         self.since = Some(now);
+        // Past the cap `register_retry_after` is pinned at REGISTER_RETRY_CEIL, so
+        // this is one frame a minute for as long as the channel stays broken.
         RegisterAction::Resend { attempt: self.attempts, waited }
     }
 }
@@ -255,9 +309,9 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn giving_up_is_said_out_loud_exactly_once_and_then_stays_quiet() {
-        // A cap is allowed; a SILENT cap is not — "silent giving-up = a false report".
+    /// Drive a fresh ladder to the announcement. Returns the watchdog and the clock
+    /// at the instant `GiveUp` was returned.
+    fn ladder_at_give_up() -> (RegisterWatchdog, Instant) {
         let mut wd = RegisterWatchdog::default();
         let mut t = Instant::now();
         for expected in 1..=REGISTER_RETRY_MAX {
@@ -274,11 +328,88 @@ mod tests {
             RegisterAction::GiveUp { attempts: REGISTER_RETRY_MAX },
             "the cap must announce itself"
         );
-        // …once. Not every 500 ms tick forever.
+        (wd, t)
+    }
+
+    #[test]
+    fn giving_up_is_said_out_loud_exactly_once_and_the_ladder_keeps_knocking() {
+        // A cap is allowed; a SILENT cap is not — "silent giving-up = a false report".
+        //
+        // 🔴 THIS TEST USED TO ASSERT THE DEFECT AS A SPEC. Its second half was
+        // "…once. Not every 500 ms tick forever", implemented as five further
+        // minutes of required `Idle` — i.e. it pinned "this channel stays
+        // connected-but-unregistered until the app is restarted" as intended
+        // behaviour, and it would have gone red on the day the fix arrived. The
+        // wrong half was the DURATION, not the RATE: what must not happen is a
+        // storm, and that is what the sub-ceiling assertions below now guard.
+        let (mut wd, mut t) = ladder_at_give_up();
+
+        // The announcement is a latch: whatever happens after it, it is not said twice.
+        let mut give_ups = 0u32;
+        let mut resends = 0u32;
+        for _ in 0..10 {
+            // Nothing between the ceilings — the rate cap is the half that stays.
+            t += REGISTER_RETRY_CEIL / 2;
+            assert_eq!(
+                wd.decide(true, false, t),
+                RegisterAction::Idle,
+                "half a ceiling interval must not produce a knock"
+            );
+            t += REGISTER_RETRY_CEIL / 2;
+            match wd.decide(true, false, t) {
+                RegisterAction::Resend { attempt, waited } => {
+                    resends += 1;
+                    assert!(attempt > REGISTER_RETRY_MAX, "post-cap attempts keep counting");
+                    assert_eq!(waited, REGISTER_RETRY_CEIL, "knocking at the ceiling, not faster");
+                }
+                RegisterAction::GiveUp { .. } => give_ups += 1,
+                other => panic!("the ladder must keep knocking after the cap, got {other:?}"),
+            }
+        }
+        assert_eq!(give_ups, 0, "GiveUp is announced ONCE, not on every later window");
+        assert_eq!(resends, 10, "every ceiling window past the cap re-emits pc:register");
+    }
+
+    #[test]
+    fn the_ladder_announces_the_moment_it_finally_gets_in() {
+        // A recovery that leaves no trace is indistinguishable from a bug that fixed
+        // itself — and this one can land minutes after the GiveUp line, with nothing
+        // else in the log between them.
+        let (mut wd, mut t) = ladder_at_give_up();
+        t += REGISTER_RETRY_CEIL;
+        assert!(matches!(wd.decide(true, false, t), RegisterAction::Resend { .. }));
+
+        // The ack lands.
+        t += Duration::from_secs(3);
+        match wd.decide(true, true, t) {
+            RegisterAction::Recovered { attempts, waited } => {
+                assert_eq!(attempts, REGISTER_RETRY_MAX + 1, "every unanswered re-emit is counted");
+                assert!(
+                    waited >= REGISTER_RETRY_CEIL,
+                    "the line must carry how long this channel was roomless, got {waited:?}"
+                );
+            }
+            other => panic!("a recovery past the cap must be reported once, got {other:?}"),
+        }
+        // Once. The ledger is clear, so later acked ticks say nothing at all.
         for _ in 0..5 {
             t += Duration::from_secs(60);
-            assert_eq!(wd.decide(true, false, t), RegisterAction::Idle);
+            assert_eq!(wd.decide(true, true, t), RegisterAction::Idle);
         }
+        // And a ladder that recovers WITHOUT ever announcing GiveUp stays quiet: its
+        // own Resend lines already tell that story.
+        let mut quick = RegisterWatchdog::default();
+        let t0 = Instant::now();
+        assert_eq!(quick.decide(true, false, t0), RegisterAction::Idle);
+        assert!(matches!(
+            quick.decide(true, false, t0 + REGISTER_RETRY_FIRST),
+            RegisterAction::Resend { attempt: 1, .. }
+        ));
+        assert_eq!(
+            quick.decide(true, true, t0 + REGISTER_RETRY_FIRST + Duration::from_secs(1)),
+            RegisterAction::Idle,
+            "the normal case must not add a line"
+        );
     }
 
     // ── RV-34: the watchdog is fed the RIGHT judgment ───────────────────────

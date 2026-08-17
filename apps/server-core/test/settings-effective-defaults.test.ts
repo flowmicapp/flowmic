@@ -122,4 +122,49 @@ describe('settings:list effective defaults', () => {
     );
     expect(out.filter((i) => i.key === SETTINGS_KEY_CAPABILITY_LLM)).toHaveLength(2);
   });
+
+  // ── G2 (04 §3.7-a): stored rows answer with a time, computed rows do not ────
+  describe('updated_at', () => {
+    it('a STORED row carries its own stamp onto the wire', () => {
+      // The column has been per-key since the table was created (05 §5.1); the
+      // only thing G2 changed is that this projection stops dropping it. No
+      // migration was involved, and anyone reading this test as evidence for one
+      // has it backwards.
+      const out = withEffectiveDefaults([row('llm.config', { endpoint: 'http://x/v1' })], STT_POLISH_DEFAULT_WITH_LLM, true);
+      const stored = out.find((i) => i.key === 'llm.config');
+      expect(stored?.updated_at).toBe('2026-08-08T00:00:00.000Z');
+    });
+
+    it('🔴 a SYNTHESIZED row carries NO stamp — absent = unknown, never invented', () => {
+      // Both computed rows, in the case where neither has a row behind it.
+      // There is no moment at which a human set either value, so there is no
+      // honest time to report. A fabricated stamp would be worse than useless:
+      // client convergence compares these, so it would let a computed fact win
+      // or lose against a real edit.
+      const out = withEffectiveDefaults([], STT_POLISH_DEFAULT_WITH_LLM, true);
+      const polish = out.find((i) => i.key === SETTINGS_KEY_STT_POLISH);
+      const cap = out.find((i) => i.key === SETTINGS_KEY_CAPABILITY_LLM);
+      expect(polish).toBeDefined();
+      expect(cap).toBeDefined();
+      // `in`, not `=== undefined`: the key must be ABSENT, not present-and-empty.
+      // `updated_at: undefined` survives toEqual but would serialise differently
+      // and reads to the next person as "we had one and lost it".
+      expect('updated_at' in polish!).toBe(false);
+      expect('updated_at' in cap!).toBe(false);
+    });
+
+    it('🔴 the capability fact stays un-stamped even when a stored row shadows it', () => {
+      // Pairs with the shadowing test above: the synthesised copy must not
+      // inherit a time from the row it is refusing to defer to.
+      const out = withEffectiveDefaults(
+        [row(SETTINGS_KEY_CAPABILITY_LLM, { usable: true })],
+        sttPolishDefaultFrom(false),
+        false,
+      );
+      const copies = out.filter((i) => i.key === SETTINGS_KEY_CAPABILITY_LLM);
+      expect(copies).toHaveLength(2);
+      // The stored one keeps its stamp; the synthesised one has none.
+      expect(copies.filter((c) => 'updated_at' in c)).toHaveLength(1);
+    });
+  });
 });

@@ -133,6 +133,43 @@ pub(super) const CLOSING_RELEASE_AFTER_ATTEMPTS: u32 = 2;
 ///   successorless LAN close is only ever a swap that failed to complete.
 /// * `prior_suppressed` / `closed_for` — the two staleness arms (see the two
 ///   constants above); either suffices.
+///
+/// 🔴 THE CLOUD ARM IS DERIVED, NOT STATED — READ THIS BEFORE CHANGING IT
+/// (audited 2026-08-16; nothing below is implemented, this is the evidence for
+/// the next person, not a plan that was carried out).
+///
+/// The bullet above argues that a successorless CLOUD close is always
+/// deliberate. That is an ASSUMPTION of exactly the kind W8-2 already falsified
+/// once for LAN: the code that tears the session down knows whether the close is
+/// final, and this function does not ask it — it infers the answer from the
+/// channel tag. Measured call graph (`shell/`, 2026-08-16):
+///   · DELIBERATE, cloud: `channel_session::drop_socket` (`set_socket(Cloud,
+///     None)`, reached from `shell/cloud.rs` on a refused/removed Cloud Key) and
+///     `sidecar_ctl::connect_cloud`'s not-dialable arm. A zombie released here
+///     would re-present an identity the user or the server has withdrawn — the
+///     suppression is right, and it must survive any change.
+///   · DELIBERATE, both channels: `shell/offline.rs`'s manual offline switch
+///     empties BOTH slots. Today the LAN half of that is released by the
+///     staleness arms, i.e. a stale successorless LAN close taken while the user
+///     asked to be offline can re-register. [unverified — reasoned from the call
+///     graph, never observed.]
+///   · TRANSIENT: `sidecar_ctl`'s bring-up-failed arm and `channel_session`'s
+///     dial-failed arm also empty a slot, and both want to come back. So
+///     「the slot was emptied」 is NOT the fact 「this close is final」, and a gate
+///     that inferred finality from `sock.is_none()` would re-create W8-2 on the
+///     very path W8-2 came from.
+/// ⇒ The minimal honest shape is to carry the INTENT: `begin_closing(intent)`
+/// stamps it on the `Pairing`, this function takes `final_close: bool` in place
+/// of `channel`, and the deliberate sites above say so. It is not done here
+/// because the intent can only be stated at those sites, which are outside this
+/// change's scope — and an in-fence half (flip the gate to release for any cloud
+/// close nobody marked) would REGRESS the removed-Cloud-Key path: that zombie's
+/// transport is still authenticated at the relay, so releasing it would put the
+/// PC back online on a key the user just removed. Half of this change is worse
+/// than none of it.
+/// ⚠️ The successorless-cloud arm has no consequence test today; the successor
+/// arm does (`pairing_tests::the_f3_protection_holds_forever_once_a_successor_
+/// is_constructed`).
 pub(super) fn closing_gate(
     channel: Channel,
     my_generation: u64,

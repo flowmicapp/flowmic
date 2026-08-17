@@ -85,6 +85,10 @@ const List<InstanceLivenessFace> kGuideStatusOrder = <InstanceLivenessFace>[
   InstanceLivenessFace.pcOnline,
   InstanceLivenessFace.unreachable,
   InstanceLivenessFace.pcOffline,
+  // Directly after [pcOffline] on purpose: a reader who has just learned what
+  // 「电脑已离线」("PC is offline") means is exactly the reader who needs to be
+  // told that the next word is a DIFFERENT thing with a different fix.
+  InstanceLivenessFace.pcSignedOut,
   InstanceLivenessFace.relayOnlyPcUnknown,
   InstanceLivenessFace.checking,
   InstanceLivenessFace.unmeasured,
@@ -96,6 +100,7 @@ String guideStatusLabel(AppStrings s, InstanceLivenessFace face) => switch (face
   InstanceLivenessFace.pcOnline => s.online,
   InstanceLivenessFace.unreachable => s.offline,
   InstanceLivenessFace.pcOffline => s.pcOfflineChip,
+  InstanceLivenessFace.pcSignedOut => s.pcSignedOutChip,
   InstanceLivenessFace.relayOnlyPcUnknown => s.relayUpPcUnknown,
   InstanceLivenessFace.checking => s.checkingReach,
   InstanceLivenessFace.unmeasured => s.tapToConnect,
@@ -108,6 +113,7 @@ String _statusNote(AppStrings s, InstanceLivenessFace face) => switch (face) {
   InstanceLivenessFace.pcOnline => s.guideStatusOnline,
   InstanceLivenessFace.unreachable => s.guideStatusOffline,
   InstanceLivenessFace.pcOffline => s.guideStatusPcOffline,
+  InstanceLivenessFace.pcSignedOut => s.guideStatusPcSignedOut,
   InstanceLivenessFace.relayOnlyPcUnknown => s.guideStatusRelayOnly,
   InstanceLivenessFace.checking => s.guideStatusChecking,
   InstanceLivenessFace.unmeasured => s.guideStatusUnmeasured,

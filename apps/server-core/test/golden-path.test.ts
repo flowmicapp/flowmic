@@ -86,8 +86,16 @@ describe('standalone golden path', () => {
     const updatedOnPc = once(pc, 'settings:updated');
     const upd = await ack<Record<string, unknown>>(mobile, 'settings:update', { key: 'stt.polish', value: { enabled: false } });
     expect(upd.ok).toBe(true);
-    const broadcast = (await updatedOnPc) as { key: string; value: unknown };
-    expect(broadcast).toEqual({ key: 'stt.polish', value: { enabled: false } });
+    const broadcast = (await updatedOnPc) as { key: string; value: unknown; updated_at?: string };
+    // 🔴 G2 (04 §3.7-a) widened this payload with `updated_at`. The old strict
+    // `toEqual` asserted 「these two keys and nothing else」, which is the promise
+    // that changed — so the shape is updated deliberately, not patched around.
+    // The stamp's VALUE is not pinned here (this is a live server with a real
+    // clock); what is pinned is that it crossed the wire at all, because a
+    // stripped stamp is this feature's whole failure mode and it is silent.
+    expect(broadcast.key).toBe('stt.polish');
+    expect(broadcast.value).toEqual({ enabled: false });
+    expect(typeof broadcast.updated_at).toBe('string');
 
     // 4. settings:list reflects the write (+ seeded defaults).
     const list = await ack<{ items: { key: string; value: unknown }[] }>(mobile, 'settings:list', {});

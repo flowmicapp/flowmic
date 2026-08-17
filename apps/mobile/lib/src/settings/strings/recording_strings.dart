@@ -228,6 +228,48 @@ mixin RecordingStrings on AppStringsLeaves {
   /// calendar month — so a new month is a fresh row and a fresh budget.
   String get sttStallQuotaExceeded => _lfSttStallQuotaExceeded;
 
+  /// `SETTINGS_SCHEMA_INVALID` — a stored settings ROW failed validation while
+  /// the server was setting this utterance up, so the press was refused at
+  /// `audio:start` and no engine was ever asked.
+  ///
+  /// 🔴 [sttStallEngineErrorCoded] IS A FALSE SENTENCE FOR THIS CODE, not merely
+  /// an ugly one. 「转写引擎报错（SETTINGS_SCHEMA_INVALID）」("transcription engine
+  /// error (SETTINGS_SCHEMA_INVALID)") asserts that an engine reported
+  /// something; nothing did. Measured producers on this path:
+  /// `resolveReplacementRules` (a corrupt `scenario.card`) and `readSttPolish`
+  /// (a corrupt `stt.polish`), both in `engine/stt-factory.ts`, both throwing
+  /// before an engine exists. This is the 0.2.53 / ENG-4 shape for the fourth
+  /// time in this file.
+  ///
+  /// ⚠️ DELIBERATELY DOES NOT NAME THE ROW. The frame carries a code, not a
+  /// key, and the two known producers are two different rows — naming one would
+  /// be a guess dressed as a diagnosis, and a user sent to fix the wrong row
+  /// learns that the app lies. 「what you changed most recently」 is a real
+  /// action that is true whichever row it was.
+  String get sttStallSettingsInvalid => _lfSttStallSettingsInvalid;
+
+  /// `SETTINGS_SYNC_FAIL` — the server's generic non-[ServerError] fallback
+  /// (`errorPayload` in server-core `errors.ts`), reached when something threw
+  /// that nobody classified.
+  ///
+  /// 🔴 Its REGISTERED sentence is 「云端同步失败，已保存本地。」("cloud sync failed,
+  /// saved locally") and that is doubly wrong here: nothing was being synced,
+  /// and nothing was saved locally. Falling through to
+  /// [sttStallEngineErrorCoded] is wrong the other way — no engine spoke.
+  ///
+  /// ⚠️ Its reach GREW on 2026-08-16 (`39ce52cc`, card K-3): the fan-out emit
+  /// and the session install now sit inside the try, so `sessions.put()`
+  /// disposing a same-key survivor — or a bridge teardown — surfaces here
+  /// instead of being dropped by `wrapSocketHandlers` with no frame at all.
+  /// That is a strict improvement (a named refusal beats silence) and it is
+  /// exactly why the sentence had to stop being a raw identifier.
+  ///
+  /// ⚠️ Says 「nothing on this phone needs changing」 rather than 「try again
+  /// later」: the fault is server-side by construction (a ServerError would
+  /// have carried its own code), and the one thing the user can usefully know
+  /// is that hunting through their own settings will not help.
+  String get sttStallServerFault => _lfSttStallServerFault;
+
   /// An engine error whose code this build has no sentence for. States what
   /// the frame itself proves (the engine reported an error) and shows the raw
   /// identifier — never a confident cause nobody verified (0.2.53 rule), and a
@@ -247,6 +289,9 @@ mixin RecordingStrings on AppStringsLeaves {
       if (code == 'STT_CONFIG_MISSING') return sttStallConfigMissing;
       if (code == 'STT_NO_ENGINE_REACHED') return sttStallNoEngineReached;
       if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
+      // Neither of these two is an engine speaking — see their own docs above.
+      if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;
+      if (code == 'SETTINGS_SYNC_FAIL') return sttStallServerFault;
       if (code != null && code.isNotEmpty) {
         return sttStallEngineErrorCoded(code);
       }

@@ -71,6 +71,45 @@ enum PcPresence {
   offline,
 }
 
+/// 🔴 **WHY that computer is not in its room**, when the server bothered to
+/// record a reason. The phone's mirror of the server's closed set
+/// (`apps/server-core/src/room/pc-absence.ts` `PC_ABSENT_REASONS`), which has
+/// exactly ONE member today.
+///
+/// 🔴 It exists for one product reason and no other: **this is the single
+/// absence whose correct user action is not 「去把电脑打开」 ("go turn the
+/// computer on")**. The machine is powered on and running fine; its cloud
+/// sign-in lapsed. Painting it as 「电脑已离线」 ("PC is offline") sends someone
+/// to stare at a computer that is working, and the one thing that would fix it
+/// — re-entering the Cloud Key over there — is not something the sentence
+/// points at.
+///
+/// ⚠️ **Adding a member here is a contract change** (book 18 §7.3.1 is the
+/// table it must match) and is not this layer's to make.
+enum PcAbsentReason {
+  /// `'auth_expired'` — that computer's cloud sign-in lapsed, so the relay
+  /// stopped admitting it to its room.
+  authExpired;
+
+  /// The wire value → this enum. **An unrecognised string is `null`, never a
+  /// guess**, and null means the row renders exactly as it did before this
+  /// enum existed (a plain absence). That is the safe failure direction: a
+  /// reason we do not understand must degrade to today's honest-if-vague
+  /// sentence, never to a confident sentence about a cause we invented.
+  static PcAbsentReason? parse(Object? raw) =>
+      raw == 'auth_expired' ? PcAbsentReason.authExpired : null;
+}
+
+/// What the instance list knows about one row's computer right now.
+///
+/// 🔴 ONE map value rather than two parallel maps. Two maps keyed the same way
+/// can disagree — one gets pruned, one does not; one is written on the failure
+/// path, one is not — and a row whose presence and whose reason came from
+/// different rounds would be a sentence assembled out of two different moments.
+/// The reason is only ever meaningful alongside the presence it belongs to, so
+/// they travel as one value.
+typedef PcPresenceRow = ({PcPresence presence, PcAbsentReason? absentReason});
+
 /// The two codes the server sends back to the phone when 「there is no PC in the
 /// room」. Receiving them IS **measured evidence the PC is absent** —
 /// this is currently the only path that **actively tells the phone mid-session that
@@ -121,6 +160,33 @@ PcPresence? pcPresenceFromInjectResult({required bool ok, String? error}) {
 /// change. The caller is the `Timer.periodic` started in `PttSession`'s constructor
 /// (`ptt/ptt_session.dart`).
 const Duration kIdlePcPresencePollInterval = Duration(seconds: 10);
+
+/// 🔴 The INSTANCE LIST's own re-probe cadence, while that page is on screen.
+///
+/// **The gap this closes.** `ConnectionsController.refreshReachability` had no
+/// timer at all: its only callers were `initState`, returning from chat,
+/// returning from the background, and the pull-to-refresh gesture. So one
+/// transient miss on the launch probe left a row saying 「中继可达 · 电脑是否在线
+/// 未知」 ("relay reachable · PC status unknown"), or a computer that came online
+/// twenty seconds after launch stayed painted as absent, **until the user
+/// happened to think of pulling down**. A status word whose only correction is
+/// a gesture the user has to guess at is not a measurement of the present.
+///
+/// **Why 15 s and not [kIdlePcPresencePollInterval]'s 10 s.** These two ticks
+/// cost different amounts. The session poll asks about exactly ONE computer;
+/// this one asks about every remembered pairing — N presence requests plus N
+/// health requests per tick. Matching the 10 s number would look consistent and
+/// would silently multiply the traffic owner's 2026-08-01 ruling was weighing.
+/// ⚠️ That ruling is about the session poll and is **not** widened by this
+/// constant; the two intervals are separate numbers because they answer for
+/// separate costs.
+///
+/// ⚠️ Foreground only. The timer is armed in `_ConnectionsPageState.initState`
+/// and cancelled in `dispose`, so it cannot outlive the page that justifies it
+/// — a background phone polling a list nobody is looking at would be traffic we
+/// generated for ourselves (the same argument `connections_controller`'s
+/// `_dropLink` makes about the reconnect ladder).
+const Duration kInstanceListPresencePollInterval = Duration(seconds: 15);
 
 /// [PcPresence]'s **sole writer**, living alongside it — so 「who can write this
 /// value」 is answered **structurally**,
@@ -278,6 +344,22 @@ enum InstanceLivenessFace {
   /// computer is perfectly on, or the other way around.
   pcOffline,
 
+  /// 🔴 The server answered 「that computer is not in its room」 **and said
+  /// why**: [PcAbsentReason.authExpired] — its cloud sign-in lapsed.
+  ///
+  /// **Split off from [pcOffline] by exactly the argument that split
+  /// [pcOffline] off from [unreachable]**: the user's correct next action is
+  /// different. This is the one absence on this page where 「去把电脑打开」
+  /// ("go turn the computer on") is actively WRONG — the machine is on and
+  /// running fine. Left as [pcOffline], this user walks over to a working
+  /// computer and finds nothing to do there, while the ten-second fix
+  /// (re-enter the Cloud Key on it) is never named.
+  ///
+  /// ⚠️ **Amber, not red** (connections_row_faces.dart). Red is this page's
+  /// colour for 「够不着」 ("can't be reached") and 「不在」 ("not there"); here
+  /// the machine is neither. What lapsed is a credential.
+  pcSignedOut,
+
   /// 🔴 The relay answered 「I'm here」, but **this time it could not ask that
   /// computer** — 「is the computer here or not」 has no answer.
   ///
@@ -303,11 +385,16 @@ enum InstanceLivenessFace {
 /// two independent requests, two independent tables**,
 /// read-only here — RV-92's 「two questions, two values」 has not been collapsed
 /// back into one value by this round.
+/// ⚠️ [pcAbsentReason] is only ever consulted on the `offline` branch, and only
+/// the relay ever supplies it. `null` — an old server, a LAN sidecar, or a
+/// reason string this build does not recognise — lands on exactly the face this
+/// function returned before the parameter existed.
 InstanceLivenessFace instanceLivenessFaceOf({
   required InstanceReach reach,
   required ServerChannel? answeringChannel,
   required InstanceTarget target,
   required PcPresence pcPresence,
+  PcAbsentReason? pcAbsentReason,
 }) {
   switch (reach) {
     case InstanceReach.unknown:
@@ -335,7 +422,15 @@ InstanceLivenessFace instanceLivenessFaceOf({
         case PcPresence.online:
           return InstanceLivenessFace.pcOnline;
         case PcPresence.offline:
-          return InstanceLivenessFace.pcOffline;
+          // 🔴 The absence is measured either way — the branch only decides
+          // WHICH true sentence to say about it. A reason we do not recognise
+          // (or none at all) keeps the pre-existing sentence rather than
+          // inventing a cause: `switch` on the enum so that adding a member to
+          // [PcAbsentReason] without deciding its face is a compile error.
+          return switch (pcAbsentReason) {
+            PcAbsentReason.authExpired => InstanceLivenessFace.pcSignedOut,
+            null => InstanceLivenessFace.pcOffline,
+          };
         case PcPresence.unknown:
           break; // couldn't get an answer ⇒ fall back to the old criterion below
       }

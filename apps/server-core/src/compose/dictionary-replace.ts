@@ -42,6 +42,21 @@
 export interface TermRule {
   canonical: string;
   aliases?: readonly string[];
+  /** Authored biasing weight, CARRIED but NOT CONSUMED here.
+   *
+   *  `buildDictionaryReplacer` below reads `canonical` and `aliases` only —
+   *  deterministic replacement is all-or-nothing, there is no "how strongly"
+   *  knob for it — so this field is provably inert on this path.
+   *
+   *  It exists because `resolveReplacementRules` is now ALSO the source for the
+   *  FunASR open-frame hotwords (`stt/engine-factory.ts loadHotwords`), and the
+   *  curated packs carry hand-authored weights (`@flowmic/protocol`
+   *  DICTIONARY_PACKS: API 25, GitHub 25, Kubernetes 20 …). Without a place to
+   *  put them, every pack term would silently collapse to the default 20
+   *  (`stt/hotwords.ts` HOTWORD_DEFAULT_WEIGHT) on the way to the engine — a
+   *  loss no replacer test could ever see, because the replacer does not look
+   *  at it. Consumers that DO care read it; this one ignores it. */
+  weight?: number;
 }
 
 /** A built, reusable replacer. `apply` is pure; `ruleCount` is the number of

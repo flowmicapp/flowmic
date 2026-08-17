@@ -324,7 +324,8 @@ void main() {
       await appSettings.load();
       final FakeSocketTransport transport = FakeSocketTransport();
       addTearDown(transport.close);
-      final SettingsClient settingsClient = SettingsClient(transport: transport);
+      final SettingsClient settingsClient = SettingsClient(
+          transport: transport, roomJoins: ValueNotifier<int>(0));
       addTearDown(settingsClient.dispose);
       final ScenarioCardController scenario = ScenarioCardController(
         settingsClient: settingsClient,

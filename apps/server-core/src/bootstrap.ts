@@ -31,6 +31,8 @@ import { makeUsageTracker } from './billing/usage-tracker';
 import { makeQuotaGuard } from './billing/quota-guard';
 import { BillingService } from './billing/billing-service';
 import { makeHttpHandler } from './http/router';
+// One definition of 「which room, without naming it」 — see its own doc comment.
+import { hashedRoomId } from './http/presence-routes';
 import { composeHttpDeps } from './bootstrap-http-deps';
 import { getAccount, getAccountAuthError, type ActingIdentity } from './socket/wire';
 import { registerPcHandlers } from './socket/handlers/pc.handler';
@@ -66,7 +68,7 @@ import {
 } from './mail';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.5';
+export const SERVER_VERSION = '0.3.6';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -580,7 +582,29 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
         // Pre-existing, not introduced by Fix#2: an ordinary reconnect already hit
         // this ~20 s later when the old socket's pingTimeout expired. Fix#2 closes
         // the displaced socket immediately, which would have made it deterministic.
-        if (store.leavePc(roomUuid, socket.id)) db.pcs.setOnline(auth.deviceId ?? '', false);
+        const leftItsRoom = store.leavePc(roomUuid, socket.id);
+        // 🔴 The one line that can attribute a PC's absence AFTER THE FACT, and the
+        // only place in the process that holds both halves of it:
+        //   · `reason` is socket.io's own verdict on WHY this socket went away, and
+        //     the distinction it carries is the one support work always needs —
+        //     'client namespace disconnect' (the desktop chose to leave) vs
+        //     'ping timeout' / 'transport close' (the network took it). Nothing
+        //     downstream keeps that: the room map only learns that the PC is gone,
+        //     and `pc_devices.is_online` is one bit with no cause attached.
+        //   · `left_room` is `leavePc`'s socket_id VERDICT (F-3 Fix#2 above), so a
+        //     `false` here says 「this was a DISPLACED socket, the machine is live
+        //     right now」 — which is exactly the line that stops the next reader
+        //     from concluding a healthy PC went offline.
+        // Counts/ids/verdicts only: no window titles, no transcripts, no tokens,
+        // and the room travels as a digest (`hashedRoomId`, whose other caller is
+        // the presence route — the two lines are meant to be joined).
+        log.info('pc left its room', {
+          pc_id: auth.deviceId ?? null,
+          room: hashedRoomId(roomUuid),
+          reason,
+          left_room: leftItsRoom,
+        });
+        if (leftItsRoom) db.pcs.setOnline(auth.deviceId ?? '', false);
       } else if (auth.kind === 'mobile' && auth.pairingId) {
         // GA-04: a mobile drop is NOT a departure yet. Defer the room-leave and
         // the pc:mobile-left announcement to the end of the audio grace window

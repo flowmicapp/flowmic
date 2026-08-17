@@ -39,6 +39,11 @@ const String _kPcId = 'pc-test-1';
 class _FakeReader {
   final List<Uri> urls = <Uri>[];
   final List<String> tokens = <String>[];
+
+  /// The per-attempt budget each call was handed. Recorded because a knob whose
+  /// value never reaches the thing it is supposed to govern is not a knob — see
+  /// the liveness test at the bottom of this file.
+  final List<Duration> timeouts = <Duration>[];
   final List<Object> _throwQueue = <Object>[];
   final List<PcPresenceReading> _answerQueue = <PcPresenceReading>[];
   int get calls => urls.length;
@@ -49,6 +54,7 @@ class _FakeReader {
   Future<PcPresenceReading> call(Uri url, String token, Duration timeout) async {
     urls.add(url);
     tokens.add(token);
+    timeouts.add(timeout);
     if (_throwQueue.isNotEmpty) throw _throwQueue.removeAt(0);
     if (_answerQueue.isNotEmpty) return _answerQueue.removeAt(0);
     return const PcPresenceReading(presence: PcPresence.online, pcId: _kPcId);
@@ -249,6 +255,94 @@ void main() {
         async.elapse(const Duration(seconds: 10));
         expect(b.reader.calls, 2);
         expect(b.session.pcPresence.value, PcPresence.online);
+      });
+    });
+  });
+
+  // ── the knob is LIVE, not merely present ─────────────────────────────────
+  //
+  // 🔴 WHY THIS GROUP EXISTS. When the bounded retry landed, this poll started
+  // reading `kSessionPollPresenceBudget.perAttemptTimeout` (2.5 s) directly, and
+  // `PttSession.presencePollTimeout` (3 s) stopped being read by anything at
+  // all. Nothing went red: every existing case here asserts WHETHER the reader
+  // was called and WHAT it answered, and none of them looked at the budget it
+  // was handed. A control that changes nothing is worse than no control (the
+  // standing rule), and it is invisible to a suite that only measures effects
+  // the control does not reach.
+  //
+  // ⇒ The first test alone would NOT have caught it: while the two numbers
+  //   agree, reading either one gives the same answer. Only MUTATING the field
+  //   and watching the budget follow can tell a live knob from a dead one, and
+  //   that is the second test.
+  //
+  // REVERSE CONTROL (executed 2026-08-16). Break: in ptt_presence_poll.dart put
+  // `budget: kSessionPollPresenceBudget` back, i.e. read the constant instead of
+  // the field. OBSERVED `+10 -2: Some tests failed.` — the two MUTATING cases:
+  //   "changing the field changes the budget — this is what proves it is read"
+  //     Expected: Duration:<0:00:01.234000>
+  //       Actual: Duration:<0:00:03.000000>
+  //   "the retry keeps using it for EVERY attempt, not just the first"
+  //     Expected: [Duration:0:00:01.234000, Duration:0:00:01.234000]
+  //       Actual: [Duration:0:00:03.000000, Duration:0:00:03.000000]
+  // CONTROL-ON-CONTROL: "the per-attempt budget handed to the reader IS
+  // PttSession.presencePollTimeout" stayed GREEN, and so did every other case in
+  // this file. That is exactly the point being made above: with both numbers at
+  // 3 s, a non-mutating assertion cannot tell a live knob from a dead one — only
+  // the two that change the field can, which is why they exist.
+  group('G-15①: presencePollTimeout is the per-attempt budget, and is READ', () {
+    test('the per-attempt budget handed to the reader IS '
+        'PttSession.presencePollTimeout', () {
+      fakeAsync((FakeAsync async) {
+        final _Built b = _pair(async);
+        async.elapse(const Duration(seconds: 10));
+        expect(b.reader.calls, 1);
+        expect(b.reader.timeouts.single, b.session.presencePollTimeout);
+        // …and the declared constant agrees with the field, which is the whole
+        // reason the field could go unread without anyone noticing. Two
+        // spellings of one number: if one moves, this fails until both do.
+        expect(
+          b.session.presencePollTimeout,
+          kSessionPollPresenceBudget.perAttemptTimeout,
+        );
+      });
+    });
+
+    test('changing the field changes the budget — this is what proves it is read',
+        () {
+      fakeAsync((FakeAsync async) {
+        final _Built b = _pair(async);
+        // A value no constant in this repo holds, so a pass cannot be a
+        // coincidence of two numbers happening to agree.
+        b.session.presencePollTimeout = const Duration(milliseconds: 1234);
+        async.elapse(const Duration(seconds: 10));
+        expect(b.reader.timeouts.single, const Duration(milliseconds: 1234));
+        expect(
+          b.reader.timeouts.single,
+          isNot(kSessionPollPresenceBudget.perAttemptTimeout),
+        );
+      });
+    });
+
+    test('the retry keeps using it for EVERY attempt, not just the first', () {
+      fakeAsync((FakeAsync async) {
+        final _Built b = _pair(async);
+        b.session.presencePollTimeout = const Duration(milliseconds: 1234);
+        // A retryable miss is the only thing that buys a second attempt — an
+        // answered reading is a measurement and is never re-asked.
+        b.reader.answerOnceWith(const PcPresenceReading(
+          presence: PcPresence.unknown,
+          miss: PcPresenceMiss.timeout,
+        ));
+        async.elapse(const Duration(seconds: 10)); // the tick fires AT 10 s…
+        // …and the 500 ms backoff before attempt 2 lands after it, so it needs
+        // its own elapse. One second, not another ten: ten would fire the NEXT
+        // tick and the second call would prove nothing about the retry.
+        async.elapse(const Duration(seconds: 1));
+        expect(b.reader.calls, 2, reason: 'a retryable miss must buy attempt 2');
+        expect(b.reader.timeouts, <Duration>[
+          const Duration(milliseconds: 1234),
+          const Duration(milliseconds: 1234),
+        ]);
       });
     });
   });

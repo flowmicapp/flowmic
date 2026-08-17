@@ -40,6 +40,19 @@ mixin ConnectionStrings on AppStringsLeaves {
   /// relay really was connected); this sentence separately answers "is that
   /// computer there" — two questions, two pieces of text.
   String get pcOfflineChip => _lfPcOfflineChip;
+
+  /// 🔴 The one absence whose correct action is NOT 「去把电脑打开」("go turn
+  /// the computer on"). That machine is powered on and running; its cloud
+  /// sign-in lapsed, so the relay stopped admitting it to its room.
+  ///
+  /// 🔴 **Must stay a different sentence from [pcOfflineChip]**, for the same
+  /// reason [pcOfflineChip] must stay different from [offline]: the user's next
+  /// move differs. Told 「电脑已离线」 this person walks over to a computer that
+  /// is working perfectly and finds nothing to do, while the ten-second fix is
+  /// never named. The guide line ([GuideStrings.guideStatusPcSignedOut]) is
+  /// where the fix itself is spelled out — this chip only has room to say WHICH
+  /// kind of absence it is.
+  String get pcSignedOutChip => _lfPcSignedOutChip;
   String get checkingReach => _lfCheckingReach;
   String get connectingRow => _lfConnectingRow;
   String get tapToConnect =>

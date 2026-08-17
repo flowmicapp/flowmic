@@ -107,10 +107,50 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   String? _pinMismatchKey;
   String? _pinMismatchCode;
 
+  /// 🔴 The instance list's own re-probe tick, alive only while this page is.
+  ///
+  /// Before it, `refreshReachability` was called from exactly four places —
+  /// `initState`, returning from chat, returning from the background, and the
+  /// pull gesture — so **one** transient miss stuck on screen until the user
+  /// thought to pull down. A row that can only be corrected by a gesture the
+  /// user has to guess at is not answering 「此刻」 ("right now"), which is the
+  /// entire value of a presence word.
+  ///
+  /// ⚠️ Cadence lives in [kInstanceListPresencePollInterval], not as a literal
+  /// here: it is a cost decision (N pairings per tick) and the day it is tuned,
+  /// exactly one line should change.
+  Timer? _presencePoll;
+
   @override
   void initState() {
     super.initState();
     unawaited(_refresh());
+    _presencePoll = Timer.periodic(
+      kInstanceListPresencePollInterval,
+      // ⚠️ Re-probe only — deliberately NOT [_refresh]. `load()` re-reads the
+      // pairing list from storage, and nothing changes that list while this
+      // page is the thing on screen; re-reading it every tick would be I/O
+      // bought with nothing. The four existing callers still do the full
+      // refresh, because each of them follows something that CAN have changed
+      // the list.
+      //
+      // ⚠️ No in-flight guard here: `refreshReachability` is already
+      // re-entrant-safe per target (`_probing` / `_presenceProbing`), and a
+      // second guard at this layer would be a second answer to one question.
+      (Timer _) => unawaited(widget.connections.refreshReachability()),
+    );
+  }
+
+  @override
+  void dispose() {
+    // 🔴 A periodic timer that outlives its page keeps probing behind a screen
+    // nobody is watching — traffic we generated ourselves, and on a route that
+    // carries a credential. This repo has the precedent written down twice
+    // already (`_dropLink`'s reconnect ladder, `_stopPresencePoll`'s session
+    // tick); a leaked timer here would be the third instance of one shape.
+    _presencePoll?.cancel();
+    _presencePoll = null;
+    super.dispose();
   }
 
   /// Load the remembered pairings, then probe them. Reachability rides AFTER the

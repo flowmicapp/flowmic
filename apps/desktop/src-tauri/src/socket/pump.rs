@@ -34,7 +34,7 @@ use crate::socket::reconcile::Reconciler;
 // RV-26 + RV-34: the registration latch's local watchdog. Its own module since the
 // RV-34 fix pushed this file past the source cap — the pump owns the TICK, the
 // watchdog owns the DECISION (socket/register_watchdog.rs).
-use crate::socket::register_watchdog::{RegisterAction, RegisterWatchdog, REGISTER_RETRY_MAX};
+use crate::socket::register_watchdog::{RegisterAction, RegisterWatchdog, REGISTER_RETRY_CEIL, REGISTER_RETRY_MAX};
 // F3: the SPEAKING lock's STATE-timed local watchdog and its audio-liveness clock.
 // Same split rationale as register_watchdog above.
 use crate::socket::speak_liveness::{lock_starved, SpeakLiveness};
@@ -570,24 +570,54 @@ pub(super) fn spawn(
             match register_wd.decide(connected.load(Ordering::SeqCst), acked, Instant::now()) {
                 RegisterAction::Idle => {}
                 RegisterAction::Resend { attempt, waited } => {
+                    // Past the ladder's announcement the attempt number keeps
+                    // counting, so it must not be printed as "6/5".
+                    let rung = if attempt > REGISTER_RETRY_MAX {
+                        format!("attempt {attempt} (past the cap of {REGISTER_RETRY_MAX} — knocking at the ceiling)")
+                    } else {
+                        format!("attempt {attempt}/{REGISTER_RETRY_MAX}")
+                    };
                     forensic::record(
                         "pump",
                         &format!(
                             "register watchdog: connected but the handshake is UNACKED for {}ms — \
-                             re-emitting pc:register (channel={tag} attempt \
-                             {attempt}/{REGISTER_RETRY_MAX})",
+                             re-emitting pc:register (channel={tag} {rung})",
                             waited.as_millis()
                         ),
                     );
                     pairing::emit_register(&hb_client, &pairing, &reconciler);
                 }
                 RegisterAction::GiveUp { attempts } => {
+                    // 🔴 THIS LINE USED TO END "…until the socket drops and the open
+                    // handler gets another turn", which was an assertion about a
+                    // recovery that could not happen: the transport stays up
+                    // (engine.io ping/pong), the heartbeat below is gated on `acked`,
+                    // so nothing this process does can provoke the drop it was
+                    // waiting for. The ladder no longer stops — it announces here and
+                    // then knocks once per ceiling interval — so the line says what
+                    // is now true, and says what to expect next.
                     forensic::record(
                         "pump",
                         &format!(
-                            "register watchdog GIVING UP after {attempts} re-emits (channel={tag}) \
-                             — this channel stays connected-but-unregistered until the socket drops \
-                             and the open handler gets another turn"
+                            "register watchdog: {attempts} re-emits on channel={tag} all went \
+                             UNANSWERED — this channel is connected-but-unregistered (the server \
+                             does not have it in a room; presence answers offline). Announcing \
+                             once; pc:register keeps going out every {}s until the handshake is \
+                             acked or the socket drops.",
+                            REGISTER_RETRY_CEIL.as_secs()
+                        ),
+                    );
+                }
+                RegisterAction::Recovered { attempts, waited } => {
+                    // The exit from the state above. Without it a channel that came
+                    // back after the announcement leaves a log that ends on "all went
+                    // UNANSWERED" — indistinguishable from one that never recovered.
+                    forensic::record(
+                        "pump",
+                        &format!(
+                            "register watchdog RECOVERED — handshake acked on channel={tag} after \
+                             {attempts} unanswered re-emit(s) over {}ms connected-but-unregistered",
+                            waited.as_millis()
                         ),
                     );
                 }

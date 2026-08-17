@@ -79,30 +79,102 @@ export function redactApiKeys(value: unknown): unknown {
   return value;
 }
 
-/** Fan a settings change out to every OTHER online socket of the same user —
- *  peer PCs unfiltered, paired mobiles behind the credential deny-list with
- *  nested api_key stripped. Exported (WP-W1b) so the console REST write path
- *  reuses the EXACT same semantics (originSocketId '' = no origin to skip). */
-export function broadcastUpdated(io: Server, originSocketId: string, userId: string, payload: { key: string; value: unknown }): void {
+/** 04 §3.7-a — the wire shape of a settings change. `updated_at` is OPTIONAL and
+ *  its absence means UNKNOWN, so it is omitted rather than sent as undefined. */
+export interface SettingsUpdatedPayload {
+  key: string;
+  value: unknown;
+  updated_at?: string;
+}
+
+/** Re-attach an optional stamp without ever materialising `updated_at: undefined`
+ *  — an explicit undefined would make "no stamp" and "a stamp we lost" look the
+ *  same to anything comparing shapes. */
+function withStamp(payload: { key: string; value: unknown }, updated_at: string | undefined): SettingsUpdatedPayload {
+  return updated_at === undefined ? payload : { ...payload, updated_at };
+}
+
+/** What a MOBILE may see of this change, or null when it may see nothing at all.
+ *  ONE definition, used by both the account-wide fan-out below and the G2
+ *  regress refusal — a second copy of the deny-list is exactly the「同一个符号
+ *  两份答案」shape, and this one guards credentials. */
+function mobileView(payload: SettingsUpdatedPayload): SettingsUpdatedPayload | null {
   // GA-10: the reserved rename key is delivered to mobiles by the room-scoped
   // loop in the handler (04 §3.7 "broadcast only to mobiles within that PC's
   // room"). Excluding
   // them here keeps that scope real — otherwise this account-wide fan-out would
   // hand the rename to every phone on the account, including ones paired to a
   // different PC entirely.
-  const blockedForMobile = isCredentialBearing(payload.key) || payload.key === PC_NAME_KEY;
-  const mobilePayload = { key: payload.key, value: redactApiKeys(payload.value) };
+  if (isCredentialBearing(payload.key) || payload.key === PC_NAME_KEY) return null;
+  return withStamp({ key: payload.key, value: redactApiKeys(payload.value) }, payload.updated_at);
+}
+
+/** Fan a settings change out to every OTHER online socket of the same user —
+ *  peer PCs unfiltered, paired mobiles behind the credential deny-list with
+ *  nested api_key stripped. Exported (WP-W1b) so the console REST write path
+ *  reuses the EXACT same semantics (originSocketId '' = no origin to skip).
+ *
+ *  G2: `payload.updated_at` rides along when the caller has one. The console and
+ *  BYOK callers (bootstrap.ts, http/byok-routes.ts) pass none and therefore keep
+ *  today's behaviour byte for byte — absence is UNKNOWN, never epoch. */
+export function broadcastUpdated(io: Server, originSocketId: string, userId: string, payload: SettingsUpdatedPayload): void {
+  const mobilePayload = mobileView(payload);
   for (const [, peer] of io.sockets.sockets) {
     if (peer.id === originSocketId) continue;
     const auth = (peer.data as { auth?: AuthContext | null }).auth ?? null;
     if (!auth || auth.userId !== userId) continue;
     if (auth.kind === 'mobile') {
-      if (blockedForMobile) continue;
+      if (mobilePayload === null) continue;
       peer.emit('settings:updated', mobilePayload);
     } else {
       peer.emit('settings:updated', payload);
     }
   }
+}
+
+/**
+ * 🔴 G2 — how far ahead of THIS server's clock an incoming `updated_at` may be
+ * before it is replaced by `now()`.
+ *
+ * The clamp exists because the regress guard below introduces exactly one new
+ * failure mode: a row stamped in the future is refused every subsequent write
+ * and becomes PERMANENTLY UNWRITABLE. A client with a badly wrong clock (or a
+ * hostile one) would otherwise be able to freeze a key forever.
+ *
+ * Five minutes, and the reasoning is what makes the number defensible rather
+ * than arbitrary: it is comfortably wider than the clock drift a real NTP-synced
+ * phone or desktop shows (seconds), so a legitimate edit is never re-stamped in
+ * practice; and it BOUNDS THE DAMAGE, because the worst a clamped row can do is
+ * refuse writes until the wall clock catches up — at most this window, after
+ * which the key heals itself with no operator action. A tighter value would
+ * start re-stamping honest edits with server time; a looser one buys nothing and
+ * lengthens the freeze.
+ *
+ * ⚠️ Being re-stamped is not a rejection: the write still happens, it is only
+ * recorded as having happened NOW. That is the honest answer when the only other
+ * option is to record a moment that has not occurred yet.
+ */
+export const SETTINGS_STAMP_MAX_SKEW_MS = 5 * 60_000;
+
+/**
+ * A wire stamp as epoch millis, or null when it cannot be used as an instant.
+ *
+ * 🔴 `Iso8601` in @flowmic/protocol is `z.string().min(1)` — a NAME, not a
+ * validator (MEASURED 2026-08-16; it contradicted the first draft of the
+ * protocol test, which asserted a rejection and went red). So an unparseable
+ * string DOES cross the boundary, and comparing these as STRINGS would rank
+ * 'yesterday' above '2026-08-16T…' (lowercase 'y' > '2') ⇒ a garbage stamp
+ * would win every comparison and pin the row — the same permanent-unwritability
+ * failure the clamp closes, arriving through a different door.
+ *
+ * ⇒ Unparseable is treated as ABSENT, i.e. UNKNOWN, i.e. degrade to today's
+ * behaviour (write it). Never as a comparable value, and never as epoch zero:
+ * both of those let a malformed stamp decide who wins.
+ */
+function stampMs(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? null : t;
 }
 
 /**
@@ -145,13 +217,27 @@ export function broadcastUpdated(io: Server, originSocketId: string, userId: str
  * anchors for this key are the desktop SET site and stt/stt-polish-settings.ts's
  * GET site (decision 2026-07-23-settings-key-drift-literal-anchors), and this is
  * neither.
+ *
+ * 🔴 G2 — A SYNTHESIZED ROW CARRIES NO `updated_at`, AND THAT IS THE POINT.
+ * A stored row answers with its own stamp (the column has been per-key since the
+ * table was created — 05 §5.1, no migration involved). The two rows invented
+ * here are COMPUTED, not stored: there is no moment at which a human set them,
+ * so there is no honest value to report. Minting one would be precisely the lie
+ * this function's header above forbids — and worse than cosmetic, because the
+ * client convergence that reads these stamps would then compare a fabricated
+ * time against a real one. Absent = unknown = "this cannot be compared", which
+ * is the truth.
  */
 export function withEffectiveDefaults(
   rows: readonly SettingRow[],
   polishDefault: SttPolish,
   llmUsable: boolean,
-): { key: string; value: unknown }[] {
-  const out = rows.map((it) => ({ key: it.key, value: it.value as unknown }));
+): SettingsUpdatedPayload[] {
+  const out: SettingsUpdatedPayload[] = rows.map((it) => ({
+    key: it.key,
+    value: it.value as unknown,
+    updated_at: it.updated_at,
+  }));
   if (!out.some((it) => it.key === SETTINGS_KEY_STT_POLISH)) {
     out.push({ key: SETTINGS_KEY_STT_POLISH, value: { ...polishDefault } });
   }
@@ -180,10 +266,17 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
       // resolver's inputs change between calls.
       const llmUsable = llmCapabilityUsable(repo, auth.userId);
       const items = withEffectiveDefaults(repo.readAll(auth.userId), sttPolishDefaultFrom(llmUsable), llmUsable);
-      const out =
+      // G2: `updated_at` rides the ack on BOTH arms. This projection is the
+      // whole reason the stamp was invisible for so long — the column, the
+      // upsert and the repo have carried it since the table was created, and
+      // this `.map` dropped it (05 §5.1). Nothing else had to change to expose
+      // it: no migration, no schema, no new column.
+      const out: SettingsUpdatedPayload[] =
         auth.kind === 'mobile'
-          ? items.filter((it) => !isCredentialBearing(it.key)).map((it) => ({ key: it.key, value: redactApiKeys(it.value) }))
-          : items.map((it) => ({ key: it.key, value: it.value }));
+          ? items
+            .filter((it) => !isCredentialBearing(it.key))
+            .map((it) => withStamp({ key: it.key, value: redactApiKeys(it.value) }, it.updated_at))
+          : items.map((it) => withStamp({ key: it.key, value: it.value }, it.updated_at));
       safeAck(ack, { items: out });
     } catch {
       safeAck(ack, { error: 'SETTINGS_SYNC_FAIL' });
@@ -204,6 +297,17 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     // itself, not defensive coding: the phone renames things LOCALLY (its own
     // displayAlias, which never leaves the device), and the PC's name is the
     // PC's to set.
+    //
+    // 🔴 G2 DELIBERATELY STOPS AT THIS BRANCH — no `updated_at`, in or out.
+    // This key does not live in the KV at all (it writes `pc_devices.device_name`),
+    // so there is no `user_settings.updated_at` for it to be honest about, and
+    // `pc_devices` has no equivalent column. Stamping it would mean inventing a
+    // time from nothing — the same lie `withEffectiveDefaults` refuses to tell
+    // for its computed rows. It also has no convergence problem to solve: a PC's
+    // name is a fact about ONE machine, room-scoped, single-writer by owner's
+    // iron rule below, so there is no second copy to race.
+    // ⇒ test/pc-rename.test.ts asserts the exact un-stamped payload and stays
+    //   green. Anyone tempted to "finish the job" here should read this first.
     if (key === PC_NAME_KEY) {
       if (auth.kind !== 'pc' || !auth.deviceId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
       const name = parsePcName(value);
@@ -241,15 +345,60 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     // would override a real user choice, the one thing the ruling forbids.
     // Non-provenance keys pass through byte-identical.
     let stamped: unknown;
+    let storedAt: string;
     try {
       stamped = stampSettingProvenance(key, value);
-      repo.write(auth.userId, key, stamped, now());
+
+      // ── G2 regress guard (04 §3.7-a rule 2) ──────────────────────────────
+      // 🔴 THIS IS THE LOAD-BEARING HALF. `scenario.card` has TWO writers — the
+      // phone AND the desktop (apps/desktop/src/lib/settings-client.ts) — and two
+      // writers across two servers make four copies. Once clients start pushing
+      // their local copy on reconnect to converge, a phone holding a week-old
+      // card would clobber a desktop edit made five minutes ago. Without this
+      // refusal the convergence fix CREATES a data-loss path that does not exist
+      // today, which is strictly worse than the divergence it cures.
+      const wall = now();
+      const incomingMs = stampMs(parsed.data.updated_at);
+      const existing = repo.read(auth.userId, key);
+      const existingMs = stampMs(existing?.updated_at);
+      if (incomingMs !== null && existingMs !== null && existingMs > incomingMs) {
+        // Do not write, do not broadcast — and TELL THE LOSER. It is not an
+        // error code: the sender did nothing wrong, it is simply holding an
+        // older copy, and the one useful thing we can hand it is the copy that
+        // won. A silent `{ok:true}` would leave it believing its stale value is
+        // now authoritative — the exact 没有静默失败 shape, in the direction
+        // that says a thing was done when it was not.
+        // (04 §3.7-a: the same 「输家必须被告知」 rule the retired C5 conflict
+        //  verdict was built on.)
+        const winner: SettingsUpdatedPayload = withStamp(
+          { key, value: existing!.value },
+          existing!.updated_at,
+        );
+        const view = auth.kind === 'mobile' ? mobileView(winner) : winner;
+        // `view === null` only for keys a mobile may never hear (credentials /
+        // the reserved rename key). Then the loser is NOT told, deliberately:
+        // the credential deny-list has ONE definition and this is not the place
+        // to invent an exception to it.
+        if (view !== null) socket.emit('settings:updated', view);
+        return safeAck(ack, { ok: true });
+      }
+
+      // The stamp actually STORED: the client's own edit time when it gave one,
+      // otherwise this server's clock. Clamped — a stamp from the future would
+      // make the row permanently unwritable by the guard above.
+      storedAt = incomingMs !== null && incomingMs <= Date.parse(wall) + SETTINGS_STAMP_MAX_SKEW_MS
+        ? parsed.data.updated_at!
+        : wall;
+      repo.write(auth.userId, key, stamped, storedAt);
     } catch {
       return safeAck(ack, { error: 'SETTINGS_SYNC_FAIL' });
     }
     // Peers are told what was STORED, not what was sent — otherwise a second PC
     // would hold a value that differs from the database by exactly the marker.
-    broadcastUpdated(io, socket.id, auth.userId, { key, value: stamped });
+    // G2 extends that rule to the stamp: the broadcast carries the time that was
+    // WRITTEN, not the one that arrived, so a clamped stamp does not reach peers
+    // as a moment that never happened.
+    broadcastUpdated(io, socket.id, auth.userId, withStamp({ key, value: stamped }, storedAt));
     safeAck(ack, { ok: true });
   });
 }

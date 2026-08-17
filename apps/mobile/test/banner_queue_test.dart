@@ -416,6 +416,101 @@ void main() {
       expect(q.top!.message, contains('转写引擎报错'));
     });
 
+    // ── 2026-08-16: two codes that reach this banner without an engine ─────
+    //
+    // The fallback sentence 「转写引擎报错（CODE）」 / "Speech engine reported an
+    // error (CODE)" is not merely ugly for these two — it is FALSE. Nothing
+    // engine-side reported anything: SETTINGS_SCHEMA_INVALID is a stored
+    // settings row failing validation at audio:start (stt-factory.ts, before an
+    // engine exists), and SETTINGS_SYNC_FAIL is the server's generic
+    // non-ServerError fallback (errors.ts errorPayload), whose reach GREW on
+    // 2026-08-16 (39ce52cc, card K-3) to cover "installing the session threw".
+    // This is the 0.2.53 / ENG-4 shape, already repaired twice in this file.
+    //
+    // 🔴 TWO TESTS, ONE PER CODE, ON PURPOSE. A single loop over both codes
+    // would go red on either arm being deleted, and could not tell which — the
+    // reverse control below depends on the failure naming the arm.
+    //
+    // REVERSE CONTROL (executed 2026-08-16). Break: delete
+    // `if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;`
+    // from `sttStallBannerMessage` (recording_strings.dart).
+    // OBSERVED `+35 -1: Some tests failed.` — one red, and it is the
+    // SETTINGS_SCHEMA_INVALID case, failing on the FIRST locale of the loop:
+    //   Expected: 'Not transcribed: one of your saved settings is not valid, so
+    //             this recording never reached a speech engine. Open settings
+    //             and re-save what you changed most recently, then try again'
+    //     Actual: 'Speech engine reported an error (SETTINGS_SCHEMA_INVALID)'
+    // — i.e. the false sentence, verbatim, which is the defect being fixed.
+    // CONTROL-ON-CONTROL: the SETTINGS_SYNC_FAIL case stayed GREEN, as did the
+    // STT_CONFIG_MISSING / STT_NO_ENGINE_REACHED cases and the raw-identifier
+    // fallback — the break is one arm wide, and the fallback still works for
+    // codes that genuinely have no sentence.
+    test('SETTINGS_SCHEMA_INVALID gets its own sentence — the engine never '
+        'spoke, so it must not be quoted as having done so', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'SETTINGS_SCHEMA_INVALID',
+            message: 'scenario.card failed schema validation',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallSettingsInvalid, reason: '$locale');
+        // THE assertion this card exists for.
+        expect(
+          q.top!.message,
+          isNot(s.sttStallEngineErrorCoded('SETTINGS_SCHEMA_INVALID')),
+          reason: '$locale',
+        );
+        // …and the raw identifier is not on screen at all (0.2.53).
+        expect(q.top!.message, isNot(contains('SETTINGS_SCHEMA_INVALID')),
+            reason: '$locale');
+      }
+      // The two sentences must not read alike either — they ask for different
+      // actions, and that is the whole reason they are two codes.
+      expect(zh.sttStallSettingsInvalid, isNot(zh.sttStallServerFault));
+    });
+
+    test('SETTINGS_SYNC_FAIL gets its own sentence — neither an engine error '
+        'nor the registered 「已保存本地」 promise', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'SETTINGS_SYNC_FAIL',
+            message: 'Cannot read properties of undefined',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallServerFault, reason: '$locale');
+        expect(
+          q.top!.message,
+          isNot(s.sttStallEngineErrorCoded('SETTINGS_SYNC_FAIL')),
+          reason: '$locale',
+        );
+        expect(q.top!.message, isNot(contains('SETTINGS_SYNC_FAIL')),
+            reason: '$locale');
+      }
+      // 🔴 The registered protocol sentence for this code promises 「已保存本地」
+      // ("saved locally"). Nothing was being saved and nothing was synced; that
+      // promise must not appear on this banner.
+      expect(zh.sttStallServerFault, isNot(contains('已保存本地')));
+      expect(AppStrings.of(AppLocale.en).sttStallServerFault,
+          isNot(contains('saved locally')));
+      // The one useful thing the user can know: it is not theirs to fix.
+      expect(AppStrings.of(AppLocale.en).sttStallServerFault,
+          contains('nothing on this phone'));
+    });
+
     test('ENG-3: a code-less engine stall keeps the pre-existing generic '
         'sentence byte-for-byte', () {
       final BannerQueue q = buildChatBanners(

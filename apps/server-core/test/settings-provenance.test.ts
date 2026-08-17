@@ -391,7 +391,18 @@ describe('D3 — a client cannot forge the marker', () => {
     expect(selectRoutingWithSource('zh', stored, managedOn)!.source).toBe('user');
     // The peer was told the stored value, not the submitted one — otherwise a
     // second PC would hold a copy that differs from the database by the marker.
-    expect(emitted).toEqual([{ event: 'settings:updated', payload: { key: 'stt.routings', value: stored } }]);
+    //
+    // 🔴 G2 CHANGED THIS ASSERTION'S SHAPE ON PURPOSE (04 §3.7-a). The broadcast
+    // now also carries `updated_at`, so the old strict `toEqual` — which said
+    // 「these two keys and NOTHING else」 — was encoding the promise we have just
+    // replaced. It is widened rather than loosened: the stamp is asserted to be
+    // the one the DATABASE holds, which keeps the sentence above true for the
+    // stamp as well as the value. A peer that heard a different time than the one
+    // stored would be exactly the divergence this test was written to forbid.
+    const storedAt = db.settings.read(U, 'stt.routings')!.updated_at;
+    expect(emitted).toEqual([
+      { event: 'settings:updated', payload: { key: 'stt.routings', value: stored, updated_at: storedAt } },
+    ]);
   });
 });
 

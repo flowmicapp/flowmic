@@ -51,7 +51,10 @@ class _Rig {
     r.appSettings = AppSettingsController(prefs: r.prefs);
     await r.appSettings.load();
     r.settingsTransport = FakeSocketTransport();
-    r.settingsClient = SettingsClient(transport: r.settingsTransport);
+    // Never bumped: this test never joins a room, and the settings edge is not
+    // what it measures.
+    r.settingsClient = SettingsClient(
+        transport: r.settingsTransport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
       settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),

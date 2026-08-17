@@ -292,7 +292,8 @@ void main() {
           AppSettingsController(prefs: prefs);
       await appSettings.load();
       final FakeSocketTransport t = FakeSocketTransport();
-      final SettingsClient settingsClient = SettingsClient(transport: t);
+      final SettingsClient settingsClient =
+          SettingsClient(transport: t, roomJoins: ValueNotifier<int>(0));
       final ScenarioCardController scenario = ScenarioCardController(
         settingsClient: settingsClient,
         cache: InMemoryScenarioCardCache(),

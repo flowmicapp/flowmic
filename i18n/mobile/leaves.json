@@ -1334,6 +1334,11 @@
       "params": []
     },
     {
+      "key": "guideStatusPcSignedOut",
+      "leaf": "_lfGuideStatusPcSignedOut",
+      "params": []
+    },
+    {
       "key": "guideStatusRelayOnly",
       "leaf": "_lfGuideStatusRelayOnly",
       "params": []
@@ -2493,6 +2498,11 @@
       "params": []
     },
     {
+      "key": "pcSignedOutChip",
+      "leaf": "_lfPcSignedOutChip",
+      "params": []
+    },
+    {
       "key": "planLabel_free",
       "leaf": "_lfPlanLabel_free",
       "params": []
@@ -3271,6 +3281,16 @@
     {
       "key": "sttStallQuotaExceeded",
       "leaf": "_lfSttStallQuotaExceeded",
+      "params": []
+    },
+    {
+      "key": "sttStallServerFault",
+      "leaf": "_lfSttStallServerFault",
+      "params": []
+    },
+    {
+      "key": "sttStallSettingsInvalid",
+      "leaf": "_lfSttStallSettingsInvalid",
       "params": []
     },
     {

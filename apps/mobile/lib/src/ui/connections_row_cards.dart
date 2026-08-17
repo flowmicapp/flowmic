@@ -249,6 +249,11 @@ Widget _pairingCardRouted(_ConnectionsPageState page, AppStrings s, MobileSessio
                         target: instanceTargetOf(p),
                         // RV-98: whether this row's own computer is present (the list-domain PcPresence).
                         pcPresence: page.widget.connections.presenceOf(p),
+                        // …and, when it is absent AND the server said why, the
+                        // reason. Read from the same row, one map entry back,
+                        // so the two cannot describe different moments.
+                        pcAbsentReason:
+                            page.widget.connections.pcAbsentReasonOf(p),
                       ),
                     ),
                   ],
