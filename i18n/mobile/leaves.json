@@ -1359,6 +1359,11 @@
       "params": []
     },
     {
+      "key": "guideStatusReachUnanswered",
+      "leaf": "_lfGuideStatusReachUnanswered",
+      "params": []
+    },
+    {
       "key": "guideStatusRelayOnly",
       "leaf": "_lfGuideStatusRelayOnly",
       "params": []
@@ -2692,6 +2697,11 @@
       "params": []
     },
     {
+      "key": "reachUnanswered",
+      "leaf": "_lfReachUnanswered",
+      "params": []
+    },
+    {
       "key": "recLinkDegraded",
       "leaf": "_lfRecLinkDegraded",
       "params": []
@@ -2709,6 +2719,11 @@
     {
       "key": "recNoSound",
       "leaf": "_lfRecNoSound",
+      "params": []
+    },
+    {
+      "key": "reconnectNowAction",
+      "leaf": "_lfReconnectNowAction",
       "params": []
     },
     {

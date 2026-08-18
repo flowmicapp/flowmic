@@ -24,7 +24,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../audio/audio_emitter.dart';
+import '../diag/diag_log.dart' show diag;
 import 'http_endpoint.dart' show secureDialUrl;
+import 'network_watch.dart';
 import 'socket_core.dart';
 
 typedef BufferedChunksProvider = List<Map<String, Object?>> Function();
@@ -175,11 +177,80 @@ class ReconnectCoordinator {
     if (replacePin || pinFingerprint != null) _pin = pinFingerprint;
   }
 
+  /// B1 (2026-08-18) — 「手机的网络回来了」 as a reason to stop waiting.
+  ///
+  /// Attached once at the composition root (`main.dart`), not passed to the
+  /// constructor, because [PttSession] builds this object and both that file and
+  /// main.dart are at their line caps. The subscription's lifetime follows
+  /// [start] / [stop] like [_sub] does: a phone resting on the instance list has
+  /// no room to dial into, so a kick there would be a dial with nowhere to go.
+  NetworkWatch? _networkWatch;
+  StreamSubscription<void>? _netSub;
+
+  void attachNetworkWatch(NetworkWatch watch) {
+    _networkWatch = watch;
+    if (_running) _listenNetwork();
+  }
+
+  void _listenNetwork() {
+    _netSub ??= _networkWatch?.returned.listen(
+      (_) => kickNow(reason: 'network-returned'),
+    );
+  }
+
+  /// 🔴 Dial NOW instead of waiting out the rung this ladder is currently
+  /// serving — the one thing it could never be told.
+  ///
+  /// The ladder is a pure timer: it computes 1→2→4→8→16→30 s from how many
+  /// attempts have failed, and **nothing could ever tell it that the world
+  /// changed underneath**. So a phone that came out of a lift, or moved off a
+  /// dead Wi-Fi, sat there for up to 30 s more — on top of socket.io's own
+  /// drop detection (`pingInterval` 10 s + `pingTimeout` 20 s). Backing out to
+  /// the instance list and tapping the row dials immediately, which is precisely
+  /// why owner's recovery ritual became 「退出再进来」 ("back out and come in
+  /// again").
+  ///
+  /// 🔴 EVERY GUARD HERE IS A REFUSAL TO PAPER OVER SOMETHING ELSE:
+  ///   · not running ⇒ the ladder was stopped ON PURPOSE (a dead token; that
+  ///     path belongs to the explicit re-pair flow). Dialling here would be a
+  ///     button that cannot succeed;
+  ///   · already connected ⇒ nothing to do, and re-dialling a live socket is the
+  ///     F-5 capsule-flicker defect on purpose;
+  ///   · a dial already in flight ⇒ `SocketCore.connect` supersedes the live
+  ///     adapter, so kicking now would make the ladder chase its own tail (the
+  ///     comment atop `SocketCore.connect` records what that cost).
+  ///
+  /// ⚠️ `_attempt = 0` is not optimism, it is arithmetic: the pending delay was
+  /// computed for a world that no longer exists. If THIS dial fails, the ladder
+  /// resumes from rung 1 — a failed kick cannot storm.
+  ///
+  /// [reason] only reaches the forensic line; it is never a criterion.
+  void kickNow({required String reason}) {
+    final SocketStatus status = transport.currentStatus;
+    final bool act = _running &&
+        status != SocketStatus.connected &&
+        status != SocketStatus.connecting &&
+        status != SocketStatus.reconnecting;
+    diag('reconnect.kick', <String, Object?>{
+      'reason': reason,
+      'acted': act,
+      'running': _running,
+      'status': status.name,
+      'attempt_was': _attempt,
+    });
+    if (!act) return;
+    _timer?.cancel();
+    _timer = null;
+    _attempt = 0;
+    _scheduleReconnect(delayOverride: Duration.zero);
+  }
+
   void start() {
     if (_running) return;
     _running = true;
     _attempt = 0;
     _droppedSinceConnect = false;
+    _listenNetwork();
     // Seed from the transport instead of `null`: we very often attach to a link
     // that is ALREADY up. `PttSession.resumePairing` connects first and starts
     // the coordinator second, so a `null` seed makes the first edge we observe
@@ -199,6 +270,22 @@ class ReconnectCoordinator {
     _stableTimer?.cancel();
     _stableTimer = null;
     reconnecting.value = false;
+    // The network subscription follows this lifetime, not the process's: a phone
+    // resting on the instance list has no room to dial into, so a kick there
+    // would be a dial with nowhere to go. [attachNetworkWatch] keeps the watch
+    // itself, so the next [start] re-listens without re-attaching.
+    //
+    // 🔴 NULLED **BEFORE** THE AWAIT, exactly as `_sub` is three lines below,
+    // and it is not a style choice. Written the other way round — `await
+    // cancel()` first — the field is still non-null for one microtask, and
+    // `_listenNetwork`'s `??=` reads that as 「已经在听了」("already listening")
+    // ⇒ a `stop(); start();` pair inside a single turn silently ends with NO
+    // network subscription at all. Measured: the watch's own stream still
+    // delivered (a probe listener saw the event) while the ladder heard nothing,
+    // which is the worst shape of all — the wiring looks alive from outside.
+    final StreamSubscription<void>? net = _netSub;
+    _netSub = null;
+    await net?.cancel();
     final StreamSubscription<SocketStatus>? subscription = _sub;
     _sub = null;
     await subscription?.cancel();
@@ -309,7 +396,14 @@ class ReconnectCoordinator {
     return Duration(milliseconds: capped);
   }
 
-  void _scheduleReconnect() {
+  /// [delayOverride] is [kickNow]'s only privilege: it decides WHEN this rung
+  /// fires, and nothing else. Routing the manual/network kick through this one
+  /// function rather than calling `_dial` directly is deliberate — `_dial` is
+  /// reached through [_resolveThenDial], which is what keeps B4-15's 「这个地址
+  /// 还是最好的那个吗」 ("is this still the best address") true on every rung.
+  /// A second dialling path would give 「拨哪个地址」 ("which address to dial")
+  /// a second author, and that address is a machine identity (绝不许串号).
+  void _scheduleReconnect({Duration? delayOverride}) {
     if (_timer != null) return; // already pending
     if (_url == null) return; // nothing to reconnect to
     if (maxAttempts != 0 && _attempt >= maxAttempts) {
@@ -318,7 +412,7 @@ class ReconnectCoordinator {
     }
     _attempt += 1;
     reconnecting.value = true;
-    final delay = _backoffFor(_attempt);
+    final delay = delayOverride ?? _backoffFor(_attempt);
     debugPrint(
       '[flowmic.reconnect] schedule attempt=$_attempt delay=${delay.inMilliseconds}ms url=$_url',
     );

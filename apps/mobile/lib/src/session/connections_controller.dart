@@ -23,6 +23,7 @@ import 'package:flutter/foundation.dart';
 import '../auth/login_controller.dart';
 import '../auth/saas_endpoint.dart';
 import '../auth/token_storage.dart';
+import '../diag/diag_log.dart' show diag;
 import '../ptt/ptt_session.dart';
 import '../signaling/http_endpoint.dart';
 // 🔴 L-② — the SIGNALING layer owns the fact 「这次重连被拒了，服务器说的是什么、
@@ -43,6 +44,11 @@ import 'pc_presence_probe.dart';
 // moved character-for-character over there before this round added to it. Same
 // library, so `_pruneStaleProbeKeys` below still reaches `_presence`.
 part 'connections_presence.dart';
+// 🔴 The same gate, the other half: the 2026-08-18 reach work (retry, miss
+// classification, hysteresis, the forensic line) pushed this file to 830, so
+// 「这个地址够不着吗」 moved out beside 「那台电脑在不在」. Same library, so
+// `refreshReachability` and `_pruneStaleProbeKeys` below still reach both tables.
+part 'connections_reach.dart';
 
 /// Normalize a user-typed PC address into a socket.io-dialable http(s) URL.
 /// Accepts `host:port`, `http(s)://…`, and `ws(s)://…` (mapped to http(s)).
@@ -81,7 +87,8 @@ class ConnectOutcome {
   final String? error;
 }
 
-class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost {
+class ConnectionsController extends ChangeNotifier
+    with ConnectionsPresenceHost, ConnectionsReachHost {
   ConnectionsController({
     required this.session,
     required this.login,
@@ -138,6 +145,12 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
   /// v0.2.3 — the probe now reads BOTH facts off the one response: reachability
   /// (the dot) and `mode` (the channel chip). Reading them from one request is
   /// the only way the two can never disagree about the same server.
+  ///
+  /// `@override` because [ConnectionsReachHost] declares it as an abstract
+  /// getter — the same shape `probeTimeout` / `_presenceRead` already have for
+  /// [ConnectionsPresenceHost]. The field stays HERE, with the constructor that
+  /// takes it; only the code that reads it moved.
+  @override
   final HealthReader _healthRead;
 
   /// 🔴 RV-98 — the SECOND question the resting list asks, over its own request:
@@ -171,19 +184,6 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
   @override
   final Duration probeTimeout;
 
-  final Map<String, InstanceReach> _reach = <String, InstanceReach>{};
-  /// v0.2.3 / RV-54 — last SUCCESSFUL `/api/health.mode` per endpoint.
-  ///
-  /// Write: only a successful probe that named a known mode.
-  /// Keep on failure: 「这次没问到」("didn't get an answer this time") is not
-  /// 「它变了」("it changed").
-  /// Prune: [load] drops keys for endpoints no longer in the pairing list.
-  /// Stale on screen: the page MUST render this as 「上次…」("last time…") when the
-  /// row is not
-  /// online — painting it as the live chip would say 「现在」("now") for a past fact.
-  /// Absent = never measured this process lifetime (in-memory only).
-  final Map<String, ServerChannel> _channel = <String, ServerChannel>{};
-  final Set<String> _probing = <String>{};
 
   // 🔴 RV-98's `_presence` / `_presenceProbing` moved to
   // connections_presence.dart (same library) — see the part directive above.
@@ -209,26 +209,6 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
   /// MobileSession yet.
   static const String cloudEntryKey = 'cloud-entry';
 
-  /// What the last probe said about [endpoint]. `unknown` until one has run —
-  /// callers must render that as「未知」("unknown"), never as online.
-  InstanceReach reachOf(String endpoint) =>
-      _reach[normalizePairEndpoint(endpoint)] ?? InstanceReach.unknown;
-
-  /// Last successful channel measurement for [endpoint], or `null` when none
-  /// has landed yet. Callers that paint a LIVE chip must also check [reachOf]
-  /// — this value alone is a past fact when the row is offline (RV-54).
-  ServerChannel? channelOf(String endpoint) =>
-      _channel[normalizePairEndpoint(endpoint)];
-
-  /// Channel to show as 「now」: only when the row is currently online AND we
-  /// have a measurement. Distinct from [channelOf] on purpose — conflating them
-  /// is how 「上次」("last time") got painted as the live chip.
-  ServerChannel? liveChannelOf(String endpoint) {
-    final String key = normalizePairEndpoint(endpoint);
-    if (_reach[key] != InstanceReach.online) return null;
-    return _channel[key];
-  }
-
   /// Probe every listed endpoint, the cloud relay included, in parallel. Deduped
   /// by normalized endpoint (two pairings on one host are one request) and
   /// re-entrant-safe: an endpoint already in flight is not probed twice.
@@ -246,7 +226,22 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
     final List<Future<void>> jobs = <Future<void>>[];
     for (final String endpoint in targets) {
       if (!_probing.add(endpoint)) continue; // already being probed
-      _reach[endpoint] = InstanceReach.checking;
+      // 🔴 KEEP THE LAST ANSWER WHILE THE NEXT ONE IS IN FLIGHT. This line used
+      // to be an unconditional `= InstanceReach.checking`, and once the list
+      // grew a 15 s re-poll (2026-08-16) that turned into a permanent flicker:
+      // every row dropped to 检测中("checking…") four times a minute and stayed
+      // there for the length of a probe — **measured p50 1.14 s on the relay
+      // path** (tablet TB335ZC, 2026-08-18), i.e. ~8 % of the time the page was
+      // showing 「we are asking」 instead of the answer it already had.
+      //
+      // ⚠️ This is NOT the 「keep a stale online」 mistake `_presence`'s doc
+      // bans, and the difference is which event clears it: a FAILED probe still
+      // overwrites this the moment it lands (`_probeOne` writes every verdict,
+      // never skips), so no answer outlives the round that disproved it. What is
+      // preserved is only the interval between 「we started asking again」 and
+      // 「the new answer arrived」 — during which the previous measurement, all
+      // of 15 s old, is the best true thing we can say.
+      _reach.putIfAbsent(endpoint, () => InstanceReach.checking);
       jobs.add(_probeOne(endpoint));
     }
     for (final MobileSession p in _pairings) {
@@ -259,14 +254,29 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
       // should not be bound by this constraint.
       if (instanceTargetOf(p) != InstanceTarget.pc) continue;
       final String key = keyFor(p);
-      // 🔴 Invalidate the previous answer, **before deciding whether this round
-      // can even be asked**: a row that was not re-measured this round must
-      // never keep last round's `online` hanging on the screen as if it were
-      // current. Placing this after the `continue` below would miss exactly the
-      // case where 「this row cannot be asked right now」 — which is precisely
-      // when we most need to say 「don't know」.
-      _presence.remove(key);
-      if (p.token.isEmpty || p.endpoint.isEmpty) continue; // no credential to present ⇒ cannot be asked
+      // 🔴 Invalidate the previous answer for a row that CANNOT BE ASKED — and
+      // only for that row.
+      //
+      // This used to be an unconditional `_presence.remove(key)` placed above
+      // both `continue`s, and its comment gave the right reason for the wrong
+      // scope: 「a row that was not re-measured this round must never keep last
+      // round's `online` on screen」. The row that is ABOUT to be asked is not
+      // that row. Wiping it too meant every PC row fell to
+      // 「中继可达 · 电脑是否在线未知」("relay reachable · PC status unknown")
+      // at the top of every 15 s tick and climbed back out when the answer
+      // landed — up to 10.2 s later in the worst case
+      // ([kInstanceListPresenceBudget]). That amber sentence is the one owner
+      // reported on 2026-08-17, and it was manufactured here.
+      //
+      // ⚠️ Nothing stale survives a completed probe: `_probePresenceOne` writes
+      // its result unconditionally, `unknown` included. The only value kept is
+      // the one belonging to a question currently being re-asked.
+      if (p.token.isEmpty || p.endpoint.isEmpty) {
+        _presence.remove(key); // no credential to present ⇒ cannot be asked
+        continue;
+      }
+      // Already in flight from an earlier tick ⇒ keep what we have; the probe
+      // that is running owns this key and will overwrite it.
       if (!_presenceProbing.add(key)) continue;
       jobs.add(_probePresenceOne(p, key));
     }
@@ -278,25 +288,12 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
   // 🔴 RV-98's sole writer `_probePresenceOne` moved to
   // connections_presence.dart (same library) — see the part directive above.
 
-  Future<void> _probeOne(String endpoint) async {
-    HealthReading reading;
-    try {
-      reading = await _healthRead(healthUri(endpoint), probeTimeout);
-    } on Exception {
-      reading = HealthReading.offline; // unreachable IS the answer, not a swallow
-    } finally {
-      _probing.remove(endpoint);
-    }
-    _reach[endpoint] = reading.ok ? InstanceReach.online : InstanceReach.offline;
-    // Only a SUCCESSFUL read may set the channel. A failed probe leaves the last
-    // known value alone rather than erasing it — 「这次没问到」("didn't get an
-    // answer this time") is not 「它变了」("it changed").
-    final ServerChannel? channel = reading.channel;
-    if (reading.ok && channel != null) {
-      _channel[endpoint] = channel;
-    }
-    notifyListeners();
-  }
+  /// Consecutive rounds in which this endpoint produced NO ANSWER (a retryable
+  /// miss, after the in-cycle retries were already spent).
+  ///
+  /// 🔴 Reset by any ANSWER, including an unwelcome one: a 502 and a captive
+  /// portal are measurements, and a measurement never waits for a second
+  /// opinion. This counter is about 「问不到」("could not get an answer"), never
 
   /// Identity of the pairing the user most recently entered (connect / add /
   /// cloud). Re-resolved against [_pairings] so a later [setAlias] + [load]
@@ -380,6 +377,10 @@ class ConnectionsController extends ChangeNotifier with ConnectionsPresenceHost 
     }..removeWhere((String e) => e.isEmpty);
     _reach.removeWhere((String k, InstanceReach _) => !live.contains(k));
     _channel.removeWhere((String k, ServerChannel _) => !live.contains(k));
+    // Same rule for the hysteresis counter: a forgotten endpoint must not lend
+    // its miss streak to an address re-added later, which would turn that new
+    // row red on its FIRST unanswered round.
+    _reachMisses.removeWhere((String k, int _) => !live.contains(k));
     // (the presence prune below drops the absence REASON with it, because the
     // two live in one map value — see [ConnectionsPresenceHost._presence])
     // RV-98 — same rule, PAIRING-keyed (see [_presence]): a forgotten pairing

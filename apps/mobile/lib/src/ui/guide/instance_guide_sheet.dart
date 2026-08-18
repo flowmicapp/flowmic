@@ -100,6 +100,11 @@ const List<InstanceLivenessFace> kGuideStatusOrder = <InstanceLivenessFace>[
   // was mistaken for, and telling them apart is the whole point of it existing.
   InstanceLivenessFace.pairingRevoked,
   InstanceLivenessFace.relayOnlyPcUnknown,
+  // 🔴 Next to [relayOnlyPcUnknown] on purpose: both say 「我们没问到」("we did
+  // not get an answer"), and a reader who has just learned that distinction is
+  // in the right frame of mind for this one. It differs in WHO went unanswered
+  // — that computer, versus the address itself.
+  InstanceLivenessFace.reachUnanswered,
   InstanceLivenessFace.checking,
   InstanceLivenessFace.unmeasured,
 ];
@@ -114,6 +119,7 @@ String guideStatusLabel(AppStrings s, InstanceLivenessFace face) => switch (face
   InstanceLivenessFace.pcOtherAccount => s.pcOtherAccountChip,
   InstanceLivenessFace.pairingRevoked => s.pairingRevokedChip,
   InstanceLivenessFace.relayOnlyPcUnknown => s.relayUpPcUnknown,
+  InstanceLivenessFace.reachUnanswered => s.reachUnanswered,
   InstanceLivenessFace.checking => s.checkingReach,
   InstanceLivenessFace.unmeasured => s.tapToConnect,
 };
@@ -140,6 +146,7 @@ String _statusNote(AppStrings s, InstanceLivenessFace face) => switch (face) {
   // fact needing new words.
   InstanceLivenessFace.pairingRevoked => s.pairError('AUTH_TOKEN_INVALID'),
   InstanceLivenessFace.relayOnlyPcUnknown => s.guideStatusRelayOnly,
+  InstanceLivenessFace.reachUnanswered => s.guideStatusReachUnanswered,
   InstanceLivenessFace.checking => s.guideStatusChecking,
   InstanceLivenessFace.unmeasured => s.guideStatusUnmeasured,
 };

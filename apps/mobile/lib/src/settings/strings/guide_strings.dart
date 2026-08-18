@@ -48,6 +48,14 @@ mixin GuideStrings on AppStringsLeaves {
   String get guideStatusTitle => _lfGuideStatusTitle;
   String get guideStatusOnline => _lfGuideStatusOnline;
   String get guideStatusOffline => _lfGuideStatusOffline;
+  /// 🔴 2026-08-18 — and it is a THIRD sentence for the same reason the two
+  /// below are two: [guideStatusOffline] says 「够不着那个地址」("that address
+  /// cannot be reached"), which sends the reader to look at their network or
+  /// that machine. This one says 「这一轮没问到」("we got no answer this round"),
+  /// whose correct action is to do nothing and let the next tick answer. Reusing
+  /// [guideStatusOffline] here would put a troubleshooting errand under a
+  /// situation with nothing to troubleshoot.
+  String get guideStatusReachUnanswered => _lfGuideStatusReachUnanswered;
   /// 🔴 This one and [guideStatusOffline] must stay two different sentences,
   /// for the reason pc_presence.dart gives at the `pcOffline` face: the action
   /// they call for is different (go turn the PC on / go look at the network).

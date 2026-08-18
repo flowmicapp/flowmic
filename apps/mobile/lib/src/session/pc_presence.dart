@@ -363,6 +363,25 @@ enum InstanceLivenessFace {
   /// either. **offline can be propagated through, online cannot.**
   unreachable,
 
+  /// 🔴 We asked — twice, inside one cycle — and got **no answer at all** this
+  /// round. Not [unreachable], which claims the address is not serving.
+  ///
+  /// **Split off by the same argument that split [pcOffline] from
+  /// [unreachable]**, one layer further out: the user's correct next action
+  /// differs. [unreachable] says 「that address is not serving, go look at it」;
+  /// this one says 「we could not find out just now」, whose correct action is to
+  /// wait one tick.
+  ///
+  /// The measurement behind the split is in `instance_probe.dart`'s
+  /// [InstanceReach] doc: on the path this product's cloud relay actually takes,
+  /// **7.5 % of probes ran past the 3 s budget** while the relay was serving
+  /// every one of them. Every one of those was being painted red.
+  ///
+  /// ⚠️ **Amber, not red**, for [pcSignedOut]'s reason: red is this page's
+  /// colour for 「够不着」("can't be reached") and 「不在」("not there"), and we
+  /// are asserting neither.
+  reachUnanswered,
+
   /// 🔴 RV-98 addition: the server **answered, and said that computer is not in
   /// its room**.
   ///
@@ -474,6 +493,13 @@ InstanceLivenessFace instanceLivenessFaceOf({
       return InstanceLivenessFace.checking;
     case InstanceReach.offline:
       return InstanceLivenessFace.unreachable;
+    // 🔴 Ordered with [InstanceReach.offline], not with [InstanceReach.checking],
+    // because it is the same KIND of answer — a finished round — and differs only
+    // in how much it establishes. It sits before the presence branches for the
+    // reason `offline` does: if we could not reach the address, no answer about
+    // the computer behind it can have arrived this round either.
+    case InstanceReach.unanswered:
+      return InstanceLivenessFace.reachUnanswered;
     case InstanceReach.online:
       // owner's exception: this row has no PC target, relay-reachable is its
       // whole meaning.

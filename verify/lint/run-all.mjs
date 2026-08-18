@@ -39,6 +39,7 @@ import passwordPolicyMirror from './password-policy-mirror.mjs';
 import packageIdFamily from './package-id-family.mjs';
 import noCjk from './no-cjk.mjs';
 import changelogReleaseSections from './changelog-release-sections.mjs';
+import worktreeLocation from './worktree-location.mjs';
 
 const LINTS = [
   { name: 'protocol-whitelist', run: protocolWhitelist },
@@ -65,6 +66,7 @@ const LINTS = [
   { name: 'package-id-family', run: packageIdFamily },
   { name: 'no-cjk', run: noCjk },
   { name: 'changelog-release-sections', run: changelogReleaseSections },
+  { name: 'worktree-location', run: worktreeLocation },
 ];
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;

@@ -22,6 +22,37 @@ mixin ConnectionStrings on AppStringsLeaves {
   String get online => _lfOnline;
   String get offline => _lfOffline;
 
+  /// 🔴 2026-08-18 — 「我们这一轮没问到」("we got no answer this round"), which is
+  /// **not** [offline] and must never be worded as if it were.
+  ///
+  /// [offline] is a claim about the other end. This is a claim about US: two
+  /// attempts inside one cycle produced nothing back. On the path this product's
+  /// cloud relay takes, that happened to **7.5 % of probes while the relay was
+  /// answering every one of them** (measured, tablet TB335ZC, 2026-08-18 — the
+  /// numbers are in `session/instance_probe.dart`'s [InstanceReach] doc), so the
+  /// old wording sent someone to check a server that was fine, several times an
+  /// hour.
+  ///
+  /// ⚠️ Deliberately carries **no imperative**: there is nothing for the user to
+  /// do, and the next tick usually answers. Same rule `INJECT_PC_MISMATCH`'s copy
+  /// set — a sentence that tells someone to act on a situation they cannot act on
+  /// is worse than one that just says what is true.
+  String get reachUnanswered => _lfReachUnanswered;
+
+  /// 🔴 B4 (2026-08-18) — the button that replaces 「退出再进来」 ("back out and
+  /// come in again").
+  ///
+  /// The ladder is a pure timer, so a phone whose network came back mid-rung sat
+  /// there for up to 30 s more with **no way for the user to say 「现在试」**
+  /// ("try now") — and backing out to the instance list and tapping the row
+  /// dials immediately, which is exactly how that became the recovery ritual.
+  ///
+  /// ⚠️ It is only ever offered while the ladder is actually running
+  /// (`chat_banner_sources.dart` passes null otherwise). A dead token stops the
+  /// ladder on purpose and belongs to the re-pair flow; a button there would be
+  /// one that cannot succeed — a façade with a label.
+  String get reconnectNowAction => _lfReconnectNowAction;
+
   /// 🔴 RV-92 (owner 2026-08-01): the cloud relay answered "I'm here," but
   /// **the relay is not that computer**.
   ///

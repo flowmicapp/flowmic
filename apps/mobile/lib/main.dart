@@ -28,6 +28,8 @@ import 'src/crypto/blind_store_keyring.dart';
 import 'src/destination/destination_controller.dart';
 import 'src/ptt/ptt_session.dart';
 import 'src/settings/app_settings.dart';
+// B1 — the network-return hint the reconnect ladder never had (network_watch.dart).
+import 'src/signaling/network_watch.dart';
 import 'src/session/usage_counters.dart';
 import 'package:sqflite/sqflite.dart' show databaseFactory, getDatabasesPath;
 
@@ -65,6 +67,7 @@ import 'src/timeline/timeline_sqlite.dart';
 import 'src/timeline/timeline_store.dart';
 import 'src/timeline/timeline_sync.dart';
 import 'src/ui/app_lifecycle_bridge.dart';
+import 'src/ui/app_lifecycle_edges.dart';
 import 'src/ui/chat_flow_page.dart';
 import 'src/ui/connections_page.dart';
 import 'src/ui/first_run_locale_page.dart';
@@ -245,6 +248,10 @@ class FlowMicApp extends StatefulWidget {
 
 class _FlowMicAppState extends State<FlowMicApp> {
   late final PttSession _session;
+
+  /// B1 — 「网络回来了」. Owned here because it outlives every session span and
+  /// its `dispose` has to happen exactly once.
+  final NetworkWatch _networkWatch = ConnectivityNetworkWatch();
   late final TimelineStore _store;
   late final DestinationController _destination;
   late final TimelineSyncGate _syncGate;
@@ -275,6 +282,11 @@ class _FlowMicAppState extends State<FlowMicApp> {
       spill: widget.retainedAudio,
       onAuthExpired: () => _login.handleAuthExpired(),
     );
+    // 🔴 B1 (2026-08-18) — THE PRODUCTION CALLER of network_watch.dart. Grep it:
+    // this line is the whole wiring, and without it that port is a capability
+    // nobody invokes (this repo's #1 historical bug class). The ladder decides
+    // what to do with the hint; see [ReconnectCoordinator.kickNow].
+    _session.reconnect.attachNetworkWatch(_networkWatch);
     // Window C2 —— these three things must be built BEFORE TimelineStore, because
     // **a row's bytes belong to the row**
     // (RV-93), and deleting a row must delete everything it owns (Book 16 §6.2-2).
@@ -552,6 +564,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     _settingsClient.dispose();
     _destination.dispose();
     _store.dispose();
+    unawaited(_networkWatch.dispose());
     _session.dispose();
     widget.appSettings.dispose();
     super.dispose();
@@ -670,22 +683,11 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // all. The wire frames now always go out; the bridge (not a recorder-state
     // guard) is what makes the edges idempotent and pairs them 1:1.
     return AppLifecycleBridge(
-      onBackground: () => _session.pauseCapture(reason: 'background'),
-      onForeground: () async {
-        // ONE return-from-background edge, two independent consumers: restore a
-        // paused capture (and un-pause the PC capsule) and replace the instance
-        // list's stale probe snapshot. Starting both before awaiting also keeps
-        // probing alive if audio resume later reports an error.
-        // ⚠️ Card F1 narrowed WHEN this runs: `resumed` edges that were never a
-        // background (a permission dialog, the notification shade) no longer
-        // reach it. That is the point for `resumeCapture` — an unpaired resume
-        // re-surfaces a PC capsule the user dismissed — and it is harmless for
-        // the probe snapshot, which is only stale after a real absence.
-        await Future.wait<void>(<Future<void>>[
-          _session.resumeCapture(),
-          _connections.refreshReachability(),
-        ]);
-      },
+      onBackground: () => onAppBackground(_session),
+      onForeground: () => onAppForeground(
+        session: _session,
+        connections: _connections,
+      ),
       // V2-07.3/.4: the palette is switchable and the settings selector is
       // WIRED (history: the visual contract was dark-only and a non-functional
       // theme selector was once removed as a façade — this listener is the

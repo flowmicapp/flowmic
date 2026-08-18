@@ -11,8 +11,19 @@
 // for the state anyway — so it is MEASURED, not guessed: one unauthenticated HTTP
 // GET /api/health per distinct endpoint (the cloud relay included, it serves the
 // same route). A probe is not a session: it opens no socket, holds no token, and
-// its verdict never gates the tap. Anything that is not a clean `{ok:true}` inside
-// the timeout is reported as OFFLINE — the honest reading of 「unreachable」.
+// its verdict never gates the tap.
+//
+// 🔴 IN-PLACE CORRECTION (2026-08-18). This header used to end: 「Anything that
+// is not a clean `{ok:true}` inside the timeout is reported as OFFLINE — the
+// honest reading of 「unreachable」.」 **That sentence was true when written and
+// is false now, and it was also the defect**: on a path that loses packets, 「we
+// could not get an answer this once」 is not 「unreachable」, and reporting it as
+// such put a red 「离线」("offline") on a relay that was serving. The rule now:
+//   · a read is retried only while retrying could change the answer ([HealthMiss]);
+//   · a miss keeps its CLASS all the way to the caller, so 「问不到」("could not
+//     get an answer") and 「它说不行」("it said no") never render alike;
+//   · the connection is REUSED between probes, which is where the whole measured
+//     failure tail lived (the table on [_probeClientCache]).
 
 import 'dart:async';
 import 'dart:convert';
@@ -23,7 +34,57 @@ import '../signaling/lan_pinning.dart';
 
 /// What we know about one endpoint RIGHT NOW. `unknown` = never probed; it must
 /// render as「never probed」, never as online.
-enum InstanceReach { unknown, checking, online, offline }
+///
+/// 🔴 [unanswered] is NOT a gentler [offline] — the two answer different
+/// questions, and they were one value until 2026-08-18.
+///   · [offline]    — we asked, repeatedly, and this address is not serving.
+///   · [unanswered] — THIS round produced no answer at all. Nothing is known to
+///     be wrong over there; what we know is that we could not find out.
+///
+/// **The measurement that forced the split** (tablet TB335ZC, office Wi-Fi,
+/// direct — no proxy — 2026-08-18, 80 samples of the exact request this file
+/// makes): to the cloud relay, `total` p50 1.14 s, p90 2.68 s, p95 3.37 s,
+/// max 8.53 s, with **7.5 % of probes past 3 s**. The same tablet, same minute,
+/// same tool, to a domestic host: p50 0.092 s, p90 0.107 s, nothing past 2 s.
+/// The device and the network were fine; that one path simply loses packets, so
+/// a single miss was never evidence that the relay had gone away — and painting
+/// it 「离线」("offline") said exactly that, once every few minutes, in red.
+enum InstanceReach { unknown, checking, online, unanswered, offline }
+
+/// WHY a health read came back empty-handed.
+///
+/// It exists for the same reason `PcPresenceMiss` does one file over
+/// (pc_presence_probe.dart): **a retry is only honest when asking again could
+/// change the answer**, and a `bool` cannot say which case this was. Until this
+/// enum existed, [httpHealthRead] folded DNS failure, a lost SYN, a 502 and a
+/// captive portal's HTML into one `false` — so this probe could not retry
+/// intelligently, and it could not tell anyone afterwards what had happened.
+enum HealthMiss {
+  /// The per-attempt budget elapsed with nothing back. **Retryable** — on the
+  /// measured path above this is the commonest miss by a wide margin.
+  timeout,
+
+  /// The connection itself failed (`SocketException` / TLS / a socket that died
+  /// mid-read). **Retryable**: a Wi-Fi roam, a relay restart and a lost SYN all
+  /// look exactly like this and are over in well under a second.
+  network,
+
+  /// A non-200. **Not retryable**: the server answered, it just answered 「no」.
+  http,
+
+  /// 200, but the body is not ours — `ok != true`, or not even JSON (a captive
+  /// portal answers 200 for everything). **Not retryable** for the same reason:
+  /// whatever is on the other end, it will still be there next attempt.
+  malformed,
+}
+
+extension HealthMissRetry on HealthMiss {
+  /// The one place the retry rule is written down. Deliberately narrow — the
+  /// same 「只重试 timeout 与 network」("retry only timeout and network") ruling
+  /// `PcPresenceMiss.retryable` states, so the two probes on this page cannot
+  /// drift into two different ideas of what is worth asking twice.
+  bool get retryable => this == HealthMiss.timeout || this == HealthMiss.network;
+}
 
 /// The seam: unit tests supply a fake instead of touching the network.
 typedef HealthProbe = Future<bool> Function(Uri url, Duration timeout);
@@ -64,10 +125,125 @@ ServerChannel? channelFromHealthMode(Object? mode) => switch (mode) {
 
 /// One health reading: reachability AND which channel answered.
 class HealthReading {
-  const HealthReading({required this.ok, this.channel});
+  const HealthReading({required this.ok, this.channel, this.miss});
   final bool ok;
   final ServerChannel? channel;
+
+  /// WHY this read failed, when the reader could say. `null` on every success,
+  /// and — deliberately — also on a miss nobody classified.
+  ///
+  /// 🔴 THE NULL IS NOT A DEFAULT, IT IS AN ANSWER: 「we do not know whether
+  /// asking again would help」, and the safe reading of that is 「do not ask
+  /// again」 ([readHealthRetrying] rule ③). That is what keeps [offline] below —
+  /// and every injected test reader that returns it — behaving exactly as it did
+  /// before retries existed.
+  final HealthMiss? miss;
+
+  /// An unclassified miss. **Kept for its existing callers** (endpoint_candidates
+  /// .dart's two fallbacks, and the fakes across the mobile suite), all of which
+  /// mean 「something went wrong and we are not saying what」.
   static const HealthReading offline = HealthReading(ok: false);
+
+  /// A classified miss — what [httpHealthRead] returns, and the only shape a
+  /// retry can act on.
+  const HealthReading.missed(HealthMiss this.miss) : ok = false, channel = null;
+}
+
+/// How many times, and how long, one health question may be asked.
+///
+/// A class rather than three loose parameters for the same reason
+/// `PcPresenceRetryBudget` is one: the three numbers only mean anything
+/// together, and [worstCase] is the arithmetic that has to fit inside the
+/// caller's tick.
+class HealthRetryBudget {
+  const HealthRetryBudget({
+    required this.attempts,
+    required this.perAttemptTimeout,
+    required this.backoff,
+  });
+
+  final int attempts;
+  final Duration perAttemptTimeout;
+
+  /// Waits BETWEEN attempts, so its length is `attempts - 1`.
+  final List<Duration> backoff;
+
+  Duration get worstCase =>
+      perAttemptTimeout * attempts +
+      backoff.fold<Duration>(Duration.zero, (Duration a, Duration b) => a + b);
+}
+
+/// 🔴 The instance list's reach budget, and the arithmetic is the constraint.
+///
+/// The list re-probes on `kInstanceListPresencePollInterval` (15 s) and this
+/// runs CONCURRENTLY with the presence probe's own budget (worst case 10.2 s),
+/// so this one's worst case must also fit inside a tick: 2 × 3 s + 0.3 s =
+/// **6.3 s**. Two attempts, not three, for that reason and one more — with the
+/// connection now reused ([httpHealthRead]), the first attempt already skips the
+/// handshake where 100 % of the measured tail lived, so the second attempt is
+/// there for the burst case, not for the ordinary one.
+const HealthRetryBudget kInstanceListReachBudget = HealthRetryBudget(
+  attempts: 2,
+  perAttemptTimeout: Duration(seconds: 3),
+  backoff: <Duration>[Duration(milliseconds: 300)],
+);
+
+/// How many CONSECUTIVE answer-less rounds before an endpoint is called
+/// [InstanceReach.offline] rather than [InstanceReach.unanswered].
+///
+/// 🔴 Two, and the second one is not free — it costs the user up to one whole
+/// poll interval (15 s) of 「暂时问不到」("no answer right now") before the row
+/// turns red. That is the trade being made deliberately: on the measured path
+/// a lone miss is far more likely to be a lost packet than a relay that went
+/// away, and **the two mistakes are not symmetric**. Saying 「问不到」 about a
+/// relay that really is down costs 15 seconds of vagueness; saying 「离线」
+/// about a relay that is serving sends someone to debug a server that is fine
+/// — and it did, several times an hour.
+///
+/// ⚠️ Not a general timeout knob: it counts ROUNDS, not seconds, so it stays
+/// correct if the poll interval is ever tuned.
+const int kReachMissesBeforeOffline = 2;
+
+/// Ask once, and ask again only when asking again could change the answer.
+///
+/// Returns the first ANSWERED reading. When the budget runs out — or the miss
+/// says another attempt is pointless — the LAST miss is returned with its class
+/// intact, so the caller can still tell 「问不到」("could not get an answer")
+/// from 「它说不行」("it said no").
+///
+/// 🔴 THREE THINGS THAT ARE NEVER RETRIED, each for its own reason — the same
+/// three, in the same order, as `readPcPresenceRetrying`:
+///   ① a successful read — that is a MEASUREMENT, re-asking would only delay it;
+///   ② a miss whose class is not [HealthMissRetry.retryable] — the server
+///      answered, it just answered 「no」;
+///   ③ a miss with NO class at all (`miss == null`) — an injected reader that
+///      did not classify. Unclassified means 「we do not know whether asking
+///      again would help」, and the safe reading of that is 「do not ask again」.
+Future<HealthReading> readHealthRetrying(
+  Uri url, {
+  required HealthRetryBudget budget,
+  HealthReader? reader,
+}) async {
+  final HealthReader read = reader ?? httpHealthRead;
+  HealthReading last = HealthReading.offline;
+  for (int attempt = 0; attempt < budget.attempts; attempt++) {
+    if (attempt > 0) {
+      final int i = attempt - 1;
+      await Future<void>.delayed(
+        i < budget.backoff.length ? budget.backoff[i] : budget.backoff.last,
+      );
+    }
+    try {
+      last = await read(url, budget.perAttemptTimeout);
+    } on Object {
+      // A reader that THROWS is a reader that did not classify — rule ③.
+      return HealthReading.offline;
+    }
+    if (last.ok) return last;
+    final HealthMiss? miss = last.miss;
+    if (miss == null || !miss.retryable) return last;
+  }
+  return last;
 }
 
 /// The seam for the richer probe.
@@ -142,30 +318,92 @@ Future<bool> httpHealthProbe(Uri url, Duration timeout) async =>
 /// It sends nothing secret and grants nothing, which is what makes that safe. The
 /// `mode` it reads was already an unauthenticated claim over plain HTTP before
 /// this card, so nothing here got weaker.
+/// 🔴 ONE CLIENT, KEPT ALIVE — and this is the single highest-leverage line in
+/// the file. **Measured** (tablet TB335ZC, office Wi-Fi, direct, 2026-08-18):
+///
+/// | | fresh connection every probe (what this used to do) | connection reused |
+/// |---|---|---|
+/// | p50 | 1.14 s | 0.55 s |
+/// | p90 | 2.68 s | 1.25 s |
+/// | p95 | **3.37 s** | **1.43 s** |
+/// | max | **8.53 s** | **1.90 s** |
+/// | past the 3 s budget | **7.5 %** | **0 of 80** |
+///
+/// And directly, not by subtraction — five requests down one curl invocation on
+/// the same device: first (new connection) 1.096 s, then 0.350 / 0.352 / 0.351 /
+/// 0.606 s. **Every one of the 80 samples' tail lived in the TCP+TLS handshake**,
+/// which this probe was paying on every single tick and then throwing away with
+/// `close(force: true)`. The relay is 167 ms away and loses SYNs; the handshake
+/// is what turned that into a red row.
+///
+/// ⚠️ **`idleTimeout` IS LOAD-BEARING AND ITS DEFAULT IS A TRAP.** Dart's default
+/// is **15 s** (`dart-sdk/lib/_http/http.dart`, `Duration idleTimeout = const
+/// Duration(seconds: 15)`) and the list re-probes every **15 s**
+/// (`kInstanceListPresencePollInterval`) — the pooled connection would expire at
+/// almost exactly the moment the next probe wants it, so reuse would be a coin
+/// flip and this whole change would look like it did nothing. 60 s is chosen to
+/// clear that interval with room, and to stay well inside both Cloudflare's
+/// client keep-alive and any plausible NAT idle timeout.
+///
+/// ⚠️ Sharing is safe **on this arm only**: [HttpTrust.unverifiedProbe] carries
+/// no pin and this funnel sends no credential (the file header's D2LAN-B3 note).
+/// The pinned/credentialed funnels keep building a client per call, because
+/// there the client object IS where the per-attempt verdict is recorded.
+/// How long a pooled probe connection may sit idle before dart:io drops it.
+/// **Must exceed the list's re-probe interval** — see the ⚠️ above.
+const Duration kProbeClientIdleTimeout = Duration(seconds: 60);
+
+PinnedHttpClient? _probeClientCache;
+
+/// Deliberately written out rather than as `??=` with a cascade: `a ??= b..c`
+/// parses correctly but reads ambiguously, and the thing being set here is the
+/// one field whose default silently undoes the whole change.
+HttpClient _probeClient(Duration connectionTimeout) {
+  PinnedHttpClient? cached = _probeClientCache;
+  if (cached == null) {
+    cached = openHttpClient(
+      trust: HttpTrust.unverifiedProbe,
+      connectionTimeout: connectionTimeout,
+    );
+    cached.client.idleTimeout = kProbeClientIdleTimeout;
+    _probeClientCache = cached;
+  }
+  // Re-applied per call, because the budget is injectable
+  // (`ConnectionsController.probeTimeout`) and a cached client must not pin the
+  // FIRST caller's number onto every later one.
+  cached.client.connectionTimeout = connectionTimeout;
+  return cached.client;
+}
+
 Future<HealthReading> httpHealthRead(Uri url, Duration timeout) async {
-  final PinnedHttpClient probe = openHttpClient(
-    trust: HttpTrust.unverifiedProbe,
-    connectionTimeout: timeout,
-  );
-  final HttpClient client = probe.client;
+  final HttpClient client = _probeClient(timeout);
+  HttpClientRequest? req;
   try {
-    final HttpClientRequest req = await client.getUrl(url).timeout(timeout);
+    req = await client.getUrl(url).timeout(timeout);
     final HttpClientResponse res = await req.close().timeout(timeout);
     if (res.statusCode != 200) {
       await res.drain<void>().timeout(timeout);
-      return HealthReading.offline;
+      return const HealthReading.missed(HealthMiss.http);
     }
     final String body = await res.transform(utf8.decoder).join().timeout(timeout);
     // 200 alone is not proof it is US — a captive portal answers 200 for
     // everything. The health body has to actually say so.
     final Object? decoded = jsonDecode(body);
     if (decoded is! Map<String, Object?> || decoded['ok'] != true) {
-      return HealthReading.offline;
+      return const HealthReading.missed(HealthMiss.malformed);
     }
     return HealthReading(ok: true, channel: channelFromHealthMode(decoded['mode']));
+  } on TimeoutException {
+    // 🔴 ABORT, do not just walk away. The old code killed the whole client in
+    // its `finally`, which incidentally killed the socket too; now the client
+    // OUTLIVES the request, so an abandoned request would leave a half-used
+    // connection in the pool for the next probe to trip over.
+    req?.abort();
+    return const HealthReading.missed(HealthMiss.timeout);
+  } on FormatException {
+    return const HealthReading.missed(HealthMiss.malformed); // 200, but not JSON
   } on Exception {
-    return HealthReading.offline; // refused / timed out / DNS / not our JSON — all mean unreachable
-  } finally {
-    client.close(force: true);
+    req?.abort();
+    return const HealthReading.missed(HealthMiss.network); // refused / DNS / TLS / socket died
   }
 }

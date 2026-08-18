@@ -351,6 +351,8 @@ BannerQueue buildChatBanners({
   void Function()? onDismissAiFailure,
   void Function()? onDismissImageFailure,
   void Function()? onRetrySendFailure,
+  /// B4 — see [_linkBanner]. Null when the ladder is not running.
+  void Function()? onReconnectNow,
 }) {
   final BannerQueue queue = BannerQueue();
   final BannerItem? link = _linkBanner(
@@ -358,6 +360,7 @@ BannerQueue buildChatBanners({
     albumAway: albumAway,
     ladderReconnecting: ladderReconnecting,
     strings: strings,
+    onReconnectNow: onReconnectNow,
   );
   if (link != null) queue.push(link);
   if (autoStopped) {
@@ -538,10 +541,21 @@ BannerItem? _linkBanner({
   required bool albumAway,
   required bool ladderReconnecting,
   required AppStrings strings,
+  /// 🔴 B4 (2026-08-18) — null when there is nothing a tap could achieve, and
+  /// that is the ONLY criterion. The caller passes it only while the reconnect
+  /// ladder is running: a ladder stopped on a dead token belongs to the re-pair
+  /// flow, and a 「立即重连」 ("reconnect now") button there is a button that
+  /// cannot succeed. Same rule [onRetrySendFailure] already states — never a
+  /// button that guesses.
+  void Function()? onReconnectNow,
 }) {
   if (connection == ConnectionState.connected) return null;
   // Album window wins: the phone itself opened the picker — that is a
   // different fact from a random drop the ladder is healing.
+  //
+  // ⚠️ And it deliberately carries NO action: this phone opened the picker, the
+  // link comes back when the picker closes, and offering a dial here would be
+  // asking the user to fix something that is already scheduled to fix itself.
   if (albumAway) {
     return BannerItem(
       id: BannerIds.link,
@@ -557,11 +571,19 @@ BannerItem? _linkBanner({
       id: BannerIds.link,
       severity: BannerSeverity.degraded,
       message: strings.bannerReconnecting,
+      // 🔴 THIS is the state the button exists for. 「正在重连」 ("reconnecting")
+      // is true and useless while the ladder sits on its 30 s rung; the measured
+      // worst case before it dials on its own is that plus socket.io's own 30 s
+      // drop detection.
+      actionLabel: onReconnectNow == null ? null : strings.reconnectNowAction,
+      onAction: onReconnectNow,
     );
   }
   return BannerItem(
     id: BannerIds.link,
     severity: BannerSeverity.blocking,
     message: strings.bannerLinkDown,
+    actionLabel: onReconnectNow == null ? null : strings.reconnectNowAction,
+    onAction: onReconnectNow,
   );
 }

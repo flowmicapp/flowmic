@@ -6,7 +6,7 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.8
+version: 0.3.9
 
 environment:
   sdk: ^3.11.5
@@ -92,6 +92,24 @@ dependencies:
   # this line (pub's own solver message). 9.x reads the same `versionName`; the
   # constraint is a resolver fact, and it moves when file_picker moves.
   package_info_plus: ^9.0.1
+  # 2026-08-18 — the ONE thing the reconnect ladder never had: a reason to dial
+  # NOW. It is a pure timer (1→2→4→8→16→30 s), so leaving a lift or moving from
+  # a dead Wi-Fi to cellular bought nothing — the phone knew in milliseconds and
+  # the ladder found out up to 30 s later, on top of socket.io's own 30 s drop
+  # detection. That minute is what made 「退出再进来」 ("back out and come in
+  # again") the user's recovery ritual.
+  #
+  # ⚠️ It answers 「有没有网络接口」 ("is a network interface attached"), NOT
+  # 「够得着我们吗」 ("can it reach us") — a captive portal reads the same as a
+  # working LTE link. Only lib/src/signaling/network_watch.dart imports it, it is
+  # wrapped in a port so every test drives a fake, and its single consumer
+  # (`ReconnectCoordinator.kickNow`) re-checks the live socket status at fire
+  # time. Treating it as evidence of connectivity would be the R11 shape.
+  #
+  # Polling was the alternative and is worse (traffic we manufacture for
+  # ourselves); a hand-rolled channel would be two native implementations for a
+  # callback both platforms already publish.
+  connectivity_plus: ^7.0.0
   # Window C export/import (16 册 (doc 16) §3: 「附件文件名用内容哈希前 16 位十六进制」
   # — "attachment file names use the first 16 hex digits of the content hash")
   # — sha256 over

@@ -62,6 +62,14 @@ BannerQueue _liveSources({
   autoStopReason: controller.autoStopReason,
   albumAway: AlbumAway.instance.isOpen,
   ladderReconnecting: controller.session.reconnect.reconnecting.value,
+  // 🔴 B4 (2026-08-18) — THE PRODUCTION CALLER of ReconnectCoordinator.kickNow's
+  // manual arm. `isRunning` is the whole gate: a ladder stopped on a dead token
+  // belongs to the re-pair flow, and offering 「立即重连」 there would be a button
+  // that cannot succeed. kickNow re-checks it again at fire time — this decides
+  // whether the AFFORDANCE is honest, that decides whether the DIAL is.
+  onReconnectNow: controller.session.reconnect.isRunning
+      ? () => controller.session.reconnect.kickNow(reason: 'user-banner')
+      : null,
   strings: strings,
   // GA-03: a PTT press that produced no transcript at all
   // (15 s net / terminal stt:error) — never silent.

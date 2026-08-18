@@ -1,6 +1,6 @@
 [package]
 name = "flowmic-desktop"
-version = "0.3.8"
+version = "0.3.9"
 description = "FlowMic desktop — Tauri 2 shell + Rust injection layer (SendInput / focus tracking / clipboard fallback / window enum) and the socket.io client to server-core."
 edition = "2021"
 # 🔴 RAISED 1.78 → 1.89 (W3, 2026-08-07). This is a CORRECTION, not a new

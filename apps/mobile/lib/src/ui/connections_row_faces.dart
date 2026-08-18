@@ -153,11 +153,18 @@ Widget _statusLabelRouted(
     // 「don't know」 into 「know it's gone」, which is the lie in the other
     // direction (R2 both directions).
     InstanceLivenessFace.relayOnlyPcUnknown => (s.relayUpPcUnknown, FlowMicColors.amber),
+    // 🔴 AMBER, and the colour is the argument (same one [pcSignedOut] makes).
+    // Red on this page means 「够不着」("can't be reached") / 「不在」("not
+    // there") — and this face asserts neither: it says we could not find out
+    // this round. Painting it red recruits the page's strongest colour to send
+    // someone after a server that is, as far as anyone knows, serving.
+    InstanceLivenessFace.reachUnanswered => (s.reachUnanswered, FlowMicColors.amber),
     InstanceLivenessFace.checking => (s.checkingReach, FlowMicColors.t3),
     InstanceLivenessFace.unmeasured => (s.tapToConnect, FlowMicColors.t3),
   };
   final bool dotted = face == InstanceLivenessFace.pcOnline ||
       face == InstanceLivenessFace.unreachable ||
+      face == InstanceLivenessFace.reachUnanswered ||
       face == InstanceLivenessFace.pcOffline ||
       face == InstanceLivenessFace.pcSignedOut ||
       face == InstanceLivenessFace.pcOtherAccount ||
