@@ -11,9 +11,15 @@
 // that exact string. A swap would otherwise ship — in one language, on one
 // screen, discoverable only by a user who reads that language.
 //
-// FIRST RUN writes the golden; later runs compare against it. Delete the golden
-// only when you intend to re-baseline, and never in the same commit as a
-// migration — a re-baseline in that commit asserts nothing at all.
+// FIRST RUN writes the golden and SKIPS (it compared nothing, and says so);
+// later runs on the same machine compare against it. Delete the golden only when
+// you intend to re-baseline, and never in the same commit as a migration — a
+// re-baseline in that commit asserts nothing at all.
+//
+// ⚠️ The baseline is machine-local (.local/ is gitignored) ⇒ in CI, and in any
+// fresh clone, this test SKIPS rather than protecting anything. That is stated
+// here so a green tick on a pull request is not read as "the strings were
+// checked". Committing the baseline would change that; it has not been done.
 
 import 'dart:convert';
 import 'dart:io';
@@ -505,10 +511,29 @@ void main() {
     if (!file.existsSync()) {
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(now));
-      // Fail loudly rather than passing: a run that only WROTE the baseline has
-      // compared nothing, and a green tick there would be the most misleading
-      // possible result.
-      fail('golden written (${now.values.first.length} getters x ${now.length} locales) — re-run to compare');
+      // A run that only WROTE the baseline has compared nothing, and a silent
+      // green tick would be the most misleading possible result. It used to
+      // `fail()` for that reason — correct on the machine this was written on,
+      // where the baseline already existed and its absence meant someone had
+      // deleted it.
+      //
+      // 🔴 CORRECTED 2026-08-14: the baseline lives under .local/, which is
+      // gitignored, so it is absent on EVERY fresh clone and in every CI run.
+      // Failing there means the first command CONTRIBUTING asks a contributor to
+      // run is red for everyone, once, with a message about re-running — and in
+      // CI, which starts clean each time, it is red FOREVER while proving
+      // nothing. Measured inside an exported tree on the day this was written.
+      //
+      // So the first run now says exactly what it did and stops, rather than
+      // claiming a comparison it did not make. The protection is unchanged where
+      // it matters: on any run that HAS a baseline, a drifted string still fails
+      // below.
+      markTestSkipped(
+        'baseline did not exist and was just written '
+        '(${now.values.first.length} getters x ${now.length} locales). '
+        'NOTHING WAS COMPARED in this run — re-run to compare against it.',
+      );
+      return;
     }
 
     final Map<String, dynamic> golden =

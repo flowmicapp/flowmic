@@ -401,15 +401,25 @@ void main() {
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
 
-      // ⚠️ MEASURED before tolerating (WP3 C11, 2026-08-18): pumping this page
-      // at 360dp under Ahem trips RenderFlex overflows in rows this card does
-      // not touch — the SAME two (99px and 50px) fire on the pre-C11 tree with
-      // an identical probe, so they are pre-existing page defects DISCOVERED
-      // by this width, not caused by the chips (registered in the WP3
-      // handback). They are filtered here so this test can keep a ruler on
-      // ITS surface; the chips' own legibility is asserted directly below,
-      // per chip, and the spoken row's Wrap cannot horizontally overflow by
-      // construction (it wraps).
+      // ⚠️ MEASURED before asserting (WP3 C11 follow-up, 2026-08-18): at
+      // 360dp under Ahem this page used to trip THREE RenderFlex overflows,
+      // none of them the chips' (the same set fires on the pre-C11 tree; the
+      // third was missed by the WP3 registration, which recorded two):
+      //   · 99px / 50px — the data card's export and import rows: each kept a
+      //     sentence-long CTA ("Choose a location and export") as an
+      //     inflexible Row child, squeezing the title+sub column to ~30-70px
+      //     in fr/ru/es/de real fonts at 360dp and overflowing a 320dp screen
+      //     outright in fr — a REAL-device defect, not an Ahem artifact, so
+      //     both rows moved to the _cloudInstanceRow vertical-stack shape;
+      //   · 12px — the custom-terms footer: ghost button and hint as two
+      //     rigid ends. Real fonts fit at scale 1.0 (worst ru ≈242px of the
+      //     262px a 320dp screen offers) but FlowMicTextScaler multiplies the
+      //     SYSTEM accessibility scale in, so one notch of large text eats
+      //     that margin — the hint became an Expanded that wraps.
+      // The collector below is therefore a RULER now, not a filter: the whole
+      // page, scrolled to the bottom, must lay out with zero overflows.
+      // Reverse control (measured red 2026-08-18): this assertion on the
+      // pre-fix tree reports exactly the three overflows above.
       final List<String> pageOverflows = <String>[];
       final void Function(FlutterErrorDetails)? prevOnError =
           FlutterError.onError;
@@ -490,6 +500,27 @@ void main() {
               'screen — the Wrap stopped wrapping',
         );
       }
+
+      // Lay out the REST of the page (the about and update cards sit below
+      // the preferences card the chip loop stopped at) so the zero-overflow
+      // assertion covers the whole page, not just the part above the last
+      // chip.
+      for (int i = 0; i < 20; i++) {
+        await tester.drag(find.byType(ListView), const Offset(0, -400));
+        await tester.pumpAndSettle();
+      }
+      // Restore BEFORE the expect: a failing expect while onError is still
+      // overridden trips the binding's own assertion and wedges the runner
+      // for pumpAndSettle's full 10-minute timeout (measured on this very
+      // assertion's first red).
+      FlutterError.onError = prevOnError;
+      expect(
+        pageOverflows,
+        isEmpty,
+        reason: 'the settings page must lay out at 360dp with zero RenderFlex '
+            'overflows — an overflowed row shows the user a striped stub '
+            'instead of the copy (0.2.53 law: assert the rendered result)',
+      );
     });
   });
 }

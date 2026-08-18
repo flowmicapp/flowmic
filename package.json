@@ -10,7 +10,7 @@
   },
   "scripts": {
     "prepare": "husky",
-    "i18n:gen": "node scripts/i18n/gen-desktop-rust.mjs && node scripts/i18n/gen-desktop-ts.mjs && node scripts/i18n/gen-web-locale-snapshot.mjs --skip-missing && node scripts/i18n/gen-mobile-dart.mjs",
+    "i18n:gen": "node scripts/i18n/gen-desktop-rust.mjs && node scripts/i18n/gen-desktop-ts.mjs && node scripts/i18n/gen-web-locale-snapshot.mjs --skip-missing && node scripts/i18n/gen-mobile-dart.mjs && node scripts/i18n/snapshot-rendered.mjs --emit-test",
     "verify:preflight": "node scripts/preflight-toolchain.mjs && node scripts/gate-receipt.mjs --begin",
     "verify:receipt": "node scripts/gate-receipt.mjs --end",
     "verify:lint": "node verify/lint/run-all.mjs",

@@ -184,6 +184,25 @@ function changelogSection() {
   return null;
 }
 
+// The PUBLIC half of a CHANGELOG section: everything above the first `###`.
+//
+// One file stays the source of truth, and it keeps carrying the engineering
+// detail — that detail is simply not what a release page is for. A section
+// written as
+//
+//     ## 0.3.9
+//     <three to five short lines: what this version does for you>
+//     ### <heading>          <- from here down is the internal ledger
+//
+// publishes only the lead. A section with no lead returns null, and the caller
+// says so rather than quietly falling back to the whole thing.
+function publicLead(section) {
+  if (!section) return null;
+  const cut = section.body.search(/^#{3,}\s/m);
+  const lead = (cut === -1 ? section.body : section.body.slice(0, cut)).trim();
+  return lead === '' ? null : lead;
+}
+
 function buildBody(section) {
   const explicit = flag('notes');
   if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
@@ -192,7 +211,56 @@ function buildBody(section) {
     console.error('  Write the user-facing changes into CHANGELOG.md before releasing, or pass --notes="..." as a stopgap.');
     process.exit(1);
   }
-  return `## ${section.title}\n\n${section.body}`;
+  const lead = publicLead(section);
+  if (lead === null) {
+    console.error(`✗ the CHANGELOG section for ${VERSION} has no lead paragraph — nothing to publish as the release page.`);
+    console.error('  Write three to five short lines at the top of the section, above the first `###`:');
+    console.error('  what this version does for the person reading it. The `###` subsections below stay as they are.');
+    console.error('  (owner ruling 2026-08-16 — docs/decisions/2026-08-16-owner-concise-human-release-notes.md).');
+    process.exit(1);
+  }
+  return `## ${section.title}\n\n${lead}`;
+}
+
+// 🔴 Short and human — owner ruling, 2026-08-16
+// (docs/decisions/2026-08-16-owner-concise-human-release-notes.md): the public
+// release page answers 「what does this version do for me」 in three to five
+// short lines. The engineering account — mechanism, root cause, the reverse
+// control — is internal discipline; the reader of a release page neither needs
+// it nor gets through it.
+//
+// 🔴 WHY THIS IS A GATE AND NOT A NOTE, measured 2026-08-17: the ruling was one
+// day old and written down in two places, and v0.3.8 still went out as 3,621
+// characters across eight `###` sections — because the publisher took the whole
+// CHANGELOG section and nothing consulted the ruling at release time. Same
+// shape as the English-only gate below: it lives on the bytes about to be
+// published, not in anyone's memory.
+const MAX_BODY_CHARS = 1200;
+const MAX_BODY_LINES = 6;
+
+function assertConcise(body) {
+  const lines = body
+    .split('\n')
+    .slice(1)                        // drop the `## <version>` title line
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  const problems = [];
+  if (/^#{3,}\s/m.test(body)) {
+    problems.push('it carries `###` subsections — those are the internal ledger, not the release page');
+  }
+  if (body.length > MAX_BODY_CHARS) {
+    problems.push(`it is ${body.length} characters (limit ${MAX_BODY_CHARS})`);
+  }
+  if (lines.length > MAX_BODY_LINES) {
+    problems.push(`it is ${lines.length} lines (limit ${MAX_BODY_LINES})`);
+  }
+  if (problems.length === 0) return;
+  console.error('✗ the release body is not the short, human summary a release page is for:');
+  for (const p of problems) console.error(`  · ${p}`);
+  console.error('  Write three to five short lines at the top of the CHANGELOG section, above the first `###`;');
+  console.error('  that lead is what gets published. Everything below it stays in the file for whoever wants it.');
+  console.error('  (owner ruling 2026-08-16 — docs/decisions/2026-08-16-owner-concise-human-release-notes.md).');
+  process.exit(1);
 }
 
 function loadToken() {
@@ -243,6 +311,8 @@ async function main() {
     console.error('  Rewrite the CHANGELOG section for this version in English, then re-run.');
     process.exit(1);
   }
+
+  assertConcise(body);
 
   console.log(`\n── GitHub Release preview ──`);
   console.log(`repo   : ${repo}`);

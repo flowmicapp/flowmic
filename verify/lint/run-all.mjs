@@ -38,6 +38,7 @@ import adminLimitMirror from './admin-limit-mirror.mjs';
 import passwordPolicyMirror from './password-policy-mirror.mjs';
 import packageIdFamily from './package-id-family.mjs';
 import noCjk from './no-cjk.mjs';
+import changelogReleaseSections from './changelog-release-sections.mjs';
 
 const LINTS = [
   { name: 'protocol-whitelist', run: protocolWhitelist },
@@ -63,6 +64,7 @@ const LINTS = [
   { name: 'password-policy-mirror', run: passwordPolicyMirror },
   { name: 'package-id-family', run: packageIdFamily },
   { name: 'no-cjk', run: noCjk },
+  { name: 'changelog-release-sections', run: changelogReleaseSections },
 ];
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;

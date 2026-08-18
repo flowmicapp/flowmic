@@ -75,6 +75,27 @@ const GENERATORS = [
     script: 'scripts/i18n/gen-mobile-dart.mjs',
     args: ['--check', '--skip-missing'],
   },
+  {
+    // The mobile migration golden's HARNESS (apps/mobile/test/
+    // i18n_migration_golden_test.dart). Committed, and generated — which is the
+    // combination that bit us.
+    //
+    // 🔴 WHY THIS ROW EXISTS, measured 2026-08-17: the harness was corrected by
+    // hand on 2026-08-14 (a missing baseline became a skip instead of a
+    // failure, because .local/ is gitignored and CI therefore starts without
+    // one). The generator was not touched, so the next `--emit-test` — during
+    // the 0.3.8 release — put the failure straight back, and the open-source
+    // repo's flutter job went red ON THE RELEASE COMMIT. Every gate in this repo
+    // was green while that shipped, because this was the one i18n generator with
+    // no row here.
+    //
+    // The lesson is the row: a hand-edit to a generated file is invisible
+    // until something re-emits it, and "DO NOT EDIT BY HAND" at the top of the
+    // file is a request, not a mechanism.
+    label: 'mobile migration golden harness (test/i18n_migration_golden_test.dart)',
+    script: 'scripts/i18n/snapshot-rendered.mjs',
+    args: ['--check'],
+  },
 ];
 
 function runNode(scriptRel, args) {

@@ -530,53 +530,87 @@ class SettingsPage extends StatelessWidget {
             ],
           ),
         ),
+        // 🔴 Export and import keep their CTA on its OWN row (the
+        // _cloudInstanceRow shape above, for the same reason): both labels
+        // are sentences ("Choose a location and export"), and as inflexible
+        // Row children they squeezed the title+sub column to ~30-70px in
+        // fr/ru/es/de at 360dp — fr overflowed a 320dp screen outright
+        // (measured 2026-08-17; under Ahem these were the 99px/50px
+        // overflows the WP3 handback registered). Inside an Align the
+        // ghostButton's bare Text has a finite max-width, so an extreme
+        // locale wraps instead of striping. The stats row above deliberately
+        // KEEPS the inline shape: its label is a short verb in all nine
+        // locales (worst ru ≈112px of the row's 302px), and stacking it
+        // would spend a whole extra line on nothing. Pinned by the
+        // zero-overflow assertion in spoken_language_test.dart ("0.2.53 law").
         settingsRow(
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Icon(Icons.ios_share, size: 20, color: FlowMicColors.brand),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(s.exportTitle, style: kRowTitle),
-                    const SizedBox(height: 3),
-                    Text(s.exportSub, style: kRowSub),
-                  ],
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(Icons.ios_share, size: 20, color: FlowMicColors.brand),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(s.exportTitle, style: kRowTitle),
+                        const SizedBox(height: 3),
+                        Text(s.exportSub, style: kRowSub),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              ghostButton(
-                s.exportAction,
-                onTap: portable.busy
-                    ? null
-                    : () => showExportSheet(
-                        context,
-                        controller: portable,
-                        strings: s,
-                      ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ghostButton(
+                  s.exportAction,
+                  onTap: portable.busy
+                      ? null
+                      : () => showExportSheet(
+                          context,
+                          controller: portable,
+                          strings: s,
+                        ),
+                ),
               ),
             ],
           ),
         ),
+        // Same stacked shape as the export row above, same measurements.
         settingsRow(
           last: true,
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Icon(Icons.file_download_outlined, size: 20, color: FlowMicColors.brand),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(s.importTitle, style: kRowTitle),
-                    const SizedBox(height: 3),
-                    Text(s.importSub, style: kRowSub),
-                  ],
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(Icons.file_download_outlined, size: 20, color: FlowMicColors.brand),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(s.importTitle, style: kRowTitle),
+                        const SizedBox(height: 3),
+                        Text(s.importSub, style: kRowSub),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              ghostButton(
-                portable.busy ? s.importRunning : s.importAction,
-                onTap: portable.busy ? null : () => _runImport(context, s),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ghostButton(
+                  portable.busy ? s.importRunning : s.importAction,
+                  onTap: portable.busy ? null : () => _runImport(context, s),
+                ),
               ),
             ],
           ),

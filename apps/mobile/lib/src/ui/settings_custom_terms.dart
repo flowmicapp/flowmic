@@ -78,8 +78,23 @@ extension SettingsPageCustomTerms on SettingsPage {
                       icon: Icons.add,
                       onTap: card.termsAtCap ? null : () => _showAddTerm(context, s),
                     ),
-                    const Spacer(),
-                    Text(s.termMaxHint, style: TextStyle(color: FlowMicColors.t2, fontSize: 12)),
+                    const SizedBox(width: 10),
+                    // Expanded, not [Spacer + rigid Text]: with two rigid ends
+                    // this row overflowed 360dp by 12px under Ahem, and real
+                    // fonts leave only ~20px of margin on a 320dp screen in ru
+                    // (≈242px of 262px, measured 2026-08-17) — one notch of
+                    // the system accessibility scale (which FlowMicTextScaler
+                    // multiplies in) eats that. Expanded + textAlign.end keeps
+                    // the hint right-flush and lets it wrap instead of
+                    // striping. Pinned by the zero-overflow assertion in
+                    // spoken_language_test.dart ("0.2.53 law").
+                    Expanded(
+                      child: Text(
+                        s.termMaxHint,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(color: FlowMicColors.t2, fontSize: 12),
+                      ),
+                    ),
                   ],
                 ),
               ),
