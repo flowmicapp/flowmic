@@ -15,8 +15,10 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../diag/diag_log.dart' show diag;
 import '../signaling/lan_tls_fingerprint.dart'
     show isWellFormedLanTlsFingerprint;
+import 'saas_endpoint.dart' show planRetiredSaasEndpointHeal;
 
 /// D2LAN-B3/B4 — where a pinned fingerprint came from. The two are NOT the same
 /// promise, and design §4-4 forbids showing them under one badge.
@@ -283,7 +285,26 @@ class MobileSession {
     if (e is! String || e.isEmpty) return null;
     return MobileSession(
       token: t,
-      endpoint: e,
+      // The one-time heal of a RETIRED relay address, applied where the row is
+      // READ — the same place this decoder already normalises a malformed pin
+      // and a non-string candidate, and for the same reason: a stored value that
+      // can no longer serve must not be handed upward as if it could. The RULE
+      // is `planRetiredSaasEndpointHeal` (saas_endpoint.dart), which mirrors the
+      // desktop's `plan_migration` in
+      // apps/desktop/src-tauri/src/socket/cloud_endpoint.rs; this line only
+      // applies it. `?? e` is the whole safety property: anything the rule does
+      // not positively recognise comes back verbatim.
+      endpoint: planRetiredSaasEndpointHeal(e) ?? e,
+      // 🔴 `_inferChannel` READS THE RAW ADDRESS, NOT THE HEALED ONE, and that is
+      // deliberate. It is the fallback for rows so old they predate the
+      // `channel` field, and a heal must change nothing except the address:
+      // inferring from the healed value would flip such a row from 'standalone'
+      // to 'saas', and 'saas' means 「this peer is the virtual cloud instance」
+      // (connections_controller.dart `activePairingIsCloudInstance`) — NOT
+      // 「reached over the relay」. That is the v0.2.3 channel-chip conflation,
+      // and a migration is no place to re-introduce it. Pinned by
+      // `legacy_row_channel_inference_reads_the_raw_address` in
+      // test/retired_relay_endpoint_heal_test.dart.
       channel: j['channel'] == 'saas'
           ? 'saas'
           : j['channel'] == 'standalone'
@@ -418,6 +439,39 @@ abstract class TokenStorage {
   }
 }
 
+/// Decode one persisted row and say whether the decoder had to HEAL its stored
+/// address. Announces the heal on the diagnostic trail; never silently.
+///
+/// 🔴 IT DOES NOT RE-IMPLEMENT THE RULE, AND MUST NOT.
+/// `MobileSession.fromJson` owns the decision (via `planRetiredSaasEndpointHeal`);
+/// this only notices that the address it handed back is not the one it was
+/// handed, which is exactly the condition meaning「the bytes on disk are stale」.
+/// A second copy of the rule here would be one question with two answers — this
+/// repo's #1 shape — and the two copies would disagree the first time either
+/// moved. It also means any FUTURE normalisation `fromJson` grows is written
+/// back for free, with nothing here to forget to update.
+///
+/// ⚠️ The forensic fields are hostnames, never credentials: `token`, the pin and
+/// the alias are not named here, and `diag_log.dart`'s header says why (the
+/// trail is uploaded to the PC on request, so anything written here leaves the
+/// phone). `reach.probe` already logs `host=` for the same reason.
+(MobileSession?, bool) _decodeRowAnnouncing(Map<String, Object?> row) {
+  final MobileSession? s = MobileSession.fromJson(row);
+  if (s == null) return (null, false);
+  final Object? onDisk = row['endpoint'];
+  if (onDisk is! String || onDisk == s.endpoint) return (s, false);
+  diag('pairing.endpoint.healed', <String, Object?>{
+    'from': onDisk,
+    'to': s.endpoint,
+    // Named so a reader of the trail can tell this apart from the OTHER writer
+    // of this field — `persistDialedEndpoint` (session/endpoint_candidates.dart)
+    // moves it when a reconnect succeeds on a different candidate of the SAME
+    // PC. Two writers, two reasons, and only one of them is a migration.
+    'reason': 'retired-relay-address',
+  });
+  return (s, true);
+}
+
 /// Shared list mutators so the secure + in-memory stores agree on the
 /// dedupe-by-identity, move-to-front semantics (single source of truth).
 List<MobileSession> _upsertPairing(
@@ -510,21 +564,30 @@ class SecureTokenStorage extends TokenStorage {
       final Object? decoded = jsonDecode(raw);
       if (decoded is List) {
         final List<MobileSession> out = <MobileSession>[];
+        bool healed = false;
         for (final Object? e in decoded) {
-          if (e is Map<String, Object?>) {
-            final MobileSession? s = MobileSession.fromJson(e);
-            if (s != null) out.add(s);
-          } else if (e is Map) {
-            final MobileSession? s =
-                MobileSession.fromJson(e.cast<String, Object?>());
-            if (s != null) out.add(s);
-          }
+          if (e is! Map) continue;
+          final Map<String, Object?> row = e is Map<String, Object?>
+              ? e
+              : e.cast<String, Object?>();
+          final (MobileSession? s, bool rowHealed) = _decodeRowAnnouncing(row);
+          if (s == null) continue;
+          healed = healed || rowHealed;
+          out.add(s);
         }
-        return (out, false);
+        // 🔴 A HEAL IS A REASON TO REWRITE THE FILE. Returning `false` here would
+        // still have fixed every read — `fromJson` heals on the way in — but the
+        // bytes on disk would keep the retired address for the life of the
+        // install, so the fix would exist only while this process does. The
+        // paired test asserts the STORED value after a round trip, not the
+        // returned object, for exactly that reason.
+        return (out, healed);
       }
       if (decoded is Map) {
-        final MobileSession? s =
-            MobileSession.fromJson(decoded.cast<String, Object?>());
+        final (MobileSession? s, bool _) =
+            _decodeRowAnnouncing(decoded.cast<String, Object?>());
+        // Already `true` before this card: the single-object shape is itself a
+        // migration and is always rewritten as a list.
         return (s != null ? <MobileSession>[s] : <MobileSession>[], true);
       }
     }

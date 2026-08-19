@@ -33,6 +33,7 @@ import cssVarDefined from './css-var-defined.mjs';
 import coordinateAnchors from './coordinate-anchors.mjs';
 import noLanIp from './no-lan-ip.mjs';
 import androidProviderClasses from './android-provider-classes.mjs';
+import androidInstallPermission from './android-install-permission.mjs';
 import platformCfgCount from './platform-cfg-count.mjs';
 import adminLimitMirror from './admin-limit-mirror.mjs';
 import passwordPolicyMirror from './password-policy-mirror.mjs';
@@ -40,6 +41,7 @@ import packageIdFamily from './package-id-family.mjs';
 import noCjk from './no-cjk.mjs';
 import changelogReleaseSections from './changelog-release-sections.mjs';
 import worktreeLocation from './worktree-location.mjs';
+import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
 
 const LINTS = [
   { name: 'protocol-whitelist', run: protocolWhitelist },
@@ -60,6 +62,7 @@ const LINTS = [
   { name: 'gate-covers-workspaces', run: gateCoversWorkspaces },
   { name: 'no-lan-ip', run: noLanIp },
   { name: 'android-provider-classes', run: androidProviderClasses },
+  { name: 'android-install-permission', run: androidInstallPermission },
   { name: 'platform-cfg-count', run: platformCfgCount },
   { name: 'admin-limit-mirror', run: adminLimitMirror },
   { name: 'password-policy-mirror', run: passwordPolicyMirror },
@@ -67,6 +70,7 @@ const LINTS = [
   { name: 'no-cjk', run: noCjk },
   { name: 'changelog-release-sections', run: changelogReleaseSections },
   { name: 'worktree-location', run: worktreeLocation },
+  { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
 ];
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;

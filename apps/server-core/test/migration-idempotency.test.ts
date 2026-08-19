@@ -750,6 +750,139 @@ describe('migration idempotency', () => {
     restarted.close();
   });
 
+  // ── LOGIN-1 migration: users.last_login_at (DB-SENSITIVE — collection surface) ────
+  //
+  // The THIRD hand-written `users` column step, sitting between two that look
+  // exactly like it and behave in two different ways. Same three questions:
+  // ① SHAPE — nullable INTEGER, NOT the additive-int `NOT NULL DEFAULT 0`, for
+  //   `restricted_at`'s reason: 0 is a legal ms-epoch, so that shape would
+  //   forward-port every existing account as 「last signed in 1970-01-01」;
+  // ② 🔴 NO BACKFILL — and for a reason neither neighbour has.
+  //   `email_verified_at` MUST backfill (otherwise the gate locks everyone out);
+  //   `restricted_at` MUST NOT (any value restricts the platform); this one must
+  //   not because THE ANSWER IS NOT KNOWABLE — nothing on disk records when
+  //   anybody last signed in, which is the entire premise of the card. Any stamp
+  //   would be manufactured evidence about a person on the screen where an
+  //   operator decides whether to restrict them;
+  // ③ convergence + idempotency, as for every other column here.
+  //
+  // 🔴 AND THE MIGRATION IS UNCONDITIONAL — it must NOT consult
+  // `FLOWMIC_LOGIN_RECORD_ENABLED`. A schema that appears only when a switch is
+  // on differs between two machines running the same build, and flipping the
+  // switch would then be a migration. Asserted below by running the whole thing
+  // with the env var explicitly absent AND explicitly set, and requiring the
+  // same column both times.
+  it('🔴 ALTERs last_login_at onto a pre-LOGIN-1 DB, backfills NOTHING, and does not consult the collection switch', () => {
+    const dbPath = join(tmp, 'add-last-login-at.db');
+    // A database that really predates the column, with accounts in it.
+    const legacy = new DatabaseSync(dbPath);
+    legacy.exec(LEGACY_USERS_PRE_D1);
+    legacy.exec("INSERT INTO users (id, display_name, plan) VALUES ('u-pre-login', 'Before LOGIN-1', 'free')");
+    legacy.exec("INSERT INTO users (id, display_name, plan) VALUES ('u-pre-login-2', 'Also before', 'free')");
+    expect(columnInfo(legacy, 'users', 'last_login_at')).toBeUndefined();
+    legacy.close();
+
+    // The migration: exactly what a deploy + restart runs.
+    const migrated = openDatabase(dbPath);
+    // ① Nullable INTEGER. `notnull: 0` + null default IS the assertion — the
+    // additive-int shape would read `{notnull: 1, dflt_value: '0'}` and every
+    // account would claim a 1970 sign-in.
+    expect(columnInfo(migrated, 'users', 'last_login_at')).toMatchObject({
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+    });
+    // ② 🔴 THE ONE THAT MATTERS: every pre-existing row is still NULL. This is
+    // what fails if somebody 「makes it consistent」 with the email_verified_at
+    // step a few lines above it in reconcileSchema.
+    expect(migrated.prepare('SELECT id, last_login_at FROM users ORDER BY id').all()).toEqual([
+      { id: 'u-pre-login', last_login_at: null },
+      { id: 'u-pre-login-2', last_login_at: null },
+    ]);
+    // …with the SAME positive control the restricted_at block uses: the
+    // neighbouring grandfather stamp really did run, so the NULLs above are
+    // evidence about this step rather than about a reconcile that did nothing.
+    const stamped = migrated
+      .prepare("SELECT email_verified_at FROM users WHERE id='u-pre-login'")
+      .get() as { email_verified_at: number | null };
+    expect(typeof stamped.email_verified_at, 'reconcile did not run — the NULLs above prove nothing').toBe('number');
+
+    // A row inserted AFTER the migration is NULL too, through any number of
+    // reboots (there is no UPDATE in the guard today; one added outside it later
+    // would be caught here).
+    migrated.exec("INSERT INTO users (id, display_name, plan) VALUES ('u-post-login', 'After', 'free')");
+    migrated.exec(INIT_SQL);
+    reconcileSchema(migrated);
+    reconcileSchema(migrated);
+    expect(migrated.prepare("SELECT last_login_at FROM users WHERE id='u-post-login'").get()).toEqual({
+      last_login_at: null,
+    });
+    expect(migrated.prepare("SELECT last_login_at FROM users WHERE id='u-pre-login'").get()).toEqual({
+      last_login_at: null,
+    });
+
+    // 🔴 A REAL STAMP SURVIVES A RESTART — otherwise every NULL assertion above
+    // could be produced by a column nothing can write, and the whole block would
+    // be green on a broken feature.
+    migrated.exec("UPDATE users SET last_login_at=1765432109876 WHERE id='u-post-login'");
+    migrated.exec(INIT_SQL);
+    reconcileSchema(migrated);
+    expect(migrated.prepare("SELECT last_login_at FROM users WHERE id='u-post-login'").get()).toEqual({
+      last_login_at: 1_765_432_109_876,
+    });
+
+    // ③ The forward-ported column is INDISTINGUISHABLE from a fresh CREATE's.
+    const fresh = openDatabase(':memory:');
+    const freshCol = columnInfo(fresh, 'users', 'last_login_at');
+    const col = columnInfo(migrated, 'users', 'last_login_at')!;
+    expect({ name: col.name, type: col.type, notnull: col.notnull, dflt_value: col.dflt_value }).toEqual({
+      name: freshCol!.name,
+      type: freshCol!.type,
+      notnull: freshCol!.notnull,
+      dflt_value: freshCol!.dflt_value,
+    });
+    // …and a FRESH database starts every account with no recorded sign-in.
+    fresh.exec("INSERT INTO users (id, display_name, plan) VALUES ('u-fresh-l', 'Fresh', 'free')");
+    expect(fresh.prepare("SELECT last_login_at FROM users WHERE id='u-fresh-l'").get()).toEqual({
+      last_login_at: null,
+    });
+    fresh.close();
+
+    // Idempotent overall.
+    const after = schemaSnapshot(migrated);
+    migrated.exec(INIT_SQL);
+    reconcileSchema(migrated);
+    expect(schemaSnapshot(migrated)).toEqual(after);
+    migrated.close();
+
+    const restarted = openDatabase(dbPath);
+    expect(schemaSnapshot(restarted)).toEqual(after);
+    restarted.close();
+  });
+
+  it('🔴 the last_login_at migration is INDEPENDENT of FLOWMIC_LOGIN_RECORD_ENABLED (same schema either way)', () => {
+    // The switch gates the WRITE, never the SCHEMA. If the migration ever grew a
+    // flag check, two machines running the same build would have different
+    // tables and turning collection on would silently become a migration — the
+    // failure this asserts against.
+    const before = process.env.FLOWMIC_LOGIN_RECORD_ENABLED;
+    try {
+      delete process.env.FLOWMIC_LOGIN_RECORD_ENABLED;
+      const off = openDatabase(join(tmp, 'login-switch-off.db'));
+      const offSnap = schemaSnapshot(off);
+      off.close();
+
+      process.env.FLOWMIC_LOGIN_RECORD_ENABLED = '1';
+      const on = openDatabase(join(tmp, 'login-switch-on.db'));
+      expect(columnInfo(on, 'users', 'last_login_at')).toBeDefined();
+      expect(schemaSnapshot(on)).toEqual(offSnap);
+      on.close();
+    } finally {
+      if (before === undefined) delete process.env.FLOWMIC_LOGIN_RECORD_ENABLED;
+      else process.env.FLOWMIC_LOGIN_RECORD_ENABLED = before;
+    }
+  });
+
   it('creates email_verifications on a pre-VERIFY-1 DB, idempotently (PK user_id, FK CASCADE, hash-shaped columns)', () => {
     const dbPath = join(tmp, 'add-email-verifications.db');
     const legacy = new DatabaseSync(dbPath);

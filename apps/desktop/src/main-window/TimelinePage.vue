@@ -22,7 +22,7 @@ import { INJECT_FAIL_REASON, MODE_BADGE, S } from '../lib/strings';
 import { TL_BATCH_MSG, TL_METRICS_MSG, TL_RETENTION_MSG } from '../lib/strings/timeline';
 import { planBatchCopy, preCopyHint, resultMessage, selectedInOrder } from './batch-copy';
 import { canReinject, reinjectLabel, statusBadge, statusLine } from '../lib/status';
-import { cachedCauseTooltip, injectProvenanceTooltip } from '../lib/inject-provenance';
+import { cachedCauseTooltip, failedCauseInline, injectProvenanceTooltip } from '../lib/inject-provenance';
 import { hasSourceLine } from '../lib/source-line';
 import { matchesFilter, type TimelineFilter } from '../lib/timeline-filter';
 import { CHANNEL_LABEL, CHANNEL_VISUAL } from '../lib/channel';
@@ -603,7 +603,7 @@ const view = ref<'rows' | 'data'>('rows');
             class="st-tag"
             :class="statusBadge(e.status, e.focus_evidence).cls"
             :title="provenanceTip(e) ?? undefined"
-          >{{ statusLine(e.status, targetLabel(e), e.focus_evidence) }}</span>
+          >{{ statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON)) }}</span>
           <!-- owner 2026-07-30 ①: WHICH CHANNEL delivered this row. The page lists
                both servers now, and a row whose channel is invisible cannot be told
                apart from the other server's — the same address every op travels.

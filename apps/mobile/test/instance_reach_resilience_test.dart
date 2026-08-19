@@ -37,6 +37,7 @@
 import 'dart:async';
 
 import 'package:flowmic/src/audio/audio_capture.dart';
+import 'package:flowmic/src/diag/diag_log.dart';
 import 'package:flowmic/src/auth/account_store.dart';
 import 'package:flowmic/src/auth/login_controller.dart';
 import 'package:flowmic/src/auth/token_storage.dart';
@@ -387,6 +388,66 @@ void main() {
           reason: '${locale.name}: the offline gloss sends the reader off to '
               'troubleshoot; this face has nothing to troubleshoot',
         );
+      }
+    });
+  });
+
+  group('nobody is asked a question nobody reads', () {
+    // 0.3.9 handoff §7-2, measured on the tablet: a phone paired to the cloud
+    // before the domain moved showed that row red while `reach.probe` reported
+    // the DEFAULT relay answering 28 out of 28 times. Both readings were
+    // correct — they were two different addresses — and the second one had no
+    // reader at all, because GA-33 had retired the only card that displays it.
+    test('the default relay is probed only while its card exists', () async {
+      int asked = 0;
+      health = () async {
+        asked++;
+        return up;
+      };
+
+      await ctl.refreshReachability();
+      expect(asked, 1, reason: 'positive control: with no saas pairing, it IS asked');
+
+      await session.tokenStorage.addOrUpdatePairing(
+        const MobileSession(
+          token: 'tok-saas-0000000000000000000000',
+          endpoint: 'https://relay.other.test:443',
+          channel: 'saas',
+          pcName: 'Cloud',
+          pairingId: 'pair-saas',
+        ),
+      );
+      await ctl.load();
+      asked = 0;
+      await ctl.refreshReachability();
+
+      expect(asked, 1,
+          reason: 'exactly one probe — the pairing row it belongs to, not the '
+              'default address as well');
+      expect(ctl.reachOf('https://relay.other.test:443'), isNot(InstanceReach.checking),
+          reason: 'and the one that WAS asked is the row the user can see');
+    });
+  });
+
+  group('the forensic line carries how long it took', () {
+    // 0.3.9 handoff §7-3: the line shipped with host/ok/miss/misses/verdict and
+    // NOT with a duration — so card C4 could be answered down to the class of
+    // failure and no further, while the number that actually pinned the root
+    // cause was a duration (p95 3.37 s against a 3 s budget). A probe that
+    // answers in 2.9 s and one that answers in 0.2 s are both ok=true.
+    test('reach.probe reports ms=, on the answer AND on the miss', () async {
+      for (final HealthReading r in <HealthReading>[up, timedOut]) {
+        DiagLog.instance.clear();
+        health = () async => r;
+        await ctl.refreshReachability();
+        final Iterable<String> probes =
+            DiagLog.instance.snapshot().where((String l) => l.contains('reach.probe'));
+        expect(probes, isNotEmpty, reason: 'positive control: the line is emitted at all');
+        for (final String line in probes) {
+          final RegExpMatch? m = RegExp(r'ms=(\d+)').firstMatch(line);
+          expect(m, isNotNull, reason: 'no ms= in: $line');
+          expect(int.parse(m!.group(1)!), greaterThanOrEqualTo(0));
+        }
       }
     });
   });

@@ -65,14 +65,23 @@ export function statusBadge(status: HistoryStatus, evidence?: FocusEvidence | nu
  *  · `injected` + `editable`  → `✓ 已注入 → 微信（已确认可输入）`
  *  · `injected` + anything else, INCLUDING absent → `✓ 已送入 → 微信（未确认）`
  *  · `cached`   → `⏳ 未注入 · 已缓存 → chrome`  (never an evidence parenthetical:
- *                 nothing was sent, so there is no landing to be confident about)
- *  · `failed`   → `✗ 未注入 → chrome`, or `✗ 未注入 · <具名原因>` when a reason is
- *                 supplied. ⚠️ NO PRODUCTION CALLER SUPPLIES ONE TODAY and the
- *                 parameter is therefore deliberately ABSENT rather than accepted-
- *                 and-never-passed: a parameter with no caller is 反 façade's #1
- *                 shape. A `failed` row carries no verdict code (TimelineRow
- *                 .cached_cause is written for `cached` only), so §C-2's own stated
- *                 fallback 「无映射则只 ✗ 未注入」("if there's no mapping, render just ✗ not injected") is what this end renders. Reported.
+ *                 nothing was sent, so there is no landing to be confident about;
+ *                 its cause rides the hover tooltip — cachedCauseTooltip — not
+ *                 this line, 卡 L7's ruling, unchanged)
+ *  · `failed`   → `✗ 未注入 · <具名原因> → chrome` when a reason is supplied, else
+ *                 §C-2's own stated fallback `✗ 未注入`.
+ *                 ⚠️ Until 2026-08-19 this paragraph read 「NO PRODUCTION CALLER
+ *                 SUPPLIES ONE TODAY」 and the parameter was deliberately absent
+ *                 (a parameter with no caller is 反 façade's #1 shape). Both halves
+ *                 changed together on that date: `onInjectResult` now keeps the
+ *                 verdict code on failed rows (TimelineRow.cached_cause), and
+ *                 TimelinePage passes the sentence resolved through the same
+ *                 INJECT_FAIL_REASON table the capsule's ✗ flash reads (book 15
+ *                 §2.5c: one definition, both PC surfaces). `namedReason` is the
+ *                 ALREADY-RESOLVED sentence, never the raw code — a bare
+ *                 `INJECT_*` token on the row is not an explanation (0.2.53), so
+ *                 the code→sentence mapping stays in inject-provenance.ts where
+ *                 an unmapped code becomes null, which lands on the fallback.
  *  · `noted`    → `📥 仅记录`
  *
  *  🔴 `targetLabel` NOW APPLIES TO EVERY STATUS, not just `injected`. Until
@@ -87,8 +96,16 @@ export function statusLine(
   status: HistoryStatus,
   targetLabel?: string | null,
   evidence?: FocusEvidence | null,
+  namedReason?: string | null,
 ): string {
   const b = statusBadge(status, evidence);
+  // The reason slot is `failed`'s alone (§C-2): `cached` already carries 「· 已缓存」
+  // inside its badge word and explains itself on the tooltip, and putting a second
+  // ` · ` clause here would give one row two explanations — the exact charge the
+  // 2026-08-19 correction found to be FALSE about the ✗ face and TRUE about 📥.
+  const reason = status === 'failed' && namedReason && namedReason.length > 0
+    ? ` · ${namedReason}`
+    : '';
   const arrow = targetLabel && targetLabel.length > 0 ? ` ${S.to} ${targetLabel}` : '';
   // The parenthetical rides `injected` alone (§C-2). It is NOT appended to `cached`
   // /`failed`: those rows sent nothing, and 「未注入（未确认）」("not injected (unconfirmed)") would invite the
@@ -96,7 +113,7 @@ export function statusLine(
   const ev = status === 'injected'
     ? (evidence === 'editable' ? S.ev_confirmed : S.ev_unconfirmed)
     : '';
-  return `${b.glyph} ${b.label}${arrow}${ev}`;
+  return `${b.glyph} ${b.label}${reason}${arrow}${ev}`;
 }
 
 /** Whether the re-inject / make-up-delivery op applies to a row, BY STATUS. All

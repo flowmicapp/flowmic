@@ -3,8 +3,27 @@
          pipeline. Without this Android 6+ silently denies the runtime request
          and audio:start fires but zero chunks reach the server (F-2063). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- Android 13+ runtime notification permission (foreground keepalive,
-         wired in a later card — declared here per 08-MOBILE-SPEC §8). -->
+    <!-- Android 13+ runtime notification permission, declared for the foreground
+         keepalive service specified as F-2335 in docs/rebuild/08-MOBILE-SPEC.md
+         §8 ("前台保活服务 … socket 连接期启动 … LOW 通知渠道").
+         🔴 MEASURED 2026-08-19: THAT SERVICE DOES NOT EXIST YET, so nothing
+         requests this permission. Greppable, so the claim can be re-checked
+         rather than believed: the manifest declares no <service> at all; the
+         Dart tree's only runtime permission request is the microphone
+         (audio_capture.dart, platform_mic_permission.dart); no notification
+         plugin is in pubspec.yaml (flutter_foreground_task, which would declare
+         this permission itself, is not a dependency — 0 hits in pubspec.lock).
+         The previous comment said "wired in a later card", which is a claim
+         nobody can grep — anti-façade ④ — and it had been true for long enough
+         that no one re-checked it.
+         ⚠️ THIS IS A DECISION OWED BEFORE A PLAY SUBMISSION, not a note. The
+         store playbook's permission-minimisation row commits us to naming the
+         line of code that uses each declared permission; today this one has no
+         such line. Either F-2335 lands, or this declaration comes out — the
+         same reasoning that removed READ_MEDIA_IMAGES below on the same day.
+         It is kept for now because F-2335 is specified, not speculative, and
+         removing-then-restoring a line is churn; it is written down here so the
+         choice is made deliberately rather than found at submission time. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Install-time normal permission — release builds do NOT inherit it from
          the Flutter debug manifest, and without it every socket/HTTP call dies
@@ -13,8 +32,13 @@
     <!-- R6 T-4 image pipeline (「+」panel album image).
          Android 13+ (API 33): image_picker uses the system Photo Picker, which
          grants access to the ONE item the user chose and needs no runtime
-         permission — READ_MEDIA_IMAGES is declared so the older gallery intent
-         path and any OEM fallback still resolve.
+         permission.
+         🔴 In-place correction (2026-08-19): this paragraph used to end with
+         "READ_MEDIA_IMAGES is declared so the older gallery intent path and any
+         OEM fallback still resolve". That was a justification for a line no
+         code path ever exercised — see the ST-4 block further down for what was
+         measured and why the declaration is gone. The sentence is corrected
+         rather than deleted because it is the reason someone wrote the line.
          Android 12 and below (API ≤32): the document/gallery intent needs
          READ_EXTERNAL_STORAGE, capped at maxSdkVersion=32 so the broad legacy
          storage permission is NOT requested on modern devices.
@@ -32,37 +56,36 @@
          `android.hardware.camera` is declared NOT required so the app still
          installs on a camera-less device; manual entry covers that case. -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Card UP-2b in-app update slice 2 (download → verify sha256 → hand to the
-         system installer). API 26+ requires this to be DECLARED before
-         PackageManager.canRequestPackageInstalls() can ever return true; the
-         actual grant is a per-app user toggle, handled in UpdateInstaller.kt
-         (denied ⇒ we open ACTION_MANAGE_UNKNOWN_APP_SOURCES and say so, rather
-         than dead-ending in the system installer).
-
-         🔴 THIS LINE IS STATIC AND THE BUILD FLAG DOES NOT REMOVE IT.
-         lib/src/update/self_update_flag.dart argues the default-off
-         FLOWMIC_SELF_UPDATE define is safe because forgetting it only LOSES the
-         feature. That argument covers Dart code (AOT tree-shakes it) and does
-         NOT extend to here: a manifest entry is not behind any define, so
-         building with FLOWMIC_SELF_UPDATE=0 still ships an APK that declares
-         REQUEST_INSTALL_PACKAGES. Play reviews that declaration. The full
-         paragraph, and why we are recording the debt instead of inventing a
-         flavor/manifestPlaceholder scheme in this window, is in that file's
-         header under 「构建期旗标管不到这一行」("the build-time flag doesn't reach
-         this line"). It rides on the same already-open
-         debt: no store build until run-time gate ② exists and has been proven
-         on a real Play track.
-
-         (NOTE ON SPELLING: the dart-define flag is written above without its
-         leading dashes on purpose — a literal double hyphen is illegal inside
-         an XML comment and breaks the manifest merger. Measured 2026-08-08:
-         writing it in full failed :app:processDebugMainManifest with
-         "ManifestMerger2$MergeFailureException: Error parsing ...
-         AndroidManifest.xml". NO Dart test can see that; only building the APK
-         did, which is why this file is not covered by the mobile suite.) -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- REQUEST_INSTALL_PACKAGES USED TO BE HERE, and where it went is the
+         point (ST-1, 2026-08-19). It now lives in the DIRECT flavour only —
+         android/app/src/direct/AndroidManifest.xml — because Play forbids a
+         store-delivered app from installing an APK to update itself, and a
+         manifest line is not behind any build define. Keeping it in main and
+         remembering to strip it for the store build is exactly the shape this
+         repo does not accept; the flavour source set makes it impossible
+         instead. The runtime half is lib/src/update/install_source.dart. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- ST-4 (2026-08-19): READ_MEDIA_IMAGES USED TO BE DECLARED HERE AND IS GONE.
+         Nothing ever requested it. The app reaches photos only through the
+         system picker (image_picker -> Android photo picker), which hands back
+         a URI and needs no permission at all; the only runtime request in the
+         Dart tree is the microphone (audio_capture.dart requests
+         Permission.microphone, platform_mic_permission.dart is the gate) — grep
+         "Permission." across apps/mobile/lib and there is no photo request to
+         find. The plugin does not declare it either: image_picker_android's own
+         manifest carries a FileProvider and the backported-picker module
+         dependency, no uses-permission line. So this app's line was the only
+         source of the declaration.
+         MEASURED on a tablet before removing it: with the permission reported
+         granted=false by dumpsys, the Photo row still opened the picker and
+         listed the gallery.
+         A permission that is never requested and is not needed to do the thing
+         is not free — it is one more sensitive access to justify in Play's Data
+         safety form, and one more line a reviewer reads as a claim about what
+         we take.
+         READ_EXTERNAL_STORAGE below STAYS: it is capped at API 32, the device
+         measured above is newer than that, and the pre-33 path was NOT measured
+         here. Removing it on a guess is the shape this repo does not accept. -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -100,8 +123,16 @@
 
          Deliberately NOT touched: android:usesCleartextTraffic (unrelated —
          that governs plaintext network transport, not on-device backup). -->
+    <!-- 🔴 THE NAME UNDER THE ICON IS THE BRAND, and until 2026-08-19 it was
+         not: this said `flowmic` (lower case) from the first Flutter skeleton
+         commit onwards — a scaffold default nobody ever chose, while README,
+         the privacy policy, every in-app string and the store listing all say
+         FlowMic. It was never a decision, so it is not being overturned; it is
+         being finished. The iOS half is CFBundleDisplayName / CFBundleName in
+         ios/Runner/Info.plist, changed in the same commit — a name that differs
+         between the two phones is the same defect twice. -->
     <application
-        android:label="flowmic"
+        android:label="FlowMic"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"

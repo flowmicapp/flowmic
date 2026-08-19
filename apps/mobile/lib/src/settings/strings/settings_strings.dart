@@ -273,6 +273,21 @@ mixin SettingsStrings on AppStringsLeaves {
 
   String get logout => _lfLogout;
 
+  // ── ST-2 (2026-08-19): the way to the account page, beside the identity ────
+  //
+  // 🔴 The link exists because both stores expect a deletion path reachable
+  // from inside the app, and this app has no sign-up of its own — registration
+  // is on the website (owner 2026-08-11), so the account lives there too.
+  //
+  // ⚠️ The note is not decoration: it says the deleting happens on the site,
+  // NOT in the app. Without it the row promises an in-app action it does not
+  // have, and 「一个改变不了任何东西的控件比没有控件更坏」 (a control that
+  // changes nothing is worse than no control) applies to a link that arrives
+  // somewhere the user did not expect just as much as to a dead button.
+  String get accountManageLink => _lfAccountManageLink;
+
+  String get accountManageNote => _lfAccountManageNote;
+
   // ── L3 account card (0.2.48, owner's 2026-08-02 shape ruling) ───────────
   //
   // 🔴 A dangerous action has exactly ONE landing spot. The settings page's

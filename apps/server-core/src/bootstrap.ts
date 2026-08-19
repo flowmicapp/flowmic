@@ -68,7 +68,7 @@ import {
 } from './mail';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.9';
+export const SERVER_VERSION = '0.3.10';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -219,6 +219,14 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   const authService = makeAuthService({
     users: db.users,
     jwtSecret,
+    // LOGIN-1 — the ONE line that carries FLOWMIC_LOGIN_RECORD_ENABLED from the
+    // environment to the only writer of `users.last_login_at`. Passed
+    // UNCONDITIONALLY (not spread-if-true) so the value that reaches the service
+    // is always the deployment's real answer, and so deleting this line changes
+    // behaviour visibly rather than leaving a switch that silently does nothing —
+    // the failure `AuthServiceDeps.loginRecordEnabled` says its default cannot
+    // catch on its own. Pinned by test/last-login-record.test.ts.
+    loginRecordEnabled: config.loginRecordEnabled,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
   const registerLimiter = new RegisterRateLimiter(overrides.now ? { now: overrides.now } : {});

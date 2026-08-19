@@ -757,11 +757,21 @@ export class TimelineStore {
     } else {
       r.status = result.mode === 'cached' ? 'cached' : 'failed';
       // 🔴 owner 2026-08-02 (F1a) — WHY this row was not injected, kept on the row so
-      // the answer survives the 1.5s capsule flash. Only for `cached`: the ✗ face
-      // already names its own failure, and putting a cause on it would give one row
-      // two explanations. The CODE is stored (not the sentence) so the tooltip follows
-      // a language switch — see TimelineRow.cached_cause.
-      r.cached_cause = result.mode === 'cached' ? (result.error ?? null) : null;
+      // the answer survives the 1.5s capsule flash. The CODE is stored (not the
+      // sentence) so the rendering follows a language switch — see TimelineRow.cached_cause.
+      //
+      // 🔴 CORRECTED 2026-08-19 — this used to keep the code for `cached` only, on the
+      // justification "the ✗ face already names its own failure". That sentence was
+      // true of the CAPSULE's ✗ flash (capsule.ts INJECT_FAIL_REASON, on screen 1.5s)
+      // and never of the timeline row, whose ✗ face renders a bare 「未注入」 with no
+      // reason anywhere (status.ts statusLine; types.ts §C-4-2 recorded the same
+      // parenthetical dying on 2026-08-07 when owner deleted the word 「注入失败」).
+      // So the one durable PC surface was the one place the answer could not reach —
+      // while the phone has named this exact code since 0.2.53. Book 15 §2.5's row
+      // for `failed` (「✗ 未注入 · <具名原因>」, sentence from INJECT_FAIL_REASON) and
+      // the wording spec §C-2 already required the row to carry it; this line is the
+      // implementation catching up to the contract, not a new claim.
+      r.cached_cause = result.error ?? null;
     }
     this.persist();
     this.notify();

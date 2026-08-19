@@ -10,7 +10,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   SHERPA_MODEL_FILES, SHERPA_REPO, resolveSherpaModelDir,
 } from '../src/stt/sherpa/model-manifest';
-import { ensureSherpaModel, isFileValid, isModelComplete } from '../src/stt/sherpa/model-downloader';
+import { ensureSherpaModel, SherpaModelNotReadyError, speakTimeRefusal } from '../src/stt/sherpa/model-downloader';
+import { isFileValid, isModelComplete } from '../src/stt/sherpa/model-fetch';
+import { declaredTotalBytes } from '../src/stt/sherpa/model-status';
 import { SherpaLocalEngine, sherpaAutoDownloadEnabled } from '../src/stt/engines/sherpa-local';
 import { SttEngineError } from '../src/stt/engines/base';
 
@@ -78,8 +80,9 @@ describe('SherpaLocalEngine — fail-loud when model absent', () => {
       (err: SttEngineError) => {
         expect(err).toBeInstanceOf(SttEngineError);
         expect(err.code).toBe('STT_CONFIG_MISSING'); // refused, not a network attempt
-        expect(err.message).toContain('auto-download is off');
-        expect(err.message).toContain('FLOWMIC_SHERPA_AUTO_DOWNLOAD=1'); // actionable, both exits named
+        // What the sentence must and must not contain is pinned in its own
+        // describe below — the two assertions that used to sit here demanded an
+        // environment variable in the text a speaker reads.
       },
     );
   });
@@ -102,6 +105,62 @@ describe('SherpaLocalEngine — fail-loud when model absent', () => {
   it('ensureSherpaModel with no autoDownload option refuses on an incomplete dir', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'flowmic-sherpa-lib-default-'));
     mkdirSync(dir, { recursive: true });
-    await expect(ensureSherpaModel(dir, {})).rejects.toThrow(/auto-download is off/);
+    await expect(ensureSherpaModel(dir, {})).rejects.toBeInstanceOf(SherpaModelNotReadyError);
+  });
+});
+
+// ── the sentence a person reads while holding the microphone button ──────────
+//
+// 🔴 THIS SUITE USED TO ASSERT THE OPPOSITE, and the change is the point. Until
+// 2026-08-19 two cases above pinned `err.message` containing 'auto-download is
+// off' and 'FLOWMIC_SHERPA_AUTO_DOWNLOAD=1' — a developer sentence with a
+// filesystem path and an environment variable in it, shown to somebody who had
+// just spoken into a phone. The design (§5-C) moved those coordinates into the
+// diagnostics and put the ACTION in the sentence. The old assertions are gone
+// rather than relaxed: a test that still accepted the env var in user-facing
+// text would be a standing invitation to put it back.
+describe('the speak-time refusal says something a user can do', () => {
+  it('names the action, and carries no path and no environment variable', () => {
+    const text = speakTimeRefusal();
+    expect(text).toMatch(/Settings/);
+    expect(text).toMatch(/different speech engine/); // §2-5's second exit
+    expect(text).not.toMatch(/FLOWMIC_/); // §5-D: no env var in the prose
+    expect(text).not.toMatch(/[A-Za-z]:\\|\/home\/|AppData/); // §5-C: no path in the prose
+    // §5-D: the size comes from the manifest, never written down. Asserted as a
+    // COMPUTED value so the day the manifest changes this test moves with it
+    // instead of pinning a stale number into the product's copy.
+    // 🔴 THE DIVISOR IS 1024², AND IT WAS 1e6 UNTIL 2026-08-19. Same bytes,
+    // two answers: 228 here, 240 decimal. The desktop's model card renders the
+    // same figure with 1024² (apps/desktop/src/lib/model-status.ts `formatMb`,
+    // which argues the choice: Explorer and `du -sh` both show 228/229, so it
+    // is the number the user can check against). Shipping both divisors would
+    // have told a user "about 240 MB" in the refusal and "about 228 MB" in
+    // Settings — one file, two sizes. This test is what would have caught a
+    // later drift back, so it moves WITH the product rather than pinning the
+    // old arithmetic.
+    const expected = Math.round((declaredTotalBytes() ?? 0) / (1024 * 1024));
+    expect(text).toContain(`${expected} MB`);
+  });
+
+  it('still classifies as STT_CONFIG_MISSING, not as a retryable network drop', async () => {
+    // 🔴 WHY THIS IS PINNED. `sherpa-local.ts` chooses the STT error code by
+    // running /HTTP|fetch|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|tarball/i over the
+    // message. The refusal is not a network event and must never be reported as
+    // one — a `STT_NETWORK_DROP` is retryable:true, so the orchestrator would
+    // start a reconnect ladder against a model that is simply not on disk. One
+    // reworded sentence containing the word "fetch" would do it, and nothing
+    // else in the tree would notice.
+    const dir = mkdtempSync(join(tmpdir(), 'flowmic-sherpa-code-'));
+    mkdirSync(dir, { recursive: true });
+    setEnv('FLOWMIC_SHERPA_MODEL_DIR', dir);
+    setEnv('FLOWMIC_SHERPA_AUTO_DOWNLOAD', undefined);
+    const engine = new SherpaLocalEngine({ id: 'sherpa-local', language: 'zh', sample_rate: 16_000 });
+    await engine.open().then(
+      () => { throw new Error('open() must not succeed with no model on disk'); },
+      (err: SttEngineError) => {
+        expect(err.code).toBe('STT_CONFIG_MISSING');
+        expect(err.retryable).toBe(false);
+      },
+    );
   });
 });

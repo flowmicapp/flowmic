@@ -60,6 +60,17 @@ scripts/provenance-dryrun.mjs
 # release artifacts
 release/
 publish/
+# The mac half of a release, staged here after it is built on the Mac. Same
+# category as publish/, and it was NOT ignored: 124MB of zips sat untracked and
+# blew the gate receipt's dirty-tree budget every run (scripts/gate-receipt.mjs
+# MAX_DIRTY_BYTES), so every publish re-ran the full gate instead of reusing a
+# proof. Stricter, not looser — but the cause was an ignore rule that never
+# followed the mac artefacts across.
+publish-mac/
+
+# Log from the UI-automation harness used for on-device runs (r8-pc.py). Output
+# of a tool, not of the product.
+@AutomationLog.txt
 
 # env / secrets — never commit
 .env

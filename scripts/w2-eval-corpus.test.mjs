@@ -32,10 +32,26 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// 🔴 THE BUNDLER IS ASKED FOR BY THE SAME FUNCTION THAT USES IT.
+// This file used to carry its OWN copy of a path literal
+// (`apps/server-core/node_modules/.bin/esbuild` + '.CMD' on win32) and probe it
+// with existsSync. Under pnpm's strict layout that file has never existed here,
+// so the probe failed on every run, this suite printed SKIP, exited 2, and
+// `verify:scripts` filed it under "skip" -- for the whole life of the gate.
+// Sections 2 and 3 (the merge replay against the production fold, and the
+// compose output-guard eval) had therefore never executed once, while the
+// suite reported a clean skip. Full measurement in the header of
+// verify/eval/eval-prod-bundle.mjs.
+//
+// Importing the resolver is the point, not a tidy-up: one question, one answer.
+// A second copy of the lookup is what let a wrong answer stay invisible -- the
+// caller decided "cannot run" using a rule the runner never consulted, so the
+// two could disagree forever without anything going red.
+import { resolveEsbuild } from '../verify/eval/eval-prod-bundle.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const RUNNER = join(ROOT, 'verify', 'eval', 'run-eval.mjs');
-const ESBUILD = join(ROOT, 'apps/server-core/node_modules/.bin/esbuild' + (process.platform === 'win32' ? '.CMD' : ''));
 
 if (!existsSync(RUNNER)) {
   console.log('SKIP: verify/eval/run-eval.mjs is absent from this tree');
@@ -105,10 +121,11 @@ if (failures.length) {
 // be run, and decide the exit code once, at the bottom, where every section's
 // result is in hand.
 let skipped = false;
-if (!existsSync(ESBUILD)) {
+const esbuild = resolveEsbuild();
+if (!esbuild.ok) {
   skipped = true;
   planned -= 2;
-  console.log(`SKIP: esbuild not present at ${ESBUILD} — merge replay and guard eval could not run (run pnpm install)`);
+  console.log(`SKIP: ${esbuild.reason} — merge replay and guard eval could not run`);
 } else {
   // ── section 2: the real merge fold ────────────────────────────────────────
   {
@@ -158,5 +175,11 @@ if (failures.length) {
 }
 
 for (const n of notes) console.log(n);
+// Name the bundler in the accounting line. Sections 2 and 3 measure PRODUCTION
+// source only because esbuild imported it, so "which esbuild" is part of what
+// this run means — and the reason those two sections were dark for the gate's
+// whole life is that the old shape's answer to that question was never printed
+// anywhere. A gate that cannot say what it used cannot be caught using nothing.
+if (esbuild.ok) console.log(`BUNDLER: ${esbuild.where} — ${esbuild.via}`);
 console.log(`ACCOUNTING: sections run ${ran}/${planned} — ${accounting.join(' | ')}`);
 process.exit(skipped ? 2 : 0);

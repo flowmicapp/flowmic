@@ -13,6 +13,14 @@
 import path from 'node:path';
 import { ROOT, walk, readText, rel, countLines, DEFAULT_SKIP_DIRS } from './_util.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/file-size.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'file-size';
 
 // --- tunable thresholds ---
@@ -102,7 +110,6 @@ function isExcludedFile(relPath) {
 // nine files during a 30-batch translation is how a mechanical change becomes a
 // behavioural one.
 const TRANSLATION_BLOAT_BASELINE = new Map([
-  ['apps/desktop/src/lib/timeline-store.test.ts', 1201],
   ['apps/desktop/src/main-window/DevicesPage.vue', 825],
   ['apps/mobile/lib/src/ptt/ptt_session.dart', 833],
   ['apps/mobile/lib/src/session/image_send_controller.dart', 803],

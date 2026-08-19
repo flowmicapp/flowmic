@@ -953,10 +953,24 @@ void main() {
   );
 
   group('owner ② sustained disconnect leaves the chat session', () {
-    test('10s of dead link → sessionLost + the reconnect ladder is stopped', () async {
+    test('10s of dead link, NO ladder running → sessionLost at once', () async {
+      // 🔴 READ THE HARNESS BEFORE READING THIS TEST. It never pairs, so
+      // `session.reconnect` is NOT running — and since owner's 2026-08-19 ruling
+      // that is the SHORTCUT path, not the ordinary one: a ladder stopped on
+      // purpose will never make the attempts the retry budget waits for, so the
+      // controller gives up immediately instead of hanging.
+      //
+      // The ordinary path (window expires → stay on the page → spend
+      // `kLinkRetryBudget` attempts → then leave) needs a running ladder and is
+      // proven in chat_link_retry_budget_test.dart. Without this paragraph the
+      // test below would look like it still covers the give-up rule, while
+      // actually covering only its exception — the shape this repo keeps paying
+      // for (「为了错误的原因而绿」, green for the wrong reason).
       final _Harness h = _Harness();
       h.connect();
       expect(h.controller.sessionLost, isFalse);
+      expect(h.session.reconnect.isRunning, isFalse,
+          reason: 'this harness takes the stopped-ladder shortcut, on purpose');
 
       h.transport.pushStatus(SocketStatus.disconnected);
       await pumpEventQueue();

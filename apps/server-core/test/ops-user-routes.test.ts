@@ -92,6 +92,15 @@ const OPS_USER_FIELDS = [
   // an audit trail. This array is the thing that makes adding it a deliberate
   // edit rather than a spread.
   'restriction_reason',
+  // LOGIN-1 (2026-08-19) — TWO fields for ONE subject, and the pair is the
+  // point. `last_login_at` alone cannot say why it is blank, and the two causes
+  // want opposite actions from an operator: 「this deployment is not recording」
+  // (go ask owner for the switch; conclude NOTHING about this account) versus
+  // 「recording, and this person has not signed in」 (a fact about the account).
+  // Collapsing them onto one nullable number would paint every account on every
+  // not-yet-switched-on deployment as dormant.
+  'login_recording',
+  'last_login_at',
 ].sort();
 
 let server: BootstrapHandle | null = null;

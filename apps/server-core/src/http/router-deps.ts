@@ -28,6 +28,7 @@ import type { UsageEventsRoutesDeps } from './usage-events-routes';
 import type { OpsUserRoutesDeps } from './ops-user-routes';
 import type { OpsUsageEventsRoutesDeps } from './ops-usage-events-routes';
 import type { ProbeRoutesDeps } from './probe-routes';
+import type { SttModelRoutesDeps } from './stt-model-routes';
 import type { PresenceRoutesDeps } from './presence-routes';
 import type { DiagRoutesDeps } from './diag-routes';
 import type { PairingRegistry } from './pairing-auth';
@@ -140,6 +141,24 @@ export interface HttpDeps {
    *  backgrounding). STANDALONE only (see inject-routes.ts header for why the
    *  cloud relay deliberately does not mount it). */
   inject?: InjectRoutesDeps;
+  /** GET /api/stt/model/status + POST /api/stt/model/{download,cancel} — the
+   *  built-in recogniser model. STANDALONE ONLY, the same standing as
+   *  `inject` right above and for a neighbouring reason: the model file lives
+   *  in the HOST app data directory, which the owner machine has and the public
+   *  relay does not. In saas the paths fall to the router 404.
+   *
+   *  Absent is the PRODUCTION case, not a gap: the module resolves the
+   *  per-directory controller itself, so bootstrap wires nothing. The field
+   *  exists as the suite seam — an injected controller pointed at a temp
+   *  directory is what lets the download/cancel/resume behaviour be tested
+   *  without pulling 229 MB from a third party.
+   *
+   *  ⚠️ Being absent by default is ALSO why this dep cannot be read as the mode
+   *  gate: unlike `auth`/`console`, whose absence in standalone is what mounts
+   *  them saas-only, this one is absent in BOTH modes. The gate is the literal
+   *  `config.mode === standalone` in router.ts, plus the module own local-only
+   *  refusal. */
+  sttModel?: SttModelRoutesDeps;
   /** SALT-1 — GET/PUT /api/timeline/keymeta, the account's blind-store key
    *  metadata (KDF salt + verification sentinel). SAAS ONLY — the exact
    *  reverse of `inject` above: the cloud blind store IS the saas relay's

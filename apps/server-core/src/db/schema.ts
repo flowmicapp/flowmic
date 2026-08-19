@@ -45,6 +45,7 @@
 // connection.ts. Corrected rather than deleted — a sentence describing another
 // file's behaviour is an assertion whose truth changes when that file does
 // (anti-façade ④), and this is what that looks like when it expires.
+// STILL FOURTEEN after LOGIN-1 (2026-08-19): one column + one guarded step, no table.
 // The de-facto registry is the `TABLES` array in test/migration-idempotency.test.ts
 // — a new table that is not appended there is a table nothing checks.
 //
@@ -154,6 +155,26 @@ CREATE TABLE IF NOT EXISTS users (
   -- write route (isRestrictionReason), where an untrusted string actually
   -- arrives.
   restriction_reason TEXT,
+  -- LOGIN-1 (owner ruling owner-web-rulings/latest.md:59-62 — 「要记，并同步改隐私
+  -- 政策」/「approve_with_policy」): ms-epoch of the most recent SIGN-IN observed
+  -- for this account; NULL = none recorded. ONE question — "when did this person
+  -- last present a credential and get a session" — and a NEW column because the
+  -- nearest values answer another (pc_devices/mobile_pairings.last_seen_at =
+  -- "has that DEVICE been active"). auth/auth-service.ts 「recordSignIn」 is the
+  -- ONLY writer and enumerates the paths that count; token verification is
+  -- deliberately not one, or this becomes last-ACTIVITY labelled "last login".
+  -- NULLABLE INTEGER like 「email_verified_at」/「restricted_at」, so it CANNOT ride
+  -- ADDITIVE_INT_COLUMNS (「NOT NULL DEFAULT 0」 is a legal ms-epoch ⇒ every legacy
+  -- row would read 「last signed in 1970-01-01」); guarded step in connection.ts.
+  -- 🔴 THAT STEP BACKFILLS NOTHING — the THIRD distinct reason here:
+  -- 「email_verified_at」 must backfill (else everyone is locked out),
+  -- 「restricted_at」 must not (any value restricts the platform), and this one
+  -- must not because THE ANSWER IS NOT KNOWABLE — nothing on disk records when
+  -- anybody last signed in, so a stamp would be invented evidence about a person
+  -- on the screen where an operator decides whether to restrict them.
+  -- 🔴 COLLECTION IS BEHIND 「FLOWMIC_LOGIN_RECORD_ENABLED」, DEFAULT OFF; config.ts
+  -- 「loginRecordEnabled」 holds the four preconditions for opening it.
+  last_login_at   INTEGER,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

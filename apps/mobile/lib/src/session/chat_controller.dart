@@ -69,6 +69,8 @@ import 'utterance_compose.dart';
 // direct access to the per-utterance snapshot state it is about.
 part 'chat_utterance.dart';
 part 'chat_utterance_settle.dart';
+// The link watch: the window, the retry budget, the exit. Its own header says why.
+part 'chat_link_watch.dart';
 // The remote-key half (⏎⌫↶✕). A part file because this one is at the source
 // cap. ⚠️ Its ORIGINAL reason — 「it needs the controller's private buffer
 // state」 — stopped being true in T-1: owner supplement #3 removed the only
@@ -344,9 +346,13 @@ class ChatController extends ChangeNotifier
 
   final Duration sessionLostAfter;
 
-  /// Set once the sustained-disconnect window expires. The chat page consumes
-  /// it exactly once (pop back to the connections list + a toast); never
-  /// cleared here — this controller dies with the page it flags.
+  /// The retry budget owner ruled on 2026-08-19 — one object because it is one
+  /// fact. Defined, argued and enforced in `chat_link_watch.dart`.
+  final LinkRetryBudget linkRetry = LinkRetryBudget();
+
+  /// Set once the retry budget above is spent with the link still down. The
+  /// chat page consumes it exactly once (pop back to the connections list + a
+  /// toast); never cleared here — this controller dies with the page it flags.
   bool sessionLost = false;
   Timer? _sessionLostTimer;
 

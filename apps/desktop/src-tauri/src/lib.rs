@@ -457,7 +457,8 @@ pub fn run() {
             }
             // Capsule: WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW so it never steals focus.
             shell::configure_capsule_window(app.handle());
-            // Tray — the only quit path (07 §7) + dynamic seven-state tooltip.
+            // Tray — the only quit path (07 §7) + dynamic three-state tooltip
+            // (07 §7 narrowed from seven on 2026-08-19; see socket/pump.rs tray_state).
             shell::setup_tray(app.handle())?;
             // U10 — listen for a second launch's summon signal (named event set
             // by the refused instance above) and surface the main window. The

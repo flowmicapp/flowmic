@@ -2,6 +2,11 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
 import ProbePanel from './ProbePanel.vue';
+// 2026-08-19 §5-A — the built-in engine's model: is it here, how far along is
+// the download, and where would you put the files by hand. It sits directly
+// under the routing table because that table is where the built-in engine is
+// chosen, and the card is the answer to 「I chose it — now what?」.
+import LocalModelCard from './LocalModelCard.vue';
 import { POLISH_STRENGTHS } from '@flowmic/protocol';
 import { S } from '../../lib/strings';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
@@ -131,6 +136,8 @@ onBeforeUnmount(() => watcher?.disconnect());
       </button>
     </div>
     <ProbePanel :state="probe.state" @toggle="probe.toggle" />
+
+    <LocalModelCard />
 
     <div class="sub-h">{{ S.polish_title }}
       <span class="muted" style="font-weight:400">{{ S.polish_hint }}</span>

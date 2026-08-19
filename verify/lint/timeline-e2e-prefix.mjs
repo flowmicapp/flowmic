@@ -37,6 +37,14 @@
 import path from 'node:path';
 import { ROOT, walk, readText, rel } from './_util.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/timeline-e2e-prefix.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'timeline-e2e-prefix';
 
 const MOBILE_LIB = path.join(ROOT, 'apps', 'mobile', 'lib');

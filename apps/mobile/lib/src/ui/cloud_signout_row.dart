@@ -32,10 +32,13 @@
 // already accounted for explicitly in the design doc §5.2.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/login_controller.dart';
 import '../session/connections_controller.dart';
 import '../settings/app_strings.dart';
+import '../support/legal_urls.dart' show kAccountPageUrl;
 import 'confirm_dialog.dart';
 import 'tokens.dart';
 
@@ -43,13 +46,29 @@ import 'tokens.dart';
 /// Renders NOTHING when signed out — the card's own tap already drives to login,
 /// and a 「退出」("sign out") that cannot do anything would be the same façade as a disabled
 /// button nobody can explain.
+/// Opens the account page in an external browser. Production is [launchUrl];
+/// tests inject a recorder, so 「the link works」 is proven by the call and not
+/// by a widget existing (the same seam `data_flow_disclosure_page.dart` uses,
+/// and for the same reason).
+typedef AccountUrlLauncher = Future<bool> Function(
+  Uri url, {
+  required LaunchMode mode,
+});
+
+Future<bool> _launchAccountUrl(Uri url, {required LaunchMode mode}) =>
+    launchUrl(url, mode: mode);
+
 class CloudSignOutRow extends StatefulWidget {
   const CloudSignOutRow({
     super.key,
     required this.login,
     required this.connections,
     required this.strings,
+    this.urlLauncher = _launchAccountUrl,
   });
+
+  /// Test seam for the account link. Production leaves the default.
+  final AccountUrlLauncher urlLauncher;
 
   final LoginController login;
 
@@ -111,10 +130,83 @@ class _CloudSignOutRowState extends State<CloudSignOutRow> {
     setState(() {});
   }
 
+  /// ST-2 — the way to the account page. FAIL LOUDLY when nothing takes the
+  /// URL: the address is copied and the user is told, exactly as the disclosure
+  /// page does. A link that silently does nothing is the same façade as a dead
+  /// button, and on this particular row it would be worse — a user looking for
+  /// how to delete their account would conclude there is no way.
+  Future<void> _openAccountPage() async {
+    final AppStrings s = widget.strings;
+    bool opened = false;
+    try {
+      opened = await widget.urlLauncher(
+        Uri.parse(kAccountPageUrl),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (opened || !mounted) return;
+    // 🔴 SAY IT FIRST, COPY SECOND, and the order is the point. Telling the user
+    // is the half that must happen; putting the clipboard write ahead of it made
+    // the sentence depend on a platform channel — measured while writing the
+    // test for this path: the snackbar never appeared, because the await ahead
+    // of it never came back in that environment. A message that a side errand
+    // can swallow is the silent failure this row exists to avoid.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${s.discOpenFailed}\n$kAccountPageUrl')),
+    );
+    try {
+      await Clipboard.setData(const ClipboardData(text: kAccountPageUrl));
+    } catch (_) {
+      // The address is on screen and selectable-by-eye either way; a clipboard
+      // that refuses is not worth a second error message.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.login.isLoggedIn) return const SizedBox.shrink();
     final String email = widget.login.email ?? '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _identityRow(email),
+        // Its own line, below the destructive chip rather than beside it: the
+        // sign-out ruling gives a dangerous action one landing point and one
+        // undivided target, and crowding a second tappable into that Row is how
+        // a near-miss ends up signing someone out.
+        GestureDetector(
+          key: const ValueKey<String>('cloud.account.manage'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _openAccountPage,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  widget.strings.accountManageLink,
+                  style: TextStyle(
+                    color: FlowMicColors.brand,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.strings.accountManageNote,
+                  style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _identityRow(String email) {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(

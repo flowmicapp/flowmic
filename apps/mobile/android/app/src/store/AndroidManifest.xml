@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- THE STORE CHANNEL — Google Play (and any other store we later submit
+         to). ST-1, 2026-08-19.
+
+         🔴 THIS FILE IS DELIBERATELY EMPTY OF PERMISSIONS, AND THE EMPTINESS IS
+         THE FEATURE. `REQUEST_INSTALL_PACKAGES` lives in the direct flavour
+         only, so a store artifact cannot declare it — not because someone
+         remembered to strip it, but because it was never merged in. Play's
+         Device and Network Abuse policy forbids a store-delivered app from
+         downloading and installing an APK to update itself, and a restricted
+         permission in the manifest is reviewed whether or not any code uses it.
+
+         ⚠️ DO NOT "TIDY THIS FILE AWAY". An empty flavour manifest looks like
+         dead weight and is not: deleting it removes the place where the next
+         person reads why the two channels differ. If a store-only permission
+         is ever needed, it goes here — and its absence from the direct flavour
+         then needs the same kind of paragraph.
+
+         The runtime half of the same rule is lib/src/update/install_source.dart
+         (gate ②): even in a mis-built artifact, an app that Play installed
+         refuses to install an update itself. Two independent mechanisms,
+         because the build one is ours to get wrong and the runtime one is
+         mechanical. -->
+</manifest>

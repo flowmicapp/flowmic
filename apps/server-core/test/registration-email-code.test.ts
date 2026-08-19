@@ -157,6 +157,10 @@ describe('fix-023 enumeration proof: the malformed-email refusal cannot become a
       // place a reviewer can see, at a glance, the FULL set of things a repo
       // handed to AuthService could do.
       setRestricted: () => { throw new Error('test bug: setRestricted() must not be called'); },
+      // LOGIN-1 — same rule as the note just above: the spy is an exhaustive
+      // `UserRepo`. It doubles as a proof that a malformed-email refusal writes
+      // nothing to the collection surface either.
+      stampLastLogin: () => { throw new Error('test bug: stampLastLogin() must not be called'); },
       remove: () => { throw new Error('test bug: remove() must not be called'); },
       listAll: () => { throw new Error('test bug: listAll() must not be called'); },
       // A2-4 — same story as `setRestricted` above: the exhaustive literal is

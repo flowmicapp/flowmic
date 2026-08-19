@@ -252,6 +252,44 @@ export function reconcileSchema(db: DatabaseSync): void {
       db.exec('ALTER TABLE users ADD COLUMN restricted_at INTEGER');
     }
   }
+  // ── LOGIN-1 (2026-08-19): users.last_login_at ──────────────────────────────
+  //
+  // The THIRD hand-written `users` column step, and it is hand-written for the
+  // reason the two above are: `ADDITIVE_INT_COLUMNS` emits `INTEGER NOT NULL
+  // DEFAULT 0`, and 0 is a legal ms-epoch, so every account that predates this
+  // column would forward-port as「last signed in 1970-01-01」— a fabricated
+  // sentence about a person, on the screen where an operator decides whether to
+  // restrict them.
+  //
+  // 🔴 THERE IS NO `UPDATE` LINE HERE, AND ITS ABSENCE IS THE WHOLE STEP — the
+  // third time this file says that, and the third DIFFERENT reason:
+  //   · `email_verified_at` HAD to backfill (without it the gate locks every
+  //     existing account out, owner included);
+  //   · `restricted_at` MUST NOT (any non-NULL value restricts the platform);
+  //   · this one must not because THE ANSWER IS NOT KNOWABLE. Nothing on disk
+  //     records when anyone last signed in — that is the premise of the card —
+  //     so every candidate stamp (`created_at`, a device's `last_seen_at`, the
+  //     migration timestamp) would be a value invented here and read downstream
+  //     as an observation. NULL is the only honest content, and the ops
+  //     projection renders it as "nothing recorded yet" rather than as a date.
+  // Three adjacent steps that look alike and must never be made uniform.
+  //
+  // Idempotent by the same guard as its neighbours: on a fresh DB the CREATE
+  // already made the column, so no ALTER runs; on a re-run the column is present
+  // and this is a no-op. test/migration-idempotency.test.ts drives both shapes.
+  //
+  // ⚠️ THE MIGRATION IS UNCONDITIONAL — it does NOT consult
+  // `FLOWMIC_LOGIN_RECORD_ENABLED`. A schema that appears only when a switch is
+  // on is a schema that differs between two machines running the same build, and
+  // flipping the switch would then become a migration. The switch gates the
+  // WRITE (auth/auth-service.ts `recordSignIn`), same division as
+  // `FLOWMIC_USAGE_EVENTS_ENABLED`: table always, rows never until owner says so.
+  {
+    const usersLoginCols = tableColumns(db, 'users');
+    if (!usersLoginCols.has('last_login_at')) {
+      db.exec('ALTER TABLE users ADD COLUMN last_login_at INTEGER');
+    }
+  }
   // ── A2-5 (2026-08-12): usage_events.{transcript_chars,delivered_chars} ─────
   //
   // The THIRD hand-written step, and it is here rather than in

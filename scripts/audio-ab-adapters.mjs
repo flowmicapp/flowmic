@@ -70,6 +70,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openrouterSttAdapter } from './audio-ab-openrouter.mjs';
+import { assemblyaiSttAdapter } from './audio-ab-assemblyai.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..');
@@ -541,6 +542,7 @@ export const ADAPTERS = {
   'sherpa-local': sherpaLocalAdapter,
   soniox: sonioxAdapter,
   openrouter: openrouterSttAdapter,
+  assemblyai: assemblyaiSttAdapter,
 };
 
 /**

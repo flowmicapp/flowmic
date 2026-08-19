@@ -75,6 +75,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../portable/portable_ports.dart' show AppVersionPort;
+import 'install_source.dart';
 import 'self_update_flag.dart';
 import 'update_check.dart';
 import 'update_download.dart';
@@ -117,7 +118,9 @@ class UpdateController extends ChangeNotifier {
     UpdateInstallRunner? installer,
     DateTime Function() now = DateTime.now,
     this.selfUpdateEnabled = kSelfUpdateEnabled,
-  })  : _version = version,
+    Future<bool> Function()? storeProbe,
+  })  : _storeProbe = storeProbe ?? installedFromStore,
+        _version = version,
         _prefs = prefs,
         _now = now,
         _checker = checker ??
@@ -139,6 +142,27 @@ class UpdateController extends ChangeNotifier {
   /// human sentence explaining this build lacks the capability
   /// — **it does NOT hide the whole section**. Reasoning in self_update_flag.dart's file header.
   final bool selfUpdateEnabled;
+
+  /// Gate ② (`install_source.dart`): asked once in [load].
+  final Future<bool> Function() _storeProbe;
+
+  /// Whether a store delivered this copy. **Not** the same fact as
+  /// [selfUpdateEnabled], and the card says a different sentence for each:
+  /// one is 「this build was made without the feature」, the other is 「the
+  /// store that installed this updates it」.
+  ///
+  /// Defaults to false and is only ever set by [load] — an unasked question
+  /// must not read as 「yes, a store」, or every screen that paints before load
+  /// would claim a fact nobody established.
+  bool _fromStore = false;
+
+  bool get installedFromAppStore => _fromStore;
+
+  /// 🔴 THE ONE ANSWER to 「may this app install an update itself right now」.
+  /// Both gates, one getter — the alternative is each call site remembering to
+  /// ask twice, which is the shape that makes gate ② forgettable all over
+  /// again.
+  bool get selfUpdateUsable => selfUpdateEnabled && !_fromStore;
 
   bool _loaded = false;
   bool _checking = false;
@@ -192,6 +216,12 @@ class UpdateController extends ChangeNotifier {
   Future<void> load() async {
     _autoCheck = await _prefs.autoCheckEnabled();
     _lastSuccessAt = await _prefs.lastSuccessAt();
+    // Gate ② rides the same load: it is one platform call, it can only change
+    // when the package is replaced, and asking it here means every reader of
+    // [selfUpdateUsable] sees the same answer as everything else this method
+    // establishes. Asking it lazily per action would let the check card and the
+    // install button disagree for one frame — 「one question, two answers」.
+    _fromStore = await _storeProbe();
     _loaded = true;
     _notify();
   }
@@ -214,8 +244,12 @@ class UpdateController extends ChangeNotifier {
   /// dispose handling — this pass does not invent a mechanism for a
   /// scenario nobody has observed. This is a stated debt, not an oversight.
   Future<void> maybeAutoCheck() async {
+    // Gate ② needs [load] to have run before it can answer, and this is the one
+    // entry point that may run before it — so ask the flag first (cheap, and it
+    // is the case where nothing exists at all), then load, then the pair.
     if (!selfUpdateEnabled) return;
     if (!_loaded) await load();
+    if (!selfUpdateUsable) return;
     if (!_autoCheck || !isStale) return;
     await checkNow();
   }
@@ -227,7 +261,7 @@ class UpdateController extends ChangeNotifier {
   /// not 「checking」. The UI in that state says 「auto-check is off」,
   /// **and never says 「already up to date」**.
   Future<void> checkNow() async {
-    if (!selfUpdateEnabled || _checking) return;
+    if (!selfUpdateUsable || _checking) return;
     _checking = true;
     // A new check replaces [result], while the two segments' outcomes speak
     // about the **PREVIOUS** artifact. Keeping them around would let the
@@ -306,7 +340,7 @@ class UpdateController extends ChangeNotifier {
   /// `portable-zip` / `dmg` ([UpdateCheckResult.installable] is null).
   /// In that case the UI gives an address, not a button.
   bool get canInstall =>
-      selfUpdateEnabled &&
+      selfUpdateUsable &&
       _result?.outcome == UpdateCheckOutcome.updateAvailable &&
       _result?.installable != null;
 

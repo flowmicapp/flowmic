@@ -79,6 +79,73 @@
 // COLLECTION-surface expansion (privacy policy 「What we collect」) and is an owner
 // gate; nothing here may open it by writing a column.
 //
+// ── 🔴🔴 ORIGINAL-PLACE CORRECTION (2026-08-19, card LOGIN-1) ───────────────
+// EVERY FACTUAL SENTENCE IN THE BLOCK ABOVE IS NOW FALSE, AND ITS LAST TWO WERE
+// ALREADY FALSE THE DAY THEY WERE WRITTEN. The original text is kept verbatim
+// and not deleted, because HOW it went wrong is the reusable part.
+//
+// ① 「Adding `users.last_login_at` … is an owner gate」 — THE OWNER HAD ALREADY
+//    OPENED IT. docs/decisions/owner-web-rulings/latest.md:59-62, submitted
+//    2026-08-11T23:23:05Z:
+//        ### 「上次登录时间 / 登录流水」今天根本不存在。要不要开始记？
+//        - **裁定**：要记，并同步改隐私政策
+//        - **选项值**：`approve_with_policy`
+//    The commit that introduced the paragraph above (`b1ad6311`) is authored
+//    2026-08-12T03:55:36Z — FOUR AND A HALF HOURS LATER. So this was never a
+//    decision waiting to be made; it was an approved decision nobody carried
+//    out, guarded by a sentence telling every later reader not to carry it out
+//    either. It sat that way for a week.
+// ② 「there is no `last_login_at` … a successful sign-in leaves nothing behind」
+//    — there is now: `users.last_login_at` (db/schema.ts), written by
+//    auth/auth-service.ts `recordSignIn` at the three sign-in paths it
+//    enumerates (registration is deliberately NOT one of them).
+// ③ 「They are not shown under a wrong name, and they are not shown under a
+//    right one either」 — still true of the three device timestamps, which stay
+//    absent from this view. What changed is that this card did not reach for one
+//    of them; it added the value that answers the question the operator asked.
+//    That is the half of the original paragraph that aged well, and it is why the
+//    new field means「a credential was presented」and never「activity」.
+//
+// 🔴 WHAT THIS CORRECTION IS EVIDENCE OF, since that is why it is kept: the
+// paragraph above is a comment ASSERTING A DECISION MADE ELSEWHERE (anti-façade
+// ④) that named no coordinate anybody could check — no ruling file, no date, no
+// 「owner gate」 register. A reader wondering 「is this still gated?」 had nowhere
+// to look, so nobody looked, and the ruling and the comment coexisted for a week
+// without ever meeting.
+// ⇒ This repo's rule that a comment asserting behaviour elsewhere must carry a
+// greppable anchor or be pinned by a test applies to comments asserting a POLICY
+// STATE too — and this is what its absence costs: not a wrong line of code, but
+// a correct decision that never happened.
+//
+// ── 🔴 WHAT SHIPPED, AND WHAT IS STILL SHUT ─────────────────────────────────
+// The ruling's option value is `approve_with_policy` — recording AND the privacy
+// policy changing together, one piece of work rather than two. So:
+//   · the column, the migration, the write path and this view ship now;
+//   · COLLECTION is behind `FLOWMIC_LOGIN_RECORD_ENABLED`, DEFAULT OFF
+//     (config.ts `loginRecordEnabled`) — the shape `FLOWMIC_USAGE_EVENTS_ENABLED`
+//     established. config.ts carries the full argument and one correction that
+//     matters here: the reflex reason 「the live policy does not mention this
+//     yet」 IS FALSE for this field [measured 2026-08-19]. The policy has carried
+//     a 「Last successful sign-in time」 row since `82ba0e61` (2026-08-12), about
+//     an hour after the ruling was processed. ⇒ TODAY THE PUBLISHED POLICY
+//     OVER-CLAIMS: it discloses a collection this server does not perform, while
+//     the paragraph above declared the collection impossible. TWO DOCUMENTS,
+//     OPPOSITE ERRORS, SAME FIELD, SAME WEEK — and each one on its own looked
+//     like a settled decision.
+// 🔴 NOTHING HERE MAY SET THAT VARIABLE. The four preconditions are enumerated
+// on `ServerConfig.loginRecordEnabled`; the short version is that the CORRECTED
+// row has to be live, the policy's own 30 days' notice has to have been given,
+// and owner has to say go.
+//
+// ── WHAT THIS VIEW NOW SHOWS, AND WHY IT IS TWO FIELDS ──────────────────────
+// `login_recording` (the switch) beside `last_login_at` (the observation),
+// because there are THREE states an operator acts on differently and one
+// nullable number encodes two: 「we are not recording」 / 「recording, this
+// account has not signed in yet」 / the moment. db/repos/user.repo.ts
+// `OpsUserView` carries the argument, including why a stamp is WITHHELD while
+// the switch is off (a stale date under the words 「last login」 with nothing on
+// screen to say the clock stopped).
+//
 // ── PATH SHAPE: WHY THE DETAIL IS A QUERY PARAMETER ─────────────────────────
 // O-3's R2 was `GET /api/ops/users/:id`, and `:id` is not expressible in
 // ADMIN_GATED_ROUTES — that fence is a list of LITERALS whose job is to make
@@ -154,6 +221,24 @@ export interface OpsUserRoutesDeps {
    * to grep.
    */
   audit: OpsAuditSink;
+  /**
+   * LOGIN-1 — is this deployment RECORDING sign-ins
+   * (`FLOWMIC_LOGIN_RECORD_ENABLED`, config.ts `loginRecordEnabled`).
+   *
+   * 🔴 REQUIRED — no `?`, no default, same argument as `audit` above. A default
+   * would silently pick one of the three states the card renders, and the only
+   * safe default (`false`) would make a deployment that IS collecting report
+   * 「we are not recording」 to its own operator — a response that under-reports
+   * while looking complete, on the screen where somebody decides whether to
+   * restrict an account.
+   *
+   * ⚠️ IT IS NOT A PERMISSION AND IT DOES NOT GATE THE ROUTE. The route mounts
+   * either way, exactly as `opsUsageEvents` mounts regardless of
+   * `usageEventsEnabled`: the switch gates COLLECTION, never READING, and a
+   * surface that 404'd while collection was off would answer 「is anyone
+   * recording?」 with 「this build has no such feature」.
+   */
+  loginRecording: boolean;
 }
 
 /** `{ok:true, …}` or the 400 message — the ops family's parse verdict. Never
@@ -302,7 +387,15 @@ export function tryHandleOpsUserRoutes(req: IncomingMessage, res: ServerResponse
     });
     sendJson(res, 200, {
       // THE projection, at the one point a `UserRecord` becomes a response.
-      rows: page.rows.map(toOpsUser),
+      // 🔴 `(u) => toOpsUser(u, …)` RATHER THAN A BARE `.map(toOpsUser)`, and the
+      // arrow is load-bearing rather than style. `Array.prototype.map` passes the
+      // INDEX as the second argument, so a bare reference would hand `0` (falsy)
+      // to the first row and `1` (truthy) to every row after it: row 1 would
+      // report 「not recording」 and rows 2..n 「recording」, on one page, from one
+      // deployment. Making the parameter REQUIRED is what turned that from a
+      // runtime lie into a compile error — and this note is what stops the next
+      // reader from 「tidying」 the arrow away.
+      rows: page.rows.map((u) => toOpsUser(u, deps.loginRecording)),
       next_after_user_id: page.next_after_user_id,
     });
     return true;
@@ -343,7 +436,7 @@ export function tryHandleOpsUserRoutes(req: IncomingMessage, res: ServerResponse
       sendJson(res, 404, { error: OPS_USER_UNKNOWN, message: 'user_id names no account' });
       return true;
     }
-    sendJson(res, 200, { user: toOpsUser(user) });
+    sendJson(res, 200, { user: toOpsUser(user, deps.loginRecording) });
     return true;
   }
 

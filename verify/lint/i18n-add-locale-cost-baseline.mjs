@@ -62,18 +62,48 @@
 //     than waved through — a new entry is what this gate exists to make someone
 //     look at, and looking at it is what this paragraph is.
 
+// 🔴 `data_flow_disclosure_test.dart` 10 -> 9 (2026-08-19, local-model onboarding
+// batch) — RE-PINNED, AND THE NUMBER IS NOT AN IMPROVEMENT. Say it plainly,
+// because a baseline that only ever records good news is the version of this
+// file that stops being read.
+//
+// What happened: the desktop gained a button that downloads the speech model, so
+// the disclosure line 「it downloads only if you set FLOWMIC_SHERPA_AUTO_DOWNLOAD=1」
+// became false and was rewritten to promise CONSENT instead of naming a variable.
+// Pinning that promise needs one marker per language. Written as its own nine-entry
+// map it read 11 here — a NEW hand-rolled locale list, correctly flagged. So the
+// two per-locale maps in that test were merged into ONE map of records
+// (`({qualifier, consent})`), which is the honest fix: language ten now threads
+// through one list in that file, exactly as it did before this batch.
+//
+// ⚠️ But the reading moved 10 -> 9, not 10 -> 10, and the extra unit is WINDOW
+// ARITHMETIC, not a retired list: the record layout spreads `AppLocale.*` further
+// than the 240-char window, so one site the gate used to see it no longer does.
+// Measured, not assumed (`collect()` before and after the merge: 11 -> 9). Counting
+// that -1 as progress would be the trap this file's own P1/P2 notes describe — an
+// improvement made entirely of the ruler seeing less.
+//
+// 🔴 SAME BATCH, SAME CAVEAT, LOUDER: `data-flow-disclosure.test.ts#1` is REMOVED
+// below, and NOT because a locale list was retired. That file still hand-lists all
+// nine languages several times over — the same edit merely moved the quoted `'ja'`
+// / `'ko'` / `'zh-CN'` tokens far enough apart that no 240-char window holds three
+// of them any more, and the gate now reads that file as ZERO. Nothing there got
+// cheaper. The entry is dropped so this ledger describes what the gate can
+// actually see (a pin nobody re-reads is how the last guard in this repo rotted),
+// but a future reader must not take the deletion as evidence: the desktop
+// disclosure test is still a place a tenth language has to be threaded into by
+// hand, and this ruler has gone blind to it.
 export const SITES = [
   'apps/desktop/src/capsule/capsule-timeline-one-word.test.ts#1',
   'apps/desktop/src/main-window/cloud-signout-confirm.test.ts#2',
   'apps/desktop/src/main-window/credentials-at-rest-note.test.ts#1',
-  'apps/desktop/src/main-window/data-flow-disclosure.test.ts#1',
   'apps/desktop/src/main-window/polish-capability-notice.test.ts#1',
   'apps/desktop/src/main-window/scenario-inference-consent.test.ts#2',
   'apps/desktop/src/main-window/timeline-search.test.ts#2',
   'apps/mobile/lib/src/settings/app_strings.dart#1',
   'apps/mobile/test/capsule_taken_exit_test.dart#1',
   'apps/mobile/test/cloud_image_error_copy_test.dart#1',
-  'apps/mobile/test/data_flow_disclosure_test.dart#10',
+  'apps/mobile/test/data_flow_disclosure_test.dart#9',
   'apps/mobile/test/delivery_refusal_note_test.dart#1',
   'apps/mobile/test/delivery_terminology_test.dart#2',
   'apps/mobile/test/diagnostics_engine_section_test.dart#1',

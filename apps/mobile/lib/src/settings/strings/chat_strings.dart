@@ -22,6 +22,15 @@ mixin ChatStrings on AppStringsLeaves {
   /// is replayed on the reconnect edge (08 §4) — say so, never just "offline".
   /// owner 2026-07-26 ②: shown when the chat page gives up on a dead link and
   /// returns to the connections list.
+  ///
+  /// 🔴 Reworded 2026-08-19 with the rule it describes (owner ruling 4): the
+  /// page now spends `kLinkRetryBudget` dial attempts before it
+  /// leaves, so 「连接断了」 ("the connection dropped") was no longer the reason
+  /// the user was moved — 「试了几次都没连上」 ("several tries and none
+  /// connected") is. Deliberately WITHOUT the number: the budget is a constant
+  /// in one place, and nine translations quoting it would each become a lie the
+  /// day it changes (the precedent is the plan-tier copy, where a count in the
+  /// copy outlived the count in the code).
   String get sessionLostToast => _lfSessionLostToast;
   String get bannerLinkDown => _lfBannerLinkDown;
 

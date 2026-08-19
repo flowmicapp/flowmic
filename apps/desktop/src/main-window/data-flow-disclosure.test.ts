@@ -568,10 +568,51 @@ describe('P1 — the product says where the user’s words go', () => {
       de: ['das betrifft deine Stimme', 'ist Schritt 3'],
       ru: ['это касается вашего голоса', 'решается на шаге 3'],
     };
-    // owner's verbatim opt-in sentence (ruling 2026-08-11 / deferred-batch #12).
-    // The clause was inserted BEFORE it — an owner-ruled sentence must not be
-    // able to go missing behind a green qualifier assertion.
-    const OPT_IN_FLAG = 'FLOWMIC_SHERPA_AUTO_DOWNLOAD=1';
+    // 🔴 IN-PLACE CORRECTION (2026-08-19, local-model onboarding batch) — the
+    // assertion below was INVERTED, not weakened by stealth.
+    //
+    // It used to require the literal 「FLOWMIC_SHERPA_AUTO_DOWNLOAD=1」, because
+    // owner's 2026-08-11 opt-in sentence named that environment variable and
+    // the variable was the ONLY way to consent to the download. The desktop now
+    // ships a download button in settings
+    // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A), so the
+    // old sentence became FALSE the day the button existed: setting a variable
+    // stopped being the only way to say yes, and a disclosure that lags the
+    // mechanism is this repo's most expensive failure shape.
+    //
+    // What owner's ruling actually bought was the CONSENT PROMISE — 「it does
+    // not download unless you asked for it」 — and that survives untouched; only
+    // the mechanism of asking widened. So the promise is pinned POSITIVELY per
+    // locale, and the identifier is BANNED from the body copy (§5-D: the
+    // variable is the unattended/CI path, and naming it in a privacy paragraph
+    // a phone user reads is noise, not disclosure). Dropping the assertion
+    // instead of turning it round would have retired a guard along with the
+    // sentence it guarded — the exact move the LAN block above refuses to make.
+    //
+    // ✅ REVERSE CONTROL — BOTH NEW READINGS HAVE BEEN SEEN RED (2026-08-19, the
+    // machine is named in the private window log; en mutated in the catalogue,
+    // regenerated, run, restored, `git diff` back to the single intended line):
+    //   · consent promise replaced by 「when the built-in engine is first used」
+    //     ⇒ 「the consent promise … left the local-engine line」;
+    //   · 「from settings on the computer」 replaced by 「by setting
+    //     FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 on the computer」
+    //     ⇒ 「the environment variable is back in the body copy」.
+    // The phone's twin was mutated in the same runs and went red identically.
+    const CONSENT_PROMISE: Record<Loc, string> = {
+      'zh-CN': '只在你要求之后',
+      en: 'because you asked for it',
+      ja: 'あなたが求めたときにだけ',
+      ko: '당신이 요청했을 때만',
+      'zh-TW': '只在你要求之後',
+      fr: "parce que vous l'avez demandé",
+      es: 'porque tú la has pedido',
+      de: 'weil du ihn verlangt hast',
+      ru: 'вы об этом попросили',
+    };
+    // The bare NAME, not the `=1` form: a rewrite that mentioned the variable
+    // without its value would slip past the longer string and put developer
+    // configuration back into a user-facing privacy paragraph.
+    const OPT_IN_FLAG_NAME = 'FLOWMIC_SHERPA_AUTO_DOWNLOAD';
     for (const loc of LOCALES) {
       const line = S_BY_LOCALE[loc].disc_s2_local;
       for (const marker of TEXT_DESTINATION_QUALIFIER[loc]) {
@@ -582,8 +623,12 @@ describe('P1 — the product says where the user’s words go', () => {
       }
       expect(
         line,
-        `${loc}: owner's opt-in sentence (2026-08-11) vanished from the local-engine line — the REQ-13-09 clause goes BEFORE it, never instead of it`,
-      ).toContain(OPT_IN_FLAG);
+        `${loc}: the consent promise (「${CONSENT_PROMISE[loc]}」) left the local-engine line. The download button widened HOW you consent; it did not remove the promise that nothing is fetched until you do. Without this sentence the paragraph describes an app that reaches out on its own.`,
+      ).toContain(CONSENT_PROMISE[loc]);
+      expect(
+        line,
+        `${loc}: the environment variable is back in the body copy. It is the unattended path now (design §5-D) — say WHO asked for the download, not which variable was set.`,
+      ).not.toContain(OPT_IN_FLAG_NAME);
       // 🔴 And it is MOUNTED, not merely present in the catalogue — a string
       // nobody renders is this repo's oldest façade. The phone carries the same
       // four strings byte-for-byte (disclosure_strings.dart `discStep2Local`)

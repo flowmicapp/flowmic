@@ -18,6 +18,14 @@
 import path from 'node:path';
 import { ROOT, readText } from './_util.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/i18n-error-keys.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'i18n-error-keys';
 
 const ERROR_CODES_TS = path.join(ROOT, 'packages', 'protocol', 'src', 'error-codes.ts');

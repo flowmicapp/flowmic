@@ -37,10 +37,13 @@ import { fileURLToPath } from 'node:url';
 import { BUNDLED_NODE, hostPlatformKey } from './vendor/bundled-node.mjs';
 import {
   verifyApkVersion,
+  verifyApkTargetSdk,
   verifyApkCarriesSelfUpdate,
   verifyApkDisclosureCopy,
 } from './publish-apk-gates.mjs';
 import { verifyArtifactsCarryNoLanIp } from './publish-lan-ip-gate.mjs';
+import { verifyDiskHeadroom } from './publish-disk-space-gate.mjs';
+import { removeAllExcept, verifyAdoptedArtifactsSurvive } from './publish-adopted-artifact-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
 import { readValidReceipt, reuseBanner } from './gate-receipt.mjs';
 
@@ -90,6 +93,17 @@ if (WITH_MANIFEST && process.argv.includes('--skip-lan')) {
   );
   process.exit(1);
 }
+
+// ── GATE 0-pre: two facts about the disk, read before anything is written ───
+// docs/RELEASE-IRONRULES.md's 「磁盘」 and 「跨机产物」 rules, promoted out of its
+// human-only §1 into §2 by this wiring (cited by NAME: that list renumbered
+// twice on the day this was written). Both are pure reads, so they precede
+// Gate 0's minutes — and the disk one precedes the first byte this process
+// writes. Measurements, thresholds and refusal texts live in the two modules.
+if (!verifyDiskHeadroom(ROOT, fail, ok)) process.exit(1);
+const adoptedPre = verifyAdoptedArtifactsSurvive({ outDir: OUT, version: VERSION });
+if (adoptedPre.refusal) { fail(adoptedPre.refusal); process.exit(1); }
+ok(adoptedPre.notice);
 
 // ── GATE 0: `pnpm verify:delivery`, red means stop (B7, owner 2026-08-02) ────
 //
@@ -320,8 +334,16 @@ if (!verifyArtifactsCarryNoLanIp(fail, ok)) process.exit(1);
 // running out of publish/. That was the every-round EBUSY, and the run copy now
 // lives outside this tree — so if it happens anyway, say what to do about it
 // instead of quietly absorbing it (this is the only place that state is visible).
+//
+// The cross-machine gate is asked AGAIN here, next to the removal it governs:
+// publish/ is shared between windows (up6 measured another window staging an
+// artifact there mid-card) and Gate 0 takes minutes, so the earlier answer is a
+// claim about a directory that has since moved on.
+const adoptedNow = verifyAdoptedArtifactsSurvive({ outDir: OUT, version: VERSION });
+if (adoptedNow.refusal) { fail(adoptedNow.refusal); process.exit(1); }
 try {
-  rmSync(OUT, { recursive: true, force: true });
+  if (adoptedNow.keep.length > 0) removeAllExcept(OUT, adoptedNow.keep, (m) => console.log(m));
+  else rmSync(OUT, { recursive: true, force: true });
 } catch (e) {
   console.log(`· could not clear ${OUT} (${e.code}) — overwriting in place`);
   console.log('  (if the holder is a FlowMic launched from publish/: the run directory has already been split out,');
@@ -363,7 +385,21 @@ if (msis.length === 0) fail(`no ${VERSION} MSI in target/release/bundle/msi (sta
 const staged = msis.map((f) => stage(join(BUNDLE, f), OUT));
 
 console.log('\n── android ──');
+// ST-1 (2026-08-19): the phone now builds two channels, and only ONE of them is
+// ours to publish. `app-direct-release.apk` is the flavour that carries the
+// self-updater; the store flavour deliberately does not, so a user who got it
+// from our site would be stranded on that version forever with no way to hear
+// about the next one.
+//
+// 🔴 The pre-flavour name is kept as a candidate and is NOT a fallback for
+// convenience: an `app-release.apk` on disk today is a leftover from a build
+// made before the split, and the gates below (version + self-update marker)
+// are what decide whether it may ship — the same three questions asked of any
+// candidate. What must never happen is the STORE artifact being staged as the
+// public download, and that cannot happen by path: its bundle is an `.aab`
+// under build/app/outputs/bundle/, which no candidate here names.
 const apkCandidates = [
+  join(ROOT, 'apps', 'mobile', 'build', 'app', 'outputs', 'flutter-apk', 'app-direct-release.apk'),
   join(ROOT, 'apps', 'mobile', 'build', 'app', 'outputs', 'flutter-apk', 'app-release.apk'),
   join(ROOT, '.local', 'dist', `FlowMic-${VERSION}-release.apk`),
 ];
@@ -395,7 +431,10 @@ if (apk) {
   const versionOk = Boolean(verifyApkVersion(apk, VERSION, fail, ok));
   const featureOk = verifyApkCarriesSelfUpdate(apk, fail, ok);
   const disclosureOk = verifyApkDisclosureCopy(apk, fail, ok);
-  if (versionOk && featureOk && disclosureOk) stage(apk, OUT, `FlowMic-${VERSION}-release.apk`);
+  // Its own gate, not a clause in the version check: "right build?" and "did
+  // the pin reach the bytes?" are two questions. (File is AT the 800 cap.)
+  const targetOk = verifyApkTargetSdk(apk, fail, ok);
+  if (versionOk && featureOk && disclosureOk && targetOk) stage(apk, OUT, `FlowMic-${VERSION}-release.apk`);
 } else {
   console.log('· no APK found — skipped (mobile unchanged this round)');
 }

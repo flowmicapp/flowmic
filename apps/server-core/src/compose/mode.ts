@@ -20,9 +20,16 @@
 // the user has turned `stt.polish` on. The user-facing disclosure was wrong for
 // a year because of it (ledger C-2).
 //
-// ⚠️ `modeUsesLlm()` below has ZERO PRODUCTION CALL SITES — grep it: one barrel
-// re-export and three test assertions. A constant that tests agree with is not a
-// gate. Do not cite this file as evidence that realtime is LLM-free; the only
+// ⚠️ `modeUsesLlm()` was DELETED 2026-08-19. It had ZERO production call sites
+// (one barrel re-export and three test assertions — a constant that tests agree
+// with is not a gate), while its own JSDoc called it "the guarantee behind
+// 'realtime never touches the LLM'" — the exact claim the correction above
+// records as false about the system. Wiring it instead was rejected: the compose
+// path's real guarantee is structural (the protocol task enum has no realtime
+// value, so no compose:start can name it), and the vendor exposure that DOES
+// exist (resolvePolishDep, above) deliberately never reads `mode` — a
+// mode-branch gate would have manufactured the façade this header warns about.
+// Do not cite this file as evidence that realtime is LLM-free; the only
 // honest statement is the narrow one:
 //   - `realtime`  → no compose:start exists for it (the protocol task enum has
 //                    no such value), so it never runs a COMPOSE turn. That is a
@@ -37,12 +44,6 @@
 
 export type ComposeMode = 'realtime' | 'translate' | 'organize';
 export type ComposeTask = 'translate' | 'organize' | 'draft_polish';
-
-/** True iff the mode routes text through the LLM. `realtime` is the sole
- *  passthrough — the guarantee behind "realtime never touches the LLM". */
-export function modeUsesLlm(mode: ComposeMode): boolean {
-  return mode !== 'realtime';
-}
 
 /** Every compose TASK is LLM-backed (translate/organize/draft_polish). Kept as
  *  a total function so the exhaustiveness guard fires if the union ever grows. */

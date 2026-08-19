@@ -3,10 +3,13 @@
 # (D3 lesson: protocol events are generated from @flowmic/protocol, never hand-
 # written). `*.g.dart` is gitignored; regenerate on a clean checkout with `make gen`.
 
-.PHONY: gen analyze test build release
+.PHONY: gen analyze test build release release-store
 
 # Two generators, two different sources, both required before anything compiles:
-#   · tool/gen_protocol.mjs      — event names + schema version, from @flowmic/protocol
+#   · tool/gen_protocol.mjs      — event names, schema version, and the retired
+#                                  relay list, from @flowmic/protocol (the last
+#                                  one rides the generator so the address never
+#                                  becomes a Dart literal — see its header)
 #   · gen-mobile-dart.mjs        — the string catalogue's per-language classes,
 #                                  from i18n/mobile/*.json + the locale registry
 #                                  (0.2.67, architecture doc §4.1). Its output is
@@ -43,4 +46,49 @@ build: gen
 # script" vs "the bytes contain the feature" — and only the second one is
 # enforced.
 release: gen
-	flutter build apk --release --dart-define=FLOWMIC_SELF_UPDATE=1
+	flutter build apk --release --flavor direct --dart-define=FLOWMIC_SELF_UPDATE=1
+
+# THE STORE ARTIFACT — Google Play (ST-1, 2026-08-19).
+#
+# Two differences from `release`, and each is a rule rather than a preference:
+#   · `--flavor store` picks the source set WITHOUT REQUEST_INSTALL_PACKAGES
+#     (android/app/src/store/AndroidManifest.xml explains why it is empty);
+#   · no FLOWMIC_SELF_UPDATE define, so the Dart half is tree-shaken out too.
+#     Belt and braces on purpose: the manifest half is what Play REVIEWS, the
+#     Dart half is what could still try to run, and the third defence
+#     (lib/src/update/install_source.dart) holds even in a mis-built artifact.
+#
+# Play takes an AAB, not an APK — `flutter build apk` here would produce
+# something no store accepts, which is why this target does not offer one.
+#
+# ⚠️ NOT A PUBLISHABLE ARTIFACT FOR OUR OWN CHANNELS. scripts/publish.mjs
+# refuses it by name: a store bundle carries no self-updater, and a user who
+# downloaded it from our site would be stranded on that version forever.
+# THE GATE IS PART OF THIS TARGET, not a step someone remembers (ST-1b,
+# 2026-08-19). Until today the store gate existed and nothing ran it: submitting
+# to Play is a manual action, so the only thing between a mis-built bundle and
+# the Play console was a line in docs/RELEASE-IRONRULES.md. That is the same
+# shape the `release` comment above names -- "the build went through our script"
+# vs "the bytes contain the feature" -- and only the second one is worth
+# anything. So the second line below reads the bundle the first line just wrote,
+# and a refusal fails this target (make stops on a non-zero recipe line).
+#
+# WHAT IT PROVES: the .aab submitted to Play -- these exact bytes -- carries no
+# self-update marker in any module entry, and declares no
+# REQUEST_INSTALL_PACKAGES in any module manifest. The gate inflates the bundle
+# and walks the protobuf manifest itself (no bundletool). The measurement, and
+# the cross-check against aapt on the same flavour's APK, are in
+# scripts/store-channel-gate.mjs section measurement-aab.
+#
+# WHAT IT DOES NOT PROVE, stated here and not only over there:
+#   1. Play does not install these bytes. It generates and re-signs per-device
+#      split APKs from this bundle. This gate reads what those are derived from.
+#   2. It says nothing about which file a human later drags into the console.
+#      Nothing in this repo can see that action; it stays in section 1 of the
+#      release ironrules.
+#   3. `flutter build appbundle` prints its own green "Built ..." line BEFORE
+#      the gate runs. That line is not the verdict. The verdict is the OK/FAIL
+#      line after it, and the exit code of this target.
+release-store: gen
+	flutter build appbundle --release --flavor store
+	node ../../scripts/store-channel-gate.mjs build/app/outputs/bundle/storeRelease/app-store-release.aab

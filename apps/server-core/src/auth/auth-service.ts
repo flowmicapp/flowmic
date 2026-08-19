@@ -20,6 +20,7 @@ import { hashPassword, verifyPassword } from './password';
 import { checkPasswordPolicy, passwordPolicyMessage } from './password-policy';
 import { signJwt, verifyJwt, JwtError, DEFAULT_TTL_MS } from './jwt';
 import { UserConstraintError, type UserRecord, type UserRepo } from '../db/repos/user.repo';
+import { log } from '../log';
 
 // A4-3 (2026-08-12): `MIN_PASSWORD_LENGTH = 8` used to be declared HERE, and
 // http/password-reset-routes.ts hand-wrote its own `8` beside it. The policy now
@@ -151,7 +152,73 @@ export interface AuthService {
    *  user vanished between reset-token check and write. */
   setPassword(id: string, newPassword: string): Promise<UserRecord | null>;
   publicUser(user: UserRecord): PublicUser;
+  /**
+   * LOGIN-1 — record that this account just SIGNED IN (`users.last_login_at`).
+   *
+   * Owner ruling: docs/decisions/owner-web-rulings/latest.md:59-62 —
+   * 「上次登录时间 / 登录流水」→「要记，并同步改隐私政策」(`approve_with_policy`).
+   *
+   * ── 🔴 WHICH MOMENTS COUNT AS "A LOGIN", AND WHY — THE ENUMERATION ─────────
+   * There are FOUR places in this repo that mint a session (`issueToken` call
+   * sites; `grep -rn "issueToken" src/`). THREE of them call this and one
+   * deliberately does not:
+   *
+   *   ✅ `POST /api/login` (http/auth-routes.ts) — an email and a password were
+   *      presented and verified. The archetype.
+   *   ✅ `mobile:login`, password arm (socket/handlers/auth.handler.ts) — the
+   *      SAME credential check over a different transport. Excluding it would
+   *      make the column silently wrong for the phone, which is the client most
+   *      users actually sign in from: their account would read "never signed in"
+   *      while they used the product daily.
+   *   ✅ `mobile:login`, QR arm (same file) — a single-use, 60-second grant that
+   *      an ALREADY-AUTHENTICATED console minted for this exact account. The
+   *      person performed a deliberate sign-in on a new device and typed no
+   *      password only because the console vouched for them. Excluding it would
+   *      make「signed in by QR」indistinguishable from「never signed in」, and QR
+   *      is a first-class path (GA-31), not a shortcut.
+   *   ❌ `POST /api/register` (http/auth-routes.ts) — DOES NOT COUNT, and this
+   *      is the one judgement call in the list. Registration already has a
+   *      column that answers it exactly: `users.created_at`. Stamping here would
+   *      make `last_login_at` non-NULL for every account from the instant it
+   *      exists, which DESTROYS the one distinction an operator wants from this
+   *      field — "registered and never came back" vs "has been back". Those two
+   *      would render as the same date on the same screen. NULL after
+   *      registration is not a gap: it is the true statement "we have not
+   *      observed this person sign in", and `created_at` sits beside it saying
+   *      when the account appeared.
+   *
+   * ── 🔴 "LAST LOGIN" vs "LAST ACTIVITY" — THE NAMED CHOICE ─────────────────
+   * Auth here is stateless JWT, so a token is verified on nearly every request
+   * (`accountFromBearer`, `verifyToken`, the socket handshake middleware). Those
+   * verifications are the obvious place to stamp and they are deliberately NOT
+   * stamped. A value moved by token verification answers "has this account been
+   * active recently" — which is what `pc_devices.last_seen_at` and
+   * `mobile_pairings.last_seen_at` ALREADY answer, and answering it a fourth
+   * time under the label "last login" is one value answering two questions on
+   * the screen where an operator decides whether to restrict somebody.
+   * ⇒ CHOSEN: this column moves only when a CREDENTIAL was presented. A user who
+   * signs in once and then uses a 7-day token for a week has ONE login, not a
+   * week of them — which is exactly what the words say.
+   *
+   * ── THE SWITCH ────────────────────────────────────────────────────────────
+   * Writes NOTHING unless `FLOWMIC_LOGIN_RECORD_ENABLED=1` (config.ts
+   * `loginRecordEnabled`, default OFF). See that field for why the default is
+   * the feature.
+   *
+   * ── NEVER FATAL ───────────────────────────────────────────────────────────
+   * A failure to record is logged and swallowed. An OPTIONAL record must never
+   * be able to turn a valid sign-in into a 500 — the same direction
+   * billing/usage-tracker.ts argues for its own append ("an optional record must
+   * not be able to make the mandatory one wrong"), and here the mandatory thing
+   * is the user getting into their account.
+   */
+  recordSignIn(user: UserRecord): void;
 }
+
+/** The one line that says whether this process records sign-ins. Exported so a
+ *  test can assert on it rather than on a string typed twice (the shape
+ *  billing/usage-tracker.ts's `USAGE_EVENTS_SWITCH_LOG` established). */
+export const LOGIN_RECORD_SWITCH_LOG = 'login record:';
 
 export interface AuthServiceDeps {
   users: UserRepo;
@@ -161,6 +228,26 @@ export interface AuthServiceDeps {
   now?: () => number;
   /** JWT TTL in ms; defaults to 7 days. */
   ttlMs?: number;
+  /**
+   * LOGIN-1 — may `recordSignIn` actually write. Absent ⇒ **false** ⇒ not one
+   * `users.last_login_at` is ever stamped.
+   *
+   * 🔴 WHY THIS ONE IS ALLOWED A DEFAULT, when book 13 §7 F1 ② says a DI default
+   * must be the real thing or a throw. That rule is aimed at defaults that make
+   * a MISSING WIRE LOOK LIKE IT WORKS. This default fails in the opposite
+   * direction: a bootstrap that forgot the line collects NOTHING, which is both
+   * the safe direction and the production default anyway, and the startup line
+   * (`LOGIN_RECORD_SWITCH_LOG`) prints the switch state either way so an
+   * operator can SEE that the machine says DISABLED.
+   *
+   * ⚠️ The failure that default cannot catch by itself is the inverse: an
+   * operator sets `FLOWMIC_LOGIN_RECORD_ENABLED=1`, bootstrap never passes it
+   * through, and the switch does nothing — a control that changes nothing, which
+   * this repo treats as worse than no control. That is why the wiring is pinned
+   * by a test that boots the REAL server (test/last-login-record.test.ts, "the
+   * production bootstrap really carries the switch"), not by this comment.
+   */
+  loginRecordEnabled?: boolean;
 }
 
 // A deliberately permissive shape check — the authoritative UNIQUE/NOCASE
@@ -172,6 +259,18 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function makeAuthService(deps: AuthServiceDeps): AuthService {
   const now = deps.now ?? Date.now;
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
+  // LOGIN-1 — resolved once, `=== true` rather than truthiness so a stray
+  // string can never turn collection on.
+  const loginRecording = deps.loginRecordEnabled === true;
+  // Announced ONCE per construction, in BOTH directions, naming the env var —
+  // the shape billing/usage-tracker.ts uses and for its stated reason: a line
+  // that only appeared when the feature is ON would make its absence mean either
+  // "off" or "this build does not even have this switch", and an operator must
+  // be able to answer "is this machine recording sign-ins" from the log alone.
+  log.info(`${LOGIN_RECORD_SWITCH_LOG} ${loginRecording ? 'ENABLED' : 'DISABLED'}`, {
+    env: 'FLOWMIC_LOGIN_RECORD_ENABLED',
+    enabled: loginRecording,
+  });
 
   function publicUser(user: UserRecord): PublicUser {
     return {
@@ -243,6 +342,28 @@ export function makeAuthService(deps: AuthServiceDeps): AuthService {
       }
       const ok = await verifyPassword(password, user.password_hash);
       return ok ? user : null;
+    },
+
+    recordSignIn(user): void {
+      // 🔴 THE SWITCH IS TESTED HERE AND NOWHERE ELSE. Not in the repo (a write
+      // method that sometimes does not write is a trap for every future caller)
+      // and not at the three call sites (three copies of a privacy decision is
+      // how one of them keeps collecting after a ruling changes). One place
+      // decides; the repo always writes when asked.
+      if (!loginRecording) return;
+      try {
+        deps.users.stampLastLogin(user.id, now());
+      } catch (err) {
+        // Swallowed BY DESIGN — see this method's contract in `AuthService`.
+        // A sign-in that already succeeded must not be turned into a failure by
+        // the bookkeeping about it. Not dropped, only relocated: it goes to the
+        // operator log, which is where the switch state was announced too, so
+        // "collection is on but nothing is landing" is answerable.
+        log.error('login record: failed to stamp last_login_at', {
+          user_id: user.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     },
 
     issueToken(user): IssuedToken {

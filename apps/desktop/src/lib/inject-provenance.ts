@@ -58,3 +58,29 @@ export function cachedCauseTooltip(
   const sentence = reasons[code];
   return typeof sentence === 'string' && sentence.length > 0 ? sentence : null;
 }
+
+/** 🔴 "why did this row FAIL to inject", inline (2026-08-19; book 15 §2.5's `failed`
+ *  row: 「✗ 未注入 · <具名原因>」, 原因串取 INJECT_FAIL_REASON, 无映射则只 ✗ 未注入).
+ *
+ *  A THIRD function, not a branch of `cachedCauseTooltip`, because the two land on
+ *  different surfaces by contract: a cached row's cause rides the HOVER TOOLTIP
+ *  (卡 L7 — its badge already says 「· 已缓存」), while a failed row's reason goes
+ *  INLINE into statusLine's §C-2 reason slot. One row can satisfy at most one of
+ *  them, and folding them together would re-create the one-value-two-questions
+ *  shape on the very field that was widened to fix it.
+ *
+ *  Same `reasons` table (`INJECT_FAIL_REASON`) as the capsule's ✗ flash and the
+ *  cached tooltip — §2.5c's one-definition rule. An unmapped or absent code yields
+ *  null and the caller renders the bare `✗ 未注入` fallback: a raw `INJECT_*` token
+ *  on the row is not an explanation (0.2.53's lesson, unchanged). */
+export function failedCauseInline(
+  status: HistoryStatus,
+  cachedCause: string | null | undefined,
+  reasons: Record<string, string>,
+): string | null {
+  if (status !== 'failed') return null;
+  const code = (cachedCause ?? '').trim();
+  if (code.length === 0) return null;
+  const sentence = reasons[code];
+  return typeof sentence === 'string' && sentence.length > 0 ? sentence : null;
+}

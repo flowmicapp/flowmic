@@ -180,12 +180,14 @@ fn fsm_is_recording(fsm: &Mutex<FocusStateMachine>) -> bool {
     )
 }
 
-/// Dynamic tray surface (07 §7 / redesign §5.4). The seven-state contract is
-/// `disconnected|connected-idle|recording|active-owner|observer-waiting|
-/// owner-grace|vacant`; only the THREE the desktop can derive from signals it
-/// actually receives are wired here (deliverable D). The other four need
-/// owner/observer role + grace events the server does not yet emit to the PC —
-/// they are reported as gaps, never faked.
+/// Dynamic tray surface (07 §7 / redesign §5.4). The contract is THREE states:
+/// `disconnected|connected-idle|recording` — 07 §7 was narrowed to them on
+/// 2026-08-19. It used to specify seven; the other four (`active-owner|
+/// observer-waiting|owner-grace|vacant`) needed owner/observer role + grace
+/// events the server never emits to the PC, so for the contract's whole life
+/// this function was their only implementation and produced exactly three.
+/// The correction record lives in 07 §7; reviving the four starts with the
+/// server-side events (a protocol change, owner's gate), not here.
 ///
 /// Returns `(state_id, tooltip, status_line)` — tooltip for the OS hover,
 /// status_line for the disabled tray-menu row. Both share this one truth.

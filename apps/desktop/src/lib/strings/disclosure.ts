@@ -2,6 +2,18 @@
 // Merged out through ../strings.ts like every other shard; four locales, key set
 // pinned by locale-parity.test.ts.
 //
+// 🔴 THIS FILE HAS A TWIN ON THE PHONE, AND A LINT HOLDS THE PAIR STILL
+// (added 2026-08-19). apps/mobile/…/strings/disclosure_strings.dart answers the
+// same question on the other device, and verify/lint/disclosure-copy-mirror.mjs
+// requires each of the 22 paired keys to be byte-identical IN ENGLISH or listed
+// as a declared divergence with a reason. Five are declared today, all of them
+// 「which device is the reader standing at」. ⇒ EDITING A DISCLOSURE SENTENCE
+// HERE WILL TURN THAT LINT RED unless the phone gets the same edit, and that is
+// the point: the previous arrangement was a comment on the phone side claiming
+// the two were word-for-word, which stopped being true without anything saying
+// so. Four English pairs had drifted before it was measured, and two of the
+// four were facts the phone was simply missing.
+//
 // 🔴 THIS COPY IS DERIVED FROM docs/legal/privacy-policy.md 「What happens to your
 // voice」 / 「Who else sees your data」. It is a SUMMARY, not a second source of
 // truth: if one changes and the other does not, one of them is lying. Every
@@ -141,9 +153,11 @@
 //       uses, and never reads `mode` at all
 //   apps/server-core/src/engine/stt-session.ts  `if (this.deps.polish && !isSegment)`
 //     — the only two conditions: polish present, and the utterance-closing final
-// ⚠️ compose/mode.ts `modeUsesLlm()` reads like the guard that would have made the
-// old title true. It has ZERO production call sites — a tested constant is not a
-// runtime gate. (Tell: every polish test in stt-session-bridge.test.ts runs on
+// ⚠️ compose/mode.ts `modeUsesLlm()` USED to read like the guard that would have
+// made the old title true; it had ZERO production call sites — a tested constant
+// is not a runtime gate — and was DELETED on 2026-08-19 for exactly that reason
+// (its own JSDoc called it "the guarantee"; the deletion record is in that
+// file's header). (Tell: every polish test in stt-session-bridge.test.ts runs on
 // the shared harness, and that harness is hard-coded `mode: 'realtime'`.)
 // ⚠️ delivery:'none' (「仅记录」, "record-only") does NOT gate it either — resolvePolishDep never
 // reads `delivery`, so an utterance the user deliberately kept off the PC still
@@ -257,10 +271,24 @@ export const DISCLOSURE_KEYS = [
   'disc_s2_byok',
   // The parenthesised opt-in sentence was ADDED by owner ruling 2026-08-11
   // (deferred-batch #12), superseding the 2026-08-09 "no copy change" ruling.
+  //
+  // 🔴 IN-PLACE CORRECTION 2026-08-19 — that sentence NAMED the environment
+  // variable, and it stopped being true this batch. It read 「it downloads one
+  // over the internet only if you explicitly set FLOWMIC_SHERPA_AUTO_DOWNLOAD=1
+  // on the computer」, which was accurate while the variable was the ONLY way to
+  // consent. Settings now has a download button
+  // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A) ⇒ the word
+  // 「only」 turned false the moment the button shipped. What owner's ruling
+  // bought was the CONSENT PROMISE, not the identifier, so the promise is what
+  // the copy keeps: nothing is fetched until you ask for it, and the button is
+  // where you ask. The variable survives as the unattended/CI path and is now
+  // documented, not disclosed (§5-D bans it from body copy — it is developer
+  // configuration, and the phone shows this same paragraph to someone with no
+  // computer in their hand).
   // It must stay true to the mechanism: sherpa-local.ts parses the flag
   // strictly ('1'/'true'), default OFF, and a missing model fails loud with
-  // STT_CONFIG_MISSING. If that default ever flips back, this sentence is the
-  // first thing that becomes a lie.
+  // STT_CONFIG_MISSING. If auto-download ever becomes the DEFAULT — no button
+  // press, no variable — this sentence is the first thing that becomes a lie.
   //
   // 🔴 REQ-13-09 / owner Q12㋐ — THE CLAIM IS SCOPED TO THE SPEECH LEG, IN THE
   // SENTENCE ITSELF, and the phone's `discStep2Local` carries the identical
@@ -278,8 +306,11 @@ export const DISCLOSURE_KEYS = [
   // — and packages/protocol/src/engine-presets.ts lets that be a cloud vendor).
   // The clause does not re-state ③; it names the leg and hands the other
   // question to the section that owns it, so ③'s body is untouched.
-  // ⚠️ The parenthesised opt-in sentence is owner's verbatim wording and is
-  // NOT touched; the clause goes in BEFORE it.
+  // ⚠️ The clause goes in BEFORE the parenthesised opt-in sentence, never
+  // instead of it. (That sentence WAS owner's verbatim wording until
+  // 2026-08-19, when the download button made its 「only if you set …」 false —
+  // see the correction above. Its promise is pinned by the test below; the
+  // identifier that used to carry it is now banned from the copy.)
   // ⚠️ 「本地 / local / ローカル / 로컬」 must SURVIVE here — the REQ-13-09
   // seeded-tier guard uses this string as its positive control.
   // Pinned by main-window/data-flow-disclosure.test.ts 「🔴 the local-engine

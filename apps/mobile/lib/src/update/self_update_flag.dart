@@ -55,6 +55,32 @@
 // 🔴 **So this is a debt blocking the Play build, not a nice-to-have**:
 // **no store-channel APK may ship until ② lands and is verified on a real Play track.**
 //
+// ── 🔴 IN-PLACE CORRECTION (2026-08-19, ST-1) — ② EXISTS NOW, AND THE DEBT
+// ABOVE IS PART PAID. The paragraph stays because its argument is still the
+// reason ② is shaped the way it is. ─────────────────────────────────────────
+//
+// ② is `install_source.dart`, wired into `UpdateController.selfUpdateUsable`
+// and rendered by the settings card as its own sentence. Its criterion is an
+// ALLOW-LIST of store installer packages precisely because of the reverse
+// danger named above: unknown / empty / null installer ⇒ the feature stays ON,
+// so a sideloaded copy cannot lose it. `package_info_plus` 9.x surfaces
+// `getInstallSourceInfo()` as `installerStore`, so the platform call this
+// paragraph was waiting for turned out to need no plugin of our own.
+//
+// ⚠️ **The second half of the sentence is still owed**: 「verified on a real
+// Play track」 has NOT happened — there is no track yet. What exists is a
+// decision tested in both directions on a probe we control
+// (`test/update_install_source_gate_test.dart`). That is the code-shaped hole
+// closed, not the field observation.
+//
+// 🔴 And ② is no longer the FIRST line of defence, which is the bigger change
+// here: the store artifact is now a separate Gradle flavour whose manifest does
+// not declare `REQUEST_INSTALL_PACKAGES` at all
+// (`android/app/src/store/AndroidManifest.xml`). That is a BUILD fact — it does
+// not depend on a runtime probe answering correctly on someone else's phone.
+// ⇒ the paragraph below (「the build-time flag doesn't reach this line」) is what
+// changed: that line is no longer in the shared manifest.
+//
 // ── ⚠️ Another debt: this round only has 「check + notify」, no 「download +
 // install」──────────────────────
 //
@@ -112,6 +138,25 @@
 // (`scripts/apk-self-update-marker.mjs`),
 // this one's answer should be the same shape: **read the manifest inside the
 // APK, not the build command**.
+//
+// ── 🔴 IN-PLACE CORRECTION (2026-08-19, ST-1) — THAT DAY CAME, AND THE
+// PARAGRAPH ABOVE PREDICTED THE ANSWER CORRECTLY. ─────────────────────────
+//
+// The flavour fork exists (`android/app/src/{direct,store}/AndroidManifest.xml`,
+// the `channel` dimension in `android/app/build.gradle.kts`), so the coordinate
+// quoted above is now wrong in one word: the permission line is no longer in
+// `src/main/`, it is in `src/direct/`. **The store artifact cannot declare it,
+// because it was never merged in** — not because anyone remembered to strip it.
+//
+// And the question this paragraph said to ask first — 「once added, WHO tells me
+// it is actually gone」 — is answered the way it asked for:
+// `scripts/store-channel-gate.mjs` reads the artifact (aapt for the permission,
+// a byte scan with a control marker for the self-updater), never the build
+// command. Its drill is `scripts/st1-store-channel-gate.test.mjs`.
+//
+// ⚠️ Still owed, and not to be read as done: a real Play track. Both gates are
+// proven against artifacts and probes here; neither has been observed on a
+// package Google actually delivered.
 
 /// The build-time switch's define name.
 /// The packaging command = `make -C apps/mobile release`

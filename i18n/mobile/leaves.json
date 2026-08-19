@@ -35,6 +35,16 @@
       "params": []
     },
     {
+      "key": "accountManageLink",
+      "leaf": "_lfAccountManageLink",
+      "params": []
+    },
+    {
+      "key": "accountManageNote",
+      "leaf": "_lfAccountManageNote",
+      "params": []
+    },
+    {
       "key": "add",
       "leaf": "_lfAdd",
       "params": []
@@ -3520,6 +3530,16 @@
     {
       "key": "updateDownloadUrlLabel",
       "leaf": "_lfUpdateDownloadUrlLabel",
+      "params": []
+    },
+    {
+      "key": "updateFromStoreNote",
+      "leaf": "_lfUpdateFromStoreNote",
+      "params": []
+    },
+    {
+      "key": "updateFromStoreTitle",
+      "leaf": "_lfUpdateFromStoreTitle",
       "params": []
     },
     {

@@ -71,6 +71,16 @@ export class FunasrEngine extends EventEmitter implements SttEngine {
       ws.on('open', () => {
         // hotwords (F-2117): added ONLY when the dictionary is non-empty; when
         // absent the open frame is byte-identical to baseline.
+        //
+        // 🔴 E8 — NO LANGUAGE IS SENT HERE, and that is a known gap, not a
+        // decision. `this.cfg.language` is applied only in onMessage(), onto
+        // the results; the runtime is never told what to recognise. It is not
+        // wired because no evidence in this repo names the field FunASR's own
+        // protocol uses for it, and a guessed field name would be a protocol
+        // invented from memory. The key set is pinned (with what was searched
+        // and what would settle it) by the E8 test in
+        // apps/server-core/test/stt-engines.test.ts — adding a key here fails
+        // there, deliberately.
         const chunk = funasrChunkFromEnv();
         const openFrame: Record<string, unknown> = {
           mode: '2pass',

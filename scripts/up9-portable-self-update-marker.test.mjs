@@ -29,8 +29,11 @@
 //     would spawn the real packer.
 //   - No fixture is a real 38 MB zip. §1–§5 build REAL zip archives in memory
 //     with zlib.deflateRawSync and hand-written headers, so the drill depends on
-//     no artifact being present. §7 additionally reads the real 0.2.59 zip IF it
-//     happens to be staged, and reports unmeasured rather than passing when it is not.
+//     no artifact being present. §7 additionally reads EVERY real portable zip
+//     staged in ./publish (discovered by pattern — until 2026-08-19 it pinned the
+//     literal filename FlowMic-0.2.59-…, so the moment 0.2.60 shipped, §7 reported
+//     unmeasured forever while a scannable artifact sat right there), and reports
+//     unmeasured rather than passing when none is staged.
 //     Every temp file lives under node:os tmpdir() and is removed in a `finally`.
 //     Nothing in this repo is written.
 //
@@ -51,11 +54,20 @@
 // own bucket — never as a pass (CLAUDE.md §1-bis-5: a direction with zero
 // samples is a skip, not a pass).
 //
+// REVERSE CONTROL for the pattern-based §7 (2026-08-19, LAN box): a hand-built
+// zip named FlowMic-9.9.9-portable-windows-x64.zip carrying 7 control hits and
+// 0 feature hits was staged into ./publish; the run printed, verbatim,
+//   FAIL  FlowMic-9.9.9-portable-windows-x64.zip: a post-UP-9 staged zip must
+//   carry the feature marker — 'missing-feature' means the publish gate was
+//   bypassed or a stale binary is staged, and this artifact must not ship
+// and exited 1. The fixture was deleted by hand; the re-run exited 0 with §7
+// back to unmeasured (this machine stages no ./publish at all).
+//
 // Run: `node scripts/up9-portable-self-update-marker.test.mjs`
 // Also run automatically by `pnpm verify:scripts` (inside verify:delivery),
 // which DISCOVERS scripts/*.test.mjs by glob rather than by a hand-kept list.
 
-import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,7 +88,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLISH_SRC = readFileSync(join(ROOT, 'scripts', 'publish.mjs'), 'utf8'); // text only
 const STEP_SRC = readFileSync(join(ROOT, 'scripts', 'publish-portable-archive.mjs'), 'utf8');
 const MARKER_SRC = readFileSync(join(ROOT, 'scripts', 'portable-self-update-marker.mjs'), 'utf8');
-const REAL_ZIP = join(ROOT, 'publish', 'FlowMic-0.2.59-portable-windows-x64.zip');
+// §7's subjects: whatever Windows portable zips are actually staged, found by the
+// packer's own naming pattern rather than by a hard-coded version. ./publish is a
+// gitignored product directory (absent on a fresh clone), hence the existsSync.
+const PUBLISH_DIR = join(ROOT, 'publish');
+const REAL_ZIP_RE = /^FlowMic-(.+)-portable-windows-x64\.zip$/;
+const realZips = existsSync(PUBLISH_DIR)
+  ? readdirSync(PUBLISH_DIR)
+      .map((name) => ({ name, version: REAL_ZIP_RE.exec(name)?.[1] }))
+      .filter((z) => typeof z.version === 'string')
+  : [];
 
 let failures = 0;
 let unmeasured = 0;
@@ -484,25 +505,45 @@ section('§6 markers cannot drift away from the evidence for them');
   assertTrue(topLevel.length === 0, 'publish-portable-archive.mjs has no top-level statements — importing it spawns nothing');
 }
 
-// ── §7 corroboration from the real shipped artifact ─────────────────────────
+// ── §7 corroboration from the real shipped artifacts ────────────────────────
 // Everything above is synthetic by design. This is the one section that reads
-// bytes nobody in this repo wrote, and it is the reason the gate is believed:
-// the 0.2.59 zip really does score missing-feature.
-section('§7 the real 0.2.59 artifact scores missing-feature (corroboration)');
+// bytes nobody in this repo wrote. Two directions, per artifact version:
+//   · 0.2.59 — the DEFECTIVE artifact this whole gate exists because of. It must
+//     still score missing-feature (with the byte count §measurement recorded), or
+//     the ruler changed under the evidence.
+//   · anything newer — built under the gate that refuses missing-feature at
+//     publish time, so a staged zip scoring anything but 'ok' means the gate was
+//     bypassed or a stale binary is sitting in ./publish RIGHT NOW: red either
+//     way. Until 2026-08-19 the file-header's claim "the POSITIVE direction is
+//     argued, not observed" was structurally permanent — §7 pinned the one
+//     filename that can never carry the positive direction. Note what an 'ok'
+//     verdict here does and does not measure: the feature MARKER is present in
+//     real shipped bytes (observed); that the swap code behind it works remains
+//     the subject's own §measurement obligation.
+section('§7 the real staged artifacts corroborate the gate (both directions)');
 {
-  if (existsSync(REAL_ZIP)) {
-    samples['§7 real shipped artifacts'] = 1;
-    const scan = scanPortableForSelfUpdate(readFileSync(REAL_ZIP));
-    console.log(`        reading: control=${scan.control} feature=${scan.feature} verdict=${scan.verdict} exeBytes=${scan.exeBytes}`);
-    assertTrue(scan.verdict === 'missing-feature', 'the shipped 0.2.59 portable zip is REFUSED by this gate');
-    assertTrue(scan.control > 0, 'and its control marker is non-zero — the verdict rests on a scan that could see');
-    assertTrue(scan.exeBytes === 15825408, 'the inflated exe is the 15,825,408-byte binary recorded in §measurement');
-  } else {
-    samples['§7 real shipped artifacts'] = 0;
+  samples['§7 real shipped artifacts'] = realZips.length;
+  for (const { name, version } of realZips) {
+    const scan = scanPortableForSelfUpdate(readFileSync(join(PUBLISH_DIR, name)));
+    console.log(`        reading ${name}: control=${scan.control} feature=${scan.feature} verdict=${scan.verdict} exeBytes=${scan.exeBytes}`);
+    if (version === '0.2.59') {
+      assertTrue(scan.verdict === 'missing-feature', 'the shipped 0.2.59 portable zip is REFUSED by this gate');
+      assertTrue(scan.control > 0, 'and its control marker is non-zero — the verdict rests on a scan that could see');
+      assertTrue(scan.exeBytes === 15825408, 'the inflated exe is the 15,825,408-byte binary recorded in §measurement');
+    } else {
+      assertTrue(scan.control > 0, `${name}: the control marker is visible — the ruler can see this artifact`);
+      assertTrue(
+        scan.verdict === 'ok',
+        `${name}: a post-UP-9 staged zip must carry the feature marker — '${scan.verdict}' means ` +
+        `the publish gate was bypassed or a stale binary is staged, and this artifact must not ship`,
+      );
+    }
+  }
+  if (realZips.length === 0) {
     notMeasured(
-      'the shipped 0.2.59 portable zip could not be scanned',
-      `publish/FlowMic-0.2.59-portable-windows-x64.zip is absent (./publish is a gitignored ` +
-      `product directory, so a fresh clone never has it). This case is counted as UNMEASURED, ` +
+      'no real portable zip could be scanned',
+      `no FlowMic-<version>-portable-windows-x64.zip in ./publish (a gitignored ` +
+      `product directory, so a fresh clone never has one). This case is counted as UNMEASURED, ` +
       `not as a pass: a direction with zero samples is a skip. The synthetic sections above ` +
       `still ran and still prove the mechanism.`
     );

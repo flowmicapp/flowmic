@@ -93,7 +93,21 @@ class SettingsUpdateCard extends StatelessWidget {
       // be hidden — a feature that quietly vanished and a feature that was
       // never built look identical to the user. The full reasoning is in
       // update/self_update_flag.dart's file header.
-      if (!controller.selfUpdateEnabled) return _notBundledCard();
+      if (!controller.selfUpdateEnabled) {
+        return _staticCard(
+          strings.updateNotBundledTitle,
+          strings.updateNotBundledNote,
+        );
+      }
+      // Gate ② (update/install_source.dart): the build HAS the feature and a
+      // store delivered this copy, so the store updates it. A separate sentence
+      // from the one above on purpose — see update_strings.dart at these keys.
+      if (controller.installedFromAppStore) {
+        return _staticCard(
+          strings.updateFromStoreTitle,
+          strings.updateFromStoreNote,
+        );
+      }
       return settingsCard(
         child: Column(
           children: <Widget>[
@@ -105,7 +119,11 @@ class SettingsUpdateCard extends StatelessWidget {
     },
   );
 
-  Widget _notBundledCard() => settingsCard(
+  /// One shape, two facts: 「this build has no updater」 and 「a store updates
+  /// this copy」 both render as a single explanatory row. The SHAPE is shared
+  /// because it is the same kind of statement; the SENTENCES are not, and the
+  /// caller picks which — never this method.
+  Widget _staticCard(String title, String note) => settingsCard(
     child: settingsRow(
       last: true,
       child: Row(
@@ -116,9 +134,9 @@ class SettingsUpdateCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(strings.updateNotBundledTitle, style: kRowTitle),
+                Text(title, style: kRowTitle),
                 const SizedBox(height: 3),
-                Text(strings.updateNotBundledNote, style: kRowSub),
+                Text(note, style: kRowSub),
               ],
             ),
           ),

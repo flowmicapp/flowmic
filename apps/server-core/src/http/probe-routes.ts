@@ -57,7 +57,7 @@ import { defaultEngineFactory, isStreamingEngine, resolveByok } from '../stt/eng
 import { configFromRouting, selectRouting, type EngineFactory, type Routing } from '../stt/engine-router';
 import { SttEngineError, type FinalResult } from '../stt/engines/base';
 import type { EngineSubscriber } from '../stt/orchestrator-types';
-import { isModelComplete } from '../stt/sherpa/model-downloader';
+import { isModelComplete } from '../stt/sherpa/model-fetch';
 import { resolveSherpaModelDir, SHERPA_REPO } from '../stt/sherpa/model-manifest';
 import { isLocalRequest, refuseNonLocal } from './local-only';
 

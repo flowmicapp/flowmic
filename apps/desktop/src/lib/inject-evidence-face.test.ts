@@ -487,7 +487,9 @@ describe('book 16 FPR v1 — the two new fields are IN the export, and the title
 describe('anti-façade — the new fields have production readers, not just definitions', () => {
   it('TimelinePage passes ③evidence into the ONE composition', () => {
     const page = src('../main-window/TimelinePage.vue');
-    expect(page).toContain('statusLine(e.status, targetLabel(e), e.focus_evidence)');
+    // 2026-08-19: the call grew a fourth argument (the failed row's named reason,
+    // §C-2 slot) — the pin follows the ONE composition it exists to protect.
+    expect(page).toContain('statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON))');
     // …and the arrow can now name a window on a NOT-injected row, which is the whole
     // of owner's addendum ① ("which window it was injected into", 注到哪个窗口). Before this card `targetLabel` could only ever
     // answer for `injected`, because nothing else had a target to name.

@@ -6,6 +6,24 @@
 // changed in the same batch: if one moves and the other does not, one of them is
 // lying. Every factual claim has a code coordinate:
 //
+// 🔴 HEADER REFRESH — 2026-08-19, machine dev-pc-a, WP-3 report §7 item 6
+// (docs/strategy/2026-08-18-lan-fable-wp3-report.md). Everything below was
+// written BEFORE the 0.3.8 copy rewrite (WP3 C16, commit 611a05bf, 2026-08-18)
+// turned the step bodies into diagram captions. Every coordinate has now been
+// walked against the tree. NOTHING IS DELETED: where a claim was true and
+// stopped being true, the original stands and a 【CORRECTED 2026-08-19】 block
+// says what changed — a claim's history is the only evidence that the mechanism
+// it describes ever behaved that way. Where only a line number rotted, the
+// number is updated in place AND the greppable symbol is named beside it, so the
+// next rot fails LOUD (reader greps, gets one hit or zero) instead of silently
+// landing on an unrelated line — the migration direction
+// verify/lint/coordinate-anchors.mjs exists to push.
+// ⚠️ THE BULLETS BELOW DESCRIBE THE MECHANISM, NOT ALWAYS THE SENTENCE. Two
+// claim families left this screen in the rewrite and now live behind the
+// privacy-policy link (see the WP3 C16 block on the mixin). Their bullets are
+// KEPT and marked, because the mechanism did not move — only the copy did, and a
+// mechanism nobody describes is exactly how the next rewrite loses it.
+//
 //   · engine order (exact language → wildcard '*' → platform managed default →
 //     the engines we seeded at first boot → STOP with an error, no hidden
 //     fallback). 🔴 W1.5: the seeded tier was missing from this list AND from
@@ -15,6 +33,18 @@
 //     not, so two 「verbatim-equivalent」 catalogues described the same function
 //     two different ways.
 //       apps/server-core/src/stt/engine-router.ts  selectRoutingWithSource()
+//     【CORRECTED 2026-08-19 — THIS BULLET NO LONGER DESCRIBES A SENTENCE ON THIS
+//     SCREEN. W1.5's fix (the seeded tier written INTO the copy) shipped and was
+//     true; WP3 C16 then moved the ORDER itself off the phone. What the copy
+//     says today is the tier and the terminal clause, not the four steps:
+//     `discStep2Body` = 「…down to the two engine routes we seeded for you at
+//     first boot. If none fits, transcription stops with an error…」. The four
+//     steps are enumerated in docs/legal/privacy-policy.md 「What happens to your
+//     voice」 (opening paragraph), and `discDetailsOnSite` is the on-screen
+//     pointer. The mechanism coordinate above is UNCHANGED and still exact —
+//     which is the whole reason this bullet is kept rather than deleted: W1.5's
+//     defect was a copy that contradicted selectRoutingWithSource(), and that
+//     comparison stays possible only while someone writes down where to look.】
 //     🔴 REQ-13-09: THE SEEDED TIER IS NO LONGER CALLED "local" (本地 / local). The
 //     clause used to read 「the two LOCAL engine routes we seeded」, and that
 //     adjective is a claim about where those engines run — which this side
@@ -34,7 +64,13 @@
 //     clause written before that rule existed. The three branch bullets below still
 //     say what a LOCAL engine means; the ORDER paragraph now names the tier
 //     without grading it. Pinned by test/data_flow_disclosure_test.dart
-//     「🔴 the seeded tier is named without claiming it is local」.
+//     `testWidgets` 「🔴 the seeded tier is named without claiming it is local
+//     (REQ-13-09)」 — this citation used to stop before the 「(REQ-13-09)」 and
+//     therefore matched no test title in the tree; grep the full string.
+//     ⚠️ That guard SURVIVED the WP3 C16 rewrite: it asserts the seeded tier is
+//     still NAMED in `discStep2Body` and still not graded 「local」, and both are
+//     true of today's copy. It is the reason the tier survived a rewrite that
+//     deleted the order around it.
 //   · the platform managed default is env-gated and fail-loud on a bad engine id
 //       apps/server-core/src/stt/managed-default.ts  managedDefaultRouting()
 //   · the speech vendor named below
@@ -68,7 +104,10 @@
 // a backup line」 and pointed at apps/server-core/src/stt/pool-routing.ts for the
 // failover that would reach them. That code is real and still there — but it is
 // ARMED ONLY WHEN A POOL IS CONFIGURED:
-//     pool-routing.ts   `const probing = pool.source == 'pool-env';`
+//     pool-routing.ts:146   `const probing = pool.source === 'pool-env';`
+//     (2026-08-19: this header quoted it with `==`. The source has always used
+//     `===`; a quotation that is not the bytes it claims to be is the same
+//     failure as a rotted line number, one character wide.)
 // and production deliberately does not set FLOWMIC_STT_POOL
 // (docs/strategy/2026-08-06-w1-engine-switch-ledger.md §5; measured on the box
 // as `candidates:1`). loadPool() therefore synthesises a ONE-route pool, health
@@ -108,13 +147,34 @@
 // 「only Translate / Organize」. Realtime reaches the vendor too, whenever the
 // user has switched on AI polish (desktop settings `polish_toggle` →
 // `stt.polish`, DEFAULT `{enabled: false}`, never seeded):
+// 【CORRECTED 2026-08-19 — 「DEFAULT `{enabled: false}`」 EXPIRED, TWICE OVER.
+// Still true: `stt.polish` is never seeded (no row for most accounts). No longer
+// true: the default is not a constant. Card POLISH-CFG (owner ruling
+// docs/decisions/2026-08-09-owner-polish-follows-llm-configuration.md) made it a
+// FUNCTION of 「is a usable llm.config resolvable」 — stt/stt-polish-settings.ts
+// `resolveSttPolishDefault` → `STT_POLISH_DEFAULT_WITH_LLM = {enabled: true}` /
+// `STT_POLISH_DEFAULT_WITHOUT_LLM = {enabled: false}`. On flowmic.app
+// FLOWMIC_MANAGED_LLM_ENABLED=1, so a cloud account with no row defaults to ON.
+// ⇒ The copy this block defends was written to be true at BOTH values, and that
+// is the only reason the flip cost nothing here. See the STAGE 3 block below,
+// where the hypothetical 「would have made it a lie」 is now a past tense.】
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all
-//   apps/server-core/src/engine/stt-session.ts  `if (this.deps.polish && !isSegment)`
-// ⚠️ compose/mode.ts `modeUsesLlm()` reads like the guard that would have made the
-// old title true. It has ZERO production call sites — a tested constant is not a
-// runtime gate.
+//   apps/server-core/src/engine/stt-session.ts:225
+//     `if (this.deps.polish && !isSegment && this.polishDelivery() === 'sync')`
+//     【CORRECTED 2026-08-19 — this header quoted the guard's first two clauses
+//     as the whole condition. A third was added when the DETACHED (replace-late)
+//     polish mode was built beside the synchronous one. It changes nothing this
+//     paragraph claims: `polishDelivery()` defaults to `'sync'`, production never
+//     sets anything else (census tripwire: server-core
+//     test/polish-delivery-census.test.ts), and BOTH modes keep `!isSegment` — so
+//     the line below about interim text is still exact. Quoted in full anyway,
+//     because a two-thirds quotation reads like a complete one.】
+// ⚠️ compose/mode.ts `modeUsesLlm()` USED to read like the guard that would have
+// made the old title true; it had ZERO production call sites — a tested constant
+// is not a runtime gate — and was DELETED on 2026-08-19 for exactly that reason
+// (the deletion record is in that file's header).
 // ⚠️ delivery:'none' ("record only" 仅记录) does NOT gate it either, so an utterance the user
 // deliberately kept off the PC still leaves for the vendor. That is the clause
 // this copy is most at risk of under-stating, so it is said outright.
@@ -129,6 +189,14 @@
 // switched to on" 「AI 改顺默认全开」 would have made it a lie the instant the
 // constant moved. It now states the CONDITION and where the current value is
 // shown. Do not put a default back into it.
+// 【CORRECTED 2026-08-19 — 「WOULD HAVE MADE IT A LIE」 IS NO LONGER A
+// HYPOTHETICAL. The constant moved twice: 2026-08-08 flipped it to ON, and
+// 2026-08-09 (POLISH-CFG) replaced it with `resolveSttPolishDefault`, a function
+// of whether a usable llm.config resolves. A shipped APK carrying 「only if you
+// switched it on yourself」 would have been false on every cloud account from
+// 08-08 onwards, with no way to correct it short of a new build. This is the
+// rule earning its keep, not an argument for it — which is why the sentence
+// above is kept in its original tense and this block sits under it.】
 // 🔴 THE DIVERGENCE: this shard adds "this phone does not have it" (手机上没有).
 // 【Measured: `polish` has ZERO hits across the mobile settings shards — the
 // control genuinely does not exist here.】 The desktop twin cannot say that
@@ -137,21 +205,59 @@
 // parity with the desktop shard would therefore have cost this reader the only
 // actionable half of the paragraph — parity serves truth, not the other way
 // round. Everything else in the four strings stays word-for-word with desktop.
+// 【RE-MEASURED 2026-08-19, dev-pc-a — THE CLAIM HOLDS, THE MEASUREMENT DOES
+// NOT. Case-insensitive `polish` under lib/, excluding the generated l10n and
+// this file, is 14 hits in lib/src/settings/ and 80 across lib/ — not zero.
+// NONE of them is a control: they are `compose_strings.dart`'s draft_polish AI
+// ACTION (a different feature — a button you press on a line you already have,
+// not the always-on switch), `recording_strings.dart`'s polish-SKIPPED signal,
+// and `settings_client.dart`'s READ of the server's effective value.
+// `grep -rn "stt.polish" lib/` finds no writer at all ⇒ nothing on this phone
+// can turn it on or off, which is exactly what the sentence claims.
+// ⚠️ WHY IT HAD TO BE RE-RUN, and the transferable part: 「ZERO hits」 measured a
+// WORD while the sentence claims a CONTROL. The two came apart the moment an
+// unrelated feature borrowed the word — nothing about the claim's subject
+// changed. A measurement whose subject is not the claim's subject expires on
+// events that have nothing to do with the claim, and it expires silently.
+// (Counts exclude this file on purpose: the raw numbers with it are 42 / 108,
+// and a measurement that counts its own prose is measuring itself.)】
+// 【CORRECTED 2026-08-19 — 「the four strings」 IS NOW NINE, and the sentence it
+// belongs to has expired for a second, independent reason. Both catalogues
+// carry en / zh-CN / zh-TW / fr / es / de / ja / ko / ru (mobile
+// `enum AppLocale`; desktop `CATALOGUE` in strings/generated/catalogue.g.ts), so
+// every 「four languages」 count in this header means 「all of them」, not 「four of
+// the nine」. But 「Everything else … word-for-word with desktop」 is itself no
+// longer true after WP3 C16 — see the EXPIRED block on byte-parity near the
+// bottom of this header for the measured diff.】
 //
 // 🔴 THE LAN LEG IS NOW THREE CLAIMS, NOT ONE — and a blanket 「it is encrypted
 // now」 would have been a lie in the opposite direction from the one it replaced.
 // 0.2.60 shipped LAN TLS with the server key pinned from the QR. What is true:
 //   ① A pairing made from a QR that carries the fingerprint is TLS, and the pin
 //      is checked on EVERY dial, not just the first. Four dial sites, all in
-//      this app: ptt_pair.dart:63, reconnect.dart:355-358 (every rung of the
-//      ladder), ptt_session.dart:563-569 + :601-610 (resume, and re-arming the
-//      ladder under the same key), pair_retire.dart:49-54. The check is
-//      lan_pinning.dart `PinnedHttpClient._judge` / `pinnedWebSocketConnector`,
-//      and socket_core.dart:213-218 REFUSES to dial a plain URL while holding a
+//      this app — 【every number in this list was re-walked 2026-08-19; all five
+//      but one had rotted, and each is now written with the symbol that anchors
+//      it so the next drift fails loud instead of landing you mid-function】:
+//        · ptt_pair.dart:65 `transport.connect(url: dial, jwt: jwt,
+//          pinFingerprint: pin)`                      (was :63)
+//        · reconnect.dart:456-459 `secureDialUrl(url)` then
+//          `.connect(url: target, token: _token, pinFingerprint: pin)`
+//          — one site, every rung of the ladder             (was :355-358)
+//        · ptt_session.dart:632-638 (resume) and :674-681
+//          (`reconnect.configure(… pinFingerprint: live.lanTlsFp,
+//          replacePin: true)` — re-arming the ladder under the same key)
+//                                                (was :563-569 and :601-610)
+//        · pair_retire.dart:49-54 `final String? pin = pairing.lanTlsFp` …
+//          `probe.connect(… pinFingerprint: pin)`     (unrotted, still exact)
+//      The check is lan_pinning.dart `PinnedHttpClient._judge` /
+//      `pinnedWebSocketConnector`, and socket_core.dart:216-221 (was :213-218)
+//      `if (pinFingerprint != null && !isSecureEndpoint(url)) throw
+//      SocketHandshakeException(…)` REFUSES to dial a plain URL while holding a
 //      pin rather than silently downgrading. Pinned by
 //      test/lan_pin_enforced_on_every_dial_test.dart.
 //   ② A pairing made BEFORE 0.2.60 is still plaintext, and the old warning is
-//      still true FOR IT. ptt_session.dart:566-569 says it in the source:
+//      still true FOR IT. ptt_session.dart:635-638 (was :566-569) says it in
+//      the source:
 //      `pinFingerprint: session.lanTlsFp` is "Null for an unpinned row, which is
 //      every pre-D2-LAN pairing … and then this call is byte-for-byte the old
 //      one". There is no auto-upgrade path, so re-pairing is the ONLY action
@@ -164,6 +270,33 @@
 //      the identity") rather than as a fact — the rule above forbids a sentence
 //      whose truth depends on the current value of a switch, and ③ is that
 //      switch.
+//      【CORRECTED 2026-08-19 — ③ IS NO LONGER ON THIS SCREEN, AND ITS REASON
+//      FOR EXISTING HALF SURVIVED THE MOVE AND HALF DID NOT.
+//      WP3 C16 (2026-08-18) took the switch's name, its lockout cost and the
+//      recovery out of `discStep4LanPlain`. Today the copy reads 「Encryption on
+//      the local network depends on how the pairing was made」 — still a
+//      CONDITION, but the condition it now states is ②'s, not ③'s. The mechanism
+//      and the coordinate above are UNCHANGED and still exact (config.ts
+//      `resolveLanTls`, second branch, `FLOWMIC_LAN_TLS === '0'`).
+//      ⚠️ WHAT SURVIVES IS THE RULE: a sentence saying flatly 「the LAN is
+//      encrypted」 would still go false the moment an operator sets that var, so
+//      this paragraph must never be 「simplified」 into one.
+//      🔴 WHAT DID NOT SURVIVE IS LOGGED AS A DEFECT AND DELIBERATELY NOT FIXED
+//      HERE (this is a header task; the repair is a docs/legal/ edit and belongs
+//      to whoever owns that page). Both the mixin's WP3 C16 block below and the
+//      matching in-place correction in test/data_flow_disclosure_test.dart
+//      justify the removal with 「the policy already carried all three」.
+//      Measured 2026-08-19, dev-pc-a: the policy carries ONE of the
+//      three. docs/legal/privacy-policy.md 「The local-network channel」 has the
+//      switch (「Setting the environment variable `FLOWMIC_LAN_TLS` to `0`
+//      returns this channel to unencrypted operation … so pairings made after
+//      that are in the clear」) and stops there. The LOCKOUT — phones already
+//      paired under TLS cannot connect at all and can report only a generic
+//      failure — and the RECOVERY — delete-and-re-pair — are in SECURITY.md,
+//      a repo file no user reaches from the app.
+//      ⇒ W6R's finding is back in the tree in its original shape: the switch is
+//      described where a user can read it and its cost is not. The note directly
+//      below is the one that predicted this, and it is why it stays.】
 //      🔴 W6R ruled the second half must travel with the first: the switch is
 //      NOT a rollback. A pairing created under TLS stored `https://` + the pin,
 //      `resumePairing` has no plaintext fallback, and with no certificate seen
@@ -180,28 +313,109 @@
 //      settings shard, no other string catalogue mentions it.】 The correction is
 //      left visible on purpose: a comment asserting a measurement is anti-façade
 //      rule ④ like any other, and "zero hits" was a claim about a grep nobody had run.
+//      【RE-MEASURED 2026-08-19, dev-pc-a — the shape of the answer moved
+//      and the conclusion did not. `FLOWMIC_LAN_TLS` under apps/desktop/ now
+//      hits FOUR files: strings/disclosure.ts (COMMENTS only — the desktop copy
+//      no longer names the switch either, same WP3 C16 rewrite),
+//      main-window/data-flow-disclosure.test.ts, `src-tauri/resources/server.js`
+//      (the bundled sidecar; its target/debug twin is gone from this tree), and
+//      — new since the line above was written —
+//      main-window/components/DataFlowDisclosure.vue, which is A VUE COMPONENT,
+//      so 「No Vue component … mentions it」 is now false. It is one comment line
+//      pointing at the privacy policy, not a rendered string, so the conclusion
+//      stands: nothing a desktop USER can read names the switch. ⇒ The wording
+//      that rotted was the EVIDENCE (「no Vue component」), not the finding — and
+//      those are the two halves people most often conflate when re-checking an
+//      old measurement.】
 // ⚠️ The paragraph sends the reader to "Connection encryption" in the connection
-//   diagnostics sheet (connection_strings.dart `diagEncryptionSection`, reached
-//   by tapping the PC name — chat_header.dart:192 `chat.deviceNameTap` →
-//   openDiagnostics → connection_diagnostics_sheet.dart:122). Same "state the
+//   diagnostics sheet (connection_strings.dart:127 `diagEncryptionSection`,
+//   reached by tapping the PC name — chat_header.dart:242 `ValueKey<String>
+//   ('chat.deviceNameTap')` with `onTap: openDiagnostics` (was :192) →
+//   openDiagnostics (chat_header.dart:160 `showConnectionDiagnostics`) →
+//   connection_diagnostics_sheet.dart:442 `s.diagEncryptionSection`
+//   (was :122 — that line is now the `diagState` row, i.e. this citation had
+//   rotted into a DIFFERENT, plausible-looking row of the same sheet, which is
+//   the silent-failure mode `:NNN` citations have)). Same "state the
 //   condition and say where the current value is shown" shape stage ③ uses. That
 //   pointer is not a comment's word: test/data_flow_disclosure_test.dart asserts
 //   this string CONTAINS the live `diagEncryptionSection` getter, so renaming the
 //   section breaks the test rather than silently orphaning the sentence.
-//   It answers for legacy rows too — socket_core.dart:224-226 sets
-//   `LinkEncryption.plain` on a `ws://` dial, so a pre-0.2.60 pairing renders
-//   "unencrypted" (未加密) rather than the section vanishing.
+//   (Verified 2026-08-19: that assertion is still in the suite, in the
+//   `🔴 the expired 「not encrypted」 sentence cannot come back` test, together
+//   with the emptiness guard that keeps the `contains` from being vacuous.)
+//   It answers for legacy rows too — socket_core.dart:226-229 (was :224-226)
+//   `_linkEncryption = isSecureEndpoint(url) ? LinkEncryption.unknown :
+//   LinkEncryption.plain` sets plain on a `ws://` dial, so a pre-0.2.60 pairing
+//   renders "unencrypted" (未加密) rather than the section vanishing.
 // ⚠️ The three tier NAMES are deliberately NOT repeated here. The sheet already
 //   discloses trust-on-first-use for hand-typed addresses in full
 //   (`diagEncryptionTofuNote`), and a second copy of it here would drift.
 //   Terminology is kept identical to that sheet on purpose: user-facing text
 //   says 身份 / identity / 身元 / 신원 — never "fingerprint", "pin" or
 //   "certificate", which live only in code, tests and the CHANGELOG.
+//   【RE-MEASURED 2026-08-19, dev-pc-a — the list of four was the whole
+//   catalogue when it was written and is now four of NINE. The other five say
+//   身分 (zh-TW) / identité / identidad / Identität / личность, so read the
+//   enumeration as 「all of them」 rather than as the set. The ban itself still
+//   holds: no user-visible string in any of the nine says fingerprint or pin.
+//   ⚠️ ONE EDGE, STATED RATHER THAN ROUNDED OFF: 「certificate」 has no clean
+//   Chinese counterpart here — `diagEncryptionTofuNote` says 凭据 (zh-CN) and
+//   憑證 (zh-TW), and 憑證 IS the ordinary zh-TW word for a certificate. English
+//   sidesteps it ("there was nothing to check it against"). So the rule is kept
+//   as written for the Latin and Japanese/Korean catalogues and is approximate
+//   in Chinese; a future edit must not "fix" this by importing 指纹/PIN.】
 // ⚠️ This string stays word-for-word with the desktop twin (the polish paragraph
 //   remains this shard's ONE deliberate divergence). "on the phone" reads a
 //   little redundantly on a phone screen, but that is a style wart, not an
 //   untruth, and byte-parity is itself a guard against the two catalogues
 //   describing one mechanism two ways — the exact failure W1.5 caught above.
+//   🔴【EXPIRED — CORRECTED 2026-08-19, dev-pc-a. THE PARAGRAPH ABOVE IS
+//   NO LONGER TRUE OF `discStep4LanPlain`, AND THE STYLE WART IT EXCUSES IS
+//   GONE FROM THIS SIDE. Measured across all 20 disclosure keys, mobile English
+//   vs desktop `disc_*` English, four now diverge:
+//     · discStep4LanPlain — mobile 「This connection's state is under
+//       "Connection encryption".」 vs desktop 「The current state is under
+//       "Connection encryption" on the phone. The relay is TLS.」 The 「on the
+//       phone」 the note above calls a wart is now correctly absent HERE and
+//       correctly present THERE; the extra 「The relay is TLS.」 sentence exists
+//       only on desktop.
+//     · discStep3Body — the known polish divergence, but WIDER than 「this
+//       phone does not have it」: desktop also carries 「that row shows its
+//       current value」 and 「While it is off, Realtime sends nothing;
+//       provisional words are never sent.」, neither of which is on the phone.
+//     · discLead and discStep1Title — 「this phone / your PC」 vs 「your phone /
+//       this PC」, a deliberate point-of-view swap, not drift.
+//   ⇒ SO WHAT THIS NOTE MEANT IS DEAD AND WHAT IT WAS FOR IS NOT. Byte-parity
+//   was never the goal; it was a cheap PROXY for 「two catalogues cannot
+//   describe one mechanism two ways」, and the proxy stopped being available the
+//   moment the two screens were shortened by different amounts. Nothing has
+//   replaced it — there is no locale-parity or cross-app test comparing these
+//   two catalogues — so from here on that guard is a human one. Do NOT restore
+//   parity by copying desktop text back: two of the four differences are
+//   correct, and a diff run without reading is how the 「on the phone」 wart
+//   would return.
+//   ⚠️ Logged, not fixed: whether the phone SHOULD also say 「provisional words
+//   are never sent」 is a copy decision, and this was a header task.】
+//   🔴【FOLLOW-UP 2026-08-19, SAME DAY — BOTH HALVES ARE NOW CLOSED, and the
+//   paragraph above is kept because it is the diagnosis this fix was built on.
+//   ① THE GUARD EXISTS AGAIN, and it is not byte-parity:
+//   verify/lint/disclosure-copy-mirror.mjs pairs all 22 disclosure keys across
+//   the two apps and requires every pair to be byte-identical IN ENGLISH or
+//   DECLARED, with a reason and a fingerprint of both sides. So the four
+//   point-of-view differences stay exactly as they are — the lint holds them
+//   still rather than erasing them — and a FIFTH one cannot appear quietly.
+//   It compares English only, and its header says why and what that leaves
+//   uncovered. Do not read its green as 「the two screens say the same thing in
+//   nine languages」.
+//   ② THE COPY DECISION WAS MADE, TOWARDS THE PHONE. 「While it is off, Realtime
+//   sends nothing; provisional words are never sent」 and 「The relay is TLS」 are
+//   now in [discStep3Body] / [discStep4LanPlain] in all nine locales, lifted
+//   from the desktop twin so the two screens carry one wording per language.
+//   Both are true of the phone: whether the polish switch is on decides whether
+//   ANY text reaches a language model, and the relay leg is wss:// either way.
+//   The reason it was worth doing is that a phone-only user never opens the
+//   desktop page — withholding a privacy fact from the only screen someone
+//   reads is not neutral just because the other screen carries it.】
 // ✅ THE "same batch" PROMISE AT THE TOP OF THIS FILE IS KEPT: the same card's
 //   follow-up rewrote docs/legal/privacy-policy.md (LAN moved out of "things we
 //   have not done yet" into its own section), SECURITY.md and README.md. No
@@ -214,6 +428,16 @@
 //   unencrypted) and the policy's maintainer note describing this change.
 //   "Zero hits" was never the target — zero hits would have meant the caveats
 //   went missing.】
+//   【RE-MEASURED 2026-08-19, dev-pc-a — the finding holds, the tally
+//   moved. The same grep over the same four files now returns 4 hits, all in
+//   privacy-policy.md 「The local-network channel」 (3) and SECURITY.md (1); the
+//   policy's maintainer note and README.md's hits are gone, README now carrying
+//   the scoped positive form instead (「The LAN channel is encrypted — if your
+//   pairing is recent.」). No surface carries the blanket pre-0.2.60 claim.
+//   ⚠️ Do NOT read a falling count as progress here: this grep can only find a
+//   caveat that IS written down. It is blind to the failure this refresh
+//   actually found — a caveat that was removed from one surface on the promise
+//   that another already carried it. See the ③ correction above.】
 // ⚠️ It was NOT kept by anyone remembering it. The privacy policy's own header
 //   had scheduled this edit for "the day D2 closes out" (D2 收口当天) and D2
 //   shipped in 0.2.60 with the policy untouched; what actually fired was the
@@ -243,6 +467,18 @@ mixin DisclosureStrings on AppStringsLeaves {
   //     (docs/legal/privacy-policy.md, engine resolution section);
   //   ② the FLOWMIC_LAN_TLS=0 switch-off, its lockout consequence and the
   //     recovery steps (privacy-policy.md, LAN channel section).
+  //   🔴【CORRECTED 2026-08-19, dev-pc-a — ② ARRIVED ONE-THIRD. Measured
+  //   against docs/legal/privacy-policy.md 「The local-network channel」: the
+  //   SWITCH-OFF is there; the LOCKOUT CONSEQUENCE and the RECOVERY STEPS are
+  //   not. Both live in SECURITY.md 「`FLOWMIC_LAN_TLS=0` is an escape hatch, not
+  //   a rollback」, which is a repo file, not a page this app links to. ① is
+  //   fine — the policy's opening paragraph does carry the full four-tier order.
+  //   ⇒ The removal from this screen was justified by a claim about a second
+  //   surface that nobody diffed. Logged as a defect, deliberately NOT fixed in
+  //   this header pass (the repair is an edit to docs/legal/, and shortening a
+  //   screen on the strength of an unchecked 「it is already over there」 is the
+  //   part worth remembering, not the missing paragraph). Full account in the ③
+  //   correction in this file's header.】
   // [discDetailsOnSite] is the on-screen pointer to where they went. Every
   // OTHER claim in the pre-rewrite copy is still on this screen — the WP3
   // handback carries the full before/after claims diff. The release gate's
@@ -275,10 +511,25 @@ mixin DisclosureStrings on AppStringsLeaves {
 
   // The parenthesised opt-in sentence was ADDED by owner ruling 2026-08-11
   // (deferred-batch #12), superseding the 2026-08-09 "no copy change" ruling.
+  //
+  // 🔴 IN-PLACE CORRECTION 2026-08-19 — that sentence NAMED the environment
+  // variable, and it stopped being true this batch. It read 「it downloads one
+  // over the internet only if you explicitly set FLOWMIC_SHERPA_AUTO_DOWNLOAD=1
+  // on the computer」, which was accurate while the variable was the ONLY way to
+  // consent. The PC's settings now have a download button
+  // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A) ⇒ the word
+  // 「only」 turned false the moment the button shipped. What owner's ruling
+  // bought was the CONSENT PROMISE, not the identifier, so the promise is what
+  // the copy keeps: nothing is fetched until you ask for it, and the button is
+  // where you ask. The variable survives as the unattended/CI path and is now
+  // documented, not disclosed (§5-D bans it from body copy — and this screen is
+  // the one read by someone holding a phone, not the computer the variable
+  // would be set on).
   // It must stay true to the mechanism on the PC side: sherpa-local.ts parses
   // the flag strictly ('1'/'true'), default OFF, and a missing model fails loud
   // with STT_CONFIG_MISSING. Mirrors desktop disclosure.ts `disc_s2_local` —
-  // the two surfaces change together or not at all.
+  // the two surfaces change together or not at all, and `verify:lint
+  // disclosure-copy-mirror` is what makes that a mechanism rather than a hope.
   //
   // 🔴 REQ-13-09 / owner Q12㋐ — THE CLAIM IS SCOPED TO THE SPEECH LEG, IN THE
   // SENTENCE ITSELF. It used to read "nothing leaves your own device" /
@@ -298,15 +549,21 @@ mixin DisclosureStrings on AppStringsLeaves {
   //   ⇒ the qualifier does NOT re-state ③. It says which leg this line is about
   //     and sends the other question to the section that owns it — one answer
   //     per sentence, which is why ③'s body is untouched by this card.
-  // ⚠️ The parenthesised opt-in sentence is owner's verbatim wording and is NOT
-  // touched here; the clause is inserted BEFORE it.
+  // ⚠️ The clause is inserted BEFORE the parenthesised opt-in sentence, never
+  // instead of it. (That sentence WAS owner's verbatim wording until
+  // 2026-08-19, when the download button made its 「only if you set …」 false —
+  // see the correction above. Its promise is pinned by the test below; the
+  // identifier that used to carry it is now banned from the copy.)
   // ⚠️ the word "local" in all four languages (本地 / local / ローカル / 로컬) must
   // SURVIVE in this string — the REQ-13-09 seeded-tier guard uses it as its
   // positive control, so a rewrite that drops the word here would let the
   // ban leak out of discStep2Body. Pinned by
   // test/data_flow_disclosure_test.dart "🔴 the local-engine line scopes its
-  // claim to speech and points text at ③", which also measures the
-  // rendered paragraph at 360dp (the 0.2.53 rule).
+  // claim to speech and points text at ③ (REQ-13-09 / Q12㋐)", which also
+  // measures the rendered paragraph at 360dp (the 0.2.53 rule).
+  // (2026-08-19: the citation above used to stop before the parenthesis and so
+  // matched no `testWidgets` title in the tree — grep the full string. The
+  // guard itself is intact and still green after the WP3 C16 rewrite.)
   String get discStep2Local => _lfDiscStep2Local;
 
   // ── 3. Language model ────────────────────────────────────────────────────

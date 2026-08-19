@@ -13,10 +13,11 @@
 //   2. Copies the produced flowmic_events.g.dart into apps/mobile/lib/generated/
 //      (both are gitignored `*.g.dart`; the SCRIPT is committed, the PRODUCT is
 //      not — same policy as the protocol package).
-//   3. Derives PROTOCOL_SCHEMA_VERSION from packages/protocol/src/constants.ts
-//      into flowmic_protocol.g.dart, so the handshake schema_ver is ALSO
-//      generated (no hand-mirrored integer — the legacy kProtocolSchemaVersion
-//      was a manual mirror; this closes that seam too).
+//   3. Derives PROTOCOL_SCHEMA_VERSION and LEGACY_SAAS_ENDPOINTS from
+//      packages/protocol/src/constants.ts into flowmic_protocol.g.dart, so the
+//      handshake schema_ver and the retired-relay list are ALSO generated (no
+//      hand-mirrored integer — the legacy kProtocolSchemaVersion was a manual
+//      mirror; this closes that seam too).
 //
 // Usage (from anywhere): node apps/mobile/tool/gen_protocol.mjs
 // Convenience wrappers: apps/mobile/Makefile (`make gen`), and the pnpm script
@@ -53,9 +54,45 @@ function readSchemaVersion() {
   return Number(m[1]);
 }
 
-function writeProtocolConsts(schemaVersion) {
+/**
+ * Pull `export const LEGACY_SAAS_ENDPOINTS: readonly string[] = [...];` — the
+ * relay addresses this product has RETIRED — off the protocol SSOT.
+ *
+ * 🔴 WHY THIS RIDES THE GENERATOR RATHER THAN BEING A DART LITERAL, which is the
+ * whole point. The value is DEPLOYMENT DATA of our hosted service, not software:
+ * the open-source export STRIP_EDITs it to `[]` in constants.ts, because a build
+ * that is not our service has retired nothing. A hand-mirrored Dart copy would be
+ * a second, unstripped home for a domain the owner ruled out of the project
+ * (decision 2026-08-17) — and `verify:lint oss-absent-sweep` says so out loud.
+ * Generated from the ONE source into a gitignored `*.g.dart`, the public tree
+ * gets `[]` for free and no strip, waiver or exemption is needed anywhere.
+ *
+ * 🔴 IT THROWS WHEN THE DECLARATION IS GONE, AND THAT IS THE DELETION RATCHET.
+ * The list has a lifetime: when the repair window closes it is deleted together
+ * with its two STRIP_EDITS entries (audit queue, 2026-08-17 entry). On that day
+ * this parse stops matching and every mobile build fails loudly — the same
+ * direction as「a strip whose `find` no longer matches is a hard failure of the
+ * export」— which is what makes the mobile half impossible to forget. Whoever
+ * greps `LEGACY_SAAS_ENDPOINTS` to do the sweep lands on this block and on
+ * `kLegacySaasEndpoints` in apps/mobile/lib/src/auth/saas_endpoint.dart.
+ *
+ * ⚠️ An EMPTY list is a legitimate parse, not a failure: that is exactly what the
+ * exported tree holds. Missing declaration = throw; empty declaration = `[]`.
+ * Those are two different questions and they get two different answers.
+ */
+function readLegacySaasEndpoints() {
+  const src = readFileSync(CONSTANTS_TS, 'utf8');
+  const m = src.match(
+    /export\s+const\s+LEGACY_SAAS_ENDPOINTS\s*:[^=]*=\s*\[([^\]]*)\]\s*;/,
+  );
+  if (!m) throw new Error('LEGACY_SAAS_ENDPOINTS not found in constants.ts');
+  return [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).filter((v) => v.length > 0);
+}
+
+function writeProtocolConsts(schemaVersion, retiredEndpoints) {
   const dart = `// GENERATED — DO NOT EDIT BY HAND.
-// Source: packages/protocol/src/constants.ts (PROTOCOL_SCHEMA_VERSION)
+// Source: packages/protocol/src/constants.ts
+//   (PROTOCOL_SCHEMA_VERSION, LEGACY_SAAS_ENDPOINTS)
 // Regenerate: node apps/mobile/tool/gen_protocol.mjs
 //
 // ignore_for_file: constant_identifier_names
@@ -69,6 +106,26 @@ class FlowMicProtocol {
   /// A pre-schema server simply never reads it; this client never requires one
   /// back — additive capability metadata, never a gate.
   static const int schemaVersion = ${schemaVersion};
+}
+
+/// Relay addresses this product has RETIRED, generated from
+/// \`LEGACY_SAAS_ENDPOINTS\` — never hand-mirrored, because the value is
+/// deployment data of ONE hosted service rather than a property of this
+/// software.
+///
+/// EMPTY IS A CORRECT VALUE, not a broken build: a build of this project that is
+/// not that hosted service has retired nothing, and the heal reading this list
+/// then simply has no work to do. That is an empty set, not an inert mechanism.
+///
+/// The rule that consumes it is \`planRetiredSaasEndpointHeal\`
+/// (src/auth/saas_endpoint.dart); the reference implementation both platforms
+/// mirror is apps/desktop/src-tauri/src/socket/cloud_endpoint.rs.
+class FlowMicRelayEndpoints {
+  FlowMicRelayEndpoints._();
+
+  static const List<String> retired = <String>[
+${retiredEndpoints.map((e) => `    '${dartStr(e)}',`).join('\n')}
+  ];
 }
 `;
   writeFileSync(join(OUT_DIR, 'flowmic_protocol.g.dart'), dart, 'utf8');
@@ -210,10 +267,12 @@ function main() {
   runEventCodegen();
   mkdirSync(OUT_DIR, { recursive: true });
   copyFileSync(EVENTS_G, join(OUT_DIR, 'flowmic_events.g.dart'));
-  writeProtocolConsts(readSchemaVersion());
+  const retired = readLegacySaasEndpoints();
+  writeProtocolConsts(readSchemaVersion(), retired);
   const s = writeSettingsConsts();
   console.log(
-    `gen_protocol: events + schema + settings(${s.keys} keys, ${s.packs} packs) -> ${OUT_DIR}`,
+    `gen_protocol: events + schema + retired-relays(${retired.length})`
+      + ` + settings(${s.keys} keys, ${s.packs} packs) -> ${OUT_DIR}`,
   );
 }
 

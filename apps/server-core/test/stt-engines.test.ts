@@ -70,6 +70,81 @@ describe('FunasrEngine — WS 2pass frame protocol', () => {
     await flushed;
   });
 
+  // 🔴 E8 (2026-08-19) — THE OPEN FRAME CARRIES NO LANGUAGE, AND THAT IS
+  // MEASURED, NOT ASSUMED. `cfg.language` reaches only the RESULT events:
+  // `onMessage` copies it onto every interim/final it emits, so every layer
+  // above this adapter sees a language that was never asked for on the wire.
+  // Nothing tells the FunASR runtime WHICH language to recognise — a user who
+  // selects Japanese gets whatever the deployed FunASR model happens to do,
+  // and the result frame will still say `language:'ja-JP'`.
+  //
+  // WHY THIS IS A PIN AND NOT A FIX. Wiring a language means naming a field in
+  // FunASR's OWN protocol, and nothing in this repo names one. What was
+  // checked: the 06 §3 open-frame spec line; the legacy handshake block in
+  // docs/legacy-reference/specs/03-ARCHITECTURE-AND-PROTOCOL.md (which cites
+  // upstream `runtime/docs/websocket_protocol.md` for `hotwords` but does not
+  // vendor it); the previous code line's own funasr adapter AND its raw WS
+  // trace driver (`verify/scripts/trace-funasr-pause-raw.mjs`, written to drive
+  // a REAL instance directly); and apps/server-core/scripts/smoke-lan-stt.mjs —
+  // all five send these same keys and no language. There is no capture of a
+  // FunASR session anywhere in the tree (the only raw-frame captures on disk
+  // are Soniox's), and no FunASR deployment config: the vendored
+  // `scripts/vendor/funasr-MODEL_LICENSE.txt` is licence text, not protocol. `language_hint` in engine-presets.ts is OUR routing key,
+  // not a wire field; the `language` form field on the SenseVoice/Whisper legs
+  // belongs to the OpenAI-compatible HTTP API, not to this protocol. Inventing
+  // a field name from memory is precisely what CLAUDE.md forbids, so the gap is
+  // pinned rather than papered over. WHAT WOULD SETTLE IT: upstream
+  // `runtime/docs/websocket_protocol.md` for the deployed FunASR version, or a
+  // frame capture from a real instance — there is none, the FunASR leg is
+  // unmeasured (WP-3 report §7).
+  //
+  // WHAT THIS TEST BUYS. The paragraph above stops being a comment that rots:
+  // adding or removing ANY open-frame key fails here, so the next person to
+  // touch the frame — including whoever finally wires a language — has to say
+  // so out loud. `toMatchObject` in the test above cannot do this: it ignores
+  // extra keys, which is why the absence has gone unnoticed until now.
+  //
+  // NEGATIVE CONTROL — RUN ONCE (2026-08-19, this dev machine — the gate
+  // oss-absent-sweep refuses machine names in shipped source), by adding
+  // `language: this.cfg.language` to the open frame in funasr.ts. Reading:
+  //   FAIL … E8: the open frame declares exactly these keys, and not one of
+  //   them is a language
+  //   AssertionError: FunASR open frame key set changed — say what you did and
+  //   why: expected [ 'audio_fs', 'chunk_interval', …(6) ] to deeply equal
+  //   [ 'audio_fs', 'chunk_interval', …(5) ]
+  //   -Expected/+Received diff: + "language"
+  //   Tests  1 failed | 16 passed (17)
+  // ⚠️ ONLY THE KEY-SET ASSERTION FIRED. The `/lang/i` one never ran — an
+  // assertion failure aborts the test — so what is proven is the key-set pin;
+  // the second assertion is a named-and-actionable message for the same event,
+  // not an independently exercised control. Saying "both went red" would have
+  // been the easy sentence and it would have been false.
+  // The temporary line was removed immediately; `git diff` on funasr.ts was
+  // empty afterwards and `grep -rn REVERSE-CONTROL-E8 src/` returned 0.
+  it('E8: the open frame declares exactly these keys, and not one of them is a language', async () => {
+    let ws!: FakeWs;
+    const engine = new FunasrEngine(cfg({ endpoint: 'ws://fake:10095', language: 'ja-JP' }), {
+      connect: (url) => { ws = new FakeWs(url); return ws as never; },
+    });
+    const opened = engine.open(); ws.openIt(); await opened;
+    const open = ws.jsonSent()[0] as Record<string, unknown>;
+
+    expect(Object.keys(open).sort(), 'FunASR open frame key set changed — say what you did and why')
+      .toEqual(['audio_fs', 'chunk_interval', 'chunk_size', 'is_speaking', 'itn', 'mode', 'wav_name']);
+    expect(
+      Object.keys(open).filter((k) => /lang/i.test(k)),
+      'no language-ish key on the wire (E8) — if you added one, cite the upstream evidence naming it',
+    ).toEqual([]);
+
+    // …and the language the user chose IS echoed onto the result. That is what
+    // makes the gap invisible from above: nothing upstream can tell that the
+    // engine was never told.
+    const finals: Array<{ language: string }> = [];
+    engine.on('final', (e) => finals.push(e));
+    ws.frame({ mode: '2pass-offline', text: 'こんにちは' });
+    expect(finals[0]!.language).toBe('ja-JP');
+  });
+
   it('adds the hotwords field only when the dictionary is non-empty', async () => {
     let ws!: FakeWs;
     const engine = new FunasrEngine(cfg({ hotwords: '{"FlowMic":20}', endpoint: 'ws://fake:10095' }), {

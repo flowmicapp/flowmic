@@ -20,7 +20,15 @@
 //     only: reachable → real turn; unreachable → SKIPPED(reason) ≠ FAIL.
 //   • No-real-device / no-interactive-desktop segments (physical keystroke inject,
 //     real-mic long audio) → SKIPPED(reason) ≠ FAIL.
-//   • Exit non-zero iff any G FAILs. SKIPPED never fails the gate.
+//   • Exit non-zero iff any G FAILs — or any G skips UNDECLARED. ⚠️ This rule
+//     used to end "SKIPPED never fails the gate", unconditionally; corrected
+//     2026-08-19 (lane L4): "the LAN is down" and "someone broke the
+//     reachability probe" printed the same green while the right responses are
+//     opposite. A skip now passes only when expected-skips.mjs declares it (id
+//     + a regex the printed reason must match, with why it is environment-
+//     bound); an undeclared skip fails the run naming the case and what it was
+//     supposed to prove. Same escalation family as scripts/run-script-tests.mjs
+//     (all-skipped ⇒ FAIL; unreadable skip ⇒ FAIL), one level finer-grained.
 //
 // Run: pnpm golden   (delegates here; builds server-core if dist is missing).
 // Also: pnpm verify:delivery (lint + types + this suite).
@@ -69,6 +77,9 @@ const STT_SPAWN_SRC = 'src/stt/orchestrator-types.ts';
 // the wire helpers live in one place: the rule has ONE definition, and both this
 // runner and scripts/opensource-export.mjs answer to it.
 import { publicExportExclusions, resolveRequires, requirePath } from './requires.mjs';
+// The declared skip budget (lane L4) — see that file's header for the rule and
+// the measured seed. Data only; the enforcement lives in main()'s summary.
+import { EXPECTED_SKIPS } from './expected-skips.mjs';
 import { G9 } from './g9-cloud-admission.mjs';
 import { G11 } from './g11-console-surface.mjs';
 import { G13 } from './g13-no-crosstalk.mjs';
@@ -612,7 +623,17 @@ async function main() {
   //     executed, which is the 0.2.22 lesson (`server-core` consumes protocol's
   //     `dist`, not `src`; a new zod field was stripped by an old dist and an
   //     assertion that should have failed passed).
-  // `verify:types` cannot catch either: tsc reads `src` through path mappings.
+  // `verify:types` cannot catch either — CORRECTED 2026-08-19: this line used to
+  // say "tsc reads `src` through path mappings", a second live copy of the wrong
+  // mechanism CLAUDE.md debunked on 2026-08-07. Measured again on this machine
+  // (`tsc --noEmit --traceResolution` in apps/server-core): `@flowmic/protocol`
+  // resolves to `packages/protocol/dist/index.d.ts` — there are no path mappings
+  // anywhere. So tsc is not blind because it bypasses dist; it type-checks the
+  // SAME stale dist, which is worse: a stale contract makes types green too.
+  // Since 2026-08-19 `verify:delivery` builds protocol at the head of the chain
+  // (`verify:protocol-dist`, mirroring .github/workflows/verify.yml's "Build
+  // protocol" step) — this per-run rebuild stays because `pnpm golden` also runs
+  // standalone, and because server-core's dist embeds protocol's.
   //
   // So the freshness rule stops being a discipline someone has to remember —
   // CLAUDE.md already carries that discipline in writing, and it has now been
@@ -695,8 +716,29 @@ async function main() {
     }
   }
   const n = (s) => results.filter((r) => r.status === s).length;
+  // ── the skip budget (lane L4; rule + measured seed in expected-skips.mjs) ──
+  // Matched on (id, printed reason): a declared G skipping with a differently-
+  // shaped reason is as undeclared as a new G skipping at all — the shape
+  // drifting is exactly the signal a broken probe would give.
+  const undeclared = results.filter(
+    (r) => r.status === 'SKIPPED'
+      && !EXPECTED_SKIPS.some((e) => e.id === r.id && e.reason.test(r.reason ?? '')),
+  );
+  for (const u of undeclared) {
+    process.stdout.write(`  UNDECLARED SKIP  ${u.id}  ${u.name}\n`);
+    process.stdout.write(`     └─ reason: ${u.reason ?? '(none printed)'}\n`);
+    process.stdout.write(
+      `     └─ this case was supposed to prove: ${u.name}. A skip not declared in\n`
+      + `        verify/golden/expected-skips.mjs is indistinguishable from a broken\n`
+      + `        probe — fix what stopped the case from running, or declare the skip\n`
+      + `        there with its reason and why it is environment-bound.\n`,
+    );
+  }
   process.stdout.write('──────────────────────────────────────────────────────────────────────────\n');
   process.stdout.write(`  PASS=${n('PASS')}  SKIPPED=${n('SKIPPED')}  FAIL=${n('FAIL')}  (total ${results.length})\n`);
+  if (undeclared.length > 0) {
+    process.stdout.write(`  ✗ ${undeclared.length} UNDECLARED skip(s) — the gate fails (see the lines above).\n`);
+  }
   const waivedTotal = [...waivers.values()].reduce((sum, w) => sum + w.length, 0);
   if (waivedTotal > 0) {
     // Deliberately NOT folded into the PASS/SKIPPED/FAIL tally: the G itself did
@@ -711,7 +753,7 @@ async function main() {
   }
   process.stdout.write('══════════════════════════════════════════════════════════════════════════\n');
 
-  process.exit(n('FAIL') > 0 ? 1 : 0);
+  process.exit(n('FAIL') > 0 || undeclared.length > 0 ? 1 : 0);
 }
 
 main().catch((e) => {

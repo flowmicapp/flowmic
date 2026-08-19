@@ -507,6 +507,14 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             auth: authService,
             users: db.users,
             audit: db.opsAudit,
+            // LOGIN-1 — the SWITCH STATE, not a permission. The route is mounted
+            // either way and reports `login_recording` honestly; what this
+            // decides is whether the card can say "we are not recording"
+            // (我们没在记) instead of showing a blank that looks like a dormant
+            // account. Same reasoning as `opsUsageEvents` being mounted
+            // regardless of `usageEventsEnabled` just below: the switch gates
+            // COLLECTION, never READING.
+            loginRecording: config.loginRecordEnabled,
           },
         }
       : {}),

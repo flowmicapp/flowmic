@@ -494,42 +494,109 @@ void main() {
     // says it better than a duplicate here would; the clause forwards, it does
     // not re-state. Asserting ③ from here would make one card own two sentences
     // — the shape the repo keeps paying for.
-    const Map<AppLocale, List<String>> textDestinationQualifier =
-        <AppLocale, List<String>>{
-      AppLocale.zh: <String>['说的是语音', '文字之后去哪，见 ③'],
-      AppLocale.en: <String>[
-        'that is about your voice',
-        'where the text goes next is step 3',
-      ],
-      AppLocale.ja: <String>['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
-      AppLocale.ko: <String>['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
-      AppLocale.zhTw: <String>['說的是語音', '文字之後去哪，見 ③'],
-      AppLocale.fr: <String>[
-        'il s\'agit de votre voix',
-        'où va le texte ensuite, voir l\'étape 3',
-      ],
-      AppLocale.es: <String>[
-        'eso es tu voz',
-        'a dónde va el texto después es el paso 3',
-      ],
-      AppLocale.de: <String>[
-        'das betrifft Ihre Stimme',
-        'wohin der Text danach geht, ist Schritt 3',
-      ],
-      AppLocale.ru: <String>[
-        'речь о голосе',
-        'куда дальше идёт текст, см. шаг 3',
-      ],
+    // 🔴 IN-PLACE CORRECTION (2026-08-19, local-model onboarding batch) — the
+    // third reading below was INVERTED, not weakened by stealth.
+    //
+    // `consent` used to be the literal 「FLOWMIC_SHERPA_AUTO_DOWNLOAD=1」, because
+    // owner's 2026-08-11 opt-in sentence named that environment variable and the
+    // variable was the ONLY way to consent to the download. The desktop now
+    // ships a download button in settings
+    // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A), so the
+    // old sentence became FALSE the day the button existed: setting a variable
+    // stopped being the only way to say yes, and a disclosure that lags the
+    // mechanism is this repo's most expensive failure shape.
+    //
+    // What owner's ruling actually bought was the CONSENT PROMISE — 「it does not
+    // download unless you asked for it」 — and that survives untouched; only the
+    // mechanism of asking widened. So the promise is pinned POSITIVELY per
+    // locale, and the identifier is BANNED from the body copy (§5-D: the variable
+    // is the unattended/CI path, and naming it in a privacy paragraph a phone
+    // user reads is noise, not disclosure — this screen is the one the phone user
+    // actually stands in front of, and they have no computer in their hand).
+    // Dropping the assertion instead of turning it round would have retired a
+    // guard along with the sentence it guarded.
+    //
+    // ✅ REVERSE CONTROL — BOTH NEW READINGS HAVE BEEN SEEN RED (2026-08-19, and
+    // again after the record merge below, so the merged accessor path is what was
+    // measured; en mutated in i18n/mobile/en.json, regenerated, run, restored,
+    // `git diff` back to the single intended line):
+    //   · consent promise replaced by 「when the built-in engine is first used」
+    //     ⇒ 「the consent promise … left the local-engine line」;
+    //   · 「from settings on the computer」 replaced by 「by setting
+    //     FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 on the computer」
+    //     ⇒ 「the environment variable is back in the body copy」.
+    //
+    // ⚠️ ONE MAP, NOT TWO, and that is a gate talking rather than taste: this
+    // repo counts hand-rolled locale lists (verify:lint i18n-add-locale-cost),
+    // and a second nine-entry map would have made language ten cost one more
+    // edit than it costs today — measured, it went 10 → 11 the moment the second
+    // map existed. Named record fields keep the failures apart, which was the
+    // only thing separate maps were ever buying.
+    const Map<AppLocale, ({List<String> qualifier, String consent})>
+        localEngineMarkers = <AppLocale, ({List<String> qualifier, String consent})>{
+      AppLocale.zh: (
+        qualifier: <String>['说的是语音', '文字之后去哪，见 ③'],
+        consent: '只在你要求之后',
+      ),
+      AppLocale.en: (
+        qualifier: <String>[
+          'that is about your voice',
+          'where the text goes next is step 3',
+        ],
+        consent: 'because you asked for it',
+      ),
+      AppLocale.ja: (
+        qualifier: <String>['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
+        consent: 'あなたが求めたときにだけ',
+      ),
+      AppLocale.ko: (
+        qualifier: <String>['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
+        consent: '당신이 요청했을 때만',
+      ),
+      AppLocale.zhTw: (
+        qualifier: <String>['說的是語音', '文字之後去哪，見 ③'],
+        consent: '只在你要求之後',
+      ),
+      AppLocale.fr: (
+        qualifier: <String>[
+          'il s\'agit de votre voix',
+          'où va le texte ensuite, voir l\'étape 3',
+        ],
+        consent: 'parce que vous l\'avez demandé',
+      ),
+      AppLocale.es: (
+        qualifier: <String>[
+          'eso es tu voz',
+          'a dónde va el texto después es el paso 3',
+        ],
+        consent: 'porque tú la has pedido',
+      ),
+      AppLocale.de: (
+        qualifier: <String>[
+          'das betrifft Ihre Stimme',
+          'wohin der Text danach geht, ist Schritt 3',
+        ],
+        // The phone catalogue addresses the reader with 「Sie」; the desktop one
+        // uses 「du」. Same promise, each screen's own register — which is why
+        // this is not one constant shared with the desktop test.
+        consent: 'weil Sie ihn verlangt haben',
+      ),
+      AppLocale.ru: (
+        qualifier: <String>[
+          'речь о голосе',
+          'куда дальше идёт текст, см. шаг 3',
+        ],
+        consent: 'вы об этом попросили',
+      ),
     };
-    // owner's verbatim opt-in sentence (ruling 2026-08-11 / deferred-batch #12).
-    // The clause was inserted BEFORE it; if a future edit rewrites the bullet and
-    // loses this, that is a separate owner-ruled sentence going missing, and it
-    // should not hide behind a green qualifier assertion.
-    const String optInFlag = 'FLOWMIC_SHERPA_AUTO_DOWNLOAD=1';
+    // The bare NAME, not the `=1` form: a rewrite that mentioned the variable
+    // without its value would slip past the longer string and put developer
+    // configuration back into a user-facing privacy paragraph.
+    const String optInFlagName = 'FLOWMIC_SHERPA_AUTO_DOWNLOAD';
     for (final AppLocale loc in kLocales) {
       final AppStrings s = AppStrings.of(loc);
       final String line = s.discStep2Local;
-      for (final String marker in textDestinationQualifier[loc]!) {
+      for (final String marker in localEngineMarkers[loc]!.qualifier) {
         expect(
           line,
           contains(marker),
@@ -542,9 +609,19 @@ void main() {
       }
       expect(
         line,
-        contains(optInFlag),
-        reason: "$loc: owner's opt-in sentence (2026-08-11) vanished from the "
-            'local-engine line — the REQ-13-09 clause goes BEFORE it, never instead of it',
+        contains(localEngineMarkers[loc]!.consent),
+        reason: '$loc: the consent promise (「${localEngineMarkers[loc]!.consent}」) left the '
+            'local-engine line. The download button widened HOW you consent; it '
+            'did not remove the promise that nothing is fetched until you do. '
+            'Without this sentence the paragraph describes an app that reaches '
+            'out on its own.',
+      );
+      expect(
+        line,
+        isNot(contains(optInFlagName)),
+        reason: '$loc: the environment variable is back in the body copy. It is '
+            'the unattended path now (design §5-D) — say WHO asked for the '
+            'download, not which variable was set.',
       );
 
       // …and the qualified sentence really reaches a 360 dp screen. 0.2.53's law:
@@ -652,10 +729,24 @@ void main() {
       // diagram with short captions, with the fine print behind the web
       // links; the FLOWMIC_LAN_TLS=0 mechanics — an operator-side env toggle,
       // its lockout cost, and the delete-and-re-pair recovery — moved to
-      // docs/legal/privacy-policy.md (its LAN channel section already carried
-      // all three), and `discDetailsOnSite` is the on-screen pointer. Claim ①
+      // docs/legal/privacy-policy.md, and `discDetailsOnSite` is the on-screen
+      // pointer. Claim ①
       // keeps its referent without the switch: the condition is now 「how the
       // pairing was made」, which the copy states directly.
+      //
+      // 🔴 IN-PLACE CORRECTION (2026-08-19). This paragraph used to end 「its LAN
+      // channel section ALREADY CARRIED ALL THREE」, and that sentence was the
+      // entire justification for deleting the claim family from the phone. It
+      // was walked today and it was false: the policy carried ONE of the three
+      // (the switch-off). The lockout cost and the delete-and-re-pair recovery
+      // existed only in SECURITY.md — a repo file no user reaches from the app.
+      // So a disclosure left the product on a premise nobody had checked.
+      // The policy now really does carry all three (its 「It can be switched off
+      // on the computer」 bullet), which makes the sentence true instead of
+      // making it disappear.
+      // ⚠️ The lesson is the citation, not the copy: 「moved to X」 is a claim
+      // ABOUT X, and a claim about somewhere else has to be walked to, never
+      // asserted — this file is where that rule is otherwise enforced.
       //
       // ⚠️ What survives of W6R's rule is the TRAVEL-TOGETHER half, as a
       // conditional: if any future copy edit brings the switch's name back

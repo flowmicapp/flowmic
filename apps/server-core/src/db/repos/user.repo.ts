@@ -58,6 +58,21 @@ export interface UserRecord {
    *  actually arrives; a value that predates the enum reads back as itself and
    *  a client that does not recognise it renders nothing. */
   restriction_reason: string | null;
+  /** LOGIN-1 — ms-since-epoch of the most recent SIGN-IN recorded for this
+   *  account; null = none recorded.
+   *
+   *  🔴 IT IS NOT `last_seen_at` AND IT IS NOT ACTIVITY. It moves only when a
+   *  credential was presented and a session was minted — the enumerated list of
+   *  those moments is auth/auth-service.ts `recordSignIn`, which is also the
+   *  only writer. Token verification, which happens on nearly every request,
+   *  deliberately does NOT move it; db/schema.ts owns that argument.
+   *
+   *  ⚠️ null has TWO causes and this field cannot tell them apart: nobody has
+   *  signed in since recording began, or recording was never on
+   *  (`FLOWMIC_LOGIN_RECORD_ENABLED` defaults OFF). Anything that DISPLAYS this
+   *  value has to carry the switch state beside it, which is why
+   *  {@link OpsUserView} has two fields where the record has one. */
+  last_login_at: number | null;
   created_at: string;
 }
 
@@ -173,6 +188,29 @@ export interface UserRepo {
    * `setPermanentFree` above makes about `plan`, in the other direction).
    */
   setRestricted(userId: string, restrictedAt: number | null, reason: string | null): void;
+  /**
+   * LOGIN-1 — stamp `users.last_login_at` for one account.
+   *
+   * 🔴 THIS METHOD DOES NOT KNOW ABOUT THE SWITCH, DELIBERATELY. The
+   * `FLOWMIC_LOGIN_RECORD_ENABLED` test lives in auth/auth-service.ts
+   * `recordSignIn`, one layer up, for the reason db/repos/usage-events.repo.ts
+   * states about its own: a repo that silently no-ops when a flag is off is a
+   * write method that sometimes does not write, and every future caller would
+   * have to already know that. Here the method always writes; the ONE place that
+   * decides whether writing is allowed is the ONE place that calls it.
+   *
+   * 🔴 ONE COLUMN IN THE SET LIST, like `setRestricted` above and for the same
+   * reason: a reviewer must be able to see that recording a sign-in cannot move
+   * a tier, an exemption, an admin bit or a restriction. It is also why this is
+   * not folded into some `touchUser` — a method that stamps "activity" would be
+   * the very blur this column was created to avoid.
+   *
+   * 🔴 NOT IDEMPOTENT AND NOT FIRST-WRITER-WINS — the OPPOSITE of
+   * `setRestricted`, whose whole point is that restricting twice keeps the first
+   * timestamp. "Last login" means the LATEST one, so every sign-in overwrites.
+   * The two are adjacent and behave in opposite directions on purpose.
+   */
+  stampLastLogin(userId: string, at: number): void;
   /**
    * 0.3.0 P4 — DESTROY the account row. Irreversible, and it takes the account's
    * whole child graph with it.
@@ -332,12 +370,67 @@ export interface OpsUserView {
    *  🔴 The operator's own free text is deliberately NOT on this view either: it
    *  lives in `ops_audit_log.detail`, and a list screen is not an audit trail. */
   restriction_reason: string | null;
+  /**
+   * LOGIN-1 — "is THIS DEPLOYMENT recording sign-ins at all"
+   * (这台部署到底记不记登录), i.e. the state of
+   * `FLOWMIC_LOGIN_RECORD_ENABLED` (config.ts `loginRecordEnabled`).
+   *
+   * 🔴 IT IS A SECOND FIELD BECAUSE THERE ARE THREE STATES AND ONE NULLABLE
+   * NUMBER ONLY ENCODES TWO. The operator acts differently on each:
+   *   · `{login_recording:false, last_login_at:null}` → "we are not recording"
+   *     (我们没在记) — the operator's next move is to ask owner for the switch,
+   *     and NOTHING about this account can be concluded from the blank;
+   *   · `{login_recording:true,  last_login_at:null}` → "recording, and this
+   *     account has not signed in since it began" (在记，这个账号还没登录过) —
+   *     a fact ABOUT THE ACCOUNT, and an actionable one;
+   *   · `{login_recording:true,  last_login_at:<ms>}` → the observation.
+   * Collapsing the first two onto one blank would show a dormant-looking account
+   * on every deployment that simply never turned collection on — a blank
+   * rendered as a finding.
+   *
+   * ⚠️ THE SWITCH STATE IS PUBLISHED HERE AND NOWHERE ELSE ON THE WIRE. The
+   * account holder's own surfaces do not carry it (http/usage-events-routes.ts
+   * makes the same call about its own switch: "that is a deployment fact an end
+   * user is not owed"). An OPERATOR is owed it, because it is the difference
+   * between a fact and an artefact on the screen they act from.
+   */
+  login_recording: boolean;
+  /**
+   * LOGIN-1 — "when did we last observe this account signing in", ms-since-epoch,
+   * or null. The RAW value, like `restricted_at` above.
+   *
+   * 🔴 IT IS `null` WHENEVER `login_recording` IS FALSE, EVEN IF THE COLUMN HOLDS
+   * A NUMBER. A deployment that recorded for a while and then had the switch
+   * turned off still has stamps on disk, and publishing one under the words
+   * "last login" would put an ARBITRARILY STALE date in front of an operator with
+   * nothing on the screen to say the clock stopped. Withholding it is not hiding
+   * a fact — it is refusing to answer a question this deployment can no longer
+   * answer. {@link toOpsUser} is where that is enforced, so it cannot be
+   * forgotten at a second response point.
+   *
+   * ⚠️ It is NOT device activity. `pc_devices.last_seen_at` /
+   * `mobile_pairings.last_seen_at` answer "has that device been active", and a
+   * PC that stays connected refreshes one of them daily for an account nobody
+   * has signed into for months. Those two are still absent from this view.
+   */
+  last_login_at: number | null;
   /** When the account was created (the row's own TEXT timestamp, unmodified). */
   created_at: string;
 }
 
-/** {@link OpsUserView} — THE whitelist, as the only place it is written down. */
-export function toOpsUser(u: UserRecord): OpsUserView {
+/**
+ * {@link OpsUserView} — THE whitelist, as the only place it is written down.
+ *
+ * 🔴 `loginRecording` IS A REQUIRED SECOND PARAMETER AND NOT AN OPTION WITH A
+ * DEFAULT. A default would pick one of the three states for whoever forgot to
+ * pass it, and the only safe default (`false`) would silently withhold a value
+ * the deployment IS collecting — a response that under-reports while looking
+ * complete. Required means a new response point cannot be added without deciding
+ * where the switch state comes from, which is a compile error rather than a
+ * review comment (book 13 §7 F1 ② — a DI default must be the real thing or a
+ * throw, never a friendly empty).
+ */
+export function toOpsUser(u: UserRecord, loginRecording: boolean): OpsUserView {
   return {
     id: u.id,
     email: u.email,
@@ -347,6 +440,13 @@ export function toOpsUser(u: UserRecord): OpsUserView {
     restricted: isAccountRestricted(u.restricted_at),
     restricted_at: u.restricted_at,
     restriction_reason: u.restriction_reason,
+    login_recording: loginRecording,
+    // 🔴 THE WITHHOLDING IS HERE, at the one projection, and not at the two call
+    // sites — the same argument this file's header makes about the whitelist
+    // itself: two copies of the rule is how one of them keeps publishing a stale
+    // stamp after collection stopped. See the field's doc for why a stale date is
+    // worse than no date on this particular screen.
+    last_login_at: loginRecording ? u.last_login_at : null,
     created_at: u.created_at,
   };
 }
@@ -389,6 +489,13 @@ function toRecord(r: Record<string, unknown>): UserRecord {
     // rather than `?? null` so a legacy row, or a row whose column predates this
     // change, reads as "no reason recorded" instead of some coerced value.
     restriction_reason: typeof r.restriction_reason === 'string' ? r.restriction_reason : null,
+    // LOGIN-1 — raw column, no verdict here, same discipline as the three above.
+    // `typeof === 'number'` rather than `?? null` so a row from a database that
+    // predates the column reads as "no sign-in recorded" instead of coercing
+    // some other value into a date — and note that here there is no fail-open /
+    // fail-closed direction to pick, because the honest answer and the safe
+    // answer are the same one: we did not record it.
+    last_login_at: typeof r.last_login_at === 'number' ? r.last_login_at : null,
     created_at: r.created_at as string,
   };
 }
@@ -429,6 +536,12 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
   // reported under. Still no `plan`, no `permanent_free`, no `is_admin` — the
   // property `test/account-restriction.test.ts` asserts is unchanged.
   const updRestricted = db.prepare('UPDATE users SET restricted_at=?, restriction_reason=? WHERE id=?');
+  // LOGIN-1. ONE column in the SET list, same load-bearing reason as the
+  // statement above: this is the entire write face of「record a sign-in」, and a
+  // reviewer reading it can see that a login cannot move a tier, an exemption,
+  // an admin bit or a restriction. `test/last-login-record.test.ts` asserts the
+  // other columns are byte-identical after a sign-in runs.
+  const updLastLogin = db.prepare('UPDATE users SET last_login_at=? WHERE id=?');
   // 0.3.0 P4. The ONE statement that destroys an account. It touches exactly one
   // table; the FK cascade does the rest (see UserRepo.remove above for why there
   // are deliberately no sibling DELETEs here).
@@ -503,6 +616,9 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
     },
     setPermanentFree(userId, value): void {
       updPermanentFree.run(value ? 1 : 0, userId);
+    },
+    stampLastLogin(userId, at): void {
+      updLastLogin.run(at, userId);
     },
     setRestricted(userId, restrictedAt, reason): void {
       updRestricted.run(restrictedAt, reason, userId);

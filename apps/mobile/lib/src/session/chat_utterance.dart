@@ -718,45 +718,8 @@ void _applyRefined(ChatController c, String text) {
   c.ucNotify();
 }
 
-// ── owner 2026-07-26 ②: the session-loss watch ──────────────────────────────
-
-/// Arm the give-up window on ANY not-connected state; disarm the moment the
-/// link is back. While the window runs, the reconnect ladder keeps retrying (a
-/// blip must heal in place — GA-04's audio grace rides those early rungs); when
-/// it expires the ladder is STOPPED and the page is told to leave —
-///「停在转录页无限重试」("staying stuck on the transcription page retrying
-/// forever") is the exact behaviour the owner rejected.
-///
-/// RV-60: an expected drop inside the album-away window must NOT start this
-/// timer — the user is in the system picker, not abandoned. Closing the window
-/// (picker returned / cap expired) re-enters here and arms a FRESH window if
-/// the link is still down.
-void _watchSessionLoss(ChatController c, ConnectionState conn) {
-  if (conn == ConnectionState.connected) {
-    c._sessionLostTimer?.cancel();
-    c._sessionLostTimer = null;
-    // The latch describes THIS link, not the controller's whole life. It used to
-    // be set once and never cleared, and the controller is a singleton — so one
-    // real loss poisoned every later visit: re-enter the chat page, and the first
-    // notify (the PTT press itself) popped the user straight back to the list,
-    // now disconnected too because leaving the page also leaves the room.
-    // owner 2026-07-27, reproduced on the tablet after the server had died once.
-    c.sessionLost = false;
-  } else if (AlbumAway.instance.isOpen) {
-    c._sessionLostTimer?.cancel();
-    c._sessionLostTimer = null;
-  } else if (c._sessionLostTimer == null && !c.sessionLost) {
-    c._sessionLostTimer = Timer(c.sessionLostAfter, () => _onSessionLost(c));
-  }
-}
-
-/// The window expired with the link still down. Stop the ladder FIRST (its 30s
-/// rungs would otherwise keep dialing a dead PC from behind the connections
-/// list), then flag the page — it pops back to the list and says why.
-void _onSessionLost(ChatController c) {
-  c._sessionLostTimer = null;
-  if (c._conn == ConnectionState.connected) return; // healed at the wire
-  c.sessionLost = true;
-  unawaited(c.session.reconnect.stop());
-  c.ucNotify();
-}
+// ── the session-loss watch moved out ────────────────────────────────────────
+// [_watchSessionLoss] and its family now live in chat_link_watch.dart (same
+// library, bodies verbatim): owner 2026-08-19 turned one function into four and
+// this file crossed the 800-line cap. Call sites are unchanged — they are
+// library-level functions either way.

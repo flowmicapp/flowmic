@@ -26,7 +26,11 @@ function productionFiles(dir: string): string[] {
       out.push(...productionFiles(full));
       continue;
     }
-    if (!/\.(ts|vue)$/.test(name) || /\.test\.ts$/.test(name)) continue;
+    // `-test-support.ts` joined the exclusion 2026-08-19: timeline-store's shared
+    // fixtures (RecordingTransport fakes dropRowImages) moved out of its .test.ts
+    // into a support module when that file hit its size pin — same fixture, same
+    // reason the header gives for excluding test files, new filename shape.
+    if (!/\.(ts|vue)$/.test(name) || /\.test\.ts$/.test(name) || /-test-support\.ts$/.test(name)) continue;
     out.push(full);
   }
   return out;

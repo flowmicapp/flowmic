@@ -53,8 +53,10 @@ import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
 // "the tripwire did not fire" on a branch that had in fact moved the count —
 // one step from retiring a gate that was working. See the guard's header.
 //
-// ⚠️ Only this lint carries the guard; the other 16 still exit 0 when run
-// directly. Not a claim that they are safe — just where the burn happened.
+// ⚠️ CORRECTED 2026-08-19: the line above used to say "Only this lint carries
+// the guard; the other 16 still exit 0 when run directly" — the count had
+// drifted (run-all.mjs registered 30 by then) and the exposure it named is
+// closed: every lint registered in run-all.mjs now carries this same guard.
 refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 export const name = 'platform-cfg-count';

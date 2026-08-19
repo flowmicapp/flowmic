@@ -119,6 +119,18 @@ mixin ConnectionsReachHost on ChangeNotifier {
 
   Future<void> _probeOne(String endpoint) async {
     HealthReading reading;
+    // 🔴 The stopwatch is the thing 0.3.9's on-device pass found MISSING from
+    // the line below (handoff §7-3): with `miss` alone, card C4 could be
+    // answered down to 「什么类别的失败」 ("what class of failure") and no
+    // further — while the measurement that actually pinned the root cause was a
+    // DURATION (p95 3.37 s against a 3 s budget). A probe that answers in 2.9 s
+    // and one that answers in 0.2 s are both `ok=true` and are not the same
+    // health.
+    //
+    // ⚠️ It times THIS WHOLE CALL — every retry inside the budget included —
+    // because that is what the row's user waited for. A per-attempt number
+    // would be a different question, and nothing on screen asks it.
+    final Stopwatch elapsed = Stopwatch()..start();
     try {
       // 🔴 Bounded retry WITHIN this one cycle, the same shape the presence
       // probe next door has had since 2026-08-16 — and this is the half that
@@ -164,6 +176,7 @@ mixin ConnectionsReachHost on ChangeNotifier {
       'miss': reading.miss?.name,
       'misses_in_a_row': _reachMisses[endpoint] ?? 0,
       'verdict': verdict.name,
+      'ms': elapsed.elapsedMilliseconds,
     });
     _reach[endpoint] = verdict;
     // Only a SUCCESSFUL read may set the channel. A failed probe leaves the last

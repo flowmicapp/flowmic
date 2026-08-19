@@ -220,7 +220,21 @@ class ConnectionsController extends ChangeNotifier
   Future<void> refreshReachability() async {
     final Set<String> targets = <String>{
       for (final MobileSession p in _pairings) normalizePairEndpoint(p.endpoint),
-      normalizePairEndpoint(saasEndpoint),
+      // 🔴 The default relay address is probed FOR THE DASHED ENTRY CARD, and
+      // only while that card exists. GA-33 retires it the moment a saas pairing
+      // row appears (`connections_page.dart`: the card renders under
+      // `!pairings.any(channel == 'saas')`), and the row reads ITS OWN stored
+      // endpoint — which is not necessarily this one.
+      //
+      // Measured on the tablet, 2026-08-19 (0.3.9 handoff §7-2): a phone paired
+      // to the cloud before the domain moved showed that row red and offline
+      // while `reach.probe` reported the DEFAULT endpoint answering 28/28. Two
+      // addresses, one of which nothing on screen was reading — a request every
+      // 15 s whose answer had no reader, which is the mirror image of the
+      // façade shape this repo hunts (a value nobody produces vs. an answer
+      // nobody consumes).
+      if (!_pairings.any((MobileSession p) => p.channel == 'saas'))
+        normalizePairEndpoint(saasEndpoint),
     }..removeWhere((String e) => e.isEmpty);
 
     final List<Future<void>> jobs = <Future<void>>[];

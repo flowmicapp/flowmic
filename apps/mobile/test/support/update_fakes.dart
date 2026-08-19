@@ -47,10 +47,16 @@ UpdateController newTestUpdateController({
   UpdateInstallRunner? installer,
   bool selfUpdateEnabled = true,
   DateTime Function()? now,
+  /// Gate ② (update/install_source.dart). Default answers 「not a store」, which
+  /// is what the production probe also answers off-device (no platform channel
+  /// ⇒ unknown ⇒ not a store). Stated rather than left implicit: a test that is
+  /// ABOUT the gate passes its own.
+  Future<bool> Function()? storeProbe,
 }) => UpdateController(
   version: version ?? const _NullVersion(),
   prefs: prefs ?? InMemoryUpdatePrefs(),
   selfUpdateEnabled: selfUpdateEnabled,
+  storeProbe: storeProbe ?? (() async => false),
   now: now ?? DateTime.now,
   downloader: downloader,
   installer: installer,

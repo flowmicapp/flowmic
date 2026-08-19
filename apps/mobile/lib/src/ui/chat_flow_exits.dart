@@ -36,10 +36,19 @@
 
 part of 'chat_flow_page.dart';
 
-/// owner 2026-07-26 ②: the controller gave up on the link (10s of sustained
-/// disconnect; the ladder is already stopped). Leave the transcription page
-/// for the connections list and SAY WHY — an unexplained navigation reads as
-/// the app losing its place.
+/// owner 2026-07-26 ②: the controller gave up on the link. Leave the
+/// transcription page for the connections list and SAY WHY — an unexplained
+/// navigation reads as the app losing its place.
+///
+/// 🔴 WHAT `sessionLost` MEANS CHANGED ON 2026-08-19 (owner ruling 4), and this
+/// function did not. It used to mean 「10 秒断开」 ("ten seconds disconnected");
+/// it now means 「重试预算花光了」 ("the retry budget is spent") — the page stays
+/// through the ten seconds AND through `kLinkRetryBudget` dial
+/// attempts, and only the last of those failing raises the flag. The exit is
+/// unchanged because the exit was never the disputed part: what the owner
+/// reported (0.3.9 handoff §7-6) was leaving too EARLY, with no machine still
+/// trying, not leaving at all. The sentence it shows moved with the meaning —
+/// see [AppStrings.sessionLostToast].
 void _maybeLeaveOnSessionLostRouted(_ChatFlowPageState s) {
   if (!s.controller.sessionLost || s._sessionLostHandled) return;
   s._sessionLostHandled = true;

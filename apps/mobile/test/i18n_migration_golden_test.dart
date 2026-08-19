@@ -31,6 +31,8 @@ import 'package:flowmic/src/settings/app_strings.dart';
 // final, not const: a tear-off closure is not a constant expression.
 final Map<String, String Function(AppStrings)> _getters =
     <String, String Function(AppStrings)>{
+    'accountManageLink': (AppStrings s) => s.accountManageLink,
+    'accountManageNote': (AppStrings s) => s.accountManageNote,
     'add': (AppStrings s) => s.add,
     'addDevice': (AppStrings s) => s.addDevice,
     'addPairingTitle': (AppStrings s) => s.addPairingTitle,
@@ -479,6 +481,8 @@ final Map<String, String Function(AppStrings)> _getters =
     'updateDownloadSizeMismatch': (AppStrings s) => s.updateDownloadSizeMismatch,
     'updateDownloadUnreachable': (AppStrings s) => s.updateDownloadUnreachable,
     'updateDownloadUrlLabel': (AppStrings s) => s.updateDownloadUrlLabel,
+    'updateFromStoreNote': (AppStrings s) => s.updateFromStoreNote,
+    'updateFromStoreTitle': (AppStrings s) => s.updateFromStoreTitle,
     'updateHandedToInstaller': (AppStrings s) => s.updateHandedToInstaller,
     'updateIncompleteInfo': (AppStrings s) => s.updateIncompleteInfo,
     'updateInstallPermissionRequired': (AppStrings s) => s.updateInstallPermissionRequired,

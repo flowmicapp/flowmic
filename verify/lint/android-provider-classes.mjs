@@ -42,6 +42,14 @@ import { ROOT, readText, rel } from './_util.mjs';
 // assertion below (0 providers ⇒ FAIL) is what turns a wrong path into a red.
 import { ANDROID_KOTLIN_DIR } from '../../scripts/package-ids.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/android-provider-classes.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'android-provider-classes';
 
 const MANIFEST = path.join(

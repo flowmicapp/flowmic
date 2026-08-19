@@ -60,10 +60,30 @@
 // Anti-façade ④ is not a rule you outgrow by knowing about it. The measurement
 // above is a one-time reading by a person; the day someone edits `dartPackageDirs`
 // there is nothing that will notice. Registered as an open account (P3 ledger §6).
+//
+// ✅ CLOSED 2026-08-19 (lane L5): the filename the first draft invented now
+// exists for real — scripts/gate-covers-workspaces.test.mjs drives coverageReport
+// against synthetic trees under tmpdir (an uncovered pubspec workspace must FAIL
+// BY NAME; a tree discovery cannot see must not read as clean) and against this
+// repo, cross-checked with what `node verify/lint/run-all.mjs` actually prints.
+// The day someone edits `dartPackageDirs`, the pubspec drill case goes red. Two
+// mechanical changes carried it: the scan takes its root as a parameter
+// (production behaviour unchanged — the default export still hands it ROOT), and
+// a discovery that finds NOTHING now FAILS instead of printing a confident PASS
+// about an empty set ("0 workspace face(s) reachable" was a sentence about the
+// ruler, wearing the repo's clothes).
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './_util.mjs';
+
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/gate-covers-workspaces.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 /** Packages exempt from a face, with the reason. An exemption must name why the
  *  script cannot be gated — "it is slow" is not a reason on its own (that argument
@@ -72,10 +92,10 @@ const EXEMPT = {
   // none today — every workspace package's test and typecheck are in the chain.
 };
 
-function packageDirs() {
+function packageDirs(rootDir) {
   const out = [];
   for (const group of ['packages', 'apps']) {
-    const base = join(ROOT, group);
+    const base = join(rootDir, group);
     if (!existsSync(base)) continue;
     for (const name of readdirSync(base)) {
       const pkg = join(base, name, 'package.json');
@@ -92,23 +112,28 @@ function packageDirs() {
  *  unnoticed. `test/` is required rather than assumed: a pubspec with no tests has
  *  nothing to gate, and demanding a stage for it would be a gate that fails for
  *  the wrong reason. */
-function dartPackageDirs() {
+function dartPackageDirs(rootDir) {
   const out = [];
   for (const group of ['packages', 'apps']) {
-    const base = join(ROOT, group);
+    const base = join(rootDir, group);
     if (!existsSync(base)) continue;
     for (const name of readdirSync(base)) {
       const rel = `${group}/${name}`;
-      if (!existsSync(join(ROOT, rel, 'pubspec.yaml'))) continue;
-      if (!existsSync(join(ROOT, rel, 'test'))) continue;
+      if (!existsSync(join(rootDir, rel, 'pubspec.yaml'))) continue;
+      if (!existsSync(join(rootDir, rel, 'test'))) continue;
       out.push({ rel });
     }
   }
   return out;
 }
 
-export default async function gateCoversWorkspaces() {
-  const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+/** The whole scan against an explicit tree root — exported so the drill
+ *  (scripts/gate-covers-workspaces.test.mjs) can drive it over synthetic trees
+ *  under tmpdir. Production behaviour is unchanged: the default export below
+ *  hands it this repo's ROOT and nothing else calls it with anything else.
+ *  Same parameterisation shape as worktree-location's classifyWorktrees. */
+export function coverageReport(rootDir) {
+  const root = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
   const scripts = root.scripts ?? {};
   const delivery = scripts['verify:delivery'];
   if (!delivery) return { status: 'FAIL', detail: 'root package.json has no verify:delivery' };
@@ -124,12 +149,12 @@ export default async function gateCoversWorkspaces() {
 
   const missing = [];
   let checked = 0;
-  for (const { rel, pkg } of packageDirs()) {
+  for (const { rel, pkg } of packageDirs(rootDir)) {
     const manifest = JSON.parse(readFileSync(pkg, 'utf8'));
     const name = manifest.name;
     if (!name) continue;
     for (const face of ['test', 'typecheck']) {
-      if (!manifest.scripts?.[face]) continue; // no such script ⇒ nothing to gate
+      if (!manifest.scripts?.[face]) continue; // no such script => nothing to gate
       checked += 1;
       if (EXEMPT[name]?.includes(face)) continue;
       // Coverage = some stage filters this package AND runs this face. Both halves
@@ -142,11 +167,11 @@ export default async function gateCoversWorkspaces() {
   }
 
   // Dart half. There is no `--filter` to look for: these are not pnpm workspace
-  // members, so coverage means「some stage cd's into this directory AND runs
-  // flutter test」. Both halves are required — a stage that runs `flutter test`
+  // members, so coverage means "some stage cd's into this directory AND runs
+  // flutter test". Both halves are required — a stage that runs `flutter test`
   // somewhere else does not cover this package, which is the same reason the node
   // half checks the filter and the face together rather than either alone.
-  for (const { rel } of dartPackageDirs()) {
+  for (const { rel } of dartPackageDirs(rootDir)) {
     checked += 1;
     const covered = expanded
       .split('\n')
@@ -154,6 +179,22 @@ export default async function gateCoversWorkspaces() {
     if (!covered) {
       missing.push(`${rel} has a test/ directory that verify:delivery never runs (flutter test)`);
     }
+  }
+
+  // GATE-5's real lesson, enforced (2026-08-19): discovery is itself a sample,
+  // and this one failed toward confidence — an empty sample used to print
+  // "0 workspace face(s) reachable" as a PASS, a confident sentence about a set
+  // the scanner could not see. A tree where NOTHING was checked is a statement
+  // about the ruler, not the repo, and it fails as one.
+  if (checked === 0) {
+    return {
+      status: 'FAIL',
+      detail:
+        'discovery found ZERO gateable faces (no package.json test/typecheck scripts, '
+        + 'no pubspec.yaml with a test/ directory). That is a blind ruler, not a clean '
+        + 'repo — if the workspace layout really changed, update packageDirs/'
+        + 'dartPackageDirs in the same commit.',
+    };
   }
 
   if (missing.length) {
@@ -166,4 +207,8 @@ export default async function gateCoversWorkspaces() {
     };
   }
   return { status: 'PASS', detail: `${checked} workspace face(s) reachable from verify:delivery` };
+}
+
+export default async function gateCoversWorkspaces() {
+  return coverageReport(ROOT);
 }

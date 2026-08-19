@@ -125,6 +125,18 @@ export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, d
         });
         deps.onUserCreated?.(user.id);
         const issued = deps.service.issueToken(user);
+        // 🔴 LOGIN-1 — THE `issueToken` CALL SITE THAT DELIBERATELY DOES **NOT**
+        // `recordSignIn`, marked here rather than left as an absence, because an
+        // absence is exactly what a later reader would「fix」.
+        // Registration is not a login: `users.created_at` already answers "when
+        // did this account appear", and stamping `last_login_at` here would make
+        // it non-NULL for every account from the instant it exists — destroying
+        // the one distinction the field is for ("registered and never came back"
+        // vs "has been back"), because both would render as the same date on the
+        // operator's screen. auth/auth-service.ts `recordSignIn` carries the full
+        // enumeration; test/last-login-record.test.ts pins this exclusion so
+        // adding the call here turns a test RED rather than quietly changing what
+        // the column means.
         bumpAuthConversion(deps, 'register_ok');
         sendJson(res, 201, { token: issued.token, user: deps.service.publicUser(user) });
       } catch (err) {
@@ -177,6 +189,12 @@ export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, d
       const user = await deps.service.verifyCredentials(str(body.email), str(body.password));
       if (!user) return sendJson(res, 401, { error: 'AUTH_LOGIN_FAILED' });
       const issued = deps.service.issueToken(user);
+      // LOGIN-1 — SIGN-IN #1 of 3. Credential presented, credential verified,
+      // session minted: the archetype of「登录」. AFTER the token exists, so a
+      // record can never be written for a sign-in that did not complete, and
+      // `recordSignIn` never throws (its own contract) so it cannot turn this
+      // 200 into a 500. No-op unless FLOWMIC_LOGIN_RECORD_ENABLED=1.
+      deps.service.recordSignIn(user);
       bumpAuthConversion(deps, 'login_ok');
       sendJson(res, 200, { token: issued.token, user: deps.service.publicUser(user) });
     })();

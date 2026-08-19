@@ -70,6 +70,33 @@ android {
     // card S7). 36 already satisfies that, with the pin now making it a fact
     // this file states rather than a fact the currently-installed Flutter
     // version happens to imply.
+    //
+    // ── RE-MEASURED 2026-08-19 (store-review approval playbook, the
+    // "targetSdk / AAB / 64 bit" row of its store-policy table) ──────────────
+    // That row still reads "targetSdk=36, INHERITED, not pinned" and recommends
+    // pinning it. THE ROW IS STALE — the pin above landed with S7. Two methods
+    // were used to check, and neither of them was reading a comment:
+    //   · ARTEFACT: `aapt dump badging` on the release APK this tree built
+    //     reports `compileSdkVersion='36'`, `sdkVersion:'24'` (badging spells
+    //     minSdk that way) and `targetSdkVersion:'36'`;
+    //   · TOOLCHAIN: the Flutter SDK this tree builds with (`local.properties`
+    //     `flutter.sdk`) reports 3.41.8, and its FlutterExtension.kt still
+    //     defaults to 36 / 24 / 36.
+    // ⚠️ The paragraph above says 3.41.9; the measured version is 3.41.8. The
+    // original line is left standing because it was true where it was written
+    // and the CONCLUSION it supports is unchanged — what matters is what the
+    // defaults ARE, not which patch release supplied them. Recorded rather than
+    // silently overwritten, because a version string in a comment is precisely
+    // the kind of fact that expires without anyone noticing.
+    //
+    // 🔴 THE PIN IS DRILLED, NOT REMEMBERED. scripts/android-sdk-pin.test.mjs
+    // (auto-discovered by `pnpm verify:scripts`, which is part of
+    // `pnpm verify:delivery`) goes red if any of the three below stops being an
+    // integer literal or goes back to `flutter.<x>SdkVersion`. Read that
+    // drill's header before changing a number: it states plainly which question
+    // it answers (this file's SOURCE) and which it does not (the bytes of the
+    // built package), and it holds the artefact measurement quoted above, which
+    // must be re-taken if a number here changes.
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -122,6 +149,47 @@ android {
         // (monotonic across the whole 0.1.x line).
         versionCode = versionCodeFrom(flutter.versionName)
         versionName = flutter.versionName
+    }
+
+    // ── ST-1 (2026-08-19): the store channel and the direct channel are two
+    // ARTIFACTS, not one artifact built twice ──────────────────────────────
+    //
+    // 🔴 THE FACT THAT FORCED THIS. Play's Device and Network Abuse policy
+    // forbids a store-delivered app from downloading and installing an APK to
+    // update itself. Our self-update needs `REQUEST_INSTALL_PACKAGES`, and that
+    // is a line in a STATIC manifest — `lib/src/update/self_update_flag.dart`'s
+    // header measured exactly this and wrote it down: the build-time define
+    // tree-shakes the Dart half, and **the manifest line is not behind any
+    // define**. So a store build made from the same source declares a
+    // restricted permission we may not ask Play to accept.
+    //
+    // The flavour source sets are what make that impossible rather than
+    // remembered: `src/direct/AndroidManifest.xml` declares the permission and
+    // `src/store/` does not, so the store artifact cannot carry it by accident.
+    // Nobody has to remember a flag at the right moment.
+    //
+    // ⚠️ TWO CONSEQUENCES, BOTH DELIBERATE:
+    //   · a bare `flutter build apk --release` now FAILS ("you must specify a
+    //     --flavor"). That command is the one that silently shipped 0.2.59
+    //     without self-update; it is better as an error than as a build;
+    //   · the output filename gains the flavour (`app-direct-release.apk`).
+    //     scripts/publish.mjs looks for that name, and refuses a store artifact
+    //     staged as the public download (scripts/publish-apk-gates.mjs).
+    //
+    // ⚠️ `applicationId` is the SAME for both on purpose: to Android these must
+    // be the same app, or a user moving between channels installs a second copy
+    // beside the first (the P0-PKG comment above is what that costs). What
+    // genuinely diverges is the SIGNING KEY once Play App Signing is enabled —
+    // that is a distribution fact we state on the download page, not something
+    // an id suffix could fix.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("direct") {
+            dimension = "channel"
+        }
+        create("store") {
+            dimension = "channel"
+        }
     }
 
     signingConfigs {

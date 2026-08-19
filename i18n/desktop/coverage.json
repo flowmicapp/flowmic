@@ -1,12 +1,12 @@
 {
-  "total": 595,
+  "total": 640,
   "aliases": 4,
   "generated": "scripts/i18n/gen-desktop-ts.mjs",
   "locales": [
     {
       "code": "en",
       "endonym": "English",
-      "translated": 595,
+      "translated": 640,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -14,7 +14,7 @@
     {
       "code": "zh-CN",
       "endonym": "中文",
-      "translated": 595,
+      "translated": 640,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -22,39 +22,39 @@
     {
       "code": "zh-TW",
       "endonym": "繁體中文",
-      "translated": 591,
-      "inheritsBase": 4,
-      "percent": 99.3,
+      "translated": 640,
+      "inheritsBase": 0,
+      "percent": 100,
       "inApp": true
     },
     {
       "code": "fr",
       "endonym": "Français",
-      "translated": 590,
-      "inheritsBase": 5,
-      "percent": 99.2,
+      "translated": 640,
+      "inheritsBase": 0,
+      "percent": 100,
       "inApp": true
     },
     {
       "code": "es",
       "endonym": "Español",
-      "translated": 590,
-      "inheritsBase": 5,
-      "percent": 99.2,
+      "translated": 640,
+      "inheritsBase": 0,
+      "percent": 100,
       "inApp": true
     },
     {
       "code": "de",
       "endonym": "Deutsch",
-      "translated": 591,
-      "inheritsBase": 4,
-      "percent": 99.3,
+      "translated": 640,
+      "inheritsBase": 0,
+      "percent": 100,
       "inApp": true
     },
     {
       "code": "ja",
       "endonym": "日本語",
-      "translated": 595,
+      "translated": 640,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -62,7 +62,7 @@
     {
       "code": "ko",
       "endonym": "한국어",
-      "translated": 595,
+      "translated": 640,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -70,9 +70,9 @@
     {
       "code": "ru",
       "endonym": "Русский",
-      "translated": 591,
-      "inheritsBase": 4,
-      "percent": 99.3,
+      "translated": 640,
+      "inheritsBase": 0,
+      "percent": 100,
       "inApp": true
     }
   ]

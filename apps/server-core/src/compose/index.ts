@@ -180,5 +180,5 @@ export {
   type ScenarioInferenceSeams,
 } from './scenario-infer-store';
 export { type ResolvedDescriptor } from './scenario-inference';
-export { modeUsesLlm, taskUsesLlm, SCENARIO_CORRECTION_BUDGET_MS, COMPOSE_BUDGET_MS, type ComposeMode, type ComposeTask } from './mode';
+export { taskUsesLlm, SCENARIO_CORRECTION_BUDGET_MS, COMPOSE_BUDGET_MS, type ComposeMode, type ComposeTask } from './mode';
 export { streamerFor, streamOpenAiCompatible, streamAnthropic, type LlmEvent, type LlmStreamOpts, type LlmStreamer } from './llm';

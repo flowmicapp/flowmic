@@ -1,0 +1,39 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- THE DIRECT CHANNEL — the artifact we publish ourselves (GitHub
+         Releases, the download centre, the QR on the site). It is the only one
+         that carries the self-install permission, and that is the whole reason
+         this source set exists (ST-1, 2026-08-19).
+
+         The paragraph below is the original main-manifest comment, moved
+         verbatim: it is the measurement that made this split necessary, and it
+         belongs beside the line it describes. -->
+    <!-- Card UP-2b in-app update slice 2 (download → verify sha256 → hand to the
+         system installer). API 26+ requires this to be DECLARED before
+         PackageManager.canRequestPackageInstalls() can ever return true; the
+         actual grant is a per-app user toggle, handled in UpdateInstaller.kt
+         (denied ⇒ we open ACTION_MANAGE_UNKNOWN_APP_SOURCES and say so, rather
+         than dead-ending in the system installer).
+
+         🔴 THIS LINE IS STATIC AND THE BUILD FLAG DOES NOT REMOVE IT.
+         lib/src/update/self_update_flag.dart argues the default-off
+         FLOWMIC_SELF_UPDATE define is safe because forgetting it only LOSES the
+         feature. That argument covers Dart code (AOT tree-shakes it) and does
+         NOT extend to here: a manifest entry is not behind any define, so
+         building with FLOWMIC_SELF_UPDATE=0 still ships an APK that declares
+         REQUEST_INSTALL_PACKAGES. Play reviews that declaration. The full
+         paragraph, and why we are recording the debt instead of inventing a
+         flavor/manifestPlaceholder scheme in this window, is in that file's
+         header under 「构建期旗标管不到这一行」("the build-time flag doesn't reach
+         this line"). It rides on the same already-open
+         debt: no store build until run-time gate ② exists and has been proven
+         on a real Play track.
+
+         (NOTE ON SPELLING: the dart-define flag is written above without its
+         leading dashes on purpose — a literal double hyphen is illegal inside
+         an XML comment and breaks the manifest merger. Measured 2026-08-08:
+         writing it in full failed :app:processDebugMainManifest with
+         "ManifestMerger2$MergeFailureException: Error parsing ...
+         AndroidManifest.xml". NO Dart test can see that; only building the APK
+         did, which is why this file is not covered by the mobile suite.) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

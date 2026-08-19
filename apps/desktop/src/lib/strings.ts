@@ -86,6 +86,11 @@ import { UPDATE_STRINGS } from './strings/update';
 // macOS Accessibility, which is why 「手机说话、胶囊有字、窗口里什么都没有」 happens
 // on a fresh Mac (measured, owner 2026-08-17).
 import { PERMISSION_STRINGS } from './strings/permission';
+// 2026-08-19 — the built-in speech model: what state it is in, the one-time
+// download, and the notice that says why an installer that fits on a floppy's
+// worth of code needs a 228 MB file before it can hear anything. Design book
+// 2026-08-19-local-model-onboarding-design.md §5.
+import { MODEL_STRINGS } from './strings/model';
 import type { StringKey } from './strings/generated/catalogue.g';
 import { getLocale, onLocaleChange, UI_LOCALES, type UiLocale } from './strings/locale';
 
@@ -118,6 +123,7 @@ const SHARD_VIEWS = [
   DISCLOSURE_STRINGS,
   UPDATE_STRINGS,
   PERMISSION_STRINGS,
+  MODEL_STRINGS,
 ] as const;
 
 export type { StringKey };

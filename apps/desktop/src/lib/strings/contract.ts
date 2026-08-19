@@ -75,6 +75,46 @@ export interface SettingsMsg {
   dictCount(n: number, cap: number): string;
   /** zh `别名：甲、乙` / en `Aliases: alpha, beta` — label + locale separator. */
   dictAliases(aliases: string[]): string;
+
+  // ── the built-in speech model (2026-08-19 design book §5-A) ───────────────
+  //
+  // 🔴 WHY THESE FIVE ARE FUNCTIONS. Every one of them puts a MEASURED number
+  // inside a sentence, and the design book's §5-D forbids the alternative: 「数
+  // 字…从 manifest 的声明大小算，不写死」. A hard-coded 「229 MB」 typed into nine
+  // languages is nine copies of a fact the server owns, and the day the model
+  // changes eight of them are wrong and nothing goes red. The formatted string
+  // is passed IN (lib/model-status.ts owns the arithmetic and the unit); what
+  // lives here is only where it sits in the sentence — which is a property of
+  // the language, and the reason this catalogue holds functions at all.
+  //
+  // ⚠️ THEY ARE IN `SettingsMsg` RATHER THAN A `modelMsg` OF THEIR OWN, and that
+  // is a boundary, not a taxonomy: the namespace list is
+  // scripts/i18n/gen-desktop-ts.mjs's `NAMESPACES`, which belongs to another
+  // lane's file set today. The card they serve IS a settings-page surface, so
+  // the placement is honest rather than merely convenient — but a future
+  // `modelMsg` would be a better address and moving them there costs one
+  // generator row plus a rename.
+
+  /** en `Download the model (about 228 MB, one time)`. `size` is already
+   *  formatted — see [formatMbCoarse]. The 「one time」 half is not decoration:
+   *  it is the answer to 「is this going to happen every launch」, which is the
+   *  first thing somebody on a metered link wants to know. */
+  modelDownloadSize(size: string): string;
+  /** en `Resume the download (43% done)`. §5-A insists the percentage is said
+   *  out loud: without it, a resume offer and a fresh 228 MB download look
+   *  exactly the same to the person deciding whether to press it. */
+  modelResume(pct: string): string;
+  /** en `File 2 of 4` — which of the model's files is moving. Two numbers, so
+   *  it is a function; ja/ko put the counter where en does not. */
+  modelFiles(done: number, total: number): string;
+  /** en `about 3 min left`. Reached ONLY when lib/model-status.ts's [etaFrom]
+   *  produced a figure from a stable measured rate — §2-6: 「不许对下载时间撒
+   *  谎」. Every other case renders one of the four plain `model_eta_*` keys. */
+  modelEtaMinutes(n: number): string;
+  /** en `resumed — 48.8 MB was already on disk`. The sentence that tells a user
+   *  their earlier attempt was not wasted; without it, a download that starts at
+   *  21 % reads as a progress bar that is broken. */
+  modelResumedFrom(size: string): string;
 }
 
 /** The per-locale shape of the V2-18 batch messages. Both locales implement

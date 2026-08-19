@@ -19,6 +19,14 @@
 import path from 'node:path';
 import { ROOT, readText, exists, isFile, stripJsComments } from './_util.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/module-reachability.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'module-reachability';
 
 // Runtime entry files, repo-relative. Filled by WP-R1-2 as server-core lands

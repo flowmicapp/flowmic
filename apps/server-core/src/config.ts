@@ -80,6 +80,72 @@ export interface ServerConfig {
    * and honestly answer zeros for periods with no collection.
    */
   siteAnalyticsEnabled: boolean;
+  /**
+   * LOGIN-1 (2026-08-19) — may a successful sign-in leave a record behind.
+   *
+   * Owner ruling: docs/decisions/owner-web-rulings/latest.md:59-62,
+   * 「上次登录时间 / 登录流水」→「要记，并同步改隐私政策」, option value
+   * `approve_with_policy`. The option value is the whole design constraint:
+   * recording and the policy change are ONE piece of work, not two.
+   *
+   * 🔴 DEFAULT OFF, AND THE DEFAULT IS THE FEATURE — same shape, same argument
+   * and the same precedent as `usageEventsEnabled` above. The column, the
+   * migration, the write path and the ops projection all ship regardless; what
+   * this gates is COLLECTION.
+   *
+   * 🔴 WHY OFF IS THE ONLY CORRECT DEFAULT HERE — AND THE OBVIOUS REASON IS THE
+   * WRONG ONE, SO IT IS WRITTEN OUT RATHER THAN ASSUMED.
+   * The reflex argument is「the live policy does not mention this yet, so
+   * collecting would make it false」. THAT IS NOT TRUE OF THIS FIELD [measured
+   * 2026-08-19]: docs/legal/privacy-policy.md has carried a
+   * 「Last successful sign-in time」row since commit `82ba0e61`
+   * (2026-08-12T05:13:43Z — about an hour after the ruling was processed), and
+   * that row is already synced into the web repo's `vendor/legal/` mirror. So
+   * today the published policy OVER-claims: it discloses a collection this
+   * server does not perform. Turning the switch on would make that sentence
+   * TRUE, not false.
+   *
+   * The default is still OFF, for three reasons that survive that correction:
+   *   ① THE LIVE WORDING DESCRIBES SOMETHING ELSE. It said the time is kept
+   *      「so you and operators can see when the account was last used」— which
+   *      is ACTIVITY language for a value that only moves when a CREDENTIAL is
+   *      presented. A person who signed in a week ago and used the product every
+   *      day since would be shown a week-old date under the words「last used」.
+   *      The corrected row (this repo, 2026-08-19) says what is actually
+   *      recorded, and IT is not live.
+   *   ② THE POLICY OWES 30 DAYS' NOTICE. Its own「Changes」section promises
+   *      「30 days' notice by email and in the console」for a material change,
+   *      and beginning a collection is material. No notice has been given. This
+   *      is the same obligation `usageEventsEnabled` above is still waiting out.
+   *   ③ PUBLISHING IS NOT OURS. Editing the file here does NOT change the live
+   *      page — only a web-repo sync plus a deploy does, and both are owner's
+   *      (the audit queue's Class C list carries「政策/条款对外上线」verbatim,
+   *      with「草稿可先合」).
+   * And the asymmetry that decides the direction in every case: shipping the
+   * code early costs nothing, while a row written early cannot be un-collected
+   * by any later ruling.
+   *
+   * ⚠️ It gates the WRITE only (auth/auth-service.ts `recordSignIn`). The
+   * migration runs unconditionally — a schema that appears only when a switch is
+   * on would make flipping the switch a migration — and the ops read route stays
+   * mounted, honestly answering `login_recording:false` rather than 404ing.
+   *
+   * Its state is announced at startup, once, in BOTH directions
+   * (auth/auth-service.ts `LOGIN_RECORD_SWITCH_LOG`): a switch whose position
+   * cannot be observed is worse than no switch.
+   *
+   * 🔴 WHAT MUST BE TRUE BEFORE ANYBODY SETS THIS TO 1 — all four:
+   *   1. the CORRECTED sign-in row is live on flowmic.app/privacy (web repo
+   *      `vendor/legal/` re-synced from this repo AND deployed), not merely
+   *      merged here;
+   *   2. the 30 days' notice the policy promises has actually been given;
+   *   3. the store-listing privacy answers carry the field
+   *      (docs/strategy/2026-08-19-store-listing-metadata-draft.md — its own
+   *      text requires it to move in the same batch as the policy);
+   *   4. owner says go.
+   * Nothing in this repo may open it.
+   */
+  loginRecordEnabled: boolean;
   /** GA-15: saas CORS allow-list (FLOWMIC_CORS_ORIGIN, comma separated).
    *  Defaults to the current production origin, so an unset env keeps today's
    *  behaviour exactly; standalone ignores it and stays '*'. */
@@ -361,6 +427,11 @@ export interface LoadConfigOverrides {
   usageEventsEnabled?: boolean;
   /** First-party site analytics collection (tests). Same override-wins shape. */
   siteAnalyticsEnabled?: boolean;
+  /** LOGIN-1: sign-in recording (tests). Same override-wins shape — which is how
+   *  the OFF case is asserted without depending on an env var merely not being
+   *  set, i.e. without a test that would pass on a machine where somebody had
+   *  exported it. */
+  loginRecordEnabled?: boolean;
   /** GA-15: explicit CORS allow-list (tests / embedded hosts). */
   corsOrigins?: string[];
   /** D1: explicit Paddle block (tests). Merged cell-by-cell over the env values;
@@ -500,6 +571,12 @@ export function loadConfig(overrides: LoadConfigOverrides = {}): ServerConfig {
     // promise.
     usageEventsEnabled: overrides.usageEventsEnabled ?? envFlag('FLOWMIC_USAGE_EVENTS_ENABLED'),
     siteAnalyticsEnabled: overrides.siteAnalyticsEnabled ?? envFlag('FLOWMIC_SITE_ANALYTICS'),
+    // LOGIN-1 — unset ⇒ false ⇒ not one `users.last_login_at` is written.
+    // `envFlag` accepts only '1'/'true', so a typo'd value fails CLOSED (no
+    // collection), which is the safe direction for a switch guarding a
+    // data-collection promise. Named after the sentence it makes false:
+    // http/ops-user-routes.ts said this repo has「no login record of any kind」.
+    loginRecordEnabled: overrides.loginRecordEnabled ?? envFlag('FLOWMIC_LOGIN_RECORD_ENABLED'),
     corsOrigins: overrides.corsOrigins ?? envCorsOrigins(),
     lanTls: overrides.lanTls !== undefined ? overrides.lanTls : resolveLanTls(mode),
     paddle: resolvePaddle(mode, overrides.paddle),

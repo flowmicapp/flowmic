@@ -4,6 +4,10 @@ import Icon from './components/Icon.vue';
 import BrandMark from './components/BrandMark.vue';
 import FirstRunLocale from './components/FirstRunLocale.vue';
 import AccessibilityNotice from './components/AccessibilityNotice.vue';
+// 2026-08-19 §5-B — the built-in speech model, said BEFORE the user holds the
+// button and speaks. Mounted unconditionally (its own v-if is inside), because
+// it also owns this window's single model-status poller — see the component.
+import LocalModelNotice from './components/LocalModelNotice.vue';
 import DevicesPage from './DevicesPage.vue';
 import ConnDiagPage from './ConnDiagPage.vue';
 import TimelinePage from './TimelinePage.vue';
@@ -185,6 +189,13 @@ onUnmounted(() => {
            the reader happens to open. It renders only on macOS and only while
            the permission is actually absent (see the component). -->
       <AccessibilityNotice />
+      <!-- Same slot and the same argument as the strip above it: while the
+           selected engine has no model, NOTHING this product hears becomes
+           text, so it is true on whichever page the reader happens to open.
+           Unlike that one it can be put away for the session — the fact it
+           reports does not go away on its own, it goes away when the reader
+           decides to spend the bandwidth (§5-B). -->
+      <LocalModelNotice />
       <DevicesPage v-show="page === 'devices'" />
       <ConnDiagPage v-if="page === 'diag'" />
       <TimelinePage v-show="page === 'timeline'" />

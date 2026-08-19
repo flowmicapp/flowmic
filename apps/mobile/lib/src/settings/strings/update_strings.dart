@@ -190,4 +190,22 @@ mixin UpdateStrings on AppStringsLeaves {
   String get updateNotBundledTitle => _lfUpdateNotBundledTitle;
 
   String get updateNotBundledNote => _lfUpdateNotBundledNote;
+
+  // ── a store delivered this copy (gate ②, update/install_source.dart) ──────
+  //
+  // 🔴 **Kept apart from the two sentences above, and the distinction is the
+  // whole reason this pair exists.** 「this build was made without the
+  // feature」 and 「a store installed this, so the store updates it」 are two
+  // different facts about two different packages. Folding them into one
+  // sentence would tell a Play user their build is crippled, and tell a
+  // sideloaded user to go look in a store they never used — the repo's
+  // headline shape (one value answering two questions) on the copy face.
+  //
+  // ⚠️ No store is NAMED: the criterion is an allow-list of installer packages
+  // and Play is only its most likely member. Writing 「Google Play」 here would
+  // put a claim on screen that the code does not check.
+
+  String get updateFromStoreTitle => _lfUpdateFromStoreTitle;
+
+  String get updateFromStoreNote => _lfUpdateFromStoreNote;
 }

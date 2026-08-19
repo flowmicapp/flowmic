@@ -148,7 +148,18 @@ export interface TimelineRow {
    *  code is stored on one, so that branch has no data source and the render degrades
    *  to the spec's own stated fallback "✗ not injected". Left open and reported
    *  rather than closed here, because making it reachable changes what a PERSISTED
-   *  field carries. */
+   *  field carries.
+   *
+   *  🔴 CLOSED 2026-08-19. `onInjectResult` now stores the verdict code on BOTH
+   *  not-injected statuses, so "written for `cached` only" above stopped being true
+   *  on that date (original text kept as the record of when the gap was open). The
+   *  §C-2 failed branch has its data source: TimelinePage resolves the code through
+   *  the same INJECT_FAIL_REASON table and statusLine renders 「✗ 未注入 · <具名原因>」
+   *  inline (book 15 §2.5's `failed` row). The null meaning tightens accordingly:
+   *  null = an injected row, a row cached/failed before this build, or a cause the
+   *  reason table cannot name — never "failed rows don't carry causes". Persisted
+   *  rows are unaffected in the old direction: a failed row written by an older
+   *  build simply has no cause, which renders as the bare fallback it always did. */
   cached_cause?: string | null;
   /** 🔴 owner 2026-08-07 ruling (c) — WHICH PROCESS this row's injection was AIMED AT,
    *  whatever the outcome (`chrome.exe` / `Cursor.exe`). null = not known.

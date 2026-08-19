@@ -103,6 +103,13 @@ export function registerAuthHandlers(socket: Socket, deps: AuthHandlerDeps): voi
       const user = service.getUser(userId);
       if (!user) return safeAck(ack, { error: 'AUTH_LOGIN_FAILED' });
       const issued = service.issueToken(user);
+      // LOGIN-1 — SIGN-IN #3 of 3. A QR redemption IS a sign-in: the grant is
+      // single-use, expires in 60 s, and was minted by an already-authenticated
+      // console FOR THIS ACCOUNT (auth/qr-grant.ts), so a deliberate human act
+      // put this device into this account. Counting it is what keeps「signed in
+      // by QR」from being indistinguishable from「never signed in」on the ops
+      // card — GA-31 is a first-class path, not a shortcut around one.
+      service.recordSignIn(user);
       setAccount(socket, { userId: user.id, plan: issued.plan, exp: issued.exp });
       armAuthExpiry(socket, issued.exp, deps.clock ?? {});
       // Byte-identical to the password ack, so the phone's existing success path
@@ -114,6 +121,13 @@ export function registerAuthHandlers(socket: Socket, deps: AuthHandlerDeps): voi
       const user = await service.verifyCredentials(credential.email, credential.password);
       if (!user) return safeAck(ack, { error: 'AUTH_LOGIN_FAILED' });
       const issued = service.issueToken(user);
+      // LOGIN-1 — SIGN-IN #2 of 3. The SAME credential check as REST
+      // /api/login, over a different transport. Recording it is not optional
+      // polish: the phone is the client most users actually sign in from, so
+      // omitting this arm would leave their accounts reading "never signed in"
+      // on the ops card while they use the product daily — a false blank that
+      // an operator would act on.
+      service.recordSignIn(user);
       // Mark the socket account-authenticated in-session (so a same-socket
       // cloud-instance pair needs no separate handshake JWT), and arm the
       // expiry watchdog at the minted token's exp (identity rests on a JWT).

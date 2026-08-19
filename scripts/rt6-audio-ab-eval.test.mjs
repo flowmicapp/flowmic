@@ -302,7 +302,7 @@ await section('§5 the duplication blind spot is real, and lenRatio is what sees
 // ---------------------------------------------------------------------------
 await section('§6 adapters: registry, spec parsing, and probes that refuse rather than fix', () => {
   let n = 0;
-  assertEq(Object.keys(ADAPTERS).sort().join(','), 'fake,openrouter,sherpa-local,soniox', 'the registry holds the four legs'); n += 1;
+  assertEq(Object.keys(ADAPTERS).sort().join(','), 'assemblyai,fake,openrouter,sherpa-local,soniox', 'the registry holds the five legs'); n += 1;
 
   const spec = parseSpec('soniox:{"extraConfig":{"enable_endpoint_detection":true}}');
   assertEq(spec.name, 'soniox', 'a spec parses its adapter name'); n += 1;

@@ -1,6 +1,10 @@
 // WP-R1-4: three-mode routing + compose orchestrator behaviour.
-//  - realtime NEVER reaches the LLM (the protocol schema rejects task:'realtime',
-//    and modeUsesLlm('realtime') is false — the structural guarantee).
+//  - realtime never runs a COMPOSE turn (the protocol schema rejects
+//    task:'realtime' — the structural guarantee, and the narrow claim: it says
+//    nothing about the LLM, which the polish leg reaches without reading `mode`;
+//    see compose/mode.ts header. `modeUsesLlm` was deleted 2026-08-19 — it had
+//    zero production call sites while its JSDoc called it "the guarantee", and
+//    the assertions here were the only thing agreeing with it).
 //  - the factory injects the scenario block into the streamer's system prompt.
 //  - LLM failure/timeout THROWS a ServerError (→ handler emits compose:error);
 //    the raw source_text is NEVER yielded as a fake result (red line).
@@ -15,7 +19,6 @@ import { ServerError } from '../src/errors';
 import {
   createComposeFactory,
   readComposeUsage,
-  modeUsesLlm,
   taskUsesLlm,
   type LlmEvent,
   type LlmStreamer,
@@ -63,10 +66,7 @@ describe('three-mode contract — realtime never touches the LLM', () => {
     expect(safeParseEvent('compose:start', { task: 'translate', source_text: 'x' }).success).toBe(true);
     expect(safeParseEvent('compose:start', { task: 'realtime', source_text: 'x' }).success).toBe(false);
   });
-  it('modeUsesLlm: realtime=false, translate/organize=true; every task is LLM-backed', () => {
-    expect(modeUsesLlm('realtime')).toBe(false);
-    expect(modeUsesLlm('translate')).toBe(true);
-    expect(modeUsesLlm('organize')).toBe(true);
+  it('every compose task is LLM-backed', () => {
     for (const t of ['translate', 'organize', 'draft_polish'] as const) expect(taskUsesLlm(t)).toBe(true);
   });
 });

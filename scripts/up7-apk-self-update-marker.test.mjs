@@ -169,9 +169,16 @@ section('§4 publish.mjs actually calls it, before staging, with no bypass');
     /const featureOk = verifyApkCarriesSelfUpdate\(apk, fail, ok\)/.test(PUBLISH_SRC),
     'it is called on the APK candidate'
   );
+  // The staging condition is asserted as a WHOLE, not just "featureOk is in
+  // there somewhere". A conjunct can be neutralised without being deleted —
+  // `featureOk || true` reads almost the same — so the shape is pinned, and a
+  // fourth gate arriving is meant to land here as a visible edit rather than
+  // slipping past a loose match. Conjuncts so far, each its own card:
+  // version (UP-7's neighbour) + feature (UP-7) + disclosure copy (W8-6) +
+  // target API level (the 2026-08-19 store card, scripts/apk-target-sdk-gate.test.mjs).
   assertTrue(
-    /if \(versionOk && featureOk && disclosureOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
-    'staging is gated on version + feature + disclosure-copy (W8-6 adds the third conjunct)'
+    /if \(versionOk && featureOk && disclosureOk && targetOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
+    'staging is gated on version + feature + disclosure-copy + target-SDK'
   );
   // Not short-circuited: both questions get answered in one run.
   const callIdx = PUBLISH_SRC.indexOf('const featureOk = verifyApkCarriesSelfUpdate(apk, fail, ok)');

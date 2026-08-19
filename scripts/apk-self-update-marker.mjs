@@ -123,7 +123,8 @@ export const APK_SELF_UPDATE_MARKER = '/api/updates/latest';
 /** The command that produces a publishable APK. Kept here beside the marker so
  *  the refusal message and the docs quote one source rather than two. */
 export const APK_BUILD_COMMAND =
-  'flutter build apk --release --dart-define=FLOWMIC_SELF_UPDATE=1';
+  'make -C apps/mobile release ' +
+  '(= flutter build apk --release --flavor direct --dart-define=FLOWMIC_SELF_UPDATE=1)';
 
 /** Occurrences of `marker` in `buf`. Counted rather than tested for presence
  *  because the count is the operator's evidence: one hit per ABI is the expected

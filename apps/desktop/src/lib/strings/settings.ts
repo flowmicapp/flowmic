@@ -17,6 +17,29 @@ export const SETTINGS_KEYS = [
   'set_nav_prefs',
   'set_nav_about',
   'set_account_title',
+  // 🔴 The SECOND HALF of `set_account_hint` was deleted on 2026-08-19, all nine
+  // languages at once. It read 「未接入控制台账户查询，不显示邮箱」 ("the console
+  // account query is not wired in, so no email is shown") — and the account card
+  // this hint sits directly on top of (SettingsPage.vue, same `<section
+  // id="set-account">`) has been PRINTING THE EMAIL since the L3 rework:
+  // `lib/cloud-account.ts` identityLine() returns `a.email ?? S.cloud_acct_no_email`,
+  // and CloudAccountLines.vue renders it as the 「账号」 row. The sentence denied
+  // what the panel one card below it displays, on the same screen, at once.
+  // This is the exact defect its sibling `cloud_account_gap` was DELETED for the
+  // day that card went live (see the long note in ./cloud.ts) — an honest
+  // disclosure that the surface was not wired, kept past the wiring, becomes a
+  // lie. That one was false end to end, so it went whole; this one was only half
+  // stale, so only that half went.
+  // ⚠️ The surviving clause is not filler and must not be dropped with it: it is
+  // the only place that answers "what makes this PC count as signed in" —
+  // SettingsPage.vue `signedIn = cloud.key_set`, i.e. the presence of the Cloud
+  // Key stored locally, which is also why this page has no e-mail/password form.
+  // ⚠️ Deliberately NOT replaced by a sentence about the card being live or
+  // freshly fetched. The card already answers its own freshness, with a
+  // timestamp and four distinct phases (`cloud_acct_live` / `_stale` /
+  // `_unknown` / `cloud_err_expired`); a second sentence up here would be a
+  // second answer to a question already answered — the same reasoning
+  // identityLine()'s header gives for having no replacement sentence of its own.
   'set_account_hint',
   'set_account_channel',
   'set_account_signed_out',
@@ -254,6 +277,15 @@ export const SETTINGS_MSG: SettingsMsg = {
   termsCapNote: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].termsCapNote(n),
   dictCount: (n, cap) => SETTINGS_MSG_BY_LOCALE[getLocale()].dictCount(n, cap),
   dictAliases: (aliases) => SETTINGS_MSG_BY_LOCALE[getLocale()].dictAliases(aliases),
+  // The built-in speech model's five count-bearing sentences (2026-08-19 §5-A).
+  // Same one-line-per-member shape as the five above, and the same reason it is
+  // written out rather than spread: this list is what proves each generated arm
+  // has a production reader.
+  modelDownloadSize: (size) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelDownloadSize(size),
+  modelResume: (pct) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelResume(pct),
+  modelFiles: (done, total) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelFiles(done, total),
+  modelEtaMinutes: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelEtaMinutes(n),
+  modelResumedFrom: (size) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelResumedFrom(size),
 };
 
 /** Test/guard surface (locale-parity.test.ts): raw per-locale function tables. */

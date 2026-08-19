@@ -91,6 +91,14 @@ function depsWithRegister(register: AuthService['register']): AuthRoutesDeps {
     findByEmail: neverCalled('findByEmail'),
     setPassword: neverCalled('setPassword'),
     publicUser: neverCalled('publicUser'),
+    // LOGIN-1 — and it belongs in the "must not be called" set for a reason
+    // specific to this file: every case here drives /api/register, and
+    // registration is deliberately NOT a sign-in (auth-service.ts `recordSignIn`
+    // enumerates why). So this stub is a live assertion of that exclusion — if
+    // somebody adds `recordSignIn` to the registration path, these tests fail
+    // naming the method, rather than silently changing what `last_login_at`
+    // means.
+    recordSignIn: neverCalled('recordSignIn'),
   };
   // A fresh limiter per call: production behaviour, isolated from every other
   // test's attempt count (shared state here would make tests order-dependent).

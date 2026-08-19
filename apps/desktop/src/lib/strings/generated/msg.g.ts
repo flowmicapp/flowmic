@@ -28,9 +28,14 @@ const SETTINGS_MSG_EN: SettingsMsg = {
   termsCapNote: (n) => `≤${n} chars each`,
   dictCount: (n, cap) => `${n} / ${cap}`,
   dictAliases: (aliases) => `Aliases: ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `Download the model (about ${size}, one time)`,
+  modelResume: (pct) => `Resume the download (${pct} done)`,
+  modelFiles: (done, total) => `File ${done} of ${total}`,
+  modelEtaMinutes: (n) => `about ${n} min left`,
+  modelResumedFrom: (size) => `resumed — ${size} was already on disk`,
 };
 
-// zh-CN (中文) — 5/5 translated;
+// zh-CN (中文) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -39,9 +44,14 @@ const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   termsCapNote: (n) => `每条 ≤${n} 字符`,
   dictCount: (n, cap) => `${n} / ${cap} 条`,
   dictAliases: (aliases) => `别名：${aliases.join('、')}`,
+  modelDownloadSize: (size) => `下载模型（约 ${size}，一次性）`,
+  modelResume: (pct) => `继续下载（已完成 ${pct}）`,
+  modelFiles: (done, total) => `第 ${done} / ${total} 个文件`,
+  modelEtaMinutes: (n) => `剩余约 ${n} 分钟`,
+  modelResumedFrom: (size) => `续传——磁盘上已有 ${size}`,
 };
 
-// zh-TW (繁體中文) — 5/5 translated;
+// zh-TW (繁體中文) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -50,9 +60,14 @@ const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   termsCapNote: (n) => `每筆 ≤${n} 個字元`,
   dictCount: (n, cap) => `${n} / ${cap} 筆`,
   dictAliases: (aliases) => `別名：${aliases.join('、')}`,
+  modelDownloadSize: (size) => `下載模型（約 ${size}，一次性）`,
+  modelResume: (pct) => `繼續下載（已完成 ${pct}）`,
+  modelFiles: (done, total) => `第 ${done} / ${total} 個檔案`,
+  modelEtaMinutes: (n) => `剩餘約 ${n} 分鐘`,
+  modelResumedFrom: (size) => `續傳——磁碟上已有 ${size}`,
 };
 
-// fr (Français) — 5/5 translated;
+// fr (Français) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_FR: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -61,9 +76,14 @@ const SETTINGS_MSG_FR: SettingsMsg = {
   termsCapNote: (n) => `≤${n} caractères chacun`,
   dictCount: (n, cap) => `${n} / ${cap}`,
   dictAliases: (aliases) => `Alias : ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `Télécharger le modèle (environ ${size}, une seule fois)`,
+  modelResume: (pct) => `Reprendre le téléchargement (${pct} fait)`,
+  modelFiles: (done, total) => `Fichier ${done} sur ${total}`,
+  modelEtaMinutes: (n) => `environ ${n} min restantes`,
+  modelResumedFrom: (size) => `reprise — ${size} déjà sur le disque`,
 };
 
-// es (Español) — 5/5 translated;
+// es (Español) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ES: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -72,9 +92,14 @@ const SETTINGS_MSG_ES: SettingsMsg = {
   termsCapNote: (n) => `≤${n} caracteres cada uno`,
   dictCount: (n, cap) => `${n} / ${cap}`,
   dictAliases: (aliases) => `Alias: ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `Descargar el modelo (unos ${size}, una sola vez)`,
+  modelResume: (pct) => `Reanudar la descarga (${pct} hecho)`,
+  modelFiles: (done, total) => `Archivo ${done} de ${total}`,
+  modelEtaMinutes: (n) => `quedan unos ${n} min`,
+  modelResumedFrom: (size) => `reanudado: ya había ${size} en el disco`,
 };
 
-// de (Deutsch) — 5/5 translated;
+// de (Deutsch) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_DE: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -83,9 +108,14 @@ const SETTINGS_MSG_DE: SettingsMsg = {
   termsCapNote: (n) => `je ≤${n} Zeichen`,
   dictCount: (n, cap) => `${n} / ${cap}`,
   dictAliases: (aliases) => `Aliase: ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `Modell herunterladen (etwa ${size}, einmalig)`,
+  modelResume: (pct) => `Download fortsetzen (${pct} erledigt)`,
+  modelFiles: (done, total) => `Datei ${done} von ${total}`,
+  modelEtaMinutes: (n) => `noch etwa ${n} Min.`,
+  modelResumedFrom: (size) => `fortgesetzt – ${size} lagen bereits auf der Festplatte`,
 };
 
-// ja (日本語) — 5/5 translated;
+// ja (日本語) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_JA: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -94,9 +124,14 @@ const SETTINGS_MSG_JA: SettingsMsg = {
   termsCapNote: (n) => `1件あたり ≤${n}文字`,
   dictCount: (n, cap) => `${n} / ${cap}件`,
   dictAliases: (aliases) => `別名：${aliases.join('、')}`,
+  modelDownloadSize: (size) => `モデルをダウンロード（約 ${size}、一度だけ）`,
+  modelResume: (pct) => `ダウンロードを再開（${pct} 完了）`,
+  modelFiles: (done, total) => `ファイル ${done} / ${total}`,
+  modelEtaMinutes: (n) => `残り約 ${n} 分`,
+  modelResumedFrom: (size) => `再開 — ${size} はすでにディスクにありました`,
 };
 
-// ko (한국어) — 5/5 translated;
+// ko (한국어) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_KO: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -105,9 +140,14 @@ const SETTINGS_MSG_KO: SettingsMsg = {
   termsCapNote: (n) => `항목당 ≤${n}자`,
   dictCount: (n, cap) => `${n} / ${cap}개`,
   dictAliases: (aliases) => `별칭: ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `모델 내려받기(약 ${size}, 한 번만)`,
+  modelResume: (pct) => `이어받기(${pct} 완료)`,
+  modelFiles: (done, total) => `파일 ${done} / ${total}`,
+  modelEtaMinutes: (n) => `약 ${n}분 남음`,
+  modelResumedFrom: (size) => `이어받기 — 디스크에 이미 ${size} 있었습니다`,
 };
 
-// ru (Русский) — 5/5 translated;
+// ru (Русский) — 10/10 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_RU: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -116,6 +156,11 @@ const SETTINGS_MSG_RU: SettingsMsg = {
   termsCapNote: (n) => `не более ${n} символов каждый`,
   dictCount: (n, cap) => `${n} / ${cap}`,
   dictAliases: (aliases) => `Псевдонимы: ${aliases.join(', ')}`,
+  modelDownloadSize: (size) => `Скачать модель (около ${size}, один раз)`,
+  modelResume: (pct) => `Продолжить скачивание (${pct} готово)`,
+  modelFiles: (done, total) => `Файл ${done} из ${total}`,
+  modelEtaMinutes: (n) => `осталось около ${n} мин`,
+  modelResumedFrom: (size) => `продолжено — ${size} уже было на диске`,
 };
 
 export const SETTINGS_MSG_BY_LOCALE: Record<UiLocale, SettingsMsg> = {

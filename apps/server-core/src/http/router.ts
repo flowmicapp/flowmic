@@ -26,6 +26,7 @@ import { tryHandleUsageEventsRoutes } from './usage-events-routes';
 import { tryHandleOpsUserRoutes } from './ops-user-routes';
 import { tryHandleOpsUsageEventsRoutes } from './ops-usage-events-routes';
 import { tryHandleProbeRoutes } from './probe-routes';
+import { tryHandleSttModelRoutes } from './stt-model-routes';
 import { tryHandlePresenceRoutes } from './presence-routes';
 import { DiagUploadThrottle, tryHandleDiagRoutes } from './diag-routes';
 import { tryHandleInjectRoutes } from './inject-routes';
@@ -426,6 +427,20 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // RV-32: standalone was never the same thing as local, so the module now also
     // refuses a non-loopback peer — see its own header.
     if (config.mode === 'standalone' && tryHandleProbeRoutes(req, res, deps.probe ?? {})) return true;
+
+    // The built-in model's status / download / cancel surface (2026-08-19
+    // onboarding design §4). Mounted EXACTLY like the image inject ingress and
+    // the probes above (`config.mode === 'standalone'`) — and for the same
+    // kind of reason: it reads and writes the HOST's app data directory, which
+    // is a thing the owner's machine has and the public relay does not. In saas
+    // the three paths fall to the router's 404; that door is bricked up, not
+    // unlocked, and stt-model-routes.ts's header says what would have to come
+    // with it if it were ever unbricked.
+    // The module ALSO refuses a non-loopback peer itself (RV-32: standalone
+    // binds every interface, so this mount is not an access decision) — a POST
+    // here makes this machine pull 229 MB, which is not a thing the LAN gets to
+    // ask for.
+    if (config.mode === 'standalone' && tryHandleSttModelRoutes(req, res, deps.sttModel ?? {})) return true;
 
     // The phone's diagnostic upload. D6 (2026-08-04): mounted in BOTH modes.
     // It was standalone-only, which left the cloud leg — the ONLY leg a public

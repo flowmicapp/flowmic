@@ -185,9 +185,14 @@ section('§4 publish.mjs actually calls it, before staging, with no bypass');
     /const disclosureOk = verifyApkDisclosureCopy\(apk, fail, ok\)/.test(PUBLISH_SRC),
     'it is called on the APK candidate'
   );
+  // Pinned as a whole expression on purpose — see the same assertion in
+  // scripts/up7-apk-self-update-marker.test.mjs for why a loose "my conjunct is
+  // in there" match would accept a neutralised one. Fourth conjunct added
+  // 2026-08-19: the staged APK's reported target API level against the pin
+  // (scripts/apk-target-sdk-gate.test.mjs owns that gate).
   assertTrue(
-    /if \(versionOk && featureOk && disclosureOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
-    'staging is gated on version + self-update + disclosure-copy'
+    /if \(versionOk && featureOk && disclosureOk && targetOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
+    'staging is gated on version + self-update + disclosure-copy + target-SDK'
   );
   const callIdx = PUBLISH_SRC.indexOf('const disclosureOk = verifyApkDisclosureCopy(apk, fail, ok)');
   const stageIdx = PUBLISH_SRC.indexOf('stage(apk, OUT');

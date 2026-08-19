@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 // The protocol's own derived view of "which codes are answered by the PC itself" — imported rather than
 // re-listed, because a second list is what let four codes go unrouted in the first place.
 import { PC_INJECTION_VERDICT_CODES } from '@flowmic/protocol';
-import { cachedCauseTooltip } from './inject-provenance';
+import { cachedCauseTooltip, failedCauseInline } from './inject-provenance';
+import { statusLine } from './status';
 import { CACHED_CAUSE_CODES, INJECT_FAIL_REASON_CATALOGUES } from './strings/capsule';
 import { UI_LOCALES, setLocale, type UiLocale } from './strings/locale';
 import { INJECT_FAIL_REASON } from './strings';
@@ -132,7 +133,9 @@ describe('Timeline: the cached row\'s hover tooltip really can answer "why"', ()
   it('says nothing extra where there is nothing extra to say', () => {
     setLocale('zh-CN');
     // Not cached → this question does not apply (the injected row's tooltip answers
-    // "where did it get injected into" instead — a different function, one question each).
+    // "where did it get injected into" instead — a different function, one question each;
+    // since 2026-08-19 the failed row's reason renders INLINE via failedCauseInline,
+    // so the tooltip staying null for `failed` is division of surfaces, not silence).
     expect(cachedCauseTooltip('injected', SELF, INJECT_FAIL_REASON)).toBeNull();
     expect(cachedCauseTooltip('failed', SELF, INJECT_FAIL_REASON)).toBeNull();
     // No cause recorded (every row cached before 0.2.49), or an unmapped code — a raw
@@ -158,6 +161,59 @@ describe('Timeline: the cached row\'s hover tooltip really can answer "why"', ()
     const page = src('../main-window/TimelinePage.vue');
     expect(page).toContain('cachedCauseTooltip(e.status, e.cached_cause, INJECT_FAIL_REASON)');
     expect(page).toContain(':title="provenanceTip(e) ?? undefined"');
+  });
+});
+
+// 🔴 2026-08-19 — the ✗ ROW names its reason inline (book 15 §2.5's `failed` row:
+// 「✗ 未注入 · <具名原因>」, sentence from INJECT_FAIL_REASON, unmapped ⇒ bare fallback).
+// Until this date the reason existed on the capsule's 1.5s flash and nowhere durable;
+// the phone had named it since 0.2.53. Same one-definition table as the capsule and
+// the cached tooltip (§2.5c) — these tests assert the RENDERED line, not a call.
+describe('Timeline: the failed row names its reason INLINE (§C-2 reason slot)', () => {
+  it('resolves a mapped code for a failed row, through the shared table', () => {
+    setLocale('zh-CN');
+    expect(failedCauseInline('failed', 'INJECT_SENDINPUT_FAIL', INJECT_FAIL_REASON)).toBe(
+      '打字与粘贴都没成功',
+    );
+  });
+
+  it('answers only the question it owns — cached/injected rows land on the other surfaces', () => {
+    setLocale('zh-CN');
+    // cached explains itself on the TOOLTIP (卡 L7); injected has a provenance tooltip.
+    expect(failedCauseInline('cached', 'INJECT_SENDINPUT_FAIL', INJECT_FAIL_REASON)).toBeNull();
+    expect(failedCauseInline('injected', 'INJECT_SENDINPUT_FAIL', INJECT_FAIL_REASON)).toBeNull();
+    // Unmapped / absent code — a raw INJECT_* token is not an explanation (0.2.53).
+    expect(failedCauseInline('failed', null, INJECT_FAIL_REASON)).toBeNull();
+    expect(failedCauseInline('failed', '', INJECT_FAIL_REASON)).toBeNull();
+    expect(failedCauseInline('failed', 'INJECT_NEVER_HEARD_OF_IT', INJECT_FAIL_REASON)).toBeNull();
+  });
+
+  it('statusLine composes 「✗ 未注入 · <具名原因> → target」 in §C-2 order', () => {
+    setLocale('zh-CN');
+    const reason = failedCauseInline('failed', 'INJECT_SENDINPUT_FAIL', INJECT_FAIL_REASON);
+    expect(statusLine('failed', 'chrome', null, reason)).toBe('✗ 未注入 · 打字与粘贴都没成功 → chrome');
+    // No reason ⇒ the spec's own stated fallback, byte-identical to before 2026-08-19.
+    expect(statusLine('failed', 'chrome', null, null)).toBe('✗ 未注入 → chrome');
+    // The slot belongs to `failed` alone — a reason passed with cached must not render
+    // (its badge already says 「· 已缓存」; a second clause would be two explanations).
+    expect(statusLine('cached', 'chrome', null, reason)).toBe('⏳ 未注入 · 已缓存 → chrome');
+  });
+
+  it('…and the sentence follows a language switch (the row stores the CODE)', () => {
+    setLocale('en');
+    expect(failedCauseInline('failed', 'INJECT_SENDINPUT_FAIL', INJECT_FAIL_REASON)).toBe(
+      'Neither typing nor paste succeeded',
+    );
+    setLocale('zh-CN');
+  });
+
+  // Anti-façade ④ — the resolver must be WIRED in the template, or every test above
+  // proves a function nobody calls (the exact state the ✗ row was in before this card).
+  it('TimelinePage really passes the failed reason into statusLine', () => {
+    const page = src('../main-window/TimelinePage.vue');
+    expect(page).toContain(
+      'statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON))',
+    );
   });
 });
 

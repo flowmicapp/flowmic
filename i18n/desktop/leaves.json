@@ -3641,6 +3641,292 @@
       "shard": "permission",
       "kind": "string",
       "name": "perm_ax_open_failed"
+    },
+    {
+      "key": "model_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_title"
+    },
+    {
+      "key": "model_why",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_why"
+    },
+    {
+      "key": "model_state_ready",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_ready"
+    },
+    {
+      "key": "model_state_absent",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_absent"
+    },
+    {
+      "key": "model_state_partial",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_partial"
+    },
+    {
+      "key": "model_state_downloading",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_downloading"
+    },
+    {
+      "key": "model_state_failed",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_failed"
+    },
+    {
+      "key": "model_state_unknown",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_unknown"
+    },
+    {
+      "key": "model_unreachable",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_unreachable"
+    },
+    {
+      "key": "model_verified",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_verified"
+    },
+    {
+      "key": "model_dl",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_dl"
+    },
+    {
+      "key": "model_resume",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_resume"
+    },
+    {
+      "key": "model_cancel",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_cancel"
+    },
+    {
+      "key": "model_cancel_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_cancel_note"
+    },
+    {
+      "key": "model_retry",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_retry"
+    },
+    {
+      "key": "model_recheck",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_recheck"
+    },
+    {
+      "key": "model_checking",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_checking"
+    },
+    {
+      "key": "model_starting",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_starting"
+    },
+    {
+      "key": "model_manual",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_manual"
+    },
+    {
+      "key": "model_dir",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_dir"
+    },
+    {
+      "key": "model_copy",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_copy"
+    },
+    {
+      "key": "model_copied",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_copied"
+    },
+    {
+      "key": "model_copy_failed",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_copy_failed"
+    },
+    {
+      "key": "model_source",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_source"
+    },
+    {
+      "key": "model_source_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_source_note"
+    },
+    {
+      "key": "model_downloaded",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_downloaded"
+    },
+    {
+      "key": "model_total_unknown",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_total_unknown"
+    },
+    {
+      "key": "model_eta_estimating",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_eta_estimating"
+    },
+    {
+      "key": "model_eta_lt_min",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_eta_lt_min"
+    },
+    {
+      "key": "model_eta_over_hour",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_eta_over_hour"
+    },
+    {
+      "key": "model_eta_no_total",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_eta_no_total"
+    },
+    {
+      "key": "model_detail",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_detail"
+    },
+    {
+      "key": "model_failed_next",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_failed_next"
+    },
+    {
+      "key": "model_adv",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_adv"
+    },
+    {
+      "key": "model_adv_body",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_adv_body"
+    },
+    {
+      "key": "model_notice_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_notice_title"
+    },
+    {
+      "key": "model_notice_body",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_notice_body"
+    },
+    {
+      "key": "model_notice_open",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_notice_open"
+    },
+    {
+      "key": "model_notice_dismiss",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_notice_dismiss"
+    },
+    {
+      "key": "model_action_failed",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_action_failed"
+    },
+    {
+      "key": "settingsMsg.modelDownloadSize",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "modelDownloadSize",
+      "params": [
+        "size"
+      ]
+    },
+    {
+      "key": "settingsMsg.modelResume",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "modelResume",
+      "params": [
+        "pct"
+      ]
+    },
+    {
+      "key": "settingsMsg.modelFiles",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "modelFiles",
+      "params": [
+        "done",
+        "total"
+      ]
+    },
+    {
+      "key": "settingsMsg.modelEtaMinutes",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "modelEtaMinutes",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "settingsMsg.modelResumedFrom",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "modelResumedFrom",
+      "params": [
+        "size"
+      ]
     }
   ]
 }

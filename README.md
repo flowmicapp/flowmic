@@ -169,8 +169,10 @@ Two deliberate carve-outs:
   clients to exist.
 - **Official builds distributed through app stores** carry an additional
   permission from us, the copyright holders, granting the rights those stores'
-  terms require. This is what makes an AGPL application distributable on the App
-  Store. It applies to builds *we* publish; it is not a general relicensing.
+  terms require — the full text is
+  [LICENSE-APP-STORE-EXCEPTION.md](LICENSE-APP-STORE-EXCEPTION.md). This is what
+  makes an AGPL application distributable on the App Store. It applies to builds
+  *we* publish; it is not a general relicensing.
 
 Because that second carve-out depends on us holding the copyright, contributions
 require a CLA — see [CONTRIBUTING.md](CONTRIBUTING.md).

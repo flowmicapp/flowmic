@@ -340,6 +340,14 @@ import { createHash } from 'node:crypto';
 import { ROOT, walk, readText, DEFAULT_SKIP_DIRS, countLines } from './_util.mjs';
 import { ALLOWLIST } from './coordinate-anchors-baseline.mjs';
 
+import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
+
+// `node verify/lint/coordinate-anchors.mjs` evaluates this module and exits 0 without
+// checking anything -- a silence indistinguishable from a pass (it was written
+// down as one twice; see the guard's header). platform-cfg-count carried this
+// alone since 2026-08-10; every registered lint carries it since 2026-08-19.
+refuseDirectRun(import.meta.url, 'pnpm verify:lint');
+
 export const name = 'coordinate-anchors';
 
 /** ± this many lines around NNN (target side) is where an anchor must appear.
