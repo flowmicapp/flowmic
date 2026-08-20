@@ -241,7 +241,7 @@ pub fn pack_dib(image: &Bgra) -> Vec<u8> {
     out.extend_from_slice(&0u32.to_le_bytes()); // biClrImportant
     for y in (0..h).rev() {
         let row = &image.pixels[y * stride..y * stride + stride];
-        for px in row.chunks_exact(4) {
+        for px in row.as_chunks::<4>().0 {
             let a = u32::from(px[3]);
             let over = |c: u8| -> u8 {
                 ((u32::from(c) * a + 255 * (255 - a) + 127) / 255).min(255) as u8
