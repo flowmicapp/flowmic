@@ -92,17 +92,25 @@ class SettingsUpdateCard extends StatelessWidget {
       // 🔴 An absent capability must be **visible**, the whole section may not
       // be hidden — a feature that quietly vanished and a feature that was
       // never built look identical to the user. The full reasoning is in
-      // update/self_update_flag.dart's file header.
-      if (!controller.selfUpdateEnabled) {
+      // update/self_update_flag.dart's file header. `updateSectionEnabled`
+      // covers both live forms: self-update (Android direct) and notify-only
+      // (iOS) — a notify-only build still gets the full check UI below; what
+      // it never gets is an install button (canInstall stays structurally
+      // false there).
+      if (!controller.updateSectionEnabled) {
         return _staticCard(
           strings.updateNotBundledTitle,
           strings.updateNotBundledNote,
         );
       }
-      // Gate ② (update/install_source.dart): the build HAS the feature and a
-      // store delivered this copy, so the store updates it. A separate sentence
-      // from the one above on purpose — see update_strings.dart at these keys.
-      if (controller.installedFromAppStore) {
+      // Gate ② (update/install_source.dart): the build HAS the self-update
+      // feature and a store delivered this copy, so the store updates it. A
+      // separate sentence from the one above on purpose — see
+      // update_strings.dart at these keys. Deliberately NOT short-circuited
+      // for a notify-only build: its store probe answers false (the allow-list
+      // is Android installer packages), and a notify-only build's job is
+      // precisely to keep checking.
+      if (controller.selfUpdateEnabled && controller.installedFromAppStore) {
         return _staticCard(
           strings.updateFromStoreTitle,
           strings.updateFromStoreNote,
@@ -196,11 +204,20 @@ class SettingsUpdateCard extends StatelessWidget {
               ),
             ],
           ),
+          // The store-delivered channel (iOS): the update arrives through
+          // TestFlight / the App Store. Keyed on `storeChannel`, NOT on
+          // `storeUrl != null` — a store entry whose link has not been minted
+          // yet must still say the store sentence, never fall through to the
+          // 「download it from the address below」 copy with no address below.
+          if (r.storeChannel) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(strings.updateStoreChannelNote, style: kRowSub),
+          ]
           // 🔴 The manifest ships a type we don't recognise for this release
           // (`portable-zip` / `dmg` / …).
           // **Still "a new version exists"** — it points the way, it is not
           // an error, and it certainly does not say 「已是最新」 ("up to date").
-          if (r.installable == null) ...<Widget>[
+          else if (r.installable == null) ...<Widget>[
             const SizedBox(height: 6),
             Text(strings.updateKindUnknownNote, style: kRowSub),
           ],
@@ -208,6 +225,7 @@ class SettingsUpdateCard extends StatelessWidget {
           if (r.notesUrl != null) ..._linkRow(strings.updateNotesUrlLabel, r.notesUrl!),
           if (r.downloadUrl != null)
             ..._linkRow(strings.updateDownloadUrlLabel, r.downloadUrl!),
+          if (r.storeUrl != null) ..._linkRow(strings.updateStoreUrlLabel, r.storeUrl!),
         ];
       // 🔴 The one and only slot in the whole app allowed to say this
       // sentence, and the evidence line above it is its sole justification.

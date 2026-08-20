@@ -218,3 +218,48 @@ const String _selfUpdateRawForm = String.fromEnvironment(kSelfUpdateDefineKey);
 
 /// Whether this build carries in-app updates. **Default false.**
 const bool kSelfUpdateEnabled = _selfUpdateBoolForm || _selfUpdateRawForm == '1';
+
+// ── The NOTIFY-ONLY switch (iOS, owner 2026-08-20) ──────────────────────────
+//
+// iOS ships through TestFlight / the App Store, and the 2026-08-19 phase-2
+// ruling makes self-INSTALL and a store channel mutually exclusive. What the
+// owner asked for on 2026-08-20 is the half that is compatible with a store:
+// **check + notify** — a dot and a sentence pointing at the store page, never
+// a download, never an installer.
+//
+// 🔴 Why this is a SECOND define rather than `Platform.isIOS` at runtime:
+// `scripts/store-channel-gate.mjs` asserts the marker string
+// `/api/updates/latest` is ABSENT from the Android store artifact, and today
+// that absence is delivered by Dart TFA folding `kSelfUpdateEnabled == false`
+// through UpdateController's final field until `checkForUpdate` is dead code.
+// A runtime `Platform.isIOS` branch is not foldable — it would leave the
+// check path (and its marker string) alive in every Android build and turn
+// the store gate red. A const that no Android build command passes keeps the
+// folding intact.
+//
+// ⚠️ The failure direction is UP-7's, and the same debt applies: forget the
+// define on an iOS build ⇒ the feature silently does not exist (build green,
+// exit 0). The command that carries it is `make -C apps/mobile release-ios`.
+// There is deliberately NO byte-gate reading the IPA yet: iOS archives are
+// produced on the mac line outside scripts/publish.mjs, and this repo's own
+// rule says an artifact gate never verified against a real artifact is worse
+// than a debt written down plainly. The debt lives in the Makefile target's
+// header; the day the mac line stages IPAs through a script, give it the
+// apk-self-update-marker shape (feature string + control string).
+
+/// The notify-only switch's define name. The iOS packaging command =
+/// `make -C apps/mobile release-ios`
+/// (= `flutter build ipa --release --dart-define=FLOWMIC_UPDATE_NOTIFY=1`).
+const String kUpdateNotifyDefineKey = 'FLOWMIC_UPDATE_NOTIFY';
+
+// Both spellings, same reason as kSelfUpdateEnabled above: the documented
+// command says `=1`, and `bool.fromEnvironment` silently defaults on it.
+const bool _updateNotifyBoolForm = bool.fromEnvironment(kUpdateNotifyDefineKey);
+const String _updateNotifyRawForm = String.fromEnvironment(kUpdateNotifyDefineKey);
+
+/// Whether this build checks for updates and NOTIFIES, without any install
+/// path. **Default false.** It gates nothing but the check: the install chain
+/// stays behind [kSelfUpdateEnabled] + the store probe, and
+/// `UpdateController.canInstall` structurally cannot come true from this flag
+/// alone.
+const bool kUpdateNotifyOnlyEnabled = _updateNotifyBoolForm || _updateNotifyRawForm == '1';

@@ -187,13 +187,19 @@ function lastSeenTitle(stamp: string | null): string {
     <div v-else-if="pairedList.state === 'empty'" class="muted">{{ S.dev_paired_empty }}</div>
 
     <ul v-if="pairedList.state === 'rows'" class="paired-list">
-      <li v-for="g in groups" :key="g.key" class="paired-group" :class="{ multi: g.multi }">
-        <!-- D1 group header — only when one handset holds 2+ pairings. The dot
-             and the status chip are the AGGREGATE tri-state (any channel online →
-             online; else any unknown → unknown — "no session right now" is not
-             claimable while one channel could not be asked); the count chip's
-             tooltip explains why one phone has several rows. -->
-        <div v-if="g.multi" class="pg-head">
+      <li v-for="g in groups" :key="g.key" class="paired-group">
+        <!-- EVERY handset gets the same header, whether it holds one pairing or
+             two (owner 2026-08-20 screenshot ruling: with shelled multi-groups
+             and bare single rows in ONE list, the singles read as a different
+             kind of thing — 「样式分不清，看起来奇怪」. The earlier 10b §2.4 rule
+             「a single pairing gets no shell」 optimised each item alone and lost
+             the list: uniformity IS information when items sit side by side).
+             The dot and the status chip are the AGGREGATE tri-state (any channel
+             online → online; else any unknown → unknown — "no session right now"
+             is not claimable while one channel could not be asked). For a
+             single-pairing handset the aggregate is simply that pairing's own
+             state — same sentence, one source. -->
+        <div class="pg-head">
           <span class="dot" :class="dotClass(g.presence)"></span>
           <!-- REQ-12-10b: the header is the HANDSET, the rows are its pairings.
                A shape as well as a dot, per owner 2026-08-01 "must not rely on
@@ -205,15 +211,13 @@ function lastSeenTitle(stamp: string | null): string {
           <span class="chip" :class="chipClass(g.presence)" :title="groupChipTitle(g)">
             {{ chipText(g.presence) }}
           </span>
-          <span class="chip pg-count" :title="S.dev_group_hint">{{ g.rows.length }} {{ S.dev_group_pairings }}</span>
+          <!-- The count chip stays multi-only: 「2 条配对」 explains why one phone
+               has several rows; 「1 条配对」 explains nothing (and its English
+               plural would be wrong). The SHELL is what is uniform, not this. -->
+          <span v-if="g.multi" class="chip pg-count" :title="S.dev_group_hint">{{ g.rows.length }} {{ S.dev_group_pairings }}</span>
         </div>
         <ul class="pg-rows">
           <li v-for="m in g.rows" :key="`${m.channel}:${m.pairing_id}`" class="paired-row">
-            <!-- singleton group: name + dot stay on the row itself (no header) -->
-            <template v-if="!g.multi">
-              <span class="dot" :class="dotClass(m.presence)"></span>
-              <span class="pm-name">{{ m.mobile_name }}</span>
-            </template>
             <!-- Each sub-row is one PAIRING on one channel — its chip, times and
                  buttons all remain its own (disconnect/unpair on one does nothing
                  to the other). owner 2026-08-01: colour + icon combination, must
@@ -305,39 +309,36 @@ function lastSeenTitle(stamp: string | null): string {
  * not a global `ul { list-style: none }` — that would strip the markers those
  * two spots genuinely need. */
 .paired-list, .pg-rows { list-style: none; }
-.paired-list { display: flex; flex-direction: column; gap: 2px; }
-/* REQ-12-10b (desktop half) — a handset holding two pairings gets a SHELL.
+.paired-list { display: flex; flex-direction: column; gap: 8px; }
+/* REQ-12-10b (desktop half), reworked per owner 2026-08-20 — EVERY handset gets
+ * the same shell.
  *
- * The complaint the card answers is the same one owner raised on the phone's
- * connection list: with only a thin header line, one handset's two pairings read
- * as two peers in a flat list. The fix is a container that says "these belong to
- * the same phone," and NOTHING else — the sub-rows keep their own channel badge,
- * their own presence chip, their own disconnect/unpair buttons, and acting on
- * one still does nothing to the other (that independence is a fact about the two
- * pairings, not a rendering choice; see `dev_group_hint`).
- * ⚠️ Deliberately NEUTRAL, not tinted per machine: the phone's list has an
+ * History, because the reversal is the story: 10b §2.4 originally ruled 「a
+ * single pairing gets no shell — chrome with no information in it is worse than
+ * none」. That optimised each item alone. The owner's 2026-08-20 screenshot
+ * showed what it does to the LIST: shelled two-pairing groups and bare one-line
+ * rows interleaved read as two different kinds of object (「样式分不清，看起来
+ * 奇怪」), when they are the same kind — one physical handset. Uniform shells
+ * make the unit of the list visible: one box = one device, its rows = its
+ * pairings, however many there are.
+ *
+ * What did NOT change: the sub-rows keep their own channel badge, presence chip
+ * and disconnect/unpair buttons, and acting on one still does nothing to the
+ * other (that independence is a fact about the pairings, not a rendering
+ * choice; see `dev_group_hint`).
+ * ⚠️ Still deliberately NEUTRAL, not tinted per machine: the phone's list has an
  * identity colour lane (REQ-12-10 hashes `pc_machine_uid` to one of four), the
  * desktop has no such lane, and inventing one here would be a second identity
- * language that agrees with nothing.
- * ⚠️ Only `.multi`. A single pairing gets no shell — chrome with no information
- * in it is worse than none (10b §2.4).
- * Spacing follows 10b §2.2: the gap INSIDE the group is smaller than the gap
- * between the group and whatever sits next to it. */
-.paired-group.multi { border: 1px solid var(--line); border-radius: var(--r12);
-  background: var(--surface-inset); padding: 0 12px 4px; margin: 10px 0; }
-.paired-group.multi .pg-head { padding: 10px 0 9px; margin-bottom: 1px;
-  border-bottom: 1px solid var(--line-soft); }
+ * language that agrees with nothing. */
+.paired-group { border: 1px solid var(--line); border-radius: var(--r12);
+  background: var(--surface-inset); padding: 0 12px 4px; }
 .pg-ic { width: 13px; height: 13px; color: var(--t3); }
-/* The divider between plain rows stays; a shelled group is bounded by its own
-   border, so a second line above or below it would just be noise. */
-.paired-group:not(.multi) + .paired-group:not(.multi) { border-top: 1px solid var(--line-soft); }
 .pg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 9px 0 2px; font-size: 13px; color: var(--t1); }
-.pg-rows { display: flex; flex-direction: column; }
-/* The shell replaces the old hanging indent — 16px of empty gutter was the only
-   thing saying 「these rows belong to the line above」. */
-.paired-group.multi .pg-rows { padding-left: 2px; }
-.paired-group.multi .paired-row + .paired-row { border-top: 1px dashed var(--line-soft); }
+  padding: 10px 0 9px; margin-bottom: 1px; border-bottom: 1px solid var(--line-soft);
+  font-size: 13px; color: var(--t1); }
+.pg-rows { display: flex; flex-direction: column; padding-left: 2px; }
+/* Rows divide INSIDE the shell; between shells the gap + border do the work. */
+.paired-row + .paired-row { border-top: 1px dashed var(--line-soft); }
 .paired-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 0; font-size: 13px; color: var(--t1); }
 /* a phone name is user-supplied and unbounded — ellipsize instead of letting
    it shove the chips and actions off the row */

@@ -89,9 +89,11 @@ import { fileURLToPath } from 'node:url';
 // one-owner reason it lived here.
 import {
   classify,
+  compareVersions,
   fetchLiveManifest,
   isRoundArtifactName,
   mergeLivePlatforms,
+  mergeLiveStorePlatforms,
   nonPublicUpdateUrls,
   resolveLiveManifestUrl,
   resolveUpdateDownloadBase,
@@ -138,6 +140,31 @@ const DOWNLOAD_BASE = resolveUpdateDownloadBase();
 
 const args = process.argv.slice(2);
 const CHECK_ONLY = args.includes('--check');
+
+/** `--flag value` or `--flag=value`, or null. */
+function flagValue(name) {
+  const eq = args.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = args.indexOf(name);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+}
+
+// ── store_platforms seeding (iOS, owner 2026-08-20) ─────────────────────────
+//
+// iOS ships through TestFlight / the App Store, so its manifest entry is NEWS
+// (version + pages), never an artifact — and no file in ./publish can ever
+// produce it. It enters the manifest one of two ways:
+//   · carried forward verbatim from the live manifest (ruling ① merge below),
+//   · seeded/advanced by the operator: `--ios <version>` on the round whose
+//     TestFlight build actually went live, plus optional
+//     `--ios-store-url <https://…>` (the TestFlight invite / store listing).
+// 🔴 `--ios` is deliberately MANUAL, not derived from this round's version:
+// the manifest must announce what a phone can actually GET, and TestFlight
+// processing lags the artifact round — stamping it automatically would prompt
+// users toward a build that is not there yet (R11: every claim must be
+// backable).
+const IOS_VERSION = flagValue('--ios');
+const IOS_STORE_URL = flagValue('--ios-store-url');
 /** 🔴 Card UP-10's escape hatch, **off by default**. Exists only for offline
  *  drills; it is never derived from any failure (one 'unreachable' **will not**
  *  automatically degrade into a skip — that would make this flag redundant,
@@ -173,6 +200,10 @@ if (files.length === 0) {
 }
 
 const platforms = {};
+/** The optional store-delivered block (iOS). Filled only by the ruling-①
+ *  carry-forward and the operator's `--ios` seed — never by ./publish, which
+ *  by construction holds nothing for a store-delivered platform. */
+const storePlatforms = {};
 for (const name of files.sort()) {
   const cls = classify(name);
   if (!cls) { fail(`${name} 认不出平台/kind — the manifest must not carry an artifact nobody knows how to use`); continue; }
@@ -312,6 +343,16 @@ if (SKIP_REMOTE_VERIFY) {
     );
   } else {
     const merged = mergeLivePlatforms({ platforms, liveManifest: live.manifest });
+    const storeMerged = mergeLiveStorePlatforms({ storePlatforms, liveManifest: live.manifest });
+    for (const r of storeMerged.retained) {
+      console.log(`· store_platforms.${r.platform}  retained from the live manifest @ ${r.version}`);
+    }
+    for (const key of storeMerged.unreadable) {
+      fail(
+        `live store_platforms.${key} is not a shape this script can merge — refusing rather than ` +
+          `silently dropping a fielded announcement or re-publishing garbage. Inspect the live manifest by hand.`,
+      );
+    }
     for (const r of merged.retained) {
       ok(
         `${r.platform}  retained from the live manifest @ ${r.version} — no ${r.platform} artifact ` +
@@ -358,8 +399,51 @@ if (SKIP_REMOTE_VERIFY) {
 // from the live manifest, which are copied verbatim, url included. A
 // single-platform round is exactly when that bites, and it would bite quietly.
 //
+// ── the --ios seed, applied on top of whatever the merge carried ────────────
+if (IOS_STORE_URL !== null && IOS_VERSION === null && !storePlatforms.ios) {
+  fail('--ios-store-url given, but there is no ios entry to attach it to — pass --ios <version> too');
+}
+if (IOS_VERSION !== null) {
+  if (!/^\d+\.\d+\.\d+$/.test(IOS_VERSION)) {
+    fail(`--ios ${IOS_VERSION} is not x.y.z`);
+  } else if (IOS_STORE_URL !== null && !/^https:\/\//.test(IOS_STORE_URL)) {
+    // Stricter than the wire validators (they take http too): an artifact URL
+    // over http is saved by its sha256; a store PAGE has no hash to save it,
+    // so the generator refuses to mint one without TLS.
+    fail(`--ios-store-url must be https:// (got: ${IOS_STORE_URL})`);
+  } else {
+    const carried = storePlatforms.ios;
+    if (carried && compareVersions(carried.version, IOS_VERSION) > 0) {
+      console.log(
+        `⚠ store_platforms.ios: the live manifest already advertises ${carried.version}, NEWER than ` +
+          `--ios ${IOS_VERSION} — keeping the live entry (ruling ①: higher version wins).`,
+      );
+    } else {
+      storePlatforms.ios = {
+        version: IOS_VERSION,
+        notes_url: updateNotesUrl(DOWNLOAD_BASE, IOS_VERSION),
+        // A link minted earlier survives a version advance: the TestFlight
+        // invite is per-app, not per-version.
+        store_url: IOS_STORE_URL ?? carried?.store_url ?? null,
+      };
+      ok(`store_platforms.ios → ${IOS_VERSION}${IOS_STORE_URL ? ` (store page: ${IOS_STORE_URL})` : ''}`);
+    }
+  }
+} else if (IOS_STORE_URL !== null && storePlatforms.ios) {
+  // Minting the link later, without advancing the version, is a legal round.
+  storePlatforms.ios = { ...storePlatforms.ios, store_url: IOS_STORE_URL };
+  ok(`store_platforms.ios: store page → ${IOS_STORE_URL} (version stays ${storePlatforms.ios.version})`);
+}
+if (failed) {
+  console.error('\n✗ 清单未生成 — the store_platforms lines above would announce something a phone cannot back.');
+  process.exit(1);
+}
+
 // It runs BEFORE gate ② deliberately: no reason to stream 220 MB through sha256
 // to prove that a URL nobody outside can open does contain the right bytes.
+// ⚠️ store_platforms is deliberately NOT fed through gate ③/②: its store_url
+// points at Apple's infrastructure (never under DOWNLOAD_BASE), and there are
+// no bytes of ours at the far end to verify — the news is the payload.
 {
   const offenders = nonPublicUpdateUrls(platforms, DOWNLOAD_BASE);
   if (offenders.length > 0) {
@@ -420,6 +504,9 @@ const manifest = {
   manifest_version: 1,
   generated_at: new Date().toISOString(),
   platforms,
+  // Only when non-empty: an absent key and an empty block mean the same thing
+  // to every client, and absence keeps pre-iOS manifests byte-identical.
+  ...(Object.keys(storePlatforms).length > 0 ? { store_platforms: storePlatforms } : {}),
 };
 
 if (CHECK_ONLY) {

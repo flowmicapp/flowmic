@@ -13,6 +13,7 @@ import ConnDiagPage from './ConnDiagPage.vue';
 import TimelinePage from './TimelinePage.vue';
 import SettingsPage from './SettingsPage.vue';
 import { conn, currentChannel, initBridge, lanConnected } from './store';
+import { initUpdateStore, updateAvailable } from './update-store';
 import { pullServerSettings, watchServerSettingsUpdates } from './settings-model';
 import {
   CH,
@@ -100,6 +101,11 @@ let unlistenSettings: (() => void) | null = null;
 
 onMounted(() => {
   void initBridge();
+  // UP-3c: the app-scope update store boots with the WINDOW, not with the
+  // settings page — the sidenav badge below needs the answer whichever page
+  // the user is on (2026-08-02 decision: the PC reminder is the settings line
+  // PLUS a non-focus-stealing main-window badge).
+  void initUpdateStore();
   // R6 T-5c: the capsule ⚙ opens THIS window on the settings page (REDESIGN §5.2).
   // The main WebView stays alive while hidden to the tray, so this listener is
   // registered once at boot and receives the event whatever the window state.
@@ -170,6 +176,10 @@ onUnmounted(() => {
       </button>
       <button class="navitem" :class="{ on: page === 'settings' }" @click="page = 'settings'">
         <Icon name="gear" />{{ S.nav_settings }}
+        <!-- UP-3c — the ruled main-window badge (l4 design §5.2): a dot, not a
+             word. It points at Settings → About, where the sentence and the
+             buttons live; it never steals focus and never moves layout. -->
+        <span v-if="updateAvailable" class="nav-update-dot" :title="S.upd_available"></span>
       </button>
       <button class="side-foot" type="button" :title="S.cap_diag" @click="openConnDiag">
         <div class="row">

@@ -766,6 +766,12 @@ class _FlowMicAppState extends State<FlowMicApp> {
             chatPageBuilder: _buildChat,
             settingsPageBuilder: _buildSettings,
             historyPageBuilder: _buildHistory,
+            // UP-2 second render site (iPad finding, 2026-08-20): a fresh
+            // unpaired install lives on the instance list and never reaches
+            // the chat gear — same getter, its own subscription (this page is
+            // the `child:` of the layer above and is never rebuilt by it).
+            updateListenable: _update,
+            hasUpdate: () => _update.hasUpdate,
           ),
         ),
         ),

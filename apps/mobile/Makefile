@@ -3,7 +3,7 @@
 # (D3 lesson: protocol events are generated from @flowmic/protocol, never hand-
 # written). `*.g.dart` is gitignored; regenerate on a clean checkout with `make gen`.
 
-.PHONY: gen analyze test build release release-store
+.PHONY: gen analyze test build release release-store release-ios
 
 # Two generators, two different sources, both required before anything compiles:
 #   · tool/gen_protocol.mjs      — event names, schema version, and the retired
@@ -92,3 +92,31 @@ release: gen
 release-store: gen
 	flutter build appbundle --release --flavor store
 	node ../../scripts/store-channel-gate.mjs build/app/outputs/bundle/storeRelease/app-store-release.aab
+
+# THE iOS ARCHIVE — TestFlight / App Store (owner 2026-08-20: iOS gets a
+# reminder too).
+#
+# iOS carries the NOTIFY-ONLY half of the update feature: check + a dot + a
+# sentence pointing at the store page. It never downloads or installs — that
+# is the Android direct channel's define (FLOWMIC_SELF_UPDATE), deliberately
+# NOT passed here, and `UpdateController.canInstall` cannot come true without
+# it. The reasoning for a second define instead of Platform.isIOS (the Android
+# store artifact's marker-absence depends on it) is in
+# lib/src/update/self_update_flag.dart's notify section.
+#
+# ⚠️ macOS ONLY — flutter build ipa needs Xcode; this target exists so the mac
+# line runs a documented command instead of remembering a define. The Podfile
+# is deliberately not in this repo (2026-08-10 ruling ⑦), so `pod install`
+# state lives on that machine.
+#
+# 🔴 STATED DEBT, not an oversight: no byte-gate reads the IPA the way
+# apk-self-update-marker reads the APK. iOS archives are produced and uploaded
+# on the mac line outside scripts/publish.mjs, and this repo's own rule says a
+# gate never verified against a real artifact is worse than a debt written
+# down plainly. The day the mac line stages IPAs through a script, give it the
+# same shape: feature string `/api/updates/latest` + a control string, read
+# from the artifact's bytes. Until then: forgetting the define costs iOS the
+# reminder silently (build green, exit 0) — UP-7's failure direction, unclosed
+# on this platform.
+release-ios: gen
+	flutter build ipa --release --dart-define=FLOWMIC_UPDATE_NOTIFY=1

@@ -30,6 +30,9 @@ String manifestJson({
         "url": "http://100.64.7.68/dl/flowmic/release/FlowMic-9.9.9-release.apk",
         "sha256": "$kGoodSha", "size": 45678901 }''',
   String notesUrl = '"http://100.64.7.68/dl/flowmic/release/NOTES.md"',
+  /// Extra top-level JSON, e.g. `, "store_platforms": {…}` — the additive
+  /// block the iOS notify-only channel rides on.
+  String trailer = '',
 }) => '''
 {
   "manifest_version": 1,
@@ -40,8 +43,18 @@ String manifestJson({
       "notes_url": $notesUrl,
       "artifacts": [$artifacts]
     }
-  }
+  }$trailer
 }''';
+
+/// A ready-made `store_platforms` trailer for [manifestJson].
+String storeTrailer({
+  String iosVersion = '9.9.9',
+  String notesUrl = '"https://github.com/flowmicapp/flowmic/releases/tag/v9.9.9"',
+  String storeUrl = '"https://testflight.apple.com/join/example"',
+}) => ''',
+  "store_platforms": {
+    "ios": { "version": "$iosVersion", "notes_url": $notesUrl, "store_url": $storeUrl }
+  }''';
 
 void main() {
   group('① envelope rules — the same set as the server\'s validateUpdateManifest', () {
@@ -210,6 +223,49 @@ void main() {
       }
       expect(parseVersion('1.2.3'), <int>[1, 2, 3]);
       expect(parseVersion('1.2.3-rc1'), isNull);
+    });
+  });
+
+  group('⑤ store_platforms — the additive block for store-delivered platforms (iOS)', () {
+    test('a valid ios entry parses, and the android half is untouched by its presence', () {
+      final ManifestParse p = parseUpdateManifest(manifestJson(trailer: storeTrailer()));
+      expect(p, isA<ManifestParsed>());
+      final UpdateManifest m = (p as ManifestParsed).manifest;
+      final UpdateStorePlatform ios = m.storePlatforms['ios']!;
+      expect(ios.version, '9.9.9');
+      expect(ios.storeUrl, 'https://testflight.apple.com/join/example');
+      // Additive safety, asserted where it matters: the android entry a
+      // fielded phone reads is exactly what it was without the block.
+      expect(m.platforms['android']!.artifacts, hasLength(1));
+    });
+
+    test('a manifest WITHOUT the block parses with an empty map — absent and empty are one fact', () {
+      final ManifestParse p = parseUpdateManifest(manifestJson());
+      expect((p as ManifestParsed).manifest.storePlatforms, isEmpty);
+    });
+
+    test('🔴 a mangled store version rejects the WHOLE manifest — never compare against garbage', () {
+      final ManifestParse p = parseUpdateManifest(
+        manifestJson(trailer: storeTrailer(iosVersion: 'v9.9.9')),
+      );
+      expect(p, isA<ManifestRejected>());
+      expect((p as ManifestRejected).reason, 'bad_store_version:ios');
+    });
+
+    test('store_url takes http(s) only — itms-services: dies at the boundary', () {
+      final ManifestParse p = parseUpdateManifest(
+        manifestJson(trailer: storeTrailer(storeUrl: '"itms-services://?action=x"')),
+      );
+      expect(p, isA<ManifestRejected>());
+      expect((p as ManifestRejected).reason, 'bad_store_url:ios');
+    });
+
+    test('store_url may be null — the news is real before the link is minted', () {
+      final ManifestParse p = parseUpdateManifest(
+        manifestJson(trailer: storeTrailer(storeUrl: 'null')),
+      );
+      expect(p, isA<ManifestParsed>());
+      expect((p as ManifestParsed).manifest.storePlatforms['ios']!.storeUrl, isNull);
     });
   });
 }

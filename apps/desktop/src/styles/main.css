@@ -22,6 +22,10 @@ body { background: var(--canvas); }
 .navitem.on { background: var(--brand-soft); color: var(--brand-ink); font-weight: 600; }
 .navitem.on::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; border-radius: 99px; background: var(--brand); }
 .navitem .icon { width: 17px; height: 17px; }
+/* UP-3c — the main-window update badge (l4 design §5.2). Sits at the far end of
+   the settings nav row via margin-left:auto, so it shifts no layout; the words
+   live in Settings → About. */
+.nav-update-dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); flex: none; }
 .side-foot { margin-top: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r12); padding: 10px 12px; font-size: 12px; cursor: pointer; width: 100%; text-align: left; color: inherit; font: inherit; transition: border-color .15s, background .15s; }
 .side-foot:hover { border-color: var(--line-strong); background: var(--hover-bg); }
 .side-foot .row { display: flex; align-items: center; gap: 6px; color: var(--t2); }

@@ -65,23 +65,44 @@ const FILES: ModelFile[] = [{
   sha256: createHash('sha256').update(MODEL_BODY).digest('hex'),
 }];
 
-function request(method: string, url: string, peer: string): IncomingMessage {
+function request(
+  method: string,
+  url: string,
+  peer: string,
+  headers: Record<string, string> = {},
+): IncomingMessage {
   const stream = Readable.from([]);
   const req = stream as unknown as IncomingMessage;
   req.method = method;
   req.url = url;
-  (req as { headers: Record<string, string> }).headers = {};
+  (req as { headers: Record<string, string> }).headers = headers;
   (req as { socket: { remoteAddress: string } }).socket = { remoteAddress: peer };
   return req;
 }
 
-function response(): { res: ServerResponse; done: Promise<{ status: number; body: Record<string, unknown> }> } {
-  let settle: (v: { status: number; body: Record<string, unknown> }) => void;
-  const done = new Promise<{ status: number; body: Record<string, unknown> }>((r) => (settle = r));
+interface Answer {
+  status: number;
+  body: Record<string, unknown>;
+  /** Every setHeader() call, lower-cased — the CORS cases read these. */
+  headers: Record<string, string>;
+}
+
+function response(): { res: ServerResponse; done: Promise<Answer> } {
+  let settle: (v: Answer) => void;
+  const done = new Promise<Answer>((r) => (settle = r));
   let status = 0;
+  const headers: Record<string, string> = {};
   const res = {
+    statusCode: 0,
+    setHeader(name: string, value: string) { headers[name.toLowerCase()] = value; },
     writeHead(code: number) { status = code; return res; },
-    end(payload?: string) { settle({ status, body: payload ? (JSON.parse(payload) as Record<string, unknown>) : {} }); },
+    end(payload?: string) {
+      settle({
+        status: status || (res as unknown as { statusCode: number }).statusCode,
+        body: payload ? (JSON.parse(payload) as Record<string, unknown>) : {},
+        headers,
+      });
+    },
     once() { return res; },
   } as unknown as ServerResponse;
   return { res, done };
@@ -112,9 +133,10 @@ function call(
   method: string,
   url: string,
   peer: string,
-): { handled: boolean; done: Promise<{ status: number; body: Record<string, unknown> }> } {
+  headers: Record<string, string> = {},
+): { handled: boolean; done: Promise<Answer> } {
   const { res, done } = response();
-  const handled = handler(request(method, url, peer), res);
+  const handled = handler(request(method, url, peer, headers), res);
   return { handled, done };
 }
 
@@ -252,5 +274,56 @@ describe('POST /api/stt/model/download and /cancel', () => {
       if (saved === undefined) delete process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'];
       else process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'] = saved;
     }
+  });
+});
+
+// ── CORS: the one browser these routes serve ─────────────────────────────────
+//
+// Measured live on 0.3.13 (owner report 2026-08-20): the server answered
+// `state:"ready"` in full while the settings card showed 「Failed to fetch」 —
+// the WebView (http://tauri.localhost) is cross-origin to 127.0.0.1:PORT, the
+// response carried no access-control-allow-origin, and the then-preflighted
+// GET died on a 405 to OPTIONS. Invisible to every earlier test here because
+// CORS is enforced by the BROWSER — the exact 「bug lives in the layer the
+// double replaced」 shape, so these cases pin the headers the browser keys on.
+describe('CORS for the app WebView', () => {
+  const TAURI_WIN = 'http://tauri.localhost';
+  const TAURI_MAC = 'tauri://localhost';
+
+  it('a preflight OPTIONS from the WebView gets 204 with the grant, not 405', async () => {
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'OPTIONS', STT_MODEL_STATUS_PATH, LOOPBACK, {
+      origin: TAURI_WIN,
+      'access-control-request-method': 'GET',
+    }).done;
+    expect(out.status).toBe(204);
+    expect(out.headers['access-control-allow-origin']).toBe(TAURI_WIN);
+    expect(out.headers['access-control-allow-methods']).toContain('GET');
+  });
+
+  it('a GET from the WebView carries the echoed origin, so the browser hands the body over', async () => {
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'GET', STT_MODEL_STATUS_PATH, LOOPBACK, { origin: TAURI_WIN }).done;
+    expect(out.status).toBe(200);
+    expect(out.headers['access-control-allow-origin']).toBe(TAURI_WIN);
+    expect(out.headers['vary']).toBe('origin');
+  });
+
+  it('the macOS WebView origin form is granted too', async () => {
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'GET', STT_MODEL_STATUS_PATH, LOOPBACK, { origin: TAURI_MAC }).done;
+    expect(out.headers['access-control-allow-origin']).toBe(TAURI_MAC);
+  });
+
+  it('🔴 a foreign origin gets NO grant — drive-by localhost probing stays blocked', async () => {
+    // `*` would let any page in the user\'s ordinary browser read this state
+    // and start a 228 MB download by fetching 127.0.0.1. The allow-list echo
+    // means such a page keeps getting exactly what it gets today: nothing.
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'GET', STT_MODEL_STATUS_PATH, LOOPBACK, {
+      origin: 'https://evil.example',
+    }).done;
+    expect(out.status).toBe(200);
+    expect(out.headers['access-control-allow-origin']).toBeUndefined();
   });
 });

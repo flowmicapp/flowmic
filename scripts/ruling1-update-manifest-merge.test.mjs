@@ -37,6 +37,7 @@ import {
   fetchLiveManifest,
   isRoundArtifactName,
   mergeLivePlatforms,
+  mergeLiveStorePlatforms,
   resolveLiveManifestUrl,
   LIVE_MANIFEST_URL_ENV,
 } from './update-manifest-lib.mjs';
@@ -280,6 +281,51 @@ section('§6 isRoundArtifactName / classify are shared, and the lib is guarded')
   const direct = spawnSync(process.execPath, [join(ROOT, 'scripts', 'update-manifest-lib.mjs')], { encoding: 'utf8' });
   assertTrue(direct.status === 2, 'running the lib directly exits 2 (module-entrypoint-guard) — a silent 0 reads as a passing check');
   assertTrue(/library module/.test(direct.stderr), 'and says why, naming the entry points to use instead');
+}
+
+// ── §7 mergeLiveStorePlatforms — ruling ① applied to the iOS store block ─────
+section('§7 store_platforms carry-forward (iOS notify-only, owner 2026-08-20)');
+{
+  // Absent from this round ⇒ the live entry is retained verbatim.
+  const store = {};
+  const r1 = mergeLiveStorePlatforms({
+    storePlatforms: store,
+    liveManifest: {
+      platforms: {},
+      store_platforms: { ios: { version: '0.3.12', notes_url: null, store_url: 'https://testflight.apple.com/join/x' } },
+    },
+  });
+  assertTrue(store.ios?.version === '0.3.12', 'a live ios entry is carried forward');
+  assertTrue(r1.retained.length === 1 && r1.retained[0].platform === 'ios', 'and reported as retained');
+
+  // Higher version wins, in both directions.
+  const store2 = { ios: { version: '0.3.11', notes_url: null, store_url: null } };
+  mergeLiveStorePlatforms({
+    storePlatforms: store2,
+    liveManifest: { platforms: {}, store_platforms: { ios: { version: '0.3.13', notes_url: null, store_url: null } } },
+  });
+  assertTrue(store2.ios.version === '0.3.13', 'a NEWER live entry overrides this round\'s seed');
+  const store3 = { ios: { version: '0.3.14', notes_url: null, store_url: null } };
+  const r3 = mergeLiveStorePlatforms({
+    storePlatforms: store3,
+    liveManifest: { platforms: {}, store_platforms: { ios: { version: '0.3.13', notes_url: null, store_url: null } } },
+  });
+  assertTrue(store3.ios.version === '0.3.14' && r3.superseded.length === 1, 'an older live entry is superseded');
+
+  // No block ⇒ nothing happens; a garbled live entry is named, never dropped
+  // or copied — the builder turns `unreadable` into a hard refusal.
+  const store4 = {};
+  const r4 = mergeLiveStorePlatforms({ storePlatforms: store4, liveManifest: { platforms: {} } });
+  assertTrue(Object.keys(store4).length === 0 && r4.unreadable.length === 0, 'no live block ⇒ no store entries');
+  const r5 = mergeLiveStorePlatforms({
+    storePlatforms: {},
+    liveManifest: { platforms: {}, store_platforms: { ios: { version: 'not-a-version' } } },
+  });
+  assertTrue(r5.unreadable.length === 1 && r5.unreadable[0] === 'ios', 'a garbled live entry lands in unreadable');
+  assertTrue(
+    /storeMerged\.unreadable\)\s*\{\s*fail\(/.test(BUILDER_SRC),
+    'and the builder fails the round on it rather than shipping around it',
+  );
 }
 
 // ── summary ─────────────────────────────────────────────────────────────────

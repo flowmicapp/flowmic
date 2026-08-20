@@ -112,7 +112,7 @@ describe('the built-in speech model card', () => {
     for (const state of ['absent', 'ready', 'downloading', 'failed', 'partial'] as const) {
       const html = await render({ snapshot: snap({ state }) });
       expect(html, `${state}: the reason the installer does not carry the model went missing`)
-        .toContain('The installer does not carry the speech model itself');
+        .toContain('The speech model is large, so the installer does not include it');
     }
   });
 
@@ -122,7 +122,7 @@ describe('the built-in speech model card', () => {
     // 228 = REAL_TOTAL / 1024², rounded. Nothing in the catalogue spells it.
     expect(html).toContain('Download the model (about 228 MB, one time)');
     // The second exit is stated on the same screen as the first.
-    expect(html).toContain('put the model files into this folder yourself');
+    expect(html).toContain('connect your own model or API in the table above');
     expect(html).toContain(DIR);
   });
 
@@ -239,11 +239,11 @@ describe('the built-in speech model card', () => {
     expect(settled).toContain('about 2 min left');
   });
 
-  it('ready — certifies the FILES and refuses to certify the engine', async () => {
+  it('ready — says downloaded-and-default in plain words (owner 2026-08-20)', async () => {
     const html = await render({ snapshot: snap({ state: 'ready' }) });
-    expect(html).toContain('Ready');
-    expect(html).toContain('Every file is present and matches its checksum');
-    expect(html).toContain('whether the engine loads on this machine is a separate question');
+    expect(html).toContain('Downloaded');
+    expect(html).toContain('the built-in engine uses it by default');
+    expect(html).toContain('Every file has been verified');
     expect(html).toContain('Check the files again');
     // Nothing to download, so no download offer.
     expect(html).not.toContain('Download the model');
@@ -265,11 +265,35 @@ describe('the built-in speech model card', () => {
   it('🔴 unknown — no download offer is made on the strength of a failed read', async () => {
     const html = await render({ snapshot: null, reach: 'unreachable' });
     expect(html).toContain('Unknown');
-    expect(html).toContain('cannot say whether the model is here');
+    expect(html).toContain('not responding, so the model status cannot be read');
     expect(html).not.toContain('Download the model');
     expect(html).not.toContain('Resume the download');
     // The one thing that IS offered is asking again.
     expect(html).toContain('Check the files again');
+  });
+
+  it('🔴 connecting — the launch seconds are QUIET, not a failure wearing orange', async () => {
+    // The owner's 2026-08-20 report in one render: never-asked used to wear
+    // the unreachable face, so every healthy cold start opened on a warning.
+    const html = await render({ snapshot: null, reach: 'unknown' });
+    expect(html).toContain('Connecting…');
+    expect(html).toContain('starting up — the model status will appear in a moment');
+    expect(html).not.toContain('not responding');
+    expect(html).not.toContain('class="sub warn"');
+    expect(html).not.toContain('Download the model');
+  });
+
+  it('🔴 answered-badly is its own sentence — a 404 is an answer, not silence', async () => {
+    const html = await render({
+      snapshot: null,
+      reach: 'answered_unusable',
+      reachReason: 'unexpected model response (http 404)',
+    });
+    expect(html).toContain('responded, but could not report the model status');
+    expect(html).not.toContain('not responding');
+    // The machine truth is folded but kept — a failing card must carry
+    // something diagnosable (the reason used to be computed and discarded).
+    expect(html).toContain('unexpected model response (http 404)');
   });
 
   it('a stale reading is kept on screen and labelled, not blanked', async () => {
@@ -278,17 +302,27 @@ describe('the built-in speech model card', () => {
       reach: 'unreachable',
     });
     expect(html).toContain('58%');
-    expect(html).toContain('cannot say whether the model is here');
+    expect(html).toContain('not responding, so the model status cannot be read');
   });
 
-  it('the environment variable appears ONCE, inside the advanced fold', async () => {
+  it('🔴 no environment variable, no parameter instructions, anywhere on the card (owner 2026-08-20)', async () => {
+    // The fold that used to hold FLOWMIC_SHERPA_AUTO_DOWNLOAD is gone — an
+    // env-var name is operator documentation, not product copy. Asserted over
+    // every face, because the fold rendered unconditionally and a revert
+    // would too.
+    for (const state of ['absent', 'ready', 'downloading', 'failed', 'partial'] as const) {
+      const html = await render({ snapshot: snap({ state }) });
+      expect(html, `${state}: env var leaked back onto the card`).not.toContain(
+        'FLOWMIC_SHERPA_AUTO_DOWNLOAD',
+      );
+      expect(html, `${state}: the unattended fold came back`).not.toContain(
+        'Machines with nobody at them',
+      );
+    }
+    // Positive control: the same render still carries real copy, so an empty
+    // page cannot pass this by saying nothing at all.
     const html = await render({ snapshot: snap({ state: 'absent' }) });
-    expect(html.match(/FLOWMIC_SHERPA_AUTO_DOWNLOAD/g)?.length).toBe(1);
-    // Positive control for that count: the fold it belongs to is really there.
-    expect(html).toContain('Machines with nobody at them');
-    // …and it is not in the body copy the reader meets first (§5-D).
-    const beforeFold = html.slice(0, html.indexOf('Machines with nobody at them'));
-    expect(beforeFold).not.toContain('FLOWMIC_SHERPA_AUTO_DOWNLOAD');
+    expect(html).toContain('Download the model');
   });
 
   it('renders in the reader language, not in English with a switch flipped', async () => {

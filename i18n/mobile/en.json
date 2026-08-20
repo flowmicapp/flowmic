@@ -798,6 +798,11 @@
       "'This app cannot read its own version, so it cannot tell whether an '",
       "'update is needed.'"
     ],
+    "updateStoreChannelNote": [
+      "'New versions for this device arrive through TestFlight or the App '",
+      "'Store — update there; this app does not download installers itself.'"
+    ],
+    "updateStoreUrlLabel": "'Update page'",
     "updateUnavailable": [
       "'The server cannot provide update information right now. Please try '",
       "'again later.'"

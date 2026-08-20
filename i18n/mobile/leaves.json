@@ -2530,7 +2530,9 @@
     {
       "key": "pcReleasedNotice",
       "leaf": "_lfPcReleasedNotice",
-      "params": ["secs"]
+      "params": [
+        "secs"
+      ]
     },
     {
       "key": "pairingRevokedChip",
@@ -3622,6 +3624,16 @@
     {
       "key": "updateOwnVersionUnknown",
       "leaf": "_lfUpdateOwnVersionUnknown",
+      "params": []
+    },
+    {
+      "key": "updateStoreChannelNote",
+      "leaf": "_lfUpdateStoreChannelNote",
+      "params": []
+    },
+    {
+      "key": "updateStoreUrlLabel",
+      "leaf": "_lfUpdateStoreUrlLabel",
       "params": []
     },
     {

@@ -77,6 +77,14 @@ String resolveUpdateEndpoint() {
   return override.isNotEmpty ? override : kDefaultSaasEndpoint;
 }
 
+/// Which manifest key this device reads. iOS → [kUpdatePlatformIos] (resolved
+/// against `store_platforms` — see `_decide`), everything else →
+/// [kUpdatePlatformAndroid], which is exactly what the pre-iOS builds always
+/// asked for. A runtime judgement, not a define: 「which OS am I on」 is a fact
+/// the process can read, unlike 「does this build carry the feature」.
+String defaultUpdatePlatform() =>
+    Platform.isIOS ? kUpdatePlatformIos : kUpdatePlatformAndroid;
+
 /// The conclusion of one check. **A closed set** — the UI must give each
 /// member its own four-language sentence.
 enum UpdateCheckOutcome {
@@ -164,6 +172,8 @@ class UpdateCheckResult {
     this.usableArtifacts = 0,
     this.detail,
     this.comparedAt,
+    this.storeChannel = false,
+    this.storeUrl,
   });
 
   final UpdateCheckOutcome outcome;
@@ -217,6 +227,22 @@ class UpdateCheckResult {
   /// Whether this run genuinely produced a version comparison — i.e. whether
   /// 「last checked successfully」 should be refreshed.
   bool get didCompare => comparedAt != null;
+
+  /// True when the verdict came from a `store_platforms` entry — a platform
+  /// whose updates a STORE delivers (iOS). The UI's action for it is 「go to
+  /// the store page」, never a download; [installable] and [downloadUrl] are
+  /// null by construction on this path.
+  ///
+  /// 🔴 A separate boolean rather than 「storeUrl != null」: the link is
+  /// optional (the news is real before anyone minted an invite URL), and
+  /// keying the sentence on the link would make a link-less store entry fall
+  /// into the 「package type this build cannot install」 copy — a sentence that
+  /// then points at a download address that does not exist.
+  final bool storeChannel;
+
+  /// The store page to walk to (TestFlight invite / store listing), when the
+  /// manifest carries one. Only ever non-null alongside [storeChannel].
+  final String? storeUrl;
 }
 
 /// The HTTP seam. Production goes through `dart:io`, tests pass a fake.
@@ -269,7 +295,9 @@ Future<({int status, String body})> _fetch(Uri url) async {
 Future<UpdateCheckResult> checkForUpdate({
   required String? currentVersion,
   String? endpoint,
-  String platform = kUpdatePlatformAndroid,
+  // null ⇒ resolved from the OS ([defaultUpdatePlatform]). A default value
+  // must be const in Dart, and the honest default here is a runtime fact.
+  String? platform,
   UpdateManifestFetcher fetcher = _fetch,
   DateTime Function() now = DateTime.now,
 }) async {
@@ -322,7 +350,7 @@ Future<UpdateCheckResult> checkForUpdate({
     case ManifestRejected(:final String reason):
       return UpdateCheckResult(UpdateCheckOutcome.malformed, detail: reason);
     case ManifestParsed(:final UpdateManifest manifest):
-      return _decide(manifest, mine, platform, now);
+      return _decide(manifest, mine, platform ?? defaultUpdatePlatform(), now);
   }
 }
 
@@ -333,10 +361,20 @@ UpdateCheckResult _decide(
   DateTime Function() now,
 ) {
   final UpdatePlatform? entry = manifest.platforms[platform];
-  // Design draft §3 row 4, first half: this platform's entry is missing.
-  // 🔴 **NOT 「already up to date」** — we don't know whether there's an
-  // update; what we know is that this manifest doesn't mention us.
   if (entry == null) {
+    // A store-delivered platform (iOS) is announced in `store_platforms`,
+    // never in `platforms` — see kUpdatePlatformIos's doc for why. `platforms`
+    // is looked at first so that if the same key ever appeared in both, the
+    // downloadable entry would win (it is the stronger claim).
+    final UpdateStorePlatform? store = manifest.storePlatforms[platform];
+    if (store != null) return _decideStore(store, mine, now);
+    // Design draft §3 row 4, first half: this platform's entry is missing.
+    // 🔴 **NOT 「already up to date」** — we don't know whether there's an
+    // update; what we know is that this manifest doesn't mention us. (An OLD
+    // deployed server also lands an iOS phone here: its validator rebuilds
+    // the manifest from the keys it knows and strips `store_platforms` — the
+    // honest degradation until the relay is redeployed, and why the deploy
+    // order is server first, manifest second.)
     return const UpdateCheckResult(
       UpdateCheckOutcome.incompleteInfo,
       detail: 'platform_absent',
@@ -400,5 +438,40 @@ UpdateCheckResult _decide(
     detail: installable == null
         ? 'no_known_kind:${entry.artifacts.map((UpdateArtifact a) => a.kind).join(",")}'
         : null,
+  );
+}
+
+/// The store-delivered half of `_decide`. Same comparison rule (§1.3: only
+/// strictly-greater is news), same 「upToDate is the only slot allowed to say
+/// up to date」 — the only difference is what the answer CARRIES: a store page
+/// instead of artifacts, and [UpdateCheckResult.storeChannel] so the UI says
+/// 「update in the store」 rather than 「download from the address below」.
+UpdateCheckResult _decideStore(
+  UpdateStorePlatform store,
+  String mine,
+  DateTime Function() now,
+) {
+  final int? cmp = compareVersions(store.version, mine);
+  if (cmp == null) {
+    // Same slot as the sibling above, same reasoning: collapsing 「could not
+    // compare」 into 「not an update」 would pass off 「don't know」 as 「latest」.
+    return const UpdateCheckResult(UpdateCheckOutcome.malformed, detail: 'version_incomparable');
+  }
+  if (cmp <= 0) {
+    return UpdateCheckResult(
+      UpdateCheckOutcome.upToDate,
+      latestVersion: store.version,
+      notesUrl: store.notesUrl,
+      comparedAt: now(),
+    );
+  }
+  return UpdateCheckResult(
+    UpdateCheckOutcome.updateAvailable,
+    latestVersion: store.version,
+    notesUrl: store.notesUrl,
+    comparedAt: now(),
+    storeChannel: true,
+    storeUrl: store.storeUrl,
+    detail: 'store_channel',
   );
 }

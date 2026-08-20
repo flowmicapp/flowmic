@@ -247,13 +247,16 @@ describe('no stray list marker on the handset group row', () => {
   });
 });
 
-// ── REQ-12-10b (desktop half): one handset, two pairings, ONE shell ───────────
+// ── REQ-12-10b (desktop half), reworked per owner 2026-08-20: EVERY handset is shelled ──
 //
-// The card the phone's list got: a header line alone reads as "three peer-level cards." The
-// shell is a STATEMENT of belonging, and the sub-rows must survive it intact —
-// that is the half a purely visual change can break silently, so it is what the
-// render assertions below are aimed at, not the border itself.
-describe('REQ-12-10b: a handset with two pairings is shelled, and keeps both pairings whole', () => {
+// The original 10b §2.4 rule (「a single pairing gets no shell」) optimised each
+// item alone and lost the list: the owner's screenshot showed shelled two-pairing
+// groups and bare one-line rows interleaved, reading as two different kinds of
+// object when they are the same kind. The contract now: one box = one device,
+// with the same header, whatever the pairing count. The sub-rows must survive
+// the shell intact — that is the half a purely visual change can break silently,
+// so it is what the render assertions below are aimed at, not the border itself.
+describe('REQ-12-10b (2026-08-20 unified): every handset is shelled, and pairings stay whole', () => {
   const SAME_HANDSET: PairedPresenceView = {
     rows: [
       { ...LAN_ROW, mobile_name: '同一台手机' },
@@ -276,12 +279,9 @@ describe('REQ-12-10b: a handset with two pairings is shelled, and keeps both pai
   const shelled = async (): Promise<string> =>
     strip(await renderToString(createSSRApp(PairedList, { view: SAME_HANDSET, reload: () => Promise.resolve() })));
 
-  it('the group is marked `multi` and carries a device header', async () => {
+  it('a two-pairing handset carries the device header WITH the count chip', async () => {
     const html = await shelled();
-    // ⚠️ Vue's SSR emits the BOUND class before the static one, so this is
-    // 「multi paired-group」and not the other way round (same footnote as the
-    // `.chan-badge` probes at the top of this file).
-    expect(html).toContain('class="multi paired-group"');
+    expect(html).toContain('class="paired-group"');
     expect(html).toContain('class="pg-head"');
     expect(html).toContain('同一台手机');
     // The count chip still explains WHY one phone has several rows.
@@ -305,10 +305,10 @@ describe('REQ-12-10b: a handset with two pairings is shelled, and keeps both pai
     expect((html.match(new RegExp(S.dev_revoke_hint, 'g')) ?? []).length).toBe(2);
   });
 
-  it('a SINGLE pairing gets no shell (chrome with nothing in it is worse than none)', async () => {
-    // 10b §2.4, and the positive control for the assertion above: the same probe
-    // that finds `multi` on the grouped view must NOT find it here, or it is not
-    // measuring the grouping at all.
+  it('🔴 a SINGLE pairing gets the SAME shell and header (owner 2026-08-20: one list, one shape)', async () => {
+    // The reversal of the old 10b §2.4 test that stood here. What stays out is
+    // only the count chip: 「1 条配对」 explains nothing (and its English plural
+    // would be wrong) — the SHELL is what is uniform, not the chip.
     const html = strip(
       await renderToString(
         createSSRApp(PairedList, {
@@ -318,22 +318,27 @@ describe('REQ-12-10b: a handset with two pairings is shelled, and keeps both pai
       ),
     );
     expect(html).toContain('class="paired-group"');
-    expect(html).not.toContain('multi');
-    expect(html).not.toContain('class="pg-head"');
-    // Positive control: the row itself really rendered, so the two negatives
-    // above are reading an empty shell rather than an empty render.
+    expect(html).toContain('class="pg-head"');
+    expect(html).not.toContain(S.dev_group_pairings);
+    // The name lives in the header now, not on the row — and it really rendered,
+    // so the negative above is reading a real card rather than an empty render.
     expect(html).toContain(LAN_ROW.mobile_name);
+    // The row keeps its own channel badge, chip and actions.
+    expect(html).toContain('class="lan chan-badge"');
+    expect((html.match(new RegExp(S.dev_revoke_hint, 'g')) ?? []).length).toBe(1);
   });
 
-  it('the shell is a container, and the row divider is not doubled up on it', () => {
+  it('the shell is one rule for ALL groups, and the row divider lives inside it', () => {
     const SRC = readFileSync(fileURLToPath(new URL('./PairedList.vue', import.meta.url)), 'utf8');
-    expect(SRC).toMatch(/\.paired-group\.multi\s*\{[^}]*border:\s*1px solid var\(--line\)/);
-    expect(SRC).toMatch(/\.paired-group\.multi\s*\{[^}]*background:\s*var\(--surface-inset\)/);
-    // A bordered box does not also want a hairline above and below it.
-    expect(SRC).toContain('.paired-group:not(.multi) + .paired-group:not(.multi)');
+    expect(SRC).toMatch(/\.paired-group\s*\{[^}]*border:\s*1px solid var\(--line\)/);
+    expect(SRC).toMatch(/\.paired-group\s*\{[^}]*background:\s*var\(--surface-inset\)/);
+    // The old bare-row hairline is gone WITH the bare rows; rows divide inside
+    // the shell instead.
+    expect(SRC).not.toContain('.paired-group:not(.multi)');
+    expect(SRC).toMatch(/\.paired-row\s*\+\s*\.paired-row\s*\{[^}]*border-top/);
     // Neutral by design — no per-machine tint invented on this surface (the phone
     // has an identity colour lane, the desktop does not).
-    expect(SRC).not.toMatch(/\.paired-group\.multi\s*\{[^}]*var\(--channel-/);
+    expect(SRC).not.toMatch(/\.paired-group\s*\{[^}]*var\(--channel-/);
   });
 });
 

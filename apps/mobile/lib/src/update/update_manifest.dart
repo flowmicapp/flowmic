@@ -67,6 +67,15 @@ import 'dart:convert';
 /// in design §1.2.
 const String kUpdatePlatformAndroid = 'android';
 
+/// iOS's key — looked up in [UpdateManifest.storePlatforms], never in
+/// `platforms`: iOS updates arrive through TestFlight / the App Store, so the
+/// manifest carries the NEWS for it, not a downloadable artifact. Why that is
+/// a separate top-level block: an ios entry with `artifacts: []` inside
+/// `platforms` would be rejected as `empty_artifacts` by every fielded client
+/// (including this validator, four screens down) — the announcement has to
+/// ride a key old validators never read.
+const String kUpdatePlatformIos = 'ios';
+
 /// The artifact type this build **knows how to handle**. It is 「which kind
 /// I will install」,
 /// **NOT** 「which kinds the manifest is allowed to have」 — see the file
@@ -152,11 +161,31 @@ class UpdatePlatform {
   final int droppedArtifacts;
 }
 
+/// A platform whose updates a STORE delivers. Corresponds to
+/// `UpdateStorePlatform` in update-routes.ts (that file is the contract).
+/// No artifacts, no sha256 — there is nothing to download, only news and a
+/// page the user can walk to.
+class UpdateStorePlatform {
+  const UpdateStorePlatform({
+    required this.version,
+    required this.notesUrl,
+    required this.storeUrl,
+  });
+
+  final String version;
+  final String? notesUrl;
+
+  /// The store page (TestFlight invite / store listing). Optional — the news
+  /// is real even while nobody has minted the link yet.
+  final String? storeUrl;
+}
+
 /// Corresponds to `UpdateManifest` (`update-routes.ts:96-102`).
 class UpdateManifest {
   const UpdateManifest({
     required this.generatedAt,
     required this.platforms,
+    this.storePlatforms = const <String, UpdateStorePlatform>{},
   });
 
   final String generatedAt;
@@ -164,6 +193,11 @@ class UpdateManifest {
   /// **A map, not two fixed fields** —— adding `macos-arm64` must be
   /// additive (§1.2).
   final Map<String, UpdatePlatform> platforms;
+
+  /// Store-delivered platforms (today: `ios`). Empty when the manifest does
+  /// not carry the optional `store_platforms` block — absent and empty mean
+  /// the same thing, so the two are deliberately not distinguished here.
+  final Map<String, UpdateStorePlatform> storePlatforms;
 }
 
 /// The parse result. **A closed set**: the caller must have a sentence
@@ -267,8 +301,51 @@ ManifestParse validateUpdateManifest(Object? raw) {
       droppedArtifacts: dropped,
     );
   }
+
+  // The optional store block — same envelope posture as the server's
+  // validator (reject, never patch): a store entry with a mangled version
+  // would make this phone compare against garbage and then say something it
+  // cannot back.
+  final Map<String, UpdateStorePlatform> storePlatforms =
+      <String, UpdateStorePlatform>{};
+  final Object? storeRaw = raw['store_platforms'];
+  if (storeRaw != null) {
+    if (storeRaw is! Map<String, Object?>) {
+      return const ManifestRejected('bad_store_platforms');
+    }
+    for (final MapEntry<String, Object?> entry in storeRaw.entries) {
+      final String key = entry.key;
+      if (!kPlatformKeyRe.hasMatch(key)) {
+        return ManifestRejected('bad_store_platform_key:$key');
+      }
+      final Object? p = entry.value;
+      if (p is! Map<String, Object?>) return ManifestRejected('bad_store_platform:$key');
+      final Object? version = p['version'];
+      if (version is! String || !kVersionRe.hasMatch(version)) {
+        return ManifestRejected('bad_store_version:$key');
+      }
+      final Object? notesUrl = p['notes_url'];
+      if (notesUrl != null && (notesUrl is! String || !isHttpUrl(notesUrl))) {
+        return ManifestRejected('bad_store_notes_url:$key');
+      }
+      final Object? storeUrl = p['store_url'];
+      if (storeUrl != null && (storeUrl is! String || !isHttpUrl(storeUrl))) {
+        return ManifestRejected('bad_store_url:$key');
+      }
+      storePlatforms[key] = UpdateStorePlatform(
+        version: version,
+        notesUrl: notesUrl as String?,
+        storeUrl: storeUrl as String?,
+      );
+    }
+  }
+
   return ManifestParsed(
-    UpdateManifest(generatedAt: generatedAt, platforms: platforms),
+    UpdateManifest(
+      generatedAt: generatedAt,
+      platforms: platforms,
+      storePlatforms: storePlatforms,
+    ),
   );
 }
 

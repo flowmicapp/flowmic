@@ -118,6 +118,7 @@ class UpdateController extends ChangeNotifier {
     UpdateInstallRunner? installer,
     DateTime Function() now = DateTime.now,
     this.selfUpdateEnabled = kSelfUpdateEnabled,
+    this.notifyOnlyEnabled = kUpdateNotifyOnlyEnabled,
     Future<bool> Function()? storeProbe,
   })  : _storeProbe = storeProbe ?? installedFromStore,
         _version = version,
@@ -143,6 +144,14 @@ class UpdateController extends ChangeNotifier {
   /// — **it does NOT hide the whole section**. Reasoning in self_update_flag.dart's file header.
   final bool selfUpdateEnabled;
 
+  /// The iOS half (`--dart-define=FLOWMIC_UPDATE_NOTIFY`): this build CHECKS
+  /// and NOTIFIES, and installs nothing — updates arrive through the store.
+  /// It widens exactly one thing, [checkUsable]; [canInstall] cannot come true
+  /// from it (that one still requires [selfUpdateUsable]). Why it is a const
+  /// define and not `Platform.isIOS`: self_update_flag.dart's notify section
+  /// (the Android store artifact's marker-absence depends on TFA folding).
+  final bool notifyOnlyEnabled;
+
   /// Gate ② (`install_source.dart`): asked once in [load].
   final Future<bool> Function() _storeProbe;
 
@@ -163,6 +172,18 @@ class UpdateController extends ChangeNotifier {
   /// ask twice, which is the shape that makes gate ② forgettable all over
   /// again.
   bool get selfUpdateUsable => selfUpdateEnabled && !_fromStore;
+
+  /// 🔴 THE ONE ANSWER to 「may this app ASK about updates right now」 — a
+  /// weaker question than [selfUpdateUsable], and deliberately a separate
+  /// getter: an iOS notify-only build may ask (and light the dot) while it
+  /// may never install. The store probe does not gate this half: 「the store
+  /// updates this copy」 forbids US installing, not the user being told.
+  bool get checkUsable => selfUpdateUsable || notifyOnlyEnabled;
+
+  /// Whether the settings section renders its live half at all. False ⇒ the
+  /// card shows the honest static sentence (「this build has no in-app
+  /// updater」) instead of hiding — see self_update_flag.dart's header.
+  bool get updateSectionEnabled => selfUpdateEnabled || notifyOnlyEnabled;
 
   bool _loaded = false;
   bool _checking = false;
@@ -245,11 +266,14 @@ class UpdateController extends ChangeNotifier {
   /// scenario nobody has observed. This is a stated debt, not an oversight.
   Future<void> maybeAutoCheck() async {
     // Gate ② needs [load] to have run before it can answer, and this is the one
-    // entry point that may run before it — so ask the flag first (cheap, and it
+    // entry point that may run before it — so ask the flags first (cheap, and it
     // is the case where nothing exists at all), then load, then the pair.
-    if (!selfUpdateEnabled) return;
+    // 🔴 Both flags are consts folded through final fields (TFA): when neither
+    // build define is set, this line is where the whole chain goes dead and
+    // the marker string gets tree-shaken — the Android store gate depends on it.
+    if (!selfUpdateEnabled && !notifyOnlyEnabled) return;
     if (!_loaded) await load();
-    if (!selfUpdateUsable) return;
+    if (!checkUsable) return;
     if (!_autoCheck || !isStale) return;
     await checkNow();
   }
@@ -261,7 +285,7 @@ class UpdateController extends ChangeNotifier {
   /// not 「checking」. The UI in that state says 「auto-check is off」,
   /// **and never says 「already up to date」**.
   Future<void> checkNow() async {
-    if (!selfUpdateUsable || _checking) return;
+    if (!checkUsable || _checking) return;
     _checking = true;
     // A new check replaces [result], while the two segments' outcomes speak
     // about the **PREVIOUS** artifact. Keeping them around would let the

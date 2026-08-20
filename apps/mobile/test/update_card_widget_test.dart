@@ -47,12 +47,14 @@ Future<UpdateController> _rig({
   bool autoCheck = true,
   DateTime? lastSuccess,
   bool selfUpdateEnabled = true,
+  bool notifyOnlyEnabled = false,
   UpdateDownloader? downloader,
   UpdateInstallRunner? installer,
 }) async {
   final UpdateController c = newTestUpdateController(
     prefs: InMemoryUpdatePrefs(autoCheck: autoCheck, lastSuccess: lastSuccess),
     selfUpdateEnabled: selfUpdateEnabled,
+    notifyOnlyEnabled: notifyOnlyEnabled,
     // 🔴 Default **does not** supply a downloader: omitting it is the production
     // implementation, and the production implementation will hit path_provider's
     // platform channel. So tests that "tap the button" must say what they
@@ -317,6 +319,66 @@ void main() {
       expect(find.byKey(const ValueKey<String>('update.install')), findsNothing);
       expect(find.byType(ElevatedButton), findsNothing);
     });
+
+    testWidgets(
+      '🔴 the store channel (iOS notify-only): its own sentence, the store page, and no button at all',
+      (WidgetTester tester) async {
+        final UpdateController c = await _rig(
+          selfUpdateEnabled: false,
+          notifyOnlyEnabled: true,
+          result: UpdateCheckResult(
+            UpdateCheckOutcome.updateAvailable,
+            latestVersion: '9.9.9',
+            storeChannel: true,
+            storeUrl: 'https://testflight.apple.com/join/example',
+            notesUrl: 'https://github.com/flowmicapp/flowmic/releases/tag/v9.9.9',
+            comparedAt: DateTime.utc(2026, 8, 20, 9, 0),
+          ),
+        );
+        addTearDown(c.dispose);
+        await tester.pumpWidget(_host(c, AppLocale.zh));
+        await tester.pumpAndSettle();
+
+        final AppStrings s = AppStrings.of(AppLocale.zh);
+        expect(find.text(s.updateAvailableTitle('9.9.9')), findsOneWidget);
+        // The store sentence, NOT the 「download it from the address below」 one —
+        // that copy would point at a download address this channel never has.
+        expect(find.text(s.updateStoreChannelNote), findsOneWidget);
+        expect(find.text(s.updateKindUnknownNote), findsNothing);
+        // The page the user can walk to, visible and labelled.
+        expect(find.text(s.updateStoreUrlLabel), findsOneWidget);
+        expect(find.text('https://testflight.apple.com/join/example'), findsOneWidget);
+        // And structurally no install control, whatever the wire claims.
+        expect(find.byKey(const ValueKey<String>('update.install')), findsNothing);
+        expect(find.byType(FilledButton), findsNothing);
+        expectEverythingLegible(tester);
+      },
+    );
+
+    testWidgets(
+      'a store entry with no link yet still says the store sentence — never the download copy with no address',
+      (WidgetTester tester) async {
+        final UpdateController c = await _rig(
+          selfUpdateEnabled: false,
+          notifyOnlyEnabled: true,
+          result: const UpdateCheckResult(
+            UpdateCheckOutcome.updateAvailable,
+            latestVersion: '9.9.9',
+            storeChannel: true,
+            storeUrl: null,
+          ),
+        );
+        addTearDown(c.dispose);
+        await tester.pumpWidget(_host(c, AppLocale.zh));
+        await tester.pumpAndSettle();
+
+        final AppStrings s = AppStrings.of(AppLocale.zh);
+        expect(find.text(s.updateStoreChannelNote), findsOneWidget);
+        expect(find.text(s.updateKindUnknownNote), findsNothing);
+        expect(find.text(s.updateStoreUrlLabel), findsNothing);
+        expectEverythingLegible(tester);
+      },
+    );
 
     testWidgets('🔴 install-segment copy may appear only after the download segment has passed', (WidgetTester tester) async {
       // "Hash mismatch" and "you have not granted install permission" are opposite sentences. Talking about the install segment before download has passed is answering the user with something that never happened.

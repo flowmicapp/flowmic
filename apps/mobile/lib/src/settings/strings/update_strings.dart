@@ -104,6 +104,19 @@ mixin UpdateStrings on AppStringsLeaves {
 
   String get updateNotesUrlLabel => _lfUpdateNotesUrlLabel;
 
+  // ── the store-delivered channel (iOS, owner 2026-08-20) ───────────────────
+
+  /// Under 「version x is available」 when the verdict came from a
+  /// `store_platforms` entry: the update arrives through TestFlight / the App
+  /// Store, and this app downloads nothing itself. A different sentence from
+  /// [updateKindUnknownNote] on purpose — that one promises 「download it from
+  /// the address below」, which on this channel would point at an address that
+  /// does not exist.
+  String get updateStoreChannelNote => _lfUpdateStoreChannelNote;
+
+  /// Label for the store-page link row (TestFlight invite / store listing).
+  String get updateStoreUrlLabel => _lfUpdateStoreUrlLabel;
+
   String get updateCopyLink =>
       _lfUpdateCopyLink;
 

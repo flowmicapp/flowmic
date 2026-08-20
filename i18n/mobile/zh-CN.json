@@ -707,6 +707,8 @@
     "updateNotBundledTitle": "'此版本不带应用内更新'",
     "updateNotesUrlLabel": "'更新说明'",
     "updateOwnVersionUnknown": "'读不到本机的版本号，无法判断是否需要更新。'",
+    "updateStoreChannelNote": "'这台设备的新版本经由 TestFlight 或 App Store 发布——请前往那里更新，应用内不会下载安装包。'",
+    "updateStoreUrlLabel": "'更新页面'",
     "updateUnavailable": "'服务器暂时无法提供更新信息，请稍后再试。'",
     "updateUnreachable": "'联系不上更新服务器，请检查网络后重试。'",
     "updateUpToDate": "'已是最新（$v）'",

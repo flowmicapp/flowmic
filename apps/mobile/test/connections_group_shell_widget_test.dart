@@ -69,7 +69,13 @@ MobileSession _row({
   pcMachineUid: pcMachineUid,
 );
 
-Future<Widget> _rig(List<MobileSession> seed) async {
+Future<Widget> _rig(
+  List<MobileSession> seed, {
+  // The update-dot inputs. Defaults are the quiet resting state (no update
+  // known, nothing ever notifies) — tests ABOUT the dot pass their own.
+  Listenable? updateListenable,
+  bool Function()? hasUpdate,
+}) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final AppSettingsController appSettings = AppSettingsController(prefs: prefs);
@@ -100,6 +106,8 @@ Future<Widget> _rig(List<MobileSession> seed) async {
       chatPageBuilder: () => const Scaffold(body: Text('CHAT')),
       settingsPageBuilder: () => const Scaffold(body: Text('SETTINGS')),
       historyPageBuilder: () => const Scaffold(body: Text('HISTORY')),
+      updateListenable: updateListenable ?? ValueNotifier<bool>(false),
+      hasUpdate: hasUpdate ?? () => false,
     ),
   );
 }
@@ -293,5 +301,53 @@ void main() {
     expect(find.byKey(machineGroupShellKey('')), findsNothing);
     expect(find.byKey(shellKey), findsNothing);
     expect(find.text('Studio PC'), findsNWidgets(2));
+  });
+
+  // ── the ⚙ update dot — UP-2's second render site (iPad finding 2026-08-20) ──
+  //
+  // A fresh unpaired install lives on THIS page and never reaches the chat
+  // gear, so the reminder had no surface at all: the check chain was alive on
+  // the real iPad (manifest GET landed), and nothing anywhere could say so.
+  // Same getter as the chat dot, one more render site — and because this page
+  // is built ONCE as the home layer's `child:`, the dot carries its own
+  // subscription. That subscription is the part that can silently rot, so the
+  // flip test below drives it through a real notify.
+
+  testWidgets('the ⚙ carries the update dot when an update is known', (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(await _rig(<MobileSession>[], hasUpdate: () => true));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('connections.settings.updateDot')), findsOneWidget);
+  });
+
+  testWidgets('no update known ⇒ no dot (the resting default)', (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(await _rig(<MobileSession>[]));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('connections.settings.updateDot')), findsNothing);
+  });
+
+  testWidgets('🔴 a check completing AFTER this page was built lights the dot — the subscription is real',
+      (WidgetTester tester) async {
+    // The exact real-device sequence: the page paints first, the verdict lands
+    // later. Without the ListenableBuilder this stays dark forever (this page
+    // is never rebuilt by its parent) — which is precisely what shipping a
+    // plain bool here would regress to.
+    await tester.binding.setSurfaceSize(const Size(400, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final ValueNotifier<bool> update = ValueNotifier<bool>(false);
+    await tester.pumpWidget(await _rig(
+      <MobileSession>[],
+      updateListenable: update,
+      hasUpdate: () => update.value,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('connections.settings.updateDot')), findsNothing);
+
+    update.value = true; // the verdict arrives
+    await tester.pump();
+    expect(find.byKey(const ValueKey<String>('connections.settings.updateDot')), findsOneWidget);
   });
 }

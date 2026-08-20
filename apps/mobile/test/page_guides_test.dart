@@ -110,6 +110,8 @@ Future<Widget> _rig(FakeSocketTransport t, {AppLocale locale = AppLocale.zh}) as
       chatPageBuilder: () => const Scaffold(body: Text('CHAT')),
       settingsPageBuilder: () => const Scaffold(body: Text('SETTINGS')),
       historyPageBuilder: () => const Scaffold(body: Text('HISTORY')),
+      updateListenable: ValueNotifier<bool>(false),
+      hasUpdate: () => false,
     ),
   );
 }

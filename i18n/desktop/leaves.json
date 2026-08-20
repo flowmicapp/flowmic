@@ -3691,6 +3691,24 @@
       "name": "model_state_unknown"
     },
     {
+      "key": "model_state_connecting",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_state_connecting"
+    },
+    {
+      "key": "model_connecting_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_connecting_note"
+    },
+    {
+      "key": "model_answered_badly",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_answered_badly"
+    },
+    {
       "key": "model_unreachable",
       "shard": "model",
       "kind": "string",
@@ -3839,18 +3857,6 @@
       "shard": "model",
       "kind": "string",
       "name": "model_failed_next"
-    },
-    {
-      "key": "model_adv",
-      "shard": "model",
-      "kind": "string",
-      "name": "model_adv"
-    },
-    {
-      "key": "model_adv_body",
-      "shard": "model",
-      "kind": "string",
-      "name": "model_adv_body"
     },
     {
       "key": "model_notice_title",

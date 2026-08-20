@@ -16,7 +16,7 @@
 import 'package:flowmic/src/update/update_check.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'update_manifest_test.dart' show kGoodSha, manifestJson;
+import 'update_manifest_test.dart' show kGoodSha, manifestJson, storeTrailer;
 
 /// A fake fetcher that records what it was asked.
 class _Fetcher {
@@ -280,6 +280,62 @@ void main() {
           reason: '${r.outcome} must not refresh "last successful check" — it compared nothing',
         );
       }
+    });
+  });
+
+  group('the store-delivered channel (iOS reads store_platforms)', () {
+    Future<UpdateCheckResult> checkIos(String body, {String? mine = '0.3.11'}) =>
+        checkForUpdate(
+          currentVersion: mine,
+          endpoint: 'https://flowmic.app',
+          platform: 'ios', // the contract literal, not kUpdatePlatformIos — either side moving must go red
+          fetcher: _Fetcher(200, body).call,
+          now: () => DateTime.utc(2026, 8, 20, 9, 0),
+        );
+
+    test('🔴 a newer store version ⇒ updateAvailable, storeChannel, the store page — and NOTHING installable', () async {
+      final UpdateCheckResult r = await checkIos(manifestJson(trailer: storeTrailer(iosVersion: '9.9.9')));
+      expect(r.outcome, UpdateCheckOutcome.updateAvailable);
+      expect(r.storeChannel, isTrue);
+      expect(r.latestVersion, '9.9.9');
+      expect(r.storeUrl, 'https://testflight.apple.com/join/example');
+      // The two fields the install chain keys on stay null BY CONSTRUCTION:
+      // a store-channel answer must be structurally unable to grow a
+      // download button.
+      expect(r.installable, isNull);
+      expect(r.downloadUrl, isNull);
+      expect(r.didCompare, isTrue);
+    });
+
+    test('an equal store version ⇒ up to date, with the credential', () async {
+      final UpdateCheckResult r = await checkIos(manifestJson(trailer: storeTrailer(iosVersion: '0.3.11')));
+      expect(r.outcome, UpdateCheckOutcome.upToDate);
+      expect(r.storeChannel, isFalse);
+      expect(r.didCompare, isTrue);
+    });
+
+    test('🔴 a manifest with no store block (an OLD deployed server strips it) ⇒ "incomplete", never "up to date"', () async {
+      // The deployed 0.3.11 relay validator rebuilds the manifest from the keys
+      // it knows, so an iOS phone asking it lands exactly here until the relay
+      // is redeployed. The honest answer is 「this deployment doesn't mention my
+      // platform」 — degrading to the status quo, claiming nothing.
+      final UpdateCheckResult r = await checkIos(manifestJson());
+      expect(r.outcome, UpdateCheckOutcome.incompleteInfo);
+      expect(r.detail, 'platform_absent');
+      expect(r.didCompare, isFalse);
+    });
+
+    test('android is untouched by the block\'s presence (additive safety, asserted on the wire shape)', () async {
+      final UpdateCheckResult r = await checkForUpdate(
+        currentVersion: '0.3.11',
+        endpoint: 'https://flowmic.app',
+        platform: 'android',
+        fetcher: _Fetcher(200, manifestJson(trailer: storeTrailer())).call,
+        now: () => DateTime.utc(2026, 8, 20, 9, 0),
+      );
+      expect(r.outcome, UpdateCheckOutcome.updateAvailable);
+      expect(r.storeChannel, isFalse);
+      expect(r.installable, isNotNull);
     });
   });
 }

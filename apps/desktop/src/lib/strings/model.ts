@@ -9,10 +9,10 @@
 // ① NO ENVIRONMENT-VARIABLE NAME IN BODY COPY. Until today the ONLY way to get
 //    the model was to set one, and the sentence the user met — at the worst
 //    possible moment, having just held the button and spoken — was a developer
-//    line with a filesystem path and a flag in it. The name is not deleted (it
-//    is still the right answer for a machine nobody is sitting at), it is
-//    demoted: it lives in `model_adv_body`, inside a fold, and nowhere else.
-//    `model_adv_body` is the ONE key in this shard allowed to contain it.
+//    line with a filesystem path and a flag in it. First it was demoted into
+//    a fold (`model_adv_body`); owner 2026-08-20 then removed it from this
+//    surface ENTIRELY — env-var names and parameter instructions are operator
+//    documentation, not product copy. No key in this shard may contain one.
 //
 // ② NO SIZE BAKED INTO A SENTENCE. The figure comes from the snapshot's
 //    `bytes_total` at render time (see lib/model-status.ts formatMbCoarse), so
@@ -45,9 +45,9 @@
 //        reads as automatic. It now names who asks.
 //      · `model_notice_body` said 「It is downloaded once」 — same passive.
 //      · `model_adv_body` said the service fetches it 「on its own」, which is
-//        the literal phrase the disclosure denies. It now describes the
-//        environment variable as THAT SAME CONSENT GIVEN IN ADVANCE, and says
-//        what happens without it.
+//        the literal phrase the disclosure denies. (The key itself was removed
+//        on 2026-08-20 — see the note in the list below — so this row is
+//        history, kept because the lesson about agentless phrasing stands.)
 //    ⚠️ The rule for the next sentence added here: a user reads these screens in
 //    one sitting, and 「true under its own reading」 is not the bar — two
 //    surfaces of one product may not appear to disagree about whether we
@@ -82,11 +82,24 @@ export const MODEL_KEYS = [
   'model_state_downloading',
   'model_state_failed',
   // A SIXTH word, and it is not a state of the model — it is the state of our
-  // knowledge (the local service did not answer). `asAccessibilityStatus`'s rule
-  // in this shard's terms: 「不知道」 and 「没有」 must never share a face, since
-  // one of them has a Download button under it and the other must not.
+  // knowledge (we asked and could not get an answer). `asAccessibilityStatus`'s
+  // rule in this shard's terms: 「不知道」 and 「没有」 must never share a face,
+  // since one of them has a Download button under it and the other must not.
   'model_state_unknown',
+  // A SEVENTH, split out of 「unknown」 after the owner's 2026-08-20 report:
+  // the launch seconds before the local service has an endpoint are not a
+  // failure and must not wear one's face — 「connecting」 is quiet, expected,
+  // and resolves by itself (the sidecar-ready edge re-asks the moment it can).
+  'model_state_connecting',
+  'model_connecting_note',
+  // Two DIFFERENT failure sentences, because the reader's next move differs:
+  // `unreachable` = nobody answered (try again / restart the app);
+  // `answered_badly` = something answered and we could not use the answer
+  // (usually a version mismatch after an update — restarting re-pairs the two
+  // halves). The first version printed 「没有应答」 for both, which is false
+  // for the second — a 404 IS an answer.
   'model_unreachable',
+  'model_answered_badly',
   // What `ready` actually certifies — and, in the second sentence, what it does
   // NOT (§3's closing warning: the files being right is not the engine loading).
   // The two halves are one key because a reader who gets only the first half
@@ -143,10 +156,12 @@ export const MODEL_KEYS = [
   // directory. Body copy stays human; nothing is thrown away.
   'model_detail',
   'model_failed_next',
-  // ① above — the ONLY key in this shard that may name the environment
-  // variable, and it is inside a fold labelled for the case it serves.
-  'model_adv',
-  'model_adv_body',
+  // 「model_adv」/「model_adv_body」 (the unattended-machines fold naming the
+  // environment variable) were REMOVED here on owner's 2026-08-20 ruling:
+  // no env-var names, no parameter-configuration instructions on a user
+  // surface, period. The headless auto-download path still exists server-side
+  // (settings/defaults.ts documents it for operators); this surface just no
+  // longer teaches it.
   // ── §5-B, the main-window notice ──────────────────────────────────────────
   // 🔴 It is NOT a modal and its copy has to earn that: one sentence of what is
   // true, one of why, one action, one dismissal. Anything longer would be a

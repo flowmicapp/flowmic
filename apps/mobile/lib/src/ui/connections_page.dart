@@ -70,6 +70,8 @@ class ConnectionsPage extends StatefulWidget {
     required this.chatPageBuilder,
     required this.settingsPageBuilder,
     required this.historyPageBuilder,
+    required this.updateListenable,
+    required this.hasUpdate,
   });
 
   final ConnectionsController connections;
@@ -89,6 +91,22 @@ class ConnectionsPage extends StatefulWidget {
   /// list. Supplied by the composition root for the same reason as the chat
   /// builder: this page owns navigation, not wiring.
   final Widget Function() historyPageBuilder;
+
+  /// 「there is a new version」 — the SAME getter the chat header's gear dot
+  /// reads (`UpdateController.hasUpdate`): one owner, one more render site.
+  ///
+  /// 🔴 Why this page takes a LISTENABLE + getter while ChatFlowPage takes a
+  /// plain bool: the chat page rebuilds under the composition root's merged
+  /// ListenableBuilder; THIS page is that layer's `child:` — built once and
+  /// never rebuilt by it. A plain bool here would be painted at startup and
+  /// stay stale forever.
+  ///
+  /// Real-device origin (iPad, 2026-08-20): a fresh unpaired install lives on
+  /// THIS page and never reaches the chat gear — the update reminder had no
+  /// surface at all until this dot. The check chain was alive the whole time;
+  /// what was missing was a place to say it.
+  final Listenable updateListenable;
+  final bool Function() hasUpdate;
 
   @override
   State<ConnectionsPage> createState() => _ConnectionsPageState();
@@ -433,9 +451,36 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
             MaterialPageRoute<void>(builder: (_) => widget.settingsPageBuilder()),
           ),
           borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.settings_outlined, size: 18, color: FlowMicColors.t2),
+          // The update dot — same 7×7, same color, same zero-width overlay as
+          // the chat header's (chat_header.dart), keyed apart so a test can
+          // name which surface it found it on. Wrapped in its own
+          // ListenableBuilder because this page is built once — see the
+          // [updateListenable] doc.
+          child: ListenableBuilder(
+            listenable: widget.updateListenable,
+            builder: (BuildContext context, _) => Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(Icons.settings_outlined, size: 18, color: FlowMicColors.t2),
+                ),
+                if (widget.hasUpdate())
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      key: const ValueKey<String>('connections.settings.updateDot'),
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: FlowMicColors.brand,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ],

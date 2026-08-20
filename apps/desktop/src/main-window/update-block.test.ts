@@ -331,11 +331,40 @@ describe('the update block’s render chain', () => {
       "from './UpdateBlock.vue'",
     );
 
+    // …and since UP-3c the container owns no IO either: state and commands
+    // live in update-store.ts (whose literal the next test pins), because the
+    // sidenav badge reads the same state and two `update_state` askers would
+    // be two independently-updated answers to one question.
+    expect(card, 'UpdateCard must read the app-scope store').toContain("from '../update-store'");
+    expect(card, 'UpdateCard must not talk to Rust itself').not.toContain('invokeSafe');
+    expect(card, 'UpdateCard must not subscribe to events itself').not.toContain(
+      '@tauri-apps/api/event',
+    );
+
     // …and the presentational half owns no IO of its own: if it ever invoked a
     // command, the split would have quietly stopped being a split.
     const block = read('./components/UpdateBlock.vue');
     expect(block, 'UpdateBlock must not talk to Rust').not.toContain('invokeSafe');
     expect(block, 'UpdateBlock must not subscribe to events').not.toContain('@tauri-apps/api/event');
+  });
+
+  /**
+   * 🔴 The main window boots the store and renders the badge from it.
+   *
+   * Read as DATA for the same reason as the chain above: without these two
+   * lines the store is a module nobody calls and the badge is a design-doc
+   * sentence — the repo's founding façade shape ("capability defined, no
+   * production caller"). Deleting either wire turns this red.
+   */
+  it('🔴 App.vue boots the store and the sidenav badge reads its boolean', () => {
+    const app = read('./App.vue');
+    expect(app, 'App.vue must boot the app-scope store').toContain('initUpdateStore()');
+    expect(app, 'the badge renders only while an update is known').toContain(
+      'v-if="updateAvailable"',
+    );
+    expect(app, 'the badge is the designed dot, on the settings nav item').toContain(
+      'nav-update-dot',
+    );
   });
 
   /**
@@ -347,9 +376,11 @@ describe('the update block’s render chain', () => {
    * latest FlowMic」, which is a different question (design §1.1).
    */
   it('🔴 the check is issued against UPDATE_MANIFEST_BASE, not a cloud endpoint', () => {
-    const card = read('./components/UpdateCard.vue');
-    expect(card).toContain("pull('update_check', { base: UPDATE_MANIFEST_BASE })");
-    expect(card).not.toContain('CloudConfig');
-    expect(card).not.toContain('cloud_status');
+    // UP-3c moved the IO out of the card, so the guard follows it: the store is
+    // now the ONE place `update_check` is issued from.
+    const store = read('./update-store.ts');
+    expect(store).toContain("updatePull('update_check', { base: UPDATE_MANIFEST_BASE })");
+    expect(store).not.toContain('CloudConfig');
+    expect(store).not.toContain('cloud_status');
   });
 });

@@ -763,6 +763,8 @@
     "updateNotBundledTitle": "'このビルドはアプリ内更新に対応していません'",
     "updateNotesUrlLabel": "'更新内容'",
     "updateOwnVersionUnknown": "'このアプリ自身のバージョンを読み取れないため、更新が必要かどうか判断できません。'",
+    "updateStoreChannelNote": "'この端末の新しいバージョンは TestFlight または App Store から配信されます——更新はそちらで行ってください。アプリ内でインストーラーをダウンロードすることはありません。'",
+    "updateStoreUrlLabel": "'更新ページ'",
     "updateUnavailable": "'サーバーが一時的に更新情報を提供できません。しばらくしてからお試しください。'",
     "updateUnreachable": "'更新サーバーに接続できません。ネットワークを確認して再試行してください。'",
     "updateUpToDate": "'最新です（$v）'",

@@ -1,11 +1,11 @@
 {
-  "total": 703,
+  "total": 705,
   "generated": "scripts/i18n/gen-mobile-dart.mjs",
   "locales": [
     {
       "code": "en",
       "endonym": "English",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -13,7 +13,7 @@
     {
       "code": "zh-CN",
       "endonym": "中文",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -21,7 +21,7 @@
     {
       "code": "zh-TW",
       "endonym": "繁體中文",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -29,7 +29,7 @@
     {
       "code": "fr",
       "endonym": "Français",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -37,7 +37,7 @@
     {
       "code": "es",
       "endonym": "Español",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -45,7 +45,7 @@
     {
       "code": "de",
       "endonym": "Deutsch",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -53,7 +53,7 @@
     {
       "code": "ja",
       "endonym": "日本語",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -61,7 +61,7 @@
     {
       "code": "ko",
       "endonym": "한국어",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true
@@ -69,7 +69,7 @@
     {
       "code": "ru",
       "endonym": "Русский",
-      "translated": 703,
+      "translated": 705,
       "inheritsBase": 0,
       "percent": 100,
       "inApp": true

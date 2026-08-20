@@ -122,6 +122,26 @@ export interface UpdatePlatform {
   artifacts: UpdateArtifact[];
 }
 
+/** A platform whose updates a STORE delivers (TestFlight / an app store), so
+ *  the manifest only carries the news, never a downloadable artifact.
+ *
+ *  🔴 WHY THIS IS A SEPARATE TOP-LEVEL BLOCK and not an artifact-less entry in
+ *  `platforms`: every fielded client (mobile ≤0.3.11 mirrors this validator
+ *  line for line) rejects the WHOLE manifest on `empty_artifacts` — an ios
+ *  entry with `artifacts: []` would blind every phone already in the field.
+ *  An unknown top-level key, by contrast, is ignored by every old validator
+ *  (this one rebuilds the object from known fields, so an old SERVER strips
+ *  the block rather than choking on it — the client's own honest slot for
+ *  that is 「this deployment doesn't mention my platform」). Additive-field
+ *  first is the protocol law; this is that law applied to the manifest. */
+export interface UpdateStorePlatform {
+  version: string;
+  notes_url: string | null;
+  /** The store page a user can walk to (TestFlight invite / store listing).
+   *  Optional: the news is real even while nobody has minted the link yet. */
+  store_url: string | null;
+}
+
 export interface UpdateManifest {
   manifest_version: 1;
   generated_at: string;
@@ -129,6 +149,11 @@ export interface UpdateManifest {
    *  one (release-three-phases §3), so adding `macos-arm64` must be additive,
    *  not a structural change. */
   platforms: Record<string, UpdatePlatform>;
+  /** Optional — see UpdateStorePlatform. Absent and `{}` mean the same thing
+   *  (no store-delivered platform is being announced), and the served JSON
+   *  omits the key when the file omits it, so pre-existing manifests stay
+   *  byte-for-byte what they were. */
+  store_platforms?: Record<string, UpdateStorePlatform>;
 }
 
 export type ManifestVerdict =
@@ -216,7 +241,42 @@ export function validateUpdateManifest(raw: unknown): ManifestVerdict {
     }
     platforms[key] = { version: p.version, notes_url: p.notes_url, artifacts };
   }
-  return { ok: true, manifest: { manifest_version: 1, generated_at: raw.generated_at, platforms } };
+
+  // The optional store block. Same posture as everything above — reject, never
+  // patch — because a store entry with a mangled version would make a phone
+  // compare against garbage and say something it cannot back.
+  let storePlatforms: Record<string, UpdateStorePlatform> | undefined;
+  if (raw.store_platforms !== undefined && raw.store_platforms !== null) {
+    if (!isObject(raw.store_platforms)) return { ok: false, reason: 'bad_store_platforms' };
+    storePlatforms = {};
+    for (const key of Object.keys(raw.store_platforms)) {
+      if (!PLATFORM_RE.test(key)) return { ok: false, reason: `bad_store_platform_key:${key}` };
+      const p = (raw.store_platforms as Record<string, unknown>)[key];
+      if (!isObject(p)) return { ok: false, reason: `bad_store_platform:${key}` };
+      if (typeof p.version !== 'string' || !VERSION_RE.test(p.version)) {
+        return { ok: false, reason: `bad_store_version:${key}` };
+      }
+      if (p.notes_url !== null && (typeof p.notes_url !== 'string' || !isHttpUrl(p.notes_url))) {
+        return { ok: false, reason: `bad_store_notes_url:${key}` };
+      }
+      if (p.store_url !== null && (typeof p.store_url !== 'string' || !isHttpUrl(p.store_url))) {
+        return { ok: false, reason: `bad_store_url:${key}` };
+      }
+      storePlatforms[key] = { version: p.version, notes_url: p.notes_url, store_url: p.store_url };
+    }
+  }
+
+  return {
+    ok: true,
+    manifest: {
+      manifest_version: 1,
+      generated_at: raw.generated_at,
+      platforms,
+      // Only present when the file carries it: JSON.stringify drops an
+      // undefined field, so old manifests keep serving unchanged bytes.
+      ...(storePlatforms !== undefined ? { store_platforms: storePlatforms } : {}),
+    },
+  };
 }
 
 /** Absolute http(s) URL, no other scheme accepted.

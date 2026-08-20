@@ -203,6 +203,60 @@ describe('validateUpdateManifest — shape contract', () => {
       expect(v.reason).not.toMatch(/etc|Users|AppData/i);
     }
   });
+
+  // ── store_platforms — the additive block for store-delivered platforms ─────
+  // Why it exists at all (and why ios is NOT an artifact-less `platforms`
+  // entry): every fielded client rejects the whole manifest on
+  // `empty_artifacts`, so the ios announcement must ride a key old validators
+  // never read. See UpdateStorePlatform's doc in update-routes.ts.
+
+  it('store_platforms: a valid ios entry passes and is carried through', () => {
+    const m = goodManifest();
+    m.store_platforms = {
+      ios: {
+        version: '0.3.12',
+        notes_url: 'https://github.com/flowmicapp/flowmic/releases/tag/v0.3.12',
+        store_url: 'https://testflight.apple.com/join/example',
+      },
+    };
+    const v = validateUpdateManifest(m);
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(must(v.manifest.store_platforms?.ios, 'store ios').version).toBe('0.3.12');
+    }
+  });
+
+  it('🔴 a manifest WITHOUT store_platforms serves without the key — old files stay byte-identical', () => {
+    const v = validateUpdateManifest(goodManifest());
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      // The property must be genuinely ABSENT (JSON.stringify drops undefined),
+      // not present-as-empty: `"store_platforms":{}` would be a new byte in
+      // every previously published manifest.
+      expect('store_platforms' in v.manifest).toBe(false);
+    }
+  });
+
+  it('🔴 a mangled store version rejects the whole manifest — a phone must never compare against garbage', () => {
+    const m = goodManifest();
+    m.store_platforms = { ios: { version: 'v0.3.12', notes_url: null, store_url: null } };
+    const v = validateUpdateManifest(m);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toBe('bad_store_version:ios');
+    // Positive control: the same entry with a legal version passes.
+    m.store_platforms = { ios: { version: '0.3.12', notes_url: null, store_url: null } };
+    expect(validateUpdateManifest(m).ok).toBe(true);
+  });
+
+  it('store_url takes http(s) only — `itms-services:` and friends die at the boundary', () => {
+    const m = goodManifest();
+    m.store_platforms = {
+      ios: { version: '0.3.12', notes_url: null, store_url: 'itms-services://?action=x' },
+    };
+    const v = validateUpdateManifest(m);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toBe('bad_store_url:ios');
+  });
 });
 
 // ── route layer ──────────────────────────────────────────────────────────────

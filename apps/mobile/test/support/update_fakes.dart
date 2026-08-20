@@ -46,6 +46,9 @@ UpdateController newTestUpdateController({
   UpdateDownloader? downloader,
   UpdateInstallRunner? installer,
   bool selfUpdateEnabled = true,
+  /// The iOS notify-only flag. Default false — the production default on every
+  /// platform the test host can be.
+  bool notifyOnlyEnabled = false,
   DateTime Function()? now,
   /// Gate ② (update/install_source.dart). Default answers 「not a store」, which
   /// is what the production probe also answers off-device (no platform channel
@@ -56,6 +59,7 @@ UpdateController newTestUpdateController({
   version: version ?? const _NullVersion(),
   prefs: prefs ?? InMemoryUpdatePrefs(),
   selfUpdateEnabled: selfUpdateEnabled,
+  notifyOnlyEnabled: notifyOnlyEnabled,
   storeProbe: storeProbe ?? (() async => false),
   now: now ?? DateTime.now,
   downloader: downloader,

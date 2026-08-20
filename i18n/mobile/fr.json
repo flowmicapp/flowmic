@@ -798,6 +798,12 @@
       "'Cette app ne peut pas lire sa propre version, elle ne peut donc pas dire si une '",
       "'mise à jour est nécessaire.'"
     ],
+    "updateStoreChannelNote": [
+      "\"Les nouvelles versions pour cet appareil arrivent via TestFlight ou \"",
+      "\"l'App Store — mettez à jour là-bas ; l'application ne télécharge pas \"",
+      "\"d'installateur elle-même.\""
+    ],
+    "updateStoreUrlLabel": "'Page de mise à jour'",
     "updateUnavailable": [
       "'Le serveur ne peut pas fournir d\\'informations de mise à jour pour l\\'instant. Réessayez '",
       "'plus tard.'"

@@ -444,6 +444,53 @@ export function mergeLivePlatforms({ platforms, liveManifest }) {
   return { retained, keptLiveNewer, superseded };
 }
 
+/**
+ * Ruling ①'s rule applied to the OPTIONAL `store_platforms` block (iOS —
+ * platforms whose updates a store delivers, so the manifest carries news, not
+ * artifacts; the contract's owner is update-routes.ts `UpdateStorePlatform`).
+ *
+ * Same three-way outcome as mergeLivePlatforms: an entry absent from this
+ * round keeps its live copy verbatim, and where both exist the higher version
+ * wins. A live entry the merge cannot READ lands in `unreadable` — the caller
+ * must refuse the round, because both silently dropping it (a fielded iOS
+ * announcement vanishes) and silently copying it (garbage is re-published
+ * with this round's signature on it) are the shapes ruling ① exists to end.
+ *
+ * @returns {{retained: {platform:string, version:string}[],
+ *            keptLiveNewer: {platform:string, live:string, built:string}[],
+ *            superseded: {platform:string, from:string, to:string}[],
+ *            unreadable: string[]}}
+ */
+export function mergeLiveStorePlatforms({ storePlatforms, liveManifest }) {
+  const retained = [];
+  const keptLiveNewer = [];
+  const superseded = [];
+  const unreadable = [];
+  const live = liveManifest?.store_platforms;
+  if (!isObject(live)) return { retained, keptLiveNewer, superseded, unreadable };
+  for (const [key, liveEntry] of Object.entries(live)) {
+    if (
+      !isObject(liveEntry) ||
+      typeof liveEntry.version !== 'string' ||
+      !VERSION_RE.test(liveEntry.version)
+    ) {
+      unreadable.push(key);
+      continue;
+    }
+    const built = storePlatforms[key];
+    if (!built) {
+      storePlatforms[key] = liveEntry;
+      retained.push({ platform: key, version: liveEntry.version });
+    } else if (compareVersions(liveEntry.version, built.version) > 0) {
+      storePlatforms[key] = liveEntry;
+      keptLiveNewer.push({ platform: key, live: liveEntry.version, built: built.version });
+    } else {
+      superseded.push({ platform: key, from: liveEntry.version, to: built.version });
+    }
+  }
+  return { retained, keptLiveNewer, superseded, unreadable };
+}
+
 // ── the ①-companion gate: does the live face advertise this round ───────────
 
 /**

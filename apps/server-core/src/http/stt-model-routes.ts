@@ -102,7 +102,45 @@ export function tryHandleSttModelRoutes(
     return true;
   }
 
+  // ── CORS, for the ONE browser these routes serve ──────────────────────────
+  //
+  // The settings card fetches these routes from the app's own WebView, and a
+  // WebView is a browser: its origin (http://tauri.localhost on Windows,
+  // tauri://localhost on macOS) is cross-origin to 127.0.0.1:PORT, so without
+  // these headers the browser discards the answer and the card reads
+  // 「Failed to fetch」 forever. That is not a hypothesis: measured live on
+  // 0.3.13 (owner report 2026-08-20) — the server answered `state:"ready"`
+  // in full while the card showed 「未知」, because the response carried no
+  // access-control-allow-origin and the preflight OPTIONS got this 405.
+  //
+  // 🔴 An ALLOW-LIST echo, deliberately not `*`: these are loopback routes,
+  // and `*` would let any web page open in the user's ordinary browser read
+  // this state and POST a 228 MB download by fetching 127.0.0.1 (drive-by
+  // localhost probing). A page that is not our WebView gets no CORS header
+  // and stays blocked, exactly as today.
+  const origin = req.headers.origin;
+  const webviewOrigin =
+    typeof origin === 'string' && /^(https?:\/\/tauri\.localhost|tauri:\/\/localhost)$/.test(origin)
+      ? origin
+      : null;
+  if (webviewOrigin !== null) {
+    res.setHeader('access-control-allow-origin', webviewOrigin);
+    res.setHeader('vary', 'origin');
+  }
+
   const method = req.method ?? 'GET';
+  // The preflight. The card's fetch is shaped to be a simple request (no
+  // custom headers — see model-client.ts call()), so in the healthy world no
+  // preflight arrives; this branch exists so that a header added in some
+  // future refactor degrades to a working preflight instead of resurrecting
+  // the silent 405 this comment's incident note describes.
+  if (method === 'OPTIONS') {
+    res.setHeader('access-control-allow-methods', 'GET, POST');
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
   const wanted = url === STT_MODEL_STATUS_PATH ? 'GET' : 'POST';
   if (method !== wanted) {
     sendJson(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED', message: `${url} answers ${wanted}` });

@@ -763,6 +763,8 @@
     "updateNotBundledTitle": "'이 빌드에는 인앱 업데이트가 없습니다'",
     "updateNotesUrlLabel": "'릴리스 노트'",
     "updateOwnVersionUnknown": "'앱 자체의 버전을 읽을 수 없어 업데이트가 필요한지 판단할 수 없습니다.'",
+    "updateStoreChannelNote": "'이 기기의 새 버전은 TestFlight 또는 App Store를 통해 배포됩니다 — 업데이트는 그곳에서 진행하세요. 앱 안에서 설치 파일을 내려받지 않습니다.'",
+    "updateStoreUrlLabel": "'업데이트 페이지'",
     "updateUnavailable": "'서버가 일시적으로 업데이트 정보를 제공할 수 없습니다. 잠시 후 다시 시도해 주세요.'",
     "updateUnreachable": "'업데이트 서버에 연결할 수 없습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.'",
     "updateUpToDate": "'최신 상태입니다($v)'",

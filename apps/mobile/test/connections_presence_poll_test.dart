@@ -121,6 +121,8 @@ Future<({Widget app, _CountingPresence presence})> _rig() async {
         chatPageBuilder: () => const Scaffold(body: Text('CHAT')),
         settingsPageBuilder: () => const Scaffold(body: Text('SETTINGS')),
         historyPageBuilder: () => const Scaffold(body: Text('HISTORY')),
+        updateListenable: ValueNotifier<bool>(false),
+        hasUpdate: () => false,
       ),
     ),
     presence: presence,

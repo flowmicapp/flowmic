@@ -43,15 +43,23 @@ import {
 
 const snap = computed(() => modelStore.snapshot);
 
-/** The six faces. `null` snapshot ⇒ we have never had an answer ⇒ Unknown.
+/** The SEVEN faces. `null` snapshot splits by what we know about the asking:
+ *  never been ABLE to ask (reach `unknown`) ⇒ `connecting` — the ordinary
+ *  first seconds of every launch, worth zero alarm; asked and failed ⇒
+ *  `unknown` — the honest 「can't say」, with the orange line underneath
+ *  saying which kind of failure it was. Collapsing those two was the owner's
+ *  2026-08-20 report: every cold start opened on 「没有应答」 in orange.
  *
  *  🔴 A snapshot we DID get is kept on screen even when the latest poll failed,
  *  with `stale` saying so beside it. Blanking a download that is 60 % through
  *  because one loopback GET missed would be the worse lie of the two: the
  *  download is almost certainly still running, and the reader would watch the
  *  product forget. */
-const face = computed(() => snap.value?.state ?? 'unknown');
+const face = computed(
+  () => snap.value?.state ?? (modelStore.reach === 'unknown' ? 'connecting' : 'unknown'),
+);
 const stale = computed(() => modelStore.reach === 'unreachable');
+const answeredBadly = computed(() => modelStore.reach === 'answered_unusable');
 
 const STATE_LABEL = computed<Record<string, string>>(() => ({
   ready: S.model_state_ready,
@@ -60,6 +68,7 @@ const STATE_LABEL = computed<Record<string, string>>(() => ({
   downloading: S.model_state_downloading,
   failed: S.model_state_failed,
   unknown: S.model_state_unknown,
+  connecting: S.model_state_connecting,
 }));
 
 // ── the quantity (§2-4) ─────────────────────────────────────────────────────
@@ -157,7 +166,12 @@ const busy = computed(() => modelStore.busy);
       <span v-if="snap && snap.model_id" class="mono mid">{{ snap.model_id }}</span>
     </div>
 
-    <p v-if="stale" class="sub warn">{{ S.model_unreachable }}</p>
+    <!-- The reading's health, one line, three different sentences — because the
+         reader's next move differs. `connecting` is deliberately NOT amber:
+         it is the ordinary launch second, not a problem to react to. -->
+    <p v-if="face === 'connecting'" class="sub">{{ S.model_connecting_note }}</p>
+    <p v-else-if="stale" class="sub warn">{{ S.model_unreachable }}</p>
+    <p v-else-if="answeredBadly" class="sub warn">{{ S.model_answered_badly }}</p>
 
     <!-- ready — what the verdict does and does not certify (§3). -->
     <p v-if="face === 'ready'" class="sub">{{ S.model_verified }}</p>
@@ -228,19 +242,22 @@ const busy = computed(() => modelStore.busy);
     <p v-if="copyFailed" class="sub warn">{{ S.model_copy_failed }}</p>
 
     <!-- The machine truth, kept and folded rather than dropped: the whole point
-         of replacing the developer sentence was to move it, not delete it. -->
-    <details class="fold" v-if="snap?.error || modelStore.actionError">
+         of replacing the developer sentence was to move it, not delete it.
+         `reachReason` rides here too — a failing status read used to discard
+         its own reason, which left an orange card with nothing diagnosable
+         anywhere on it (owner report, 2026-08-20). -->
+    <details class="fold" v-if="snap?.error || modelStore.actionError || modelStore.reachReason">
       <summary class="sub">{{ S.model_detail }}</summary>
       <p class="mono detail" v-if="snap?.error">{{ snap.error.code }}: {{ snap.error.message }}</p>
       <p class="mono detail" v-if="modelStore.actionError">{{ modelStore.actionError }}</p>
+      <p class="mono detail" v-if="modelStore.reachReason">{{ modelStore.reachReason }}</p>
     </details>
 
-    <!-- ① of the copy discipline: the environment variable lives HERE and
-         nowhere else on this surface. -->
-    <details class="fold">
-      <summary class="sub">{{ S.model_adv }}</summary>
-      <p class="sub">{{ S.model_adv_body }}</p>
-    </details>
+    <!-- The 「unattended machines」 fold that used to sit here is GONE (owner
+         2026-08-20): an environment-variable name is operator documentation,
+         not product copy — 「不该给用户看，也不该告诉用户要配置参数」. The
+         headless path itself still exists server-side; it is simply no longer
+         advertised on a user surface. -->
   </div>
 </template>
 
@@ -262,6 +279,9 @@ const busy = computed(() => modelStore.busy);
 .chip.downloading { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand-ink); }
 .chip.failed { background: var(--red-soft); border-color: var(--red); color: var(--red-ink); }
 .chip.unknown { background: var(--off-chip-bg); color: var(--t3); }
+/* Connecting shares unknown's quiet slate on purpose: launch seconds are not
+   an event, and giving them a colour would make every start-up look like one. */
+.chip.connecting { background: var(--off-chip-bg); color: var(--t3); }
 .bar { height: 6px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; margin-top: 8px; }
 .fill { height: 100%; background: var(--brand); border-radius: 999px; }
 /* No width to animate, because there is no percentage to show: the stripes say

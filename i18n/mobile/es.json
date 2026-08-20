@@ -798,6 +798,11 @@
       "'Esta app no puede leer su propia versión, así que no puede saber si hace '",
       "'falta una actualización.'"
     ],
+    "updateStoreChannelNote": [
+      "'Las versiones nuevas para este dispositivo llegan a través de TestFlight '",
+      "'o del App Store — actualiza allí; la aplicación no descarga instaladores por sí misma.'"
+    ],
+    "updateStoreUrlLabel": "'Página de actualización'",
     "updateUnavailable": [
       "'El servidor no puede ofrecer información de actualizaciones ahora. Inténtalo '",
       "'más tarde.'"
