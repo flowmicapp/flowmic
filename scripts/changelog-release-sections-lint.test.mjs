@@ -684,10 +684,21 @@ try {
     );
 
     // The guard the corrupted-restore incident earns: this drill must leave the
-    // repo's own CHANGELOG.md byte-identical.
+    // repo's own CHANGELOG.md exactly as it found it — IN BOTH DIRECTIONS.
+    // The public export ships no CHANGELOG.md at all (the engineering narrative
+    // stays in the private repo), so on that tree `REPO_CHANGELOG_SHA` is null
+    // and the honest guard is 「it was absent before, it must still be absent」
+    // — the drill creating one would be the same corruption as rewriting one.
+    // The first version required the file to exist, which made this drill
+    // structurally red on the public repo's CI (measured 2026-08-20, runs
+    // v0.3.11 and v0.3.15 both) while measuring nothing about the drill.
     assertTrue(
-      REPO_CHANGELOG_SHA !== null && sha256(readFileSync(REPO_CHANGELOG)) === REPO_CHANGELOG_SHA,
-      `the repo's CHANGELOG.md is byte-identical to what it was before this drill ran (sha256 ${String(REPO_CHANGELOG_SHA).slice(0, 12)}...)`,
+      REPO_CHANGELOG_SHA === null
+        ? !existsSync(REPO_CHANGELOG)
+        : existsSync(REPO_CHANGELOG) && sha256(readFileSync(REPO_CHANGELOG)) === REPO_CHANGELOG_SHA,
+      REPO_CHANGELOG_SHA === null
+        ? 'the repo had no CHANGELOG.md before this drill (public export) and still has none'
+        : `the repo's CHANGELOG.md is byte-identical to what it was before this drill ran (sha256 ${REPO_CHANGELOG_SHA.slice(0, 12)}...)`,
     );
   }
 } finally {

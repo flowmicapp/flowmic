@@ -57,20 +57,42 @@ const BACKSLASH = String.fromCharCode(92);
  * the first version of this gate reported a real system-temp worktree as merely
  * "off-volume" and would have missed it entirely on a machine whose repo lives
  * on C:. The ruler and the thing measured were writing the same path two ways.
- * `realpathSync.native` resolves both to the same long form; it throws for a
- * path that does not exist (the drill feeds several), so the fold is the
- * fallback, not the primary.
+ * `realpathSync.native` resolves both to the same long form.
+ *
+ * 🔴 AND WHY A MISSING PATH RESOLVES ITS DEEPEST EXISTING ANCESTOR instead of
+ * being folded as-is (measured 2026-08-20, the public repo's macOS gate): on
+ * macOS `os.tmpdir()` lives under `/var/folders/…`, which is a symlink into
+ * `/private/var/…` — and `/tmp` itself is a symlink to `/private/tmp`. The
+ * ruler (tmpdir, which exists) resolved to `/private/...` while a fabricated
+ * or already-deleted worktree path under it (which does not exist) kept its
+ * `/tmp/...` spelling — the same one-place-two-spellings defect this comment
+ * already records for Windows short names, just wearing a symlink. A real
+ * worktree deleted without `git worktree prune` would have slipped through the
+ * same hole in production use, so this is a lint fix, not a drill appeasement:
+ * walk up to the deepest ancestor that IS on disk, resolve that, re-attach the
+ * missing tail. A path with no existing ancestor at all (a fabricated volume)
+ * stays as given.
  */
 export function normalisePath(p) {
   const abs = resolve(p);
-  let real = abs;
-  try {
-    real = realpathSync.native(abs);
-  } catch {
-    // Not on disk — a fabricated path from the drill, or a worktree whose
-    // directory was deleted without `git worktree prune`. Fold what we have.
-  }
+  const real = resolveExistingPrefix(abs);
   return real.split(BACKSLASH).join('/').replace(/\/+$/, '').toLowerCase();
+}
+
+function resolveExistingPrefix(abs) {
+  let dir = abs;
+  const tail = [];
+  for (;;) {
+    try {
+      const resolved = realpathSync.native(dir);
+      return tail.length === 0 ? resolved : join(resolved, ...tail);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return abs; // hit the root without finding anything on disk
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
 }
 
 function isUnder(child, parent) {
