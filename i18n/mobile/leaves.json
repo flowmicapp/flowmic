@@ -2528,6 +2528,11 @@
       "params": []
     },
     {
+      "key": "pcReleasedNotice",
+      "leaf": "_lfPcReleasedNotice",
+      "params": ["secs"]
+    },
+    {
       "key": "pairingRevokedChip",
       "leaf": "_lfPairingRevokedChip",
       "params": []

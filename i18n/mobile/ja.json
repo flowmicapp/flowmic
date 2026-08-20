@@ -517,6 +517,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'記録のみモードにはPCフォーカスがないため、PCキーは使えません'",
     "pcOfflineChip": "'PCはオフラインです'",
+    "pcReleasedNotice": "'PC側からこのスマートフォンの接続が切断されました。$secs 秒後に再接続できます。接続リストに戻りました'",
     "pairingRevokedChip": "'ペアリング解除済み'",
     "pcSignedOutChip": "'PCはサインアウト済み'",
     "pcOtherAccountChip": "'PCは別アカウント'",

@@ -533,6 +533,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'Enregistrement seul n\\'a pas de champ PC — touches PC indisponibles'",
     "pcOfflineChip": "'PC hors ligne'",
+    "pcReleasedNotice": "'Le PC a déconnecté ce téléphone — reconnexion possible dans $secs s. Retour à la liste.'",
     "pairingRevokedChip": "'Appairage supprimé'",
     "pcSignedOutChip": "'PC déconnecté'",
     "pcOtherAccountChip": "'PC sur un autre compte'",

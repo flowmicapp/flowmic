@@ -533,6 +533,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'El modo solo registro no tiene foco de PC — teclas del PC no disponibles'",
     "pcOfflineChip": "'PC sin conexión'",
+    "pcReleasedNotice": "'El PC desconectó este teléfono — podrás reconectarte en $secs s. De vuelta a la lista.'",
     "pairingRevokedChip": "'Emparejamiento eliminado'",
     "pcSignedOutChip": "'PC con sesión cerrada'",
     "pcOtherAccountChip": "'PC en otra cuenta'",

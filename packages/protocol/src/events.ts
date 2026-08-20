@@ -73,6 +73,31 @@ export const EVENT_NAMES = [
   'mobile:list-pcs',
   'mobile:login',
   'mobile:logout',
+  // 54 → 55 (owner approved 2026-08-20, in the same breath as the ruling this
+  // exists to serve: `docs/decisions/2026-08-20-owner-pc-initiated-disconnect-is-terminal.md`).
+  //
+  // WHY A FIELD WOULD NOT DO, and it is the same test `stt:refined` had to pass.
+  // The server already ENDS this socket — `pc.handler.ts` does
+  // `mobileSocket.disconnect(true)` — so there is no later frame to hang a field
+  // on. What is missing is a sentence said BEFORE the close, and a close carries
+  // no payload.
+  //
+  // 🔴 WHY IT CANNOT RIDE `PAIR_RELEASED` INSTEAD. That code already exists and
+  // says the same thing — but it only reaches the phone on the NEXT
+  // `mobile:reconnect`, i.e. after the phone has dialled back in. That round trip
+  // IS the retry owner just ruled must not happen. Measured on the reporting
+  // machine, the drop the phone sees is `socket.drop io_reason=io server
+  // disconnect` — byte-identical to its own network dying. Two causes, one
+  // observation, opposite correct actions: this event is what separates them at
+  // the only moment that matters, which is before the phone decides to dial.
+  //
+  // ⚠️ FAILURE DIRECTION, and it dictates the deploy order. An old phone does not
+  // listen for this and simply falls back to what it does today (drop → dial →
+  // `PAIR_RELEASED`), so a relay that emits it is safe for every existing client.
+  // A NEW phone against an OLD relay never hears it and also falls back. Both
+  // degrade to the behaviour that ships today rather than to a worse product ⇒ **deploy the
+  // relay BEFORE shipping the APK**, same rule and same reason as error code 60.
+  'mobile:released',
   'auth:expired',
 
   // §3.2 Heartbeat / liveness

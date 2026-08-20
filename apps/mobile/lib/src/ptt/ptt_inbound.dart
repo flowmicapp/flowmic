@@ -121,6 +121,37 @@ extension PttSessionInbound on PttSession {
       case FlowMicEvents.authExpired:
         unawaited(_authHandler.drain());
         break;
+      // owner 2026-08-20 — 「PC 主动断开是终局」. The server says this BEFORE it
+      // closes the socket (pc.handler.ts), precisely so this phone can tell
+      // 「a person disconnected me」 apart from 「my own network died」 — on the
+      // wire the disconnect that follows is byte-identical to a Wi-Fi drop.
+      //
+      // THE ORDER OF THE THREE MOVES IS THE FIX:
+      //   1. record the fact (cooldown deadline + the latch the chat page rides);
+      //   2. STOP THE LADDER — before the socket drop arrives, so the drop finds
+      //      no ladder to arm. This is the line that ends 49-3's 「comes back at
+      //      release + 60.04 s on the dot」: no dial, no PAIR_RELEASED refusal,
+      //      no HoldOutRetry re-ask, because nothing ever asks.
+      //   3. the page leaves via its own exit (chat_flow_exits.dart), with the
+      //      owner's sentence — not via the 10 s session-lost window, which
+      //      would say the WRONG sentence 10 seconds too late.
+      //
+      // ⚠️ An OLD relay never sends this. That phone keeps today's exact
+      // behaviour (drop → dial → PAIR_RELEASED → hold-out) — the documented
+      // fallback, and the reason the relay deploys before the APK.
+      case FlowMicEvents.mobileReleased:
+        final Object? budget = data['retry_after_ms'];
+        releaseCooldown.note(
+          scopeKey: scope.key,
+          retryAfterMs: budget is int ? budget : null,
+          revoked: data['revoked'] == true,
+        );
+        unawaited(reconnect.stop());
+        diag('pc.released', <String, Object?>{
+          'retry_after_ms': budget is int ? budget : null,
+          'revoked': data['revoked'] == true,
+        });
+        break;
       // `audio:resend-request` was dispatched here until 2026-07-31. Deleted
       // with the event: no server has ever emitted one, so this arm — and the
       // seq-range replay behind it — was reachable only in tests. Chunk

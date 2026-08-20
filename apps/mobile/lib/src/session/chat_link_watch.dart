@@ -51,7 +51,20 @@ part of 'chat_controller.dart';
 /// number and the code that spends it must not be able to drift apart, and the
 /// controller is already at the source cap — a constant parked there would have
 /// been the first thing pushed out by the next unrelated field.
-const int kLinkRetryBudget = 3;
+///
+/// 🔴 3 → 5, owner 2026-08-20 (the same ruling that made a PC-initiated
+/// disconnect terminal:「其它都可以重试5次，重试间隔要一次比一次长」—
+/// `docs/decisions/2026-08-20-owner-pc-initiated-disconnect-is-terminal.md`).
+/// This supersedes the 08-19 ruling's 3.
+///
+/// ⚠️ The「间隔一次比一次长」half is NOT implemented here, because it already
+/// exists: the attempts this budget counts are the LADDER's own rungs, and
+/// `ReconnectCoordinator._backoffFor` doubles each one (1 s → 2 s → 4 s → 8 s
+/// → 16 s, 30 s cap). A second backoff at this layer would be two clocks
+/// pacing one dial. What five attempts buys over three is therefore not two
+/// more taps — it is the ladder reaching its longer rungs before the page
+/// concludes nobody is answering (≈31 s of dialling instead of ≈7 s).
+const int kLinkRetryBudget = 5;
 
 /// The budget's whole state, in one object because it is one fact: 「这次掉线
 /// 我们还剩几次机会」 ("how many chances are left on THIS outage").

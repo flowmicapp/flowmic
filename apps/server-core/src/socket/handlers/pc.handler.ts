@@ -453,6 +453,32 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       }
       const mobileSocket: Socket | null = store.getMobile(roomUuid, pairingId);
       if (mobileSocket) {
+        // owner 2026-08-20 — SAY IT BEFORE CLOSING THE DOOR.
+        // (`docs/decisions/2026-08-20-owner-pc-initiated-disconnect-is-terminal.md`)
+        //
+        // Until today the next line was the whole story: a bare `disconnect(true)`.
+        // On the phone that arrives as `socket.drop io_reason=io server disconnect`
+        // — BYTE-IDENTICAL to its own Wi-Fi dying (measured on the owner's machine).
+        // Two causes, one observation, and opposite correct actions: a phone whose
+        // network blipped should climb its ladder, while a phone a person just
+        // evicted should stop and go back to the list. The phone could only tell
+        // them apart by dialling back in and being refused with `PAIR_RELEASED` —
+        // and that dial IS the retry the ruling forbids, because it lands inside
+        // the suppression window and hands the incumbent its 60-second reservation.
+        //
+        // 🔴 THE SERVER ALWAYS KNEW. This branch has the reason, the pairing and the
+        // budget in hand; it simply never said so, and let the phone go and ask.
+        // Nothing here is new information — only the decision to publish it.
+        //
+        // Emitted BEFORE `disconnect(true)`, which is load-bearing: socket.io drops
+        // anything queued on a closed socket, so the order is the delivery.
+        mobileSocket.emit('mobile:released', {
+          // 0 for a revoke — the pairing row is gone, so there is no window to
+          // wait out. The phone must NOT render that as「retry in 0 seconds」,
+          // which is why `revoked` is a separate field rather than a magic zero.
+          retry_after_ms: revoke ? 0 : suppressedMs,
+          revoked: revoke,
+        });
         mobileSocket.disconnect(true);
         released++;
       }

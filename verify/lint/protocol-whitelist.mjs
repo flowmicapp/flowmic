@@ -76,6 +76,40 @@ export default async function run() {
 
   const roots = [path.join(ROOT, 'apps'), path.join(ROOT, 'packages')];
   const counts = { ts: 0, rust: 0, dart: 0, vue: 0 };
+  // 🔴 CHECK THE RULER BEFORE TRUSTING WHAT IT MEASURED (2026-08-20).
+  //
+  // `parseWhitelist` above is a single-quote regex over the array literal, so
+  // ONE apostrophe in a comment inside that literal re-pairs every quote after
+  // it. events.ts has carried a hand-written warning about this since R6 T-8 —
+  // and today a comment saying「owner's machine」walked straight past it and put
+  // a 400-character prose fragment into the whitelist SET. The gate still said
+  // PASS, with `whitelist=56` where the real count was 55.
+  //
+  // That is the dangerous half. A swallowed quote can also DELETE names from the
+  // set (removing one apostrophe took the parse from 56 entries to 24), and a
+  // whitelist missing names does not fail loudly — it makes this gate start
+  // reporting real events as violations, or, if the swallow eats the emit sites
+  // too, quietly stop checking anything at all.
+  //
+  // So the parse now has to prove it parsed. Every entry must LOOK like an event
+  // name; anything else means the regex lost its place, and the count printed on
+  // the PASS line is not describing the whitelist.
+  //
+  // ⚠️ `heartbeat` has no colon — the shape allows a bare segment on purpose.
+  // A rule demanding `x:y` would reject a real, shipped event name.
+  const EVENT_SHAPE = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)*$/;
+  const malformed = [...whitelist].filter((n) => !EVENT_SHAPE.test(n));
+  if (malformed.length > 0) {
+    return {
+      status: 'FAIL',
+      detail:
+        `whitelist parse is corrupt: ${malformed.length} entr(y|ies) are not event names. ` +
+        `Almost always an apostrophe in a comment INSIDE the EVENT_NAMES array literal ` +
+        `(the parser pairs single quotes). First offender: ` +
+        `${JSON.stringify(malformed[0].slice(0, 60))}`,
+    };
+  }
+
   const violations = [];
 
   for (const root of roots) {
@@ -105,6 +139,7 @@ export default async function run() {
       detail: `${violations.length} unknown event(s): ${violations.slice(0, 10).join('; ')}`,
     };
   }
+
 
   const scanned = counts.ts + counts.rust + counts.dart + counts.vue;
   const perLang = Object.entries(counts)

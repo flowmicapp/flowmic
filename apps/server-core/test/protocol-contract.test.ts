@@ -10,11 +10,25 @@ describe('event whitelist', () => {
   // 55 → 56 (R6 T-8): `pc:list-mobiles`. 56 → 57 (GA-14, owner-approved
   // 2026-07-26): `stt:refined` — the late second-pass transcript, which could
   // not be an additive field (see events.ts for why).
-  it('locks the canonical 54-event whitelist', () => {
+  it('locks the canonical 55-event whitelist', () => {
     // 57 → 58: `mobile:unpair` (owner approved 2026-07-29). 58 → 54: the
     // 2026-07-31 stage-5 deletion of four names with no sender AND no receiver.
     // Rationale in packages/protocol/test/events-count.test.ts, the primary guard.
-    expect(EVENT_NAMES.length).toBe(54);
+    // 54 → 55 (owner approved 2026-08-20): `mobile:released` — the server saying
+    // 「a person disconnected you」 BEFORE it closes the socket, so the phone can
+    // tell that apart from its own network dying without dialling back in to ask.
+    //
+    // ⚠️ ADDING THAT ONE NAME TURNED FOUR TESTS RED IN THREE PACKAGES, because
+    // the number 54 was written down in four places. Two of them (this one and
+    // packages/protocol/test/events-count.test.ts) lock the contract on purpose
+    // and are meant to move together. One (control-key-punctuation) uses it as a
+    // backdrop for an unrelated subject. The fourth sat in
+    // release-mobile-revoke.test.ts under a comment saying the count was NOT what
+    // it guarded — that copy is deleted rather than bumped. The lesson is the one
+    // this repo keeps relearning: a constant copied into a place that does not own
+    // it goes red for reasons that have nothing to do with its subject, and the
+    // person who bumps it learns nothing.
+    expect(EVENT_NAMES.length).toBe(55);
     expect(isKnownEvent('audio:start')).toBe(true);
     expect(isKnownEvent('pc:list-mobiles')).toBe(true);
     expect(isKnownEvent('stt:refined')).toBe(true);

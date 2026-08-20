@@ -533,6 +533,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'Nur Aufnahme hat keinen PC-Fokus — PC-Tasten nicht verfügbar'",
     "pcOfflineChip": "'PC offline'",
+    "pcReleasedNotice": "'Der PC hat dieses Telefon getrennt — in $secs s kannst du dich erneut verbinden. Zurück zur Liste.'",
     "pairingRevokedChip": "'Kopplung entfernt'",
     "pcSignedOutChip": "'PC abgemeldet'",
     "pcOtherAccountChip": "'PC unter anderem Konto'",

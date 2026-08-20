@@ -12,7 +12,7 @@
 //           docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08
 
 import { describe, it, expect } from 'vitest';
-import { EVENT_NAMES, EVENT_NAME_SET } from '../src/events';
+import { EVENT_NAME_SET } from '../src/events';
 import { safeParseEvent } from '../src/protocol-schemas';
 import { ERROR_CODES } from '../src/error-codes';
 
@@ -41,11 +41,24 @@ describe('GA-08 pc:release-mobile — the additive revoke flag', () => {
     }
   });
 
-  it('adds NO event name (the whitelist + count guard are untouched)', () => {
+  it('adds NO event name (pc:release-mobile grew only FIELDS)', () => {
     // The number moved to 57 in GA-14 (`stt:refined`, owner-approved) and back
     // down to 54 in the 2026-07-31 stage-5 cleanup. What THIS test guards is
     // unchanged either way: pc:release-mobile grew only FIELDS.
-    expect(EVENT_NAMES.length).toBe(54);
+    //
+    // 🔴 2026-08-20 — SO THE GLOBAL COUNT ASSERTION IS GONE, AND ITS ABSENCE IS
+    // THE FIX. This test had `expect(EVENT_NAMES.length).toBe(54)` directly under
+    // a comment saying the count is not what it guards, i.e. it contradicted
+    // itself in adjacent lines. It was a SECOND copy of a number whose home is
+    // `events-count.test.ts` (CANONICAL_EVENT_COUNT), so it went red today for a
+    // reason that has nothing to do with GA-08: owner approved `mobile:released`
+    // (54 → 55) for a different card entirely.
+    //
+    // A duplicated constant that only its owner is expected to update is the same
+    // shape as this repo's mirrored-limit gates — except those SWEEP for copies,
+    // and this one was a copy nobody knew about until it failed. Deleting it
+    // loses no coverage: the count still has exactly one guard, and what is left
+    // here is what the test was always about.
     expect(EVENT_NAME_SET.has('pc:release-mobile')).toBe(true);
     for (const invented of ['pc:revoke-mobile', 'pc:disconnect-mobile', 'pc:release']) {
       expect(EVENT_NAME_SET.has(invented as never)).toBe(false);

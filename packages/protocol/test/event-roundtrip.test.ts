@@ -132,6 +132,10 @@ const FIXTURES: Record<EventName, Fixture> = {
   // refuse frames missing them — design §3.1「缺字段＝畸形」at the handler).
   'timeline:grant-request': { valid: { web_pubkey: 'pk', session_fingerprint: 'fp', gid: 'g-1', origin: 'https://app.flowmic.app' }, invalid: { web_pubkey: 'pk' } },
   'timeline:grant': { valid: { wrap: 'e2e:v1:AAAA', gid: 'g-1', expires_at_ms: 1_754_900_000_000 }, invalid: { wrap: 'plaintext' } },
+  // owner 2026-08-20: both fields are optional additive, so the VALID sample
+  // carries them (pinning the addition) and the INVALID one is a negative
+  // budget — a window that already expired before it started.
+  'mobile:released': { valid: { retry_after_ms: 60000, revoked: false }, invalid: { retry_after_ms: -1 } },
 };
 
 describe('every event schema round-trips', () => {

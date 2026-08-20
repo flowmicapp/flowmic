@@ -485,6 +485,25 @@ mixin ChatStrings on AppStringsLeaves {
   /// truncated to three letters).
   String get capsuleTakenNotice => _lfCapsuleTakenNotice;
 
+  /// owner 2026-08-20 —「PC端主动断开了连接，请60秒后重新尝试连接」— the eject
+  /// toast for a PC-initiated disconnect (`mobile:released`, revoked=false).
+  /// [secs] is the SERVER's clamped budget read back from the cooldown, never a
+  /// literal 60: an older relay's missing budget falls back to the ceiling
+  /// inside [PcReleaseCooldown], so this sentence and the button it describes
+  /// cannot disagree. Same statement-plus-returned-to-list shape as
+  /// [capsuleTakenNotice]; carries no imperative beyond the one action that
+  /// actually works (waiting).
+  String pcReleasedNotice(int secs) => _lfPcReleasedNotice(secs);
+
+  /// The eject toast for a LIVE revoke (`mobile:released`, revoked=true) —
+  /// deliberately the SAME leaf the connect-refusal path renders for a dead
+  /// token (`pairError__8`,「电脑上已取消这台手机的配对，请重新配对连接」).
+  /// One fact, one sentence, on whichever path it surfaces — the byte-identical
+  /// precedent is pairing_strings.dart's PAIR_RELEASED note. No countdown in
+  /// it, because there is nothing to count down to: the row's token is gone and
+  /// only a fresh scan brings it back.
+  String get pcReleasedRevokedNotice => _lfPairError__8;
+
   /// The sentence for a terminal the QUEUE ITSELF decided.
   ///
   /// Exhaustive over [OutboxTerminal] on purpose (see its own doc): a third

@@ -335,6 +335,7 @@ final Map<String, String Function(AppStrings)> _getters =
     'pcKeysUnavailableNoted': (AppStrings s) => s.pcKeysUnavailableNoted,
     'pcOfflineChip': (AppStrings s) => s.pcOfflineChip,
     'pcOtherAccountChip': (AppStrings s) => s.pcOtherAccountChip,
+    'pcReleasedRevokedNotice': (AppStrings s) => s.pcReleasedRevokedNotice,
     'pcSignedOutChip': (AppStrings s) => s.pcSignedOutChip,
     'pcidInputHint': (AppStrings s) => s.pcidInputHint,
     'pcidLabel': (AppStrings s) => s.pcidLabel,

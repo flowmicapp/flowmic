@@ -254,6 +254,24 @@ export const MobileLoginSchema      = z.union([
   z.object({ qr_nonce: NonEmpty }).strict(),
 ]);
 export const MobileLogoutSchema     = z.object({});
+/// owner 2026-08-20 — server → THIS mobile, emitted immediately before the
+/// socket is closed by a person pressing 断开/取消配对 on the PC.
+///
+/// `retry_after_ms` is the SAME budget the server already puts on a
+/// `PAIR_RELEASED` refusal (`ReleaseSuppression`), carried here so the phone can
+/// show the countdown without having to dial in and be refused first — which is
+/// precisely the dial the ruling forbids.
+///
+/// 🔴 `revoked` is NOT `retry_after_ms === 0`, and that is why it is its own
+/// field. 「取消配对」deletes the row, so there is no window and no coming back
+/// without a fresh pairing; 「断开」has a window that expires. Both would arrive
+/// here as a zero-ish budget and mean opposite things to the person holding the
+/// phone — one waits a minute, the other has to scan a code again. A single
+/// number answering both is this repo's headline bug shape, so it does not.
+export const MobileReleasedSchema   = z.object({
+  retry_after_ms: z.number().int().nonnegative().optional(),
+  revoked: z.boolean().optional(),
+});
 export const AuthExpiredSchema      = z.object({});
 
 // ─── §3.2 heartbeat / liveness ────────────────────────────────────────
@@ -280,6 +298,7 @@ export const AUTH_EVENT_SCHEMAS = {
   'mobile:list-pcs':       MobileListPcsSchema,
   'mobile:login':          MobileLoginSchema,
   'mobile:logout':         MobileLogoutSchema,
+  'mobile:released':       MobileReleasedSchema,
   'auth:expired':          AuthExpiredSchema,
   // §3.2
   'heartbeat':             HeartbeatSchema,

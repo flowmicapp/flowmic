@@ -134,6 +134,11 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // poll, no new event and **no protocol change** is needed to notice.
         s._notePcBusy(false);
         s._holdOut.cancel();
+        // owner 2026-08-20 — same fact, third holder: being back in the room
+        // means the release MOMENT has passed (the deadline half is untouched;
+        // getting in early — PC restarted, capsule freed — must not leave a
+        // stale eject latched for the page we are about to open).
+        s.releaseCooldown.clearLatch();
         // 🔴 F-1 (2026-08-03, real device) — one of [PttSession.roomJoins]'s
         // **two** production writers.
         //

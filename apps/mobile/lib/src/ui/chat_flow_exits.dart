@@ -114,3 +114,61 @@ void _maybeLeaveOnCapsuleTakenRouted(_ChatFlowPageState s) {
     Navigator.of(s.context).popUntil((Route<dynamic> r) => r.isFirst);
   });
 }
+
+/// owner 2026-08-20 — the PC pressed 断开 (or 取消配对) on THIS phone. The third
+/// exit, and the only one whose fact arrives as a NAMED EVENT rather than an
+/// inference: the server says `mobile:released` immediately before it closes
+/// the socket (`docs/decisions/2026-08-20-owner-pc-initiated-disconnect-is-terminal.md`).
+///
+/// 🔴 WHY NOT LET THE SESSION-LOST PATH HANDLE IT. Without this, the closed
+/// socket walks into `_watchSessionLoss`: a 10-second window, then a retry
+/// budget the ladder will never spend (the released handler stopped it), then
+/// [AppStrings.sessionLostToast] —「多次重连未成功」. Ten seconds late, and a
+/// SENTENCE ABOUT A NETWORK FAILURE for something a person did on purpose. The
+/// whole point of the event is that the phone finally knows the difference; an
+/// exit that then says the generic sentence would throw that knowledge away.
+///
+/// Rides [PcReleaseCooldown.tick] directly (registered in `initState`, plus the
+/// one on-entry call — same pushed-state-needs-a-pull rule as the capsule-taken
+/// exit above). Bucketed through [SessionScope.key], so a singleton controller
+/// serving another machine's screen ignores it (RV-91).
+///
+/// The sentence splits on [PcReleaseCooldown.latchedRevoked] because the next
+/// action splits: a disconnect is waited out ([ChatStrings.pcReleasedNotice],
+/// with the server's own seconds), a revoke can only be re-paired
+/// ([ChatStrings.pcReleasedRevokedNotice] — no countdown, nothing to count to).
+void _maybeLeaveOnPcReleasedRouted(_ChatFlowPageState s) {
+  if (s._pcReleasedHandled) return;
+  final cooldown = s.controller.session.releaseCooldown;
+  if (!cooldown.isOnScreen(s.controller.session.scope.key)) return;
+  s._pcReleasedHandled = true;
+  final bool revoked = cooldown.latchedRevoked;
+  // ceil, floor 1: a wait of 900 ms must not render as 「0 秒后」 — a zero-second
+  // wait the button then refuses would make the sentence a liar for one second.
+  final int rawSecs = ((cooldown.latchedRemaining()?.inMilliseconds ?? 0) / 1000).ceil();
+  final int secs = rawSecs < 1 ? 1 : rawSecs;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!s.mounted) return;
+    ScaffoldMessenger.of(s.context).showSnackBar(
+      SnackBar(
+        content: Text(
+          revoked
+              ? s._strings.pcReleasedRevokedNotice
+              : s._strings.pcReleasedNotice(secs),
+        ),
+      ),
+    );
+    Navigator.of(s.context).popUntil((Route<dynamic> r) => r.isFirst);
+  });
+  // 🔴 NOT redundant, and the line the first version shipped without.
+  // `addPostFrameCallback` WAITS for a frame and schedules none itself — and
+  // this exit's edge is the only one of the three that arrives from the SOCKET
+  // (a ValueNotifier tick) rather than from a controller notify that rebuilds
+  // widgets. Nothing here marks anything dirty, so on an idle page there is no
+  // frame coming: the callback above would sit queued until something ELSE
+  // animates — measured in the widget rig as an eject that only ran at
+  // teardown, `mounted == false`, page still standing after three pumps. The
+  // other two exits do not need this line because their edges inherently
+  // schedule a build; this one must bring its own frame.
+  WidgetsBinding.instance.scheduleFrame();
+}

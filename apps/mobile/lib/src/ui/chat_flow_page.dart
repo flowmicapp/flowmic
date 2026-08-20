@@ -245,6 +245,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   /// fix-001 — a SECOND one-shot latch on purpose; the argument is in
   /// chat_flow_exits.dart. Never merge it with [_sessionLostHandled].
   bool _capsuleTakenHandled = false;
+  bool _pcReleasedHandled = false; // owner 2026-08-20 — third latch, same never-merge argument (chat_flow_exits.dart).
 
   /// Card FB-7 — which rows are ticked, and whether the mode is on at all.
   ///
@@ -364,6 +365,8 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     // fix-001 — ALSO asked once on entry, not only on the edge. Why that is
     // load-bearing: chat_flow_exits.dart, 「推送状态没有拉取」 ("pushed state has no pull path").
     _maybeLeaveOnCapsuleTaken();
+    controller.session.releaseCooldown.tick.addListener(_maybeLeaveOnPcReleased);
+    _maybeLeaveOnPcReleased(); // owner 2026-08-20 — same entry-pull rule as the line above.
     controller.addListener(_syncComposeText);
     _syncComposeText();
     // PA-4: the sheet's controller-notification edges (manual-finalize
@@ -402,6 +405,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     controller.removeListener(_syncSheetOnController);
     controller.removeListener(_maybeLeaveOnSessionLost);
     controller.removeListener(_maybeLeaveOnCapsuleTaken);
+    controller.session.releaseCooldown.tick.removeListener(_maybeLeaveOnPcReleased);
     controller.session.scope.removeListener(_syncPagerOwners);
     controller.store.removeListener(_onStoreChanged);
     unawaited(_injectReceiptSub?.cancel());
@@ -458,6 +462,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   // why they are two and may never be merged is argued there.
   void _maybeLeaveOnSessionLost() => _maybeLeaveOnSessionLostRouted(this);
   void _maybeLeaveOnCapsuleTaken() => _maybeLeaveOnCapsuleTakenRouted(this);
+  void _maybeLeaveOnPcReleased() => _maybeLeaveOnPcReleasedRouted(this);
 
   void _onScrollOffset() {
     if (!_scrollCtl.hasClients) return;

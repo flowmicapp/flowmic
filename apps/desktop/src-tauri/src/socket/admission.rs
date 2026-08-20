@@ -266,6 +266,53 @@ impl Admission {
         }
     }
 
+    /// B5 (owner report, 2026-08-20) — the OPERATOR said this phone is out
+    /// (device page 断开 / 取消配对). Frees the capsule at that instant when the
+    /// named phone is the holder, and returns it so the caller can put the WHY on
+    /// the record. Not the holder ⇒ `None`, and nothing moves.
+    ///
+    /// THE DEFECT THIS CLOSES, measured on the owner's own machine (forensic +
+    /// `server.log`, times UTC):
+    ///
+    /// ```text
+    /// 21:58:41.796  pc:release-mobile revoke:false released:1   ← the user pressed 断开
+    /// 21:58:48.830  REFUSING 51023543… — capsule held by e4c383cf…
+    /// 21:59:05.975  REFUSING 51023543… — capsule held by e4c383cf…
+    /// 21:59:11.812  pc:mobile-left e4c383cf…                    ← 30.0 s after the press
+    /// ```
+    ///
+    /// For thirty seconds the PC **refused other phones on behalf of a phone it
+    /// had already evicted**. `shell::release_mobile` told the SERVER and returned;
+    /// the latch that actually decides admission was told nothing, and only learned
+    /// through the round trip in `presence.rs` (`pc:mobile-left` → [`Self::left`]).
+    ///
+    /// 🔴 The module header above says ownership 「is released by a REMOTE event」
+    /// and builds a watchdog for the case where that event never comes. This is the
+    /// case it did NOT cover: a **local, authoritative, user-initiated** eviction
+    /// that still waited for the network to agree. A watchdog shortens the worst
+    /// case; it cannot make a decision arrive earlier than the decision itself.
+    /// ⇒ The rule read one level stricter again: **when this process is the one
+    /// deciding, it must not learn its own decision from a peer.**
+    ///
+    /// ⚠️ NO `channel` PARAMETER, and that is deliberate rather than sloppy.
+    /// The two channels are two servers with two `mobile_pairings` tables and two
+    /// id spaces (`lib/paired-mobiles.test.ts` pins exactly this: 「two tables, two
+    /// ids — 断开/撤销 on one does nothing to the other」), so a `mobile_id`
+    /// already names one row on one server. The caller cannot always supply the
+    /// channel either: `shell::release_mobile`'s legacy branch (an untagged row)
+    /// goes through `with_socket`, which is free to fall back to the OTHER slot, so
+    /// the channel there would be a guess — and a wrong guess makes this a silent
+    /// no-op that restores the thirty-second window this exists to close.
+    pub fn released_by_operator(&self, mobile_id: &str) -> Option<Owner> {
+        let mut g = self.lock();
+        let is_holder = matches!(&g.owner, Some(o) if o.mobile_id == mobile_id);
+        if is_holder {
+            g.owner.take()
+        } else {
+            None
+        }
+    }
+
     /// B4 (iOS-2 §2-1, 2026-08-11) — release a holder that its OWN channel's
     /// APPLIED handshake roster disproves. Returns the evicted owner so the
     /// caller can put the WHY on the record (an ownership change with no trace

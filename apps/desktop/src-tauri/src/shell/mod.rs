@@ -308,19 +308,62 @@ pub fn release_mobile(
     // socket — the exact pre-0.2.7 behaviour, never a silent no-op.
     let target = channel.as_deref().and_then(crate::socket::Channel::from_tag);
     let Some(channel) = target else {
-        return with_socket(&state, |s| s.release_mobile(&id, revoke, RELEASE_TIMEOUT), false);
+        let ok = with_socket(&state, |s| s.release_mobile(&id, revoke, RELEASE_TIMEOUT), false);
+        if ok {
+            if let Ok(g) = state.lock() {
+                free_capsule_after_release(&g.admission, &id, revoke);
+            }
+        }
+        return ok;
     };
     let guard = match state.lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
-    match guard.slot(channel) {
+    let ok = match guard.slot(channel) {
         Some(sock) => sock.release_mobile(&id, revoke, RELEASE_TIMEOUT),
         // That channel is not resident, so nobody can carry the request. FALSE,
         // never true — the page must say it failed rather than leave a row the
         // user believes is gone.
         None => false,
+    };
+    if ok {
+        free_capsule_after_release(&guard.admission, &id, revoke);
     }
+    ok
+}
+
+/// B5 (owner report, 2026-08-20) — hand the capsule back the moment the PC
+/// successfully evicts its holder, rather than waiting for the server's
+/// `pc:mobile-left` to travel back (measured on the owner's machine: **30.0 s**,
+/// during which this PC refused two other phones on behalf of the one it had just
+/// thrown out). Full forensic trace and the reasoning are on
+/// [`crate::socket::Admission::released_by_operator`].
+///
+/// 🔴 ONLY ON A TRUE ACK, and the asymmetry is the point. A failed release must
+/// leave the latch alone: the holder is still there and still speaking, so freeing
+/// the capsule would publish an admission verdict the wire does not back —
+/// the second phone would be let in beside a session that never ended. `false`
+/// here already means「the page must say it failed」(see the `None` arm above);
+/// this keeps the latch on the same side of that sentence.
+fn free_capsule_after_release(admission: &crate::socket::Admission, id: &str, revoke: bool) {
+    let Some(freed) = admission.released_by_operator(id) else {
+        return;
+    };
+    // An ownership change with no trace is unexplainable in support — the same
+    // reason `tick`'s watchdog eviction records one. The verb is carried because
+    // 「disconnected」and「unpaired」leave the phone in different states: the first
+    // may come back on its own after the server's hold-out, the second cannot come
+    // back at all without a fresh pairing.
+    crate::forensic::record(
+        "admission",
+        &format!(
+            "capsule freed by operator — {} on {} was {}",
+            freed.mobile_id,
+            freed.channel.tag(),
+            if revoke { "unpaired" } else { "disconnected" }
+        ),
+    );
 }
 
 const RELEASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);

@@ -81,7 +81,7 @@ describe('control:key — the punctuation family', () => {
     // enum is not an event addition.
     // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; unrelated
     // to control:key, which is exactly what this case exists to show.
-    expect(EVENT_NAMES).toHaveLength(54);
+    expect(EVENT_NAMES).toHaveLength(55);
     expect(EVENT_NAMES).toContain('control:key');
   });
 });
@@ -134,7 +134,7 @@ describe('control:key — device_label (additive optional)', () => {
     // enum is not an event addition.
     // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; unrelated
     // to control:key, which is exactly what this case exists to show.
-    expect(EVENT_NAMES).toHaveLength(54);
+    expect(EVENT_NAMES).toHaveLength(55);
     expect(EVENT_NAMES).toContain('control:key');
   });
 });

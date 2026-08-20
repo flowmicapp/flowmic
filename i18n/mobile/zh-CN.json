@@ -489,6 +489,7 @@
     "pcKeysGroupLabel": "'电脑'",
     "pcKeysUnavailableNoted": "'仅记录模式没有电脑焦点，电脑键不可用'",
     "pcOfflineChip": "'电脑已离线'",
+    "pcReleasedNotice": "'电脑主动断开了这台手机的连接，请 $secs 秒后重新尝试连接，已返回连接列表'",
     "pairingRevokedChip": "'配对已取消'",
     "pcSignedOutChip": "'电脑登录已失效'",
     "pcOtherAccountChip": "'电脑属于其他账号'",

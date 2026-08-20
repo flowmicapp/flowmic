@@ -533,6 +533,7 @@
     "pcKeysGroupLabel": "'ПК'",
     "pcKeysUnavailableNoted": "'Режим «только запись» без фокуса ПК — клавиши ПК недоступны'",
     "pcOfflineChip": "'ПК не в сети'",
+    "pcReleasedNotice": "'ПК отключил этот телефон — повторное подключение через $secs с. Возврат к списку.'",
     "pairingRevokedChip": "'Сопряжение удалено'",
     "pcSignedOutChip": "'Вход на ПК истёк'",
     "pcOtherAccountChip": "'ПК в другом аккаунте'",

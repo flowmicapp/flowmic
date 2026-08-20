@@ -289,6 +289,7 @@ class PttSession {
   /// kept separate from the occupancy banner」 are in [HoldOutRetry]; the
   /// wiring is in ptt_reconnect_ack.dart.
   final HoldOutRetry _holdOut = HoldOutRetry();
+  final PcReleaseCooldown releaseCooldown = PcReleaseCooldown(); // owner 2026-08-20 — full rationale in its own file; the OPPOSITE of _holdOut above: a deadline, never a dialler.
   /// Stops the timer on leaving the transcription page
   /// (connections_controller `leaveRoom()`).
   void cancelHoldOutRetry() => _holdOut.cancel();

@@ -533,6 +533,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'Record-only mode has no PC focus — PC keys unavailable'",
     "pcOfflineChip": "'PC is offline'",
+    "pcReleasedNotice": "'The PC disconnected this phone — you can reconnect in $secs s. Returned to the list.'",
     "pairingRevokedChip": "'Pairing removed'",
     "pcSignedOutChip": "'PC signed out'",
     "pcOtherAccountChip": "'PC on another account'",

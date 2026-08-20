@@ -489,6 +489,7 @@
     "pcKeysGroupLabel": "'電腦'",
     "pcKeysUnavailableNoted": "'僅紀錄模式沒有電腦焦點，電腦鍵不可用'",
     "pcOfflineChip": "'電腦已離線'",
+    "pcReleasedNotice": "'電腦主動中斷了這臺手機的連線，請 $secs 秒後重新嘗試連線，已返回連線列表'",
     "pairingRevokedChip": "'配對已取消'",
     "pcSignedOutChip": "'電腦登入已失效'",
     "pcOtherAccountChip": "'電腦屬於其他帳號'",

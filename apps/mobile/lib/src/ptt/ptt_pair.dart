@@ -159,6 +159,12 @@ extension PttSessionPair on PttSession {
     ).enrichFromAck(ack);
     await tokenStorage.addOrUpdatePairing(session);
     applyPairedIdentity(session);
+    // owner 2026-08-20 — a FRESH pair to the same machine (scan after a revoke,
+    // or after waiting out a disconnect) is proof the release moment has passed.
+    // Without this, the latched eject from the previous session — same machine,
+    // same scope key — would bounce the user straight back off the page they
+    // just legitimately entered.
+    releaseCooldown.clear(scope.key);
     final Object? name = ack['pc_name'];
     if (name is String && name.isNotEmpty) connectedDeviceName.value = name;
     _pcPresence.noteAck(ack); // RV-92: `pc_online` has always been on this ack, nobody read it until now

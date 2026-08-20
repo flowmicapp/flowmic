@@ -395,3 +395,68 @@ fn the_latch_runs_its_own_watchdog_thread_with_no_socket_and_no_pump_in_existenc
         "the latch's OWN thread must free the capsule with nothing else running"
     );
 }
+
+// ── B5 (owner report, 2026-08-20) — the operator's eviction is immediate ──────
+//
+// Replayed from the owner's own machine. The PC had already thrown a phone out
+// and then spent thirty seconds refusing OTHER phones on its behalf, because the
+// latch only learned through `pc:mobile-left` coming back over the network.
+// See `Admission::released_by_operator` for the verbatim forensic trace.
+
+#[test]
+fn operator_release_frees_the_capsule_without_waiting_for_the_server() {
+    let a = adm();
+    assert_eq!(a.join(Channel::Lan, "held"), Verdict::Granted);
+    // The state the owner was stuck in: a second phone cannot get in.
+    assert!(matches!(a.join(Channel::Cloud, "mine"), Verdict::Refused { .. }));
+
+    // The user presses 断开 on the holder. NOTE what has NOT happened yet:
+    // no `pc:mobile-left` — on the real machine that was still 30 s away.
+    let freed = a.released_by_operator("held").expect("the holder must be handed back");
+    assert_eq!(freed.mobile_id, "held");
+    assert_eq!(freed.channel, Channel::Lan);
+    assert_eq!(a.owner(), None);
+
+    // …and the phone the user is actually holding gets in NOW, which is the
+    // whole point. Before this fix, this line was `Refused`.
+    assert_eq!(a.join(Channel::Cloud, "mine"), Verdict::Granted);
+}
+
+#[test]
+fn the_delayed_mobile_left_must_not_steal_the_new_owners_capsule() {
+    // 🔴 THE HAZARD THE FIX CREATES, and the reason this test exists at all.
+    // Freeing the capsule early does not cancel the server's `pc:mobile-left`:
+    // it still arrives ~30 s later, for the OLD phone, by which time somebody
+    // else legitimately holds the capsule. If that late event were read as
+    // 「the holder left」the user would be evicted mid-sentence by a message
+    // about a phone that has been gone for half a minute — a worse defect than
+    // the one being fixed, and invisible in any test that stops at the handover.
+    let a = adm();
+    a.join(Channel::Lan, "held");
+    a.released_by_operator("held");
+    assert_eq!(a.join(Channel::Cloud, "mine"), Verdict::Granted);
+
+    // The stale event finally lands. `left` is keyed on (channel, id), so it
+    // does not match the new holder and must be inert.
+    a.left(Channel::Lan, "held");
+    assert_eq!(
+        a.owner().map(|o| o.mobile_id),
+        Some("mine".to_string()),
+        "a late pc:mobile-left for the evicted phone must not evict its successor"
+    );
+}
+
+#[test]
+fn releasing_a_phone_that_does_not_hold_the_capsule_moves_nothing() {
+    // The other half of the asymmetry: 断开 on a row that is not the holder is a
+    // no-op, not「free the capsule」. Without this, disconnecting the refused
+    // second phone would hand the machine away from whoever is mid-utterance.
+    let a = adm();
+    a.join(Channel::Lan, "held");
+    a.join(Channel::Cloud, "other"); // refused, still a row on the device page
+
+    assert_eq!(a.released_by_operator("other"), None);
+    assert_eq!(a.owner().map(|o| o.mobile_id), Some("held".to_string()));
+    assert_eq!(a.released_by_operator("nobody-ever-paired"), None);
+    assert_eq!(a.owner().map(|o| o.mobile_id), Some("held".to_string()));
+}

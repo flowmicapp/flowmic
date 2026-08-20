@@ -36,6 +36,7 @@ import '../signaling/mobile_reconnect_flow.dart'
     show ReconnectRefusal, encodeHoldOut;
 import '../signaling/wire_payloads.dart';
 import 'instance_probe.dart';
+import 'machine_key.dart' show scopeKeyFor;
 import 'pc_presence.dart';
 import 'pc_presence_probe.dart';
 
@@ -534,6 +535,34 @@ class ConnectionsController extends ChangeNotifier
   /// rewritten rather than deleted so the next reader learns what it cost.
   Future<ConnectOutcome> connectTo(MobileSession pairing) async {
     if (_busy) return const ConnectOutcome.failed('BUSY');
+    // owner 2026-08-20 — the PC disconnected this phone moments ago and SAID SO
+    // (`mobile:released` → [PcReleaseCooldown]). Refuse locally, before any
+    // frame leaves this device. Dialling would not merely fail politely: the
+    // server-side suppression window means the ask lands as a PAIR_RELEASED
+    // refusal anyway, and — measured on the owner's machine — that round trip
+    // is exactly the rhythm that let the evicted phone reclaim the capsule at
+    // release + 60.04 s while the phone the user actually wanted was mid-dial.
+    //
+    // The sentence is the SAME one a server refusal would earn (encodeHoldOut →
+    // pairError__10, with the seconds), so the user cannot tell — and must not
+    // need to tell — whether the phone knew locally or asked. One fact, one
+    // sentence, whichever path it surfaces on.
+    //
+    // ⚠️ scopeKeyFor, not keyFor: the cooldown was written under the SESSION's
+    // scope key (machine:… when the machine is known). keyFor is the LIST's row
+    // key. Re-deriving through the same function from the same two values is
+    // what lets a LAN row and a cloud row of one machine share one deadline.
+    final Duration? wait = session.releaseCooldown.remaining(
+      scopeKeyFor(
+        machineUid: pairing.pcMachineUid,
+        pairingIdentity: keyFor(pairing),
+      ),
+    );
+    if (wait != null) {
+      _lastError = encodeHoldOut('PAIR_RELEASED', wait.inMilliseconds);
+      notifyListeners();
+      return ConnectOutcome.failed(_lastError);
+    }
     _busy = true;
     _connectingKey = keyFor(pairing);
     _lastError = null;

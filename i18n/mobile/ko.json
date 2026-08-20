@@ -520,6 +520,7 @@
     "pcKeysGroupLabel": "'PC'",
     "pcKeysUnavailableNoted": "'기록 전용 모드에는 PC 포커스가 없어 PC 키를 사용할 수 없습니다'",
     "pcOfflineChip": "'PC가 오프라인입니다'",
+    "pcReleasedNotice": "'PC에서 이 휴대폰의 연결을 끊었습니다. $secs초 후에 다시 연결할 수 있습니다. 연결 목록으로 돌아왔습니다'",
     "pairingRevokedChip": "'페어링 해제됨'",
     "pcSignedOutChip": "'PC 로그아웃됨'",
     "pcOtherAccountChip": "'PC가 다른 계정'",

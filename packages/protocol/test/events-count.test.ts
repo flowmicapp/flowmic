@@ -38,7 +38,7 @@ import { EVENT_SCHEMAS } from '../src/protocol-schemas';
 // The guard exists to make either direction a conscious act — deletions are not
 // cheaper than additions, and an old client that still emits a removed name now
 // gets silence from the server's whitelist, which is why owner approval gates it.
-const CANONICAL_EVENT_COUNT = 54;
+const CANONICAL_EVENT_COUNT = 55;
 
 describe('event whitelist count guard', () => {
   it(`holds exactly ${CANONICAL_EVENT_COUNT} canonical event names`, () => {

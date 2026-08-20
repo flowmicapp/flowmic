@@ -39,6 +39,13 @@ import 'package:flutter/foundation.dart';
 import '../auth/token_storage.dart';
 import 'instance_machine_map.dart';
 
+// owner 2026-08-20 — the per-PC release cooldown is KEYED by this module's
+// scope keys (written from `SessionScope.key`, re-derived from a pairing row at
+// read time), so it travels with the module that defines that keyspace.
+// Re-exported here so `ptt_session.dart` — pinned at its file-size ceiling —
+// gains the symbol without gaining an import line.
+export 'pc_release_cooldown.dart';
+
 /// Scope keys are prefixed so 「machine M」 and 「instance whose id happens to
 /// read like M」 can never collide in the same map.
 const String kMachineScopePrefix = 'machine:';
