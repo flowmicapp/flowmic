@@ -86,6 +86,14 @@ function rowChipTitle(m: PairedMobileRow): string {
     ? S.dev_paired_unknown_tip.replace('{t}', m.asOfLabel ?? '—')
     : S.dev_paired_online_tip;
 }
+/** ③ (owner 2026-08-21 screenshot ruling): an offline handset used to say
+ *  「离线」 three times — once on the header, once per pairing row. When every
+ *  row shares the header's aggregate state the row chips repeat it, so they
+ *  render only when the rows DISAGREE (one channel online, the other not) —
+ *  the one case where a per-row answer carries information the header cannot. */
+function uniformPresence(g: PairedGroup): boolean {
+  return g.rows.every((r) => r.presence === g.presence);
+}
 /** The group header's aggregate chip. For an unknown aggregate the tooltip quotes
  *  the first unknown member's snapshot time — one handset, one cache read. */
 function groupChipTitle(g: PairedGroup): string {
@@ -199,7 +207,11 @@ function lastSeenTitle(stamp: string | null): string {
              is not claimable while one channel could not be asked). For a
              single-pairing handset the aggregate is simply that pairing's own
              state — same sentence, one source. -->
-        <div class="pg-head">
+        <!-- ③ pg-off: an offline handset reads dimmed as a WHOLE (name + glyph),
+             so the list separates live from dormant at a glance instead of by
+             chip-reading. Actions and times keep full contrast — dimming what
+             the user may still need to press would trade noise for friction. -->
+        <div class="pg-head" :class="{ 'pg-off': g.presence === 'offline' }">
           <span class="dot" :class="dotClass(g.presence)"></span>
           <!-- REQ-12-10b: the header is the HANDSET, the rows are its pairings.
                A shape as well as a dot, per owner 2026-08-01 "must not rely on
@@ -239,7 +251,7 @@ function lastSeenTitle(stamp: string | null): string {
                  Reworked: a channel that could not be ASKED answers neither —
                  that is the third state "state unknown," neutral (dashed, weak
                  grey), never red. -->
-            <span class="chip" :class="chipClass(m.presence)" :title="rowChipTitle(m)">
+            <span v-if="!uniformPresence(g)" class="chip" :class="chipClass(m.presence)" :title="rowChipTitle(m)">
               {{ chipText(m.presence) }}
             </span>
             <span class="pm-meta">
@@ -336,6 +348,9 @@ function lastSeenTitle(stamp: string | null): string {
 .pg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 0 9px; margin-bottom: 1px; border-bottom: 1px solid var(--line-soft);
   font-size: 13px; color: var(--t1); }
+/* ③ offline handset: the whole identity dims, not just a chip (see template). */
+.pg-head.pg-off .pm-name { color: var(--t3); font-weight: 500; }
+.pg-head.pg-off .pg-ic { opacity: .6; }
 .pg-rows { display: flex; flex-direction: column; padding-left: 2px; }
 /* Rows divide INSIDE the shell; between shells the gap + border do the work. */
 .paired-row + .paired-row { border-top: 1px dashed var(--line-soft); }

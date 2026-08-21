@@ -168,45 +168,21 @@ class _CloudSignOutRowState extends State<CloudSignOutRow> {
   Widget build(BuildContext context) {
     if (!widget.login.isLoggedIn) return const SizedBox.shrink();
     final String email = widget.login.email ?? '';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _identityRow(email),
-        // Its own line, below the destructive chip rather than beside it: the
-        // sign-out ruling gives a dangerous action one landing point and one
-        // undivided target, and crowding a second tappable into that Row is how
-        // a near-miss ends up signing someone out.
-        GestureDetector(
-          key: const ValueKey<String>('cloud.account.manage'),
-          behavior: HitTestBehavior.opaque,
-          onTap: _openAccountPage,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  widget.strings.accountManageLink,
-                  style: TextStyle(
-                    color: FlowMicColors.brand,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.strings.accountManageNote,
-                  style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _identityRow(String email) {
+    // owner 2026-08-21 (0.3.21):「管理和删除账号…以一个更隐蔽的方式…更小的链接，
+    // 不要占据这个卡片的大片的内容…整个轻记录这个卡片看起来很高，简化一下」
+    // ("make manage/delete-account more discreet — a smaller link that does not
+    // eat the card; the whole light-record card is too tall, simplify it").
+    // The signed-in block collapses from four lines (email row + sign-out chip
+    // + brand-colored link + explainer line) to ONE row: email · small muted
+    // manage link · sign-out chip. The explainer sentence
+    // ([AppStrings.accountManageNote]) is NOT deleted — it moves into the
+    // link's [Semantics] label, so a screen reader still hears what the link
+    // does while sighted users get the compact face the owner asked for.
+    //
+    // ⚠️ The earlier own-line placement was itself a ruling (a destructive
+    // action gets an undivided target). The compromise that keeps both true:
+    // 12dp of dead space between the link and the chip, and the chip keeps its
+    // opaque padded hit box — a near-miss on either lands on nothing.
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
@@ -219,39 +195,60 @@ class _CloudSignOutRowState extends State<CloudSignOutRow> {
                 style: TextStyle(color: FlowMicColors.t2, fontSize: 11.5),
               ),
             ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
+          GestureDetector(
+            key: const ValueKey<String>('cloud.account.manage'),
+            behavior: HitTestBehavior.opaque,
+            onTap: _openAccountPage,
+            child: Semantics(
+              label: widget.strings.accountManageNote,
+              link: true,
+              child: Padding(
+                // Vertical padding keeps a finger-sized hit box even though the
+                // visible face is one small line.
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  widget.strings.accountManageLink,
+                  style: TextStyle(
+                    color: FlowMicColors.t3,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.underline,
+                    decorationColor: FlowMicColors.t3,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           // Its own gesture inside a tappable card: the inner detector wins, so
           // tapping sign-out never also opens the cloud instance.
           //
-          // REQ-12-01 — it used to be a bare `Text` under a `GestureDetector`
-          // whose default `deferToChild` made the hit box the GLYPHS: about
-          // 26×14 logical px for 「登出」("sign out"). Two bad outcomes from
-          // one cause, and
-          // they pull in opposite directions, which is why padding is the fix
-          // rather than moving the control: a near-miss activated the CARD (=
-          // enter the cloud instance) instead of doing nothing, and hitting it
-          // on purpose took aim. Now it is an opaque red-tinted chip.
-          // ⚠️ Honest about what this is NOT: 30dp tall, not Material's 48dp.
-          // This row sits inside a card header, and 48 would push the identity
-          // line apart. The claim here is「a real control instead of a word」,
-          // not「meets the tap-target minimum」.
+          // owner 2026-08-21 (0.3.23):「退出登录的按钮改为像管理和注销账号一样的
+          // 小字，不然会容易误点」("make sign-out small text like the
+          // manage-account link — the chip invites accidental taps"). This
+          // REVERSES the REQ-12-01 chip: that round made it a red chip so it
+          // could be hit ON PURPOSE; in practice the loud padded chip beside a
+          // tappable card was the thing getting hit BY ACCIDENT. Small text
+          // shrinks the visible face; the vertical padding below keeps a real
+          // hit box (same idiom as the manage link beside it), and the ONLY
+          // load-bearing gate against accidents stays [_signOut]'s
+          // confirmDestructive dialog — this face never was the safety
+          // mechanism. Red is kept at text level so the destructive verb still
+          // reads apart from the neutral manage link.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _signOut,
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 30),
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-              decoration: BoxDecoration(
-                color: FlowMicColors.redSoft,
-                borderRadius: BorderRadius.circular(8),
-              ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 widget.strings.logout,
                 style: TextStyle(
                   color: FlowMicColors.red,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w500,
+                  decoration: TextDecoration.underline,
+                  decorationColor: FlowMicColors.red,
                 ),
               ),
             ),

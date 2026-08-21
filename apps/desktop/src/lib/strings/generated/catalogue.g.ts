@@ -28,11 +28,16 @@ const S_EN_OWN = {
   nav_timeline: 'Timeline',
   nav_settings: 'Settings',
   app_name: 'FlowMic',
+  win_minimize: 'Minimize',
+  win_maximize: 'Maximize',
+  win_restore: 'Restore',
+  win_close: 'Close',
   dev_title: 'Devices',
   dev_add_phone: 'Add phone',
   dev_offline_toggle: 'Offline',
   dev_offline_hint: 'Disconnects every phone from this PC to cut interruptions; toggle again to come back online.',
   dev_offline_active: 'Offline · phones cannot reach this PC right now',
+  dev_online_label: 'Online',
   dev_chan_lan: 'Local LAN',
   dev_chan_lan_ready: 'Local service ready · direct connection on the same Wi-Fi',
   dev_chan_lan_loopback: "Loopback service on this PC · on the same Wi-Fi, fill in this PC's LAN address on the phone",
@@ -647,7 +652,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 613/613 translated;
+// zh-CN (中文) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -655,11 +660,16 @@ const S_ZH_CN_OWN = {
   nav_timeline: '时间线',
   nav_settings: '设置',
   app_name: 'FlowMic',
+  win_minimize: '最小化',
+  win_maximize: '最大化',
+  win_restore: '还原',
+  win_close: '关闭',
   dev_title: '设备',
   dev_add_phone: '添加手机',
   dev_offline_toggle: '下线',
   dev_offline_hint: '主动断开与所有手机的连接，减少打扰；再次切换即恢复在线。',
   dev_offline_active: '已下线 · 手机暂时无法连接这台电脑',
+  dev_online_label: '在线',
   dev_chan_lan: '本地局域网',
   dev_chan_lan_ready: '本地服务就绪 · 同一 Wi-Fi 直连',
   dev_chan_lan_loopback: '本机回环服务 · 手机需在同一 Wi-Fi 填入本机局域网地址',
@@ -1274,7 +1284,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 613/613 translated;
+// zh-TW (繁體中文) — 613/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1901,7 +1911,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 613/613 translated;
+// fr (Français) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -1909,11 +1919,16 @@ const S_FR_OWN = {
   nav_timeline: 'Chronologie',
   nav_settings: 'Paramètres',
   app_name: 'FlowMic',
+  win_minimize: 'Réduire',
+  win_maximize: 'Agrandir',
+  win_restore: 'Restaurer',
+  win_close: 'Fermer',
   dev_title: 'Appareils',
   dev_add_phone: 'Ajouter un téléphone',
   dev_offline_toggle: 'Hors ligne',
   dev_offline_hint: "Déconnecte tous les téléphones de ce PC pour limiter les interruptions ; rebasculez pour revenir en ligne.",
   dev_offline_active: "Hors ligne · les téléphones ne peuvent pas joindre ce PC pour le moment",
+  dev_online_label: 'En ligne',
   dev_chan_lan: 'Réseau local',
   dev_chan_lan_ready: 'Service local prêt · connexion directe sur le même Wi-Fi',
   dev_chan_lan_loopback: "Service en boucle locale sur ce PC · sur le même Wi-Fi, saisissez l'adresse réseau local de ce PC sur le téléphone",
@@ -2528,7 +2543,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 613/613 translated;
+// es (Español) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2536,11 +2551,16 @@ const S_ES_OWN = {
   nav_timeline: 'Línea de tiempo',
   nav_settings: 'Ajustes',
   app_name: 'FlowMic',
+  win_minimize: 'Minimizar',
+  win_maximize: 'Maximizar',
+  win_restore: 'Restaurar',
+  win_close: 'Cerrar',
   dev_title: 'Dispositivos',
   dev_add_phone: 'Añadir teléfono',
   dev_offline_toggle: 'Desconectado',
   dev_offline_hint: 'Desconecta todos los teléfonos de este PC para reducir interrupciones; vuelve a alternar para reconectarte.',
   dev_offline_active: 'Desconectado · los teléfonos no pueden conectarse a este PC ahora',
+  dev_online_label: 'En línea',
   dev_chan_lan: 'Red local',
   dev_chan_lan_ready: 'Servicio local listo · conexión directa en la misma red Wi-Fi',
   dev_chan_lan_loopback: 'Servicio en bucle local en este PC · en la misma red Wi-Fi, introduce en el teléfono la dirección de red local de este PC',
@@ -3155,7 +3175,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 613/613 translated;
+// de (Deutsch) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3163,11 +3183,16 @@ const S_DE_OWN = {
   nav_timeline: 'Zeitleiste',
   nav_settings: 'Einstellungen',
   app_name: 'FlowMic',
+  win_minimize: 'Minimieren',
+  win_maximize: 'Maximieren',
+  win_restore: 'Wiederherstellen',
+  win_close: 'Schließen',
   dev_title: 'Geräte',
   dev_add_phone: 'Handy hinzufügen',
   dev_offline_toggle: 'Offline',
   dev_offline_hint: 'Trennt alle Telefone von diesem PC, um Störungen zu vermeiden; erneutes Umschalten stellt die Verbindung wieder her.',
   dev_offline_active: 'Offline · Telefone können diesen PC gerade nicht erreichen',
+  dev_online_label: 'Online',
   dev_chan_lan: 'Lokales Netzwerk',
   dev_chan_lan_ready: 'Lokaler Dienst bereit · Direktverbindung im selben Wi-Fi',
   dev_chan_lan_loopback: 'Loopback-Dienst auf diesem PC · im selben Wi-Fi auf dem Handy die LAN-Adresse dieses PCs eintragen',
@@ -3782,7 +3807,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 613/613 translated;
+// ja (日本語) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -3790,11 +3815,16 @@ const S_JA_OWN = {
   nav_timeline: 'タイムライン',
   nav_settings: '設定',
   app_name: 'FlowMic',
+  win_minimize: '最小化',
+  win_maximize: '最大化',
+  win_restore: '元に戻す',
+  win_close: '閉じる',
   dev_title: 'デバイス',
   dev_add_phone: 'スマホを追加',
   dev_offline_toggle: 'オフライン',
   dev_offline_hint: 'すべてのスマホとの接続を切断して割り込みを減らします。もう一度切り替えるとオンラインに戻ります。',
   dev_offline_active: 'オフライン · 現在スマホはこのPCに接続できません',
+  dev_online_label: 'オンライン',
   dev_chan_lan: 'ローカルLAN',
   dev_chan_lan_ready: 'ローカルサービス準備完了 · 同じWi-Fiで直接接続',
   dev_chan_lan_loopback: 'このPCのループバックサービス · スマホで同じWi-Fi上のこのPCのLANアドレスを入力してください',
@@ -4409,7 +4439,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 613/613 translated;
+// ko (한국어) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4417,11 +4447,16 @@ const S_KO_OWN = {
   nav_timeline: '타임라인',
   nav_settings: '설정',
   app_name: 'FlowMic',
+  win_minimize: '최소화',
+  win_maximize: '최대화',
+  win_restore: '이전 크기로',
+  win_close: '닫기',
   dev_title: '기기',
   dev_add_phone: '휴대폰 추가',
   dev_offline_toggle: '오프라인',
   dev_offline_hint: '모든 휴대폰과의 연결을 끊어 방해를 줄입니다. 다시 전환하면 온라인으로 돌아갑니다.',
   dev_offline_active: '오프라인 · 지금은 휴대폰이 이 PC에 연결할 수 없습니다',
+  dev_online_label: '온라인',
   dev_chan_lan: '로컬 LAN',
   dev_chan_lan_ready: '로컬 서비스 준비 완료 · 같은 Wi-Fi에서 직접 연결',
   dev_chan_lan_loopback: '이 PC의 루프백 서비스 · 휴대폰에서 같은 Wi-Fi의 이 PC LAN 주소를 입력해야 합니다',
@@ -5036,7 +5071,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 613/613 translated;
+// ru (Русский) — 618/618 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5044,11 +5079,16 @@ const S_RU_OWN = {
   nav_timeline: 'Хронология',
   nav_settings: 'Настройки',
   app_name: 'FlowMic',
+  win_minimize: 'Свернуть',
+  win_maximize: 'Развернуть',
+  win_restore: 'Восстановить',
+  win_close: 'Закрыть',
   dev_title: 'Устройства',
   dev_add_phone: 'Добавить телефон',
   dev_offline_toggle: 'Офлайн',
   dev_offline_hint: 'Отключает все телефоны от этого ПК, чтобы уменьшить помехи; переключите снова, чтобы вернуться в онлайн.',
   dev_offline_active: 'Офлайн · телефоны сейчас не могут подключиться к этому ПК',
+  dev_online_label: 'В сети',
   dev_chan_lan: 'Локальная сеть',
   dev_chan_lan_ready: 'Локальная служба готова · прямое подключение в той же сети Wi-Fi',
   dev_chan_lan_loopback: 'Служба доступна только через локальную петлю · в той же сети Wi-Fi укажите на телефоне локальный адрес этого компьютера',

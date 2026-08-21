@@ -24,6 +24,14 @@ const TRAY_DOT_RECORDING: [u8; 4] = [220, 38, 38, 255];
 /// the standard near-black strokes would vanish.
 const TRAY_PHONE: [u8; 4] = [129, 140, 248, 255]; // #818CF8
 const TRAY_STROKE: [u8; 4] = [250, 250, 250, 255]; // #FAFAFA
+/// Stream-teal shoulder ticks (brand 2.0, owner 2026-08-21: the flank waves
+/// moved to the phone's shoulders; every icon surface keeps a teal wave now,
+/// the tray included).
+const TRAY_WAVE: [u8; 4] = [45, 212, 191, 255]; // #2DD4BF
+/// Core-ink rounded plate behind the mark (brand 1.2.0, owner 2026-08-21: every
+/// icon surface carries a dark ground so the mark stops floating). Same plate
+/// family as icons/icon.ico — the tray must not stay the one plateless holdout.
+const TRAY_PLATE: [u8; 4] = [11, 16, 32, 255]; // #0B1020
 
 /// Build a 32×32 tray icon in-memory: the FLOWMIC MARK (micro tier — phone
 /// silhouette + mic-stand arc, per BRAND.md §1.1 "never scale `full` down to
@@ -38,42 +46,110 @@ const TRAY_STROKE: [u8; 4] = [250, 250, 250, 255]; // #FAFAFA
 fn make_tray_icon(dot: [u8; 4]) -> tauri::image::Image<'static> {
     const W: u32 = 32;
     const H: u32 = 32;
+    /// 3x3 supersampling: Windows shows the tray icon at ~16-20px, so a
+    /// hard-edged 32px raster arrives on screen twice-degraded (our jaggies,
+    /// then the shell's downscale). Owner 2026-08-21 flagged exactly this
+    /// surface as muddy; coverage-averaged edges survive the downscale.
+    const SS: u32 = 3;
+
+    /// Signed-distance rounded-rect membership (cx/cy center, hw/hh half
+    /// extents, r corner radius).
+    fn in_rrect(fx: f32, fy: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> bool {
+        let px = (fx - cx).abs() - (hw - r);
+        let py = (fy - cy).abs() - (hh - r);
+        let qx = px.max(0.0);
+        let qy = py.max(0.0);
+        qx * qx + qy * qy <= r * r
+    }
+
+    /// Topmost-wins color of one subsample, painter's layers inverted:
+    /// status badge > stand > phone > plate > transparent.
+    ///
+    /// The mark is centered at (15, ~15) — one grid step up-left — so the
+    /// corner status badge at (25.8, 25.8) clears the cradle's right arm and
+    /// the base plate entirely (verified geometrically: min distance from
+    /// either stroke to the badge center exceeds the 5.5 ring radius). The
+    /// first plate cut had the badge at r6.4 over a centered mark and it ate
+    /// the whole lower-right quarter of the cradle.
+    fn sample(fx: f32, fy: f32, dot: [u8; 4]) -> [u8; 4] {
+        // Corner status badge (ink ring so it reads on any state color).
+        let ddx = fx - 25.8;
+        let ddy = fy - 25.8;
+        let d2 = ddx * ddx + ddy * ddy;
+        if d2 <= 4.3 * 4.3 {
+            return dot;
+        }
+        if d2 <= 5.5 * 5.5 {
+            return [15, 23, 42, 255];
+        }
+        // Brand 2.0 shoulder ticks: ~70-degree ring segments off the phone's
+        // top corners, aimed up-and-out (same sweep as the NANO frames'
+        // 190..260-degree arcs; geometry mirrored in logo-tools/tray-preview.mjs
+        // - update together, and run that preview before editing this).
+        let lx = fx - 9.2;
+        let ly = fy - 4.4;
+        let ld = (lx * lx + ly * ly).sqrt();
+        let la = ly.atan2(lx);
+        if (ld - 3.0).abs() <= 0.75 && la > -2.967 && la < -1.745 {
+            return TRAY_WAVE;
+        }
+        let rx = fx - 20.8;
+        let ry = fy - 4.4;
+        let rd = (rx * rx + ry * ry).sqrt();
+        let ra = ry.atan2(rx);
+        if (rd - 3.0).abs() <= 0.75 && ra > -1.396 && ra < -0.175 {
+            return TRAY_WAVE;
+        }
+        // Mic cradle: lower half-circle around (15, 15.4), r 8.8, stroke 3.
+        let ax = fx - 15.0;
+        let ay = fy - 15.4;
+        let dist = (ax * ax + ay * ay).sqrt();
+        if fy >= 15.4 && (dist - 8.8).abs() <= 1.5 {
+            return TRAY_STROKE;
+        }
+        // Stand column + base plate.
+        if in_rrect(fx, fy, 15.0, 25.9, 1.1, 1.5, 0.4) {
+            return TRAY_STROKE;
+        }
+        if in_rrect(fx, fy, 15.0, 27.9, 5.2, 1.0, 0.9) {
+            return TRAY_STROKE;
+        }
+        // Phone body, rounded like the mark's rx20/96 ratio.
+        if in_rrect(fx, fy, 15.0, 10.8, 5.4, 8.2, 2.6) {
+            return TRAY_PHONE;
+        }
+        // Rounded ink plate, 17.5% corner radius (same family as icon.ico).
+        if in_rrect(fx, fy, 16.0, 16.0, 16.0, 16.0, 5.6) {
+            return TRAY_PLATE;
+        }
+        [0, 0, 0, 0]
+    }
+
     let mut rgba = vec![0u8; (W * H * 4) as usize];
     for y in 0..H {
         for x in 0..W {
             let i = ((y * W + x) * 4) as usize;
-            let fx = x as f32;
-            let fy = y as f32;
-
-            // Phone body (micro svg rect x92 y20 w96 h156 → ×32/280).
-            if (10.5..=21.5).contains(&fx) && (2.3..=20.1).contains(&fy) {
-                rgba[i..i + 4].copy_from_slice(&TRAY_PHONE);
-            }
-            // Mic-stand arc: the micro svg's two quadratics approximate the
-            // lower half of a circle centred (16, 16), r≈9.6. Band = stroke.
-            let ax = fx - 15.7;
-            let ay = fy - 16.0;
-            let dist = (ax * ax + ay * ay).sqrt();
-            if fy >= 16.0 && (dist - 9.4).abs() <= 1.1 {
-                rgba[i..i + 4].copy_from_slice(&TRAY_STROKE);
-            }
-            // Stand column + base plate.
-            if (15.0..=16.9).contains(&fx) && (25.2..=29.7).contains(&fy) {
-                rgba[i..i + 4].copy_from_slice(&TRAY_STROKE);
-            }
-            if (12.3..=19.7).contains(&fx) && (29.4..=31.0).contains(&fy) {
-                rgba[i..i + 4].copy_from_slice(&TRAY_STROKE);
-            }
-            // Corner status dot (with a thin dark ring so it reads anywhere).
-            let ddx = fx - 24.5;
-            let ddy = fy - 24.5;
-            let r2 = ddx * ddx + ddy * ddy;
-            if r2 <= 7.0 * 7.0 {
-                if r2 <= 5.2 * 5.2 {
-                    rgba[i..i + 4].copy_from_slice(&dot);
-                } else {
-                    rgba[i..i + 4].copy_from_slice(&[15, 23, 42, 255]);
+            // Average SS*SS subsamples, alpha-weighted so transparent corner
+            // subsamples do not drag edge colors toward black.
+            let (mut r_acc, mut g_acc, mut b_acc, mut a_acc) = (0f32, 0f32, 0f32, 0f32);
+            for sy in 0..SS {
+                for sx in 0..SS {
+                    let fx = x as f32 + (sx as f32 + 0.5) / SS as f32;
+                    let fy = y as f32 + (sy as f32 + 0.5) / SS as f32;
+                    let c = sample(fx, fy, dot);
+                    let a = c[3] as f32 / 255.0;
+                    r_acc += c[0] as f32 * a;
+                    g_acc += c[1] as f32 * a;
+                    b_acc += c[2] as f32 * a;
+                    a_acc += a;
                 }
+            }
+            let n = (SS * SS) as f32;
+            if a_acc > 0.0 {
+                rgba[i] = (r_acc / a_acc).round() as u8;
+                rgba[i + 1] = (g_acc / a_acc).round() as u8;
+                rgba[i + 2] = (b_acc / a_acc).round() as u8;
+                rgba[i + 3] = (a_acc / n * 255.0).round() as u8;
             }
         }
     }

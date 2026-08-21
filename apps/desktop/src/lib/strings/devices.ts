@@ -18,6 +18,9 @@ export const DEVICES_KEYS = [
   'dev_offline_toggle',
   'dev_offline_hint',
   'dev_offline_active',
+  // ④ (owner 2026-08-21): the switch label follows the FACT — 'Online' while
+  // the machine is reachable, the amber dev_offline_active sentence while not.
+  'dev_online_label',
   // Channel terminology discipline (R6 T-2): the whole repo uses only the
   // two terms「本地局域网」("Local LAN") and「云端中继」("Cloud relay").
   'dev_chan_lan',

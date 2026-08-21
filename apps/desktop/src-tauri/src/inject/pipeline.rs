@@ -102,7 +102,10 @@ use crate::inject::gate::lock_inject_gate;
 // The paste OUTCOME-MAPPING rules live in `clipboard_outcome.rs` (800-line cap
 // split), mirroring `sendinput_outcome.rs` for the typing path. Imported rather
 // than re-implemented.
-use crate::inject::clipboard_outcome::{map_clipboard_outcome, map_image_outcome};
+use crate::inject::clipboard_outcome::{
+    map_clipboard_outcome, map_image_outcome, map_ime_routed_clipboard_outcome,
+};
+use crate::inject::text_route;
 // ⚠️ TEST-ONLY RE-EXPORTS, and they are what makes 「not one test moved for this
 // split」 literally true. `pipeline_tests.rs` reaches its subjects through
 // `use super::*`, so five names the PRODUCTION build no longer needs still have to
@@ -487,7 +490,62 @@ pub fn inject_text_with_probe(
 ///     same StackHash). Keeping it off the default path is defence in depth on
 ///     top of the re-entrancy fix itself.
 fn type_or_paste(text: &str, app_id: Option<&str>) -> InjectOutcome {
-    let store = AppLearningStore::global();
+    type_or_paste_with(
+        text,
+        app_id,
+        AppLearningStore::global(),
+        &run_sendinput,
+        &run_clipboard,
+        &run_clipboard_ime_routed,
+    )
+}
+
+/// The three runner seams of [`type_or_paste_with`], named so the signature
+/// reads as a contract (and for clippy's type-complexity rule).
+type SendInputRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore) -> InjectOutcome;
+type ClipboardRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore, bool) -> InjectOutcome;
+type RoutedPasteRun<'a> = &'a dyn Fn(&str) -> InjectOutcome;
+
+/// [`type_or_paste`] with the three runners injected — the seam the routing
+/// tests drive (a live clipboard/keyboard cannot appear in a unit test).
+///
+/// ── IME-SAFE CONTENT ROUTE (2026-08-21) ──────────────────────────────────────
+/// Design: docs/strategy/2026-08-21-ime-safe-inject-routing-design.md.
+/// Measured root cause: a CN-state IME in some TSF apps (WeChat 4.x and DingTalk
+/// measured; stock Microsoft Wubi suffices) DOUBLES every fullwidth punctuation
+/// mark typed as a VK_PACKET stream and SWALLOWS the character after it —
+/// 「，你钱」→「，，钱」, byte-for-byte on the real device. SendInput reports every
+/// event accepted, so the corruption is invisible to this process.
+/// A clipboard paste never enters the per-key IME pipeline, so text that a
+/// Chinese-mode IME could take an interest in (CJK / fullwidth — text_route.rs)
+/// goes straight to the paste. No app list, no IME probe: both were measured
+/// dead or ruled out (design §1/§4), and a pure text predicate behaves the same
+/// for apps that do not exist yet.
+///
+/// The routed paste deliberately writes NO per-app learning (see
+/// `map_ime_routed_clipboard_outcome` — it says nothing about the app), and a
+/// routed paste that FAILS still falls back to typing: a possibly mangled
+/// delivery on a sick target beats a dropped utterance; the note names the trade.
+fn type_or_paste_with(
+    text: &str,
+    app_id: Option<&str>,
+    store: &AppLearningStore,
+    sendinput_run: SendInputRun<'_>,
+    clipboard_run: ClipboardRun<'_>,
+    routed_run: RoutedPasteRun<'_>,
+) -> InjectOutcome {
+    if text_route::needs_ime_immune_path(text) {
+        let out = routed_run(text);
+        if out.ok {
+            return out;
+        }
+        return sendinput_run(text, app_id, store).with_note(format!(
+            "ime-safe clipboard route failed ({}), fell back to SendInput typing — under a \
+             CN-state IME some TSF targets may mangle fullwidth punctuation on this path \
+             (the corruption the route exists to avoid)",
+            out.error_code.unwrap_or("unknown")
+        ));
+    }
     let preferred = app_id.and_then(|id| store.preferred_mode_for(id));
     match preferred {
         // An app that has HARD-REJECTED SendInput before (returned 0 / a Win32
@@ -495,19 +553,19 @@ fn type_or_paste(text: &str, app_id: Option<&str>) -> InjectOutcome {
         // here: 0.2.21 also steered apps whose text we merely could not READ, which
         // pushed working targets onto the more invasive path for no reason.
         Some(InjectMode::Clipboard) => {
-            let out = run_clipboard(text, app_id, store, true);
+            let out = clipboard_run(text, app_id, store, true);
             if out.ok {
                 return out;
             }
             // The clipboard could not deliver either. Typing is the last resort.
-            run_sendinput(text, app_id, store).with_note(format!(
+            sendinput_run(text, app_id, store).with_note(format!(
                 "clipboard-first failed ({}), fell through to SendInput",
                 out.error_code.unwrap_or("unknown")
             ))
         }
         // Default (no history) and an explicit SendInput preference.
         _ => {
-            let out = run_sendinput(text, app_id, store);
+            let out = sendinput_run(text, app_id, store);
             if out.ok {
                 return out;
             }
@@ -518,7 +576,7 @@ fn type_or_paste(text: &str, app_id: Option<&str>) -> InjectOutcome {
             // which by definition queued nothing, so a paste cannot duplicate
             // anything. Keeping the branch would have been an unreachable guard
             // implying a state that no longer exists.
-            let fallback = run_clipboard(text, app_id, store, false);
+            let fallback = clipboard_run(text, app_id, store, false);
             if fallback.ok {
                 return fallback.with_note(format!(
                     "the SendInput call failed ({}), delivered by clipboard paste instead",
@@ -713,6 +771,12 @@ fn run_clipboard(
     map_clipboard_outcome(result, app_id, store, skipped_sendinput)
 }
 
+/// The content route's paste: same client as `run_clipboard`, different mapper
+/// (no per-app learning; forensic names the route — see that mapper).
+fn run_clipboard_ime_routed(text: &str) -> InjectOutcome {
+    map_ime_routed_clipboard_outcome(ClipboardFallbackClient::new().paste_text(text))
+}
+
 impl InjectOutcome {
     /// Prefix an existing message with `note` (used to thread the SendInput
     /// error onto a fallback outcome without losing the fallback's own note).
@@ -728,3 +792,9 @@ impl InjectOutcome {
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+// IME-safe routing wiring tests — a child of THIS module because
+// `type_or_paste_with` is deliberately private (see that file's header).
+#[cfg(test)]
+#[path = "ime_route_tests.rs"]
+mod ime_route_tests;

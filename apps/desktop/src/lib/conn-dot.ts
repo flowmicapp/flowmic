@@ -77,3 +77,38 @@ export function deriveConnDot(input: ConnDotInput): ConnDotView {
 export function connChannelLabel(channel: ChannelId): string {
   return CHANNEL_LABEL[channel];
 }
+
+/**
+ * FOOTER aggregate (owner 2026-08-21 evening): the sidebar's bottom card
+ * judges BOTH channels, not only the active one — all healthy → green; one
+ * channel loudly faulted while the session leg is fine → yellow, with the
+ * fault named; every channel loudly faulted → red.
+ *
+ * A WRAPPER, deliberately: `deriveConnDot` keeps its active-channel semantics
+ * for every other surface (capsule, devices card, diagnostics), so the
+ * footer's three-colour rule cannot leak into those verdicts. The same ruling
+ * also removed the footer's channel badge — the card answers "how healthy",
+ * the diagnostics page it opens answers "which channel".
+ */
+export function deriveFooterConnDot(input: ConnDotInput): ConnDotView {
+  const lanFault = input.sidecarPhase === 'failed' ? S.dev_chan_lan_failed : null;
+  const cloudFault = cloudLoudReason(input.cloud);
+  const base = deriveConnDot(input);
+  if (lanFault !== null && cloudFault !== null) {
+    // "全部不正常" — both channels loudly faulted is red whatever the session
+    // state happens to be; both reasons ride the detail line (没有静默失败).
+    return { dot: 'r', label: S.conn_fault, detail: `${lanFault} · ${cloudFault}` };
+  }
+  const standbyFault = input.channel === 'lan' ? cloudFault : lanFault;
+  if (base.dot === 'g' && standbyFault !== null) {
+    // "有一些不正常" — the session leg is healthy but the standby channel is
+    // loudly faulted. The label stays the session truth; the dot says partial.
+    return { dot: 'y', label: base.label, detail: standbyFault };
+  }
+  if (base.detail === null && standbyFault !== null) {
+    // Reconnecting / offline with a named standby fault: keep the base state,
+    // carry the reason instead of dropping it.
+    return { ...base, detail: standbyFault };
+  }
+  return base;
+}

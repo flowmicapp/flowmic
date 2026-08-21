@@ -25,6 +25,30 @@
       "name": "app_name"
     },
     {
+      "key": "win_minimize",
+      "shard": "nav",
+      "kind": "string",
+      "name": "win_minimize"
+    },
+    {
+      "key": "win_maximize",
+      "shard": "nav",
+      "kind": "string",
+      "name": "win_maximize"
+    },
+    {
+      "key": "win_restore",
+      "shard": "nav",
+      "kind": "string",
+      "name": "win_restore"
+    },
+    {
+      "key": "win_close",
+      "shard": "nav",
+      "kind": "string",
+      "name": "win_close"
+    },
+    {
       "key": "dev_title",
       "shard": "devices",
       "kind": "string",
@@ -53,6 +77,12 @@
       "shard": "devices",
       "kind": "string",
       "name": "dev_offline_active"
+    },
+    {
+      "key": "dev_online_label",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_online_label"
     },
     {
       "key": "dev_chan_lan",

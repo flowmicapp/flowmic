@@ -1,20 +1,34 @@
 /* WP-R2-2 main window layout (sidenav + timeline + settings), ported from
-   docs/ui-design/demo/desktop.html. The bordered OS window replaces the demo's
-   custom titlebar; the sidenav carries only Timeline / Settings (no Devices /
-   Preferences / About dead entries — anti-façade, deferred to later cards). */
+   docs/ui-design/demo/desktop.html. Since 0.3.18 (owner 2026-08-21) the OS
+   frame is hidden and .titlebar below is the window chrome — the demo's
+   custom-titlebar idea came back, drawn with today's tokens. */
 html, body, #app { height: 100%; }
 body { background: var(--canvas); }
-.win-body { display: flex; height: 100vh; overflow: hidden; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; }
+.win-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 
-.sidenav { width: 200px; flex: none; background: var(--sidenav-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; }
-.sidenav .brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 16px; }
-.sidenav .brand .logo { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), #6d64f0); display: flex; align-items: center; justify-content: center; }
-.sidenav .brand .logo .icon { width: 14px; height: 14px; color: #fff; stroke-width: 2; }
-/* GA-34: the real mark replaced the generic mic glyph. Slightly larger than
-   the 14px glyph because the mark carries its own padding inside the 280
-   viewBox, so at 14px it read visually smaller than what it replaced. */
-.sidenav .brand .logo .brand-mark { width: 16px; height: 16px; color: #fff; }
-.sidenav .brand b { font-size: 14px; }
+/* ── Custom titlebar (owner 2026-08-21: native frame hidden) ──────────────
+   owner 2026-08-21 evening: the first cut CONTINUED the panels below it (left
+   200px = sidenav bg + border), which made the whole window read as one flat
+   sheet and ran the sidenav's vertical line straight through the bar. Now the
+   bar is a BAR: one full-width surface with a hairline bottom border and the
+   soft --sh-sm shadow, and the sidenav's border-right starts BELOW it.
+   z-index above the first-run veil (80): the drag surface and the close
+   button must stay reachable whatever overlay is up. */
+.titlebar { display: flex; height: 42px; flex: none; position: relative; z-index: 90; user-select: none; -webkit-user-select: none; background: var(--surface); border-bottom: 1px solid var(--line); box-shadow: var(--sh-sm); }
+.tb-side { width: 200px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 15px; }
+.tb-mark { width: 21px; height: 21px; flex: none; pointer-events: none; }
+.tb-name { font-size: 13.5px; letter-spacing: .1px; pointer-events: none; }
+.tb-name .tb-flow { color: var(--brand-ink); }
+.tb-name .tb-mic { color: var(--t1); }
+.tb-main { flex: 1; min-width: 0; display: flex; align-items: stretch; justify-content: flex-end; }
+.tb-controls { display: flex; align-items: stretch; }
+.tb-btn { width: 44px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 0; color: var(--t2); transition: background .12s, color .12s; }
+.tb-btn svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.05; }
+.tb-btn:hover { background: var(--hover-bg); color: var(--t1); }
+.tb-btn.tb-close:hover { background: var(--red); color: var(--on-ink); }
+
+.sidenav { width: 200px; flex: none; background: var(--sidenav-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 10px 14px; }
 .navitem { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-size: 13.5px; font-weight: 500; cursor: pointer; margin-bottom: 2px; width: 100%; text-align: left; background: none; transition: background .15s, color .15s; }
 .navitem:hover { background: var(--hover-bg); }
 /* 2026-07-29 polish: the active marker was an inset box-shadow — a square bar
@@ -32,6 +46,9 @@ body { background: var(--canvas); }
 .side-foot .row .icon { width: 14px; height: 14px; margin-left: auto; flex: none; color: var(--t3); }
 .side-foot:hover .row .icon { color: var(--t2); }
 .side-foot .conn-detail { margin-top: 4px; color: var(--red); font-size: 11.5px; line-height: 1.35; }
+/* Footer partial-health detail (yellow dot): the named standby-channel fault
+   is a caution, not the red the .conn-detail default paints. */
+.side-foot .conn-detail.warn { color: var(--amber-ink); }
 
 .content { flex: 1; overflow: auto; padding: 24px 26px; background: var(--canvas); }
 /* 2026-07-29 polish: on wide windows the page column used to stretch to the

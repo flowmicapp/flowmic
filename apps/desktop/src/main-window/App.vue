@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './components/Icon.vue';
-import BrandMark from './components/BrandMark.vue';
+import WindowTitlebar from './components/WindowTitlebar.vue';
 import FirstRunLocale from './components/FirstRunLocale.vue';
 import AccessibilityNotice from './components/AccessibilityNotice.vue';
 // 2026-08-19 §5-B — the built-in speech model, said BEFORE the user holds the
@@ -26,7 +26,7 @@ import {
 } from '../lib/bridge';
 import type { MainPage } from '../lib/bridge';
 import { asCloudStatus, EMPTY_CLOUD_STATUS, type CloudStatus } from '../lib/channel';
-import { deriveConnDot } from '../lib/conn-dot';
+import { deriveFooterConnDot } from '../lib/conn-dot';
 import { S } from '../lib/strings';
 import { localKv } from '../lib/storage';
 import { profileKeys, resolveFirstRunPrompt } from '../lib/strings/first-run-locale';
@@ -66,7 +66,9 @@ watch(page, () => {
 const cloud = ref<CloudStatus>({ ...EMPTY_CLOUD_STATUS });
 const sidecar = ref<SidecarStatus | null>(null);
 const connView = computed(() =>
-  deriveConnDot({
+  // Footer-specific aggregate (owner 2026-08-21 evening): this card judges
+  // BOTH channels — see deriveFooterConnDot for the three-colour rule.
+  deriveFooterConnDot({
     connected: conn.connected,
     registered: conn.registered,
     // RV-新B — the channel of the very snapshot the other two fields come from,
@@ -164,10 +166,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="win-body">
+  <div class="app-shell">
+    <!-- Owner 2026-08-21: native titlebar hidden, this bar is the window chrome.
+         It sits OUTSIDE win-body so the first-run overlay (below) never covers
+         the drag surface or the close button. -->
+    <WindowTitlebar />
+    <div class="win-body">
     <FirstRunLocale v-if="needsLocaleChoice" @chosen="needsLocaleChoice = false" />
     <nav class="sidenav">
-      <div class="brand"><span class="logo"><BrandMark /></span><b>{{ S.app_name }}</b></div>
       <button class="navitem" :class="{ on: page === 'devices' }" @click="page = 'devices'">
         <Icon name="devices" />{{ S.nav_devices }}
       </button>
@@ -187,7 +193,12 @@ onUnmounted(() => {
           {{ connView.label }}
           <Icon name="chev-right" />
         </div>
-        <div v-if="connView.detail" class="conn-detail">{{ connView.detail }}</div>
+        <!-- The channel badge that briefly lived here (④, same day) was pulled
+             by owner the same evening: the footer answers "how healthy", with
+             the dot judging BOTH channels (green all-good / yellow partial /
+             red all-faulted). WHICH channel is the diagnostics page's answer,
+             one click away. -->
+        <div v-if="connView.detail" class="conn-detail" :class="{ warn: connView.dot === 'y' }">{{ connView.detail }}</div>
         <div v-if="conn.mobiles > 0" class="muted" style="margin-top:4px">{{ conn.mobiles }} {{ S.dev_mobiles_online }}</div>
       </button>
     </nav>
@@ -211,5 +222,6 @@ onUnmounted(() => {
       <TimelinePage v-show="page === 'timeline'" />
       <SettingsPage v-show="page === 'settings'" />
     </main>
+    </div>
   </div>
 </template>

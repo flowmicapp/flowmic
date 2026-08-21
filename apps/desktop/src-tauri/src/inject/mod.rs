@@ -53,6 +53,12 @@ pub mod sendinput;
 /// V2-01: the SendInput truth-mapping rule (split out for the 800-line cap).
 pub mod sendinput_outcome;
 pub mod target_probe;
+/// IME-safe content route (2026-08-21): the ONE pure decision 「does this text
+/// have to avoid the typed-keystroke path」 — CJK/fullwidth text is pasted, not
+/// typed, because a CN-state IME in some TSF apps mangles typed fullwidth
+/// punctuation (measured on WeChat/DingTalk). See its header for why this is a
+/// text predicate and not an app list or an IME probe.
+pub mod text_route;
 // 2026-07-30: `verify_readback` (the v0.2.1 before/after UIA read that was meant
 // to make a SendInput delivery provable) is DELETED, not just unwired. It asked
 // the target app to expose its own text through UI Automation — the target's

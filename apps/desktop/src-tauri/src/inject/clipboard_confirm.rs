@@ -465,6 +465,10 @@ mod win {
     mod withdraw;
     use withdraw::{withdraw_announcement, WithdrawOps, Withdrawal};
 
+    // Transient-content marks (history/cloud/monitor opt-out) — why in its file.
+    #[path = "../../clipboard_transient.rs"]
+    mod transient;
+
     /// Tear down the render-owner window: hand the announcement back FIRST, then
     /// destroy, then say so if the OS still had to drop something.
     ///
@@ -654,6 +658,9 @@ mod win {
                     // trusted and the error code must be read instead.
                     set_delayed(*format).map_err(|c| (set_step(*format), c))?;
                 }
+                // Best-effort, deliberately not a `?` step: a mark that fails
+                // costs history pollution, never delivery (clipboard_transient.rs).
+                transient::mark_transient_content();
                 CloseClipboard().map_err(|e| ("CloseClipboard", e.code().0 as u32))?;
                 Ok(())
             })()

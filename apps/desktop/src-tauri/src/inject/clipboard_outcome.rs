@@ -226,6 +226,59 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
 ///              receipt (`confirmed`) rides the forensic line.
 ///   Err(..)  → one of OUR Win32 steps failed, or the user's clipboard could not
 ///              be restored → `failed` (INJECT_CLIPBOARD_FAIL).
+/// Map a paste chosen by the IME-SAFE CONTENT ROUTE (2026-08-21,
+/// docs/strategy/2026-08-21-ime-safe-inject-routing-design.md §2): the text
+/// carries CJK/fullwidth characters, so typing it as a VK_PACKET stream risks
+/// the CN-state-IME punctuation corruption measured on WeChat/DingTalk.
+///
+/// Two deliberate differences from [`map_clipboard_outcome`], both from one
+/// fact — this paste says NOTHING about the app:
+///   · NO `AppLearningStore` write, enforced by the signature (no store
+///     parameter exists to misuse). The route was chosen by the TEXT, not by
+///     evidence this app rejects typing; recording `Clipboard` here would flip
+///     the app's pure-ASCII injections onto the paste path too
+///     (`record_outcome`: `(Clipboard, _) → Clipboard`) — a preference change
+///     driven by a question the store never asked.
+///   · the forensic line names the route, so a window-forensics reader can tell
+///     「content routing」 from 「this app hard-rejected SendInput」.
+///
+/// The truth mapping itself is identical: an error-free paste at the verified
+/// focus is `injected`; a hard error is INJECT_CLIPBOARD_FAIL, after which the
+/// pipeline falls back to typing (`type_or_paste_with`) rather than dropping
+/// the utterance.
+pub(crate) fn map_ime_routed_clipboard_outcome(
+    result: Result<PasteOutcome, InjectError>,
+) -> InjectOutcome {
+    match result {
+        Ok(PasteOutcome { confirmed }) => {
+            crate::forensic::record(
+                "inject",
+                &format!(
+                    "text paste DONE — {} sendinput=not-attempted(ime-safe content route: text \
+                     carries CJK/fullwidth chars, and a CN-state IME in some TSF apps doubles \
+                     typed fullwidth punctuation and swallows the next char — \
+                     docs/strategy/2026-08-21-ime-safe-inject-routing-design.md)",
+                    receipt_phrase(confirmed),
+                ),
+            );
+            InjectOutcome {
+                ok: true,
+                mode: InjectMode::Clipboard,
+                error_code: None,
+                error_message: None,
+                focus_evidence: None, // stamped by `inject_text_with_probe`
+            }
+        }
+        Err(paste_err) => InjectOutcome {
+            ok: false,
+            mode: InjectMode::Clipboard,
+            error_code: Some(error_codes::INJECT_CLIPBOARD_FAIL),
+            error_message: Some(format!("ime-safe clipboard route failed; paste={paste_err}")),
+            focus_evidence: None,
+        },
+    }
+}
+
 pub(crate) fn map_clipboard_outcome(
     result: Result<PasteOutcome, InjectError>,
     app_id: Option<&str>,

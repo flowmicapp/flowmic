@@ -757,4 +757,3 @@ fn the_forensic_token_keeps_absent_and_live_apart() {
     assert!(absent.contains("absent"), "the absent token must SAY absent: {absent}");
     assert_eq!(InjectOrigin::tag(true, InjectOrigin::Deferred), "deferred");
 }
-

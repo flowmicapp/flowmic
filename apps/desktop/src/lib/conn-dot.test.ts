@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_CLOUD_STATUS, type CloudStatus } from './channel';
-import { connLoudReason, deriveConnDot, type ConnDotInput } from './conn-dot';
+import { connLoudReason, deriveConnDot, deriveFooterConnDot, type ConnDotInput } from './conn-dot';
 import { S } from './strings';
 
 const base = (over: Partial<ConnDotInput> = {}): ConnDotInput => ({
@@ -82,6 +82,65 @@ describe('deriveConnDot', () => {
     );
     expect(v.dot).toBe('g');
     expect(connLoudReason({ channel: 'lan', sidecarPhase: 'healthy', cloud: staleCloud })).toBeNull();
+  });
+});
+
+// Footer aggregate (owner 2026-08-21 evening): the sidebar card judges BOTH
+// channels. Green = everything healthy; yellow = the standby channel is loudly
+// faulted while the session leg is fine (the fault is NAMED); red = every
+// channel loudly faulted. deriveConnDot keeps its active-channel semantics for
+// every other surface — the test right above this block ("loud on inactive
+// cloud channel does not paint red while on LAN") pins that split.
+describe('deriveFooterConnDot', () => {
+  const staleCloud = cloud({ readiness: 'rejected', auth_error: 'AUTH_TOKEN_EXPIRED', key_set: true });
+
+  it('g: session up and BOTH channels healthy', () => {
+    const v = deriveFooterConnDot(
+      base({ connected: true, registered: true, sidecarPhase: 'healthy' }),
+    );
+    expect(v).toEqual({ dot: 'g', label: S.conn_online, detail: null });
+  });
+
+  it('y: session green on LAN but the standby cloud channel is loudly faulted', () => {
+    const v = deriveFooterConnDot(
+      base({ channel: 'lan', connected: true, registered: true, sidecarPhase: 'healthy', cloud: staleCloud }),
+    );
+    expect(v.dot).toBe('y');
+    expect(v.label).toBe(S.conn_online);
+    expect(v.detail).toBe(S.cloud_err_expired);
+  });
+
+  it('y: session green on cloud but the LAN sidecar failed', () => {
+    const v = deriveFooterConnDot(
+      base({ channel: 'cloud', connected: true, registered: true, sidecarPhase: 'failed' }),
+    );
+    expect(v.dot).toBe('y');
+    expect(v.detail).toBe(S.dev_chan_lan_failed);
+  });
+
+  it('r: BOTH channels loudly faulted, both reasons named', () => {
+    const v = deriveFooterConnDot(
+      base({ channel: 'lan', sidecarPhase: 'failed', cloud: staleCloud }),
+    );
+    expect(v.dot).toBe('r');
+    expect(v.label).toBe(S.conn_fault);
+    expect(v.detail).toContain(S.dev_chan_lan_failed);
+    expect(v.detail).toContain(S.cloud_err_expired);
+  });
+
+  it('r: an ACTIVE-channel fault alone stays red — the leg carrying the session being down is not "partial"', () => {
+    const v = deriveFooterConnDot(base({ channel: 'lan', sidecarPhase: 'failed' }));
+    expect(v.dot).toBe('r');
+    expect(v.detail).toBe(S.dev_chan_lan_failed);
+  });
+
+  it('y-base (reconnecting) with a standby fault keeps the state and carries the reason', () => {
+    const v = deriveFooterConnDot(
+      base({ channel: 'lan', connected: false, registered: true, sidecarPhase: 'healthy', cloud: staleCloud }),
+    );
+    expect(v.dot).toBe('y');
+    expect(v.label).toBe(S.conn_reconnecting);
+    expect(v.detail).toBe(S.cloud_err_expired);
   });
 });
 

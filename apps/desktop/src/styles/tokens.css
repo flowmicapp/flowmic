@@ -18,8 +18,13 @@
   --red: #ef4444; --red-soft: #fdecec; --green: #22c55e; --green-soft: #e9f9f0;
   --blue: #3b82f6; --slate: #64748b;      /* status text: st-b / st-n */
   --ink: #0b1020; --on-ink: #fff;         /* fchip.on fill + its text */
-  --canvas: #f6f7fb; --surface: #ffffff; --surface-2: #f3f4f9; --line: #e5e7ef;
-  --sidenav-bg: #f7f8fc; --hover-bg: #eef0f8;
+  /* owner 2026-08-21 evening (一片白，没有层次感), tuned same evening: the
+     titlebar alone stays the white surface; the BODY — sidenav and canvas —
+     both carry a light tint so they read apart from the bar ("不要跟标题栏一样
+     重"), with the sidenav a hair lighter than the canvas so the divider still
+     shows a step. White cards pop on top. */
+  --canvas: #edf0f6; --surface: #ffffff; --surface-2: #f3f4f9; --line: #e5e7ef;
+  --sidenav-bg: #f4f6fb; --hover-bg: #e9ecf5;
   --line-soft: #f0f1f7;                   /* table/dict dividers, ops hover */
   --line-strong: #c9cedd;                 /* hover-state borders */
   --danger-line: #f3c7c7; --danger-hover-bg: #fadede;
@@ -44,6 +49,15 @@
      `.chan-badge` below; lib/channel.ts's `CHANNEL_VISUAL` selects `.lan`/`.cloud`. */
   --channel-lan-ink: #0f766e; --channel-lan-soft: #e6faf7;
   --channel-cloud-ink: #4f46e5; --channel-cloud-soft: #eef0fe;
+  /* Titlebar brand glyph (owner 2026-08-21, brand 2.0): PLATELESS — at 20px
+     the ink plate ate nearly half the box, so the bar's own surface is the
+     ground now. Plateless means the glyph MUST follow the theme (the 1.x
+     plated chip was theme-constant because it carried its own dark ground;
+     without the plate, the inverse palette's #FAFAFA cradle would vanish on
+     the light bar). Light bar = standard mark face, dark bar = inverse face —
+     the same two-face rule every transparent render of the mark follows.
+     --brandmark-wave is the Stream-teal shoulder ticks of the 2.0 mark. */
+  --brandmark-phone: #4f46e5; --brandmark-stroke: #0b1020; --brandmark-wave: #14b8a6;
   --selection: rgba(79, 70, 229, .16);
   /* capsule window surfaces (translucent over the OS desktop) */
   --caps-bg: rgba(255, 255, 255, .94);
@@ -110,6 +124,9 @@
      Same byte-identical contract with FlowMicChannelColors (mobile), dark branch. */
   --channel-lan-ink: #2dd4bf; --channel-lan-soft: #12302c;
   --channel-cloud-ink: #818cf8; --channel-cloud-soft: #262a4e;
+  /* Titlebar brand glyph, inverse face (see the :root comment): the plateless
+     mark follows the bar surface, and the dark bar takes the inverse palette. */
+  --brandmark-phone: #818cf8; --brandmark-stroke: #fafafa; --brandmark-wave: #2dd4bf;
   --selection: rgba(165, 161, 255, .26);
   --caps-bg: rgba(24, 28, 47, .95);
   --caps-border: rgba(255, 255, 255, .12);

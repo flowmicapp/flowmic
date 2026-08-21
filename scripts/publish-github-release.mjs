@@ -239,11 +239,17 @@ const MAX_BODY_CHARS = 1200;
 const MAX_BODY_LINES = 6;
 
 function assertConcise(body) {
-  const lines = body
+  // Count ITEMS, not wrapped physical lines. A continuation line of an
+  // 80-column bullet is INDENTED, and hard-wrapping must not be what trips a
+  // gate about brevity: measured 2026-08-21, the first time this gate met a
+  // released section — 0.3.19's lead is exactly three bullets (the ruling's
+  // 「three to five short lines」), wrapped to eight physical lines, and the
+  // old per-line count refused it. The CHARS cap below stays the volume guard,
+  // so un-wrapping buys nobody a longer page.
+  const items = body
     .split('\n')
     .slice(1)                        // drop the `## <version>` title line
-    .map((l) => l.trim())
-    .filter((l) => l !== '');
+    .filter((l) => l.trim() !== '' && !/^\s/.test(l));
   const problems = [];
   if (/^#{3,}\s/m.test(body)) {
     problems.push('it carries `###` subsections — those are the internal ledger, not the release page');
@@ -251,8 +257,8 @@ function assertConcise(body) {
   if (body.length > MAX_BODY_CHARS) {
     problems.push(`it is ${body.length} characters (limit ${MAX_BODY_CHARS})`);
   }
-  if (lines.length > MAX_BODY_LINES) {
-    problems.push(`it is ${lines.length} lines (limit ${MAX_BODY_LINES})`);
+  if (items.length > MAX_BODY_LINES) {
+    problems.push(`it is ${items.length} items (limit ${MAX_BODY_LINES}; wrapped continuation lines are indented and not counted)`);
   }
   if (problems.length === 0) return;
   console.error('✗ the release body is not the short, human summary a release page is for:');

@@ -48,7 +48,12 @@ async function onToggle(): Promise<void> {
       @change="onToggle"
     />
     <span class="track" aria-hidden="true"><span class="knob"></span></span>
-    <span class="lbl">{{ S.dev_offline_toggle }}</span>
+    <!-- ④ (owner 2026-08-21): the label follows the FACT, not the action.
+         「下线」 next to an off-knob read as ambiguous — is it the state or the
+         thing the knob does? While online the label says 「在线」; while offline
+         the amber sentence below (which already opens with 「已下线」) IS the
+         label, so the word is never printed twice. -->
+    <span v-if="!offlineMode" class="lbl">{{ S.dev_online_label }}</span>
     <!-- The on-state truth line: while offline the channel chips go grey via
          the store's synthetic rows, but this sentence is the one that SAYS
          why (a silent grey page reads as a fault, not a choice). -->

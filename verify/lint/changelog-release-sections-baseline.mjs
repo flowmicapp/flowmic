@@ -94,5 +94,18 @@ export const SHIPPED_SECTIONS = [
   '0.3.13|ea37118550ad|9',
   '0.3.14|e90b3e7ed171|10',
   '0.3.15|ef9efb467887|5',
+  '0.3.16|a9eaf0dc49d9|11',
+  '0.3.17|7cd5dfaca828|7',
+  '0.3.18|bc08b2708cd0|10',
+  '0.3.19|a22c911237cb|10',
+  // 0.3.20 re-pinned 2026-08-21 evening: the section was EXTENDED (brand 2.0
+  // icon redesign bullets) after its chore(release) commit but BEFORE the
+  // version's first publication anywhere — 0.3.20 had not reached the download
+  // center yet, so no published copy is being rewritten. Same-commit re-pin,
+  // per this gate's own rule.
+  '0.3.20|cd7549fb4a6b|46',
+  '0.3.21|759a83df631e|21',
+  '0.3.22|3ce34deba73f|17',
+  '0.3.23|689b1ec2d21a|23',
   '0.3.9|0a6d6f8fb40d|26',
 ];
