@@ -31,7 +31,13 @@ import { resetSherpaModelControllers } from '../src/stt/sherpa/model-downloader'
 afterEach(() => resetSherpaModelControllers());
 
 function tempEnv(): NodeJS.ProcessEnv {
-  return { APPDATA: mkdtempSync(join(tmpdir(), 'flowmic-cat-appdata-')) } as NodeJS.ProcessEnv;
+  // BOTH app-data envs, because this suite also runs on the public repo's
+  // macOS/Linux runners: with only APPDATA set, appDataBase() falls through
+  // to XDG_DATA_HOME ?? ~/.local/share there, and every case reads/writes
+  // the RUNNER's real home — state leaks across cases and the private-tree
+  // run stays green while the public one goes red (ironrules §1-13 shape).
+  const dir = mkdtempSync(join(tmpdir(), 'flowmic-cat-appdata-'));
+  return { APPDATA: dir, XDG_DATA_HOME: dir } as NodeJS.ProcessEnv;
 }
 
 // ── ① coverage invariants ────────────────────────────────────────────────────

@@ -128,7 +128,11 @@ function handlerFor(opts: {
   env?: NodeJS.ProcessEnv;
 } = {}): (req: IncomingMessage, res: ServerResponse) => boolean {
   const mode = opts.mode ?? 'standalone';
-  const env = opts.env ?? ({ APPDATA: mkdtempSync(join(tmpdir(), 'flowmic-route-appdata-')) } as NodeJS.ProcessEnv);
+  // Both app-data envs — see model-catalog.test.ts tempEnv(): on the public
+  // repo's macOS/Linux runners APPDATA alone falls through to the runner's
+  // real ~/.local/share.
+  const tmpAppData = mkdtempSync(join(tmpdir(), 'flowmic-route-appdata-'));
+  const env = opts.env ?? ({ APPDATA: tmpAppData, XDG_DATA_HOME: tmpAppData } as NodeJS.ProcessEnv);
   return makeHttpHandler({
     config: { mode, port: 41879, mockBilling: mode === 'standalone' } as never,
     billing: {} as never,
@@ -394,7 +398,8 @@ describe('POST /api/stt/model/root', () => {
 
   it('reset returns to the default directory', async () => {
     const target = mkdtempSync(join(tmpdir(), 'flowmic-route-root2-'));
-    const env = { APPDATA: mkdtempSync(join(tmpdir(), 'flowmic-route-appdata2-')) } as NodeJS.ProcessEnv;
+    const appData2 = mkdtempSync(join(tmpdir(), 'flowmic-route-appdata2-'));
+    const env = { APPDATA: appData2, XDG_DATA_HOME: appData2 } as NodeJS.ProcessEnv;
     const h = handlerFor({ controller: readyController(), env });
     await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { dir: target }).done;
     const out = await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { reset: true }).done;
