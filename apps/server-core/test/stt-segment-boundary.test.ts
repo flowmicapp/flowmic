@@ -115,7 +115,7 @@ describe('SEG-1 §4 — what counts as a sentence terminator', () => {
 //   segment 2 「这个方案，所以说不一定要怎么搞。」
 //
 // The clause is 「看看要怎么样实现这个方案」. The full stop is a property of the
-// SPAN, not of the speech — `engines/sherpa-local.ts:196` states the mechanism as
+// SPAN, not of the speech — `engines/sherpa-local.ts:202` states the mechanism as
 // a measured fact: SenseVoice punctuates as a function of the span, so that mark
 // would have been a 「，」 had the audio kept flowing. SEG-1 could not fix this:
 // the ceiling must exist, so forced cuts must exist.

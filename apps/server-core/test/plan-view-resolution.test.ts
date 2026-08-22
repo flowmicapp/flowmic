@@ -67,6 +67,10 @@ function paddleRow(over: Partial<PaddleSubRow> = {}): PaddleSubRow {
     cycle: 'monthly',
     current_period_end: new Date(NOW + 30 * 86_400_000).toISOString(),
     canceled_at: null,
+    scheduled_change_action: null,
+    scheduled_change_at: null,
+    next_billed_at: null,
+    contract_concluded_at: null,
     last_event_id: 'evt_test01',
     last_occurred_at: iso,
     created_at: iso,
@@ -96,6 +100,10 @@ describe('D1 §6.1 ④ — nothing at all', () => {
       cycle: null,
       state: 'none',
       expires_at: null,
+      scheduled_change: null,
+      next_billed_at: null,
+      withdrawal_deadline: null,
+      contract_concluded_at: null,
       paddle_subscription_id: null,
     });
   });
@@ -171,6 +179,72 @@ describe('D1 §6.1 ② — a paddle subscription', () => {
   });
 });
 
+// ── 🔴 0.3.25 B1 — the fact `state` could never carry ──────────────────────
+//
+// A subscription scheduled to cancel at period end is `status:'active'` at
+// Paddle, because that is what it is. So `state` alone had ONE word for TWO
+// facts, and the console could not tell a user the date their service stops.
+// These tests are red against any implementation that folds the scheduled
+// change into `state`, and red against one that drops it.
+describe('0.3.25 B1 — a scheduled cancellation is a separate fact from the state', () => {
+  it('🔴 still active, and says so, while also saying it will not renew', () => {
+    db.billing.upsertSubscription(
+      paddleRow({
+        status: 'active',
+        scheduled_change_action: 'cancel',
+        scheduled_change_at: '2026-09-01T00:00:00.000Z',
+        next_billed_at: null, // Paddle nulls it once a cancel is scheduled
+      }),
+    );
+    const v = makeBilling().getPlan(USER);
+    // 🔴 BOTH halves. The tier is still granted and the service is still
+    // running — a page that renders 「canceled」 here makes a paying user stop
+    // using something they have already paid for.
+    expect(v.state).toBe('active');
+    expect(v.plan).toBe('pro');
+    expect(v.scheduled_change).toEqual({ action: 'cancel', effective_at: '2026-09-01T00:00:00.000Z' });
+    // 「how long you have paid for」 survives; 「will money move again」 does not.
+    expect(v.expires_at).not.toBeNull();
+    expect(v.next_billed_at).toBeNull();
+  });
+
+  it('a live subscription with no scheduled change says so, and names its next charge', () => {
+    // Positive control for the test above: same shape, nothing scheduled. If
+    // `scheduled_change` were hardcoded either way, one of these two fails.
+    db.billing.upsertSubscription(paddleRow({ status: 'active', next_billed_at: '2026-09-01T00:00:00.000Z' }));
+    const v = makeBilling().getPlan(USER);
+    expect(v.scheduled_change).toBeNull();
+    expect(v.next_billed_at).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  it('a PAUSE is not rounded into a cancel — Paddle’s own word reaches the console', () => {
+    db.billing.upsertSubscription(
+      paddleRow({ scheduled_change_action: 'pause', scheduled_change_at: '2026-09-01T00:00:00.000Z' }),
+    );
+    expect(makeBilling().getPlan(USER).scheduled_change?.action).toBe('pause');
+  });
+
+  it('an action with no readable date still reports the action — 「we cannot say when」 is not 「nothing」', () => {
+    db.billing.upsertSubscription(paddleRow({ scheduled_change_action: 'cancel', scheduled_change_at: null }));
+    expect(makeBilling().getPlan(USER).scheduled_change).toEqual({ action: 'cancel', effective_at: null });
+  });
+
+  it('🔴 an EXPIRED subscription reports neither — a past date must not render as 「runs until」', () => {
+    db.billing.upsertSubscription(
+      paddleRow({
+        current_period_end: new Date(NOW - 1000).toISOString(),
+        scheduled_change_action: 'cancel',
+        scheduled_change_at: new Date(NOW - 1000).toISOString(),
+        next_billed_at: new Date(NOW - 1000).toISOString(),
+      }),
+    );
+    const v = makeBilling().getPlan(USER);
+    expect(v.state).toBe('expired');
+    expect(v.scheduled_change).toBeNull();
+    expect(v.next_billed_at).toBeNull();
+  });
+});
+
 describe('D1 §6.1 ③ — the mock branch is honest about being mock', () => {
   it('FLOWMIC_MOCK_UNLOCK_ALL reports source:"mock", never "paddle"', () => {
     expect(makeBilling(true).getPlan(USER)).toMatchObject({ plan: 'pro', source: 'mock', state: 'active' });
@@ -198,6 +272,10 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
       cycle: null,
       state: 'none',
       expires_at: null,
+      scheduled_change: null,
+      next_billed_at: null,
+      withdrawal_deadline: null,
+      contract_concluded_at: null,
       paddle_subscription_id: null,
     });
   });

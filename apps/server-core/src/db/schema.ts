@@ -53,6 +53,8 @@
 // (server-decryptable); timeline_blobs.ciphertext is e2e:v1: (server-blind). The
 // two are NEVER interchangeable — enforced at the write path, not in SQL.
 
+import { BILLING_SQL } from './schema-billing';
+
 export const INIT_SQL = /* sql */ `
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -257,77 +259,14 @@ CREATE TABLE IF NOT EXISTS timeline_blobs (
 );
 CREATE INDEX IF NOT EXISTS idx_timeline_blobs_user_seq ON timeline_blobs(user_id, seq);
 
--- 8. paddle_subscriptions (Window D1 §3.2 -- subscription truth)
--- status stores Paddle's raw value, not translated; translation is the tier
--- column's job. One column, one question.
--- last_occurred_at is the out-of-order guard's ruler: webhooks do not guarantee
--- order, an old event must never overwrite newer state
--- (the comparison happens in the handler, see §5.3 step 6 and the comment on
--- billing.repo.ts upsertSubscription).
-CREATE TABLE IF NOT EXISTS paddle_subscriptions (
-  subscription_id     TEXT PRIMARY KEY,          -- sub_xxx
-  user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  customer_id         TEXT,                      -- ctm_xxx
-  status              TEXT NOT NULL,             -- Paddle's raw value, not translated
-  tier                TEXT NOT NULL,             -- free|pro|max, mapped from price_id
-  price_id            TEXT,
-  cycle               TEXT,                      -- monthly|yearly|null
-  current_period_end  TEXT,                      -- RFC3339
-  canceled_at         TEXT,
-  last_event_id       TEXT NOT NULL,
-  last_occurred_at    TEXT NOT NULL,             -- ⚠️ out-of-order guard, see below
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_paddle_subs_user ON paddle_subscriptions(user_id);
-
--- 9. billing_events (Window D1 §3.3 -- idempotency ledger + reconciliation evidence)
--- 🔴 THE DEDUP KEY MUST BE event_id, NEVER notification_id: Paddle uses event_id
--- to identify the **event**, and notification_id to identify **this one delivery
--- attempt** — the latter changes on redelivery. Using the wrong one means the
--- idempotency table exists but never once takes effect (this repo's #1 bug
--- shape: one value answers a different question than it should).
--- ⚠️ Does NOT store the raw payload (contains address/tax PII etc. that we
--- neither need nor should hold). detail holds only
--- one sentence we produced ourselves.
--- ⚠️ user_id deliberately has NO FK: an event that cannot be claimed by any
--- account (outcome='unmapped') must still leave a trace --
--- a REFERENCES users(id) would make that row fail to write at all, turning
--- "discard but leave a trace" into a silent discard.
--- (Supervisor ruled 2026-08-01 to keep the status quo: a leftover ledger row
--- after account deletion is the visible cost of this trade-off, no FK added.)
---
--- §3.3-bis (Supervisor 2026-08-01): event_id is the primary key ⇒ a redelivery
--- structurally cannot produce a second row,
--- so "how many times was this Paddle event redelivered" would otherwise become
--- a silent discard. Two columns recover it:
---   redelivery_count     how many times this one was redelivered (first delivery = 0)
---   last_notification_id the ntf_xxx of the most recent delivery (= notification_id on first delivery)
--- 🔴 Two fields, two questions: outcome says "what happened to it in the end",
--- redelivery_count says
--- "how many times was it sent". It is **forbidden** to cram redelivery into
--- outcome (that is exactly this repo's #1 bug shape,
--- and it would let 'duplicate' overwrite 'applied', erasing the fact that "it
--- did take effect").
--- ⚠️ notification_id is the **first delivery's**, and never changes once written;
--- last_notification_id is the **most recent one's**.
--- For every row written from this round onward, last_notification_id is always
--- non-empty ⇒ NULL has exactly one meaning:
--- this row predates these two columns (backfilled by migration).
-CREATE TABLE IF NOT EXISTS billing_events (
-  event_id             TEXT PRIMARY KEY,      -- evt_xxx ← dedup key
-  notification_id      TEXT,                  -- ntf_xxx ← logging only, never the dedup key
-  event_type           TEXT NOT NULL,
-  occurred_at          TEXT NOT NULL,
-  received_at          TEXT NOT NULL,
-  subscription_id      TEXT,
-  user_id              TEXT,
-  outcome              TEXT NOT NULL,         -- applied|stale|unmapped|ignored|pending
-  detail               TEXT,
-  redelivery_count     INTEGER NOT NULL DEFAULT 0,
-  last_notification_id TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_billing_events_user ON billing_events(user_id, received_at);
+-- 8/8b/9. THE BILLING DOMAIN lives in ./schema-billing.ts (BILLING_SQL).
+-- Split out on 2026-08-21 because this file stood at exactly 800 of the
+-- 800-line cap, so the next table could not be added without either splitting
+-- it or deleting an argument. The repo precedent is to split (0.2.52).
+-- 🔴 The tables are NOT optional and NOT conditional: BILLING_SQL is
+-- interpolated into INIT_SQL unconditionally below, so the emitted migration is
+-- byte-for-byte what it was, in the same order, in one exec.
+${BILLING_SQL}
 
 -- 10. ops_audit_log (0.2.47 -- ops-action audit trail: who, did what, to whom, when)
 --
@@ -770,6 +709,17 @@ export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> 
   // column there IS no "most recent redelivery", and NULL is the only honest
   // value for it. Its INTEGER sibling `redelivery_count` rides the other loop.
   billing_events: ['last_notification_id'],
+  // 0.3.25 B1. All four nullable TEXT with no default — exactly what this loop
+  // emits — and NULL on a legacy row is the truth in each case: no scheduled
+  // change was ever recorded, no next-billing date was ever read, and for a
+  // subscription that predates the column we genuinely do not know when its
+  // contract was concluded.
+  // 🔴 That last one has a CONSEQUENCE the withdrawal surface must respect and
+  // must not paper over: a NULL `contract_concluded_at` means 「we cannot compute
+  // your 14-day deadline」, NOT 「your window has closed」. B3 shows no withdrawal
+  // panel rather than a refusal — claiming a right has expired when we simply
+  // never wrote the date down would be the worst possible direction to fail.
+  paddle_subscriptions: ['scheduled_change_action', 'scheduled_change_at', 'next_billed_at', 'contract_concluded_at'],
 };
 
 /** Additive INTEGER columns, reconciled the same way (guarded ADD COLUMN, same

@@ -141,7 +141,6 @@ describe('A2-3 · enforcement — every console feature refuses BY NAME, the car
    *  test/email-verification.test.ts uses for its own gate. */
   const GATED: Array<[string, string, unknown?]> = [
     ['GET', '/api/cloud/summary'],
-    ['GET', '/api/cloud/subscription'],
     ['GET', '/api/cloud/billing/events'],
     ['GET', '/api/cloud/devices'],
     ['GET', '/api/cloud/stt-routings'],
@@ -195,6 +194,20 @@ describe('A2-3 · enforcement — every console feature refuses BY NAME, the car
     const del = await call('POST', `${url}/api/account/delete`, {}, bearer(m.token));
     expect(del.json?.error, 'delete must reach its own validation, not the restriction gate').not.toBe(ACCOUNT_RESTRICTED);
     expect(del.status).not.toBe(403);
+
+    // 🔴 0.3.25 D-3 — the BILLING EXIT stays reachable too, and this assertion
+    // is the other half of removing this route from the GATED census above.
+    // Deleting a row from that list without adding one here would leave the
+    // exemption unwatched while looking supervised: nothing would fail if a
+    // future edit quietly re-gated it, and the person who cannot reach it is
+    // one still being charged every month.
+    //
+    // ROSCA §8403(3) wants a simple mechanism to stop recurring charges; the
+    // button cannot be offered without first reading whether there is a
+    // subscription, when it renews, and whether the withdrawal period is open.
+    const sub = await call('GET', `${url}/api/cloud/subscription`, undefined, bearer(m.token));
+    expect(sub.status, 'a restricted account must still be able to see what it is being charged').toBe(200);
+    expect(sub.json?.error).not.toBe(ACCOUNT_RESTRICTED);
 
     // Signed-in password change stays reachable: rotating a password you
     // already know is not 「using the product」.

@@ -236,6 +236,11 @@ pub mod accessibility;
 /// decidable lives in the tauri-free core; this only owns the `AppHandle`.
 pub mod update_ctl;
 
+/// The ONE door from the WebView to the system browser. It exists because
+/// `target="_blank"` and `window.open` are silently swallowed in this app —
+/// measured off wry/tauri's own sources, see that module's header.
+pub mod external_open;
+
 /// The tray (07 §7: the only quit path; show main / show capsule / quit) —
 /// moved out verbatim for the 800-line cap. `setup_tray` re-exported below so
 /// `lib.rs`'s call site (`shell::setup_tray(...)`) needed no edit.

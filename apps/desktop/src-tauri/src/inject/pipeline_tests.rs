@@ -101,7 +101,7 @@ fn over_length_text_is_rejected_not_truncated() {
 fn an_unconfirmed_clipboard_paste_is_still_a_performed_delivery() {
     let store = AppLearningStore::new();
     let out = map_clipboard_outcome(
-        Ok(PasteOutcome { confirmed: false }),
+        Ok(PasteOutcome { confirmed: false, ..Default::default() }),
         None,
         &store,
         false,
@@ -127,7 +127,7 @@ fn a_delivered_clipboard_paste_carries_no_error_code() {
     let store = AppLearningStore::new();
     for skipped_sendinput in [false, true] {
         let out = map_clipboard_outcome(
-            Ok(PasteOutcome { confirmed: true }),
+            Ok(PasteOutcome { confirmed: true, ..Default::default() }),
             None,
             &store,
             skipped_sendinput,
@@ -141,25 +141,51 @@ fn a_delivered_clipboard_paste_carries_no_error_code() {
     }
 }
 
-// RV-44: 「consumed=false」 alone reads as 「the target refused it」, and all we ever
-// measured was 「nothing arrived inside the window we watched」. The window belongs
-// in the sentence, and it must be the window we REALLY waited — so the number is
-// asserted against `CONFIRM_TIMEOUT` itself, which is what stops the log from
-// outliving a change to the timeout.
+// RV-44 put the WINDOW into this sentence, because a measurement without its
+// window is an unfalsifiable claim, and pinned the number to the constant so the
+// log cannot outlive a change to it. Both still hold.
+//
+// 🔴 2026-08-22 TOOK THE WORD 「consumed」 OUT, AND THIS TEST NOW PINS ITS ABSENCE.
+// RV-44's own assertions were `contains("consumed=false")` / `contains("consumed=true")`
+// — i.e. this test REQUIRED the log to say the one thing that was measured to be
+// untrue. `WM_RENDERFORMAT` arrives 13ms after Ctrl+V whether or not the target is
+// in any state to paste; in the reproduction it arrived identically in the run
+// that inserted our text and the run that inserted the user's old clipboard. So
+// 「consumed」 was never what the flag meant, and a test asserting that word was
+// holding the wrong sentence in place — the 0.2.52 shape (a reverse control that
+// pins the defect as the spec), one more time.
+//
+// What the sentence must do now: name the hold window, and never claim anything
+// about what the target did with the bytes. `LandingEvidence` owns that claim.
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn an_unconsumed_receipt_names_the_window_it_was_measured_over() {
-    let unconsumed = receipt_phrase(false);
-    assert!(unconsumed.contains("consumed=false"), "{unconsumed}");
+fn the_receipt_line_names_its_window_and_never_claims_the_target_inserted_anything() {
+    for confirmed in [true, false] {
+        let phrase = receipt_phrase(confirmed);
+        assert!(
+            !phrase.contains("consumed"),
+            "「consumed」 is the word that was measured wrong; it must not come back: {phrase}"
+        );
+    }
+    // ⚠️ This used to also assert `!contains("inserted")`, and it failed against
+    // a sentence that reads 「NOT evidence the target inserted it」 — i.e. the
+    // assertion could not tell a CLAIM from its DENIAL. Substring bans are a bad
+    // instrument for 「does this sentence assert X」; the served arm therefore has
+    // to carry the disclaimer explicitly instead.
     assert!(
-        unconsumed.contains(&format!("{}ms", CONFIRM_TIMEOUT.as_millis())),
-        "the measurement window must be in the sentence: {unconsumed}"
+        receipt_phrase(true).contains("NOT evidence"),
+        "a served fetch must say out loud that it is not evidence of a landing: {}",
+        receipt_phrase(true)
     );
-    let consumed = receipt_phrase(true);
-    assert!(consumed.contains("consumed=true"), "{consumed}");
+    let none = receipt_phrase(false);
     assert!(
-        !consumed.contains("within"),
-        "a receipt we DID see is not a timeout statement: {consumed}"
+        none.contains(&format!("{}ms", PASTE_HOLD.as_millis())),
+        "the window we really held for must be in the sentence: {none}"
+    );
+    let served = receipt_phrase(true);
+    assert!(
+        served.contains("served"),
+        "a fetch we DID answer is reported as a fetch: {served}"
     );
 }
 
@@ -169,7 +195,7 @@ fn an_unconsumed_receipt_names_the_window_it_was_measured_over() {
 ///
 /// On Windows the danger is 「consumed=false」 being read as 「the target refused」,
 /// so the WINDOW gets named. Here the danger is worse — there is no window and no
-/// observation at all — so the sentence must (a) still name the 500ms, because the
+/// observation at all — so the sentence must (a) still name the hold, because the
 /// user's pasteboard really was held that long, and (b) never use the word
 /// 「consumed」, which is what would turn a structural n/a back into a verdict about
 /// the target.
@@ -179,7 +205,7 @@ fn the_macos_receipt_line_never_claims_an_observation_it_could_not_make() {
     let phrase = receipt_phrase(false);
     assert!(phrase.contains("n/a on macOS"), "{phrase}");
     assert!(
-        phrase.contains(&format!("{}ms", CONFIRM_TIMEOUT.as_millis())),
+        phrase.contains(&format!("{}ms", PASTE_HOLD.as_millis())),
         "the pasteboard really was held this long; the number is a fact: {phrase}"
     );
     assert!(

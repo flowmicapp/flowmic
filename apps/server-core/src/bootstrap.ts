@@ -61,14 +61,19 @@ import { createDualProtocolFront, type DualProtocolFront } from './lan-tls/dual-
 import {
   resolveEmailVerificationMailer,
   resolvePasswordResetMailer,
+  resolveSubscriptionMailer,
+  unconfiguredSubscriptionMailer,
   unconfiguredEmailVerificationMailer,
   unconfiguredPasswordResetMailer,
   type EmailVerificationMailer,
   type PasswordResetMailer,
+  type SubscriptionMailer,
 } from './mail';
+import type { PaddleClient } from './billing/paddle/client';
+import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.23';
+export const SERVER_VERSION = '0.3.27';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -123,6 +128,21 @@ export interface BootstrapOverrides {
    *  a fake provider through this seam exactly the way mail-password-reset's
    *  do through `mail`. */
   verificationMail?: EmailVerificationMailer;
+  /** 0.3.25 B2: the subscription-confirmation channel — same contract as its two
+   *  siblings above (optional here, required downstream). */
+  subscriptionMail?: SubscriptionMailer;
+  /** 0.3.25 B2: the outbound Paddle writer. Absent → built from config, which is
+   *  what production does, and which is OFF unless FLOWMIC_PADDLE_WRITE_ENABLED
+   *  says otherwise.
+   *
+   *  🔴 THIS IS THE SEAM EVERY TEST OF THE CANCEL PATH USES, and it has to exist:
+   *  the alternative is a suite that either talks to Paddle for real or proves
+   *  nothing. A fake here is a fake of a BOUNDARY WE DO NOT OWN, so the tests
+   *  that drive it are only as true as our reading of Paddle docs — which is why
+   *  the sandbox run is a separate, named piece of evidence and not something
+   *  these tests can stand in for. (0.2.48 L9: fifteen green adapter tests all
+   *  driving a FakeWs that answered the way we assumed.) */
+  paddleClient?: PaddleClient;
 }
 
 function tokenLookupOver(db: DbConnection): TokenLookup {
@@ -271,6 +291,27 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     config.mode === 'saas'
       ? (overrides.verificationMail ?? resolveEmailVerificationMailer())
       : (overrides.verificationMail ?? unconfiguredEmailVerificationMailer());
+  // 0.3.25 B2 — the subscription-confirmation channel, resolved beside its two
+  // siblings under the same saas-only rule (standalone has no merchant of record
+  // and mounts no billing controls, so its arm is the loudly-failing channel and
+  // never null).
+  const subscriptionMail: SubscriptionMailer =
+    config.mode === 'saas'
+      ? (overrides.subscriptionMail ?? resolveSubscriptionMailer())
+      : (overrides.subscriptionMail ?? unconfiguredSubscriptionMailer());
+  // 🔴 0.3.25 B2 — the ONE outbound Paddle writer, constructed once per process
+  // beside the limiters and for the same reason they are single instances: it
+  // carries the write switch and the API key, and a second one built somewhere
+  // convenient is a second place both can be wrong — including one where
+  // `writeEnabled` is true by accident.
+  //
+  // ⚠️ CONSTRUCTED IN BOTH MODES, and it is never a null. Standalone mounts no
+  // route that can reach it, and a nullable here would force a `!` at the deps
+  // literal — 「it cannot be null there, trust me」 is exactly the claim
+  // `mail` above refuses to make. Building it costs nothing: every method
+  // refuses by name while the switch is off, which is what standalone would want
+  // anyway if something ever did reach it.
+  const paddleClient: PaddleClient = overrides.paddleClient ?? resolvePaddleClient(config, db.billing);
   // VERIFY-1 — the per-account send budget (≤3 codes / 15 min). ONE instance per
   // server, same argument as every limiter above it: a per-request instance
   // would count to one and limit nothing (the ReleaseSuppression trap).
@@ -430,6 +471,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     releaseSuppression,
     mail,
     verificationMail,
+    subscriptionMail,
+    paddleClient,
     verificationSendLimiter,
     // D2LAN-B2b — the same late-binding thunk as before the split: the http
     // handler is built before the TLS front exists, so the route reads the

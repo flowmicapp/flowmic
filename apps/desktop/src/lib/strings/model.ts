@@ -86,11 +86,12 @@ export const MODEL_KEYS = [
   // rule in this shard's terms: 「不知道」 and 「没有」 must never share a face,
   // since one of them has a Download button under it and the other must not.
   'model_state_unknown',
-  // A SEVENTH, split out of 「unknown」 after the owner's 2026-08-20 report:
-  // the launch seconds before the local service has an endpoint are not a
+  // The launch seconds before the local service has an endpoint are not a
   // failure and must not wear one's face — 「connecting」 is quiet, expected,
   // and resolves by itself (the sidecar-ready edge re-asks the moment it can).
-  'model_state_connecting',
+  // (Its CHIP key `model_state_connecting` was removed with LM-CAT: the
+  // per-pack card renders the sentence below, and a chip nobody mounts is a
+  // catalogue key with no consumer.)
   'model_connecting_note',
   // Two DIFFERENT failure sentences, because the reader's next move differs:
   // `unreachable` = nobody answered (try again / restart the app);
@@ -176,6 +177,45 @@ export const MODEL_KEYS = [
   // A pressed button that did nothing must say so — 「没有静默失败」 in its
   // smallest form.
   'model_action_failed',
+  // ── LM-CAT (2026-08-22): the per-language pack picker ─────────────────────
+  // One sentence of what the picker is and the promise it keeps (「只有你点了
+  // 才联网」 must stay true with more buttons on the card).
+  'model_pick_note',
+  'model_lang_label',
+  // zh-TW is a SCRIPT, not an acoustic key (task §3-1): its row in the picker
+  // says it shares the zh packs instead of pretending to be a ninth catalog key.
+  'model_lang_zhtw_note',
+  // The three tiers — data-rendered labels, never composed adjectives.
+  'model_tier_lite',
+  'model_tier_recommended',
+  'model_tier_multilingual',
+  // 🔴 Licence labels are keyed by `license_class` DATA (task §3-6). The
+  // funasr label must never say "open source" — that is the whole reason the
+  // class exists as a field instead of a sentence.
+  'model_lic_osi',
+  'model_lic_ccby',
+  'model_lic_funasr',
+  // Latency behaviour is its own column (task §3-7) — three separate labels.
+  'model_stream_offline',
+  'model_stream_quasi',
+  // The streaming row EXISTS and is refused this phase — the label says the
+  // truthful half-sentence ("this version cannot use it yet"), never hides
+  // the row.
+  'model_stream_streaming',
+  // Selection: pressing a ready pack's button under a language records it.
+  'model_use',
+  'model_in_use',
+  // Machine-wide single flight: why every other download button is disabled.
+  'model_busy_other',
+  // Owner 2026-08-22: the download folder is the user's to move. The note is
+  // load-bearing copy — files are NOT moved automatically, and a folder
+  // control that silently strands gigabytes would be worse than none.
+  'model_root_title',
+  'model_root_change',
+  'model_root_apply',
+  'model_root_cancel',
+  'model_root_reset',
+  'model_root_note',
 ] as const;
 
 export const MODEL_STRINGS = shardCatalogue(MODEL_KEYS);

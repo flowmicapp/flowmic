@@ -649,12 +649,33 @@ describe('P1 — the product says where the user’s words go', () => {
       const html = await renderIn(loc);
       expect(html, `${loc} is missing the privacy URL`).toContain(`href="${DISCLOSURE_PRIVACY_URL}"`);
       expect(html, `${loc} is missing the terms URL`).toContain(`href="${DISCLOSURE_TERMS_URL}"`);
-      expect(html, `${loc} privacy link is not target=_blank`).toMatch(
-        new RegExp(`href="${DISCLOSURE_PRIVACY_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*target="_blank"`),
-      );
-      expect(html, `${loc} terms link is not target=_blank`).toMatch(
-        new RegExp(`href="${DISCLOSURE_TERMS_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*target="_blank"`),
-      );
+      // 🔴 REPLACED 0.3.24, and what these two lines USED to demand is the
+      // point: `target="_blank"` — the attribute that opens NOTHING in this
+      // app. A WebView2 window declared in tauri.conf.json drops every
+      // new-window request (src-tauri/src/shell/external_open.rs carries the
+      // measured chain), so this assertion was green for exactly as long as the
+      // product's only in-app route to the privacy policy was dead, and it
+      // would have gone RED on the day somebody fixed it. That is the shape
+      // CLAUDE.md records from 0.2.52: a control assertion pointed the wrong
+      // way does not miss a defect, it writes the defect into the acceptance
+      // criteria — and the question to ask of a negative assertion is 「如果我
+      // 错了，谁会来告诉我」 ("if I am wrong, who comes and tells me"). Nobody was
+      // going to, because the machine that publishes releases never clicks these.
+      //
+      // What replaces it asserts what a user can observe: the click is
+      // intercepted and handed to the one door that can open a browser. `href`
+      // stays, and stays the published URL (asserted just above) — it is what
+      // the link MEANS and what copy-link yields.
+      for (const [name, url] of [
+        ['privacy', DISCLOSURE_PRIVACY_URL],
+        ['terms', DISCLOSURE_TERMS_URL],
+      ] as const) {
+        const esc = url.replace(/[.*+?^${}()|[]\]/g, '\$&');
+        expect(
+          html,
+          `${loc}: the ${name} link still relies on target=_blank, which opens nothing in this app`,
+        ).not.toMatch(new RegExp(`href="${esc}"[^>]*target="_blank"`));
+      }
       expect(html, `${loc}: expired unpublished-docs sentence is back`).not.toContain('docs/legal/');
       expect(html, `${loc}: expired privacy-policy.md path is back`).not.toContain('privacy-policy.md');
       expect(html, `${loc}: expired terms-of-service.md path is back`).not.toContain('terms-of-service.md');

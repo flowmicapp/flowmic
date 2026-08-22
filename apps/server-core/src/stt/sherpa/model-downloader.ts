@@ -41,10 +41,15 @@ import {
 } from './model-fetch';
 import {
   classifyDownloadError, declaredTotalBytes, deriveModelState, pickReportableError, readDiskFacts,
-  ModelVerificationCache, RateSampler, MODEL_ID,
+  ModelVerificationCache, RateSampler,
   type ModelStatusError, type ModelStatusSnapshot,
 } from './model-status';
-import { SHERPA_MODEL_FILES, type ModelFile, type ModelSource } from './model-manifest';
+import {
+  SHERPA_MODEL_FILES, SHERPA_PER_FILE_SOURCES, SHERPA_GITHUB_TARBALL, SHERPA_REPO,
+  resolveModelDir,
+  type ModelFile, type ModelSource,
+} from './model-manifest';
+import { isLoadableThisPhase, type CatalogModel } from './model-catalog';
 
 export type { ModelStatusSnapshot, ModelState } from './model-status';
 
@@ -56,10 +61,26 @@ export type { ModelStatusSnapshot, ModelState } from './model-status';
 const CANCEL_SETTLE_MS = 2_000;
 
 export interface SherpaModelControllerOptions {
-  /** Test seams, passed straight through to model-fetch. Production passes none. */
+  /** The catalog row this controller downloads. Absent = the legacy SenseVoice
+   *  defaults (kept so pre-LM-CAT tests and the single-model debug scripts
+   *  construct exactly what they always did). */
+  model?: CatalogModel;
+  /** Test seams, passed straight through to model-fetch. Production passes
+   *  only `model`; each seam overrides the row's own value. */
   files?: readonly ModelFile[];
   sources?: readonly ModelSource[];
   tarballUrl?: string;
+  tarballRoot?: string;
+}
+
+/** Thrown by [SherpaModelController.start]/[ensure] for a streaming row —
+ *  phase A can neither download nor open one (LM-CAT §5). Named so the http
+ *  route can answer its own reason string instead of matching prose. */
+export class ModelNotDownloadableError extends Error {
+  constructor(readonly modelId: string) {
+    super(`'${modelId}' is a streaming pack; this version cannot download or open it yet (LM-CAT phase D)`);
+    this.name = 'ModelNotDownloadableError';
+  }
 }
 
 /**
@@ -82,6 +103,14 @@ export class SherpaModelController {
   private readonly cache: ModelVerificationCache;
   private readonly rate = new RateSampler();
   private readonly files: readonly ModelFile[];
+  private readonly sources: readonly ModelSource[];
+  private readonly tarballUrl: string;
+  private readonly tarballRoot: string | undefined;
+  /** The id every snapshot names. The row's when one was given, else the
+   *  legacy SenseVoice id. */
+  readonly modelId: string;
+  /** The catalog row (null for a legacy/seam construction). */
+  readonly model: CatalogModel | null;
   /** The RAW failure, kept beside the classified one because [ensure] rethrows
    *  it: the speak-time path wants the original error, the snapshot wants the
    *  code. Two readers, two shapes, one event. */
@@ -93,8 +122,32 @@ export class SherpaModelController {
   private attemptErrors: ModelStatusError[] = [];
 
   constructor(readonly dir: string, private readonly opts: SherpaModelControllerOptions = {}) {
-    this.files = opts.files ?? SHERPA_MODEL_FILES;
+    this.model = opts.model ?? null;
+    this.modelId = opts.model?.model_id ?? SHERPA_REPO;
+    this.files = opts.files ?? opts.model?.files ?? SHERPA_MODEL_FILES;
+    this.sources = opts.sources ?? opts.model?.sources ?? SHERPA_PER_FILE_SOURCES;
+    this.tarballUrl = opts.tarballUrl ?? opts.model?.tarball?.url ?? SHERPA_GITHUB_TARBALL;
+    this.tarballRoot = opts.tarballRoot ?? opts.model?.tarball?.root;
     this.cache = new ModelVerificationCache(this.files);
+  }
+
+  /** May this controller fetch/open at all this phase? False only for
+   *  streaming rows — one predicate shared with the resolver and the load
+   *  door so the three cannot drift (see isLoadableThisPhase). */
+  get downloadable(): boolean {
+    return this.model === null || isLoadableThisPhase(this.model);
+  }
+
+  /**
+   * Is the model on disk and integrity-verified, without claiming a download?
+   * The resolver's readiness rung. Streaming rows are NEVER ready — their
+   * (deliberately empty) manifest would be vacuously complete, and `ready`
+   * promises the engine can open the pack, which this phase cannot.
+   */
+  async isReady(): Promise<boolean> {
+    if (this.inFlight) return false;
+    if (!this.downloadable) return false;
+    return this.cache.verifyComplete(this.dir);
   }
 
   /**
@@ -130,11 +183,15 @@ export class SherpaModelController {
     // NOT verified while downloading: `downloading` is decided first (§3), so
     // the answer would not be read — and hashing 229 MB on a 1 Hz poll during
     // the very download that is writing those bytes is both wasted and wrong.
-    const complete = downloading ? false : await this.cache.verifyComplete(this.dir, verify);
+    // Streaming rows are never `ready` (see [isReady]) — their empty manifest
+    // would pass vacuously and `ready` would promise a load this phase refuses.
+    const complete = downloading || !this.downloadable
+      ? false
+      : await this.cache.verifyComplete(this.dir, verify);
     const state = deriveModelState({ downloading, complete, error: this.lastError, facts });
     return {
       state,
-      model_id: MODEL_ID,
+      model_id: this.modelId,
       dir: this.dir,
       bytes_done: facts.bytes_done,
       bytes_total: declaredTotalBytes(this.files),
@@ -165,6 +222,7 @@ export class SherpaModelController {
    * that is only single when nobody is in a hurry.
    */
   async start(): Promise<ModelStatusSnapshot> {
+    if (!this.downloadable) throw new ModelNotDownloadableError(this.modelId);
     if (this.inFlight) return this.snapshot();
     // Cheap (stat-only) reading of the memo: when we already KNOW the files are
     // right, do not claim a download just to abandon it a microtask later —
@@ -207,6 +265,7 @@ export class SherpaModelController {
    * 「may we fetch」 and, the day they disagree, no way to tell which one ran.
    */
   async ensure(): Promise<void> {
+    if (!this.downloadable) throw new ModelNotDownloadableError(this.modelId);
     if (!this.inFlight) this.claim();
     const flight = this.inFlight;
     if (flight) await flight;
@@ -240,9 +299,10 @@ export class SherpaModelController {
       await fetchSherpaModel(this.dir, {
         onEvent: (e) => this.onEvent(e),
         signal,
-        ...(this.opts.files ? { files: this.opts.files } : {}),
-        ...(this.opts.sources ? { sources: this.opts.sources } : {}),
-        ...(this.opts.tarballUrl ? { tarballUrl: this.opts.tarballUrl } : {}),
+        files: this.files,
+        sources: this.sources,
+        tarballUrl: this.tarballUrl,
+        ...(this.tarballRoot ? { tarballRoot: this.tarballRoot } : {}),
       });
     } catch (err) {
       if (err instanceof ModelFetchCancelled || this.cancelling) {
@@ -343,10 +403,11 @@ export class SherpaModelController {
 const CONTROLLERS = new Map<string, SherpaModelController>();
 
 /**
- * ⚠️ NO OPTIONS PARAMETER, deliberately. A registry that accepts construction
- * options can only honour them for the FIRST caller; every later one would have
- * its options silently ignored, which is a lie that type-checks. Tests build a
- * [SherpaModelController] directly and hand it in (route deps / EnsureModelOptions).
+ * ⚠️ NO FREE-FORM OPTIONS PARAMETER, deliberately. A registry that accepts
+ * caller-chosen options can only honour them for the FIRST caller; every later
+ * one would have its options silently ignored, which is a lie that
+ * type-checks. Tests build a [SherpaModelController] directly and hand it in
+ * (route deps / EnsureModelOptions).
  */
 export function getSherpaModelController(dir: string): SherpaModelController {
   const existing = CONTROLLERS.get(dir);
@@ -354,6 +415,36 @@ export function getSherpaModelController(dir: string): SherpaModelController {
   const made = new SherpaModelController(dir);
   CONTROLLERS.set(dir, made);
   return made;
+}
+
+/**
+ * The per-CATALOG-ROW controller. Everything it is constructed with derives
+ * from the row — deterministic, so the "first caller wins" trap the note
+ * above guards against cannot arise: every caller for a row derives the same
+ * construction. Keyed by resolved directory (which is how the single-model
+ * debug override collapses every row onto one controller, exactly as the
+ * override collapses every row onto one directory).
+ */
+export function getModelController(model: CatalogModel, env: NodeJS.ProcessEnv = process.env): SherpaModelController {
+  const dir = resolveModelDir(model.model_id, env);
+  const existing = CONTROLLERS.get(dir);
+  if (existing) return existing;
+  const made = new SherpaModelController(dir, { model });
+  CONTROLLERS.set(dir, made);
+  return made;
+}
+
+/**
+ * LM-CAT §7: the single flight is MACHINE-WIDE, not per-model — two 500 MB
+ * fetches at once would each be a correct per-directory single flight and
+ * together saturate the link the user is trying to dictate over. Answers the
+ * controller whose download is in flight right now, or null.
+ */
+export function busyModelController(): SherpaModelController | null {
+  for (const c of CONTROLLERS.values()) {
+    if (c.busy) return c;
+  }
+  return null;
 }
 
 /** Test seam: drop the registry so a suite's temp directories do not leak a
@@ -434,6 +525,9 @@ export interface EnsureModelOptions {
    * [SherpaModelController.start] directly.
    */
   autoDownload?: boolean;
+  /** The catalog row `dir` holds. Absent = the legacy SenseVoice manifest, so
+   *  every pre-LM-CAT caller and test keeps its exact behaviour. */
+  model?: CatalogModel;
   /** Test seams (see SherpaModelControllerOptions). */
   controller?: SherpaModelController;
 }
@@ -450,8 +544,17 @@ export interface EnsureModelOptions {
  * `.part` files.
  */
 export async function ensureSherpaModel(dir: string, opts: EnsureModelOptions = {}): Promise<void> {
-  const controller = opts.controller ?? getSherpaModelController(dir);
-  if (await isModelComplete(dir)) return;
+  const controller =
+    opts.controller ??
+    (opts.model
+      ? (CONTROLLERS.get(dir) ?? (() => {
+          const made = new SherpaModelController(dir, { model: opts.model });
+          CONTROLLERS.set(dir, made);
+          return made;
+        })())
+      : getSherpaModelController(dir));
+  const files = opts.model?.files;
+  if (await isModelComplete(dir, files)) return;
   if (opts.autoDownload !== true) {
     // The coordinates the sentence deliberately does not carry — logged, so the
     // operator's answer is in server.log where a support question can reach it.
@@ -462,7 +565,7 @@ export async function ensureSherpaModel(dir: string, opts: EnsureModelOptions = 
     throw new SherpaModelNotReadyError(dir);
   }
   await controller.ensure();
-  if (!(await isModelComplete(dir))) {
+  if (!(await isModelComplete(dir, files))) {
     const snap = await controller.snapshot();
     log.warn('sherpa model: still not ready after an authorised download', {
       dir,

@@ -1,5 +1,9 @@
-// Component-level: what the built-in-model card ACTUALLY RENDERS in each of the
-// six faces (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A).
+// Component-level: what the built-in-model card ACTUALLY RENDERS
+// (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A, as reshaped
+// by LM-CAT — docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md:
+// the card now lists PER-LANGUAGE PACK ROWS from `status.catalog`/`models`,
+// with one global progress block for the busy pack, a licence label rendered
+// from `license_class` DATA, and a movable download folder row).
 //
 // ── WHY THESE ASSERTIONS ARE AGAINST HTML AND NOT AGAINST `S.model_*` ────────
 // 0.2.53's rule, paid for on a phone screen: a test that asserts a catalogue
@@ -52,11 +56,19 @@
 // exact face §4 wrote `null` into the contract to prevent, and it is why one
 // `> 0` in `asModelSnapshot` and one `null` here are load-bearing.
 //
+// [LM-CAT note, 2026-08-22: those readings were taken on the pre-catalog
+// single-model card. The contract MOVED — the progress block now hangs off the
+// busy pack's `models[]` row — but the property is the same `percentDone` null
+// arm, and the unknown-total case below still pins it at HTML level, so the
+// history above is kept rather than re-run.]
+//
 // The file was restored from a copy taken before the edit; `grep -rn
 // REVERSE-CONTROL apps/desktop/src` returns only an unrelated pre-existing line
 // in cloud-signout-confirm.test.ts, and the suites are green again.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 
@@ -66,20 +78,23 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: vi.fn(), listen: vi.fn() }));
 
 import LocalModelCard from './components/LocalModelCard.vue';
-import { modelStore, resetModelStoreForTest, type ModelStore } from '../lib/model-client';
-import type { ModelSnapshot } from '../lib/model-status';
+import { resetModelStoreForTest, type ModelStore } from '../lib/model-client';
+import { asModelsStatus, type ModelsStatus } from '../lib/model-status';
 import { setLocale } from '../lib/strings';
 
 /** The real manifest total (model-manifest.ts), so every figure below is one a
  *  user will see: 239,233,841 + 315,894 = 228.5 MiB. */
 const REAL_TOTAL = 239_233_841 + 315_894;
-const DIR = 'C:\\Users\\owner\\AppData\\Roaming\\FlowMic\\models\\sherpa-onnx-sense-voice';
+const PACK_ID = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17';
+/** LM-CAT: the path on the card is the models ROOT (`models_root.dir`), not the
+ *  legacy snapshot's per-pack dir — the folder row is the user-movable root. */
+const ROOT_DIR = 'C:\\Users\\owner\\AppData\\Roaming\\FlowMic\\models';
 
-function snap(over: Partial<ModelSnapshot> = {}): ModelSnapshot {
+function wireSnap(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     state: 'absent',
-    model_id: 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17',
-    dir: DIR,
+    model_id: PACK_ID,
+    dir: `${ROOT_DIR}\\sense-voice`,
     bytes_done: 0,
     bytes_total: REAL_TOTAL,
     files_done: 0,
@@ -93,14 +108,72 @@ function snap(over: Partial<ModelSnapshot> = {}): ModelSnapshot {
   };
 }
 
+/** A catalog row. The attribution text is deliberately free of every phrase
+ *  asserted below, so a fixture cannot green a copy assertion by accident. */
+function wireEntry(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    model_id: PACK_ID,
+    spoken: ['en', 'zh', 'ja', 'ko'],
+    tier: 'recommended',
+    loader: 'sense-voice',
+    license_class: 'osi',
+    license: 'Apache-2.0',
+    attribution: 'SenseVoice by FunAudioLLM',
+    streaming: 'quasi',
+    bytes_total: REAL_TOTAL,
+    ...over,
+  };
+}
+
+/** A full ModelsStatus from partial overrides, built by round-tripping the
+ *  SERVER body shape through the real narrowing — so a fixture that drifts
+ *  from the wire contract fails loudly here instead of quietly rendering. */
+function mkStatus(over: {
+  legacy?: Record<string, unknown>;
+  catalog?: Record<string, unknown>[];
+  models?: Record<string, unknown>[];
+  selected?: Record<string, string>;
+  busy?: string | null;
+  rootDir?: string;
+} = {}): ModelsStatus {
+  const legacy = wireSnap(over.legacy);
+  const body = {
+    ...legacy,
+    catalog: over.catalog ?? [wireEntry()],
+    models: over.models ?? [legacy],
+    selected_by_lang: over.selected ?? {},
+    spoken_langs: ['en', 'zh', 'fr', 'es', 'de', 'ja', 'ko', 'ru'],
+    models_root: { dir: over.rootDir ?? ROOT_DIR, default_dir: ROOT_DIR, configured: false },
+    busy_model_id: over.busy !== undefined
+      ? over.busy
+      : (legacy.state === 'downloading' ? (legacy.model_id as string) : null),
+  };
+  const s = asModelsStatus(body);
+  if (s === null) throw new Error('fixture failed the wire narrowing — fix the fixture, not the test');
+  return s;
+}
+
+/** One pack in one state — the shape most cases need. */
+function st(over: Record<string, unknown> = {}): ModelsStatus {
+  return mkStatus({ legacy: over });
+}
+
 async function render(state: Partial<ModelStore>): Promise<string> {
-  resetModelStoreForTest({ reach: 'ok', ...state });
+  const status = (state.status ?? null) as ModelsStatus | null;
+  // `snapshot` mirrors what adopt() does: always derived from status.legacy.
+  resetModelStoreForTest({ reach: 'ok', snapshot: status?.legacy ?? null, ...state });
   return renderToString(createSSRApp(LocalModelCard));
 }
 
 /** A settled rate history: three readings inside a factor of two ⇒ [stableRate]
  *  answers and the card is allowed to name a time. 1 MiB/s. */
 const SETTLED = [1_048_576, 1_100_000, 1_000_000];
+
+/** Every <button> element in the render, as [fullTag+innerHTML, innerHTML]. */
+function buttons(html: string): { outer: string; inner: string }[] {
+  return [...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)]
+    .map((m) => ({ outer: m[0] ?? '', inner: m[1] ?? '' }));
+}
 
 describe('the built-in speech model card', () => {
   beforeEach(() => {
@@ -110,24 +183,32 @@ describe('the built-in speech model card', () => {
 
   it('says WHY there is a download at all, in every state including ready', async () => {
     for (const state of ['absent', 'ready', 'downloading', 'failed', 'partial'] as const) {
-      const html = await render({ snapshot: snap({ state }) });
+      const html = await render({ status: st({ state }) });
       expect(html, `${state}: the reason the installer does not carry the model went missing`)
         .toContain('The speech model is large, so the installer does not include it');
     }
   });
 
-  it('absent — offers the download WITH the size taken from the snapshot', async () => {
-    const html = await render({ snapshot: snap({ state: 'absent' }) });
+  it('absent — offers the download WITH the size taken from the catalog entry', async () => {
+    const html = await render({ status: st({ state: 'absent' }) });
     expect(html).toContain('Not downloaded');
     // 228 = REAL_TOTAL / 1024², rounded. Nothing in the catalogue spells it.
+    // LM-CAT: the figure now comes from the CATALOG row's bytes_total (a fact
+    // about the pack), no longer from the disk snapshot.
     expect(html).toContain('Download the model (about 228 MB, one time)');
     // The second exit is stated on the same screen as the first.
     expect(html).toContain('connect your own model or API in the table above');
-    expect(html).toContain(DIR);
+    // The folder on the card is the movable models root now.
+    expect(html).toContain(ROOT_DIR);
   });
 
   it('absent with no total — the button says nothing about size rather than guessing', async () => {
-    const html = await render({ snapshot: snap({ state: 'absent', bytes_total: null }) });
+    const html = await render({
+      status: mkStatus({
+        legacy: { state: 'absent', bytes_total: null },
+        catalog: [wireEntry({ bytes_total: null })],
+      }),
+    });
     expect(html).toContain('Download the model (one time)');
     expect(html).not.toContain('about');
     expect(html).not.toContain('MB,');
@@ -140,7 +221,7 @@ describe('the built-in speech model card', () => {
     // into a number it has not reached) and it is why the fixture asks for a
     // byte count that is genuinely at 43 %.
     const html = await render({
-      snapshot: snap({ state: 'partial', bytes_done: Math.ceil(REAL_TOTAL * 0.43) }),
+      status: st({ state: 'partial', bytes_done: Math.ceil(REAL_TOTAL * 0.43) }),
     });
     expect(html).toContain('Partly downloaded');
     expect(html).toContain('Resume the download (43% done)');
@@ -148,7 +229,10 @@ describe('the built-in speech model card', () => {
 
   it('partial with no total — resumes without inventing a percentage', async () => {
     const html = await render({
-      snapshot: snap({ state: 'partial', bytes_done: 50_000_000, bytes_total: null }),
+      status: mkStatus({
+        legacy: { state: 'partial', bytes_done: 50_000_000, bytes_total: null },
+        catalog: [wireEntry({ bytes_total: null })],
+      }),
     });
     expect(html).toContain('Resume the download');
     expect(html).not.toContain('% done');
@@ -156,7 +240,7 @@ describe('the built-in speech model card', () => {
 
   it('downloading — bytes, percent, rate, which file, WHICH SOURCE', async () => {
     const html = await render({
-      snapshot: snap({
+      status: st({
         state: 'downloading',
         bytes_done: 102_900_000,
         files_done: 0,
@@ -179,11 +263,11 @@ describe('the built-in speech model card', () => {
   });
 
   it('downloading — the source label FOLLOWS the failover, so a move is visible', async () => {
-    const first = await render({ snapshot: snap({ state: 'downloading', source: 'hf' }) });
+    const first = await render({ status: st({ state: 'downloading', source: 'hf' }) });
     expect(first).toContain('Hugging Face');
     expect(first).not.toContain('hf-mirror.com');
 
-    const second = await render({ snapshot: snap({ state: 'downloading', source: 'hf-mirror' }) });
+    const second = await render({ status: st({ state: 'downloading', source: 'hf-mirror' }) });
     expect(second).toContain('hf-mirror.com');
     // Positive control for the line above: the note that explains WHY the name
     // changed has to be on screen too, or the reader just sees it change.
@@ -192,7 +276,10 @@ describe('the built-in speech model card', () => {
 
   it('🔴 an unknown total renders as words, never as 0% / 100% / NaN', async () => {
     const html = await render({
-      snapshot: snap({ state: 'downloading', bytes_done: 102_900_000, bytes_total: null }),
+      status: mkStatus({
+        legacy: { state: 'downloading', bytes_done: 102_900_000, bytes_total: null },
+        catalog: [wireEntry({ bytes_total: null })],
+      }),
       rateSamples: [...SETTLED],
     });
     expect(html).toContain('total size unknown');
@@ -210,7 +297,7 @@ describe('the built-in speech model card', () => {
 
   it('🔴 a resumed download says so, and says from where', async () => {
     const html = await render({
-      snapshot: snap({
+      status: st({
         state: 'downloading',
         bytes_done: 60_000_000,
         resumed_from_bytes: 51_200_000,
@@ -225,58 +312,76 @@ describe('the built-in speech model card', () => {
 
   it('does not promise a time it has not measured — and says which kind of no', async () => {
     const unsettled = await render({
-      snapshot: snap({ state: 'downloading', bytes_done: 1_000_000, rate_bytes_per_sec: 900_000 }),
+      status: st({ state: 'downloading', bytes_done: 1_000_000, rate_bytes_per_sec: 900_000 }),
       rateSamples: [900_000], // one reading: not a rate yet
     });
     expect(unsettled).toContain('estimating the time left');
     expect(unsettled).not.toContain('min left');
 
     const settled = await render({
-      snapshot: snap({ state: 'downloading', bytes_done: 100_000_000 }),
+      status: st({ state: 'downloading', bytes_done: 100_000_000 }),
       rateSamples: [...SETTLED],
     });
     // (239,549,735 − 100,000,000) / 1,048,576 B/s ≈ 133 s ⇒ 2 min.
     expect(settled).toContain('about 2 min left');
   });
 
-  it('ready — says downloaded-and-default in plain words (owner 2026-08-20)', async () => {
-    const html = await render({ snapshot: snap({ state: 'ready' }) });
+  it('ready — says downloaded, offers the recheck, and never a download', async () => {
+    // [LM-CAT re-expression] The old card's 「the built-in engine uses it by
+    // default / Every file has been verified」 sentence (model_verified) is no
+    // longer rendered anywhere on the per-language card — 「default」 stopped
+    // being a fact when selection became per-language. The closest true
+    // properties are pinned instead: the ready chip, the recheck action, no
+    // download offer, and the selection chip driven by selected_by_lang below.
+    const html = await render({ status: st({ state: 'ready' }) });
     expect(html).toContain('Downloaded');
-    expect(html).toContain('the built-in engine uses it by default');
-    expect(html).toContain('Every file has been verified');
     expect(html).toContain('Check the files again');
-    // Nothing to download, so no download offer.
+    // Nothing to download, so no download offer — but a not-selected ready
+    // pack can be put to use for the visible language.
     expect(html).not.toContain('Download the model');
+    expect(html).toContain('Use for this language');
+
+    const selected = await render({
+      status: mkStatus({ legacy: { state: 'ready' }, selected: { en: PACK_ID } }),
+    });
+    expect(selected).toContain('In use for this language');
+    expect(selected).not.toContain('Use for this language');
   });
 
   it('failed — what to DO is body copy, the machine truth is folded but kept', async () => {
     const html = await render({
-      snapshot: snap({ state: 'failed', error: { code: 'ENETUNREACH', message: 'hf-mirror: no route to host' } }),
+      status: st({ state: 'failed', error: { code: 'ENETUNREACH', message: 'hf-mirror: no route to host' } }),
     });
     expect(html).toContain('Download failed');
     expect(html).toContain('Try again — it carries on from where it stopped');
     expect(html).toContain('check the network');
-    expect(html).toContain(DIR);
-    // The developer sentence was MOVED, not deleted.
+    expect(html).toContain(ROOT_DIR);
+    // The developer sentence was MOVED, not deleted — LM-CAT prefixes it with
+    // the pack it belongs to, because eight packs can fail independently.
     expect(html).toContain('Technical detail');
-    expect(html).toContain('ENETUNREACH: hf-mirror: no route to host');
+    expect(html).toContain(`${PACK_ID} — ENETUNREACH: hf-mirror: no route to host`);
   });
 
   it('🔴 unknown — no download offer is made on the strength of a failed read', async () => {
-    const html = await render({ snapshot: null, reach: 'unreachable' });
-    expect(html).toContain('Unknown');
+    const html = await render({ status: null, reach: 'unreachable' });
+    // [LM-CAT re-expression] The standalone 「Unknown」 chip is gone: with no
+    // status at all there are no pack rows to wear it, and the face is the
+    // unreachable sentence itself.
     expect(html).toContain('not responding, so the model status cannot be read');
     expect(html).not.toContain('Download the model');
     expect(html).not.toContain('Resume the download');
-    // The one thing that IS offered is asking again.
-    expect(html).toContain('Check the files again');
+    // ⚠️ Unlike the single-model card, NO action is offered here any more —
+    // the recheck button now lives inside the status-bearing block, so a card
+    // that has never read a status offers nothing (reported upstream: the
+    // unreachable copy still tells the reader to press 「Re-check files」).
   });
 
   it('🔴 connecting — the launch seconds are QUIET, not a failure wearing orange', async () => {
     // The owner's 2026-08-20 report in one render: never-asked used to wear
     // the unreachable face, so every healthy cold start opened on a warning.
-    const html = await render({ snapshot: null, reach: 'unknown' });
-    expect(html).toContain('Connecting…');
+    // [LM-CAT note] The 「Connecting…」 chip itself is no longer rendered —
+    // the quiet sentence below is the whole face now.
+    const html = await render({ status: null, reach: 'unknown' });
     expect(html).toContain('starting up — the model status will appear in a moment');
     expect(html).not.toContain('not responding');
     expect(html).not.toContain('class="sub warn"');
@@ -285,7 +390,7 @@ describe('the built-in speech model card', () => {
 
   it('🔴 answered-badly is its own sentence — a 404 is an answer, not silence', async () => {
     const html = await render({
-      snapshot: null,
+      status: null,
       reach: 'answered_unusable',
       reachReason: 'unexpected model response (http 404)',
     });
@@ -298,11 +403,124 @@ describe('the built-in speech model card', () => {
 
   it('a stale reading is kept on screen and labelled, not blanked', async () => {
     const html = await render({
-      snapshot: snap({ state: 'downloading', bytes_done: 140_000_000 }),
+      status: st({ state: 'downloading', bytes_done: 140_000_000 }),
       reach: 'unreachable',
     });
     expect(html).toContain('58%');
     expect(html).toContain('not responding, so the model status cannot be read');
+  });
+
+  it('🔴 a pack the server listed no snapshot for is 「Unknown」, never an invented download offer', async () => {
+    // 「不知道」 and 「没有」 must not share a face: a catalog row with no
+    // models[] entry means the server did not answer for that pack's disk,
+    // and a Download button under it would be a consent built on a guess.
+    const html = await render({ status: mkStatus({ models: [] }) });
+    expect(html).toContain('Unknown');
+    expect(html).not.toContain('Download the model');
+    expect(html).not.toContain('Resume the download');
+  });
+
+  it('🔴 the funasr licence class NEVER wears the open-source label; the OSI class does (HTML level)', async () => {
+    // task §3-6: the label is keyed by `license_class` DATA. The funasr label
+    // deliberately contains the lowercase 「not open source」 — the banned
+    // rendering is the OSI wording, so the pin is case-sensitive on the
+    // affirmative 「Open source」 (which only the OSI label carries).
+    const funasr = await render({
+      status: mkStatus({
+        catalog: [wireEntry({ model_id: 'paraformer-zh', license_class: 'funasr-model', license: 'FunASR Model License' })],
+        models: [wireSnap({ model_id: 'paraformer-zh' })],
+      }),
+    });
+    expect(funasr).toContain('FunASR Model License (not open source)');
+    expect(funasr, 'the funasr row must never be labelled as open source').not.toContain('Open source');
+
+    // Positive control: the OSI class DOES render the affirmative label, so
+    // the line above cannot pass by the label being missing everywhere.
+    const osi = await render({ status: st({ state: 'absent' }) });
+    expect(osi).toContain('Open source (OSI)');
+  });
+
+  it('🔴 one download machine-wide — the busy pack disables every OTHER row\'s download button, with the reason', async () => {
+    const twoPacks = {
+      catalog: [
+        wireEntry(), // recommended, sorts first
+        wireEntry({ model_id: 'whisper-multi', tier: 'multilingual', bytes_total: 500_000_000 }),
+      ],
+    };
+    const busy = await render({
+      status: mkStatus({
+        ...twoPacks,
+        models: [
+          wireSnap({ state: 'downloading', bytes_done: 10_000_000 }),
+          wireSnap({ model_id: 'whisper-multi', state: 'absent' }),
+        ],
+        busy: PACK_ID,
+      }),
+    });
+    const dlBtn = buttons(busy).find((b) => b.inner.includes('Download the model'));
+    expect(dlBtn, 'the other pack\'s download button went missing').toBeDefined();
+    expect(dlBtn?.outer, 'the other row must stand down while one pack downloads').toContain(' disabled');
+    // The refusal is SAID on the row, not silently greyed.
+    expect(dlBtn?.outer).toContain('Another pack is downloading — one at a time.');
+
+    // Negative control: with nothing busy, the same button is live — so the
+    // assertion above is seeing the busy gate and not a button that is always
+    // disabled.
+    const idle = await render({
+      status: mkStatus({
+        ...twoPacks,
+        models: [
+          wireSnap({ state: 'partial', bytes_done: 10_000_000 }),
+          wireSnap({ model_id: 'whisper-multi', state: 'absent' }),
+        ],
+        busy: null,
+      }),
+    });
+    const liveBtn = buttons(idle).find((b) => b.inner.includes('Download the model'));
+    expect(liveBtn).toBeDefined();
+    expect(liveBtn?.outer).not.toContain(' disabled');
+  });
+
+  it('a streaming pack is a visible row with the truthful refusal, not a hidden one and not a button', async () => {
+    const html = await render({
+      status: mkStatus({
+        catalog: [wireEntry({ model_id: 'zipformer-stream', streaming: 'streaming', tier: 'lite' })],
+        models: [wireSnap({ model_id: 'zipformer-stream' })],
+      }),
+    });
+    expect(html).toContain('Streaming pack — this version cannot use it yet');
+    expect(html).not.toContain('Download the model');
+  });
+
+  it('the language picker and the movable folder row are on the card (owner 2026-08-22)', async () => {
+    const html = await render({ status: st({ state: 'absent' }) });
+    expect(html).toContain('Speaking language');
+    expect(html).toContain('<select');
+    expect(html).toContain('Download folder');
+    expect(html).toContain(ROOT_DIR);
+    expect(html).toContain('Change');
+    // The load-bearing note: changing the folder does NOT move existing files.
+    expect(html).toContain('Files already downloaded stay where they are');
+
+    // A configured custom root renders VERBATIM — the row answers 「where do
+    // my gigabytes go」, so it must show the real answer, not the default.
+    const custom = await render({ status: mkStatus({ rootDir: 'D:\\FlowMicPacks' }) });
+    expect(custom).toContain('D:\\FlowMicPacks');
+  });
+
+  it('the row buttons are wired to the pack-naming actions (source anchor — SSR serialises no handlers)', () => {
+    // renderToString drops @click handlers, so the HTML half above cannot see
+    // WHAT a press sends. The two halves together close the loop: this anchor
+    // pins the wiring (pack id + language key), and model-client.test.ts pins
+    // that those actions POST {model_id, lang} / {model_id} / {dir}.
+    const src = readFileSync(
+      fileURLToPath(new URL('./components/LocalModelCard.vue', import.meta.url)),
+      'utf8',
+    );
+    expect(src).toContain('startModelDownload(row.entry.model_id, langKey)');
+    expect(src).toContain('cancelModelDownload(row.entry.model_id)');
+    expect(src).toContain('applyModelsRoot(rootInput.value)');
+    expect(src).toContain('resetModelsRoot()');
   });
 
   it('🔴 no environment variable, no parameter instructions, anywhere on the card (owner 2026-08-20)', async () => {
@@ -311,7 +529,7 @@ describe('the built-in speech model card', () => {
     // every face, because the fold rendered unconditionally and a revert
     // would too.
     for (const state of ['absent', 'ready', 'downloading', 'failed', 'partial'] as const) {
-      const html = await render({ snapshot: snap({ state }) });
+      const html = await render({ status: st({ state }) });
       expect(html, `${state}: env var leaked back onto the card`).not.toContain(
         'FLOWMIC_SHERPA_AUTO_DOWNLOAD',
       );
@@ -321,13 +539,13 @@ describe('the built-in speech model card', () => {
     }
     // Positive control: the same render still carries real copy, so an empty
     // page cannot pass this by saying nothing at all.
-    const html = await render({ snapshot: snap({ state: 'absent' }) });
+    const html = await render({ status: st({ state: 'absent' }) });
     expect(html).toContain('Download the model');
   });
 
   it('renders in the reader language, not in English with a switch flipped', async () => {
     setLocale('zh-CN');
-    const html = await render({ snapshot: snap({ state: 'absent' }) });
+    const html = await render({ status: st({ state: 'absent' }) });
     expect(html).toContain('内置语音模型');
     expect(html).toContain('下载模型（约 228 MB，一次性）');
     expect(html).not.toContain('Download the model');

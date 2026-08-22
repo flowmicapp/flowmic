@@ -11,7 +11,13 @@ import { mailConfigFromEnv } from './config';
 import { createResendMailProvider } from './resend';
 import { makePasswordResetMailer, type PasswordResetMailer } from './password-reset-mailer';
 import { makeEmailVerificationMailer, type EmailVerificationMailer } from './email-verification-mailer';
-import { MAIL_ENV_KEYS, unconfiguredEmailVerificationMailer, unconfiguredPasswordResetMailer } from './unconfigured';
+import {
+  MAIL_ENV_KEYS,
+  unconfiguredEmailVerificationMailer,
+  unconfiguredPasswordResetMailer,
+  unconfiguredSubscriptionMailer,
+} from './unconfigured';
+import { makeSubscriptionMailer, type SubscriptionMailer } from './subscription-mailer';
 
 export type { MailConfig, MailProviderId } from './config';
 export type { MailMessage, MailProvider } from './provider';
@@ -21,7 +27,9 @@ export { buildPasswordResetEmail, buildPasswordResetLink, makePasswordResetMaile
 export type { EmailVerificationMailer, EmailVerificationMailInput } from './email-verification-mailer';
 export { buildEmailVerificationEmail, makeEmailVerificationMailer } from './email-verification-mailer';
 export { mailConfigFromEnv } from './config';
-export { unconfiguredEmailVerificationMailer, unconfiguredPasswordResetMailer } from './unconfigured';
+export { unconfiguredEmailVerificationMailer, unconfiguredPasswordResetMailer, unconfiguredSubscriptionMailer } from './unconfigured';
+export type { SubscriptionMailer, CancellationMailInput } from './subscription-mailer';
+export { buildCancellationEmail, makeSubscriptionMailer } from './subscription-mailer';
 
 /**
  * Build the mail channel this process will use. ALWAYS returns a mailer —
@@ -88,6 +96,35 @@ export function resolvePasswordResetMailer(env: NodeJS.ProcessEnv = process.env)
  * — the full config line (from/endpoint/key length) is the sibling's, printed
  * once per boot, and a second copy of it would just be the same fact twice.
  */
+/**
+ * 0.3.25 B2 — the subscription-confirmation channel, resolved from the SAME
+ * FLOWMIC_MAIL_* block as its two siblings.
+ *
+ * ⚠️ ITS UNCONFIGURED LINE IS A `warn`, NOT AN `error`, AND THAT IS THE ONE
+ * PLACE THIS FAMILY DELIBERATELY DIFFERS. The other two are errors because a
+ * dead channel means a FEATURE IS DEAD: nobody can reset a password, nobody can
+ * get past the verification card. Here the feature still works — the
+ * cancellation goes through at Paddle either way — and what is lost is the
+ * receipt. That is worth waking an operator up about at the level of 「fix this
+ * soon, you are collecting chargeback risk」, not 「something is broken right
+ * now」. Using `error` for both would flatten a real outage and a missing receipt
+ * into one severity, and the one that gets ignored is whichever is more common.
+ */
+export function resolveSubscriptionMailer(env: NodeJS.ProcessEnv = process.env): SubscriptionMailer {
+  const config = mailConfigFromEnv(env);
+  if (config === null) {
+    log.warn(
+      'mail: no mail channel is configured — subscription cancellations will still go through at Paddle, ' +
+        'but the customer gets no written confirmation. A cancellation with no receipt is what a chargeback ' +
+        'is made of; every attempt will fail by name (MAIL_NOT_CONFIGURED) rather than claim to have sent one.',
+      { missing: MAIL_ENV_KEYS.join(','), doc: 'docs/rebuild/10-OPS-DEPLOY.md §4.1' },
+    );
+    return unconfiguredSubscriptionMailer();
+  }
+  log.info('mail: subscription channel ready', { provider: config.provider });
+  return makeSubscriptionMailer(createResendMailProvider(config));
+}
+
 export function resolveEmailVerificationMailer(env: NodeJS.ProcessEnv = process.env): EmailVerificationMailer {
   const config = mailConfigFromEnv(env);
   if (config === null) {

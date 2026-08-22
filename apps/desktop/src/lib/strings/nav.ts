@@ -18,6 +18,14 @@ export const NAV_KEYS = [
   'win_maximize',
   'win_restore',
   'win_close',
+  // 0.3.24 — app-global, which is why it lives in this shard and not in
+  // `update`/`disclosure`/`pairing`: it is what EVERY external link says when
+  // the OS would not take the address, and it is always followed by the address
+  // itself. Three pages use it today. It exists because until 0.3.24 an
+  // external link in this app opened nothing at all and said nothing at all
+  // (src-tauri/src/shell/external_open.rs) — replacing that silence with a
+  // rarer silence would not have been a fix.
+  'ext_open_failed',
 ] as const;
 
 // Notes that were recorded against a TRANSLATION rather than against the

@@ -322,6 +322,26 @@ export function handlePaddleWebhook(
     cycle: merge(facts.cycle, existing?.cycle ?? null),
     current_period_end: merge(facts.current_period_end, existing?.current_period_end ?? null),
     canceled_at: merge(facts.canceled_at, existing?.canceled_at ?? null),
+    // ── 0.3.25 B1 · the scheduled-change pair ────────────────────────────────
+    //
+    // 🔴 THE `null` PATH IS THE ONE THAT MATTERS, and `merge` is what preserves
+    // it: Paddle sends `scheduled_change: null` when a pending cancellation is
+    // REVOKED. Absent ⇒ keep (this event says nothing about it); explicit null
+    // ⇒ clear (the change is gone). Round the two together and one of two
+    // silent wrongs follows — either every unrelated `subscription.updated`
+    // wipes 「will not renew」, or a user who rescued their subscription keeps
+    // being told it is ending. Both are invisible except to the person paying.
+    scheduled_change_action: merge(facts.scheduled_change_action, existing?.scheduled_change_action ?? null),
+    scheduled_change_at: merge(facts.scheduled_change_at, existing?.scheduled_change_at ?? null),
+    next_billed_at: merge(facts.next_billed_at, existing?.next_billed_at ?? null),
+    // 🔴 FIRST WRITER WINS, and this is the one field where `merge` would be
+    // WRONG. It starts a statutory clock (EU 14-day withdrawal), so an existing
+    // value outranks anything a later event says: `existing ?? stated`, not
+    // `stated ?? existing`. The repo's upsert also omits it from DO UPDATE, so
+    // this is belt-and-braces — two independent reasons a legal deadline cannot
+    // be moved by a webhook arriving out of order.
+    contract_concluded_at:
+      existing?.contract_concluded_at ?? (typeof facts.started_at === 'string' ? facts.started_at : null),
     last_event_id: env.event_id,
     last_occurred_at: env.occurred_at,
     // "when this first entered our database" — a later event cannot change it (the repo's

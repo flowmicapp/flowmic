@@ -107,5 +107,20 @@ export const SHIPPED_SECTIONS = [
   '0.3.21|759a83df631e|21',
   '0.3.22|3ce34deba73f|17',
   '0.3.23|689b1ec2d21a|23',
+  // 0.3.26 carries 0.3.24 and 0.3.25 as well: both were written and gated, and
+  // neither was ever built, so neither number became a release and neither gets
+  // a pin. Their sections stay in the file — they describe things that reach a
+  // user for the first time in this build.
+  '0.3.26|1b0651fa1720|51',
+  // 0.3.26 reached the LAN download center and stopped there — the taskbar-icon
+  // defect was found before it went out. 0.3.27 is the same payload plus that
+  // fix, and it carries 0.3.24/0.3.25/0.3.26 outward for the first time.
+  // Re-pinned 2026-08-22 (40→77 lines): the 0.3.27 release POINT was marked on
+  // 08-22 morning but its artifacts were never built (the window closed on a
+  // broken `run()` cfg — see d2572723); LM-CAT (the per-language model catalog)
+  // landed the same day and ships in the FIRST 0.3.27 bytes, so its user-facing
+  // entries belong in this section. This is a before-first-artifact extension,
+  // not an edit of published history — no 0.3.27 bytes exist anywhere.
+  '0.3.27|12fd9d62584e|71',
   '0.3.9|0a6d6f8fb40d|26',
 ];

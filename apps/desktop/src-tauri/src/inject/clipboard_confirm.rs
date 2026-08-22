@@ -15,14 +15,29 @@
 // target app.
 //
 // Instead we own the clipboard with NULL (delayed) handles and send Ctrl+V.
-// When — and ONLY when — the target actually reads one of the formats, the OS
-// sends WM_RENDERFORMAT to us; we then supply the data and mark the paste
-// CONFIRMED. That WM_RENDERFORMAT was the delivery GATE until 2026-07-30, when
-// owner's narrowing of 「injected」 (design §3) demoted it to EVIDENCE: its absence
-// now means 「not observed inside CONFIRM_TIMEOUT」 and nothing more, and the
-// verdict is `pipeline::map_clipboard_outcome`'s to make. Because the target only
+// When a process reads one of the formats, the OS sends WM_RENDERFORMAT to us and
+// we supply the data. That message was the delivery GATE until 2026-07-30, when
+// owner's narrowing of 「injected」 (design §3) demoted it to EVIDENCE.
+//
+// 🔴 2026-08-22 — IT IS NOT EVEN EVIDENCE OF WHAT ITS NAME SAYS, AND THE
+// PARAGRAPH THAT USED TO SIT HERE WAS FALSE. It read: 「Because the target only
 // ever pulls our injected data (never the user's restored original), the
-// clipboard leak is closed either way.
+// clipboard leak is closed either way.」 Measured on dev-pc-a against a
+// real Chromium target, one variable (renderer idle vs blocked 1.2s):
+//
+//   idle     WM_RENDERFORMAT t+13ms after Ctrl+V → target inserted OUR text
+//   blocked  WM_RENDERFORMAT t+13ms after Ctrl+V → target inserted THE USER'S
+//                                                  OLD CLIPBOARD
+//
+// Same message, same timing, opposite outcome ⇒ the pull we answer is NOT the
+// read that produces the insertion, and the leak was wide open in exactly the
+// case the sentence promised it was closed. That sentence is why nobody
+// re-measured for a year: a comment asserting behaviour elsewhere (anti-façade ④)
+// keeps its wording while the thing it describes moves.
+//
+// What closes the leak now is HOLDING the payload (see the hold loop in
+// `win::paste_formats`) and `inject/readback.rs` telling us when it actually
+// landed. The receipt is still recorded, under a name that says what it is.
 //
 // R6 T-4 generalised the mechanism from "one CF_UNICODETEXT string" to "a table
 // of clipboard formats", because an image is delivered as CF_DIB / CF_BITMAP /
@@ -58,9 +73,26 @@ pub const CLIPBOARD_SETTLE: Duration = Duration::from_millis(80);
 /// What one delayed-render paste attempt observed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ConfirmOutcome {
-    /// The target really read one of our formats (WM_RENDERFORMAT served).
-    /// `false` → the caller MUST NOT report `injected`.
+    /// SOMEBODY asked us to render one of our formats (WM_RENDERFORMAT served).
+    ///
+    /// 🔴 THIS IS NOT 「the target consumed the paste」, AND THE TWO USED TO BE
+    /// THE SAME FIELD. Measured 2026-08-22 on dev-pc-a against a real
+    /// Chromium target whose renderer was blocked for 1.2s: this arrives 13ms
+    /// after Ctrl+V in BOTH the idle and the blocked run — identical timing —
+    /// while the text the target actually inserted differed (`INJECTED…` idle,
+    /// the user's own restored clipboard when blocked). A signal that does not
+    /// move when the outcome moves is not measuring the outcome.
+    /// `landing` is the field that answers the question this one was being asked.
     pub confirmed: bool,
+    /// Did the text we delivered actually turn up in the focused element?
+    /// See `inject/readback.rs` — positive-only, so anything but `Confirmed`
+    /// means 「this instrument could not see it」, never 「it did not land」.
+    pub landing: crate::inject::readback::LandingEvidence,
+    /// How long the payload was held on the clipboard before the user's own
+    /// content went back. On the forensic line because the failure this whole
+    /// mechanism exists for is 「we took it away before the target read it」, and
+    /// that sentence is unfalsifiable without this number.
+    pub held_ms: u32,
     /// The clipboard format the target asked for, when it asked for anything.
     /// Present even when `confirmed` is false (it asked for a format we could
     /// not serve) — this is the diagnostic that makes an unconfirmed image
@@ -84,28 +116,36 @@ pub struct ConfirmOutcome {
     pub dropped_unrendered: bool,
 }
 
-/// Attempt a clipboard paste of `text` into the foreground target and report
-/// whether the target actually CONSUMED it (WM_RENDERFORMAT observed within
-/// `timeout`). `Ok(true)` = confirmed injected; `Ok(false)` = not confirmed
-/// (caller must NOT report injected). `Err` = a hard Win32 failure.
+/// Paste `text` into the foreground target, HOLDING it on the clipboard for up
+/// to `hold` so the target can read it whenever it gets round to the keystroke,
+/// and report what was observed. `Err` = a hard Win32 failure.
+///
+/// The text is passed down (not just its bytes) because it is what read-back
+/// compares against — that is the only way this function can stop holding early.
 #[cfg(target_os = "windows")]
-pub fn paste_with_confirmation(text: &str, timeout: Duration) -> Result<bool, InjectError> {
+pub fn paste_with_confirmation(text: &str, hold: Duration) -> Result<ConfirmOutcome, InjectError> {
     let mut bytes: Vec<u8> = Vec::with_capacity((text.len() + 1) * 2);
     for unit in text.encode_utf16().chain(std::iter::once(0)) {
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
     let formats = vec![(win::CF_UNICODETEXT_U32, bytes)];
-    win::paste_formats(&formats, timeout).map(|o| o.confirmed)
+    win::paste_formats(&formats, hold, Some(text))
 }
 
 /// Attempt a clipboard paste of an arbitrary format table (R6 T-4: the image
-/// path). Same delayed-render confirmation contract as the text path.
+/// path). Same hold contract as the text path.
+///
+/// 🔴 `None` FOR THE EXPECTED TEXT, AND IT COSTS SOMETHING: an image has no
+/// text to read back, so this path can never exit its hold early and always
+/// pays the full window. That is the honest trade — the alternative is to keep
+/// trusting the receipt on the one path where the payload is largest and the
+/// target slowest.
 #[cfg(target_os = "windows")]
 pub fn paste_formats_with_confirmation(
     formats: &[(u32, Vec<u8>)],
-    timeout: Duration,
+    hold: Duration,
 ) -> Result<ConfirmOutcome, InjectError> {
-    win::paste_formats(formats, timeout)
+    win::paste_formats(formats, hold, None)
 }
 
 // ── macOS: the real thing (MAC-05 / MAC-06) ─────────────────────────────────
@@ -132,7 +172,10 @@ pub use crate::inject::macos::pasteboard::{
 // that gets a focus source later finds an error here rather than a lie.
 // doc 13 §7 F1 ②: a DI default must be the real thing or must throw.
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-pub fn paste_with_confirmation(_text: &str, _timeout: Duration) -> Result<bool, InjectError> {
+pub fn paste_with_confirmation(
+    _text: &str,
+    _hold: Duration,
+) -> Result<ConfirmOutcome, InjectError> {
     Err(InjectError::Unsupported(
         "clipboard paste (text): this platform has no implementation. Returning Ok here would \
          be reported as `injected` by pipeline::map_clipboard_outcome",
@@ -211,160 +254,15 @@ mod win {
 
     pub const CF_UNICODETEXT_U32: u32 = CF_UNICODETEXT.0 as u32;
 
-    /// The OS calls this. It is `extern "system"`, so an unwinding panic crossing
-    /// back out of it ABORTS the process — no message, no forensic line, exactly
-    /// the silent death WER recorded on 2026-07-28. `catch_unwind` keeps any
-    /// future panic inside our own boundary; the paste then simply goes
-    /// unconfirmed, which the caller already reports honestly.
-    unsafe extern "system" fn wndproc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            wndproc_inner(hwnd, msg, wparam, lparam)
-        }))
-        .unwrap_or(LRESULT(0))
-    }
-
-    unsafe fn wndproc_inner(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        if msg == WM_RENDERFORMAT {
-            let want = wparam.0 as u32;
-            // The target is reading one of our formats → supply the data and
-            // mark consumption confirmed. During WM_RENDERFORMAT the clipboard
-            // is already open by the requester, so we SetClipboardData WITHOUT
-            // opening it ourselves (per the delayed-rendering contract).
-            if let Ok(mut guard) = PENDING.lock() {
-                if let Some(p) = guard.as_mut() {
-                    p.requested = Some(want);
-                    // Copy out first: serving the format needs `p` immutably
-                    // while recording the outcome needs it mutably.
-                    let exact: Option<Vec<u8>> = p
-                        .formats
-                        .iter()
-                        .find(|(f, _)| *f == want)
-                        .map(|(_, b)| b.clone());
-                    let dib: Option<Vec<u8>> = if want == CF_BITMAP_U32 {
-                        p.formats
-                            .iter()
-                            .find(|(f, _)| *f == CF_DIB_U32)
-                            .map(|(_, b)| b.clone())
-                    } else {
-                        None
-                    };
-                    if let Some(bytes) = exact {
-                        if let Some(handle) = alloc_bytes(&bytes) {
-                            if SetClipboardData(want, HANDLE(handle)).is_ok() {
-                                p.rendered = true;
-                            }
-                        }
-                    } else if let Some(bytes) = dib {
-                        // CF_BITMAP is a GDI handle format — build the bitmap
-                        // from the DIB we are holding rather than handing over
-                        // an HGLOBAL the target would misread.
-                        if let Some(hbitmap) = hbitmap_from_dib(&bytes) {
-                            if SetClipboardData(CF_BITMAP_U32, HANDLE(hbitmap)).is_ok() {
-                                p.rendered = true;
-                            }
-                        }
-                    }
-                }
-            }
-            return LRESULT(0);
-        }
-        if msg == WM_RENDERALLFORMATS {
-            // RV-39. Deliberately NOT rendered here, and the reason is the
-            // ordering: `clipboard_paste` restores the user's clipboard
-            // (EmptyClipboard + their own bytes) within a millisecond of the
-            // `DestroyWindow` that produced this message, so anything served here
-            // is erased before anyone could paste it — while costing us
-            // `SetClipboardData` + `CreateDIBitmap` inside a destroy-time callback
-            // on the very path that produced STATUS_HEAP_CORRUPTION. The offer is
-            // handed back BEFORE the window is destroyed instead (`teardown_owner`),
-            // so arriving here at all means that withdrawal failed. Record the fact
-            // and fall through: the OS's own teardown stays byte-for-byte what it
-            // was, only no longer silent.
-            if let Ok(mut guard) = PENDING.lock() {
-                mark_render_all(&mut guard);
-            }
-        }
-        DefWindowProcW(hwnd, msg, wparam, lparam)
-    }
-
-    /// Record a `WM_RENDERALLFORMATS` against the armed announcement, returning
-    /// whether there was one to record.
-    ///
-    /// Takes the slot rather than the mutex so the rule is provable in a unit test
-    /// without touching process-global state, and so the wndproc holds the lock
-    /// for exactly one field write and calls nothing under it (this runs
-    /// re-entrantly from inside `DestroyWindow`).
-    fn mark_render_all(slot: &mut Option<Pending>) -> bool {
-        match slot.as_mut() {
-            Some(pending) => {
-                pending.render_all_requested = true;
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Allocate a moveable HGLOBAL holding `bytes` verbatim; returns the raw
-    /// handle pointer for SetClipboardData (which takes ownership on success).
-    unsafe fn alloc_bytes(bytes: &[u8]) -> Option<*mut core::ffi::c_void> {
-        let hglobal = GlobalAlloc(GMEM_MOVEABLE, bytes.len()).ok()?;
-        let dst = GlobalLock(hglobal) as *mut u8;
-        if dst.is_null() {
-            return None;
-        }
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
-        let _ = GlobalUnlock(hglobal);
-        Some(hglobal.0)
-    }
-
-    /// Materialise a packed DIB (BITMAPINFOHEADER + pixels) as a GDI bitmap for
-    /// the CF_BITMAP request path. Returns the raw handle for SetClipboardData.
-    unsafe fn hbitmap_from_dib(dib: &[u8]) -> Option<*mut core::ffi::c_void> {
-        const HEADER: usize = std::mem::size_of::<BITMAPINFOHEADER>();
-        // `BITMAPINFO` is BITMAPINFOHEADER + RGBQUAD[1], i.e. STRICTLY LARGER
-        // than the header we bounds-checked against. Casting a buffer that only
-        // clears `HEADER` bytes to `*const BITMAPINFO` and handing it to GDI is
-        // an out-of-bounds read: the palette member sits past the end. The
-        // buffers we build ourselves are 32bpp (no palette) so nothing ever read
-        // it in practice, but "in practice" is not a memory-safety argument, and
-        // this file is on the human-audit path that just produced a
-        // STATUS_HEAP_CORRUPTION crash. Require the larger size outright.
-        const INFO: usize = std::mem::size_of::<BITMAPINFO>();
-        if dib.len() <= HEADER.max(INFO) {
-            return None;
-        }
-        let header = dib.as_ptr() as *const BITMAPINFOHEADER;
-        let info = dib.as_ptr() as *const BITMAPINFO;
-        let bits = dib.as_ptr().add(HEADER) as *const core::ffi::c_void;
-        let hdc = GetDC(HWND(std::ptr::null_mut()));
-        if hdc.is_invalid() {
-            return None;
-        }
-        let bitmap = CreateDIBitmap(
-            hdc,
-            Some(header),
-            CBM_INIT as u32,
-            Some(bits),
-            Some(info),
-            DIB_RGB_COLORS,
-        );
-        ReleaseDC(HWND(std::ptr::null_mut()), hdc);
-        if bitmap.is_invalid() {
-            None
-        } else {
-            Some(bitmap.0)
-        }
-    }
+    // The render slot and its window procedure — why in their own file.
+    #[path = "../../clipboard_render_slot.rs"]
+    mod render_slot;
+    use render_slot::wndproc;
+    // The RV-39 slot tests live in this module (`clipboard_confirm_tests.rs`) and
+    // drive `mark_render_all` directly; production reaches it only through the
+    // wndproc, so importing it unconditionally would be an unused import.
+    #[cfg(test)]
+    use render_slot::mark_render_all;
 
     /// `SetClipboardData(format, NULL)` — the DELAYED-RENDERING announcement.
     ///
@@ -532,16 +430,42 @@ mod win {
                 ),
             ),
         }
-        if dropped_by_os {
+        // ── WHAT `WM_RENDERALLFORMATS` ACTUALLY PROVES (measured 2026-08-22, ──
+        // ── dev-pc-a, standalone Win32 rig, reproduced twice) ─────────
+        // `EmptyClipboard` DOES NOT release ownership — it "assigns ownership of
+        // the clipboard to the window that currently has the clipboard open",
+        // i.e. back to us. So after a PERFECTLY SUCCESSFUL withdrawal we are
+        // still the owner, and `DestroyWindow` on the clipboard owner sends
+        // `WM_RENDERALLFORMATS` anyway:
+        //     withdrawal: ours=True open=True empty=True close=True
+        //     owner after withdrawal is still us: True
+        //     WM_RENDERALLFORMATS
+        // ⇒ the arrival of that message, ON ITS OWN, is NOT evidence that
+        // anything was dropped. It fired on 100% of pastes (36/36 in the
+        // forensic log), each one logging "the withdrawal did not take" about a
+        // withdrawal that had just returned `Withdrawn`.
+        //
+        // 🔴 THAT COST MORE THAN A NOISY LINE. `map_image_outcome` reports an
+        // image paste FAILED on `dropped_unrendered && !confirmed` (F-4), so the
+        // bit was deciding verdicts; and an alarm that fires every single time is
+        // an alarm nobody can ever use to find the real event.
+        //
+        // The real F-4 shape — the OS dropping formats we had promised — is
+        // exactly "the message arrived AND the withdrawal did not succeed", so
+        // that is what the bit says now. The message alone stays out of the log:
+        // it is the documented behaviour of destroying an owner window.
+        let dropped_unrendered = dropped_by_os && withdrawal != Withdrawal::Withdrawn;
+        if dropped_unrendered {
             crate::forensic::record(
                 "inject",
                 &format!(
                     "clipboard {announce:?}: DROPPED unrendered at {phase} — \
-                     WM_RENDERALLFORMATS arrived, which means the withdrawal did not take"
+                     WM_RENDERALLFORMATS arrived AND the withdrawal did not take, so the OS \
+                     discarded formats we had announced we could provide"
                 ),
             );
         }
-        dropped_by_os
+        dropped_unrendered
     }
 
     fn ensure_class() {
@@ -604,7 +528,8 @@ mod win {
 
     pub fn paste_formats(
         formats: &[(u32, Vec<u8>)],
-        timeout: Duration,
+        hold: Duration,
+        expected_text: Option<&str>,
     ) -> Result<ConfirmOutcome, InjectError> {
         if formats.is_empty() {
             return Ok(ConfirmOutcome::default());
@@ -733,11 +658,43 @@ mod win {
         // 80 ms on a FALLBACK path (SendInput leads again since v0.2.1) is not a
         // latency the user can feel.
         std::thread::sleep(CLIPBOARD_SETTLE);
-        // Fire the paste, then pump until the target consumes it or we time out.
-        let paste = send_ctrl_v();
 
-        let deadline = Instant::now() + timeout;
-        loop {
+        // Start watching for the text to LAND before the keystroke, so the watch
+        // gets a baseline of what was in the box beforehand (readback.rs explains
+        // why a baseline is load-bearing). An image has nothing to read back and
+        // gets an inert watch that never confirms.
+        let watch = match expected_text {
+            Some(text) => crate::inject::readback::watch(text),
+            None => crate::inject::readback::LandingWatch::inert(),
+        };
+
+        let paste = send_ctrl_v();
+        let started = Instant::now();
+
+        // ── HOLD, do not race (2026-08-22) ───────────────────────────────────
+        // 🔴 THIS LOOP USED TO BREAK ON `rendered`, AND THAT WAS THE P0.
+        // `rendered` means 「somebody asked us to render」, which Chromium's
+        // browser process does ~13ms after the keystroke REGARDLESS of whether
+        // the renderer is in any state to paste. Breaking there took us straight
+        // to the teardown and to the caller's restore, so the payload was on the
+        // clipboard for ~110ms total; a target that read at 1.6s got the user's
+        // own restored clipboard and pasted THAT, while we reported `injected`.
+        // Measured end to end, same target, same rig, one variable:
+        //   break-on-receipt  → target pasted the user's old clipboard   (RED)
+        //   hold + read-back  → target pasted the injected text          (GREEN)
+        // Full trace in `docs/strategy/2026-08-22-clipboard-restore-race-findings.md`.
+        //
+        // So the exit condition is now positive EVIDENCE (read-back saw the text
+        // land) or the hold expiring — never the receipt. A paste that errored
+        // still exits at once: there is nothing to hold for.
+        //
+        // ⚠️ macOS has held its pasteboard for the full window since MAC-05
+        // (`inject/macos/pasteboard.rs` — `sleep(timeout)`, "spent WAITING rather
+        // than WATCHING"). Windows was the odd one out, and the thing that made
+        // it different was an optimisation resting on a signal that did not mean
+        // what its name said.
+        let deadline = started + hold;
+        let stop_reason = loop {
             unsafe {
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
@@ -745,16 +702,27 @@ mod win {
                     DispatchMessageW(&msg);
                 }
             }
-            let rendered = PENDING
+            let receipt_served = PENDING
                 .lock()
                 .ok()
                 .and_then(|g| g.as_ref().map(|p| p.rendered))
                 .unwrap_or(false);
-            if rendered || Instant::now() >= deadline || paste.is_err() {
-                break;
+            if let Some(reason) = crate::inject::clipboard_hold::hold_decision(crate::inject::clipboard_hold::HoldInputs {
+                receipt_served,
+                landing_confirmed: watch.confirmed(),
+                expired: Instant::now() >= deadline,
+                paste_failed: paste.is_err(),
+            }) {
+                break reason;
             }
             std::thread::sleep(Duration::from_millis(4));
-        }
+        };
+        let held_ms = started.elapsed().as_millis() as u32;
+        let landing = watch.evidence();
+        crate::forensic::record(
+            "inject",
+            &format!("clipboard hold ended after {held_ms}ms: {stop_reason}"),
+        );
 
         let outcome = PENDING
             .lock()
@@ -767,9 +735,15 @@ mod win {
                     // offer is only known once the owner window is destroyed and
                     // any WM_RENDERALLFORMATS has landed (F-4).
                     dropped_unrendered: false,
+                    landing,
+                    held_ms,
                 })
             })
-            .unwrap_or_default();
+            .unwrap_or(ConfirmOutcome {
+                landing,
+                held_ms,
+                ..Default::default()
+            });
 
         // Tear down: hand back any still-delayed announcement, THEN destroy the
         // owner window; the caller restores the user's original clipboard next.

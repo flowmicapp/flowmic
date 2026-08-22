@@ -117,7 +117,7 @@ use crate::inject::clipboard_confirm::ConfirmOutcome;
 #[cfg(test)]
 use crate::inject::clipboard_outcome::receipt_phrase;
 #[cfg(test)]
-use crate::inject::clipboard_paste::{PasteOutcome, CONFIRM_TIMEOUT};
+use crate::inject::clipboard_paste::{PasteOutcome, PASTE_HOLD};
 #[cfg(test)]
 use crate::inject::sendinput::InjectError;
 

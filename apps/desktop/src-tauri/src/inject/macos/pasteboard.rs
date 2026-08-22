@@ -52,7 +52,7 @@
 // On Windows that parameter means 「how long we WATCH for a receipt」; here it means
 // 「how long we HOLD the user's pasteboard before putting it back」. Those are two
 // different questions, so borrowing one value for both needs a reason rather than
-// a shrug: `CONFIRM_TIMEOUT`'s own doc already states both halves — 「Ctrl+V
+// a shrug: `PASTE_HOLD`'s own doc already states both halves — 「Ctrl+V
 // processing is a few ms; 500ms comfortably covers a busy target without leaving
 // the user's clipboard clobbered for long」 — and the second half IS the macOS
 // meaning, unchanged. Inventing a second constant would give the same promise to
@@ -372,22 +372,35 @@ fn paste_items(items: &[(String, Vec<u8>)], timeout: Duration) -> Result<Confirm
         // withdraw here, so nothing can be dropped unrendered (F-4). The macOS
         // analogue of that shape is a restore failure — see the module header.
         dropped_unrendered: false,
+        // 🔴 Structurally `Unavailable` TODAY, and that is a gap rather than a
+        // platform fact: `inject/readback.rs` is UIA-only, so the read-back that
+        // lets Windows stop holding early (and that tells it whether the text
+        // landed at all) has no AX-API counterpart yet. Until it does, macOS pays
+        // the full fixed hold on every paste and its `injected` rests on the act
+        // alone — which is what it already rested on, so nothing regressed here;
+        // it simply did not gain what Windows gained.
+        landing: crate::inject::readback::LandingEvidence::Unavailable,
+        held_ms: timeout.as_millis() as u32,
     })
 }
 
 /// The macOS `paste_with_confirmation` — the TEXT half.
 ///
-/// Returns `Ok(false)` on success, and that `false` is [`ConfirmOutcome::confirmed`]
-/// which on this platform is structurally false. It is NOT 「the paste failed」:
-/// `map_clipboard_outcome` reads `Ok(..)` as the delivery and the flag only as
-/// forensic evidence (design §3, 2026-07-30).
-pub fn paste_with_confirmation(text: &str, timeout: Duration) -> Result<bool, InjectError> {
+/// Returns a [`ConfirmOutcome`] whose `confirmed` is structurally false on this
+/// platform and whose `landing` is structurally `Unavailable`. Neither is 「the
+/// paste failed」: `map_clipboard_outcome` reads `Ok(..)` as the delivery and both
+/// flags only as forensic evidence (design §3, 2026-07-30).
+///
+/// ⚠️ SIGNATURE CHANGED 2026-08-22 (was `Result<bool, _>`) so both platforms hand
+/// the caller the same record. The text is now passed down on Windows because
+/// read-back compares against it; here it is still only the payload.
+pub fn paste_with_confirmation(text: &str, timeout: Duration) -> Result<ConfirmOutcome, InjectError> {
     let uti = {
         // SAFETY: reading an AppKit `NSString *` global constant.
         unsafe { NSPasteboardTypeString }.to_string()
     };
     let items = [(uti, text.as_bytes().to_vec())];
-    paste_items(&items, timeout).map(|o| o.confirmed)
+    paste_items(&items, timeout)
 }
 
 /// The macOS `paste_formats_with_confirmation` — the IMAGE half (MAC-06).

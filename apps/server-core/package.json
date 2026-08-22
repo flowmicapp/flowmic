@@ -1,6 +1,6 @@
 {
   "name": "@flowmic/server-core",
-  "version": "0.3.23",
+  "version": "0.3.27",
   "private": true,
   "description": "FlowMic server-core — standalone/saas socket.io + REST server. Room pairing, settings sync, timeline blind store, mock billing.",
   "license": "AGPL-3.0-only",

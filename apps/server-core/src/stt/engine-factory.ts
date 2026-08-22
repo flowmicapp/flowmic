@@ -36,7 +36,7 @@ import { SttEngineOrchestrator } from './orchestrator-core';
 import { DEFAULT_ENGINE_IDLE_HANGUP_MS, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
 import type { VadGate } from './vad-gate';
-import { sherpaModelCanRecognize } from './sherpa/model-manifest';
+import { catalogCanServe } from './sherpa/model-catalog';
 import { FunasrEngine } from './engines/funasr';
 import { DeepgramEngine } from './engines/deepgram';
 import { OpenAiRealtimeEngine } from './engines/openai-realtime';
@@ -157,7 +157,18 @@ export const defaultEngineFactory: EngineFactory = (
       // engine is configured, they can see it configured, and the message says
       // nothing is. The registry entry for STT_LANGUAGE_UNSUPPORTED carries the
       // full argument and the measurements behind it.
-      if (!sherpaModelCanRecognize(cfg.language)) {
+      // 🔴 LM-CAT (2026-08-22): the question this gate asks CHANGED. It used
+      // to ask "can the (one) model recognise this language" — the refusal
+      // above was measured against SenseVoice's five. There is now a CATALOG
+      // of packs (sherpa/model-catalog.ts), so the synchronous question here
+      // is "does ANY catalog row claim this language". French/German/… pass
+      // this gate today because downloadable packs claim them; whether a
+      // covering pack is actually DOWNLOADED is resolved at open() and
+      // refused there as STT_CONFIG_MISSING with the settings-download
+      // action (model-resolve.ts) — "not downloaded yet" and "physically
+      // cannot" are two facts with two codes, and this line only owns the
+      // second one.
+      if (!catalogCanServe(cfg.language)) {
         throw new SttConfigMissingError(cfg.language, 'STT_LANGUAGE_UNSUPPORTED');
       }
       return new SherpaLocalEngine(cfg);

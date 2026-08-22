@@ -280,6 +280,29 @@ pub fn update_check(base: String, state: State<'_, UpdateState>) -> UpdateStateD
                 }
                 _ => None,
             };
+            // 🔴 0.3.24 — RECORD THE VERDICT, not just the failures. Until this
+            // line, a successful check wrote nothing to the forensic log: the
+            // 「why does my machine say it can only update manually」 question
+            // asked from a real Windows 10 box on 2026-08-21 could not be
+            // answered from that box's own log, and the root cause had to be
+            // re-derived from the live manifest and the locale registry instead.
+            // A check that succeeds and explains nothing is the diagnostic twin
+            // of a status word with no evidence behind it (R11).
+            crate::forensic::record(
+                "update",
+                &format!(
+                    "check → plan={} form={} locale={locale}{}",
+                    plan.tag(),
+                    f.tag(),
+                    match &plan {
+                        UpdatePlan::Available { latest, artifact, .. } =>
+                            format!(" latest={latest} artifact={}", artifact.filename),
+                        UpdatePlan::ManualOnly { latest, reason, .. } =>
+                            format!(" latest={latest} reason={reason:?}"),
+                        _ => String::new(),
+                    }
+                ),
+            );
             inner.plan = Some(plan);
         }
         Err(e) => {

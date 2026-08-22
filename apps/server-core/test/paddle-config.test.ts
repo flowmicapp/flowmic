@@ -32,6 +32,7 @@ const PADDLE_ENV_VARS = [
   'FLOWMIC_PADDLE_ENV',
   'FLOWMIC_PADDLE_WEBHOOK_SECRET',
   'FLOWMIC_PADDLE_API_KEY',
+  'FLOWMIC_PADDLE_WRITE_ENABLED',
   'FLOWMIC_PADDLE_TOLERANCE_SEC',
   'FLOWMIC_PADDLE_PRICE_TIERS',
   'FLOWMIC_PLAN_LIMITS',
@@ -66,10 +67,35 @@ describe('paddle config — defaults', () => {
       env: 'sandbox',
       webhookSecret: null,
       apiKey: null,
+      writeEnabled: false,
       toleranceSec: DEFAULT_PADDLE_TOLERANCE_SEC,
       priceTiers: {},
     });
     expect(c.planLimits).toBeNull();
+  });
+
+  // 🔴 0.3.25 B2 — THE DEFAULT THAT MATTERS MOST IN THIS FILE, asserted on its
+  // own as well as inside the shape above. Everything else here defaults to
+  // 「inert」; this one defaults to 「cannot spend money or cancel anybody」, and
+  // it is the property an owner ruling rests on (writes stay off until owner
+  // opens them). A shape assertion can be 「fixed」 by pasting a new field in
+  // with whatever value made it pass — this one names the value and why.
+  it('🔴 outbound writes default OFF, and are a SEPARATE switch from intake', () => {
+    expect(loadConfig(SAAS).paddle.writeEnabled).toBe(false);
+    // Turning intake on must not turn writes on. They are different risks:
+    // intake is read-only, a write can cancel a paying customer or move money.
+    // Driven through the ENV, like every other case in this file — the same
+    // path production takes, rather than an override the real deployment never
+    // uses.
+    process.env.FLOWMIC_PADDLE_ENABLED = '1';
+    process.env.FLOWMIC_PADDLE_WEBHOOK_SECRET = 'pdl_ntfset_abc';
+    const intakeOn = loadConfig(SAAS);
+    expect(intakeOn.paddle.enabled).toBe(true);
+    expect(intakeOn.paddle.writeEnabled).toBe(false);
+    // Positive control: the switch DOES respond to its own variable, so the
+    // false above is 「intake did not turn it on」 and not 「nothing can」.
+    process.env.FLOWMIC_PADDLE_WRITE_ENABLED = '1';
+    expect(loadConfig(SAAS).paddle.writeEnabled).toBe(true);
   });
 
   it("defaults to sandbox — production has to be said out loud", () => {

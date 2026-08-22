@@ -117,6 +117,98 @@ pub fn smoke_allowlist_from_env() -> Option<Vec<String>> {
 /// (`additionalBrowserArgs … CalculateNativeWinOcclusion`) and shared by both
 /// WebView2 windows; the capsule's WS_EX_NOACTIVATE styles + SW_SHOWNOACTIVATE
 /// surface are applied in `shell`.
+/// Give a window the LARGE icon Windows draws on the taskbar button.
+///
+/// Tauri's `set_icon` only reaches `ICON_SMALL` (see the call site for the tao
+/// source that proves it), so this is the other half, and it has to be Win32:
+/// tao's `set_taskbar_icon` exists but Tauri does not expose it.
+///
+/// The icon comes from THIS EXE's own resources — the same ones tauri-build
+/// compiled in from `bundle.icon`, so it cannot drift from what Explorer shows
+/// for the file. Resource id 32512 is what tauri-build emits; MEASURED on this
+/// build rather than assumed, and re-measurable with:
+///     EnumResourceNamesW(LoadLibraryEx(exe, AS_DATAFILE), RT_GROUP_ICON=14)
+///     -> #32512   (and RT_ICON=3 -> #1..#8, the 16..256 frames)
+///
+/// Both sizes are set from the same group so the small icon keeps matching the
+/// big one; `LoadImageW` picks the right frame for each requested size.
+/// Failure is recorded, never fatal: the cost is a placeholder on the taskbar.
+/// ⚠️ BOTH gates are load-bearing. `windows` because the mechanism is Win32;
+/// `feature = "app"` because the `tauri` crate only exists there — without the
+/// second, the no-app build cannot even resolve the signature, which is what the
+/// default-feature clippy run said the moment this landed. The gate that runs
+/// the same check under two feature sets is the only reason that was a red line
+/// instead of a broken release.
+#[cfg(all(windows, feature = "app"))]
+fn set_big_window_icon(label: &str, window: &tauri::WebviewWindow) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, GetWindowLongPtrW, LoadImageW, SendMessageW, GWLP_HINSTANCE, ICON_BIG,
+        ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON,
+        WM_SETICON,
+    };
+
+    /// The id tauri-build gives the app icon group in the generated resources.
+    const APP_ICON_RESOURCE_ID: u16 = 32512;
+
+    let Ok(hwnd) = window.hwnd() else {
+        forensic::record(
+            "shell",
+            &format!("window '{label}': no HWND yet, so its taskbar icon was not set"),
+        );
+        return;
+    };
+    // SAFETY: every call is a read or a message post to a window we own. The
+    // HICONs are loaded from our own module's resources, which the OS owns and
+    // keeps alive for the process lifetime, so they are never freed here.
+    unsafe {
+        // 🔴 NOT `HINSTANCE::default()`. A NULL hInstance tells LoadImageW to
+        // look for an OEM/system image, NOT「this executable」 — measured: it
+        // returned 0/2 loaded and the taskbar stayed blank, and the only reason
+        // that was findable in one step is the forensic line below.
+        // The window's own class registration knows the right module, and asking
+        // the window for it needs no extra crate feature.
+        let module = HINSTANCE(GetWindowLongPtrW(HWND(hwnd.0 as _), GWLP_HINSTANCE) as _);
+        let mut set = 0usize;
+        for (which, cx, cy) in [
+            (ICON_BIG, SM_CXICON, SM_CYICON),
+            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
+        ] {
+            let loaded = LoadImageW(
+                module,
+                // MAKEINTRESOURCEW: a bare integer id in the pointer slot.
+                PCWSTR(APP_ICON_RESOURCE_ID as usize as *const u16),
+                IMAGE_ICON,
+                GetSystemMetrics(cx),
+                GetSystemMetrics(cy),
+                LR_DEFAULTCOLOR,
+            );
+            match loaded {
+                Ok(h) if !h.is_invalid() => {
+                    SendMessageW(
+                        HWND(hwnd.0 as _),
+                        WM_SETICON,
+                        WPARAM(which as usize),
+                        LPARAM(h.0 as isize),
+                    );
+                    set += 1;
+                }
+                _ => {}
+            }
+        }
+        if set < 2 {
+            forensic::record(
+                "shell",
+                &format!(
+                    "window '{label}': only {set}/2 icon sizes loaded from resource \
+                     #{APP_ICON_RESOURCE_ID} — the taskbar may still draw a placeholder"
+                ),
+            );
+        }
+    }
+}
+
 #[cfg(feature = "app")]
 pub fn run() {
     use tauri::Manager;
@@ -351,6 +443,12 @@ pub fn run() {
             shell::clipboard_copy::capsule_copy_text,
             shell::show_main,
             shell::open_log_directory,
+            // 0.3.24 — the ONLY way this app can put a page in front of the
+            // user. `target="_blank"` / `window.open` open NOTHING in a WebView2
+            // window that was declared in tauri.conf.json (measured; see
+            // shell/external_open.rs), so every external link in the product was
+            // dead until this command existed.
+            shell::external_open::open_external_url,
             shell::append_forensic,
             inject::probe_diag::focus_diagnostic,
             // 🔴 owner 2026-08-02 (F1a): our own input box must be able to receive
@@ -405,6 +503,62 @@ pub fn run() {
             // Forensics first (07 §10) so the sidecar bring-up + socket lifecycle
             // are captured from the very first line.
             forensic::init_default();
+
+            // ── The taskbar button had no icon (owner, 2026-08-22) ───────────
+            // Windows declared in `tauri.conf.json` get no icon: WindowConfig has
+            // no such field, and nothing here ever set one. Measured on the
+            // running 0.3.26 build, main window:
+            //     ICON_BIG=0  ICON_SMALL=753803221  classHICON=0  classHICONSM=0
+            // The taskbar button asks for ICON_BIG, falls back to the class icon,
+            // and with both at 0 draws a generic placeholder. ICON_SMALL WAS set,
+            // which is why the title bar and Alt+Tab looked right — a defect that
+            // is correct in three places out of four is the hardest kind to see.
+            //
+            // 🔴 IT LOOPS OVER EVERY WINDOW RATHER THAN NAMING THEM. The defect
+            // was 「a window nobody gave an icon to」, and a hardcoded ["main",
+            // "capsule"] would let the next window repeat it exactly. This makes
+            // the mistake impossible instead of detectable — cheaper than the lint
+            // that would otherwise be owed here.
+            //
+            // `default_window_icon()` is the icon tauri-build compiled in from
+            // `bundle.icon`, so this cannot drift from the exe's own resources.
+            match app.default_window_icon().cloned() {
+                Some(icon) => {
+                    for (label, window) in app.webview_windows() {
+                        if let Err(e) = window.set_icon(icon.clone()) {
+                            forensic::record(
+                                "shell",
+                                &format!("window '{label}': set_icon failed ({e}) — its taskbar button will fall back to a generic icon"),
+                            );
+                        }
+                        // 🔴 `set_icon` ALONE DOES NOT FIX THIS, AND IT RETURNS
+                        // `Ok`. Read out of the tao source this build links —
+                        // grep `fn set_window_icon` in tao-0.35.3's
+                        // platform_impl/windows/window.rs; that crate is not this
+                        // repo, so no :NNN:
+                        //     set_window_icon(..)  -> set_for_window(hwnd, IconType::Small)
+                        //     set_taskbar_icon(..) -> set_for_window(hwnd, IconType::Big)
+                        // Tauri maps `set_icon` to the FIRST one and does not
+                        // expose the second (grepped across tauri-2.11.5: zero
+                        // hits for `set_taskbar_icon`). So the call above set
+                        // ICON_SMALL, reported success, and left ICON_BIG at 0 —
+                        // measured after shipping the "fix": still
+                        // `ICON_BIG=0 ICON_SMALL=1285104081`.
+                        // An API whose name says "window icon" and whose body
+                        // says "small icon only" is this repo's usual shape: one
+                        // value answering a different question than the one asked.
+                        #[cfg(windows)]
+                        set_big_window_icon(&label, &window);
+                    }
+                }
+                // Not a panic and not silence: without this the product still
+                // runs, it just looks unbranded, and the reason has to be
+                // findable afterwards.
+                None => forensic::record(
+                    "shell",
+                    "no default window icon was compiled in (bundle.icon) — every window keeps the system placeholder",
+                ),
+            }
             // Managed state, established BEFORE the async bring-up touches it:
             //   • SocketState — the TWO resident channel sessions (07 §6) + the
             //     shared capsule latch. Both slots start empty, so commands resolve

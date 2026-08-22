@@ -41,6 +41,7 @@ import packageIdFamily from './package-id-family.mjs';
 import noCjk from './no-cjk.mjs';
 import changelogReleaseSections from './changelog-release-sections.mjs';
 import worktreeLocation from './worktree-location.mjs';
+import externalLinkDoor from './external-link-door.mjs';
 import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
 
 const LINTS = [
@@ -70,6 +71,7 @@ const LINTS = [
   { name: 'no-cjk', run: noCjk },
   { name: 'changelog-release-sections', run: changelogReleaseSections },
   { name: 'worktree-location', run: worktreeLocation },
+  { name: 'external-link-door', run: externalLinkDoor },
   { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
 ];
 

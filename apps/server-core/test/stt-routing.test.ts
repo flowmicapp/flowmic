@@ -10,7 +10,9 @@ import {
 } from '../src/stt/engine-router';
 import { managedDefaultRouting } from '../src/stt/managed-default';
 import { defaultEngineFactory, resolveByok } from '../src/stt/engine-factory';
-import { sherpaModelCanRecognize } from '../src/stt/sherpa/model-manifest';
+import {
+  catalogCanServe, catalogModelById, sherpaModelCanRecognize,
+} from '../src/stt/sherpa/model-catalog';
 import { UI_LOCALES } from '@flowmic/protocol';
 import type { SttEngineId } from '@flowmic/protocol';
 import type { SttEngine, SttEngineConfig } from '../src/stt/engines/base';
@@ -144,41 +146,65 @@ describe('defaultEngineFactory — id → constructor switch (all 7)', () => {
   });
 });
 
-// ── WP3 C13 (2026-08-18): the built-in engine refuses what its model cannot do ──
-describe('sherpa-local refuses a language outside its model, BY NAME', () => {
+// ── WP3 C13 (2026-08-18) → LM-CAT (2026-08-22): the gate now asks the CATALOG ──
+//
+// 🔴 WHAT CHANGED AND WHY THE OLD ASSERTION IS GONE. WP3's gate asked "can the
+// (one) SenseVoice model recognise this" and the positive control here pinned
+// `refused === ['de','es','fr','ru']`. LM-CAT replaced the single model with a
+// per-language CATALOG of downloadable packs, every spoken language has at
+// least one covering row, so the factory-time refusal set for the product's
+// wire tags is now EMPTY — French no longer refuses at construction, it
+// refuses (or serves) at open() depending on what is actually downloaded
+// (model-resolve.ts; STT_CONFIG_MISSING with the settings-download action).
+// STT_LANGUAGE_UNSUPPORTED still exists for a language NO catalog row claims.
+describe('sherpa-local language gate — catalog-backed (LM-CAT)', () => {
   const cfg = (language: string) =>
     ({ id: 'sherpa-local', language, sample_rate: 16_000 }) as const;
 
-  // DERIVED from the registry, not hand-rolled (the i18n-add-locale-cost gate
-  // is right to bite here): the product's wire tags are the registry codes'
-  // base forms, so a tenth language lands on the correct SIDE of this split
-  // the day its registry row exists, with no edit to this file.
+  // DERIVED from the registry, not hand-rolled: the product's wire tags are
+  // the registry codes' base forms.
   const wireTags = [...new Set(UI_LOCALES.map((l) => l.code.split('-')[0]!))];
-  const refused = wireTags.filter((t) => !sherpaModelCanRecognize(t));
-  const accepted = wireTags.filter((t) => sherpaModelCanRecognize(t));
+  const accepted = wireTags;
 
-  it('🔴 the spoken languages the model does not know are refused with STT_LANGUAGE_UNSUPPORTED — never "recognised" as something nearby', () => {
-    // Measured (WP3 handback): these came back as punctuation dressed as a
-    // transcript with a clean exit ('de' → 「.」). The refusal replaces that.
-    // Positive control on the derivation itself: today that set is exactly the
-    // four languages WP3 added to the spoken picker.
-    expect(refused.sort()).toEqual(['de', 'es', 'fr', 'ru']);
-    for (const lang of refused) {
+  it('🔴 every product wire tag now constructs — the catalog claims all eight', () => {
+    // Positive control on the catalog derivation: the wire tags and the
+    // catalog keys must be the same set (a ninth UI language whose base has
+    // no catalog row would show up here, which is the point).
+    for (const lang of wireTags) {
+      expect(catalogCanServe(lang), lang).toBe(true);
+      const e = defaultEngineFactory('sherpa-local', cfg(lang));
+      expect(e.id, lang).toBe('sherpa-local');
+    }
+  });
+
+  it('a language NO catalog row claims still refuses with STT_LANGUAGE_UNSUPPORTED, by name', () => {
+    // 'it' (Italian) is a real language the catalog does not claim — the
+    // refusal shape WP3 measured (silence dressed as a transcript) must not
+    // come back for it.
+    for (const lang of ['it', 'pt', 'ar']) {
       let thrown: unknown;
       try { defaultEngineFactory('sherpa-local', cfg(lang)); } catch (e) { thrown = e; }
       expect(thrown, lang).toBeInstanceOf(SttConfigMissingError);
-      // ⚠️ THIS ASSERTION SAID `STT_CONFIG_MISSING` FOR ONE ROUND, and it was
-      // correct then: WP3 shipped the nearest TRUE code while the precise one
-      // was owner-pending. owner granted it 2026-08-17. The old code is not
-      // wrong here so much as misdirecting — it tells a reader nothing is
-      // configured while they are looking at the engine that is.
       expect((thrown as SttConfigMissingError).code, lang).toBe('STT_LANGUAGE_UNSUPPORTED');
-      // 🔴 The diagnostic message travels to a support log and must not have
-      // inherited the old sentence — a message/code pair that disagrees is
-      // worse than either alone, because only one of them is ever read.
       expect((thrown as Error).message, lang).toContain('cannot recognise');
       expect((thrown as Error).message, lang).not.toContain('No STT engine configured');
     }
+  });
+
+  // ── LM-CAT §8-④: the per-MODEL question, with its reverse control ─────────
+  it('🔴 sherpaModelCanRecognize asks the ROW: French is true of whisper-turbo and false of SenseVoice', () => {
+    const turbo = catalogModelById('sherpa-onnx-whisper-turbo')!;
+    const senseVoice = catalogModelById('sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17')!;
+    expect(sherpaModelCanRecognize('fr', turbo)).toBe(true);
+    // The reverse control the task demands: the SenseVoice-only answer to
+    // French is NO — an implementation that fell back to a global language
+    // set would answer the same for both rows and one of these two lines
+    // would go red (proven red by inverting the check during development).
+    expect(sherpaModelCanRecognize('fr', senseVoice)).toBe(false);
+    // …and zh is true of both, so the split above is about the ROW, not
+    // about French being special.
+    expect(sherpaModelCanRecognize('zh', turbo)).toBe(true);
+    expect(sherpaModelCanRecognize('zh', senseVoice)).toBe(true);
   });
 
   // 🔴 THE OTHER TWO REFUSALS MUST NOT HAVE MOVED. Minting a code is only safe
@@ -193,7 +219,9 @@ describe('sherpa-local refuses a language outside its model, BY NAME', () => {
     expect((thrown as Error).message).toContain('No STT engine configured');
   });
 
-  it("the model's languages, the wildcard, auto, and a region-tagged form all still construct", () => {
+  it("the catalog languages, yue, the wildcard, auto, and a region-tagged form all still construct", () => {
+    // 'yue' stays constructible: the SenseVoice row claims it (its model card
+    // does) even though the phone never offers it — LM-CAT §4 note.
     for (const lang of [...accepted, 'yue', '*', 'auto', 'zh-CN', '']) {
       const e = defaultEngineFactory('sherpa-local', cfg(lang));
       expect(e.id, lang).toBe('sherpa-local');
@@ -205,15 +233,17 @@ describe('sherpa-local refuses a language outside its model, BY NAME', () => {
     // managed default, the seeded '*' row points at the built-in engine. The
     // selection legitimately matches (the wildcard IS the general-purpose
     // entry point); the refusal must come from the layer that knows the
-    // MODEL — otherwise the route "works" and the recogniser answers 「.」.
+    // CATALOG — otherwise the route "works" and the recogniser answers 「.」.
+    // (LM-CAT: 'de' moved to the constructible side — a downloadable pack
+    // claims it now — so the uncovered language here is Italian.)
     const seeded: Routing[] = [
       { language: 'zh', engine_id: 'sherpa-local', provenance: 'seed' },
       { language: '*', engine_id: 'sherpa-local', provenance: 'seed' },
     ];
     const router = makeEngineRouter({});
-    expect(() => router.pickEngine('de', seeded, defaultEngineFactory))
+    expect(() => router.pickEngine('it', seeded, defaultEngineFactory))
       .toThrow(SttConfigMissingError);
-    // Positive control on the same wiring: a language the model knows builds.
+    // Positive control on the same wiring: a language the catalog claims builds.
     expect(router.pickEngine('ja', seeded, defaultEngineFactory).id).toBe('sherpa-local');
   });
 });

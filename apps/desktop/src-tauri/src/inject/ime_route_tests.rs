@@ -151,7 +151,7 @@ mod ime_safe_content_routing {
     fn routed_mapper_reports_an_error_free_paste_as_injected_clipboard() {
         // No `AppLearningStore` parameter EXISTS on this mapper — the no-learning
         // guarantee is the signature, not a branch (clipboard_outcome.rs).
-        let out = map_ime_routed_clipboard_outcome(Ok(PasteOutcome { confirmed: false }));
+        let out = map_ime_routed_clipboard_outcome(Ok(PasteOutcome { confirmed: false, ..Default::default() }));
         assert!(out.ok, "receipt is evidence, not a gate (design §3, 2026-07-30)");
         assert_eq!(out.mode, InjectMode::Clipboard);
         assert_eq!(out.error_code, None);

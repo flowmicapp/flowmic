@@ -94,6 +94,15 @@ const ROUTE_SOURCES = [
   // 2026-08-14 — signed-in POST /api/account/password. Same MAIL-1 shape:
   // a route in a file the scanner is not reading is invisible.
   join(SRC, 'http', 'account-password-routes.ts'),
+  // 🔴 0.3.25 B2 (2026-08-21) — `billing-routes.ts`, added in the same commit
+  // that created it. This one matters more than the entries above rather than
+  // less: its two routes are DELIBERATELY exempt from `refuseRestricted` and
+  // `refuseUnverified` (ROSCA §8403(3) — a restricted or unverifiable account is
+  // still being charged and must still be able to stop it), and an exemption
+  // that nothing scans is indistinguishable from a gate somebody forgot. Being
+  // in this list is what turns 「no gate here」 from an absence into a claim the
+  // REGISTRY has to classify.
+  join(SRC, 'http', 'billing-routes.ts'),
   // 2026-08-14 — BYOK editor + TEST moved out of console-routes.ts. Same
   // MAIL-1 shape: a route in a file the scanner is not reading is invisible.
   join(SRC, 'http', 'byok-routes.ts'),
@@ -130,6 +139,30 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   'GET /api/cloud/summary': 'account',
   'GET /api/cloud/subscription': 'account',
   'GET /api/cloud/billing/events': 'account',
+  // 🔴 0.3.25 B2 — the subscription controls. `'account'` because identity IS
+  // required and the subject is always the account the Bearer proved; there is
+  // no `user_id` in either body, so acting on somebody else is unrepresentable
+  // rather than merely refused.
+  //
+  // ⚠️ WHAT `'account'` DOES NOT MEAN HERE, spelled out because this table is
+  // where a reader checks: these two are DELIBERATELY exempt from
+  // `refuseRestricted` and `refuseUnverified`, unlike every other 'account' row
+  // above. ROSCA §8403(3) requires a simple mechanism to stop recurring charges,
+  // and an account that is restricted or whose mailbox died is still being
+  // charged — gating the stop button on either would make the exit unreachable.
+  // The precedent is owner's own exemption for /api/account/{export,delete}.
+  // billing-routes.ts carries the full argument; test/billing-routes.test.ts
+  // drives a restricted, unverified account all the way through a cancellation
+  // so the exemption is a measured behaviour rather than a claim in a comment.
+  'POST /api/cloud/billing/cancel': 'account',
+  'POST /api/cloud/billing/resume': 'account',
+  // 0.3.25 B3 — the EU statutory withdrawal (CRD art. 11a). Same 'account'
+  // standing and the same two exemptions as its siblings above, and the
+  // exemptions matter MORE here rather than less: withdrawal is a right with a
+  // fourteen-day clock on it, so a gate that makes a user go and fix their
+  // mailbox first can run that clock out. test/billing-withdrawal.test.ts drives
+  // the whole path.
+  'POST /api/cloud/billing/withdraw': 'account',
   // 🔴 The admin routes. Every one of them reads ACROSS accounts by design.
   'GET /api/cloud/billing/orphans': 'admin',
   // D11 — the ops_audit_log READ side (listRecent shipped 0.2.48 with zero HTTP

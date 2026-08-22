@@ -45,9 +45,11 @@ import { makeHttpHandler } from '../src/http/router';
 import { makeResolveUserId, type AccountVerifier } from '../src/http/account-auth';
 import { LOCAL_ONLY_ERROR } from '../src/http/local-only';
 import {
-  STT_MODEL_CANCEL_PATH, STT_MODEL_DOWNLOAD_PATH, STT_MODEL_ROUTE_PATHS, STT_MODEL_STATUS_PATH,
+  STT_MODEL_CANCEL_PATH, STT_MODEL_DOWNLOAD_PATH, STT_MODEL_ROOT_PATH, STT_MODEL_ROUTE_PATHS,
+  STT_MODEL_STATUS_PATH,
 } from '../src/http/stt-model-routes';
 import { SherpaModelController, resetSherpaModelControllers } from '../src/stt/sherpa/model-downloader';
+import { SENSE_VOICE_MODEL_ID } from '../src/stt/sherpa/model-catalog';
 import type { ModelFile } from '../src/stt/sherpa/model-manifest';
 
 afterEach(() => {
@@ -70,8 +72,9 @@ function request(
   url: string,
   peer: string,
   headers: Record<string, string> = {},
+  body?: unknown,
 ): IncomingMessage {
-  const stream = Readable.from([]);
+  const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
   const req = stream as unknown as IncomingMessage;
   req.method = method;
   req.url = url;
@@ -113,9 +116,19 @@ const NO_ACCOUNTS: AccountVerifier = {
   getUser: () => null,
 };
 
-/** The router as bootstrap builds it, with only the two knobs these cases turn. */
-function handlerFor(opts: { mode?: 'standalone' | 'saas'; controller?: SherpaModelController } = {}): (req: IncomingMessage, res: ServerResponse) => boolean {
+/** The router as bootstrap builds it, with only the knobs these cases turn.
+ *  LM-CAT: the dep became `controllerFor(row)`; handing back ONE controller
+ *  for every row keeps each case's world exactly one model big. `env` is
+ *  pointed at a temp APPDATA so no case can read or write this machine's real
+ *  pointer/selection files. */
+function handlerFor(opts: {
+  mode?: 'standalone' | 'saas';
+  controller?: SherpaModelController;
+  busy?: SherpaModelController | null;
+  env?: NodeJS.ProcessEnv;
+} = {}): (req: IncomingMessage, res: ServerResponse) => boolean {
   const mode = opts.mode ?? 'standalone';
+  const env = opts.env ?? ({ APPDATA: mkdtempSync(join(tmpdir(), 'flowmic-route-appdata-')) } as NodeJS.ProcessEnv);
   return makeHttpHandler({
     config: { mode, port: 41879, mockBilling: mode === 'standalone' } as never,
     billing: {} as never,
@@ -124,7 +137,11 @@ function handlerFor(opts: { mode?: 'standalone' | 'saas'; controller?: SherpaMod
     // an identity, so it is one that knows nobody (same seam http-access-control uses).
     resolveUserId: makeResolveUserId({ mode, standaloneUserId: 'default', ...(mode === 'saas' ? { account: NO_ACCOUNTS } : {}) }),
     scriptPath: 'C:\\Users\\owner\\AppData\\Local\\FlowMic\\resources\\server.js',
-    ...(opts.controller ? { sttModel: { controller: opts.controller } } : {}),
+    sttModel: {
+      env,
+      ...(opts.controller ? { controllerFor: () => opts.controller! } : {}),
+      ...(opts.busy !== undefined ? { busyController: () => opts.busy! } : { busyController: () => null }),
+    },
   });
 }
 
@@ -134,11 +151,16 @@ function call(
   url: string,
   peer: string,
   headers: Record<string, string> = {},
+  body?: unknown,
 ): { handled: boolean; done: Promise<Answer> } {
   const { res, done } = response();
-  const handled = handler(request(method, url, peer, headers), res);
+  const handled = handler(request(method, url, peer, headers, body), res);
   return { handled, done };
 }
+
+/** The body every download/cancel case sends — a REAL catalog id, because the
+ *  route validates against the catalog before touching any controller. */
+const SV = { model_id: SENSE_VOICE_MODEL_ID };
 
 function readyController(): SherpaModelController {
   const dir = mkdtempSync(join(tmpdir(), 'flowmic-route-ready-'));
@@ -197,20 +219,35 @@ describe('standalone: only this machine may ask', () => {
 // ── the snapshot on the wire ─────────────────────────────────────────────────
 
 describe('GET /api/stt/model/status', () => {
-  it('answers 200 with EXACTLY §4 field names — the desktop is written against them', async () => {
+  it('answers 200 with the §4 names at top level PLUS the LM-CAT catalog surface', async () => {
     const h = handlerFor({ controller: readyController() });
     const out = await call(h, 'GET', STT_MODEL_STATUS_PATH, LOOPBACK).done;
     expect(out.status).toBe(200);
+    // Top level = the legacy §4 snapshot (SenseVoice row, byte-compatible for
+    // any older reader) + the catalog additions of LM-CAT §7. Field names are
+    // the contract; the desktop is written against them.
     expect(Object.keys(out.body).sort()).toEqual([
-      'bytes_done', 'bytes_total', 'current_file', 'dir', 'error', 'files_done',
-      'files_total', 'model_id', 'rate_bytes_per_sec', 'resumed_from_bytes',
-      'source', 'state',
+      'busy_model_id', 'bytes_done', 'bytes_total', 'catalog', 'current_file',
+      'dir', 'error', 'files_done', 'files_total', 'model_id', 'models',
+      'models_root', 'rate_bytes_per_sec', 'resumed_from_bytes',
+      'selected_by_lang', 'source', 'spoken_langs', 'state',
     ]);
     expect(out.body['state']).toBe('ready');
     expect(out.body['bytes_total']).toBe(MODEL_BODY.length);
     // The install directory is on the wire in EVERY state, because 「place the
     // files yourself」 is one of the two exits a failure has to offer.
     expect(typeof out.body['dir']).toBe('string');
+    // The catalog rides every status answer, one entry per row, and the
+    // models array carries one five-state snapshot per row.
+    const catalog = out.body['catalog'] as { model_id: string }[];
+    const models = out.body['models'] as { model_id: string }[];
+    expect(catalog.length).toBeGreaterThanOrEqual(8);
+    expect(models.length).toBe(catalog.length);
+    expect(out.body['spoken_langs']).toEqual(['en', 'zh', 'fr', 'es', 'de', 'ja', 'ko', 'ru']);
+    const root = out.body['models_root'] as Record<string, unknown>;
+    expect(typeof root['dir']).toBe('string');
+    expect(typeof root['default_dir']).toBe('string');
+    expect(root['configured']).toBe(false);
   });
 
   it('?verify=1 is the 「check the files again」 button, and it re-reads the bytes', async () => {
@@ -240,7 +277,7 @@ describe('POST /api/stt/model/download and /cancel', () => {
     const c = readyController();
     await c.snapshot(); // warm the memo, exactly as the settings card's first poll does
     const h = handlerFor({ controller: c });
-    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK).done;
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, SV).done;
     expect(out.status).toBe(200);
     expect(out.body['state']).toBe('ready');
     expect(c.busy, 'a ready model must not be re-fetched by a stray button press').toBe(false);
@@ -248,9 +285,74 @@ describe('POST /api/stt/model/download and /cancel', () => {
 
   it('cancel with nothing running answers the snapshot, not an error', async () => {
     const h = handlerFor({ controller: readyController() });
-    const out = await call(h, 'POST', STT_MODEL_CANCEL_PATH, LOOPBACK).done;
+    const out = await call(h, 'POST', STT_MODEL_CANCEL_PATH, LOOPBACK, {}, SV).done;
     expect(out.status).toBe(200);
     expect(out.body['error']).toBe(null);
+  });
+
+  // 🔴 LM-CAT §7: a body-less download must FAIL LOUD. The pre-LM-CAT desktop
+  // sent `{}` meaning "the one model"; silently mapping that onto SenseVoice
+  // would make "the user picks which pack" a fiction.
+  it('a download naming no model_id is refused by name, and nothing starts', async () => {
+    const c = readyController();
+    const start = vi.spyOn(c, 'start');
+    const h = handlerFor({ controller: c });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, {}).done;
+    expect(out.status).toBe(400);
+    expect(out.body['error']).toBe('MODEL_ID_REQUIRED');
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('an id the catalog does not carry is a named 404', async () => {
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, { model_id: 'not-a-model' }).done;
+    expect(out.status).toBe(404);
+    expect(out.body['error']).toBe('MODEL_UNKNOWN');
+  });
+
+  // LM-CAT §5/§8-③: the streaming row EXISTS in the catalog and refuses BOTH
+  // doors by name this phase. Uses the production controllerFor (no seam), so
+  // the refusal proven here is the shipped one — the throw happens before any
+  // network or filesystem work.
+  it('🔴 a streaming pack refuses download with a named reason (phase D not shipped)', async () => {
+    const h = handlerFor({});
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, {
+      model_id: 'sherpa-onnx-streaming-zipformer-fr-2023-04-14',
+    }).done;
+    expect(out.status).toBe(409);
+    expect(out.body['error']).toBe('MODEL_STREAMING_UNSUPPORTED');
+    expect(String(out.body['message'])).toMatch(/streaming/i);
+  });
+
+  // LM-CAT §7: machine-wide single flight — one pack at a time, and the
+  // refusal NAMES the pack that is busy so the card can say which.
+  it('a second pack is refused while another is downloading', async () => {
+    const c = readyController();
+    const other = readyController();
+    const h = handlerFor({ controller: c, busy: other });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, SV).done;
+    expect(out.status).toBe(409);
+    expect(out.body['error']).toBe('MODEL_DOWNLOAD_BUSY');
+    expect(out.body['busy_model_id']).toBe(other.modelId);
+  });
+
+  // LM-CAT §6-1: pressing a pack's button UNDER a language records the
+  // selection, and the recorded pair must actually be honoured by the body.
+  it('download with a lang records the per-language selection', async () => {
+    const c = readyController();
+    await c.snapshot();
+    const h = handlerFor({ controller: c });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, { ...SV, lang: 'zh' }).done;
+    expect(out.status).toBe(200);
+    expect((out.body['selected_by_lang'] as Record<string, string>)['zh']).toBe(SENSE_VOICE_MODEL_ID);
+  });
+
+  it('a lang the pack does not claim is refused before anything persists', async () => {
+    const c = readyController();
+    const h = handlerFor({ controller: c });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, { ...SV, lang: 'fr' }).done;
+    expect(out.status).toBe(400);
+    expect(out.body['error']).toBe('MODEL_LANG_MISMATCH');
   });
 
   it('the POST is itself the consent — no environment variable is consulted', async () => {
@@ -267,13 +369,54 @@ describe('POST /api/stt/model/download and /cancel', () => {
         tarballUrl: 'http://127.0.0.1:1/a.tar.bz2',
       });
       const h = handlerFor({ controller: c });
-      const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK).done;
+      const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, SV).done;
       expect(out.body['state'], 'the button pressed with the env unset must still start a download').toBe('downloading');
       await c.cancel();
     } finally {
       if (saved === undefined) delete process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'];
       else process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'] = saved;
     }
+  });
+});
+
+// ── the models root is the user's to move (owner 2026-08-22) ─────────────────
+
+describe('POST /api/stt/model/root', () => {
+  it('re-points the root, and the status answer reflects it at once', async () => {
+    const target = mkdtempSync(join(tmpdir(), 'flowmic-route-root-'));
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { dir: target }).done;
+    expect(out.status).toBe(200);
+    const root = out.body['models_root'] as Record<string, unknown>;
+    expect(root['dir']).toBe(target);
+    expect(root['configured']).toBe(true);
+  });
+
+  it('reset returns to the default directory', async () => {
+    const target = mkdtempSync(join(tmpdir(), 'flowmic-route-root2-'));
+    const env = { APPDATA: mkdtempSync(join(tmpdir(), 'flowmic-route-appdata2-')) } as NodeJS.ProcessEnv;
+    const h = handlerFor({ controller: readyController(), env });
+    await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { dir: target }).done;
+    const out = await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { reset: true }).done;
+    const root = out.body['models_root'] as Record<string, unknown>;
+    expect(root['configured']).toBe(false);
+    expect(root['dir']).toBe(root['default_dir']);
+  });
+
+  it('a relative path is refused at the button, with the reason', async () => {
+    const h = handlerFor({ controller: readyController() });
+    const out = await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { dir: 'not/absolute' }).done;
+    expect(out.status).toBe(400);
+    expect(out.body['error']).toBe('MODEL_ROOT_INVALID');
+  });
+
+  it('refused while a download is writing into the old root', async () => {
+    const busyOne = readyController();
+    const target = mkdtempSync(join(tmpdir(), 'flowmic-route-root3-'));
+    const h = handlerFor({ controller: readyController(), busy: busyOne });
+    const out = await call(h, 'POST', STT_MODEL_ROOT_PATH, LOOPBACK, {}, { dir: target }).done;
+    expect(out.status).toBe(409);
+    expect(out.body['error']).toBe('MODEL_ROOT_BUSY');
   });
 });
 

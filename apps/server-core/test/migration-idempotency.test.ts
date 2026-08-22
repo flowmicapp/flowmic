@@ -48,6 +48,12 @@ const TABLES = [
   'timeline_grants',
   'email_verifications',
   'paddle_subscriptions',
+  // 0.3.25 B1 (card D-2) — the tombstone table. NO foreign key by design: it
+  // records subscriptions whose owning users row is already gone.
+  'paddle_subscription_tombstones',
+  // 0.3.25 B3 — refund records. HAS a foreign key (cascades with the account),
+  // unlike the tombstone above; the two sit together so the contrast is visible.
+  'refund_requests',
   'billing_events',
   'ops_audit_log',
   'site_daily_counts',
@@ -1171,7 +1177,7 @@ describe('migration idempotency', () => {
     fresh.close();
   });
 
-  it('has exactly the 14 tables it should (05-DATA-MODEL §1.1: minus the retired one, plus D1 §3.2/§3.3, 0.2.47 §10, SALT-1 §11, GRANT-1 §12, VERIFY-1 §13 and A2-5 §14)', () => {
+  it('has exactly the 16 tables it should (05-DATA-MODEL §1.1: minus the retired one, plus D1 §3.2/§3.3, 0.2.47 §10, SALT-1 §11, GRANT-1 §12, VERIFY-1 §13, A2-5 §14, 0.3.25 B1 §8b and 0.3.25 B3 §8c)', () => {
     const db = openDatabase(':memory:');
     const names = (
       db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as {

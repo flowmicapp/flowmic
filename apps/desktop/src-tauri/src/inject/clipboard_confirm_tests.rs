@@ -24,7 +24,7 @@ fn cf_bitmap_is_announced_alongside_a_dib_but_never_duplicated() {
 
 #[test]
 fn an_empty_format_table_is_never_confirmed() {
-    let out = paste_formats(&[], Duration::from_millis(1)).expect("no-op");
+    let out = paste_formats(&[], Duration::from_millis(1), None).expect("no-op");
     assert!(!out.confirmed, "nothing armed can never be consumed");
     assert_eq!(out.requested_format, None);
 }

@@ -32,6 +32,7 @@ const S_EN_OWN = {
   win_maximize: 'Maximize',
   win_restore: 'Restore',
   win_close: 'Close',
+  ext_open_failed: 'Could not open your browser. Open this address manually:',
   dev_title: 'Devices',
   dev_add_phone: 'Add phone',
   dev_offline_toggle: 'Offline',
@@ -609,7 +610,6 @@ const S_EN_OWN = {
   model_state_downloading: 'Downloading',
   model_state_failed: 'Download failed',
   model_state_unknown: 'Unknown',
-  model_state_connecting: 'Connecting…',
   model_connecting_note: 'The local speech service is starting up — the model status will appear in a moment.',
   model_answered_badly: 'The local speech service responded, but could not report the model status — usually the running pieces no longer match after an update. Restarting the app usually clears it; technical details below.',
   model_unreachable: 'The local speech service is not responding, so the model status cannot be read right now. Press “Re-check files” to try again; if it keeps happening, restarting the app usually clears it.',
@@ -642,6 +642,27 @@ const S_EN_OWN = {
   model_notice_open: 'Open Settings',
   model_notice_dismiss: 'Not now',
   model_action_failed: 'The local service did not accept that, so nothing was started.',
+  model_pick_note: 'Each speaking language has its own downloadable packs. Pick one and download it — nothing is fetched on its own.',
+  model_lang_label: 'Speaking language',
+  model_lang_zhtw_note: 'Traditional Chinese uses the same acoustic packs as Chinese.',
+  model_tier_lite: 'Compact',
+  model_tier_recommended: 'Recommended',
+  model_tier_multilingual: 'Multilingual',
+  model_lic_osi: 'Open source (OSI)',
+  model_lic_ccby: 'Free to use commercially, attribution required',
+  model_lic_funasr: 'FunASR Model License (not open source)',
+  model_stream_offline: 'Text appears when you release the button',
+  model_stream_quasi: 'Live preview while you speak',
+  model_stream_streaming: 'Streaming pack — this version cannot use it yet',
+  model_use: 'Use for this language',
+  model_in_use: 'In use for this language',
+  model_busy_other: 'Another pack is downloading — one at a time.',
+  model_root_title: 'Download folder',
+  model_root_change: 'Change',
+  model_root_apply: 'Save',
+  model_root_cancel: 'Cancel',
+  model_root_reset: 'Use default folder',
+  model_root_note: 'Files already downloaded stay where they are when the folder changes — move them by hand or download them again.',
 };
 
 const S_EN = {
@@ -652,7 +673,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 618/618 translated;
+// zh-CN (中文) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -664,6 +685,7 @@ const S_ZH_CN_OWN = {
   win_maximize: '最大化',
   win_restore: '还原',
   win_close: '关闭',
+  ext_open_failed: '打不开浏览器。请手动访问这个地址：',
   dev_title: '设备',
   dev_add_phone: '添加手机',
   dev_offline_toggle: '下线',
@@ -1241,7 +1263,6 @@ const S_ZH_CN_OWN = {
   model_state_downloading: '正在下载',
   model_state_failed: '下载失败',
   model_state_unknown: '未知',
-  model_state_connecting: '正在连接…',
   model_connecting_note: '本地语音服务正在启动，稍等片刻就能看到模型状态。',
   model_answered_badly: '本地语音服务回应了，但没能说清模型状态——常见于升级后新旧部分不一致。重启应用通常能恢复；技术细节见下方。',
   model_unreachable: '本地语音服务没有回应，暂时读不到模型状态。点「重新校验文件」再试一次；一直这样的话，重启应用通常能恢复。',
@@ -1274,6 +1295,27 @@ const S_ZH_CN_OWN = {
   model_notice_open: '去设置',
   model_notice_dismiss: '暂时不用',
   model_action_failed: '本地服务没有接受这个操作，什么都没有开始。',
+  model_pick_note: '每种说话语言都有可下载的模型包。选一个并下载——绝不会自行联网获取。',
+  model_lang_label: '说话语言',
+  model_lang_zhtw_note: '繁体中文与中文共用声学模型。',
+  model_tier_lite: '轻量',
+  model_tier_recommended: '推荐',
+  model_tier_multilingual: '多语种',
+  model_lic_osi: '开源（OSI）',
+  model_lic_ccby: '可商用，须署名',
+  model_lic_funasr: 'FunASR 模型许可（非开源）',
+  model_stream_offline: '松开按钮后出字',
+  model_stream_quasi: '说话时实时预览',
+  model_stream_streaming: '流式模型包——当前版本暂不支持',
+  model_use: '用于这种语言',
+  model_in_use: '正用于这种语言',
+  model_busy_other: '有别的模型包正在下载——一次只能下一个。',
+  model_root_title: '下载文件夹',
+  model_root_change: '更改',
+  model_root_apply: '保存',
+  model_root_cancel: '取消',
+  model_root_reset: '恢复默认文件夹',
+  model_root_note: '更改文件夹后，已下载的文件不会自动搬移——请手动移动或重新下载。',
 };
 
 const S_ZH_CN = {
@@ -1284,7 +1326,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 613/618 translated;
+// zh-TW (繁體中文) — 634/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1292,6 +1334,7 @@ const S_ZH_TW_OWN = {
   nav_timeline: '時間軸',
   nav_settings: '設定',
   app_name: 'FlowMic',
+  ext_open_failed: '無法開啟瀏覽器。請手動前往這個網址：',
   dev_title: '裝置',
   dev_add_phone: '新增手機',
   dev_offline_toggle: '下線',
@@ -1868,7 +1911,6 @@ const S_ZH_TW_OWN = {
   model_state_downloading: '正在下載',
   model_state_failed: '下載失敗',
   model_state_unknown: '未知',
-  model_state_connecting: '正在連接…',
   model_connecting_note: '本機語音服務正在啟動，稍等片刻就能看到模型狀態。',
   model_answered_badly: '本機語音服務回應了，但沒能說清模型狀態——常見於升級後新舊部分不一致。重新啟動應用程式通常能恢復；技術細節見下方。',
   model_unreachable: '本機語音服務沒有回應，暫時讀不到模型狀態。點「重新校驗檔案」再試一次；一直這樣的話，重新啟動應用程式通常能恢復。',
@@ -1901,6 +1943,27 @@ const S_ZH_TW_OWN = {
   model_notice_open: '前往設定',
   model_notice_dismiss: '暫時不用',
   model_action_failed: '本機服務沒有接受這個操作，什麼都沒有開始。',
+  model_pick_note: '每種說話語言都有可下載的模型包。選一個並下載——絕不會自行連網取得。',
+  model_lang_label: '說話語言',
+  model_lang_zhtw_note: '繁體中文與中文共用聲學模型。',
+  model_tier_lite: '輕量',
+  model_tier_recommended: '推薦',
+  model_tier_multilingual: '多語種',
+  model_lic_osi: '開源（OSI）',
+  model_lic_ccby: '可商用，須署名',
+  model_lic_funasr: 'FunASR 模型授權（非開源）',
+  model_stream_offline: '放開按鈕後出字',
+  model_stream_quasi: '說話時即時預覽',
+  model_stream_streaming: '串流模型包——目前版本暫不支援',
+  model_use: '用於這種語言',
+  model_in_use: '正用於這種語言',
+  model_busy_other: '有別的模型包正在下載——一次只能下載一個。',
+  model_root_title: '下載資料夾',
+  model_root_change: '變更',
+  model_root_apply: '儲存',
+  model_root_cancel: '取消',
+  model_root_reset: '恢復預設資料夾',
+  model_root_note: '變更資料夾後，已下載的檔案不會自動搬移——請手動移動或重新下載。',
 };
 
 const S_ZH_TW = {
@@ -1911,7 +1974,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 618/618 translated;
+// fr (Français) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -1923,6 +1986,7 @@ const S_FR_OWN = {
   win_maximize: 'Agrandir',
   win_restore: 'Restaurer',
   win_close: 'Fermer',
+  ext_open_failed: "Impossible d'ouvrir votre navigateur. Ouvrez cette adresse manuellement :",
   dev_title: 'Appareils',
   dev_add_phone: 'Ajouter un téléphone',
   dev_offline_toggle: 'Hors ligne',
@@ -2500,7 +2564,6 @@ const S_FR_OWN = {
   model_state_downloading: 'Téléchargement en cours',
   model_state_failed: 'Échec du téléchargement',
   model_state_unknown: 'Inconnu',
-  model_state_connecting: 'Connexion…',
   model_connecting_note: "Le service vocal local démarre — l'état du modèle va s'afficher dans un instant.",
   model_answered_badly: "Le service vocal local a répondu, mais n'a pas pu indiquer l'état du modèle — le plus souvent, après une mise à jour, les composants ne correspondent plus. Redémarrer l'application règle généralement le problème ; détails techniques ci-dessous.",
   model_unreachable: "Le service vocal local ne répond pas, l'état du modèle est illisible pour le moment. Appuyez sur « Revérifier les fichiers » pour réessayer ; si cela persiste, redémarrer l'application règle généralement le problème.",
@@ -2533,6 +2596,27 @@ const S_FR_OWN = {
   model_notice_open: 'Ouvrir les Paramètres',
   model_notice_dismiss: 'Pas maintenant',
   model_action_failed: "Le service local n'a pas accepté cette action : rien n'a été lancé.",
+  model_pick_note: 'Chaque langue parlée a ses propres packs téléchargeables. Choisissez-en un et téléchargez-le — rien n’est récupéré tout seul.',
+  model_lang_label: 'Langue parlée',
+  model_lang_zhtw_note: 'Le chinois traditionnel utilise les mêmes packs acoustiques que le chinois.',
+  model_tier_lite: 'Compact',
+  model_tier_recommended: 'Recommandé',
+  model_tier_multilingual: 'Multilingue',
+  model_lic_osi: 'Open source (OSI)',
+  model_lic_ccby: 'Utilisation commerciale autorisée, attribution requise',
+  model_lic_funasr: 'Licence FunASR Model (non open source)',
+  model_stream_offline: 'Le texte apparaît quand vous relâchez le bouton',
+  model_stream_quasi: 'Aperçu en direct pendant que vous parlez',
+  model_stream_streaming: 'Pack en streaming — cette version ne peut pas encore l’utiliser',
+  model_use: 'Utiliser pour cette langue',
+  model_in_use: 'Utilisé pour cette langue',
+  model_busy_other: 'Un autre pack est en cours de téléchargement — un seul à la fois.',
+  model_root_title: 'Dossier de téléchargement',
+  model_root_change: 'Modifier',
+  model_root_apply: 'Enregistrer',
+  model_root_cancel: 'Annuler',
+  model_root_reset: 'Dossier par défaut',
+  model_root_note: 'Les fichiers déjà téléchargés restent où ils sont quand le dossier change — déplacez-les à la main ou retéléchargez-les.',
 };
 
 const S_FR = {
@@ -2543,7 +2627,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 618/618 translated;
+// es (Español) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2555,6 +2639,7 @@ const S_ES_OWN = {
   win_maximize: 'Maximizar',
   win_restore: 'Restaurar',
   win_close: 'Cerrar',
+  ext_open_failed: 'No se pudo abrir el navegador. Abre esta dirección manualmente:',
   dev_title: 'Dispositivos',
   dev_add_phone: 'Añadir teléfono',
   dev_offline_toggle: 'Desconectado',
@@ -3132,7 +3217,6 @@ const S_ES_OWN = {
   model_state_downloading: 'Descargando',
   model_state_failed: 'Error de descarga',
   model_state_unknown: 'Desconocido',
-  model_state_connecting: 'Conectando…',
   model_connecting_note: 'El servicio de voz local se está iniciando — el estado del modelo aparecerá en un momento.',
   model_answered_badly: 'El servicio de voz local respondió, pero no pudo informar el estado del modelo — normalmente tras una actualización las piezas en ejecución ya no coinciden. Reiniciar la aplicación suele resolverlo; detalles técnicos abajo.',
   model_unreachable: 'El servicio de voz local no responde, así que ahora mismo no se puede leer el estado del modelo. Pulsa “Volver a comprobar archivos” para reintentar; si persiste, reiniciar la aplicación suele resolverlo.',
@@ -3165,6 +3249,27 @@ const S_ES_OWN = {
   model_notice_open: 'Abrir Ajustes',
   model_notice_dismiss: 'Ahora no',
   model_action_failed: 'El servicio local no aceptó esa acción, así que no se ha iniciado nada.',
+  model_pick_note: 'Cada idioma hablado tiene sus propios paquetes descargables. Elige uno y descárgalo: nada se descarga por sí solo.',
+  model_lang_label: 'Idioma hablado',
+  model_lang_zhtw_note: 'El chino tradicional usa los mismos paquetes acústicos que el chino.',
+  model_tier_lite: 'Compacto',
+  model_tier_recommended: 'Recomendado',
+  model_tier_multilingual: 'Multilingüe',
+  model_lic_osi: 'Código abierto (OSI)',
+  model_lic_ccby: 'Uso comercial permitido, se requiere atribución',
+  model_lic_funasr: 'Licencia FunASR Model (no es código abierto)',
+  model_stream_offline: 'El texto aparece al soltar el botón',
+  model_stream_quasi: 'Vista previa en vivo mientras hablas',
+  model_stream_streaming: 'Paquete de streaming: esta versión aún no puede usarlo',
+  model_use: 'Usar para este idioma',
+  model_in_use: 'En uso para este idioma',
+  model_busy_other: 'Otro paquete se está descargando: solo uno a la vez.',
+  model_root_title: 'Carpeta de descarga',
+  model_root_change: 'Cambiar',
+  model_root_apply: 'Guardar',
+  model_root_cancel: 'Cancelar',
+  model_root_reset: 'Carpeta predeterminada',
+  model_root_note: 'Los archivos ya descargados no se mueven al cambiar la carpeta: muévelos a mano o vuelve a descargarlos.',
 };
 
 const S_ES = {
@@ -3175,7 +3280,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 618/618 translated;
+// de (Deutsch) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3187,6 +3292,7 @@ const S_DE_OWN = {
   win_maximize: 'Maximieren',
   win_restore: 'Wiederherstellen',
   win_close: 'Schließen',
+  ext_open_failed: 'Der Browser konnte nicht geöffnet werden. Öffnen Sie diese Adresse manuell:',
   dev_title: 'Geräte',
   dev_add_phone: 'Handy hinzufügen',
   dev_offline_toggle: 'Offline',
@@ -3764,7 +3870,6 @@ const S_DE_OWN = {
   model_state_downloading: 'Wird heruntergeladen',
   model_state_failed: 'Download fehlgeschlagen',
   model_state_unknown: 'Unbekannt',
-  model_state_connecting: 'Verbinde…',
   model_connecting_note: 'Der lokale Sprachdienst startet gerade — der Modellstatus erscheint gleich.',
   model_answered_badly: 'Der lokale Sprachdienst hat geantwortet, konnte den Modellstatus aber nicht melden — meist passen nach einem Update die laufenden Teile nicht mehr zusammen. Ein Neustart der App behebt das in der Regel; technische Details unten.',
   model_unreachable: 'Der lokale Sprachdienst antwortet nicht, der Modellstatus lässt sich gerade nicht lesen. Drücken Sie „Dateien erneut prüfen“; hilft das nicht, behebt ein Neustart der App das Problem meist.',
@@ -3797,6 +3902,27 @@ const S_DE_OWN = {
   model_notice_open: 'Einstellungen öffnen',
   model_notice_dismiss: 'Jetzt nicht',
   model_action_failed: 'Der lokale Dienst hat das nicht angenommen, es wurde also nichts gestartet.',
+  model_pick_note: 'Jede Sprechsprache hat eigene herunterladbare Pakete. Wählen Sie eines und laden Sie es herunter — nichts wird von selbst geladen.',
+  model_lang_label: 'Sprechsprache',
+  model_lang_zhtw_note: 'Traditionelles Chinesisch nutzt dieselben Akustikpakete wie Chinesisch.',
+  model_tier_lite: 'Kompakt',
+  model_tier_recommended: 'Empfohlen',
+  model_tier_multilingual: 'Mehrsprachig',
+  model_lic_osi: 'Open Source (OSI)',
+  model_lic_ccby: 'Kommerzielle Nutzung erlaubt, Namensnennung erforderlich',
+  model_lic_funasr: 'FunASR-Modelllizenz (nicht Open Source)',
+  model_stream_offline: 'Der Text erscheint beim Loslassen der Taste',
+  model_stream_quasi: 'Live-Vorschau während des Sprechens',
+  model_stream_streaming: 'Streaming-Paket — diese Version kann es noch nicht nutzen',
+  model_use: 'Für diese Sprache verwenden',
+  model_in_use: 'Für diese Sprache in Verwendung',
+  model_busy_other: 'Ein anderes Paket wird gerade heruntergeladen — nur eines gleichzeitig.',
+  model_root_title: 'Download-Ordner',
+  model_root_change: 'Ändern',
+  model_root_apply: 'Speichern',
+  model_root_cancel: 'Abbrechen',
+  model_root_reset: 'Standardordner verwenden',
+  model_root_note: 'Bereits heruntergeladene Dateien bleiben beim Ordnerwechsel, wo sie sind — von Hand verschieben oder erneut herunterladen.',
 };
 
 const S_DE = {
@@ -3807,7 +3933,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 618/618 translated;
+// ja (日本語) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -3819,6 +3945,7 @@ const S_JA_OWN = {
   win_maximize: '最大化',
   win_restore: '元に戻す',
   win_close: '閉じる',
+  ext_open_failed: 'ブラウザーを開けませんでした。次のアドレスを手動で開いてください：',
   dev_title: 'デバイス',
   dev_add_phone: 'スマホを追加',
   dev_offline_toggle: 'オフライン',
@@ -4396,7 +4523,6 @@ const S_JA_OWN = {
   model_state_downloading: 'ダウンロード中',
   model_state_failed: 'ダウンロード失敗',
   model_state_unknown: '不明',
-  model_state_connecting: '接続中…',
   model_connecting_note: 'ローカル音声サービスを起動しています。まもなくモデルの状態が表示されます。',
   model_answered_badly: 'ローカル音声サービスは応答しましたが、モデルの状態を報告できませんでした。多くはアップデート後に新旧の部品が食い違っている場合です。アプリを再起動すると直ることがほとんどです。技術的な詳細は下にあります。',
   model_unreachable: 'ローカル音声サービスが応答していないため、今はモデルの状態を読み取れません。「ファイルを再確認」でもう一度試してください。続く場合は、アプリを再起動すると直ることがほとんどです。',
@@ -4429,6 +4555,27 @@ const S_JA_OWN = {
   model_notice_open: '設定を開く',
   model_notice_dismiss: '今はしない',
   model_action_failed: 'ローカルサービスがこの操作を受け付けなかったため、何も始まっていません。',
+  model_pick_note: '話す言語ごとにダウンロードできるモデルパックがあります。選んでダウンロードしてください——勝手に取得されることはありません。',
+  model_lang_label: '話す言語',
+  model_lang_zhtw_note: '繁体字中国語は中国語と同じ音響モデルを使います。',
+  model_tier_lite: '軽量',
+  model_tier_recommended: '推奨',
+  model_tier_multilingual: '多言語',
+  model_lic_osi: 'オープンソース（OSI）',
+  model_lic_ccby: '商用利用可、要クレジット表記',
+  model_lic_funasr: 'FunASR モデルライセンス（オープンソースではありません）',
+  model_stream_offline: 'ボタンを離すと文字が出ます',
+  model_stream_quasi: '話しながらライブプレビュー',
+  model_stream_streaming: 'ストリーミングパック——このバージョンではまだ使えません',
+  model_use: 'この言語に使う',
+  model_in_use: 'この言語で使用中',
+  model_busy_other: '別のパックをダウンロード中です——同時に 1 つだけです。',
+  model_root_title: 'ダウンロードフォルダー',
+  model_root_change: '変更',
+  model_root_apply: '保存',
+  model_root_cancel: 'キャンセル',
+  model_root_reset: '既定のフォルダーに戻す',
+  model_root_note: 'フォルダーを変更しても、ダウンロード済みのファイルは移動されません——手動で移すか、再ダウンロードしてください。',
 };
 
 const S_JA = {
@@ -4439,7 +4586,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 618/618 translated;
+// ko (한국어) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4451,6 +4598,7 @@ const S_KO_OWN = {
   win_maximize: '최대화',
   win_restore: '이전 크기로',
   win_close: '닫기',
+  ext_open_failed: '브라우저를 열지 못했습니다. 아래 주소를 직접 열어 주세요:',
   dev_title: '기기',
   dev_add_phone: '휴대폰 추가',
   dev_offline_toggle: '오프라인',
@@ -5028,7 +5176,6 @@ const S_KO_OWN = {
   model_state_downloading: '내려받는 중',
   model_state_failed: '내려받기 실패',
   model_state_unknown: '알 수 없음',
-  model_state_connecting: '연결 중…',
   model_connecting_note: '로컬 음성 서비스를 시작하는 중입니다. 잠시 후 모델 상태가 표시됩니다.',
   model_answered_badly: '로컬 음성 서비스가 응답했지만 모델 상태를 알려주지 못했습니다. 보통 업데이트 후 구성 요소의 버전이 서로 맞지 않을 때 생깁니다. 앱을 재시작하면 대부분 해결됩니다. 기술 세부 정보는 아래에 있습니다.',
   model_unreachable: '로컬 음성 서비스가 응답하지 않아 지금은 모델 상태를 읽을 수 없습니다. “파일 다시 확인”을 눌러 다시 시도하세요. 계속되면 앱을 재시작하면 대부분 해결됩니다.',
@@ -5061,6 +5208,27 @@ const S_KO_OWN = {
   model_notice_open: '설정 열기',
   model_notice_dismiss: '지금은 안 함',
   model_action_failed: '로컬 서비스가 이 동작을 받아들이지 않아 아무것도 시작되지 않았습니다.',
+  model_pick_note: '말하는 언어마다 내려받을 수 있는 모델 팩이 있습니다. 하나를 골라 내려받으세요 — 스스로 가져오는 일은 없습니다.',
+  model_lang_label: '말하는 언어',
+  model_lang_zhtw_note: '중국어(번체)는 중국어와 같은 음향 모델을 사용합니다.',
+  model_tier_lite: '경량',
+  model_tier_recommended: '추천',
+  model_tier_multilingual: '다국어',
+  model_lic_osi: '오픈 소스(OSI)',
+  model_lic_ccby: '상업적 사용 가능, 출처 표기 필요',
+  model_lic_funasr: 'FunASR 모델 라이선스(오픈 소스 아님)',
+  model_stream_offline: '버튼을 놓으면 글자가 나타납니다',
+  model_stream_quasi: '말하는 동안 실시간 미리보기',
+  model_stream_streaming: '스트리밍 팩 — 이 버전에서는 아직 사용할 수 없습니다',
+  model_use: '이 언어에 사용',
+  model_in_use: '이 언어에 사용 중',
+  model_busy_other: '다른 팩을 내려받는 중입니다 — 한 번에 하나만 가능합니다.',
+  model_root_title: '다운로드 폴더',
+  model_root_change: '변경',
+  model_root_apply: '저장',
+  model_root_cancel: '취소',
+  model_root_reset: '기본 폴더로 되돌리기',
+  model_root_note: '폴더를 변경해도 이미 내려받은 파일은 옮겨지지 않습니다 — 직접 옮기거나 다시 내려받으세요.',
 };
 
 const S_KO = {
@@ -5071,7 +5239,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 618/618 translated;
+// ru (Русский) — 639/639 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5083,6 +5251,7 @@ const S_RU_OWN = {
   win_maximize: 'Развернуть',
   win_restore: 'Восстановить',
   win_close: 'Закрыть',
+  ext_open_failed: 'Не удалось открыть браузер. Откройте этот адрес вручную:',
   dev_title: 'Устройства',
   dev_add_phone: 'Добавить телефон',
   dev_offline_toggle: 'Офлайн',
@@ -5660,7 +5829,6 @@ const S_RU_OWN = {
   model_state_downloading: 'Скачивается',
   model_state_failed: 'Скачать не удалось',
   model_state_unknown: 'Неизвестно',
-  model_state_connecting: 'Подключение…',
   model_connecting_note: 'Локальная речевая служба запускается — состояние модели появится через мгновение.',
   model_answered_badly: 'Локальная речевая служба ответила, но не смогла сообщить состояние модели — обычно после обновления запущенные части перестают совпадать. Перезапуск приложения обычно помогает; технические подробности ниже.',
   model_unreachable: 'Локальная речевая служба не отвечает, состояние модели сейчас прочитать нельзя. Нажмите «Проверить файлы ещё раз»; если это повторяется, перезапуск приложения обычно помогает.',
@@ -5693,6 +5861,27 @@ const S_RU_OWN = {
   model_notice_open: 'Открыть настройки',
   model_notice_dismiss: 'Не сейчас',
   model_action_failed: 'Локальная служба не приняла это действие, поэтому ничего не началось.',
+  model_pick_note: 'У каждого языка речи свои загружаемые пакеты моделей. Выберите один и загрузите его — ничего не загружается само по себе.',
+  model_lang_label: 'Язык речи',
+  model_lang_zhtw_note: 'Традиционный китайский использует те же акустические пакеты, что и китайский.',
+  model_tier_lite: 'Компактная',
+  model_tier_recommended: 'Рекомендуемая',
+  model_tier_multilingual: 'Многоязычная',
+  model_lic_osi: 'Открытый исходный код (OSI)',
+  model_lic_ccby: 'Коммерческое использование разрешено, требуется указание авторства',
+  model_lic_funasr: 'Лицензия FunASR Model (не открытый код)',
+  model_stream_offline: 'Текст появляется, когда вы отпускаете кнопку',
+  model_stream_quasi: 'Живой предпросмотр во время речи',
+  model_stream_streaming: 'Потоковый пакет — эта версия пока не может его использовать',
+  model_use: 'Использовать для этого языка',
+  model_in_use: 'Используется для этого языка',
+  model_busy_other: 'Уже загружается другой пакет — только один за раз.',
+  model_root_title: 'Папка загрузки',
+  model_root_change: 'Изменить',
+  model_root_apply: 'Сохранить',
+  model_root_cancel: 'Отмена',
+  model_root_reset: 'Папка по умолчанию',
+  model_root_note: 'При смене папки уже загруженные файлы не переносятся — переместите их вручную или загрузите заново.',
 };
 
 const S_RU = {

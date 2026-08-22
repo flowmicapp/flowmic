@@ -425,8 +425,33 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       sendJson(res, 401, { error: who.error });
       return true;
     }
-    if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
-    if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3 (feature gate)
+    // ── 🔴 0.3.25 D-3 — NO refuseRestricted, NO refuseUnverified ─────────────
+    //
+    // Both gates used to be here and both were removed on 2026-08-21. The
+    // argument is the one http/billing-routes.ts makes at length for the cancel
+    // and withdraw routes, and this read is the half that makes them usable:
+    //   · the write routes are exempt so 「stop charging me」 stays reachable
+    //     (ROSCA §8403(3): a SIMPLE mechanism; state ARLs: as easy as signing up);
+    //   · but the console cannot offer the button without first reading whether
+    //     there is a subscription, when it renews, and whether the withdrawal
+    //     period is still open — all of which live in this body.
+    // With the gates on, a restricted or unverified account got 403 here, the
+    // exit panel had nothing to render, and the exemption downstream bought
+    // nothing: the door was unlocked and the corridor to it was not.
+    //
+    // ⚠️ MEASURED, and it is why this is a code change rather than a note: the
+    // end-to-end test boots a real server, registers (which does not verify a
+    // mailbox), and got 403 from this route while POST /billing/cancel answered
+    // 200. Neither unit test could see it — each one mounts its own handler.
+    //
+    // ✅ PRECEDENT, and owner's own: GET /api/account/export and POST
+    // /api/account/delete are exempt from both gates because 「a user can clear
+    // their own data and delete their account regardless」. 「What am I being
+    // charged, and until when」 is the same family — it is account information
+    // about the person asking, not a product feature.
+    //
+    // ⚠️ WHAT IS NOT EXEMPT: identity. The Bearer is still required and the
+    // subject is always the account it proved.
     sendJson(res, 200, { subscription: deps.billing.getPlan(who.userId) });
     return true;
   }

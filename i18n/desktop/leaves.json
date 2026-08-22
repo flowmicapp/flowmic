@@ -49,6 +49,12 @@
       "name": "win_close"
     },
     {
+      "key": "ext_open_failed",
+      "shard": "nav",
+      "kind": "string",
+      "name": "ext_open_failed"
+    },
+    {
       "key": "dev_title",
       "shard": "devices",
       "kind": "string",
@@ -3721,12 +3727,6 @@
       "name": "model_state_unknown"
     },
     {
-      "key": "model_state_connecting",
-      "shard": "model",
-      "kind": "string",
-      "name": "model_state_connecting"
-    },
-    {
       "key": "model_connecting_note",
       "shard": "model",
       "kind": "string",
@@ -3917,6 +3917,132 @@
       "shard": "model",
       "kind": "string",
       "name": "model_action_failed"
+    },
+    {
+      "key": "model_pick_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_pick_note"
+    },
+    {
+      "key": "model_lang_label",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_lang_label"
+    },
+    {
+      "key": "model_lang_zhtw_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_lang_zhtw_note"
+    },
+    {
+      "key": "model_tier_lite",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_tier_lite"
+    },
+    {
+      "key": "model_tier_recommended",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_tier_recommended"
+    },
+    {
+      "key": "model_tier_multilingual",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_tier_multilingual"
+    },
+    {
+      "key": "model_lic_osi",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_lic_osi"
+    },
+    {
+      "key": "model_lic_ccby",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_lic_ccby"
+    },
+    {
+      "key": "model_lic_funasr",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_lic_funasr"
+    },
+    {
+      "key": "model_stream_offline",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_stream_offline"
+    },
+    {
+      "key": "model_stream_quasi",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_stream_quasi"
+    },
+    {
+      "key": "model_stream_streaming",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_stream_streaming"
+    },
+    {
+      "key": "model_use",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_use"
+    },
+    {
+      "key": "model_in_use",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_in_use"
+    },
+    {
+      "key": "model_busy_other",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_busy_other"
+    },
+    {
+      "key": "model_root_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_title"
+    },
+    {
+      "key": "model_root_change",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_change"
+    },
+    {
+      "key": "model_root_apply",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_apply"
+    },
+    {
+      "key": "model_root_cancel",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_cancel"
+    },
+    {
+      "key": "model_root_reset",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_reset"
+    },
+    {
+      "key": "model_root_note",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_root_note"
     },
     {
       "key": "settingsMsg.modelDownloadSize",

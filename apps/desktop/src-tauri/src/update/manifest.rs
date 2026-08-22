@@ -122,16 +122,71 @@ impl UpdatePlatform {
     /// matches are taken first — otherwise a platform that ships both a neutral
     /// and a per-language build would hand a zh-CN user the neutral one purely
     /// because of array order.
+    ///
+    /// ── 🔴 WHY THERE ARE FOUR TIERS AND NOT TWO (0.3.24) ────────────────────
+    ///
+    /// The two-tier version (exact, then locale-less) shipped a defect that made
+    /// in-app update **unusable for almost every MSI user**, and it was reported
+    /// from a real machine before it was understood here (owner 2026-08-21,
+    /// Windows 10 on 0.3.5: 「提示有新版但无法下载，要连接下载页去下载」 — "it says
+    /// there's a new version but cannot download it, it sends you to the download
+    /// page").
+    ///
+    /// [measured, live manifest 2026-08-21] `windows-x64` offers
+    /// `msi/en-US`, `msi/zh-CN`, `portable-zip/(none)`. `fetchable_kinds` gives
+    /// an MSI install exactly `["msi"]`. The desktop's UI-locale tags are the
+    /// registry's — `en`, `zh-CN`, `zh-TW`, `fr`, `es`, `de`, `ja`, `ko`, `ru` —
+    /// and **`DEFAULT_LOCALE` is `En`, whose tag is `en`, not `en-US`**.
+    ///
+    /// ⇒ exact match failed for every language except `zh-CN`, there is no
+    /// locale-less msi, `pick` returned `None`, and `plan_from_manifest` turned
+    /// that into `ManualOnly { NoFetchableKind }`. The sentence the user got
+    /// (「这一版没有本机能自动安装的安装包」/ "this release has no package this
+    /// machine can install automatically") was FALSE: two installable packages
+    /// were sitting right there in the manifest. The portable form was unaffected
+    /// (its artifact declares no locale), which is exactly why this survived —
+    /// the machine that publishes releases runs the portable copy.
+    ///
+    /// The tiers, weakest-match-last:
+    ///   ① exact tag (`zh-CN` ⇒ `zh-CN`);
+    ///   ② same primary language (`en` ⇒ `en-US`, `pt` ⇒ `pt-BR`) — the tier
+    ///      whose absence caused the defect;
+    ///   ③ locale-less (serves everyone by declaration);
+    ///   ④ 🔴 ANY artifact of that kind.
+    ///
+    /// ④ looks like giving up on the user's language and is not, because of what
+    /// the locale on an MSI actually controls: [measured] the two Windows
+    /// installers differ by 4 KiB out of 48 MiB — the same payload with a
+    /// different WiX UI string table — and `msi.rs` runs them `/passive`, which
+    /// shows a progress bar and asks nothing. The app's own UI language is a
+    /// FlowMic setting and is not touched by which MSI installed it. So tier ④
+    /// costs a user nothing they can see, while its absence costs them the entire
+    /// feature. 「一句话说得对不对」 is decided by what the user can observe, not by
+    /// what a field is named.
     pub fn pick(&self, wanted_kinds: &[&str], locale: &str) -> Option<&UpdateArtifact> {
+        let lang = primary_language(locale);
         for kind in wanted_kinds {
+            let kind: &str = kind;
+            let of_kind = |a: &&UpdateArtifact| a.kind == kind;
             if let Some(a) = self
                 .artifacts
                 .iter()
-                .find(|a| a.kind == *kind && a.locale.as_deref() == Some(locale))
+                .find(|a| of_kind(a) && a.locale.as_deref() == Some(locale))
             {
                 return Some(a);
             }
-            if let Some(a) = self.artifacts.iter().find(|a| a.kind == *kind && a.locale.is_none()) {
+            if let Some(a) = self.artifacts.iter().find(|a| {
+                of_kind(a)
+                    && a.locale
+                        .as_deref()
+                        .is_some_and(|l| primary_language(l).eq_ignore_ascii_case(lang))
+            }) {
+                return Some(a);
+            }
+            if let Some(a) = self.artifacts.iter().find(|a| of_kind(a) && a.locale.is_none()) {
+                return Some(a);
+            }
+            if let Some(a) = self.artifacts.iter().find(of_kind) {
                 return Some(a);
             }
         }
@@ -170,6 +225,18 @@ impl UpdateManifest {
     pub fn platform_keys(&self) -> Vec<String> {
         self.platforms.keys().cloned().collect()
     }
+}
+
+/// The primary language subtag — everything before the first `-` or `_`.
+///
+/// Deliberately NOT a BCP-47 parser. The only question `pick` asks is 「这两个标签
+/// 是不是同一种语言」 ("are these two tags the same language"), and the whole set of
+/// values either side can hold is small and known: our own UI-locale registry on
+/// one side, the locale suffix the release pipeline puts in an MSI filename on
+/// the other. A real parser here would be a second, richer answer to a question
+/// that has never needed one.
+fn primary_language(tag: &str) -> &str {
+    tag.split(['-', '_']).next().unwrap_or(tag)
 }
 
 /// Is this 64 lowercase hex? The one shape a SHA-256 may take.

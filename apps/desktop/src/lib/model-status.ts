@@ -99,6 +99,152 @@ export function sourceLabel(source: string | null): string | null {
  *  on screen would say so). */
 export const BUILTIN_STT_ENGINE_ID: SttEngineId = 'sherpa-local';
 
+// ── LM-CAT (2026-08-22): the per-language catalog surface ────────────────────
+//
+// The status body grew around the legacy snapshot (which stays at top level,
+// byte-compatible): `catalog` (facts about each downloadable pack), `models`
+// (one five-state snapshot per pack), `selected_by_lang`, `spoken_langs`,
+// `models_root` (owner 2026-08-22: the download folder is user-changeable)
+// and `busy_model_id` (machine-wide single flight).
+
+export const CATALOG_TIERS = ['lite', 'recommended', 'multilingual'] as const;
+export type CatalogTier = (typeof CATALOG_TIERS)[number];
+export const LICENSE_CLASSES = ['osi', 'cc-by', 'funasr-model'] as const;
+export type LicenseClass = (typeof LICENSE_CLASSES)[number];
+export const STREAMING_KINDS = ['offline', 'quasi', 'streaming'] as const;
+export type StreamingKind = (typeof STREAMING_KINDS)[number];
+
+export interface CatalogEntry {
+  model_id: string;
+  spoken: string[];
+  tier: CatalogTier;
+  loader: string;
+  /** 🔴 RENDERED FROM DATA, never paraphrased: `funasr-model` must not be
+   *  shown as "open source" (task §3-6 / NOTICE §4). */
+  license_class: LicenseClass;
+  license: string;
+  attribution: string;
+  streaming: StreamingKind;
+  bytes_total: number | null;
+}
+
+export interface ModelsRootInfo {
+  dir: string;
+  default_dir: string;
+  configured: boolean;
+}
+
+export interface ModelsStatus {
+  /** The legacy top-level snapshot (the SenseVoice row) — kept so older
+   *  readers and the progress fallback have the shape they always had. */
+  legacy: ModelSnapshot;
+  catalog: CatalogEntry[];
+  models: ModelSnapshot[];
+  selected_by_lang: Record<string, string>;
+  spoken_langs: string[];
+  models_root: ModelsRootInfo;
+  busy_model_id: string | null;
+}
+
+function asCatalogEntry(v: unknown): CatalogEntry | null {
+  if (v === null || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const id = str(o.model_id);
+  const tier = CATALOG_TIERS.find((t) => t === o.tier);
+  const lic = LICENSE_CLASSES.find((l) => l === o.license_class);
+  const streaming = STREAMING_KINDS.find((s) => s === o.streaming);
+  if (id === '' || tier === undefined || lic === undefined || streaming === undefined) return null;
+  const spoken = Array.isArray(o.spoken) ? o.spoken.filter((s): s is string => typeof s === 'string') : [];
+  const total = o.bytes_total;
+  return {
+    model_id: id,
+    spoken,
+    tier,
+    loader: str(o.loader),
+    license_class: lic,
+    license: str(o.license),
+    attribution: str(o.attribution),
+    streaming,
+    bytes_total: typeof total === 'number' && Number.isFinite(total) && total > 0 ? total : null,
+  };
+}
+
+/**
+ * Narrow the whole LM-CAT status body. Same stance as [asModelSnapshot]
+ * (anti-façade ⑤): `null` on any shape this does not recognise — an entry
+ * that fails to parse drops the WHOLE answer rather than a silently shorter
+ * catalog, because "8 packs" and "the packs that happened to parse" are
+ * different answers and only the first is the server's.
+ */
+export function asModelsStatus(v: unknown): ModelsStatus | null {
+  const legacy = asModelSnapshot(v);
+  if (legacy === null) return null;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.catalog) || !Array.isArray(o.models)) return null;
+  const catalog: CatalogEntry[] = [];
+  for (const c of o.catalog) {
+    const e = asCatalogEntry(c);
+    if (e === null) return null;
+    catalog.push(e);
+  }
+  const models: ModelSnapshot[] = [];
+  for (const m of o.models) {
+    const s = asModelSnapshot(m);
+    if (s === null) return null;
+    models.push(s);
+  }
+  const selRaw = o.selected_by_lang;
+  const selected: Record<string, string> = {};
+  if (selRaw !== null && typeof selRaw === 'object') {
+    for (const [k, val] of Object.entries(selRaw as Record<string, unknown>)) {
+      if (typeof val === 'string') selected[k] = val;
+    }
+  }
+  const spoken = Array.isArray(o.spoken_langs)
+    ? o.spoken_langs.filter((s): s is string => typeof s === 'string')
+    : [];
+  const rootRaw = o.models_root as Record<string, unknown> | null | undefined;
+  if (rootRaw === null || typeof rootRaw !== 'object') return null;
+  const root: ModelsRootInfo = {
+    dir: str(rootRaw.dir),
+    default_dir: str(rootRaw.default_dir),
+    configured: rootRaw.configured === true,
+  };
+  if (root.dir === '') return null;
+  return {
+    legacy,
+    catalog,
+    models,
+    selected_by_lang: selected,
+    spoken_langs: spoken,
+    models_root: root,
+    busy_model_id: nonEmpty(o.busy_model_id),
+  };
+}
+
+/** The per-pack disk snapshot, or null when the server listed no row for it —
+ *  「不知道」, rendered as such, never invented as `absent`. */
+export function snapshotForModel(status: ModelsStatus | null, modelId: string): ModelSnapshot | null {
+  return status?.models.find((m) => m.model_id === modelId) ?? null;
+}
+
+/** Any pack ready = the built-in engine has something to open somewhere. The
+ *  main-window notice keys on this (a machine with the French pack ready must
+ *  not be nagged that "the model" is missing). */
+export function anyModelReady(status: ModelsStatus | null): boolean {
+  return status !== null && status.models.some((m) => m.state === 'ready');
+}
+
+/** Catalog rows claiming `lang`, in the order the card lists them:
+ *  recommended → multilingual → lite → streaming(refused) last. */
+export function catalogRowsFor(status: ModelsStatus | null, lang: string): CatalogEntry[] {
+  if (status === null) return [];
+  const rows = status.catalog.filter((c) => c.spoken.includes(lang));
+  const rank = (c: CatalogEntry): number =>
+    c.streaming === 'streaming' ? 3 : { recommended: 0, multilingual: 1, lite: 2 }[c.tier];
+  return [...rows].sort((a, b) => rank(a) - rank(b));
+}
+
 /** Is the built-in engine the one this machine would actually use?
  *
  *  §5-B gates the main-window notice on this: telling somebody who routes every

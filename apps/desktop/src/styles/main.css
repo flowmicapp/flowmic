@@ -28,7 +28,7 @@ body { background: var(--canvas); }
 .tb-btn:hover { background: var(--hover-bg); color: var(--t1); }
 .tb-btn.tb-close:hover { background: var(--red); color: var(--on-ink); }
 
-.sidenav { width: 200px; flex: none; background: var(--sidenav-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 10px 14px; }
+.sidenav { width: 200px; flex: none; background: var(--sidenav-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; }
 .navitem { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-size: 13.5px; font-weight: 500; cursor: pointer; margin-bottom: 2px; width: 100%; text-align: left; background: none; transition: background .15s, color .15s; }
 .navitem:hover { background: var(--hover-bg); }
 /* 2026-07-29 polish: the active marker was an inset box-shadow — a square bar

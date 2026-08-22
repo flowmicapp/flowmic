@@ -44,6 +44,7 @@
 //      Exporting it would turn 「download my data」 into a takeover primitive for
 //      anyone who later reads the file.
 
+import type { BillingRepo } from '../db/repos/billing.repo';
 import type { MobileRepo } from '../db/repos/mobile.repo';
 import type { PcRepo } from '../db/repos/pc.repo';
 import type { SettingsRepo } from '../db/repos/settings.repo';
@@ -80,6 +81,12 @@ export const USER_CASCADING_TABLES = [
   'mobile_pairings',
   'paddle_subscriptions',
   'pc_devices',
+  // 0.3.25 B3 — the refund records this account produced. They cascade WITH the
+  // account, deliberately: a refund row names a subscription and an amount, and
+  // keeping it after erasure would preserve a financial trace of a person who
+  // asked to be forgotten. The money side is not lost — Paddle is the merchant
+  // of record and holds the adjustment; what we drop is our copy.
+  'refund_requests',
   'timeline_blobs',
   // GRANT-1 (2026-08-11): web-preview grant authorization rows. Deleting the
   // account deletes them — a grant outliving its account would be a standing
@@ -126,8 +133,25 @@ export const USER_CASCADING_TABLES = [
  *   account id at all (schema.ts, 2026-08-15): there is nothing account-scoped
  *   in a row to delete WITH the account, and its lifecycle is retention's 90-day
  *   sweep, not account deletion.
+ * · `paddle_subscription_tombstones` (0.3.25 B1, card D-2) — 🔴 THE ONLY ENTRY
+ *   HERE THAT THIS FILE ITSELF WRITES TO. The other three are retained because
+ *   deletion has no business in them; this one is retained because deletion is
+ *   what CREATES its rows. `paddle_subscriptions` cascades away with the account
+ *   while the subscription at Paddle keeps billing the card, so without a copy
+ *   of the identifier the charge becomes both unstoppable and unattributable —
+ *   every later webhook lands as `unmapped`, naming nobody. It holds ids only,
+ *   never an address or a name: keeping the person's details in a table about
+ *   erasing that person would undo the erasure it records.
+ *   ⚠️ It does NOT stop the billing. Cancelling at Paddle needs the outbound
+ *   client (B2); this keeps the cancellation POSSIBLE. Said plainly here because
+ *   「there is a tombstone table」 reads like the problem is solved, and it is not.
  */
-export const USER_RETAINED_TABLES = ['billing_events', 'ops_audit_log', 'site_daily_counts'] as const;
+export const USER_RETAINED_TABLES = [
+  'billing_events',
+  'ops_audit_log',
+  'paddle_subscription_tombstones',
+  'site_daily_counts',
+] as const;
 
 /** The `user_settings` keys an export must never carry. A SET, not a prefix
  *  match: "exclude everything that starts with account." would also swallow legitimate account
@@ -338,8 +362,25 @@ export function checkDeleteConfirmation(body: Record<string, unknown>, user: Use
   return { ok: true };
 }
 
+/** The one reason this table has a writer today. A named constant rather than a
+ *  string literal at the call site: the column exists so a future second reason
+ *  (an admin purge, an account merge) cannot be mistaken for this one, and that
+ *  only works if each reason is declared somewhere a reader can enumerate. */
+export const TOMBSTONE_REASON_ACCOUNT_DELETED = 'account_deleted';
+
 export interface AccountDeleteStores {
   users: Pick<UserRepo, 'remove'>;
+  /** 0.3.25 B1 (card D-2) — read every subscription this account owns, and
+   *  tombstone it, BEFORE the cascade takes the rows away.
+   *
+   *  🔴 REQUIRED, not optional, and the reason is 13-LESSONS-LEARNED §7 F1 ②:
+   *  a friendly DI default here would be a silent no-op on exactly the path
+   *  where silence costs the user money every month. A deployment that forgot to
+   *  wire it must fail to COMPILE, not fail to record. */
+  billingLedger: Pick<BillingRepo, 'listForUser' | 'tombstoneSubscription'>;
+  /** Injectable clock — the tombstone's `created_at`. Same shape the rest of
+   *  this file's time-stamped writes use. */
+  now?: () => number;
 }
 
 export interface AccountDeleteResult {
@@ -410,6 +451,39 @@ export interface AccountDeleteResult {
  *     traceable and today they are only traceable in the log file.
  */
 export function deleteAccount(userId: string, stores: AccountDeleteStores): AccountDeleteResult {
+  // ── 0.3.25 B1 · card D-2 — TOMBSTONE FIRST, DELETE SECOND ─────────────────
+  //
+  // 🔴 THE ORDER IS THE WHOLE FIX. `paddle_subscriptions.user_id` is
+  // `REFERENCES users(id) ON DELETE CASCADE`, so one line below this the rows
+  // are gone; read them afterwards and there is nothing to read. Before this
+  // round nothing read them at all, and the consequence was not academic: the
+  // subscription keeps billing at Paddle, our only mapping from `sub_xxx` to a
+  // person disappears, every later webhook for it lands as `unmapped` naming
+  // nobody, and the delete response reports `paddle_subscriptions` among the
+  // tables it cascaded — which is true, and reads as 「handled」.
+  //
+  // ⚠️ WHAT THIS DOES AND DOES NOT DO, stated because the gap is the kind that
+  // gets forgotten once a table exists: it preserves the identifier so the
+  // charge stays attributable and the cancellation stays POSSIBLE. It does not
+  // cancel anything. Cancelling needs the outbound Paddle client (B2), which
+  // will call this same path first and then stamp `cancel_verified_at`.
+  //
+  // ⚠️ EVERY subscription, not just the current one (`listForUser`, not
+  // `latestForUser`): 「which one is in force」 and 「which ones can still charge
+  // this person」 are different questions, and only the second one matters here.
+  const stampedAt = new Date(stores.now?.() ?? Date.now()).toISOString();
+  for (const sub of stores.billingLedger.listForUser(userId)) {
+    stores.billingLedger.tombstoneSubscription({
+      subscription_id: sub.subscription_id,
+      customer_id: sub.customer_id,
+      status_at_deletion: sub.status,
+      tier_at_deletion: sub.tier,
+      current_period_end: sub.current_period_end,
+      reason: TOMBSTONE_REASON_ACCOUNT_DELETED,
+      created_at: stampedAt,
+    });
+  }
+
   const deleted = stores.users.remove(userId);
   return {
     ok: true,

@@ -32,6 +32,20 @@ import QRCode from 'qrcode';
 import Icon from './Icon.vue';
 import { S } from '../../lib/strings';
 import { PAIR_APP_URL } from '../../lib/strings/pairing';
+import { openExternalUrl } from '../../lib/bridge-os';
+
+// 🔴 0.3.24 — 「never a dead <a>」 is what the note above the link in the
+// template says, and until this change the link was dead in a way that note
+// could not see: not because the URL was empty, but because `target=_blank`
+// opens nothing in this app at all (src-tauri/src/shell/external_open.rs). The
+// guard was checking whether we HAD an address; nobody was checking whether
+// handing it over did anything.
+const appPageFailed = ref(false);
+async function openAppPage(): Promise<void> {
+  appPageFailed.value = false;
+  const r = await openExternalUrl(PAIR_APP_URL);
+  if (!r.ok) appPageFailed.value = true;
+}
 import { refreshPairingCode } from '../../lib/bridge';
 import { CHANNEL_LABEL, CHANNEL_VISUAL, cloudLoudReason, type ChannelId, type CloudStatus } from '../../lib/channel';
 import {
@@ -371,7 +385,15 @@ onUnmounted(() => {
            until then this is plain instructional text, never a dead <a>. -->
       <div class="pair-note">
         {{ S.pair_need_app }}
-        <a v-if="PAIR_APP_URL" :href="PAIR_APP_URL" target="_blank" rel="noopener">{{ S.pair_get_app }}</a>
+        <a
+          v-if="PAIR_APP_URL"
+          :href="PAIR_APP_URL"
+          rel="noopener"
+          @click.prevent="openAppPage()"
+        >{{ S.pair_get_app }}</a>
+        <div v-if="appPageFailed" class="pair-open-failed" role="alert">
+          {{ S.ext_open_failed }} <span class="mono">{{ PAIR_APP_URL }}</span>
+        </div>
       </div>
 
       <!-- N5 (owner requirement ②): the channel SWITCH. Picking one re-reads
@@ -533,6 +555,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.pair-open-failed { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--amber-ink); }
+.pair-open-failed .mono { word-break: break-all; }
 .modal-scrim { position: fixed; inset: 0; background: rgba(11, 16, 32, .42); display: flex; align-items: center; justify-content: center; z-index: 50; animation: scrim-in .16s ease; }
 /* REQ-13-21 structural guarantee: the modal NEVER outgrows the window — on any
    window size the foot buttons stay reachable, scrolling inside if it must.

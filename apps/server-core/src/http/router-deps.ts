@@ -20,6 +20,7 @@
 import type { IncomingMessage } from 'node:http';
 import type { ServerConfig } from '../config';
 import type { BillingService } from '../billing/billing-service';
+import type { BillingRoutesDeps } from './billing-routes';
 import type { AuthRoutesDeps } from './auth-routes';
 import type { ConsoleRoutesDeps } from './console-routes';
 import type { OpsRoutesDeps } from './ops-routes';
@@ -64,6 +65,20 @@ export interface HttpDeps {
    *  trust model is `console`'s and emphatically not `ops`'s — see
    *  usage-events-routes.ts's header. Absent → 404, mounted saas-only. */
   usageEvents?: UsageEventsRoutesDeps;
+  /** 🔴 0.3.25 B2 — saas-only subscription controls. NAMED billingControls and
+   *  not billing: this interface ALREADY has a billing field holding the
+   *  BillingService the mock gateway drives. Two different things called the
+   *  same word on one object is how a wiring mistake becomes invisible.
+   *  (`POST /api/cloud/billing/{cancel,resume}`). A separate dep from `console`
+   *  for the same reason `usageEvents` is one: its routes live in their own file
+   *  because the gate exemption they carry needs a header nobody has to hunt for.
+   *
+   *  ⚠️ ABSENT means 「this deployment has no subscription controls」 — standalone
+   *  is a LAN server with no merchant of record — and the paths 404. It does NOT
+   *  mean 「outbound writes are off」: that is a live route answering 503
+   *  BILLING_WRITE_DISABLED by name. One of those two facts is actionable by the
+   *  person reading it and the other is not, so they must not share an answer. */
+  billingControls?: BillingRoutesDeps;
   /** 0.2.48 — saas-only CROSS-ACCOUNT ops REST (`/api/ops/*`, O-2 platform usage aggregation).
    *  Absent → 404, the same saas-only mounting as `auth` and `console`.
    *

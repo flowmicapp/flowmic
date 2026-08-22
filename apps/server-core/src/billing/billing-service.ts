@@ -38,6 +38,7 @@ import type { UserRepo } from '../db/repos/user.repo';
 import type { UsageRepo } from '../db/repos/usage.repo';
 import { currentMonth } from '../db/repos/usage.repo';
 import { planLimits, type PlanLimits } from './plans';
+import { withdrawalDeadline } from './withdrawal';
 import { ServerError } from '../errors';
 
 export type Cycle = 'monthly' | 'yearly';
@@ -90,6 +91,69 @@ export interface PlanView {
   cycle: Cycle | null;
   state: SubState;
   expires_at: string | null;
+  /**
+   * 0.3.25 B1 — a change Paddle has SCHEDULED but not yet applied, or null.
+   *
+   * 🔴 A SEPARATE FIELD FROM `state`, and this is the R11 case the 0.3.25 round
+   * exists for. A subscription scheduled to cancel at period end is `active` at
+   * Paddle — because it is — so `state` alone gave the console ONE word for TWO
+   * facts: 「active」 and 「active, and will not renew」. Folding the second into
+   * `state:'canceled'` would be worse, not better: the tier IS still granted and
+   * the service IS still running, so that word would be false in the direction
+   * that matters — a user reading 「canceled」 stops using something they paid for.
+   *
+   * ⚠️ `action` is Paddle's RAW word, not a narrowed union, for the same reason
+   * `status` is stored raw: cancel / pause / resume is what Paddle documents
+   * today, and a fourth value must reach the console as itself rather than be
+   * rounded into one of the three we knew about. The console renders copy for
+   * the actions it recognises and says nothing for one it does not.
+   *
+   * ⚠️ `effective_at` can be null while `action` is set: the payload stated a
+   * change without a readable date. 「Something is scheduled, we cannot say when」
+   * is the truth in that case, and it is not the same fact as no change at all.
+   */
+  scheduled_change: { action: string; effective_at: string | null } | null;
+  /**
+   * 0.3.25 B1 — 「you will be charged again on」, or null when no charge is
+   * scheduled (Paddle nulls it once a cancellation is pending).
+   *
+   * 🔴 NOT the same question as `expires_at`. That one answers 「how long you
+   * have paid for」 and survives a cancellation; this one answers 「will money
+   * move again, and when」 and disappears. On a live subscription the two hold
+   * the same date and the temptation is to keep only one field; on a cancelled
+   * one they differ, and that is exactly the state a user opens this page to
+   * understand.
+   */
+  next_billed_at: string | null;
+  /**
+   * 0.3.25 B3 — the end of the EU statutory withdrawal period (CRD art. 9),
+   * or null when there is none to state.
+   *
+   * 🔴 IT IS ON THE PLAN VIEW, not computed in the browser, because the console
+   * and the server must not be able to disagree about it. A page that offers a
+   * legal right the server then refuses — or hides one the server would have
+   * honoured — is worse than not having the feature: the user is told, by us,
+   * something about their rights that is false. `billing/withdrawal.ts` is the
+   * single decider and both sides read this field.
+   *
+   * ⚠️ null carries TWO facts on purpose collapsed here and separated at the
+   * route: 「the period has passed」 and 「we cannot compute it」. The console does
+   * the same thing with both (offer nothing, which is correct either way), while
+   * the route names them apart — because 「your period has ended」 is a claim we
+   * cannot support for a subscription whose start we never recorded.
+   */
+  withdrawal_deadline: string | null;
+  /**
+   * 0.3.25 B3 — when the contract was concluded, or null if we never recorded it.
+   *
+   * 🔴 IT IS NOT A DUPLICATE OF THE DEADLINE. The deadline answers 「until when
+   * may I withdraw」 and is what both sides branch on; this answers 「which
+   * contract am I withdrawing from」, which CRD art. 11a requires the confirmation
+   * step to state. Deriving one from the other in the browser would put a second
+   * computation of a legal date in the UI — the thing `withdrawal_deadline`
+   * exists on the wire to prevent.
+   */
+  contract_concluded_at: string | null;
   /** sub_xxx when `source === 'paddle'`, else null — the reconciliation handle
    *  that lets a human match this readout against Paddle's own dashboard. */
   paddle_subscription_id: string | null;
@@ -426,6 +490,15 @@ export class BillingService {
         cycle: null,
         state: 'none',
         expires_at: null,
+        // Nothing is scheduled and nothing will be charged: neither an exemption
+        // nor an absent subscription has a Paddle-side change pending. null here
+        // is the fact, not a placeholder.
+        scheduled_change: null,
+        next_billed_at: null,
+        // No Paddle contract, so no statutory withdrawal period to state. Not
+        // 「the period has passed」 — there was never one running.
+        withdrawal_deadline: null,
+        contract_concluded_at: null,
         paddle_subscription_id: null,
       };
     }
@@ -442,6 +515,15 @@ export class BillingService {
         cycle: 'yearly',
         state: 'active',
         expires_at: null,
+        // Nothing is scheduled and nothing will be charged: neither an exemption
+        // nor an absent subscription has a Paddle-side change pending. null here
+        // is the fact, not a placeholder.
+        scheduled_change: null,
+        next_billed_at: null,
+        // No Paddle contract, so no statutory withdrawal period to state. Not
+        // 「the period has passed」 — there was never one running.
+        withdrawal_deadline: null,
+        contract_concluded_at: null,
         paddle_subscription_id: null,
       };
     }
@@ -460,6 +542,19 @@ export class BillingService {
         cycle: sub.cycle,
         state: sub.state,
         expires_at: sub.expires_at,
+        // 🔴 The MOCK machine has no scheduled-change concept and is not given a
+        // synthetic one. Its canceled state already means 「kept until expiry」
+        // (mockCancel), so inventing a scheduled_change here would put a SECOND
+        // encoding of the same fact on the same object, and the console would
+        // then have two places to read 「will not renew」 from — which is how two
+        // answers to one question start disagreeing. The mock gateway is
+        // dev-only and refuses to mount under saas, so no user sees this branch.
+        scheduled_change: null,
+        next_billed_at: null,
+        // No Paddle contract, so no statutory withdrawal period to state. Not
+        // 「the period has passed」 — there was never one running.
+        withdrawal_deadline: null,
+        contract_concluded_at: null,
         paddle_subscription_id: null,
       };
     }
@@ -471,6 +566,12 @@ export class BillingService {
       cycle: null,
       state: 'none',
       expires_at: null,
+      scheduled_change: null,
+      next_billed_at: null,
+      // No Paddle contract, so no statutory withdrawal period to state. Not
+      // 「the period has passed」 — there was never one running.
+      withdrawal_deadline: null,
+      contract_concluded_at: null,
       paddle_subscription_id: null,
     };
   }
@@ -504,6 +605,34 @@ export class BillingService {
       cycle: asCycle(row.cycle),
       state: paddleState(row.status, expired),
       expires_at: row.current_period_end,
+      // ── 0.3.25 B1 · the two facts `state` could never carry ────────────────
+      //
+      // 🔴 SUPPRESSED ONCE THE PERIOD HAS PASSED, and that is not tidying. An
+      // expired row's `scheduled_change` describes a change that has already
+      // happened or has been overtaken; rendering 「your service runs until X」
+      // off a date in the past is the R11 failure this field was added to end,
+      // committed in the other direction. `state` is already 'expired' there and
+      // that is the whole answer.
+      scheduled_change:
+        expired || row.scheduled_change_action === null
+          ? null
+          : { action: row.scheduled_change_action, effective_at: row.scheduled_change_at },
+      // Same reason: nothing is going to be charged on an expired subscription,
+      // whatever the last event happened to leave in the column.
+      next_billed_at: expired ? null : row.next_billed_at,
+      // 🔴 NOT suppressed on expiry, unlike the two above, and the asymmetry is
+      // the point. Those two describe what happens NEXT and are meaningless once
+      // the period is over. A withdrawal period is anchored to when the contract
+      // was CONCLUDED and runs on its own clock: a subscription can be expired,
+      // cancelled or past_due and still be inside its fourteen days — someone
+      // who signs up and cancels the same afternoon is exactly that case, and
+      // that is the person most likely to want their money back. Suppressing it
+      // here would withdraw a legal right from the user who needs it most.
+      withdrawal_deadline: withdrawalDeadline(row.contract_concluded_at),
+      // Straight through, unsuppressed on expiry for the same reason as the
+      // deadline above: it identifies the contract, and a contract does not stop
+      // having a start date because its period ended.
+      contract_concluded_at: row.contract_concluded_at,
       paddle_subscription_id: row.subscription_id,
     };
   }

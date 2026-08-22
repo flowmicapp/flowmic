@@ -24,6 +24,7 @@
 import { MailNotConfiguredError } from './provider';
 import type { PasswordResetMailer } from './password-reset-mailer';
 import type { EmailVerificationMailer } from './email-verification-mailer';
+import type { SubscriptionMailer } from './subscription-mailer';
 
 /** The env keys an operator has to set, named IN the failure so the error itself
  *  is the runbook. Kept beside the thrower rather than in the log line: the
@@ -43,6 +44,45 @@ export function unconfiguredPasswordResetMailer(): PasswordResetMailer {
       return Promise.reject(
         new MailNotConfiguredError(
           'no mail channel is configured on this deployment — a password reset cannot be delivered. ' +
+            `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
+        ),
+      );
+    },
+  };
+}
+
+/** 0.3.25 B2 — the subscription-confirmation sibling, under the same doctrine.
+ *
+ *  🔴 ITS CALLER IS THE ONE THAT MUST NOT TREAT THIS REJECTION AS A FAILED
+ *  OPERATION, and that is not a softening of this file's rule — it is the rule
+ *  applied to a case the other two do not have. By the time this is called the
+ *  subscription is ALREADY cancelled at Paddle. A rejection here means 「the
+ *  cancellation happened and the receipt did not」; reporting it as 「your
+ *  cancellation failed」 would be the lie this whole module exists to prevent,
+ *  just pointed the other way. http/billing-routes.ts logs it by name and still
+ *  answers 200 — recorded, not swallowed. */
+export function unconfiguredSubscriptionMailer(): SubscriptionMailer {
+  return {
+    id: 'unconfigured',
+    sendCancellationConfirmed(): Promise<void> {
+      return Promise.reject(
+        new MailNotConfiguredError(
+          'no mail channel is configured on this deployment — a cancellation confirmation cannot be delivered. ' +
+            `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
+        ),
+      );
+    },
+    /** 0.3.25 B3. Rejects like its sibling, and the message names the stake:
+     *  this acknowledgement is not a receipt we would like to send, it is how
+     *  CRD art. 11a is discharged. On a deployment with no mail channel the duty
+     *  is left outstanding on EVERY withdrawal, and an operator should read that
+     *  in the words rather than infer it from an email that never arrived. */
+    sendWithdrawalAcknowledged(): Promise<void> {
+      return Promise.reject(
+        new MailNotConfiguredError(
+          'no mail channel is configured on this deployment — a WITHDRAWAL ACKNOWLEDGEMENT cannot be delivered. ' +
+            'This one is a legal duty (CRD art. 11a: acknowledge receipt on a durable medium without undue delay), ' +
+            'so every withdrawal on this box leaves it unfulfilled and someone has to send it by hand. ' +
             `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
         ),
       );

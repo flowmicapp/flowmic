@@ -138,6 +138,10 @@ export interface ModelFetchOptions {
   sources?: readonly ModelSource[];
   /** Test seam: the archive fallback URL. */
   tarballUrl?: string;
+  /** The directory name the archive extracts into. Every model's tarball has
+   *  its own root (LM-CAT made this a parameter; the SenseVoice int8 root
+   *  stays the default so legacy callers are byte-identical). */
+  tarballRoot?: string;
 }
 
 async function sha256File(p: string): Promise<string> {
@@ -277,8 +281,13 @@ async function downloadViaGithubTarball(
   if (r.status !== 0) {
     throw new Error(`tar extraction failed (status ${r.status ?? 'n/a'}) — is 'tar' on PATH?`);
   }
-  // The archive extracts into a repo-named subdir (…-int8-…); copy needed files.
-  const extractedRoot = join(work, `${SHERPA_REPO.replace('-2024-07-17', '-int8-2024-07-17')}`);
+  // The archive extracts into a repo-named subdir; copy needed files. The
+  // root differs per model (and, on the SenseVoice pack, from the repo id —
+  // the int8 tarball inserts `-int8-`), so it is caller-declared.
+  const extractedRoot = join(
+    work,
+    opts.tarballRoot ?? `${SHERPA_REPO.replace('-2024-07-17', '-int8-2024-07-17')}`,
+  );
   for (const f of files) {
     const src = join(extractedRoot, f.path);
     if (!existsSync(src)) throw new Error(`github tarball missing member ${f.path}`);

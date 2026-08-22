@@ -44,6 +44,9 @@
 // raw. The test drives the REAL orchestrator through the REAL rethrow — a
 // stubbed `start()` that just rejects would only be testing the `.catch`.
 
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SttSessionBridge } from '../src/engine/stt-session';
 import { SttEngineOrchestrator } from '../src/stt/orchestrator-core';
@@ -115,16 +118,16 @@ describe('K-7: an async cold-open SttConfigMissingError reaches the phone', () =
     await expect(bridge.finish()).resolves.toBeUndefined();
   });
 
-  // ── WP3 C13 (2026-08-18): the header's 「UNVERIFIED」 now has a production case ──
-  it('🔴 REAL factory chain: a seeded wildcard row routes German to the built-in '
-    + 'engine, the model refusal fires at spawn, and the phone gets the coded frame', async () => {
-    // This file's header records that no production input was known to make
-    // the spawn-time factory disagree with the pre-check the handler passed.
-    // There is one now: selection legitimately matches the seeded `'*'` row
-    // (the wildcard IS the general-purpose entry), and the FACTORY then
-    // refuses because the SenseVoice model cannot recognise the language
-    // (measured: German in → 「.」 out, clean exit). No stub throw here — the
-    // real router, the real factory, the real refusal.
+  // ── WP3 C13 (2026-08-18) → LM-CAT (2026-08-22): the production case moved ──
+  //
+  // ⚠️ THIS CASE PINNED GERMAN FOR ONE ERA, and the change is the delivery:
+  // WP3's gate asked the ONE model, so 'de' refused at the factory. LM-CAT
+  // gives 'de' downloadable catalog rows, so 'de' now constructs and refuses
+  // (or serves) at open() depending on what is on disk. The spawn-time
+  // factory refusal this case exists to prove now needs a language NO
+  // catalog row claims — Italian.
+  it('🔴 REAL factory chain: a seeded wildcard row routes an uncovered language to '
+    + 'the built-in engine, the catalog refusal fires at spawn, and the phone gets the coded frame', async () => {
     const seeded: Routing[] = [
       { language: 'zh', engine_id: 'sherpa-local', provenance: 'seed' },
       { language: '*', engine_id: 'sherpa-local', provenance: 'seed' },
@@ -135,30 +138,74 @@ describe('K-7: an async cold-open SttConfigMissingError reaches the phone', () =
       build: (session: AudioSession) => ({
         orchestrator: new SttEngineOrchestrator(
           session,
-          (): SttEngine => router.pickEngine('de', seeded, defaultEngineFactory),
+          (): SttEngine => router.pickEngine('it', seeded, defaultEngineFactory),
           { engineFlushTimeoutMs: 50 },
         ),
         isByok: false,
         gated: false,
       }),
       emitter: { emit: (event, payload) => emitted.push({ event, payload }) },
-      userId: 'u-cold-open-de', mode: 'realtime', sourceLang: 'de',
+      userId: 'u-cold-open-it', mode: 'realtime', sourceLang: 'it',
       onComplete: () => {},
     });
     await settle();
     const errs = emitted.filter((e) => e.event === 'stt:error');
     expect(errs).toHaveLength(1);
-    // ⚠️ This read `STT_CONFIG_MISSING` for one round — the nearest TRUE code,
-    // shipped while the precise one was owner-pending (granted 2026-08-17).
-    // What this test proves is unchanged and is the reason it exists: the
-    // refusal survives the REAL chain and reaches the phone as ONE coded frame,
-    // with `retryable:false` so nothing retries a mismatch that cannot heal.
     expect(errs[0]!.payload).toMatchObject({ code: 'STT_LANGUAGE_UNSUPPORTED', retryable: false });
-    expect((errs[0]!.payload as { message: string }).message).toContain('de');
+    expect((errs[0]!.payload as { message: string }).message).toContain('it');
     // 🔴 The diagnostic message is the half that reaches a support log, and it
     // must have moved with the code — a frame whose code and message disagree
     // is worse than either alone, because only one of them is ever read.
     expect((errs[0]!.payload as { message: string }).message).toContain('cannot recognise');
     await expect(bridge.finish()).resolves.toBeUndefined();
+  });
+
+  // ── LM-CAT §6-3: covered-but-not-downloaded refuses at OPEN, as CONFIG_MISSING ──
+  it('🔴 German with no pack on disk reaches the phone as STT_CONFIG_MISSING — the '
+    + '"go download it in Settings" refusal, not the "physically cannot" one', async () => {
+    // Deterministic disk: point the app-data roots at an empty temp dir so
+    // this machine's real model installs cannot leak into the verdict.
+    const empty = mkdtempSync(join(tmpdir(), 'flowmic-cold-open-appdata-'));
+    const savedAppData = process.env['APPDATA'];
+    const savedXdg = process.env['XDG_DATA_HOME'];
+    const savedOverride = process.env['FLOWMIC_SHERPA_MODEL_DIR'];
+    const savedAuto = process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'];
+    process.env['APPDATA'] = empty;
+    process.env['XDG_DATA_HOME'] = empty;
+    delete process.env['FLOWMIC_SHERPA_MODEL_DIR'];
+    delete process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'];
+    try {
+      const seeded: Routing[] = [
+        { language: '*', engine_id: 'sherpa-local', provenance: 'seed' },
+      ];
+      const router = makeEngineRouter({});
+      const emitted: Cap[] = [];
+      const bridge = new SttSessionBridge({
+        build: (session: AudioSession) => ({
+          orchestrator: new SttEngineOrchestrator(
+            session,
+            (): SttEngine => router.pickEngine('de', seeded, defaultEngineFactory),
+            { engineFlushTimeoutMs: 50 },
+          ),
+          isByok: false,
+          gated: false,
+        }),
+        emitter: { emit: (event, payload) => emitted.push({ event, payload }) },
+        userId: 'u-cold-open-de', mode: 'realtime', sourceLang: 'de',
+        onComplete: () => {},
+      });
+      await settle();
+      const errs = emitted.filter((e) => e.event === 'stt:error');
+      expect(errs.length).toBeGreaterThanOrEqual(1);
+      expect(errs[0]!.payload).toMatchObject({ code: 'STT_CONFIG_MISSING', retryable: false });
+      // The sentence names the user's actual exit (Settings), never an env var.
+      expect((errs[0]!.payload as { message: string }).message).toContain('Settings');
+      await expect(bridge.finish()).resolves.toBeUndefined();
+    } finally {
+      if (savedAppData === undefined) delete process.env['APPDATA']; else process.env['APPDATA'] = savedAppData;
+      if (savedXdg === undefined) delete process.env['XDG_DATA_HOME']; else process.env['XDG_DATA_HOME'] = savedXdg;
+      if (savedOverride === undefined) delete process.env['FLOWMIC_SHERPA_MODEL_DIR']; else process.env['FLOWMIC_SHERPA_MODEL_DIR'] = savedOverride;
+      if (savedAuto === undefined) delete process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD']; else process.env['FLOWMIC_SHERPA_AUTO_DOWNLOAD'] = savedAuto;
+    }
   });
 });

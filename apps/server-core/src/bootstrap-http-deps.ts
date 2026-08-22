@@ -46,6 +46,8 @@ import { makeResolveUserId } from './http/account-auth';
 import { diagLogPathBeside } from './http/diag-routes';
 import { seedDefaultSettings } from './settings/defaults';
 import { seedSaasByokEmpty } from './settings/byok';
+import type { PaddleClient } from './billing/paddle/client';
+import type { SubscriptionMailer } from './mail/subscription-mailer';
 import type { EmailVerificationMailer, PasswordResetMailer } from './mail';
 import type { ProbedTargets } from './status/status-probes';
 import { log } from './log';
@@ -79,6 +81,18 @@ export interface HttpDepsWiring {
    *  reason `mail` is: an optional mailer here would let a bootstrap missing one
    *  line mount a send route that stores a code and delivers nothing. */
   verificationMail: EmailVerificationMailer;
+  /** 0.3.25 B2 — the subscription-confirmation channel (third sibling of `mail`
+   *  and `verificationMail`, required for the same reason both of those are: an
+   *  optional mailer here would let a bootstrap missing one line mount a cancel
+   *  route that cancels a subscription and tells nobody). */
+  subscriptionMail: SubscriptionMailer;
+  /** 0.3.25 B2 — the ONE outbound Paddle writer this process has.
+   *
+   *  🔴 A SINGLE INSTANCE, built in bootstrap beside the limiters and for the
+   *  same reason they are: it holds the write switch and the API key, and a
+   *  second one constructed somewhere convenient is a second place those two can
+   *  be wrong — including a place where `writeEnabled` is accidentally `true`. */
+  paddleClient: PaddleClient;
   /** VERIFY-1 — the per-account send budget (≤3 / 15 min). ONE instance per
    *  server, constructed in bootstrap beside the other limiters — a fresh
    *  instance here would be a limiter that never limits (the ReleaseSuppression
@@ -430,6 +444,31 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             mailer: w.verificationMail,
             sendLimiter: w.verificationSendLimiter,
             ...(now ? { now } : {}),
+          },
+        }
+      : {}),
+    // 🔴 0.3.25 B2 — POST /api/cloud/billing/{cancel,resume}. SAAS ONLY, the
+    // same mounting shape as its neighbours: standalone is a LAN server with no
+    // merchant of record, so there is nothing there to cancel and the paths 404.
+    //
+    // ⚠️ MOUNTED EVEN WHEN OUTBOUND WRITES ARE OFF, on purpose. The switch is
+    // read inside the client, which throws by name, and the route turns that
+    // into a 503 the console can render. Gating the MOUNT on it instead would
+    // make a switched-off deployment answer 404 — 「there is no such feature」 —
+    // which is a different and less true sentence than 「this deployment cannot
+    // do that right now」, and it is the one a user cannot act on.
+    ...(config.mode === 'saas'
+      ? {
+          billingControls: {
+            auth: authService,
+            billing,
+            paddle: w.paddleClient,
+            mailer: w.subscriptionMail,
+            // 0.3.25 B3 — the same repo the webhook writes through. A withdrawal
+            // has to leave a row behind, and it is the ONLY write these routes
+            // make: the subscription row itself still has exactly one author,
+            // the webhook handler.
+            refunds: db.billing,
           },
         }
       : {}),

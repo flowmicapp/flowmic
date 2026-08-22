@@ -27,42 +27,61 @@
 use crate::error_codes;
 use crate::inject::app_learning::AppLearningStore;
 use crate::inject::clipboard_confirm::ConfirmOutcome;
-use crate::inject::clipboard_paste::{PasteOutcome, CONFIRM_TIMEOUT};
+use crate::inject::clipboard_paste::{PasteOutcome, PASTE_HOLD};
+use crate::inject::readback::LandingEvidence;
 use crate::inject::pipeline::{InjectMode, InjectOutcome};
 use crate::inject::sendinput::InjectError;
 
 /// How a delayed-render receipt is written on a forensic line.
 ///
-/// RV-44 (2026-07-30): the line used to read `render-receipt consumed=false`, and
-/// the next person to read it takes that for 「the target did not read our data」.
-/// It has only ever meant 「no WM_RENDERFORMAT arrived inside the window we
-/// watched」, which is a MEASUREMENT — and a measurement without its window is an
-/// unfalsifiable claim. The window is therefore part of the sentence, and the
-/// number is read from `CONFIRM_TIMEOUT` instead of being retyped here: the same
-/// question answered in two places is exactly how the log ends up asserting a
-/// window we no longer wait.
+/// RV-44 (2026-07-30) put the WINDOW into the sentence, because a measurement
+/// without its window is an unfalsifiable claim, and made the number read from
+/// the constant rather than be retyped here — the same question answered in two
+/// places is how a log ends up asserting a window we no longer wait.
+///
+/// 🔴 2026-08-22 TOOK THE WORD 「consumed」 OUT, AND IT MUST NOT COME BACK.
+/// It said 「the target consumed our text」, and that is measurably not what the
+/// flag means: the message arrives 13ms after Ctrl+V whether or not the target is
+/// in any state to paste — identically in a run that ended with our text inserted
+/// and a run that ended with the user's old clipboard inserted. A log sentence
+/// that names the wrong mechanism is worse than no sentence, because it stops the
+/// next reader from measuring. The question it kept being asked is answered by
+/// `LandingEvidence` now.
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn receipt_phrase(confirmed: bool) -> String {
     if confirmed {
-        "render-receipt consumed=true".to_string()
+        "render-receipt=served(somebody fetched our format — NOT evidence the target inserted it)"
+            .to_string()
     } else {
         format!(
-            "render-receipt consumed=false (no WM_RENDERFORMAT within {}ms — NOT observed, \
-             which is not the same as 「the target refused it」)",
-            CONFIRM_TIMEOUT.as_millis()
+            "render-receipt=none(nobody fetched our format in the {}ms it was held)",
+            PASTE_HOLD.as_millis()
         )
     }
+}
+
+/// The whole evidence sentence for one paste: what was fetched, whether the text
+/// was seen to land, and how long it was reachable. Built in ONE place — on BOTH
+/// platforms — so the three facts cannot drift into contradicting each other
+/// across two call sites. Only `receipt_phrase` is platform-specific, because
+/// only the receipt is.
+pub(crate) fn evidence_phrase(confirmed: bool, landing: LandingEvidence, held_ms: u32) -> String {
+    format!(
+        "{} {} held={held_ms}ms",
+        receipt_phrase(confirmed),
+        landing.phrase()
+    )
 }
 
 /// The same line on a platform that has no receipt to report (MAC-05).
 ///
 /// 🔴 THIS ARM EXISTS BECAUSE THE WINDOWS SENTENCE WOULD BE A CATEGORY ERROR HERE,
-/// not merely false. 「no WM_RENDERFORMAT within 500ms」 tells the next reader that
-/// we watched for something and did not see it, and they would go looking for a
+/// not merely false. 「nobody fetched our format」 tells the next reader that we
+/// watched for something and did not see it, and they would go looking for a
 /// target that refused to read. NSPasteboard has no delayed-rendering callback at
 /// all (inject/macos/pasteboard.rs), so `confirmed` is false STRUCTURALLY: it says
 /// 「this platform cannot answer that question」 and nothing whatsoever about the
-/// target. The 500ms is still named, because it is real — it is how long the
+/// target. The hold is still named, because it is real — it is how long the
 /// user's pasteboard was held before being restored — but it is named as what it
 /// is, a fixed delay, not a window we observed over.
 #[cfg(target_os = "macos")]
@@ -87,7 +106,7 @@ pub(crate) fn receipt_phrase(confirmed: bool) -> String {
         "render-receipt n/a on macOS (NSPasteboard has no WM_RENDERFORMAT equivalent, so there \
          is nothing to observe; the pasteboard was held {}ms as a FIXED delay, which says \
          nothing whatsoever about the target)",
-        CONFIRM_TIMEOUT.as_millis()
+        PASTE_HOLD.as_millis()
     )
 }
 
@@ -128,6 +147,8 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
             confirmed,
             requested_format,
             dropped_unrendered,
+            landing,
+            held_ms,
         }) => {
             // ── F-4 (2026-08-03 M5): an incomplete paste is NOT a delivery ──────
             //
@@ -185,8 +206,10 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
                 &format!(
                     "image paste DONE — {} requested_format={} \
                      (not a gate since 2026-07-30: 「injected」 claims the paste was performed, \
-                     not that the target accepted it)",
-                    receipt_phrase(confirmed),
+                     not that the target accepted it; `landing` is structurally unavailable \
+                     here — an image has no text to read back, so this path always pays the \
+                     full hold)",
+                    evidence_phrase(confirmed, landing, held_ms),
                     requested_format
                         .map(|f| f.to_string())
                         .unwrap_or_else(|| "(none asked)".into()),
@@ -250,7 +273,11 @@ pub(crate) fn map_ime_routed_clipboard_outcome(
     result: Result<PasteOutcome, InjectError>,
 ) -> InjectOutcome {
     match result {
-        Ok(PasteOutcome { confirmed }) => {
+        Ok(PasteOutcome {
+            confirmed,
+            landing,
+            held_ms,
+        }) => {
             crate::forensic::record(
                 "inject",
                 &format!(
@@ -258,7 +285,7 @@ pub(crate) fn map_ime_routed_clipboard_outcome(
                      carries CJK/fullwidth chars, and a CN-state IME in some TSF apps doubles \
                      typed fullwidth punctuation and swallows the next char — \
                      docs/strategy/2026-08-21-ime-safe-inject-routing-design.md)",
-                    receipt_phrase(confirmed),
+                    evidence_phrase(confirmed, landing, held_ms),
                 ),
             );
             InjectOutcome {
@@ -293,7 +320,11 @@ pub(crate) fn map_clipboard_outcome(
         store.record_outcome(id, InjectMode::Clipboard, result.is_ok());
     }
     match result {
-        Ok(PasteOutcome { confirmed }) => {
+        Ok(PasteOutcome {
+            confirmed,
+            landing,
+            held_ms,
+        }) => {
             // WHY the delivery ended up on the paste path is a diagnostic, and this
             // line is where diagnostics live. It used to ride the RECEIPT instead
             // (see below), where it was both invisible to every reader and shaped
@@ -302,7 +333,7 @@ pub(crate) fn map_clipboard_outcome(
                 "inject",
                 &format!(
                     "text paste DONE — {} sendinput={} (receipt not a gate since 2026-07-30)",
-                    receipt_phrase(confirmed),
+                    evidence_phrase(confirmed, landing, held_ms),
                     if skipped_sendinput {
                         "skipped(prior-hard-failure)"
                     } else {

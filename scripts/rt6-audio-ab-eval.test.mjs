@@ -330,15 +330,20 @@ await section('§6 adapters: registry, spec parsing, and probes that refuse rath
   // 🔴 Anchor the duplicated sherpa constants to their TypeScript authority. The
   // .mjs bed cannot import TS, so the copies are pinned by measurement instead
   // of by a "keep in sync" comment.
-  const manifestTs = readFileSync(join(ROOT, 'apps/server-core/src/stt/sherpa/model-manifest.ts'), 'utf8');
+  // LM-CAT (2026-08-22) moved the authorities: the SenseVoice file manifest
+  // lives on the catalog row (model-catalog.ts; model-manifest.ts re-exports a
+  // derived view) and the recognizer config lives in the typed builder
+  // (loader-config.ts; sherpa-local.ts no longer inlines it).
+  const catalogTs = readFileSync(join(ROOT, 'apps/server-core/src/stt/sherpa/model-catalog.ts'), 'utf8');
+  const loaderTs = readFileSync(join(ROOT, 'apps/server-core/src/stt/sherpa/loader-config.ts'), 'utf8');
   const engineTs = readFileSync(join(ROOT, 'apps/server-core/src/stt/engines/sherpa-local.ts'), 'utf8');
   for (const f of SHERPA_FILES) {
-    assertTrue(manifestTs.includes(`'${f.path}'`), `model-manifest.ts still lists ${f.path}`);
-    assertTrue(manifestTs.includes(String(f.size).replace(/\B(?=(\d{3})+(?!\d))/g, '_')), `  at the pinned size ${f.size}`);
+    assertTrue(catalogTs.includes(`'${f.path}'`), `model-catalog.ts still lists ${f.path}`);
+    assertTrue(catalogTs.includes(String(f.size).replace(/\B(?=(\d{3})+(?!\d))/g, '_')), `  at the pinned size ${f.size}`);
     n += 2;
   }
-  assertTrue(engineTs.includes(`useInverseTextNormalization: ${SHERPA_RECOGNIZER.useInverseTextNormalization}`), 'sherpa-local.ts still sets useInverseTextNormalization the way the bed does'); n += 1;
-  assertTrue(engineTs.includes(`language: '${SHERPA_RECOGNIZER.language}'`), 'and the same decode language'); n += 1;
+  assertTrue(loaderTs.includes(`useInverseTextNormalization: ${SHERPA_RECOGNIZER.useInverseTextNormalization}`), 'loader-config.ts still sets useInverseTextNormalization the way the bed does'); n += 1;
+  assertTrue(loaderTs.includes(`language: '${SHERPA_RECOGNIZER.language}'`), 'and the same decode language'); n += 1;
   assertTrue(engineTs.includes(`featureDim: ${SHERPA_RECOGNIZER.featureDim}`), 'and the same feature dim'); n += 1;
 
   // An absent model must produce a refusal that names the state, including the

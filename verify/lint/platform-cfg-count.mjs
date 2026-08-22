@@ -130,7 +130,23 @@ const SRC = path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src');
 const EXPECTED = {
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
   'cfg(not(windows))': 23,
-  'cfg(not(target_os = "windows"))': 11,
+  // 11 → 12 (2026-08-22, the clipboard restore-race fix): ONE new non-Windows
+  // arm — `readback::watch`'s inert stub for hosts with no UIA.
+  //
+  // 🔴 BLESSED FROM A REAL MAC RUN, NOT FROM THIS BOX. Mac mini, rustc 1.97.1,
+  // this repo's inject/ tree copied onto it (inject/ has ZERO churn between the
+  // Mac checkout's commit and main, so the copy is faithful — that was checked,
+  // not assumed):
+  //     cargo clippy --lib -- -D warnings   → Finished, EXIT=0
+  //     cargo test --lib                    → 714 passed; 0 failed; 1 ignored
+  // ⚠️ That is what was RUN. It is NOT `scripts/mac-verify.sh` and it is not
+  // `verify:delivery` — say what ran, not what the gate is called.
+  // The macOS side of this change is `macos/pasteboard.rs`'s
+  // `paste_with_confirmation` returning a `ConfirmOutcome` instead of a bool,
+  // and it took two rounds on the Mac to go green: the first found three
+  // dead-code warnings and the second an unused `Duration` import, neither of
+  // which any Windows gate can see.
+  'cfg(not(target_os = "windows"))': 12,
   'cfg(unix)': 9,
   'cfg(target_os = "macos")': 32,
   // Windows side, kept as a CONTROL. If every count collapses at once the
@@ -149,8 +165,19 @@ const EXPECTED = {
   // price of the "nobody can misread what it counts" design above and is worth
   // paying, but it has to be known: if a row moves and the diff has no matching
   // Rust item, look for the attribute in a comment before suspecting the code.
-  'cfg(windows)': 71,
-  'cfg(target_os = "windows")': 26,
+  // 71 → 72 (2026-08-22): the taskbar-icon fix. Only ONE of its two sites is a
+  // bare `#[cfg(windows)]` — the call site inside `setup()`. The function itself
+  // carries `#[cfg(all(windows, feature = "app"))]`, which this scanner's pattern
+  // (an exact `#[cfg(windows)]`) does not match, and that is fine: the row is a
+  // tripwire for "a platform branch appeared", not a census.
+  // Windows-SIDE row, so it owes no Mac run; the mechanism is Win32-only because
+  // the defect is (Tauri's cross-platform `set_icon` reaches ICON_SMALL only).
+  'cfg(windows)': 72,
+  // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
+  // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
+  // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the
+  // CONTROL that tells 「the code moved」 apart from 「the scanner broke」.
+  'cfg(target_os = "windows")': 31,
   'cfg!(windows)': 4,
 };
 

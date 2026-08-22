@@ -31,8 +31,14 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EngineState, FinalResult, InterimResult, SttEngine, SttEngineConfig } from './base';
 import { SttEngineError } from './base';
-import { resolveSherpaModelDir } from '../sherpa/model-manifest';
-import { ensureSherpaModel } from '../sherpa/model-downloader';
+import { resolveModelDir } from '../sherpa/model-manifest';
+import { ensureSherpaModel, SherpaModelNotReadyError } from '../sherpa/model-downloader';
+import {
+  baseLang, catalogModelById, isLoadableThisPhase, SENSE_VOICE_MODEL_ID,
+  sherpaModelCanRecognize, type CatalogModel,
+} from '../sherpa/model-catalog';
+import { loaderConfigEmbedsLanguage, offlineModelConfigFor } from '../sherpa/loader-config';
+import { resolveReadyModelForLanguage, type ResolvedModel } from '../sherpa/model-resolve';
 import { SherpaPreviewDecoder, type PreviewDisableReason } from './sherpa-preview';
 import { log } from '../../log';
 
@@ -207,6 +213,11 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
   private chunks: Buffer[] = [];
   private byteLength = 0;
   private rec: OfflineRecognizer | null = null;
+  /** The catalog row open() resolved — decides the loader config AND whether
+   *  the live preview runs (quasi rows only). Null until open() succeeds and
+   *  for seam-injected recognizers, where preview stays on (the seam tests
+   *  drive the preview path and predate the catalog). */
+  private activeRow: CatalogModel | null = null;
   private readonly openRecognizer: () => Promise<OfflineRecognizer>;
   /** REQ-12-05 live preview. Built here rather than in open() so `decode` can
    *  close over `this.rec` and read it at CALL time — open() installs the
@@ -237,6 +248,10 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     try {
       this.rec = await this.openRecognizer();
     } catch (err) {
+      // An already-coded refusal (the debug-override language check below)
+      // must pass through verbatim — re-wrapping would replace its precise
+      // code with the generic CONFIG_MISSING.
+      if (err instanceof SttEngineError) throw err;
       // fail-loud: model missing/integrity/load failure surfaces an explicit
       // stt:error — never a silently-degraded or bad-model session.
       const msg = err instanceof Error ? err.message : String(err);
@@ -250,37 +265,85 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     this.transition('open');
   }
 
-  /** The production `openRecognizer`: DLL path fix → model resolve/verify (with
-   *  the opt-in download) → recognizer load. VERBATIM the body that used to sit
-   *  inside `open()`'s try block; the error mapping stays there. */
+  /** The production `openRecognizer`: DLL path fix → catalog resolution (which
+   *  model serves this language, LM-CAT §6) → verify/opt-in download →
+   *  typed recognizer load. The error mapping stays in open(). */
   private async loadModelAndRecognizer(): Promise<OfflineRecognizer> {
     prependNativeDllDir();
-    const modelDir = resolveSherpaModelDir();
-    await ensureSherpaModel(modelDir, {
-      autoDownload: sherpaAutoDownloadEnabled(process.env.FLOWMIC_SHERPA_AUTO_DOWNLOAD),
-    });
-    return this.loadRecognizer(modelDir);
+    const resolved = await this.resolveModelForOpen();
+    this.activeRow = resolved.row;
+    return this.loadRecognizer(resolved.row, resolved.dir);
   }
 
-  private loadRecognizer(modelDir: string): OfflineRecognizer {
+  /**
+   * Which catalog row (and directory) this session opens.
+   *
+   *   · `FLOWMIC_SHERPA_MODEL_DIR` set — the single-model debug path the
+   *     measure/smoke scripts depend on: that directory holds exactly one
+   *     model, named by `FLOWMIC_SHERPA_MODEL_ID` (default: the SenseVoice
+   *     row, which is what every pre-LM-CAT script staged there).
+   *   · otherwise the §6 ladder over the catalog (selection → ready rows).
+   *   · otherwise the unattended pair: `FLOWMIC_SHERPA_AUTO_DOWNLOAD=1`
+   *     **and** `FLOWMIC_SHERPA_MODEL_ID` naming a row that claims the
+   *     language — only the named row is fetched (LM-CAT §7: the env flag
+   *     alone no longer implies "fetch SenseVoice"; an unattended machine
+   *     must say WHICH pack, or nothing is fetched).
+   *   · otherwise the loud refusal (→ STT_CONFIG_MISSING at open()).
+   */
+  private async resolveModelForOpen(): Promise<ResolvedModel> {
+    const env = process.env;
+    const autoDownload = sherpaAutoDownloadEnabled(env.FLOWMIC_SHERPA_AUTO_DOWNLOAD);
+    const override = env.FLOWMIC_SHERPA_MODEL_DIR;
+    if (override && override.length > 0) {
+      const row = catalogModelById(env.FLOWMIC_SHERPA_MODEL_ID ?? '') ?? catalogModelById(SENSE_VOICE_MODEL_ID)!;
+      // The debug override skips the catalog ladder, NOT the language gate:
+      // German fed to a staged SenseVoice would come back as 「.」 — the exact
+      // WP3 C13 defect — so the mismatch refuses with the precise code here.
+      if (!sherpaModelCanRecognize(this.cfg.language, row)) {
+        throw new SttEngineError(
+          'STT_LANGUAGE_UNSUPPORTED',
+          `sherpa-local (debug override): model '${row.model_id}' cannot recognise language ${this.cfg.language}`,
+          false,
+        );
+      }
+      await ensureSherpaModel(override, { autoDownload, model: row });
+      return { row, dir: override };
+    }
+    const ready = await resolveReadyModelForLanguage(this.cfg.language);
+    if (ready) return ready;
+    if (autoDownload) {
+      const named = catalogModelById(env.FLOWMIC_SHERPA_MODEL_ID ?? '');
+      if (named && isLoadableThisPhase(named) && sherpaModelCanRecognize(this.cfg.language, named)) {
+        const dir = resolveModelDir(named.model_id, env);
+        await ensureSherpaModel(dir, { autoDownload: true, model: named });
+        return { row: named, dir };
+      }
+      log.warn('sherpa-local: auto-download is on but FLOWMIC_SHERPA_MODEL_ID names no usable catalog row for this language — refusing rather than guessing a pack', {
+        language: this.cfg.language,
+        model_id_env: env.FLOWMIC_SHERPA_MODEL_ID ?? '(unset)',
+      });
+    }
+    // No ready model claims this language: the same loud, non-network refusal
+    // ensureSherpaModel raises — the user's action is the settings download.
+    log.warn('sherpa-local: no ready local model claims this language', { language: this.cfg.language });
+    throw new SherpaModelNotReadyError(resolveModelDir('')); // '' ⇒ the models root itself
+  }
+
+  private loadRecognizer(row: CatalogModel, modelDir: string): OfflineRecognizer {
     const numThreads = threadsFromEnv();
-    const cacheKey = `${modelDir}::${numThreads}`;
+    // Whisper/Canary embed the language in the model config itself, so those
+    // kinds key the cache per language too — a French session must not reuse
+    // the recognizer a German one built (loader-config.ts says why).
+    const langFacet = loaderConfigEmbedsLanguage(row) ? baseLang(this.cfg.language) : '';
+    const cacheKey = `${modelDir}::${numThreads}::${langFacet}`;
     const cached = RECOGNIZER_CACHE.get(cacheKey);
     if (cached) return cached;
     const sherpa = nodeRequire(SHERPA_SPECIFIER) as SherpaModule;
     const rec = new sherpa.OfflineRecognizer({
       featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
-      modelConfig: {
-        senseVoice: {
-          model: join(modelDir, 'model.int8.onnx'),
-          useInverseTextNormalization: 1,
-          language: 'auto',
-        },
-        tokens: join(modelDir, 'tokens.txt'),
-        numThreads,
-        provider: 'cpu',
-        debug: 0,
-      },
+      // The ONE writer of loader configs (LM-CAT §5) — the senseVoice-only
+      // inline this replaces lives on only as that switch's senseVoice arm.
+      modelConfig: offlineModelConfigFor(row, modelDir, this.cfg.language, numThreads),
     });
     RECOGNIZER_CACHE.set(cacheKey, rec);
     return rec;
@@ -305,6 +368,14 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     if (chunk.length === 0) return;
     this.chunks.push(chunk);
     this.byteLength += chunk.length;
+    // LM-CAT §5: the live preview is a QUASI-streaming behaviour of the
+    // SenseVoice pack (cheap tail re-decodes). For a plain-offline row
+    // (whisper / transducer / nemo / canary) a tail decode costs a full
+    // encoder pass — seconds per preview — so those rows run final-only,
+    // exactly as the task allows (「对 whisper/transducer 第一刀允许 preview
+    // 缺席」). `activeRow === null` (seam-injected recognizer) keeps the
+    // preview, because the preview suite drives this path.
+    if (this.activeRow !== null && this.activeRow.streaming !== 'quasi') return;
     // REQ-12-05. Ordered AFTER the accumulate on purpose: the utterance buffer
     // that produces the FINAL is written first and unconditionally, so no
     // preview outcome — including a throw that got past the decoder — can cost
@@ -394,6 +465,7 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     // Detach from the (cached, hot) recognizer — do not free it (kept warm for
     // the next utterance). Clear the buffer only.
     this.rec = null;
+    this.activeRow = null;
     this.chunks = [];
     this.byteLength = 0;
     this.transition('closed');

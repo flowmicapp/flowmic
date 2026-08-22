@@ -4,27 +4,33 @@
 //     the delivery truth
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //
-// Clipboard fallback with CONFIRMED consumption. The paste itself is delegated
-// to `clipboard_confirm::paste_with_confirmation` (delayed rendering — see that
-// module for why a synchronous write→paste→restore is a race that both lies
-// about delivery and leaks the user's prior clipboard). This wrapper owns the
-// user-clipboard save/restore around it:
+// Clipboard fallback: save the user's clipboard, HOLD ours on it long enough for
+// the target to read it, restore. This wrapper owns the save/restore; the hold
+// itself is `clipboard_confirm::paste_with_confirmation`.
 //
 //   1. save()          — snapshot the user's current clipboard
-//   2. paste_confirm() — own the clipboard (delayed), Ctrl+V, observe whether
-//                        the target actually consumed it → Ok(confirmed)
+//   2. paste_confirm() — own the clipboard (delayed), Ctrl+V, then HOLD until
+//                        read-back sees the text land or `PASTE_HOLD` expires
 //   3. restore()       — put the user's original clipboard back (ALWAYS)
 //
-// The `confirmed` flag flows up to the pipeline. It was the ok/fail GATE until
-// 2026-07-30, when owner's narrowing of 「injected」 (design §3) demoted it to
-// DIAGNOSTIC: an error-free paste at a focus Stage 1/1b had already established is
-// a delivery, and whether the target then read the bytes is the target's business.
-// The flag is still carried, still recorded, and no longer decides anything —
-// `pipeline::map_clipboard_outcome` / `map_image_outcome` own that verdict.
-// Restore runs even on failure; a restore failure wins so the caller reports
-// INJECT_CLIPBOARD_FAIL. The save / paste / restore seams here are `Box<dyn Fn>`,
-// so the ordering and the restore-on-failure guarantees are provable headless
-// (the Win32 inside `clipboard_confirm::win` is NOT behind those seams).
+// ── 2026-08-22, THE P0 THAT REWROTE STEP 2 ───────────────────────────────────
+// Step 2 used to end at the first `WM_RENDERFORMAT`, on the reading that it
+// meant "the target consumed it". It does not: measured on dev-pc-a, that
+// message arrives 13ms after Ctrl+V whether or not the target's renderer is even
+// able to run, so step 3 was putting the user's clipboard back ~20ms later and a
+// busy target then pasted THE USER'S OWN OLD TEXT while we reported `injected`.
+// The user hit it in Cursor. `clipboard_confirm.rs`'s hold loop carries the
+// trace; `readback.rs` carries the instrument that replaced the receipt.
+//
+// The verdict layering is unchanged from 2026-07-30: an error-free paste at a
+// focus Stage 1/1b established is a delivery, and `pipeline::map_clipboard_outcome`
+// / `map_image_outcome` own that call. What changed is that we no longer sabotage
+// the delivery we are reporting, and that `landing` now says whether it was seen
+// to arrive. Restore runs even on failure; a restore failure wins UNLESS the
+// landing was confirmed (see `paste_text`). The save / paste / restore seams here
+// are `Box<dyn Fn>`, so the ordering and the restore-on-failure guarantees are
+// provable headless (the Win32 inside `clipboard_confirm::win` is NOT behind
+// those seams).
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -66,31 +72,45 @@ fn paste_guard() -> MutexGuard<'static, ()> {
     PASTE_LOCK.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Bounded window to observe WM_RENDERFORMAT before giving up on the paste.
-/// Ctrl+V processing is a few ms; 500ms comfortably covers a busy target
-/// without leaving the user's clipboard clobbered for long.
+/// How long the injected payload STAYS on the clipboard after Ctrl+V, unless
+/// read-back confirms the landing sooner.
 ///
-/// `pub(crate)` for one reason (RV-44): the forensic line that reports an
-/// unconsumed receipt has to name the window it measured over, and a literal
-/// `500ms` retyped there would be the same number answering the same question in
-/// two places — the shape this repo keeps getting bitten by. The log reads the
-/// value it actually waited.
-pub(crate) const CONFIRM_TIMEOUT: Duration = Duration::from_millis(500);
+/// 🔴 THIS REPLACED A 500ms 「CONFIRM_TIMEOUT」 THAT WAS NEVER THE BINDING
+/// CONSTRAINT. The old loop exited on the render receipt, which arrives ~13ms
+/// after the keystroke, so the payload was really only reachable for ~110ms
+/// (measured: 91–127ms across 19 real injections) and raising the timeout would
+/// have changed nothing at all. The number that matters is how long a target
+/// that is BUSY may take to get to the keystroke.
+///
+/// 1500ms covers the measured reproduction (a Chromium renderer blocked 1.2s
+/// confirmed at 1318ms) with margin. It is an upper bound, not a cost: the
+/// common case exits as soon as read-back sees the text, which on an idle target
+/// is ~150ms — SHORTER than the old behaviour held it.
+///
+/// `pub(crate)` for one reason (RV-44): the forensic line has to name the window
+/// it measured over, and retyping the number there would be the same question
+/// answered in two places.
+pub(crate) const PASTE_HOLD: Duration = Duration::from_millis(1500);
 
 /// Outcome of a clipboard fallback attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PasteOutcome {
-    /// Whether the target actually consumed (pasted) the injected text, i.e.
-    /// whether a WM_RENDERFORMAT arrived within `CONFIRM_TIMEOUT`. Since
-    /// 2026-07-30 this is EVIDENCE, not a verdict: `false` means 「not observed
-    /// inside that window」, which is not 「the target refused」 and no longer
-    /// forbids the caller from reporting `injected` (design §3).
+    /// Somebody asked us to render a format (WM_RENDERFORMAT). NOT 「the target
+    /// consumed the text」 — see `ConfirmOutcome::confirmed` for the measurement
+    /// that separated those two, and `landing` for the field that answers the
+    /// question this one kept being asked.
     pub confirmed: bool,
+    /// Did the delivered text actually turn up in the focused element?
+    /// Positive-only (`inject/readback.rs`): anything but `Confirmed` means the
+    /// instrument could not see it, never that the paste failed.
+    pub landing: crate::inject::readback::LandingEvidence,
+    /// How long the payload was reachable on the clipboard.
+    pub held_ms: u32,
 }
 
 type SaveFn = Box<dyn Fn() -> Result<ClipboardSnapshot, InjectError> + Send + Sync>;
 type RestoreFn = Box<dyn Fn(ClipboardSnapshot) -> Result<(), InjectError> + Send + Sync>;
-type PasteConfirmFn = Box<dyn Fn(&str) -> Result<bool, InjectError> + Send + Sync>;
+type PasteConfirmFn = Box<dyn Fn(&str) -> Result<ConfirmOutcome, InjectError> + Send + Sync>;
 type PasteFormatsFn =
     Box<dyn Fn(&[(u32, Vec<u8>)]) -> Result<ConfirmOutcome, InjectError> + Send + Sync>;
 
@@ -107,8 +127,8 @@ impl ClipboardFallbackClient {
         Self {
             save: Box::new(save_clipboard),
             restore: Box::new(restore_clipboard),
-            paste_confirm: Box::new(|text| paste_with_confirmation(text, CONFIRM_TIMEOUT)),
-            paste_formats: Box::new(|f| paste_formats_with_confirmation(f, CONFIRM_TIMEOUT)),
+            paste_confirm: Box::new(|text| paste_with_confirmation(text, PASTE_HOLD)),
+            paste_formats: Box::new(|f| paste_formats_with_confirmation(f, PASTE_HOLD)),
         }
     }
 
@@ -118,7 +138,7 @@ impl ClipboardFallbackClient {
     pub fn with_fakes(
         save: impl Fn() -> Result<ClipboardSnapshot, InjectError> + Send + Sync + 'static,
         restore: impl Fn(ClipboardSnapshot) -> Result<(), InjectError> + Send + Sync + 'static,
-        paste_confirm: impl Fn(&str) -> Result<bool, InjectError> + Send + Sync + 'static,
+        paste_confirm: impl Fn(&str) -> Result<ConfirmOutcome, InjectError> + Send + Sync + 'static,
     ) -> Self {
         Self {
             save: Box::new(save),
@@ -141,15 +161,14 @@ impl ClipboardFallbackClient {
         Self {
             save: Box::new(save),
             restore: Box::new(restore),
-            paste_confirm: Box::new(|_| Ok(false)),
+            paste_confirm: Box::new(|_| Ok(ConfirmOutcome::default())),
             paste_formats: Box::new(paste_formats),
         }
     }
 
-    /// Save → confirmed-paste → restore-always. `Ok(PasteOutcome{confirmed})`
-    /// tells the caller whether delivery was CONFIRMED. On a paste error the
-    /// restore still runs and the paste error propagates only when restoration
-    /// succeeds; a restore failure always wins (→ INJECT_CLIPBOARD_FAIL).
+    /// Save → hold-the-paste → restore-always. On a paste error the restore
+    /// still runs and the paste error propagates only when restoration succeeds;
+    /// a restore failure wins UNLESS the landing was confirmed.
     pub fn paste_text(&self, text: &str) -> Result<PasteOutcome, InjectError> {
         let _serialised = paste_guard();
         let prev = (self.save)()?;
@@ -157,9 +176,50 @@ impl ClipboardFallbackClient {
         // ALWAYS restore, even on paste failure.
         let restore_result = (self.restore)(prev);
         match (confirm_result, restore_result) {
+            // ── THE ARM THE TEXT PATH WAS MISSING (2026-08-22) ───────────────
+            // `paste_image` has had this rule since 0.2.14; the text path never
+            // got it, and the gap is a DUPLICATED INJECTION. A target that has
+            // just been pasted into is often still holding the clipboard open, so
+            // the restore takes ERROR_ACCESS_DENIED (owner hit exactly that:
+            // `paste=Win32 error: 5`). The text path turned that into `Err`, the
+            // routed paste turned `Err` into "fell back to SendInput", and the
+            // sentence the user already had in their editor got TYPED IN AGAIN —
+            // through the IME pipeline this route exists to avoid.
+            //
+            // Reporting "not delivered" for something we can SEE in the target is
+            // the false-reporting red line pointing the other way, so a confirmed
+            // landing outranks the restore error. The lost clipboard is real and
+            // is said out loud rather than folded into the delivery verdict.
+            //
+            // ⚠️ THE CONDITION IS `landing`, NOT `confirmed`, AND THAT IS THE
+            // WHOLE POINT: the render receipt is exactly the signal that was
+            // measured not to mean this. An unconfirmable target with a failed
+            // restore still reports the error and may still be re-typed — a
+            // visible duplicate beats a silent miss, and this module has no way
+            // to tell those two apart there.
+            (Ok(outcome), Err(restore_error))
+                if outcome.landing == crate::inject::readback::LandingEvidence::Confirmed =>
+            {
+                crate::forensic::record(
+                    "inject",
+                    &format!(
+                        "text WAS pasted (read-back saw it land) but the user's previous \
+                         clipboard could not be restored: {restore_error}"
+                    ),
+                );
+                Ok(PasteOutcome {
+                    confirmed: outcome.confirmed,
+                    landing: outcome.landing,
+                    held_ms: outcome.held_ms,
+                })
+            }
             (_, Err(restore_error)) => Err(restore_error),
             (Err(operation_error), Ok(())) => Err(operation_error),
-            (Ok(confirmed), Ok(())) => Ok(PasteOutcome { confirmed }),
+            (Ok(outcome), Ok(())) => Ok(PasteOutcome {
+                confirmed: outcome.confirmed,
+                landing: outcome.landing,
+                held_ms: outcome.held_ms,
+            }),
         }
     }
 
@@ -255,7 +315,7 @@ mod tests {
                     },
                     |_t| {
                         std::thread::sleep(Duration::from_millis(60));
-                        Ok(true)
+                        Ok(ConfirmOutcome { confirmed: true, ..Default::default() })
                     },
                 );
                 client.paste_text("hello").expect("ok")
@@ -288,6 +348,7 @@ mod tests {
                     confirmed: true,
                     requested_format: Some(8),
                     dropped_unrendered: false,
+                    ..Default::default()
                 })
             },
         );
@@ -307,6 +368,7 @@ mod tests {
                     confirmed: false,
                     requested_format: None,
                     dropped_unrendered: false,
+                    ..Default::default()
                 })
             },
         );
@@ -331,7 +393,7 @@ mod tests {
             },
             move |_t| {
                 o2.lock().unwrap().push("paste");
-                Ok(true)
+                Ok(ConfirmOutcome { confirmed: true, ..Default::default() })
             },
         );
         let out = client.paste_text("hello").expect("ok");
@@ -352,7 +414,7 @@ mod tests {
                 *r.lock().unwrap() = true;
                 Ok(())
             },
-            |_t| Ok(false), // target never consumed the paste
+            |_t| Ok(ConfirmOutcome::default()), // nobody ever fetched our format
         );
         let out = client.paste_text("x").expect("ok");
         assert!(!out.confirmed, "unconfirmed consumption must not be 'confirmed'");
@@ -409,6 +471,7 @@ mod tests {
                     confirmed: true,
                     requested_format: Some(8),
                     dropped_unrendered: false,
+                    ..Default::default()
                 })
             },
         );
@@ -437,6 +500,7 @@ mod tests {
                     confirmed: false,
                     requested_format: Some(2),
                     dropped_unrendered: false,
+                    ..Default::default()
                 })
             },
         );
@@ -460,6 +524,7 @@ mod tests {
                     confirmed: false,
                     requested_format: None,
                     dropped_unrendered: true,
+                    ..Default::default()
                 })
             },
         );
@@ -496,7 +561,7 @@ mod tests {
         let client = ClipboardFallbackClient::with_fakes(
             || Ok(ClipboardSnapshot::default()),
             |_s| Ok(()),
-            |_t| Ok(true), // text is confirmed…
+            |_t| Ok(ConfirmOutcome { confirmed: true, ..Default::default() }), // text receipt served…
         );
         let out = client.paste_image(&[(8, vec![0])]).expect("ok");
         assert!(!out.confirmed, "…but the un-configured image path stays unconfirmed");

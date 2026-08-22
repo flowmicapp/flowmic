@@ -19,6 +19,7 @@ import type { Cycle } from '../billing/billing-service';
 import { ServerError } from '../errors';
 import { log } from '../log';
 import { tryHandleAuthRoutes } from './auth-routes';
+import { tryHandleBillingRoutes } from './billing-routes';
 import { tryHandleConsoleRoutes } from './console-routes';
 import { tryHandleOpsRoutes } from './ops-routes';
 import { tryHandleAccountRestrictionRoutes } from './account-restriction-routes';
@@ -491,6 +492,19 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // A2-5 — `GET /api/cloud/usage/events`. Mounted exactly like `console` above
     // (bootstrap builds the dep saas-only): it IS a `/api/cloud/*` console route.
     if (deps.usageEvents && tryHandleUsageEventsRoutes(req, res, deps.usageEvents)) return true;
+
+    // 🔴 0.3.25 B2 — `POST /api/cloud/billing/{cancel,resume}`. saas-only like
+    // its neighbours, and MOUNTED ABOVE nothing in particular: unlike the Paddle
+    // webhook, these are ordinary Bearer-authenticated console routes and their
+    // position here carries no security property.
+    //
+    // ⚠️ An ABSENT dep means these paths 404, which honestly reads as 「this
+    // deployment has no subscription controls」 — the standalone LAN server has
+    // no merchant of record and nothing to cancel. It does NOT mean 「writes are
+    // switched off」: that is a live route answering 503 BILLING_WRITE_DISABLED
+    // by name. Two different facts, two different answers, and the one a user
+    // can act on is the second.
+    if (deps.billingControls && tryHandleBillingRoutes(req, res, deps.billingControls)) return true;
 
     // 0.2.48 — saas-only ops REST (`/api/ops/*`). Same mode gating as `console`
     // above and for a stronger reason: every route in it reads across accounts,

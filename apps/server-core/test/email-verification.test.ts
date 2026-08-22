@@ -416,7 +416,6 @@ describe('enforcement matrix — gated refuses unverified, admits verified; exem
    *  Route + method + a body that gets past parsing where one is needed. */
   const GATED: Array<[string, string, unknown?]> = [
     ['GET', '/api/cloud/summary'],
-    ['GET', '/api/cloud/subscription'],
     ['GET', '/api/cloud/billing/events'],
     ['GET', '/api/cloud/devices'],
     ['GET', '/api/cloud/stt-routings'],
@@ -501,6 +500,21 @@ describe('enforcement matrix — gated refuses unverified, admits verified; exem
       bearer(token),
     );
     expect(put.status).toBe(201);
+
+    // 🔴 0.3.25 D-3 — the BILLING READ, and this is the other half of taking it
+    // out of the GATED census above. Removing a row there without adding one
+    // here leaves the exemption unwatched while looking supervised: nothing
+    // would fail if someone re-gated it later.
+    //
+    // It belongs with the GDPR pair below rather than with the product features:
+    // the account this gate walls hardest is the one whose mailbox stopped
+    // delivering, and that is exactly the account that is still being charged
+    // every month. ROSCA §8403(3) wants stopping those charges to be simple, and
+    // the console cannot offer the button without first reading whether there is
+    // a subscription and whether the withdrawal period is still open.
+    const subs = await call('GET', `${url}/api/cloud/subscription`, undefined, bearer(token));
+    expect(subs.status, 'unverified: reading what you are charged must be admitted').toBe(200);
+    expect(subs.json?.error).not.toBe(EMAIL_NOT_VERIFIED);
 
     // GDPR pair — lead ruling on review (2026-08-11): export/delete are
     // data-subject rights and stay OPEN to unverified accounts. The account

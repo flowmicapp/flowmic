@@ -85,6 +85,30 @@ export const OUTCOME_PENDING = 'pending';
  *  placeholder above. */
 export type StoredOutcome = EventOutcome | typeof OUTCOME_PENDING;
 
+/**
+ * One row of `paddle_subscription_tombstones` (0.3.25 B1, card D-2).
+ *
+ * 🔴 IDS ONLY — no email, no name, no address. This table exists because an
+ * account was ERASED; carrying the erased person's details in the record of
+ * their erasure would undo it. Paddle holds the customer record, and
+ * `customer_id` is how a human reaches it.
+ */
+export interface PaddleSubTombstone {
+  subscription_id: string;
+  customer_id: string | null;
+  /** Paddle's raw status at the moment we let go — evidence for 「was this still
+   *  live when the account closed」, which is the question an operator or a
+   *  regulator actually asks. */
+  status_at_deletion: string;
+  tier_at_deletion: string;
+  current_period_end: string | null;
+  /** Why the row exists. `'account_deleted'` is the only writer today; it is a
+   *  column rather than an implied constant because the next reason (an admin
+   *  purge, a merge) must not be indistinguishable from this one. */
+  reason: string;
+  created_at: string;
+}
+
 /** One row of `paddle_subscriptions` (D1 §3.2). Field-for-field with the DDL. */
 export interface PaddleSubRow {
   /** sub_xxx — Paddle's id, our primary key. */
@@ -115,6 +139,37 @@ export interface PaddleSubRow {
   /** RFC3339. The one date that decides "how long the tier is retained" (§5 canceled/paused). */
   current_period_end: string | null;
   canceled_at: string | null;
+  /**
+   * 0.3.25 B1 — 'cancel' | 'pause' | 'resume' | null, Paddle's raw word for a
+   * change that is SCHEDULED but has not happened yet.
+   *
+   * 🔴 NOT a variant of `status`, and the reason is the whole card: at Paddle a
+   * subscription scheduled to cancel at period end is still `status='active'`,
+   * because it still is. Without this column the console had ONE word for TWO
+   * facts and could not answer 「when does my service stop」 — R11's exact shape,
+   * where the layer that must judge does not hold the fact it needs.
+   */
+  scheduled_change_action: string | null;
+  /** RFC3339 — when the change above takes effect. Written from the SAME payload
+   *  object as the action, never merged from two events. */
+  scheduled_change_at: string | null;
+  /** RFC3339 — 「you will be charged again on」. Paddle nulls it once a cancel is
+   *  scheduled, which is why it is a different question from
+   *  `current_period_end` (that one keeps answering 「paid up until」). */
+  next_billed_at: string | null;
+  /**
+   * RFC3339 — when this subscription began, our evidence of when the distance
+   * contract was concluded, and therefore the START of the EU 14-day withdrawal
+   * window (CRD art. 9).
+   *
+   * ⚠️ WRITE-ONCE BY POLICY: the upsert below leaves it out of the DO UPDATE
+   * list, like `created_at`. A later event restating it cannot move a legal
+   * deadline that has already started running.
+   * ⚠️ NULL means 「we never recorded it」 — for rows predating this column — and
+   * must NEVER be read as 「the window has closed」. B3 shows no withdrawal panel
+   * on a null; it does not refuse one.
+   */
+  contract_concluded_at: string | null;
   /** evt_xxx of the event that last wrote this row — the audit link into
    *  `billing_events`. */
   last_event_id: string;
@@ -161,6 +216,34 @@ export interface BillingEventRow {
   last_notification_id: string | null;
 }
 
+/**
+ * One row of `refund_requests` (0.3.25 B3).
+ *
+ * 🔴 `kind` separates a RIGHT from a REQUEST. A statutory withdrawal is executed,
+ * never decided; a discretionary refund is decided by a person. The DDL argues
+ * this at length — the short version is that one shared value would put a reject
+ * button in front of a legal obligation.
+ */
+export interface RefundRequestRow {
+  id: string;
+  user_id: string;
+  subscription_id: string;
+  /** null when there was nothing to refund — see state 'none_due'. */
+  transaction_id: string | null;
+  kind: 'statutory_withdrawal' | 'discretionary';
+  /** submitted = asked Paddle. failed = asked and could not. none_due = valid and
+   *  there was nothing to give back. 🔴 None of the three means 「the money is
+   *  back in their account」; only Paddle can say that, later. */
+  state: 'submitted' | 'failed' | 'none_due';
+  amount_minor: number | null;
+  currency: string | null;
+  paddle_adjustment_id: string | null;
+  /** Paddle's own word, verbatim — usually `pending_approval` on a live account. */
+  paddle_status: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
 export interface BillingRepo {
   /** true = this event_id is new (now registered); false = already seen, the
    *  caller must return 200 directly and write no state */
@@ -183,6 +266,50 @@ export interface BillingRepo {
   getSubscription(subscription_id: string): PaddleSubRow | null;
   latestForUser(user_id: string): PaddleSubRow | null;
   upsertSubscription(row: PaddleSubRow): void;
+  /**
+   * 0.3.25 B1 (card D-2) — EVERY subscription row this account owns, newest
+   * first.
+   *
+   * 🔴 NOT `latestForUser`, and the difference is the whole point of adding a
+   * second read. That one answers 「which subscription is in force」 and is
+   * correct for the plan surface; account deletion is asking a different
+   * question — 「what will keep charging this person after we forget them」 —
+   * and the answer to that is ALL of them. An account that upgraded once has
+   * two rows, and tombstoning only the newest would leave the older one
+   * unattributable and, if it ever were still live, unstoppable.
+   * One value, one question.
+   */
+  listForUser(user_id: string): PaddleSubRow[];
+  /**
+   * Record that we are letting go of a subscription while it may still be live
+   * at Paddle. Idempotent: a second call for the same id is a no-op, so a
+   * retried deletion cannot rewrite the first tombstone's timestamp.
+   *
+   * ⚠️ This is BOOKKEEPING, not cancellation. It makes the charge attributable
+   * and reachable; stopping it needs the outbound client (B2), which is what
+   * later stamps `cancel_verified_at`. Naming it `tombstone…` rather than
+   * `cancel…` is deliberate — a method called cancel that cancels nothing is
+   * how a reader concludes the problem is handled.
+   */
+  tombstoneSubscription(row: PaddleSubTombstone): void;
+  /**
+   * 0.3.25 B3 — record a refund we asked Paddle for, whatever the answer was.
+   *
+   * 🔴 IT IS WRITTEN ON EVERY PATH, INCLUDING THE FAILURES, and that is the
+   * feature rather than diligence. A withdrawal that we accepted and then could
+   * not refund is the single case someone will come back about, and if the only
+   * trace of it is a log line that has rotated away, the conversation starts
+   * with us saying 「we have no record of that」 to a person who is right.
+   *
+   * ⚠️ 'submitted' does NOT mean the money moved — Paddle usually holds refunds
+   * for approval. `paddle_status` carries its word verbatim so no reader has to
+   * infer, and so nobody can round it up.
+   */
+  recordRefundRequest(row: RefundRequestRow): void;
+  /** Every refund record for this account, newest first. Read by the console so
+   *  a user can see 「requested on X, Paddle says pending」 rather than having to
+   *  trust that something happened. */
+  listRefundRequests(user_id: string, limit: number): RefundRequestRow[];
   listEventsForUser(user_id: string, limit: number): BillingEventRow[];
   /**
    * 0.2.38 — the rows NO per-user view can ever show.
@@ -256,6 +383,10 @@ function toSubRow(r: Record<string, unknown>): PaddleSubRow {
     cycle: (r.cycle as string | null) ?? null,
     current_period_end: (r.current_period_end as string | null) ?? null,
     canceled_at: (r.canceled_at as string | null) ?? null,
+    scheduled_change_action: (r.scheduled_change_action as string | null) ?? null,
+    scheduled_change_at: (r.scheduled_change_at as string | null) ?? null,
+    next_billed_at: (r.next_billed_at as string | null) ?? null,
+    contract_concluded_at: (r.contract_concluded_at as string | null) ?? null,
     last_event_id: r.last_event_id as string,
     last_occurred_at: r.last_occurred_at as string,
     created_at: r.created_at as string,
@@ -366,8 +497,10 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
   const upsertSub = db.prepare(
     `INSERT INTO paddle_subscriptions
        (subscription_id, user_id, customer_id, status, tier, price_id, cycle,
-        current_period_end, canceled_at, last_event_id, last_occurred_at, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        current_period_end, canceled_at, scheduled_change_action, scheduled_change_at,
+        next_billed_at, contract_concluded_at,
+        last_event_id, last_occurred_at, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(subscription_id) DO UPDATE SET
        user_id            = excluded.user_id,
        customer_id        = excluded.customer_id,
@@ -377,6 +510,13 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
        cycle              = excluded.cycle,
        current_period_end = excluded.current_period_end,
        canceled_at        = excluded.canceled_at,
+       scheduled_change_action = excluded.scheduled_change_action,
+       scheduled_change_at     = excluded.scheduled_change_at,
+       next_billed_at          = excluded.next_billed_at,
+       -- 🔴 contract_concluded_at is ABSENT from this list on purpose, exactly
+       -- like created_at two lines down. It is the start of a statutory
+       -- deadline: a later event restating it must not be able to move it, and
+       -- an event that omits it must not be able to erase it.
        last_event_id      = excluded.last_event_id,
        last_occurred_at   = excluded.last_occurred_at,
        updated_at         = excluded.updated_at`,
@@ -398,6 +538,36 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
      ORDER BY updated_at ASC`,
   );
   const removeSubStmt = db.prepare('DELETE FROM paddle_subscriptions WHERE subscription_id = ?');
+  // 0.3.25 B1 (card D-2). Same ORDER BY as `subLatestForUser`, so 「newest first」
+  // means the same thing in both reads and the head of this list IS the row the
+  // plan surface calls current.
+  const subsForUser = db.prepare(
+    `SELECT * FROM paddle_subscriptions WHERE user_id = ?
+     ORDER BY last_occurred_at DESC, updated_at DESC, subscription_id DESC`,
+  );
+  // DO NOTHING, not DO UPDATE: a retried account deletion must not be able to
+  // restamp a tombstone that already exists. The FIRST record of letting go is
+  // the true one.
+  const tombstoneStmt = db.prepare(
+    `INSERT INTO paddle_subscription_tombstones
+       (subscription_id, customer_id, status_at_deletion, tier_at_deletion,
+        current_period_end, reason, created_at, cancel_verified_at)
+     VALUES (?,?,?,?,?,?,?,NULL)
+     ON CONFLICT(subscription_id) DO NOTHING`,
+  );
+
+  // 0.3.25 B3. A plain INSERT with no upsert arm: every refund we ask for is its
+  // own event and two withdrawals a month apart are two rows, not one row
+  // overwritten. The id is minted by the caller.
+  const refundInsert = db.prepare(
+    `INSERT INTO refund_requests
+       (id, user_id, subscription_id, transaction_id, kind, state,
+        amount_minor, currency, paddle_adjustment_id, paddle_status, detail, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const refundsForUser = db.prepare(
+    'SELECT * FROM refund_requests WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+  );
 
   return {
     claimEvent(row): boolean {
@@ -455,11 +625,66 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
         row.cycle,
         row.current_period_end,
         row.canceled_at,
+        row.scheduled_change_action,
+        row.scheduled_change_at,
+        row.next_billed_at,
+        row.contract_concluded_at,
         row.last_event_id,
         row.last_occurred_at,
         row.created_at,
         row.updated_at,
       );
+    },
+    listForUser(user_id): PaddleSubRow[] {
+      return (subsForUser.all(user_id) as Record<string, unknown>[]).map(toSubRow);
+    },
+    tombstoneSubscription(row): void {
+      tombstoneStmt.run(
+        row.subscription_id,
+        row.customer_id,
+        row.status_at_deletion,
+        row.tier_at_deletion,
+        row.current_period_end,
+        row.reason,
+        row.created_at,
+      );
+    },
+    recordRefundRequest(row): void {
+      refundInsert.run(
+        row.id,
+        row.user_id,
+        row.subscription_id,
+        row.transaction_id,
+        row.kind,
+        row.state,
+        row.amount_minor,
+        row.currency,
+        row.paddle_adjustment_id,
+        row.paddle_status,
+        row.detail,
+        row.created_at,
+      );
+    },
+    listRefundRequests(user_id, limit): RefundRequestRow[] {
+      return (refundsForUser.all(user_id, limit) as Record<string, unknown>[]).map((r) => ({
+        id: String(r.id),
+        user_id: String(r.user_id),
+        subscription_id: String(r.subscription_id),
+        transaction_id: r.transaction_id === null ? null : String(r.transaction_id),
+        // 🔴 Narrowed by TEST, never by `as`. These two columns are free text in
+        // SQLite, and a hand-written cast on a DB string is a claim the compiler
+        // does not check — book 13 §7 F1 ⑤, which this repo has already paid for
+        // once. An unrecognised value falls to the safest reading rather than
+        // being asserted into a union it is not in.
+        kind: r.kind === 'discretionary' ? 'discretionary' : 'statutory_withdrawal',
+        state: r.state === 'submitted' || r.state === 'none_due' ? r.state : 'failed',
+        amount_minor: r.amount_minor === null ? null : Number(r.amount_minor),
+        currency: r.currency === null ? null : String(r.currency),
+        paddle_adjustment_id: r.paddle_adjustment_id === null ? null : String(r.paddle_adjustment_id),
+        paddle_status: r.paddle_status === null ? null : String(r.paddle_status),
+        detail: r.detail === null ? null : String(r.detail),
+        created_at: String(r.created_at),
+      }));
     },
     listEventsForUser(user_id, limit): BillingEventRow[] {
       return (eventsByUser.all(user_id, limit) as Record<string, unknown>[]).map(toEventRow);

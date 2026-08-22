@@ -189,22 +189,55 @@ fn a_blank_generated_at_is_tolerated_because_we_never_act_on_it() {
 
 /// Artifact selection. The caller says what it can install; this type says what
 /// is on offer.
+///
+/// 🔴 RENAMED AND REWRITTEN 0.3.24, and the old name is kept in this sentence
+/// because it is the evidence: `selection_prefers_an_exact_locale_then_a_neutral_
+/// build_then_nothing`. That last clause — 「then nothing」 — was the defect, and
+/// this test was what made the defect look like the specification. See
+/// `manifest.rs::pick` for what it cost (in-app update was unreachable for every
+/// MSI user whose UI language was not zh-CN, which includes the product default).
+///
+/// The assertion that did it read:
+///
+///     // A `find`-by-kind that ignored locale would have returned the zh-CN
+///     // build to a Japanese user here.
+///     assert!(w.pick(&["msi"], "ja-JP").is_none());
+///
+/// Every word of that comment is true. The conclusion drawn from it was wrong:
+/// handing a Japanese user a zh-CN MSI is not a harm (it installs `/passive`,
+/// same payload, and the app's own language is a FlowMic setting), while handing
+/// them NOTHING is. CLAUDE.md already carries this exact shape from 0.2.52:
+/// 「反向对照选错了方向，比没有反向对照更坏 —— 它不是漏掉一个缺陷，是把缺陷写成了
+/// 验收标准」 ("a control assertion pointed the wrong way is worse than none — it
+/// does not miss a defect, it writes the defect into the acceptance criteria").
+/// The question that was never asked of it: **if this assertion is wrong, who
+/// comes and tells me?** Nobody did, for as long as the release machine happened
+/// to run the one install form the bug spares.
 #[test]
-fn selection_prefers_an_exact_locale_then_a_neutral_build_then_nothing() {
+fn selection_walks_exact_then_same_language_then_neutral_then_any_of_that_kind() {
     let m = parse_manifest(&good()).unwrap();
     let w = m.platform("windows-x64").unwrap();
 
-    // Exact locale match wins.
+    // ① Exact locale match wins.
     assert_eq!(w.pick(&["msi"], "en-US").unwrap().locale.as_deref(), Some("en-US"));
     assert_eq!(w.pick(&["msi"], "zh-CN").unwrap().locale.as_deref(), Some("zh-CN"));
 
-    // 🔴 No MSI for ja-JP — and the answer is the NEUTRAL msi only if one
-    // existed. There is none, so `msi` yields nothing and preference order moves
-    // on. A `find`-by-kind that ignored locale would have returned the zh-CN
-    // build to a Japanese user here.
-    assert!(w.pick(&["msi"], "ja-JP").is_none());
+    // ② 🔴 THE TIER WHOSE ABSENCE WAS THE BUG. `en` is the product's DEFAULT UI
+    // locale tag and the manifest's MSI is tagged `en-US`; before 0.3.24 these
+    // did not match, no neutral msi exists, and the user was told this release
+    // had no package for their machine while two sat in the manifest.
+    assert_eq!(w.pick(&["msi"], "en").unwrap().locale.as_deref(), Some("en-US"));
+    assert_eq!(w.pick(&["msi"], "zh").unwrap().locale.as_deref(), Some("zh-CN"));
 
-    // A locale-less kind serves everybody.
+    // ④ A language with no build of its own still gets one, rather than getting
+    // the feature taken away. Which one is unspecified on purpose — the tiers
+    // above decide it, and pinning array order here would re-create exactly the
+    // kind of assertion this test's header is about.
+    for loc in ["ja", "ko", "ru", "fr", "es", "de", "zh-TW"] {
+        assert_eq!(w.pick(&["msi"], loc).expect("every UI locale can install an msi").kind, "msi");
+    }
+
+    // ③ A locale-less kind serves everybody.
     for loc in ["zh-CN", "en-US", "ja-JP", "ko-KR"] {
         assert_eq!(w.pick(&["portable-zip"], loc).unwrap().kind, "portable-zip");
     }

@@ -34,6 +34,7 @@
   <UpdateBlock
     :s="s"
     :busy="busy"
+    :open-failed="openFailed"
     @check="updateCheckNow"
     @download="updateDownload"
     @apply="updateApply"
@@ -44,7 +45,9 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue';
 import UpdateBlock from './UpdateBlock.vue';
+import { openExternalUrl } from '../../lib/bridge-os';
 import {
   updateApply,
   updateBusy as busy,
@@ -55,7 +58,22 @@ import {
   updateState as s,
 } from '../update-store';
 
-const openPage = () => {
-  if (s.value.notes_url) window.open(s.value.notes_url, '_blank', 'noreferrer');
+/** 🔴 0.3.24 — WAS `window.open`, which opened NOTHING. Reported from a
+ *  real machine (owner 2026-08-21, Windows 10 on 0.3.5: 「要连接下载页去下载，但又
+ *  点不开」), root cause in `src-tauri/src/shell/external_open.rs`: a WebView2
+ *  window declared in tauri.conf.json drops every new-window request on the
+ *  floor. The click did nothing, threw nothing, and logged nothing.
+ *
+ *  ⚠️ It is the WHOLE of this card's manual route — when the plan is
+ *  `manual_only` there is no download button behind it — so a refusal is
+ *  rendered rather than swallowed: the block shows the sentence plus the address
+ *  itself, and the user can still get there by hand. */
+const openFailed = ref<string | null>(null);
+const openPage = async () => {
+  const url = s.value.notes_url;
+  if (!url) return;
+  openFailed.value = null;
+  const r = await openExternalUrl(url);
+  if (!r.ok) openFailed.value = url;
 };
 </script>

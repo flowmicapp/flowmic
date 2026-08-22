@@ -179,6 +179,46 @@ export interface SubscriptionFacts {
   /** `data.custom_data.flowmic_user_id` — what we put on the checkout. A CLAIM,
    *  not an identity: the handler still has to find that account. */
   claimed_user_id: string | null;
+
+  // ── 0.3.25 B1 · the three facts the compliance surface needs ──────────────
+  //
+  // 🔴 WHY THESE ARE NOT DERIVABLE FROM WHAT WAS ALREADY HERE, which is the
+  // whole reason they had to be added rather than computed. Before this round a
+  // scheduled cancellation reached us as `status:'active'` — because that is
+  // what it IS at Paddle — so the console had exactly one word for two facts:
+  // 「still active」 and 「still active, and will not renew」. R11's rule is that
+  // the layer making the judgement must HOLD the fact it needs, and it did not.
+
+  /** `data.scheduled_change.action` — `'cancel' | 'pause' | 'resume'`, or the
+   *  three-way absent/null. Stored verbatim (Paddle's word), like `status`.
+   *
+   *  ⚠️ THE `null` CASE IS LOAD-BEARING AND IS NOT A ROUNDING OF `undefined`.
+   *  Paddle sends `scheduled_change: null` when a pending cancellation is
+   *  REVOKED (our /resume, or a change made in Paddle's own portal). Collapsing
+   *  absent-into-null would clear the columns on every unrelated event; the
+   *  reverse collapse would leave 「will not renew」 painted on a subscription
+   *  the user just rescued. Both mistakes are silent and both are visible only
+   *  to the person being billed. */
+  scheduled_change_action: string | null | undefined;
+  /** `data.scheduled_change.effective_at` — the date the console renders as
+   *  「service runs until X」. Read from the SAME object as the action above, so
+   *  the two cannot disagree about which change they describe. */
+  scheduled_change_at: string | null | undefined;
+  /** `data.next_billed_at` — 「you will be charged again on」. Paddle sets it to
+   *  `null` once a cancellation is scheduled, which is why it is a separate
+   *  question from `current_period_end` (that one keeps answering 「how long you
+   *  have paid for」 and does not go away). */
+  next_billed_at: string | null | undefined;
+  /** `data.started_at` — when this subscription began, i.e. our best evidence
+   *  of when the distance contract was concluded.
+   *
+   *  🔴 CAPTURED IN B1 THOUGH ITS ONLY READER ARRIVES IN B3 (the 14-day EU
+   *  withdrawal window). That is deliberate and is the one case where writing a
+   *  column ahead of its consumer is correct rather than façade: this fact is
+   *  only ever present on the events themselves, so a column added later can
+   *  never be backfilled — every subscription created in the gap would have no
+   *  computable withdrawal deadline, forever. */
+  started_at: string | null | undefined;
 }
 
 /**
@@ -265,8 +305,42 @@ function periodEndIn(data: Record<string, unknown>): string | null | undefined {
   return statedStamp(period, 'ends_at');
 }
 
+/**
+ * `data.scheduled_change` → the two columns that answer 「is something going to
+ * happen to this subscription, and when」.
+ *
+ * The tri-state is preserved through a NESTED object, which `statedString`
+ * cannot do on its own, so it is spelled out here:
+ *   · key absent                → `undefined` / `undefined`  (say nothing, keep the row)
+ *   · `scheduled_change: null`  → `null` / `null`            (REVOKED — clear the row)
+ *   · an object                 → whatever it states; an unreadable field inside
+ *                                 a PRESENT object still means 「there is a
+ *                                 scheduled change」, so the action falls back to
+ *                                 `undefined` rather than clearing its partner.
+ *
+ * 🔴 THE TWO VALUES ARE RETURNED TOGETHER, from one read, on purpose. Read
+ * separately they could come from different shapes of the payload and describe
+ * different changes — an action from one event and a date from another is a
+ * sentence neither event ever said.
+ */
+function scheduledChangeIn(data: Record<string, unknown>): {
+  action: string | null | undefined;
+  at: string | null | undefined;
+} {
+  if (!('scheduled_change' in data)) return { action: undefined, at: undefined };
+  const v = data.scheduled_change;
+  if (v === null) return { action: null, at: null };
+  const obj = asObject(v);
+  // Present but unreadable: we know a change EXISTS and cannot say what it is.
+  // Clearing here would be the damaging direction (statedString's own rule).
+  if (obj === null) return { action: undefined, at: undefined };
+  const at = normalizeRfc3339(obj.effective_at);
+  return { action: asString(obj.action) ?? undefined, at: at ?? undefined };
+}
+
 export function readSubscriptionFacts(eventType: string, data: Record<string, unknown>): SubscriptionFacts {
   const custom = asObject(data.custom_data);
+  const scheduled = scheduledChangeIn(data);
   return {
     subscription_id: subscriptionIdFor(eventType, data),
     customer_id: statedString(data, 'customer_id'),
@@ -276,5 +350,9 @@ export function readSubscriptionFacts(eventType: string, data: Record<string, un
     current_period_end: periodEndIn(data),
     canceled_at: statedStamp(data, 'canceled_at'),
     claimed_user_id: custom === null ? null : asString(custom.flowmic_user_id),
+    scheduled_change_action: scheduled.action,
+    scheduled_change_at: scheduled.at,
+    next_billed_at: statedStamp(data, 'next_billed_at'),
+    started_at: statedStamp(data, 'started_at'),
   };
 }

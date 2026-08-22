@@ -213,10 +213,30 @@ async function seedAccount(email: string): Promise<Seeded> {
     cycle: 'monthly',
     current_period_end: '2099-01-01T00:00:00.000Z',
     canceled_at: null,
+    scheduled_change_action: null,
+    scheduled_change_at: null,
+    next_billed_at: null,
+    contract_concluded_at: null,
     last_event_id: `evt_${user.id}`,
     last_occurred_at: '2026-08-01T00:00:00.000Z',
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
+  });
+  // 0.3.25 B3 — a refund record, so the cascade assertion for this table is
+  // measuring a real row rather than an empty table agreeing with itself.
+  db.billing.recordRefundRequest({
+    id: `rfd_${user.id}`,
+    user_id: user.id,
+    subscription_id: `sub_${user.id}`,
+    transaction_id: 'txn_1',
+    kind: 'statutory_withdrawal',
+    state: 'submitted',
+    amount_minor: 600,
+    currency: 'USD',
+    paddle_adjustment_id: 'adj_1',
+    paddle_status: 'pending_approval',
+    detail: null,
+    created_at: '2026-08-01T00:00:00.000Z',
   });
   db.billing.claimEvent({
     event_id: `evt_${user.id}`,
@@ -267,6 +287,10 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     timeline_keymeta: rowsFor('timeline_keymeta', 'user_id', userId),
     timeline_grants: rowsFor('timeline_grants', 'user_id', userId),
     paddle_subscriptions: rowsFor('paddle_subscriptions', 'user_id', userId),
+    // 0.3.25 B3 — refund records. Counted per-account because it HAS a user_id
+    // and cascades, which is the opposite arrangement from the tombstone table
+    // below; both are listed so the contrast stays visible to a reader.
+    refund_requests: rowsFor('refund_requests', 'user_id', userId),
     email_verifications: rowsFor('email_verifications', 'user_id', userId),
     billing_events: rowsFor('billing_events', 'user_id', userId),
     ops_audit_log: rowsFor('ops_audit_log', 'actor_user_id', userId),
@@ -274,8 +298,21 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     // design), so its 「retained」 probe is table-wide: the whole point is that
     // an account deletion cannot even NAME rows here to sweep.
     site_daily_counts: (db.raw.prepare('SELECT COUNT(*) AS n FROM site_daily_counts').get() as { n: number }).n,
+    // 0.3.25 B1 (card D-2). Table-wide like site_daily_counts above, but for the
+    // opposite reason: this table has no account column because the account it
+    // refers to no longer exists by the time a row is written.
+    paddle_subscription_tombstones: (
+      db.raw.prepare('SELECT COUNT(*) AS n FROM paddle_subscription_tombstones').get() as { n: number }
+    ).n,
   };
 }
+
+/** 🔴 The one retained table whose rows the deletion CREATES rather than spares.
+ *  Every other entry in USER_RETAINED_TABLES must be non-empty BEFORE the delete
+ *  for the 「it survived」 assertion to mean anything; for this one the honest
+ *  expectation is the reverse — empty before, non-empty after — so it is
+ *  excluded from the before-probe BY NAME and asserted separately below. */
+const TOMBSTONES = 'paddle_subscription_tombstones';
 
 function deleteBody(who: Seeded, over: Record<string, unknown> = {}): Record<string, unknown> {
   return { confirm: 'DELETE', confirm_user_id: who.id, ...over };
@@ -292,7 +329,11 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // The scanner must actually see the schema — a probe that found no tables
     // would make every assertion below vacuously true.
     expect(tables).toContain('users');
-    expect(tables.length).toBe(14); // fourteen since site_daily_counts (2026-08-15)
+    // Sixteen since refund_requests (0.3.25 B3 §8c); fifteen since
+    // paddle_subscription_tombstones (0.3.25 B1, card D-2). The number is pinned
+    // rather than derived on purpose — it is what makes ADDING a table a
+    // decision that passes through this census instead of past it.
+    expect(tables.length).toBe(16);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];
@@ -511,7 +552,12 @@ describe('POST /api/account/delete — the cascade, per table', () => {
     const a = await seedAccount('cascade@b.co');
     const before = countsFor(a.id, a.pcId);
     // The probe is not blind: every table this account owns has rows in it.
+    // (Except the tombstone table — see TOMBSTONES: the delete is its writer.)
     for (const [table, n] of Object.entries(before)) {
+      if (table === TOMBSTONES) {
+        expect(n, 'a tombstone existed BEFORE the delete that creates it').toBe(0);
+        continue;
+      }
       expect(n, `${table} was already empty BEFORE the delete — this assertion would prove nothing`).toBeGreaterThan(0);
     }
     expect(before.mobile_pairings).toBe(2); // incl. the NULL-user_id one
@@ -539,6 +585,63 @@ describe('POST /api/account/delete — the cascade, per table', () => {
     for (const table of USER_RETAINED_TABLES) {
       expect(after[table], `${table} was swept — it is supposed to survive an account deletion`).toBeGreaterThan(0);
     }
+  });
+
+  // ── 🔴 0.3.25 B1 · card D-2 ────────────────────────────────────────────────
+  //
+  // THE DEFECT: `paddle_subscriptions` cascades away with the account and
+  // NOTHING was ever called at Paddle, so closing an account left the card being
+  // charged on schedule with our only `sub_xxx` → person mapping deleted. Every
+  // later webhook for that subscription lands as `unmapped`, naming nobody, and
+  // the delete response reports `paddle_subscriptions` among the tables it
+  // cascaded — true, and reads as 「handled」.
+  //
+  // ⚠️ WHAT THIS TEST DOES NOT CLAIM: that the billing stopped. It did not.
+  // Cancelling needs the outbound client (B2). This pins the narrower thing that
+  // had to come first — the identifier survives, so the charge stays
+  // attributable and the cancellation stays possible.
+  it('🔴 D-2: a deleted account leaves a TOMBSTONE for every subscription it owned', async () => {
+    const a = await seedAccount('tombstone@b.co');
+    const owned = db.billing.listForUser(a.id);
+    // Positive control: the account really does own a subscription, so a
+    // tombstone found below is a tombstone that was WRITTEN and not one left
+    // over from another test.
+    expect(owned.length).toBeGreaterThan(0);
+
+    const r = await post('/api/account/delete', deleteBody(a), a.bearer);
+    expect(r.status).toBe(200);
+    // The cascade really did take the source rows — this is the fact that makes
+    // reading them AFTER the delete impossible, i.e. why the write must precede it.
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM paddle_subscriptions WHERE user_id = ?').get(a.id)).toEqual({ n: 0 });
+
+    const stones = db.raw
+      .prepare('SELECT * FROM paddle_subscription_tombstones ORDER BY subscription_id')
+      .all() as Record<string, unknown>[];
+    expect(stones.map((s) => s.subscription_id).sort()).toEqual(owned.map((s) => s.subscription_id).sort());
+    const first = stones[0]!;
+    expect(first.reason).toBe('account_deleted');
+    expect(first.status_at_deletion).toBe(owned[0]!.status);
+    // 🔴 NULL, and it means 「never cancelled」 rather than 「unknown」. B2 is what
+    // stamps it. A row that arrived here already stamped would mean something
+    // claimed to have cancelled at Paddle without an outbound client existing.
+    expect(first.cancel_verified_at).toBeNull();
+    // 🔴 NO PII. Erasing a person and then keeping their address in the record of
+    // that erasure would undo it. Asserted as a property of the whole row, not of
+    // the columns we happen to have listed, so a future column carrying an email
+    // fails here rather than shipping.
+    expect(JSON.stringify(first)).not.toContain('tombstone@b.co');
+  });
+
+  it('🔴 D-2: deleting twice does not restamp the first tombstone', async () => {
+    const a = await seedAccount('twice@b.co');
+    await post('/api/account/delete', deleteBody(a), a.bearer);
+    const firstPass = db.raw.prepare('SELECT * FROM paddle_subscription_tombstones').all();
+    // Second call: the account is already gone, so it deletes nothing — but the
+    // tombstone write runs unconditionally and must be a no-op rather than a
+    // rewrite. 「When did we let go of this subscription」 has one true answer and
+    // a retry must not move it.
+    deleteAccount(a.id, { users: db.users, billingLedger: db.billing });
+    expect(db.raw.prepare('SELECT * FROM paddle_subscription_tombstones').all()).toEqual(firstPass);
   });
 
   it('🔴 the pairing with a NULL user_id dies too — through the CHAINED cascade', async () => {
@@ -641,7 +744,7 @@ describe('POST /api/account/delete — sessions and tokens die with the account'
   it('deleteAccount() reports `deleted:false` for an account that is already gone', () => {
     // Unreachable over HTTP (the Bearer dies with the row), so it is pinned at the
     // function: the value must be a truthful false, never a fabricated true.
-    const gone = deleteAccount('u-never-existed', { users: db.users });
+    const gone = deleteAccount('u-never-existed', { users: db.users, billingLedger: db.billing });
     expect(gone.deleted).toBe(false);
     expect(gone.ok).toBe(true);
   });
@@ -650,7 +753,7 @@ describe('POST /api/account/delete — sessions and tokens die with the account'
     // Idempotency: second call is still success (ok:true, deleted:false) — we
     // change what the response CLAIMS about work, not whether it succeeds.
     const a = await seedAccount('idempotent-cascade@b.co');
-    const first = deleteAccount(a.id, { users: db.users });
+    const first = deleteAccount(a.id, { users: db.users, billingLedger: db.billing });
     expect(first).toEqual({
       ok: true,
       deleted: true,
@@ -663,7 +766,7 @@ describe('POST /api/account/delete — sessions and tokens die with the account'
     });
     expect(first.cascaded.length).toBeGreaterThan(0);
 
-    const second = deleteAccount(a.id, { users: db.users });
+    const second = deleteAccount(a.id, { users: db.users, billingLedger: db.billing });
     expect(second.ok).toBe(true);
     expect(second.deleted).toBe(false);
     expect(second.user_id).toBe(a.id);

@@ -175,9 +175,31 @@ export interface PaddleConfig {
   env: PaddleEnv;
   /** FLOWMIC_PADDLE_WEBHOOK_SECRET. 🔴 NEVER logged, never persisted. */
   webhookSecret: string | null;
-  /** FLOWMIC_PADDLE_API_KEY. Stored, unused this round (later reconciliation
-   *  pulls). 🔴 Same handling as the webhook secret. */
+  /** FLOWMIC_PADDLE_API_KEY. 🔴 Same handling as the webhook secret.
+   *
+   *  ⚠️ 2026-08-21 CORRECTION (0.3.25 B2). This used to read 「Stored, unused
+   *  this round (later reconciliation pulls)」, and it was true for twenty days:
+   *  a grep for api.paddle.com across the tree returned nothing. It now has one
+   *  consumer, billing/paddle/client.ts, and it is spent on real outbound calls
+   *  whenever `writeEnabled` is on. */
   apiKey: string | null;
+  /**
+   * FLOWMIC_PADDLE_WRITE_ENABLED. 🔴 DEFAULTS OFF, and it is a SEPARATE switch
+   * from `enabled` on purpose.
+   *
+   * `enabled` governs what we ACCEPT from Paddle (webhook intake); this governs
+   * what we SEND to it. They are different risks and they must be openable
+   * separately: intake is read-only and has been live for weeks, whereas a
+   * write can cancel a paying customer or move money. Folding the two into one
+   * flag would mean the day we turned intake on we also turned writes on, which
+   * is precisely the kind of second consequence a single value should never
+   * carry.
+   *
+   * ⚠️ Off does NOT mean 「pretend it worked」: every method on the client throws
+   * a named error while it is off (PaddleWritesDisabledError). Nothing is
+   * silently skipped.
+   */
+  writeEnabled: boolean;
   /** FLOWMIC_PADDLE_TOLERANCE_SEC. Signature timestamp skew window; 5 = the
    *  Paddle SDK default. */
   toleranceSec: number;
@@ -373,6 +395,7 @@ function resolvePaddle(mode: ServerMode, overrides: Partial<PaddleConfig> | unde
     env: overrides?.env ?? envPaddleEnv(),
     webhookSecret,
     apiKey,
+    writeEnabled: overrides?.writeEnabled ?? envFlag('FLOWMIC_PADDLE_WRITE_ENABLED'),
     toleranceSec: overrides?.toleranceSec ?? envToleranceSec(),
     priceTiers: overrides?.priceTiers ?? envPriceTiers(),
   };
@@ -404,7 +427,24 @@ function resolvePaddle(mode: ServerMode, overrides: Partial<PaddleConfig> | unde
       api_key_present: paddle.apiKey !== null,
       api_key_len: paddle.apiKey === null ? 0 : paddle.apiKey.length,
       price_tiers: Object.keys(paddle.priceTiers).length,
+      // 🔴 Boot says which DIRECTION is open. An operator debugging 「the cancel
+      // button does nothing」 needs to be able to tell 「we never turned writes on」
+      // from 「we called Paddle and it said no」 without reading the source, and
+      // this is the only line printed before anyone clicks anything.
+      write_enabled: paddle.writeEnabled,
     });
+    if (paddle.writeEnabled && (paddle.apiKey === null || paddle.apiKey === '')) {
+      // NOT fatal, deliberately, and the asymmetry with the webhook-secret check
+      // above is the argument: a missing webhook secret makes us ACCEPT forged
+      // events (an open door), while a missing API key makes every outbound call
+      // refuse itself by name (a closed one). Refusing to boot over the second
+      // would take the whole relay down — intake, sockets, injection — over a
+      // feature nobody can reach yet. One loud line, and the throw lands on
+      // whoever clicks cancel.
+      log.warn(
+        'paddle WRITES are enabled but FLOWMIC_PADDLE_API_KEY is empty — every outbound call will refuse by name',
+      );
+    }
   } else if (requested !== enabled) {
     log.info('paddle webhook intake disabled', { mode });
   }

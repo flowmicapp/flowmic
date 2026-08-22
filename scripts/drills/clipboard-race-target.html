@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>ClipProbeTarget-READY</title>
+<body style="font:14px sans-serif;margin:0">
+<textarea id="t" autofocus style="width:99vw;height:70vh"></textarea>
+<script>
+ var t = document.getElementById('t');
+ t.focus();
+ // Simulate a BUSY Electron renderer (an AI panel streaming, a big file being
+ // tokenized, an extension host round trip). Chromium runs the editor's Paste
+ // command on the renderer main thread and only then calls back into the
+ // browser process to read the OS clipboard - so a busy renderer delays the
+ // clipboard READ, which is the whole question.
+ var BUSY_MS = parseInt((location.hash || '#0').slice(1), 10) || 0;
+ window.addEventListener('keydown', function (e) {
+   if (BUSY_MS && e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
+     var t0 = Date.now();
+     while (Date.now() - t0 < BUSY_MS) { /* block the main thread */ }
+   }
+ }, true);
+ t.addEventListener('paste', function (e) {
+   var d = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+   document.title = 'GOT[' + d.slice(0, 20) + ']len=' + d.length;
+ });
+</script></body>

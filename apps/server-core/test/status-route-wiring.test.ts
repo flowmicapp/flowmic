@@ -9,10 +9,10 @@
 //   apps/server-core/src/http/status-routes.ts   (the handler)
 //   apps/server-core/src/http/router.ts:413 (`tryHandleStatusRoutes` — the MOUNT
 //     under test)
-//   apps/server-core/src/bootstrap-http-deps.ts:195 (`statusSnapshot` — the DEPS
+//   apps/server-core/src/bootstrap-http-deps.ts:209 (`statusSnapshot` — the DEPS
 //     wiring under test)
-//   apps/server-core/src/bootstrap.ts:369 (`makeStatusProbes` — the ONE runner)
-//   apps/server-core/src/bootstrap.ts:696 (`statusProbes.start()` — armed after
+//   apps/server-core/src/bootstrap.ts:412 (`makeStatusProbes` — the ONE runner)
+//   apps/server-core/src/bootstrap.ts:739 (`statusProbes.start()` — armed after
 //     listen, which is why the boot round is already landing)
 //   apps/server-core/test/health-db-probe-wiring.test.ts (the precedent this mirrors)
 //   CLAUDE.md anti-façade ③: "unit tests all green prove nothing about wiring; every real path needs one real-end run"

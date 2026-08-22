@@ -23,11 +23,30 @@
 //
 // 🔴 LEGAL TEXTS ARE LIVE LINKS (owner 2026-08-14). Privacy and terms open
 // https://flowmic.app/privacy and /terms in the system browser — the same
-// `<a target="_blank">` pattern PairingModal and UpdateBlock already use.
+// `openExternalUrl` door PairingModal and UpdateBlock also go through — the
+// `<a target=_blank>` this line used to describe never opened anything.
 // State-aware sentences (which engine, LAN pin, polish switch) STAY here:
 // the website cannot know this machine's configuration.
+import { ref } from 'vue';
 import { S } from '../../lib/strings';
 import { DISCLOSURE_PRIVACY_URL, DISCLOSURE_TERMS_URL } from '../../lib/strings/disclosure';
+import { openExternalUrl } from '../../lib/bridge-os';
+
+// 🔴 0.3.24 — these two were `<a target=_blank>` and opened NOTHING. Not
+// "sometimes", not "slowly": a WebView2 window declared in tauri.conf.json drops
+// every new-window request (src-tauri/src/shell/external_open.rs has the measured
+// chain). So the product's ONLY in-app route to the privacy policy and the terms
+// has been dead for as long as this page has existed — on a page whose whole job
+// is telling the user what happens to their data.
+//
+// They stay anchors (right cursor, right semantics, right for a screen reader)
+// with the navigation intercepted: `href` remains the truth about where they go.
+const openFailedUrl = ref<string | null>(null);
+async function openLegal(url: string): Promise<void> {
+  openFailedUrl.value = null;
+  const r = await openExternalUrl(url);
+  if (!r.ok) openFailedUrl.value = url;
+}
 </script>
 
 <template>
@@ -104,16 +123,21 @@ import { DISCLOSURE_PRIVACY_URL, DISCLOSURE_TERMS_URL } from '../../lib/strings/
         <a
           class="legal-link"
           :href="DISCLOSURE_PRIVACY_URL"
-          target="_blank"
           rel="noopener noreferrer"
+          @click.prevent="openLegal(DISCLOSURE_PRIVACY_URL)"
         >{{ S.disc_legal_privacy }}</a>
         <span class="legal-sep" aria-hidden="true">·</span>
         <a
           class="legal-link"
           :href="DISCLOSURE_TERMS_URL"
-          target="_blank"
           rel="noopener noreferrer"
+          @click.prevent="openLegal(DISCLOSURE_TERMS_URL)"
         >{{ S.disc_legal_terms }}</a>
+      </p>
+      <!-- The OS refused the address: say it, and leave the address on screen.
+           Silence here would be the very defect this change removes. -->
+      <p v-if="openFailedUrl" class="legal-open-failed" role="alert">
+        {{ S.ext_open_failed }}<br /><span class="mono">{{ openFailedUrl }}</span>
       </p>
     </div>
 
@@ -122,6 +146,8 @@ import { DISCLOSURE_PRIVACY_URL, DISCLOSURE_TERMS_URL } from '../../lib/strings/
 </template>
 
 <style scoped>
+.legal-open-failed { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--amber-ink); }
+.legal-open-failed .mono { word-break: break-all; }
 .disc { max-width: 760px; }
 .hint { font-size: 12.5px; color: var(--t3); line-height: 1.7; margin: 0 0 12px; }
 .hint.scope { margin: 10px 2px 0; }

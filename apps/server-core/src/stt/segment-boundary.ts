@@ -139,7 +139,7 @@ export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
  *
  * WHERE THE FULL STOP COMES FROM. Not from the flush, and not from us — from the
  * recognizer, and our own engine layer already had it written down:
- * `engines/sherpa-local.ts:196` — 「SenseVoice punctuates AS A FUNCTION OF THE
+ * `engines/sherpa-local.ts:202` — 「SenseVoice punctuates AS A FUNCTION OF THE
  * SPAN, so a 「。」 turns into a 「，」 the moment more speech follows it」.
  * ⇒ A segment boundary does not merely SPLIT the text. It changes what the
  * engine DECIDES the text is: hand it half a clause as a closed span and it

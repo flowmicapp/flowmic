@@ -59,7 +59,20 @@
     <div v-else-if="v.kind === 'manual_only'" class="upd-headline" role="status">
       ● {{ S.upd_available }} {{ v.latest }} — {{ reasonText }}
     </div>
-    <div v-else-if="v.kind === 'up_to_date'" class="muted">{{ S.upd_up_to_date }}</div>
+    <!-- 🔴 A VERDICT LINE, not a muted aside (0.3.24). owner 2026-08-21, after
+         updating to the newest build and pressing 「检查更新」:「点击检查新版，没有
+         任何提示」("I click check-for-updates and get no message at all"), then,
+         once shown where it was: 「看起来是显示了：已是最新，但不明显」("turns out
+         it does say 'up to date', it just isn't noticeable"). It was rendered in
+         `.muted` — the same grey as the two lines under it — so the ONE sentence
+         that answers the question the button asks was the quietest thing on the
+         card. This is a status word carrying real evidence (only
+         `plan === 'up_to_date'` can produce it, and the 「last successful check」
+         line right below is that evidence); it gets the same weight as its
+         opposite, and the ✓ so the answer survives a glance. -->
+    <div v-else-if="v.kind === 'up_to_date'" class="upd-headline ok" role="status">
+      ✓ {{ S.upd_up_to_date }}
+    </div>
     <div v-else-if="s.checking" class="muted">{{ S.upd_checking }}</div>
 
     <!-- 🔴 Each failure speaks for itself, never merged into one blanket "update failed." -->
@@ -77,9 +90,14 @@
     <div v-if="s.verified_sha256" class="upd-verified">✓ {{ S.upd_verified }}</div>
 
     <div class="upd-actions">
-      <a v-if="s.notes_url" class="btn ghost sm" :href="s.notes_url" target="_blank" rel="noreferrer">
+      <!-- 🔴 A BUTTON, not an `<a target=_blank>` (0.3.24). The anchor looked
+           right and did nothing — see the note on `openPage` in UpdateCard.vue
+           and the mechanism in src-tauri/src/shell/external_open.rs. Both routes
+           to this page now go through the same emit, so there is one answer to
+           「点了之后会发生什么」. -->
+      <button v-if="s.notes_url" class="btn ghost sm" type="button" @click="emit('open-page')">
         {{ S.upd_notes }}
-      </a>
+      </button>
       <button
         v-if="act.kind === 'download'"
         class="btn sm"
@@ -106,6 +124,14 @@
       >
         {{ S.upd_open_page }}
       </button>
+    </div>
+    <!-- The OS would not take the address. Say so, and put the address where it
+         can be read and selected — the same trade LocalModelCard makes for the
+         model folder, and the reason `open_external_url` returns a Result at
+         all: this card's manual route has nothing behind it. -->
+    <div v-if="openFailed" class="upd-fail" role="alert">
+      <div>{{ S.ext_open_failed }}</div>
+      <div class="upd-detail mono">{{ openFailed }}</div>
     </div>
     <div v-if="act.kind === 'install_msi'" class="muted upd-hint">{{ S.upd_msi_hint }}</div>
     <div v-else-if="act.kind === 'install_portable'" class="muted upd-hint">{{ S.upd_portable_hint }}</div>
@@ -139,7 +165,7 @@ import {
   type UpdateStateDto,
 } from '../../lib/update-view';
 
-const props = defineProps<{ s: UpdateStateDto; busy?: boolean }>();
+const props = defineProps<{ s: UpdateStateDto; busy?: boolean; openFailed?: string | null }>();
 const emit = defineEmits<{
   (e: 'check' | 'download' | 'apply' | 'dismiss' | 'open-page'): void;
   (e: 'toggle-auto', enabled: boolean): void;
@@ -147,6 +173,7 @@ const emit = defineEmits<{
 
 const s = computed(() => props.s);
 const busy = computed(() => props.busy === true);
+const openFailed = computed(() => props.openFailed ?? null);
 const v = computed(() => verdict(props.s));
 const act = computed(() => action(props.s));
 const pct = computed(() => progressPercent(props.s));
@@ -183,6 +210,9 @@ const lastCheckText = computed(() => {
 .sub-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
 .acct-line { display: flex; align-items: baseline; gap: 8px; font-size: 13px; margin-bottom: 6px; }
 .upd-headline { font-size: 13px; font-weight: 600; margin: 4px 0; }
+/* The 「已是最新」 face. Same weight as its opposite above — the difference is the
+   colour, which is the product's own success ink, not a green invented here. */
+.upd-headline.ok { color: var(--green-ink); }
 .upd-last { font-size: 12px; margin: 6px 0; }
 .upd-progress { font-size: 12px; margin: 4px 0; }
 .upd-verified { font-size: 12px; color: var(--green-ink); margin: 4px 0; }

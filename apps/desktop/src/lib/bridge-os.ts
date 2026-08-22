@@ -45,6 +45,26 @@ export async function openLogDirectory(): Promise<{ ok: true } | { ok: false; re
   return r;
 }
 
+/** Open an `https://` address in the user's default BROWSER.
+ *
+ * 🔴 THE ONLY WAY THIS APP CAN OPEN A PAGE, and every external link in the
+ * product must go through it. `target="_blank"` and `window.open()` open
+ * NOTHING here — WebView2 is told the new-window request is handled and it is
+ * dropped (measured off wry/tauri's sources; the whole chain is written down in
+ * `src-tauri/src/shell/external_open.rs`). Every external link in the desktop
+ * app was dead that way until 0.3.24: the update card's download page, the two
+ * legal links on the data-flow page, and the 「get the app」 link in the pairing
+ * modal.
+ *
+ * ⚠️ `ok:true` means the OS ACCEPTED it, not that a browser is in front of the
+ * user — the Rust side measures exactly that much and says so. Callers keep the
+ * address itself readable on screen so a refusal still leaves a route. */
+export async function openExternalUrl(url: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const r = await invokeVerbose('open_external_url', { url });
+  if (!r.ok) appendForensic('extopen', `open failed: ${r.reason}`);
+  return r;
+}
+
 /** Ask the OS, now.
  *
  *  `null` = we could not ask (no bridge / command missing / unrecognised shape)

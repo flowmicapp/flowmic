@@ -23,6 +23,7 @@ fn an_unconfirmed_image_paste_is_a_performed_delivery_not_a_failure() {
             // A CLEAN teardown — the offer was NOT dropped. owner's ruling: an
             // unconfirmed-but-cleanly-withdrawn paste is still a performed delivery.
             dropped_unrendered: false,
+            ..Default::default()
         }));
         assert!(out.ok, "the paste WAS performed; that is what we claim");
         assert_eq!(out.mode, InjectMode::Clipboard);
@@ -39,6 +40,7 @@ fn confirmed_image_paste_is_injected_with_no_invented_error() {
         confirmed: true,
         requested_format: Some(8),
         dropped_unrendered: false,
+            ..Default::default()
     }));
     assert!(out.ok, "a confirmed consumption is a real delivery");
     assert_eq!(out.mode, InjectMode::Clipboard);
@@ -68,6 +70,7 @@ fn an_image_dropped_unrendered_with_no_consumption_is_failed_not_a_delivery() {
         confirmed: false,
         requested_format: None,
         dropped_unrendered: true,
+            ..Default::default()
     }));
     assert!(!out.ok, "the offer was dropped and nothing consumed it — not a delivery");
     assert_eq!(out.error_code, Some(error_codes::INJECT_CLIPBOARD_FAIL));
@@ -87,6 +90,7 @@ fn a_confirmed_image_survives_a_dropped_sibling_format() {
         confirmed: true,
         requested_format: Some(49507), // PNG — the target read it
         dropped_unrendered: true,      // a sibling format (e.g. CF_BITMAP) was dropped
+        ..Default::default()
     }));
     assert!(out.ok, "the target read a format; the picture landed");
     assert_eq!(out.error_code, None, "a real delivery carries no failure code");
@@ -102,6 +106,7 @@ fn an_unconfirmed_image_with_a_clean_teardown_is_still_a_delivery() {
         confirmed: false,
         requested_format: Some(2),
         dropped_unrendered: false, // the withdrawal took — nothing was dropped
+        ..Default::default()
     }));
     assert!(out.ok, "owner de-gated the receipt; a clean unconfirmed paste is a delivery");
     assert_eq!(out.error_code, None);

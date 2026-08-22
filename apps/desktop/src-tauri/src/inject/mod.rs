@@ -12,6 +12,9 @@
 
 pub mod app_learning;
 pub mod clipboard_confirm;
+/// ONE RULE: may the paste hand the user's clipboard back yet? Split from
+/// `clipboard_confirm` because 2026-08-22 was one answer serving two questions.
+pub mod clipboard_hold;
 /// What a PASTE means — `map_clipboard_outcome` / `map_image_outcome` /
 /// `receipt_phrase`, split out of `pipeline.rs` at the 800-line cap. Same cut
 /// `sendinput_outcome.rs` makes for the typing path: the act stays in the
@@ -44,6 +47,13 @@ pub mod pipeline;
 /// Split out of `pipeline.rs` at the 800-line cap; the cut is 「the verdict that
 /// can be settled before typing」 vs 「the act of typing itself」, argued in that file's header.
 pub mod preflight;
+/// READ-BACK (2026-08-22): did the text we delivered actually land in the
+/// focused element? The `WM_RENDERFORMAT` receipt was measured NOT to answer
+/// that — it arrives at the same 13ms whether or not the target is in any state
+/// to paste — so this is what lets the paste stop holding the user's clipboard.
+/// Like `msaa_focus`, it may only ever say YES: three of four measured targets
+/// answer, and the fourth must not be called a failure for being unreadable.
+pub mod readback;
 /// 🔴 owner 2026-08-02 (F1a): 「own input fields must be able to receive
 /// injection」. A NEW source of truth answering
 /// 「does FlowMic's own window currently have an editable focus」 — merged with nothing, because

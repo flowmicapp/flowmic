@@ -23,7 +23,7 @@
 import { computed, onMounted, onUnmounted } from 'vue';
 import { S } from '../../lib/strings';
 import { dismissModelNotice, modelStore, startModelPolling } from '../../lib/model-client';
-import { builtinEngineSelected, shouldOfferModelSetup } from '../../lib/model-status';
+import { anyModelReady, builtinEngineSelected, shouldOfferModelSetup } from '../../lib/model-status';
 import { model } from '../settings-model';
 import { navigateMain } from '../../lib/bridge';
 
@@ -41,7 +41,15 @@ onUnmounted(() => { stop?.(); stop = null; });
 const show = computed(() =>
   shouldOfferModelSetup({
     builtinSelected: builtinEngineSelected(model.routings),
-    state: modelStore.snapshot?.state ?? null,
+    // LM-CAT: ANY ready pack quiets the notice. A machine whose user speaks
+    // French and downloaded only the French pack has a working built-in
+    // engine — nagging it that "the model" (the legacy SenseVoice row) is
+    // absent would be a true sentence about the wrong subject.
+    state: modelStore.status === null
+      ? null
+      : anyModelReady(modelStore.status)
+        ? 'ready'
+        : modelStore.snapshot?.state ?? null,
     dismissed: modelStore.noticeDismissed,
   }),
 );
