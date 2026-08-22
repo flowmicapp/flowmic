@@ -121,6 +121,12 @@ export const SHIPPED_SECTIONS = [
   // landed the same day and ships in the FIRST 0.3.27 bytes, so its user-facing
   // entries belong in this section. This is a before-first-artifact extension,
   // not an edit of published history — no 0.3.27 bytes exist anywhere.
-  '0.3.27|12fd9d62584e|71',
+  // Re-pinned 2026-08-23 (71→73 lines): owner ruled console-related info must
+  // not appear in the open-source repo — the 0.3.25 console bullet and the
+  // paid-plans quote line came OUT of the public lead (an internal-ledger note
+  // records the removal). This edits published copy on purpose, by owner order;
+  // the GitHub release body and public-repo CHANGELOG are updated in the same
+  // round so all outward copies say the same thing.
+  '0.3.27|78794b3328ae|73',
   '0.3.9|0a6d6f8fb40d|26',
 ];
