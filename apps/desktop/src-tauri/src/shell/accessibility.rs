@@ -94,34 +94,6 @@ pub struct AccessibilityStatus {
     pub translocated: bool,
 }
 
-/// Is `path` inside macOS's App Translocation mount?
-///
-/// Gatekeeper does not run a QUARANTINED app from where it sits. It runs a
-/// read-only copy from `/private/var/folders/<…>/T/AppTranslocation/<UUID>/d/`,
-/// and the UUID is fresh on every launch. An Accessibility grant cannot follow
-/// that, so the user switches FlowMic on in System Settings, SEES it switched
-/// on, and is refused anyway — for ever, across restarts. Moving the app out of
-/// the download folder is the only thing that fixes it, and it is not something
-/// anybody guesses.
-///
-/// ⚠️ THIS IS A PATH-SHAPE TEST, and the trade is named rather than hidden.
-/// `SecTranslocateIsTranslocatedURL` is the authority; using it means CFURL
-/// plumbing (create / query / release) whose failure modes cannot be exercised
-/// by the gates this repo actually runs, on a platform where a Windows-green
-/// gate proves nothing at all. The directory component is documented and stable,
-/// and — unlike the API — it can be pinned by tests that run everywhere,
-/// including against the exact string measured on the machine that produced the
-/// bug. If Apple ever renames it this detector goes quiet and the UI falls back
-/// to today's copy, which is the safe direction: the reader is told to grant a
-/// permission, which is what we tell them today.
-///
-/// 🔴 Matched as a whole PATH COMPONENT, never as a substring. A folder called
-/// `AppTranslocationNotes` must not turn a genuine 「grant it」 into 「move the
-/// app」 — the two instructions are not interchangeable, and the wrong one sends
-/// the reader to reinstall something that was fine.
-pub fn is_translocated_path(path: &str) -> bool {
-    path.split(['/', '\\']).any(|c| c == "AppTranslocation")
-}
 
 /// Ask the OS, now.
 #[tauri::command]
@@ -134,7 +106,7 @@ pub fn accessibility_status() -> AccessibilityStatus {
         // 「move it」 on a guess would send a correctly-installed user to reinstall.
         let translocated = std::env::current_exe()
             .ok()
-            .map(|p| is_translocated_path(&p.to_string_lossy()))
+            .map(|p| crate::inject::preflight::is_translocated_path(&p.to_string_lossy()))
             .unwrap_or(false);
         AccessibilityStatus {
             supported: true,
@@ -192,55 +164,6 @@ pub fn open_accessibility_settings() -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// The exact executable path the bug was measured from, on owner's Mac mini,
-    /// 2026-08-24. Kept verbatim: a detector for a shape nobody can reproduce on
-    /// the gate platform is worth exactly as much as the one real sample it was
-    /// built from, so that sample lives in the suite rather than in a report.
-    const MEASURED: &str = "/private/var/folders/hj/hypsknr14v17_brwdgd3cddm0000gp/T/\
-                            AppTranslocation/37629DE1-EF54-4963-9330-19D1BF61C3FF/d/\
-                            FlowMic-2.app/Contents/MacOS/flowmic-desktop";
-
-    #[test]
-    fn the_measured_translocated_path_is_recognised() {
-        assert!(is_translocated_path(MEASURED));
-    }
-
-    #[test]
-    fn an_ordinary_install_is_not_translocated() {
-        // Where the app ends up once it has been moved — the state this whole
-        // notice is trying to get the user TO, so it must read as clean.
-        assert!(!is_translocated_path(
-            "/Applications/FlowMic.app/Contents/MacOS/flowmic-desktop"
-        ));
-        // And where it sits before being moved. Quarantined-in-Downloads is NOT
-        // the same fact as translocated: the copy on disk is fine, it is the
-        // RUNNING copy that is elsewhere. We only ever see the running one.
-        assert!(!is_translocated_path(
-            "/Users/someone/Downloads/FlowMic.app/Contents/MacOS/flowmic-desktop"
-        ));
-    }
-
-    #[test]
-    fn a_lookalike_directory_is_not_a_translocation() {
-        // 🔴 The reason this is a component match and not `contains`. Getting
-        // this wrong tells a correctly-installed user to move an app that is
-        // already where it belongs — and the two instructions are not
-        // interchangeable, so a false positive costs a reinstall.
-        assert!(!is_translocated_path(
-            "/Users/someone/AppTranslocationNotes/FlowMic.app/Contents/MacOS/flowmic-desktop"
-        ));
-        assert!(!is_translocated_path("/Users/someone/notes/AppTranslocation.md"));
-    }
-
-    #[test]
-    fn the_separator_is_not_assumed_to_be_the_host_platform_s() {
-        // This function is compiled and tested on Windows, where `/` is still a
-        // legal separator in the strings it is handed. Splitting on only one of
-        // the two would make the test that runs here answer a different question
-        // from the code that runs there.
-        assert!(is_translocated_path("C:\\weird\\AppTranslocation\\d\\FlowMic.app"));
-    }
-
     /// The one thing worth pinning on every platform: a non-macOS build must
     /// never report a permission problem, because it has no permission to have a
     /// problem with. Without this, a `supported`-blind front end would show macOS
@@ -276,7 +199,7 @@ mod tests {
         // that the command reports a reading and not a constant.
         let derived = std::env::current_exe()
             .ok()
-            .map(|p| is_translocated_path(&p.to_string_lossy()))
+            .map(|p| crate::inject::preflight::is_translocated_path(&p.to_string_lossy()))
             .unwrap_or(false);
         assert_eq!(a.translocated, derived);
     }

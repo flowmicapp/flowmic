@@ -408,6 +408,48 @@ pub fn synthetic_input_verdict(facts: SyntheticInputFacts) -> Option<InjectOutco
 /// High-target probe on any ordinary, non-elevated machine.
 /// Context: `docs/decisions/2026-08-03-f1b-injected-means-delivered-not-landed.md`
 /// §6-5 — only the READ half was ever falsified.
+// 🔴 WHY THIS LIVES IN `inject`, NOT IN `shell::accessibility` WHERE IT IS ALSO USED.
+// `shell` is `#[cfg(feature = "app")] pub mod` (lib.rs) so that `cargo test` never
+// drags in wry/webview2. This file is NOT feature-gated, so reaching into
+// `crate::shell::…` from here compiles under `--features app` and fails under the
+// default feature set — E0433, on macOS only, in the ONE build nobody runs by hand.
+// Measured: the public repo's verify-macos job caught it on the 0.3.32 sync, AFTER a
+// Windows `verify:delivery` had gone green — on Windows this whole macOS arm is
+// configured out, so neither feature set ever compiles the call. Same shape as
+// RELEASE-IRONRULES §1-17, one layer along: there an attribute moved onto the wrong
+// item, here the module an item points at is simply absent.
+// ⇒ It sits beside `synthetic_input_verdict`, which is here for the reason stated at
+// its own declaration: a pure judgement, provable on every platform including the
+// ones that can never produce it.
+/// Is `path` inside macOS's App Translocation mount?
+///
+/// Gatekeeper does not run a QUARANTINED app from where it sits. It runs a
+/// read-only copy from `/private/var/folders/<…>/T/AppTranslocation/<UUID>/d/`,
+/// and the UUID is fresh on every launch. An Accessibility grant cannot follow
+/// that, so the user switches FlowMic on in System Settings, SEES it switched
+/// on, and is refused anyway — for ever, across restarts. Moving the app out of
+/// the download folder is the only thing that fixes it, and it is not something
+/// anybody guesses.
+///
+/// ⚠️ THIS IS A PATH-SHAPE TEST, and the trade is named rather than hidden.
+/// `SecTranslocateIsTranslocatedURL` is the authority; using it means CFURL
+/// plumbing (create / query / release) whose failure modes cannot be exercised
+/// by the gates this repo actually runs, on a platform where a Windows-green
+/// gate proves nothing at all. The directory component is documented and stable,
+/// and — unlike the API — it can be pinned by tests that run everywhere,
+/// including against the exact string measured on the machine that produced the
+/// bug. If Apple ever renames it this detector goes quiet and the UI falls back
+/// to today's copy, which is the safe direction: the reader is told to grant a
+/// permission, which is what we tell them today.
+///
+/// 🔴 Matched as a whole PATH COMPONENT, never as a substring. A folder called
+/// `AppTranslocationNotes` must not turn a genuine 「grant it」 into 「move the
+/// app」 — the two instructions are not interchangeable, and the wrong one sends
+/// the reader to reinstall something that was fine.
+pub fn is_translocated_path(path: &str) -> bool {
+    path.split(['/', '\\']).any(|c| c == "AppTranslocation")
+}
+
 #[cfg(all(target_os = "macos", not(test)))]
 pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
     use crate::inject::macos::secure_input;
@@ -433,7 +475,7 @@ pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
         // LINE is the thing that will produce the reading.
         let translocated = std::env::current_exe()
             .ok()
-            .map(|p| crate::shell::accessibility::is_translocated_path(&p.to_string_lossy()))
+            .map(|p| is_translocated_path(&p.to_string_lossy()))
             .unwrap_or(false);
         crate::forensic::record(
             "inject",
@@ -573,6 +615,55 @@ pub fn self_window_no_input(evidence: NoInputEvidence) -> InjectOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exact executable path the bug was measured from, on owner's Mac mini,
+    /// 2026-08-24. Kept verbatim: a detector for a shape nobody can reproduce on
+    /// the gate platform is worth exactly as much as the one real sample it was
+    /// built from, so that sample lives in the suite rather than in a report.
+    const MEASURED: &str = "/private/var/folders/hj/hypsknr14v17_brwdgd3cddm0000gp/T/\
+                            AppTranslocation/37629DE1-EF54-4963-9330-19D1BF61C3FF/d/\
+                            FlowMic-2.app/Contents/MacOS/flowmic-desktop";
+
+    #[test]
+    fn the_measured_translocated_path_is_recognised() {
+        assert!(is_translocated_path(MEASURED));
+    }
+
+    #[test]
+    fn an_ordinary_install_is_not_translocated() {
+        // Where the app ends up once it has been moved — the state this whole
+        // notice is trying to get the user TO, so it must read as clean.
+        assert!(!is_translocated_path(
+            "/Applications/FlowMic.app/Contents/MacOS/flowmic-desktop"
+        ));
+        // And where it sits before being moved. Quarantined-in-Downloads is NOT
+        // the same fact as translocated: the copy on disk is fine, it is the
+        // RUNNING copy that is elsewhere. We only ever see the running one.
+        assert!(!is_translocated_path(
+            "/Users/someone/Downloads/FlowMic.app/Contents/MacOS/flowmic-desktop"
+        ));
+    }
+
+    #[test]
+    fn a_lookalike_directory_is_not_a_translocation() {
+        // 🔴 The reason this is a component match and not `contains`. Getting
+        // this wrong tells a correctly-installed user to move an app that is
+        // already where it belongs — and the two instructions are not
+        // interchangeable, so a false positive costs a reinstall.
+        assert!(!is_translocated_path(
+            "/Users/someone/AppTranslocationNotes/FlowMic.app/Contents/MacOS/flowmic-desktop"
+        ));
+        assert!(!is_translocated_path("/Users/someone/notes/AppTranslocation.md"));
+    }
+
+    #[test]
+    fn the_separator_is_not_assumed_to_be_the_host_platform_s() {
+        // This function is compiled and tested on Windows, where `/` is still a
+        // legal separator in the strings it is handed. Splitting on only one of
+        // the two would make the test that runs here answer a different question
+        // from the code that runs there.
+        assert!(is_translocated_path("C:\\weird\\AppTranslocation\\d\\FlowMic.app"));
+    }
     use crate::error_codes;
 
     fn facts(accessibility_trusted: bool, secure_event_input: bool) -> SyntheticInputFacts {
