@@ -28,19 +28,101 @@ use crate::socket::control_row::ControlOutcome;
 use crate::socket::dedup::{InjectDecision, InjectDeduper};
 use crate::socket::wire::{self, InjectRequest};
 
+/// WHICH QUESTION this delivery is asking when it asks 「往哪个窗口打」
+/// ("which window do we type into").
+///
+/// 🔴 TWO QUESTIONS, TWO ANSWERS — and they were ONE VALUE until 0.3.31, which is
+/// this repo's headline defect shape (一个值回答了两个问题, "one value answering two
+/// questions"). Both of them look like 「前台窗口」 ("the foreground window"), and that
+/// resemblance is exactly what hid the bug:
+///
+///   · [`TargetIntent::LiveForeground`] — a FRAME arrived (the phone spoke, or its
+///     outbox drained). The destination is 「你现在正在用的那个程序」 ("the program you
+///     are using right now") — the whole product — so the LIVE foreground is the
+///     answer, and when that happens to be FlowMic there is genuinely no
+///     destination: `focus::current_foreground_target` answers `None` for our own
+///     windows BY DESIGN (`focus/tracker.rs`) and `cached` is the truth.
+///
+///   · [`TargetIntent::BeforeTheClick`] — a human clicked a control in a FlowMic
+///     window (today: a row's re-inject button, in the timeline or in the capsule
+///     strip). Here 「FlowMic 在前台」 ("FlowMic is in front") is CAUSED BY THE CLICK
+///     ITSELF. It is an artefact of the act, not evidence about where the text
+///     belongs, and reading it as an answer makes the act structurally impossible:
+///     the user reaches for the button, the reach puts us in front, and the only
+///     honest verdict left is 「自家窗口没有输入框」 (`INJECT_SELF_WINDOW_NO_INPUT` ⇒
+///     cached). Measured on this machine 2026-08-24T03:13:50Z, from a real click.
+///     The question a click actually asks is 「你伸手点我之前，人在哪个程序里」
+///     ("which program were you in before you reached over to click me"), and the
+///     FSM has kept that answer all along in its `last_foreground` sidecar — the
+///     one field that deliberately never records our own windows, precisely so
+///     that 「glancing at FlowMic」 cannot erase the app you were really working in
+///     (`focus/tracker.rs::extract_foreground_event` says so in its own words).
+///
+/// ⚠️ THE WIRE CANNOT ASK FOR `BeforeTheClick`, and that is by construction rather
+/// than by validation: it is a PARAMETER of [`run_inject`], not a field of
+/// [`InjectRequest`]. There is no key for a phone to send, so there is no rule to
+/// remember to enforce. Every socket path passes `LiveForeground`; the only
+/// producer of `BeforeTheClick` is `socket::local_inject::reinject_locally`, which
+/// no frame can reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TargetIntent {
+    LiveForeground,
+    BeforeTheClick,
+}
+
+/// The target decision, with every OS read handed IN as a value.
+///
+/// Split out as a pure function for the same reason `shell::capsule_watch` split
+/// its own: `focus::current_foreground_target()` reads whatever window happens to
+/// be in front of the machine running the suite, so a test that drives the real
+/// resolver can only ever exercise the LOCKED branch. The branch this card adds is
+/// an UNLOCKED one, so it would have shipped untested.
+///
+/// ⚠️ 🔴 THE TWO TUPLES ARE NOT THE SAME SHAPE, and it is the only trap in here.
+/// The FSM stores `(hwnd, app_name, window_title)`; every consumer of this
+/// function wants `(hwnd, window_title, process_name)`. A swap COMPILES — all
+/// three are `String` — and would surface only as a forensic line reading
+/// `target=Some("优化 0.3.28…:Cursor")` instead of `Some("Cursor:优化 0.3.28…")`.
+/// So the sidecar is taken in ITS OWN shape and re-ordered in exactly one named
+/// place, with a test that names both halves.
+pub(super) fn choose_target(
+    locked: Option<(u64, String, String)>,
+    live: Option<(u64, String, String)>,
+    sidecar: Option<(u64, String, String)>,
+    intent: TargetIntent,
+) -> Option<(u64, String, String)> {
+    if let Some(l) = locked {
+        return Some(l);
+    }
+    if let Some(v) = live {
+        return Some(v);
+    }
+    match intent {
+        // A frame with no live foreground has no destination. Unchanged, and the
+        // whole reason this is a match rather than an `unwrap_or_else`.
+        TargetIntent::LiveForeground => None,
+        TargetIntent::BeforeTheClick => sidecar.map(|(hwnd, app, title)| (hwnd, title, app)),
+    }
+}
+
 /// Resolve the injection target — the SINGLE source of truth is the focus FSM
 /// (deliverable A). While SpeakingLocked/Injecting the LOCK wins: a divergent
 /// live foreground never steals the target (F-203 — a mid-utterance window
 /// switch must not land text in the wrong window), and under ruling 2 the lock
 /// is held THROUGH the injection. The F-2248 "live wins" reconciliation applies
 /// only in the UNLOCKED case (Idle/Cooldown), where the live foreground simply
-/// IS the target. Divergence during an active lock is logged for RCA parity
+/// IS the target — or, for [`TargetIntent::BeforeTheClick`] and only when there is
+/// no live foreground to be had, the window the user was in before they clicked
+/// us. Divergence during an active lock is logged for RCA parity
 /// (07 §10 [FLOWMIC-RCA]: locked HWND vs live foreground). Returns
 /// `(hwnd, window_title, process_name)`.
-pub(super) fn resolve_inject_target(fsm: &Mutex<FocusStateMachine>) -> Option<(u64, String, String)> {
-    let locked = {
+pub(super) fn resolve_inject_target(
+    fsm: &Mutex<FocusStateMachine>,
+    intent: TargetIntent,
+) -> Option<(u64, String, String)> {
+    let (locked, sidecar) = {
         let m = fsm.lock().unwrap();
-        match m.state() {
+        let locked = match m.state() {
             FocusState::SpeakingLocked {
                 target_hwnd,
                 app_name,
@@ -52,29 +134,47 @@ pub(super) fn resolve_inject_target(fsm: &Mutex<FocusStateMachine>) -> Option<(u
                 window_title,
             } => Some((*target_hwnd, window_title.clone(), app_name.clone())),
             _ => None,
-        }
+        };
+        (locked, m.last_foreground().cloned())
     };
-    match locked {
-        Some((hwnd, title, app)) => {
-            if let Some((live_h, _lt, live_app)) = focus::current_foreground_target() {
-                if live_h != hwnd {
-                    eprintln!(
-                        "[FLOWMIC-RCA] inject target: locked hwnd={hwnd} app={app:?}; \
-                         live hwnd={live_h} app={live_app:?} — lock holds (F-203/ruling-2)"
-                    );
-                    forensic::record(
-                        "rca",
-                        &format!(
-                            "inject target: locked hwnd={hwnd} app={app:?}; live hwnd={live_h} app={live_app:?} — lock holds"
-                        ),
-                    );
-                }
-            }
-            Some((hwnd, title, app))
+    let live = focus::current_foreground_target();
+    if let (Some((hwnd, _t, app)), Some((live_h, _lt, live_app))) = (&locked, &live) {
+        if live_h != hwnd {
+            eprintln!(
+                "[FLOWMIC-RCA] inject target: locked hwnd={hwnd} app={app:?}; \
+                 live hwnd={live_h} app={live_app:?} — lock holds (F-203/ruling-2)"
+            );
+            forensic::record(
+                "rca",
+                &format!(
+                    "inject target: locked hwnd={hwnd} app={app:?}; live hwnd={live_h} app={live_app:?} — lock holds"
+                ),
+            );
         }
-        // Unlocked (Idle/Cooldown) → the live foreground is the target.
-        None => focus::current_foreground_target(),
     }
+    let unlocked_and_ours = locked.is_none() && live.is_none();
+    let chosen = choose_target(locked, live, sidecar, intent);
+    // Say it out loud when the fallback decided the target: this is the one path
+    // on which the window we type into is NOT the one in front, so a later
+    // 「为什么这句话跑到那边去了」 ("why did that sentence end up over there") has to be
+    // answerable from the log rather than by re-deriving it from this function.
+    if unlocked_and_ours && intent == TargetIntent::BeforeTheClick {
+        match &chosen {
+            Some((h, title, app)) => forensic::record(
+                "inject",
+                &format!(
+                    "target: FlowMic is in front BECAUSE the user just clicked it — aiming at the \
+                     window they were in before ({app}: {title:?}, hwnd={h})"
+                ),
+            ),
+            None => forensic::record(
+                "inject",
+                "target: FlowMic is in front because the user just clicked it, and the FSM has \
+                 never recorded an external foreground to fall back to — nothing was typed",
+            ),
+        }
+    }
+    chosen
 }
 
 /// Smoke-safety allowlist gate: decline a LIVE inject/control into any window
@@ -112,12 +212,17 @@ pub(super) fn should_disarm_watchdog(state: &FocusState) -> bool {
 /// truthful inject:result (A-58 echo). Returns `None` when the frame is an INJ-1
 /// byte-window duplicate that is discarded with no result frame (07 §2); a
 /// request_id replay returns the byte-identical first result WITHOUT re-typing.
+///
+/// `intent` says WHICH foreground question this delivery is asking — see
+/// [`TargetIntent`]. It is a parameter and not a field of [`InjectRequest`] so that
+/// no wire frame can ever select it.
 pub(super) fn run_inject(
     req: &InjectRequest,
     allowlist: &Option<Vec<String>>,
     fsm: &Mutex<FocusStateMachine>,
     lock_deadline: &Mutex<Option<Instant>>,
     deduper: &Mutex<InjectDeduper>,
+    intent: TargetIntent,
 ) -> Option<Value> {
     let now = now_millis().max(0) as u64;
 
@@ -260,7 +365,7 @@ pub(super) fn run_inject(
         // the target falls through to `focus::current_foreground_target()`, which is
         // itself `None` when a FlowMic window is in front. The frame then carries no
         // `focus_window`, which is the truth.
-        let observed = apply_allowlist(resolve_inject_target(fsm), allowlist, "inject(deferred)");
+        let observed = apply_allowlist(resolve_inject_target(fsm, intent), allowlist, "inject(deferred)");
         // ⚠️ SELF-EXPOSING LINE. It prints whether the frame STATED its origin, not
         // only what the decision was — because the one failure this feature has is
         // silent: a relay older than 0.2.48 strips `inject_origin` in flight (zod),
@@ -313,7 +418,7 @@ pub(super) fn run_inject(
     }
 
     // ── Resolve target from the FSM (lock wins) + smoke allowlist ─────────
-    let target = apply_allowlist(resolve_inject_target(fsm), allowlist, "inject");
+    let target = apply_allowlist(resolve_inject_target(fsm, intent), allowlist, "inject");
     let (locked, app_id) = match &target {
         Some((h, _title, app)) => (Some(*h), Some(app.as_str())),
         None => (None, None),
@@ -543,7 +648,7 @@ pub(super) fn run_control_key(
     // receipt. A second hand-rolled keystroke path would have had none of those,
     // and would have drifted from them the first time one changed.
     if let Some(glyph) = inject::punctuation_for(kind) {
-        let target = apply_allowlist(resolve_inject_target(fsm), allowlist, "control:key");
+        let target = apply_allowlist(resolve_inject_target(fsm, TargetIntent::LiveForeground), allowlist, "control:key");
         let (locked, app_id) = match &target {
             Some((h, _t, app)) => (Some(*h), Some(app.as_str())),
             None => (None, None),
@@ -565,7 +670,7 @@ pub(super) fn run_control_key(
     }
     match inject::key_sequence_for(kind) {
         Some(seq) => {
-            let target = apply_allowlist(resolve_inject_target(fsm), allowlist, "control:key");
+            let target = apply_allowlist(resolve_inject_target(fsm, TargetIntent::LiveForeground), allowlist, "control:key");
             // RV-25 — the three exits below used to leave no trace at all. The
             // predicates and the order are untouched; each exit now says which
             // precondition failed (ChordExit), so a chord that did nothing is

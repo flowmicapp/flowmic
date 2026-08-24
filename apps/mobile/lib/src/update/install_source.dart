@@ -79,6 +79,52 @@ Future<String?> readInstallerStore() async {
   return info.installerStore;
 }
 
+/// Answers 「what is this package called」. Null / empty = we could not ask.
+typedef PackageNameProbe = Future<String?> Function();
+
+/// The production probe. Same one call `readInstallerStore` makes.
+Future<String?> readPackageName() async {
+  final PackageInfo info = await PackageInfo.fromPlatform();
+  return info.packageName;
+}
+
+/// Where to send someone whose copy came from a store, most-direct first
+/// (0.3.28, owner 2026-08-23: 「如可以在应用商店更新就尝试直转」 — "if the app store
+/// can update it, try to go straight there").
+///
+/// 🔴 TWO CANDIDATES, NOT ONE, and the order is the whole point. `market://` is
+/// the direct handoff — it opens the Play app on the listing with no browser in
+/// between — but it resolves to nothing on a device with no Play Services,
+/// which in this product's market is not an edge case, it is common. The
+/// `https://` form is a universal link Play claims when installed and an
+/// ordinary web page when it is not, so it always lands somewhere. Offering
+/// only the first is a dead tap for a large share of users; offering only the
+/// second sends everyone through a browser they did not need.
+///
+/// Empty list = we could not learn our own package name, so there is nothing
+/// honest to point at. The caller then keeps the plain sentence it already had
+/// rather than showing a control that goes nowhere.
+///
+/// ⚠️ **Unproven against a real store install, and it cannot be proven yet** —
+/// this product is on no store (owner 2026-08-23). What is tested is the
+/// construction, on a probe we control; the first real store install is still
+/// the thing that has to be watched. Same honesty the gate ② header keeps
+/// about itself.
+Future<List<String>> storeListingUrls({PackageNameProbe? probe}) async {
+  String? name;
+  try {
+    name = await (probe ?? readPackageName)();
+  } catch (_) {
+    return const <String>[];
+  }
+  final String id = (name ?? '').trim();
+  if (id.isEmpty) return const <String>[];
+  return <String>[
+    'market://details?id=$id',
+    'https://play.google.com/store/apps/details?id=$id',
+  ];
+}
+
 /// True when this copy came from a store that ships its own updates ⇒ the
 /// self-install path must stay shut whatever gate ① says.
 ///

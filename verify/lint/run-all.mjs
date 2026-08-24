@@ -38,6 +38,7 @@ import platformCfgCount from './platform-cfg-count.mjs';
 import adminLimitMirror from './admin-limit-mirror.mjs';
 import passwordPolicyMirror from './password-policy-mirror.mjs';
 import packageIdFamily from './package-id-family.mjs';
+import iosSeedNotPersistent from './ios-seed-not-persistent.mjs';
 import noCjk from './no-cjk.mjs';
 import changelogReleaseSections from './changelog-release-sections.mjs';
 import worktreeLocation from './worktree-location.mjs';
@@ -68,6 +69,7 @@ const LINTS = [
   { name: 'admin-limit-mirror', run: adminLimitMirror },
   { name: 'password-policy-mirror', run: passwordPolicyMirror },
   { name: 'package-id-family', run: packageIdFamily },
+  { name: 'ios-seed-not-persistent', run: iosSeedNotPersistent },
   { name: 'no-cjk', run: noCjk },
   { name: 'changelog-release-sections', run: changelogReleaseSections },
   { name: 'worktree-location', run: worktreeLocation },

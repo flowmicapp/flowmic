@@ -219,7 +219,7 @@ const S_EN_OWN = {
   dict_title: 'Personal dictionary',
   dict_add: 'Add term',
   polish_title: 'AI polish',
-  polish_hint: 'The final sentence of an utterance can optionally be polished by an LLM — the row below shows whether it is on right now; on failure the unpolished text is delivered with an explicit notice — never a silent fallback.',
+  polish_hint: 'The final sentence of an utterance can optionally be polished by an LLM — the row below shows whether it is on right now; on failure the unpolished text is delivered with an explicit notice — never a silent fallback. When it is on, your scenario card (professions, fields, terms) is sent with the sentence as background, so wording can be corrected from context — this is the only way professions and fields take effect in realtime mode.',
   polish_toggle: 'Enable AI polish',
   polish_no_llm: 'The capability AI polish needs is not configured, so it is not in effect.',
   polish_strength_label: 'Correction strength',
@@ -230,7 +230,7 @@ const S_EN_OWN = {
   refine_title: 'Second-pass transcription (more accurate)',
   refine_hint: 'After a long sentence finishes, it is transcribed once more in the background; only the timeline is updated — text already injected into the PC is never rewritten',
   refine_toggle: 'Enable second-pass transcription',
-  refine_precondition: 'Requires a batch engine (whisper / custom-openai / funspeech); if the current language routes to a streaming engine (funasr / deepgram / openai-realtime), this setting has no effect. By default it only runs on sentences longer than 15 seconds — each re-transcription is an extra engine bill.',
+  refine_precondition: 'Requires a batch engine (whisper / custom-openai / funspeech); if the current language routes to a streaming engine (soniox / funasr / deepgram / openai-realtime), this setting has no effect. The cloud channel uses soniox by default, so this setting currently has no effect there. By default it only runs on sentences longer than 15 seconds — each re-transcription is an extra engine bill.',
   llm_title: 'Language model',
   llm_hint: 'The large model used by Organize / Translate; “AI polish” uses this same configuration. Authentication failures or an unavailable model are reported explicitly.',
   llm_preset: 'Model preset',
@@ -240,7 +240,7 @@ const S_EN_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: 'Leave empty to use the platform endpoint (EMPTY)',
   scenario_title: 'Scenario card',
-  scenario_hint: 'Structured background material, injected into the correction template as a delimited data block (not as instructions) · saves as you type',
+  scenario_hint: 'Structured background material, injected into the correction template as a delimited data block (not as instructions) · saves as you type. WHERE IT APPLIES — custom terms, domain packs and your personal dictionary always apply: they are sent to the speech engine and are substituted in the transcript automatically. Professions and fields apply in realtime mode only when AI polish is on; in translate and organize mode they always apply.',
   scenario_professions: 'Professions / fields (multi-select)',
   scenario_packs: 'Domain packs',
   scenario_terms: 'Custom terms',
@@ -598,6 +598,8 @@ const S_EN_OWN = {
   perm_ax_title: "FlowMic can't type into other apps yet",
   perm_ax_body: "macOS asks for your permission before one app may type into another. Nothing was lost — what you said arrived and is saved in the timeline here; it just didn't land in the window you were working in.",
   perm_ax_how: "Turn FlowMic on here:",
+  perm_ax_move_body: "This copy is still running from where it was downloaded. macOS opens apps from there in a throwaway location that changes every time, so the switch you turn on never reaches the copy that is running.",
+  perm_ax_move_how: "Move FlowMic into your Applications folder, open it from there, then switch it on.",
   perm_ax_pane: "System Settings ▸ Privacy & Security ▸ Accessibility",
   perm_ax_open: "Open this setting",
   perm_ax_selfclears: "This message disappears on its own once FlowMic is switched on.",
@@ -663,6 +665,8 @@ const S_EN_OWN = {
   model_root_cancel: 'Cancel',
   model_root_reset: 'Use default folder',
   model_root_note: 'Files already downloaded stay where they are when the folder changes — move them by hand or download them again.',
+  op_reinject_nothing: 'Nothing was typed',
+  op_reinject_failed: 'Could not re-inject',
 };
 
 const S_EN = {
@@ -673,7 +677,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 639/639 translated;
+// zh-CN (中文) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -872,7 +876,7 @@ const S_ZH_CN_OWN = {
   dict_title: '个人词典',
   dict_add: '添加术语',
   polish_title: 'AI 润色',
-  polish_hint: '收尾句可选 LLM 润色，当前是开是关以下面这一栏为准；失败时投递未润色文本并如实提示，不会静默回退。',
+  polish_hint: '收尾句可选 LLM 润色，当前是开是关以下面这一栏为准；失败时投递未润色文本并如实提示，不会静默回退。开启后，情景卡（职业/领域/术语）会作为本次说话的背景一并送给模型，用来结合语境纠正词语——这是实时模式下让职业与领域生效的唯一途径。',
   polish_toggle: '启用 AI 润色',
   polish_no_llm: 'AI优化所需的能力未配置，未生效',
   polish_strength_label: '纠错力度',
@@ -883,7 +887,7 @@ const S_ZH_CN_OWN = {
   refine_title: '二次重转（更准）',
   refine_hint: '长句说完后在后台再转一遍，只改时间线，不回改已注入 PC 的文字',
   refine_toggle: '开启二次重转',
-  refine_precondition: '需要批式识别引擎（whisper / custom-openai / funspeech）；当前语言若路由到流式引擎（funasr / deepgram / openai-realtime），本项不会生效。默认只对 15 秒以上的长句执行——一次重转是一次额外的引擎账单。',
+  refine_precondition: '需要批式识别引擎（whisper / custom-openai / funspeech）；当前语言若路由到流式引擎（soniox / funasr / deepgram / openai-realtime），本项不会生效。云端通道默认使用 soniox，因此在云端通道上本项目前不生效。默认只对 15 秒以上的长句执行——一次重转是一次额外的引擎账单。',
   llm_title: '语言模型',
   llm_hint: '整理 / 翻译使用的大模型；「AI 润色」用的也是这一份配置。鉴权失败或模型不可用会明确报错。',
   llm_preset: '模型预设',
@@ -893,7 +897,7 @@ const S_ZH_CN_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: '留空使用平台端点（EMPTY）',
   scenario_title: '情景卡',
-  scenario_hint: '结构化背景资料，以定界数据块注入纠错模板（非指令）· 即改即存',
+  scenario_hint: '结构化背景资料，以定界数据块注入纠错模板（非指令）· 即改即存。【生效范围】自定义术语、领域词包、个人词典：一直生效——会送给识别引擎，并在转写结果上自动替换；职业与领域：实时模式下需要开启「AI 润色」才会生效，翻译与整理模式始终生效。',
   scenario_professions: '职业 / 领域（多选）',
   scenario_packs: '领域词包',
   scenario_terms: '自定义术语',
@@ -1251,6 +1255,8 @@ const S_ZH_CN_OWN = {
   perm_ax_title: "FlowMic 还不能把文字打进其他应用",
   perm_ax_body: "macOS 要先得到你的许可，一个应用才能往另一个应用里打字。你说的话没有丢——它已经送到，也存在这里的时间线上，只是没有落进你当时用的那个窗口。",
   perm_ax_how: "在这里把 FlowMic 打开：",
+  perm_ax_move_body: "这份 FlowMic 还在下载的位置运行。从那里打开的应用，macOS 每次都会放进一个临时位置，而且每次都不一样——所以你打开的那个开关，落不到正在运行的这一份上。",
+  perm_ax_move_how: "把 FlowMic 拖进「应用程序」文件夹，从那里打开，再打开开关。",
   perm_ax_pane: "系统设置 ▸ 隐私与安全性 ▸ 辅助功能",
   perm_ax_open: "打开这项设置",
   perm_ax_selfclears: "打开之后，这条提示会自己消失。",
@@ -1316,6 +1322,8 @@ const S_ZH_CN_OWN = {
   model_root_cancel: '取消',
   model_root_reset: '恢复默认文件夹',
   model_root_note: '更改文件夹后，已下载的文件不会自动搬移——请手动移动或重新下载。',
+  op_reinject_nothing: '什么都没有输入',
+  op_reinject_failed: '无法重新注入',
 };
 
 const S_ZH_CN = {
@@ -1326,7 +1334,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 634/639 translated;
+// zh-TW (繁體中文) — 638/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1899,6 +1907,8 @@ const S_ZH_TW_OWN = {
   perm_ax_title: "FlowMic 還不能把文字打進其他應用程式",
   perm_ax_body: "macOS 要先得到你的許可，一個應用程式才能往另一個裡面打字。你說的話沒有不見——它已經送到，也存在這裡的時間軸上，只是沒有落進你當時用的那個視窗。",
   perm_ax_how: "在這裡把 FlowMic 打開：",
+  perm_ax_move_body: "這份 FlowMic 還在下載的位置執行。從那裡開啟的應用程式，macOS 每次都會放進一個暫時位置，而且每次都不一樣——所以你開啟的那個開關，落不到正在執行的這一份上。",
+  perm_ax_move_how: "把 FlowMic 拖進「應用程式」資料夾，從那裡開啟，再打開開關。",
   perm_ax_pane: "系統設定 ▸ 隱私權與安全性 ▸ 輔助使用",
   perm_ax_open: "打開這項設定",
   perm_ax_selfclears: "打開之後，這則提示會自己消失。",
@@ -1964,6 +1974,8 @@ const S_ZH_TW_OWN = {
   model_root_cancel: '取消',
   model_root_reset: '恢復預設資料夾',
   model_root_note: '變更資料夾後，已下載的檔案不會自動搬移——請手動移動或重新下載。',
+  op_reinject_nothing: '什麼都沒有輸入',
+  op_reinject_failed: '無法重新注入',
 };
 
 const S_ZH_TW = {
@@ -1974,7 +1986,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 639/639 translated;
+// fr (Français) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2173,7 +2185,7 @@ const S_FR_OWN = {
   dict_title: 'Dictionnaire personnel',
   dict_add: 'Ajouter un terme',
   polish_title: 'Amélioration IA',
-  polish_hint: "La dernière phrase d'un énoncé peut être retouchée en option par un LLM — la ligne ci-dessous indique si c'est activé actuellement ; en cas d'échec, le texte non retouché est délivré avec une notification explicite — jamais un repli silencieux.",
+  polish_hint: 'La phrase finale d’un énoncé peut être corrigée par un LLM — la ligne ci-dessous indique l’état actuel ; en cas d’échec, le texte non corrigé est livré avec un avertissement explicite, jamais un repli silencieux. Lorsqu’elle est active, votre fiche de contexte (professions, domaines, termes) est envoyée avec la phrase comme arrière-plan, ce qui permet de corriger le vocabulaire d’après le contexte — c’est le seul moyen pour que professions et domaines prennent effet en mode temps réel.',
   polish_toggle: "Activer l'amélioration IA",
   polish_no_llm: "La capacité requise par l'amélioration IA n'est pas configurée ; elle n'est donc pas active.",
   polish_strength_label: 'Intensité de correction',
@@ -2184,7 +2196,7 @@ const S_FR_OWN = {
   refine_title: 'Seconde transcription (plus précise)',
   refine_hint: "Une fois une longue phrase terminée, elle est transcrite une seconde fois en arrière-plan ; seule la chronologie est mise à jour — le texte déjà injecté dans le PC n'est jamais réécrit",
   refine_toggle: 'Activer la seconde transcription',
-  refine_precondition: "Nécessite un moteur par lots (whisper / custom-openai / funspeech) ; si la langue actuelle est routée vers un moteur en streaming (funasr / deepgram / openai-realtime), ce réglage reste sans effet. Par défaut, il ne s'applique qu'aux phrases de plus de 15 secondes — chaque nouvelle transcription est une facture de moteur supplémentaire.",
+  refine_precondition: 'Nécessite un moteur par lots (whisper / custom-openai / funspeech) ; si la langue actuelle est routée vers un moteur en flux (soniox / funasr / deepgram / openai-realtime), ce réglage est sans effet. Le canal cloud utilise soniox par défaut, ce réglage y est donc actuellement sans effet. Par défaut, il ne s’exécute que sur les phrases de plus de 15 secondes — chaque nouvelle transcription est une facture moteur supplémentaire.',
   llm_title: 'Modèle de langage',
   llm_hint: "Le grand modèle utilisé par Organisation / Traduction ; « Amélioration IA » utilise cette même configuration. Les échecs d'authentification ou un modèle indisponible sont signalés explicitement.",
   llm_preset: 'Préréglage de modèle',
@@ -2194,7 +2206,7 @@ const S_FR_OWN = {
   llm_apikey: 'Clé API',
   llm_apikey_ph: "Laisser vide pour utiliser l'endpoint de la plateforme (EMPTY)",
   scenario_title: 'Fiche de contexte',
-  scenario_hint: 'Éléments de contexte structurés, intégrés au modèle de correction sous forme de bloc de données délimité (et non comme des instructions) · enregistrement immédiat',
+  scenario_hint: 'Éléments de contexte structurés, injectés dans le modèle de correction sous forme de bloc de données délimité (jamais comme des instructions) · enregistrement immédiat. PORTÉE — les termes personnalisés, les packs de domaine et votre dictionnaire personnel s’appliquent toujours : ils sont transmis au moteur vocal et remplacés automatiquement dans la transcription. Les professions et domaines ne s’appliquent en mode temps réel que si la correction IA est activée ; en mode traduction et mise au propre, ils s’appliquent toujours.',
   scenario_professions: 'Professions / domaines (choix multiple)',
   scenario_packs: 'Packs de domaine',
   scenario_terms: 'Termes personnalisés',
@@ -2552,6 +2564,8 @@ const S_FR_OWN = {
   perm_ax_title: "FlowMic ne peut pas encore écrire dans les autres apps",
   perm_ax_body: "macOS demande votre autorisation avant qu'une app puisse écrire dans une autre. Rien n'est perdu : ce que vous avez dit est bien arrivé et figure dans l'historique ici ; cela n'a simplement pas atterri dans la fenêtre où vous travailliez.",
   perm_ax_how: "Activez FlowMic ici :",
+  perm_ax_move_body: "Cette copie s’exécute encore depuis le dossier de téléchargement. macOS ouvre les apps qui s’y trouvent depuis un emplacement temporaire, différent à chaque lancement : l’autorisation que vous activez n’atteint donc jamais la copie en cours d’exécution.",
+  perm_ax_move_how: "Déplacez FlowMic dans le dossier Applications, ouvrez-le depuis là, puis activez l’autorisation.",
   perm_ax_pane: "Réglages Système ▸ Confidentialité et sécurité ▸ Accessibilité",
   perm_ax_open: "Ouvrir ce réglage",
   perm_ax_selfclears: "Ce message disparaîtra tout seul une fois FlowMic activé.",
@@ -2617,6 +2631,8 @@ const S_FR_OWN = {
   model_root_cancel: 'Annuler',
   model_root_reset: 'Dossier par défaut',
   model_root_note: 'Les fichiers déjà téléchargés restent où ils sont quand le dossier change — déplacez-les à la main ou retéléchargez-les.',
+  op_reinject_nothing: 'Rien n\'a été saisi',
+  op_reinject_failed: 'Réinjection impossible',
 };
 
 const S_FR = {
@@ -2627,7 +2643,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 639/639 translated;
+// es (Español) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2826,7 +2842,7 @@ const S_ES_OWN = {
   dict_title: 'Diccionario personal',
   dict_add: 'Añadir término',
   polish_title: 'Pulido con IA',
-  polish_hint: 'La frase final de una intervención puede ser pulida opcionalmente por un LLM — la fila de abajo muestra si está activado en este momento; si falla, se entrega el texto sin pulir con un aviso explícito — nunca una alternativa silenciosa.',
+  polish_hint: 'La frase final de una intervención puede pulirse con un LLM: la fila de abajo indica si está activado ahora; si falla, se entrega el texto sin pulir con un aviso explícito, nunca un repliegue silencioso. Cuando está activado, tu ficha de contexto (profesiones, campos, términos) se envía junto con la frase como trasfondo, de modo que el vocabulario pueda corregirse por contexto: es la única vía por la que profesiones y campos surten efecto en modo tiempo real.',
   polish_toggle: 'Activar el pulido con IA',
   polish_no_llm: 'La capacidad que necesita el pulido con IA no está configurada, así que no se aplica.',
   polish_strength_label: 'Intensidad de corrección',
@@ -2837,7 +2853,7 @@ const S_ES_OWN = {
   refine_title: 'Segunda transcripción (más precisa)',
   refine_hint: 'Cuando termina una frase larga, se vuelve a transcribir en segundo plano; solo se actualiza la línea de tiempo: el texto ya inyectado en el PC nunca se reescribe',
   refine_toggle: 'Activar la segunda transcripción',
-  refine_precondition: 'Requiere un motor por lotes (whisper / custom-openai / funspeech); si el idioma actual se enruta a un motor en streaming (funasr / deepgram / openai-realtime), este ajuste no tiene efecto. De forma predeterminada solo se aplica a frases de más de 15 segundos: cada nueva transcripción es una factura de motor adicional.',
+  refine_precondition: 'Requiere un motor por lotes (whisper / custom-openai / funspeech); si el idioma actual se enruta a un motor de streaming (soniox / funasr / deepgram / openai-realtime), este ajuste no tiene efecto. El canal en la nube usa soniox de forma predeterminada, así que allí este ajuste no tiene efecto por ahora. De forma predeterminada solo se ejecuta en frases de más de 15 segundos: cada retranscripción es una factura de motor adicional.',
   llm_title: 'Modelo de lenguaje',
   llm_hint: 'El modelo grande que usan Organizar / Traducir; el «pulido con IA» usa esta misma configuración. Los errores de autenticación o un modelo no disponible se comunican de forma explícita.',
   llm_preset: 'Preajuste de modelo',
@@ -2847,7 +2863,7 @@ const S_ES_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: 'Déjalo vacío para usar el endpoint de la plataforma (EMPTY)',
   scenario_title: 'Ficha de contexto',
-  scenario_hint: 'Material de contexto estructurado, que se incorpora a la plantilla de corrección como un bloque de datos delimitado (no como instrucciones) · se guarda mientras escribes',
+  scenario_hint: 'Material de contexto estructurado, inyectado en la plantilla de corrección como un bloque de datos delimitado (nunca como instrucciones) · se guarda al escribir. ÁMBITO — los términos personalizados, los paquetes de dominio y tu diccionario personal se aplican siempre: se envían al motor de voz y se sustituyen automáticamente en la transcripción. Las profesiones y los campos solo se aplican en modo tiempo real si el pulido con IA está activado; en los modos traducir y organizar se aplican siempre.',
   scenario_professions: 'Profesiones / campos (selección múltiple)',
   scenario_packs: 'Paquetes temáticos',
   scenario_terms: 'Términos propios',
@@ -3205,6 +3221,8 @@ const S_ES_OWN = {
   perm_ax_title: "FlowMic todavía no puede escribir en otras apps",
   perm_ax_body: "macOS pide tu permiso antes de que una app pueda escribir en otra. No se ha perdido nada: lo que dijiste llegó y está guardado en la cronología de aquí; simplemente no entró en la ventana en la que estabas trabajando.",
   perm_ax_how: "Activa FlowMic aquí:",
+  perm_ax_move_body: "Esta copia todavía se ejecuta desde la carpeta de descargas. macOS abre las apps que están ahí desde una ubicación temporal distinta en cada arranque, así que el permiso que activas nunca llega a la copia en ejecución.",
+  perm_ax_move_how: "Mueve FlowMic a la carpeta Aplicaciones, ábrelo desde ahí y luego activa el permiso.",
   perm_ax_pane: "Ajustes del Sistema ▸ Privacidad y seguridad ▸ Accesibilidad",
   perm_ax_open: "Abrir este ajuste",
   perm_ax_selfclears: "Este mensaje desaparecerá solo en cuanto lo actives.",
@@ -3270,6 +3288,8 @@ const S_ES_OWN = {
   model_root_cancel: 'Cancelar',
   model_root_reset: 'Carpeta predeterminada',
   model_root_note: 'Los archivos ya descargados no se mueven al cambiar la carpeta: muévelos a mano o vuelve a descargarlos.',
+  op_reinject_nothing: 'No se escribió nada',
+  op_reinject_failed: 'No se pudo reinyectar',
 };
 
 const S_ES = {
@@ -3280,7 +3300,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 639/639 translated;
+// de (Deutsch) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3479,7 +3499,7 @@ const S_DE_OWN = {
   dict_title: 'Persönliches Wörterbuch',
   dict_add: 'Begriff hinzufügen',
   polish_title: 'KI-Feinschliff',
-  polish_hint: 'Der letzte Satz einer Äußerung kann optional von einem LLM überarbeitet werden – die Zeile darunter zeigt, ob dies gerade aktiviert ist; schlägt es fehl, wird der unbearbeitete Text mit einem ausdrücklichen Hinweis zugestellt – nie ein stiller Rückfall.',
+  polish_hint: 'Der Schlusssatz einer Äußerung kann von einem LLM poliert werden — ob es gerade aktiv ist, sagt die Zeile unten; scheitert es, wird der unpolierte Text mit ausdrücklichem Hinweis zugestellt, nie ein stiller Rückfall. Ist es aktiv, wird Ihre Kontextkarte (Berufe, Fachgebiete, Begriffe) als Hintergrund mitgesendet, sodass Wortwahl aus dem Kontext korrigiert werden kann — nur so wirken Berufe und Fachgebiete im Echtzeitmodus.',
   polish_toggle: 'KI-Feinschliff aktivieren',
   polish_no_llm: 'Die für den KI-Feinschliff nötige Funktion ist nicht konfiguriert, daher ist er nicht wirksam.',
   polish_strength_label: 'Korrekturstärke',
@@ -3490,7 +3510,7 @@ const S_DE_OWN = {
   refine_title: 'Zweite Transkription (genauer)',
   refine_hint: 'Nach einem langen Satz wird er im Hintergrund noch einmal transkribiert; aktualisiert wird nur die Zeitleiste – bereits in den PC eingefügter Text wird nie nachträglich geändert',
   refine_toggle: 'Zweite Transkription aktivieren',
-  refine_precondition: 'Erfordert eine Batch-Engine (whisper / custom-openai / funspeech); wird die aktuelle Sprache an eine Streaming-Engine (funasr / deepgram / openai-realtime) geleitet, bleibt diese Einstellung wirkungslos. Standardmäßig läuft sie nur bei Sätzen von mehr als 15 Sekunden – jede erneute Transkription ist eine zusätzliche Engine-Rechnung.',
+  refine_precondition: 'Erfordert eine Batch-Engine (whisper / custom-openai / funspeech); wird die aktuelle Sprache an eine Streaming-Engine (soniox / funasr / deepgram / openai-realtime) geleitet, hat diese Einstellung keine Wirkung. Der Cloud-Kanal nutzt standardmäßig soniox, dort wirkt die Einstellung derzeit also nicht. Standardmäßig läuft sie nur bei Sätzen über 15 Sekunden — jede erneute Transkription ist eine zusätzliche Engine-Rechnung.',
   llm_title: 'Sprachmodell',
   llm_hint: 'Das große Modell, das Aufbereiten / Übersetzen verwendet; „KI-Feinschliff“ nutzt dieselbe Konfiguration. Fehlgeschlagene Authentifizierung oder ein nicht verfügbares Modell werden ausdrücklich gemeldet.',
   llm_preset: 'Modell-Voreinstellung',
@@ -3500,7 +3520,7 @@ const S_DE_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: 'Leer lassen, um den Plattform-Endpunkt zu nutzen (EMPTY)',
   scenario_title: 'Szenariokarte',
-  scenario_hint: 'Strukturiertes Hintergrundmaterial, das als abgegrenzter Datenblock (nicht als Anweisung) in die Korrekturvorlage eingesetzt wird · speichert beim Tippen',
+  scenario_hint: 'Strukturiertes Hintergrundmaterial, das der Korrekturvorlage als abgegrenzter Datenblock beigefügt wird (nie als Anweisung) · wird sofort gespeichert. GELTUNGSBEREICH — eigene Begriffe, Fachpakete und Ihr persönliches Wörterbuch gelten immer: Sie werden an die Spracherkennung übergeben und im Transkript automatisch ersetzt. Berufe und Fachgebiete gelten im Echtzeitmodus nur bei eingeschalteter KI-Politur; in den Modi Übersetzen und Aufbereiten gelten sie immer.',
   scenario_professions: 'Berufe / Fachgebiete (Mehrfachauswahl)',
   scenario_packs: 'Fachwortpakete',
   scenario_terms: 'Eigene Begriffe',
@@ -3858,6 +3878,8 @@ const S_DE_OWN = {
   perm_ax_title: "FlowMic kann noch nicht in andere Apps schreiben",
   perm_ax_body: "macOS fragt erst nach deiner Erlaubnis, bevor eine App in eine andere schreiben darf. Es ist nichts verloren gegangen: Was du gesagt hast, ist angekommen und steht hier im Verlauf – es ist nur nicht in dem Fenster gelandet, in dem du gerade gearbeitet hast.",
   perm_ax_how: "Aktiviere FlowMic hier:",
+  perm_ax_move_body: "Diese Kopie läuft noch aus dem Download-Ordner. macOS öffnet Apps von dort an einem temporären Ort, der sich bei jedem Start ändert — die Berechtigung, die Sie einschalten, erreicht die laufende Kopie deshalb nie.",
+  perm_ax_move_how: "Verschieben Sie FlowMic in den Ordner Programme, öffnen Sie es von dort und schalten Sie die Berechtigung ein.",
   perm_ax_pane: "Systemeinstellungen ▸ Datenschutz & Sicherheit ▸ Bedienungshilfen",
   perm_ax_open: "Diese Einstellung öffnen",
   perm_ax_selfclears: "Sobald FlowMic aktiviert ist, verschwindet dieser Hinweis von selbst.",
@@ -3923,6 +3945,8 @@ const S_DE_OWN = {
   model_root_cancel: 'Abbrechen',
   model_root_reset: 'Standardordner verwenden',
   model_root_note: 'Bereits heruntergeladene Dateien bleiben beim Ordnerwechsel, wo sie sind — von Hand verschieben oder erneut herunterladen.',
+  op_reinject_nothing: 'Es wurde nichts eingegeben',
+  op_reinject_failed: 'Erneutes Einfügen nicht möglich',
 };
 
 const S_DE = {
@@ -3933,7 +3957,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 639/639 translated;
+// ja (日本語) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4132,7 +4156,7 @@ const S_JA_OWN = {
   dict_title: '個人辞書',
   dict_add: '用語を追加',
   polish_title: 'AI 推敲',
-  polish_hint: '発話の最終文を任意で LLM が推敲します。今オンかオフかは下の行の表示が答えです。失敗時は未推敲のテキストを配信してその旨を明示し、サイレントフォールバックはしません。',
+  polish_hint: '発話の最終文を LLM で校正できます（現在の状態は下の行が正）。失敗時は未校正のテキストを明示的な通知付きで配信し、黙って元に戻すことはありません。オンのときは、シナリオカード（職業・分野・用語）が発話の背景として一緒に送られ、文脈から語句を修正できます。リアルタイムモードで職業と分野が効くのはこの経路だけです。',
   polish_toggle: 'AI 推敲を有効化',
   polish_no_llm: 'AI 推敲に必要な機能が設定されていないため、有効になりません。',
   polish_strength_label: '補正の強さ',
@@ -4143,7 +4167,7 @@ const S_JA_OWN = {
   refine_title: '二次文字起こし（より正確）',
   refine_hint: '長い文を話し終えた後、バックグラウンドでもう一度文字起こしします。タイムラインのみ更新され、PCに注入済みのテキストは書き換えられません',
   refine_toggle: '二次文字起こしを有効化',
-  refine_precondition: 'バッチ型認識エンジン（whisper / custom-openai / funspeech）が必要です。現在の言語がストリーミングエンジン（funasr / deepgram / openai-realtime）にルーティングされている場合、本設定は有効になりません。デフォルトでは15秒を超える長い文のみ実行されます — 再転写1回ごとにエンジンの追加請求が発生します。',
+  refine_precondition: 'バッチ型エンジン（whisper / custom-openai / funspeech）が必要です。現在の言語がストリーミング型エンジン（soniox / funasr / deepgram / openai-realtime）に振り分けられる場合、この設定は無効です。クラウド経路は既定で soniox を使用するため、現在クラウド経路ではこの設定は効きません。既定では 15 秒を超える文にのみ実行されます — 再文字起こしは追加のエンジン課金です。',
   llm_title: '言語モデル',
   llm_hint: '整理 / 翻訳で使用する大規模モデルです。「AI 推敲」も同じこの設定を使います。認証失敗やモデル利用不可は明示的にエラー報告されます。',
   llm_preset: 'モデルプリセット',
@@ -4153,7 +4177,7 @@ const S_JA_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: '空欄でプラットフォームエンドポイントを使用（EMPTY）',
   scenario_title: 'シナリオ',
-  scenario_hint: '構造化された背景資料を、区切られたデータブロックとして修正テンプレートに注入します（指示ではありません）· 即時保存',
+  scenario_hint: '構造化された背景情報。区切られたデータブロックとして補正テンプレートに挿入されます（命令ではありません）· 自動保存。【適用範囲】カスタム用語・分野パック・個人辞書は常に有効です（音声エンジンに送られ、文字起こし結果でも自動置換されます）。職業と分野は、リアルタイムモードでは「AI 校正」がオンのときのみ有効で、翻訳・整形モードでは常に有効です。',
   scenario_professions: '職業 / 分野（複数選択可）',
   scenario_packs: '分野パック',
   scenario_terms: 'カスタム用語',
@@ -4511,6 +4535,8 @@ const S_JA_OWN = {
   perm_ax_title: "FlowMic はまだ他のアプリに文字を入力できません",
   perm_ax_body: "macOS では、あるアプリが別のアプリに文字を入力するには、あなたの許可が必要です。話した内容が失われたわけではありません。ちゃんと届いていて、ここのタイムラインにも残っています。作業中のウインドウに入らなかっただけです。",
   perm_ax_how: "ここで FlowMic をオンにしてください：",
+  perm_ax_move_body: "このコピーはダウンロードした場所からそのまま実行されています。そこから開いたアプリを、macOS は毎回異なる一時的な場所で実行するため、オンにした許可が実行中のコピーに届きません。",
+  perm_ax_move_how: "FlowMic を「アプリケーション」フォルダに移動し、そこから開いてから許可をオンにしてください。",
   perm_ax_pane: "システム設定 ▸ プライバシーとセキュリティ ▸ アクセシビリティ",
   perm_ax_open: "この設定を開く",
   perm_ax_selfclears: "オンにすると、このメッセージは自動的に消えます。",
@@ -4576,6 +4602,8 @@ const S_JA_OWN = {
   model_root_cancel: 'キャンセル',
   model_root_reset: '既定のフォルダーに戻す',
   model_root_note: 'フォルダーを変更しても、ダウンロード済みのファイルは移動されません——手動で移すか、再ダウンロードしてください。',
+  op_reinject_nothing: '何も入力されませんでした',
+  op_reinject_failed: '再注入できませんでした',
 };
 
 const S_JA = {
@@ -4586,7 +4614,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 639/639 translated;
+// ko (한국어) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4785,7 +4813,7 @@ const S_KO_OWN = {
   dict_title: '개인 사전',
   dict_add: '용어 추가',
   polish_title: 'AI 윤문',
-  polish_hint: '발화의 마지막 문장을 선택적으로 LLM이 윤문합니다. 지금 켜져 있는지는 아래 행의 표시가 답입니다. 실패 시 윤문되지 않은 텍스트를 전달하고 그 사실을 명시하며, 조용히 폴백하지 않습니다.',
+  polish_hint: '발화의 마지막 문장을 LLM으로 다듬을 수 있습니다 — 현재 켜짐 여부는 아래 행이 기준입니다. 실패 시 다듬지 않은 텍스트를 명시적 안내와 함께 전달하며, 조용히 되돌리지 않습니다. 켜져 있으면 시나리오 카드(직업·분야·용어)가 해당 발화의 배경으로 함께 전달되어 문맥에 따라 표현을 교정합니다 — 실시간 모드에서 직업과 분야가 적용되는 유일한 경로입니다.',
   polish_toggle: 'AI 윤문 사용',
   polish_no_llm: 'AI 윤문에 필요한 기능이 구성되지 않아 적용되지 않습니다.',
   polish_strength_label: '교정 강도',
@@ -4796,7 +4824,7 @@ const S_KO_OWN = {
   refine_title: '2차 전사(더 정확)',
   refine_hint: '긴 문장이 끝난 후 백그라운드에서 한 번 더 전사합니다. 타임라인만 갱신되며 PC에 이미 주입된 텍스트는 다시 쓰지 않습니다',
   refine_toggle: '2차 전사 사용',
-  refine_precondition: '배치 인식 엔진(whisper / custom-openai / funspeech)이 필요합니다. 현재 언어가 스트리밍 엔진(funasr / deepgram / openai-realtime)으로 라우팅된 경우 이 설정은 적용되지 않습니다. 기본적으로 15초를 넘는 긴 문장에만 실행됩니다 — 재전사 1회마다 엔진 추가 과금이 발생합니다.',
+  refine_precondition: '배치 엔진(whisper / custom-openai / funspeech)이 필요합니다. 현재 언어가 스트리밍 엔진(soniox / funasr / deepgram / openai-realtime)으로 라우팅되면 이 설정은 적용되지 않습니다. 클라우드 채널은 기본적으로 soniox를 사용하므로 현재 클라우드 채널에서는 적용되지 않습니다. 기본적으로 15초를 넘는 문장에만 실행됩니다 — 재전사는 추가 엔진 비용입니다.',
   llm_title: '언어 모델',
   llm_hint: '정리 / 번역에 사용하는 대규모 모델입니다. 「AI 윤문」도 같은 이 설정을 사용합니다. 인증 실패나 모델 사용 불가는 명시적으로 오류가 보고됩니다.',
   llm_preset: '모델 프리셋',
@@ -4806,7 +4834,7 @@ const S_KO_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: '비워 두면 플랫폼 엔드포인트 사용(EMPTY)',
   scenario_title: '시나리오',
-  scenario_hint: '구조화된 배경 자료를 구분된 데이터 블록으로 교정 템플릿에 주입합니다(지시가 아닙니다) · 즉시 저장',
+  scenario_hint: '구조화된 배경 자료로, 구분된 데이터 블록으로 교정 템플릿에 삽입됩니다(명령이 아닙니다) · 자동 저장. [적용 범위] 사용자 용어, 분야 팩, 개인 사전은 항상 적용됩니다 — 음성 엔진으로 전달되고 전사 결과에서도 자동 치환됩니다. 직업과 분야는 실시간 모드에서 "AI 다듬기"가 켜져 있을 때만 적용되며, 번역·정리 모드에서는 항상 적용됩니다.',
   scenario_professions: '직업 / 분야(다중 선택)',
   scenario_packs: '분야 팩',
   scenario_terms: '사용자 지정 용어',
@@ -5164,6 +5192,8 @@ const S_KO_OWN = {
   perm_ax_title: "FlowMic이 아직 다른 앱에 글자를 입력할 수 없습니다",
   perm_ax_body: "macOS에서는 한 앱이 다른 앱에 입력하려면 먼저 사용자의 허용이 필요합니다. 말한 내용이 사라진 것은 아닙니다. 잘 전달되었고 여기 타임라인에도 저장되어 있으며, 작업 중이던 창에 들어가지 않았을 뿐입니다.",
   perm_ax_how: "여기에서 FlowMic을 켜 주세요:",
+  perm_ax_move_body: "이 사본은 아직 내려받은 위치에서 실행되고 있습니다. 그곳에서 연 앱을 macOS는 매번 달라지는 임시 위치에서 실행하므로, 켜 둔 권한이 실행 중인 사본에 닿지 않습니다.",
+  perm_ax_move_how: "FlowMic을 응용 프로그램 폴더로 옮기고, 거기에서 연 다음 권한을 켜 주세요.",
   perm_ax_pane: "시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 손쉬운 사용",
   perm_ax_open: "이 설정 열기",
   perm_ax_selfclears: "켜고 나면 이 안내는 저절로 사라집니다.",
@@ -5229,6 +5259,8 @@ const S_KO_OWN = {
   model_root_cancel: '취소',
   model_root_reset: '기본 폴더로 되돌리기',
   model_root_note: '폴더를 변경해도 이미 내려받은 파일은 옮겨지지 않습니다 — 직접 옮기거나 다시 내려받으세요.',
+  op_reinject_nothing: '아무것도 입력되지 않았습니다',
+  op_reinject_failed: '재주입할 수 없습니다',
 };
 
 const S_KO = {
@@ -5239,7 +5271,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 639/639 translated;
+// ru (Русский) — 643/643 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5438,7 +5470,7 @@ const S_RU_OWN = {
   dict_title: 'Личный словарь',
   dict_add: 'Добавить термин',
   polish_title: 'AI-улучшение',
-  polish_hint: 'Заключительное предложение высказывания может быть по желанию доработано с помощью LLM — строка ниже показывает, включено ли это прямо сейчас; в случае сбоя доставляется недоработанный текст с явным уведомлением — никогда без предупреждения.',
+  polish_hint: 'Завершающее предложение можно править с помощью LLM — текущее состояние показывает строка ниже; при сбое выдаётся неправленый текст с явным уведомлением, без молчаливого отката. Когда правка включена, ваша карточка контекста (профессии, области, термины) отправляется вместе с фразой как фон, чтобы слова можно было исправить по контексту — это единственный путь, которым профессии и области действуют в режиме реального времени.',
   polish_toggle: 'Включить AI-улучшение',
   polish_no_llm: 'Возможность, необходимая для AI-улучшения, не настроена — оно не работает.',
   polish_strength_label: 'Сила исправления',
@@ -5449,7 +5481,7 @@ const S_RU_OWN = {
   refine_title: 'Повторная транскрипция (точнее)',
   refine_hint: 'После длинной фразы она ещё раз транскрибируется в фоне; обновляется только хронология — текст, уже вставленный в компьютер, никогда не переписывается',
   refine_toggle: 'Включить повторную транскрипцию',
-  refine_precondition: 'Требуется пакетный движок (whisper / custom-openai / funspeech); если текущий язык направлен на потоковый движок (funasr / deepgram / openai-realtime), эта настройка не действует. По умолчанию выполняется только для фраз длиннее 15 секунд, и каждая повторная транскрипция — это дополнительный счёт за движок.',
+  refine_precondition: 'Требуется пакетный движок (whisper / custom-openai / funspeech); если текущий язык направляется в потоковый движок (soniox / funasr / deepgram / openai-realtime), эта настройка не действует. Облачный канал по умолчанию использует soniox, поэтому там она сейчас не действует. По умолчанию выполняется только для фраз длиннее 15 секунд — каждая повторная расшифровка это дополнительный счёт за движок.',
   llm_title: 'Языковая модель',
   llm_hint: 'Большая модель, которую используют «Структурирование» и «Перевод»; «AI-улучшение» использует эту же конфигурацию. Об ошибках аутентификации или недоступности модели сообщается явно.',
   llm_preset: 'Пресет модели',
@@ -5459,7 +5491,7 @@ const S_RU_OWN = {
   llm_apikey: 'API Key',
   llm_apikey_ph: 'Оставьте пустым, чтобы использовать платформенный endpoint (EMPTY)',
   scenario_title: 'Карточка сценария',
-  scenario_hint: 'Структурированные справочные сведения; подставляются в шаблон исправления как ограниченный блок данных (не как инструкции) · сохраняется по мере ввода',
+  scenario_hint: 'Структурированный справочный материал, вставляемый в шаблон исправления как выделенный блок данных (не как инструкции) · сохраняется сразу. ОБЛАСТЬ ДЕЙСТВИЯ — свои термины, отраслевые наборы и личный словарь действуют всегда: они передаются движку распознавания и автоматически подставляются в расшифровку. Профессии и области в режиме реального времени действуют только при включённой ИИ-правке; в режимах перевода и структурирования — всегда.',
   scenario_professions: 'Профессии / области (множественный выбор)',
   scenario_packs: 'Тематические пакеты',
   scenario_terms: 'Свои термины',
@@ -5817,6 +5849,8 @@ const S_RU_OWN = {
   perm_ax_title: "FlowMic пока не может печатать в других приложениях",
   perm_ax_body: "macOS спрашивает разрешение, прежде чем одно приложение сможет печатать в другом. Ничего не потерялось: сказанное дошло и сохранено здесь в ленте — оно просто не попало в то окно, где вы работали.",
   perm_ax_how: "Включите FlowMic здесь:",
+  perm_ax_move_body: "Эта копия всё ещё запускается из папки загрузок. Приложения оттуда macOS открывает во временном месте, которое меняется при каждом запуске, поэтому включённое разрешение не доходит до запущенной копии.",
+  perm_ax_move_how: "Переместите FlowMic в папку Программы, откройте его оттуда и включите разрешение.",
   perm_ax_pane: "Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ",
   perm_ax_open: "Открыть эту настройку",
   perm_ax_selfclears: "Как только включите, это сообщение исчезнет само.",
@@ -5882,6 +5916,8 @@ const S_RU_OWN = {
   model_root_cancel: 'Отмена',
   model_root_reset: 'Папка по умолчанию',
   model_root_note: 'При смене папки уже загруженные файлы не переносятся — переместите их вручную или загрузите заново.',
+  op_reinject_nothing: 'Ничего не было введено',
+  op_reinject_failed: 'Не удалось вставить снова',
 };
 
 const S_RU = {

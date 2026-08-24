@@ -68,6 +68,21 @@ export const TIMELINE_KEYS = [
   // arrival and kept nowhere.
   'op_copy_image',
   'op_copy_failed',
+  /** 0.3.30 — the capsule's per-row re-inject reporting that NOTHING WAS TYPED.
+   *  Distinct from `st_failed` (「未注入」) on purpose: that is a VERDICT the
+   *  pipeline reached about an utterance, this says the pipeline never ran —
+   *  `timeline_reinject` answered None (no resident session, so there is no focus
+   *  state machine to resolve a target against). Same word for both would put one
+   *  sentence on two different facts. */
+  'op_reinject_nothing',
+  /** 0.3.30 — the attempt did not happen for a reason the user cannot act on
+   *  differently (the row is no longer in the store, the other window did not
+   *  answer, we are not under Tauri). ⚠️ ONE string for several causes is
+   *  deliberate and is the exception this repo allows: 「每个失败自己说话」 exists
+   *  because different failures point at different ACTIONS, and these point at the
+   *  same one (none). The exact cause is on the forensic record every time.
+   *  Never used for `op_reinject_nothing`'s case, which the user CAN act on. */
+  'op_reinject_failed',
   'tl_sender_tip',
   'tl_zoom_hint',
   'tl_zoom_close',

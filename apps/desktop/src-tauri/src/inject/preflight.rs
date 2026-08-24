@@ -417,13 +417,33 @@ pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
     };
     let verdict = synthetic_input_verdict(facts);
     if let Some(outcome) = &verdict {
+        // 🔴 `translocated` rides this line because of what it cost to learn the
+        // first time (2026-08-24, owner's Mac mini). `ax_trusted=false` was logged
+        // six times while the owner granted the permission, watched the switch turn
+        // on and restarted — and not one of those lines could say WHY the grant
+        // would never attach. The answer had to be fetched with `ps` from another
+        // machine. The fact is one field wide and is already computed next door;
+        // carrying it here makes the next occurrence answer itself.
+        //
+        // ⚠️ It is also the one link in this detector nobody has measured end to
+        // end: that `current_exe()` on a translocated app reports the translocated
+        // path rather than the original. The reasoning is that translocation is a
+        // real read-only COPY at that path and not a symlink, so canonicalising
+        // cannot walk back out of it — but reasoning is not a reading, and THIS
+        // LINE is the thing that will produce the reading.
+        let translocated = std::env::current_exe()
+            .ok()
+            .map(|p| crate::shell::accessibility::is_translocated_path(&p.to_string_lossy()))
+            .unwrap_or(false);
         crate::forensic::record(
             "inject",
             &format!(
-                "macOS synthetic-input preflight REFUSED: ax_trusted={} secure_input={} → \
-                 ok=false mode=cached err={}; nothing typed, no pasteboard write, no activation",
+                "macOS synthetic-input preflight REFUSED: ax_trusted={} secure_input={} \
+                 translocated={} -> ok=false mode=cached err={}; nothing typed, no \
+                 pasteboard write, no activation",
                 facts.accessibility_trusted,
                 facts.secure_event_input,
+                translocated,
                 outcome.error_code.unwrap_or("(none)"),
             ),
         );

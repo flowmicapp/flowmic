@@ -24,6 +24,32 @@
 // downgrade of what this file can do.
 import 'package:flutter/material.dart';
 
+/// The transcript row's body size — the sentence the user actually reads word
+/// by word, in `chat_message_tile.dart`.
+///
+/// 🔴 0.3.28: **13.5 → 15**, and it is the only base size that round moved
+/// (owner 2026-08-23, reporting the transcript as too small on a small Apple
+/// handset). Why this one:
+///   · it is the product's content. Every other number on that row labels
+///     something; this is the thing being labelled;
+///   · 13.5 sat below both platforms' own body conventions — Material's
+///     `bodyMedium` is 14, iOS HIG body is 17;
+///   · smallest blast radius on that screen: the text wraps freely across the
+///     bubble with no `maxLines`, so a larger size adds lines and cannot
+///     squeeze a neighbour out.
+///
+/// ⚠️ The row's 10.5 META line was deliberately NOT raised with it. That is six
+/// chips in one `Row` — the exact geometry that clipped a sentence to 「INJ…」
+/// in 0.2.53 — and it needs a re-layout, not a bigger number. Anyone who wants
+/// that line bigger has the five-rung tier ladder, which lifts everything at
+/// once (`AppTextScale`, and it is what owner's report actually asked for).
+///
+/// ⚠️ This is ONE token, not the font-size SSOT. `text_scale_scope.dart`'s
+/// header records that SSOT as an open debt across 256 `fontSize:` literals,
+/// and it still is; this constant exists because the number needed a reason
+/// attached to it, and `chat_message_tile.dart` is at its pinned size cap.
+const double kTranscriptBodySize = 15;
+
 /// The tri-state theme choice shown in Settings → Preferences → Theme
 /// (设置 → 偏好 → 主题).
 ///

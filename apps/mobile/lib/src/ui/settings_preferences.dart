@@ -183,6 +183,13 @@ extension SettingsPagePreferences on SettingsPage {
                       children: <Widget>[
                         for (final (AppTextScale step, String label)
                             in <(AppTextScale, String)>[
+                          // 0.3.28 — five rungs, ordered LARGEST FIRST, which
+                          // is the order the three already had (large → small)
+                          // and therefore the order returning users read this
+                          // row in. Sorting it small→large would move every
+                          // existing chip under the same finger.
+                          (AppTextScale.xxlarge, s.textScaleXxlarge),
+                          (AppTextScale.xlarge, s.textScaleXlarge),
                           (AppTextScale.large, s.textScaleLarge),
                           (AppTextScale.medium, s.textScaleMedium),
                           (AppTextScale.small, s.textScaleSmall),

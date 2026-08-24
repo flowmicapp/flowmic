@@ -116,13 +116,31 @@ describe('applyConnectionRows — the seed the race made necessary', () => {
 });
 
 // RV-16 — the settings flush trigger used to be the PRIMARY channel's connected
-// rising edge, while both settings verbs are pinned to the LAN socket in Rust
-// (shell/mod.rs `settings_update` / `settings_list` → `with_lan_socket`, "owner ⑤:
-// settings target the LAN server only"). With preference=cloud the LAN could come
-// back and nothing flushed, so a "saved locally" edit waited for a cloud reconnect
-// or a restart. The reverse assertion below (a cloud edge must NOT flush) is the
-// real judge of the fix: watching the wrong channel also "works" on a LAN-primary PC.
-describe('RV-16 settings flush edge follows the LAN channel', () => {
+// rising edge, while both settings verbs were pinned to the LAN socket in Rust
+// ("owner ⑤: settings target the LAN server only"). With preference=cloud the LAN
+// could come back and nothing flushed, so a "saved locally" edit waited for a
+// cloud reconnect or a restart. Watching the LAN edge specifically was the fix.
+//
+// 🔴 THE SECOND HALF OF THIS RULE WAS RETIRED BY owner ON 2026-08-24, and the
+// two assertions that encoded it went red on the day it changed — which is the
+// behaviour a reverse control is supposed to have. The retired sentence, kept
+// verbatim because it was true when it was written, was:
+//
+//     「a CLOUD-only rising edge does NOT flush — that socket cannot carry settings」
+//
+// It stopped being true when PREFERENCE keys (stt.dictionary / stt.polish /
+// stt.refine / scenario.card) started travelling on BOTH legs: that socket now
+// carries settings, so an edit made while the relay was down has to be replayed
+// when the relay comes up, or the relay keeps a stale copy forever. Measured
+// consequence of the old rule, and the reason owner changed it: a personal
+// dictionary, AI polish and two-pass refine were INERT on the cloud relay
+// (docs/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6).
+//
+// ⚠️ What did NOT change, and is still asserted below: SERVER-CONFIG keys
+// (`stt.routings` / `llm.config`) remain LAN-only in Rust. owner ⑤'s original
+// reason — the relay's engine and model are not the desktop's to set — is
+// unchanged for those, and `shell/mod.rs is_preference_setting` is the split.
+describe('RV-16 settings flush edge follows EITHER channel (owner 2026-08-24)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -134,14 +152,18 @@ describe('RV-16 settings flush edge follows the LAN channel', () => {
       row({ channel: 'lan', primary: false, connected: true }),
     ]);
     expect(lanConnected.value).toBe(true);
-    expect(flush).toHaveBeenCalledTimes(1);
+    // Two edges rose in this batch (cloud AND lan), and each is its own fact —
+    // see the two separate watchers in store.ts and why they are not OR-ed.
+    expect(flush).toHaveBeenCalledTimes(2);
   });
 
-  it('a CLOUD-only rising edge does NOT flush — that socket cannot carry settings', () => {
+  it('a CLOUD-only rising edge DOES flush — that socket now carries preferences', () => {
     const flush = vi.spyOn(settings, 'flushPending').mockResolvedValue(undefined);
     applyConnectionRows([row({ channel: 'cloud', primary: true, connected: true })]);
+    // The LAN leg is genuinely down here; the point is that the relay coming up
+    // is now sufficient on its own.
     expect(lanConnected.value).toBe(false);
-    expect(flush).not.toHaveBeenCalled();
+    expect(flush).toHaveBeenCalledTimes(1);
   });
 
   it('only the EDGE flushes: a repeated connected LAN row is not a second replay', () => {

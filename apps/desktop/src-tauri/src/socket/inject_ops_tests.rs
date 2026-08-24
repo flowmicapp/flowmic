@@ -159,7 +159,7 @@ fn a_deferred_frame_is_refused_by_name_and_a_live_one_is_not() {
     // 🔴 THE POSITIVE CONTROL, and it comes FIRST on purpose: if the live frame
     // did not reach the pipeline, the deferred assertion below would be
     // satisfied by a `run_inject` that refuses everything.
-    let live = run_inject(&req(inject::InjectOrigin::Live, "live"), &allow, &fsm, &dl, &dedup)
+    let live = run_inject(&req(inject::InjectOrigin::Live, "live"), &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground)
         .expect("a live frame must still produce a verdict");
     assert_eq!(live["ok"], serde_json::json!(false), "no target in this harness");
     assert_eq!(
@@ -169,7 +169,7 @@ fn a_deferred_frame_is_refused_by_name_and_a_live_one_is_not() {
          to be the pipeline's own Stage-1 code, not the deferred refusal"
     );
 
-    let deferred = run_inject(&req(inject::InjectOrigin::Deferred, "deferred"), &allow, &fsm, &dl, &dedup)
+    let deferred = run_inject(&req(inject::InjectOrigin::Deferred, "deferred"), &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground)
         .expect("a deferred delivery must still be ANSWERED — silence is the red line");
     assert_eq!(deferred["ok"], serde_json::json!(false));
     assert_eq!(deferred["mode"], serde_json::json!("cached"), "delivered successfully, not injected · cached");
@@ -213,7 +213,7 @@ fn dedup_runs_before_the_deferred_gate_so_a_typed_utterance_never_goes_backwards
         origin: inject::InjectOrigin::Deferred,
         origin_stated: true,
     };
-    let out = run_inject(&retry, &allow, &fsm, &dl, &dedup).expect("a replay answers");
+    let out = run_inject(&retry, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).expect("a replay answers");
     assert_eq!(
         out["ok"],
         serde_json::json!(true),
@@ -278,7 +278,7 @@ fn locked_env() -> (Option<Vec<String>>, Mutex<FocusStateMachine>, Mutex<Option<
 #[test]
 fn a_failed_injection_reports_the_window_it_was_aimed_at() {
     let (allow, fsm, dl, dedup) = locked_env();
-    let out = run_inject(&req(inject::InjectOrigin::Live, "obs"), &allow, &fsm, &dl, &dedup)
+    let out = run_inject(&req(inject::InjectOrigin::Live, "obs"), &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground)
         .expect("a live frame produces a verdict");
     // PRECONDITION: this really is the failure path, not an accidental success.
     assert_eq!(out["ok"], serde_json::json!(false));
@@ -318,6 +318,7 @@ fn the_deferred_branch_reports_the_window_without_ever_taking_the_foreground() {
         &fsm,
         &dl,
         &dedup,
+        TargetIntent::LiveForeground,
     )
     .expect("a deferred delivery must still be ANSWERED — silence is the red line");
     assert_eq!(
@@ -342,7 +343,7 @@ fn the_deferred_branch_reports_the_window_without_ever_taking_the_foreground() {
     // 🔴 THE POSITIVE CONTROL, and without it the assertion above is worthless:
     // it would also hold for a `run_inject` that never transitions the FSM at all.
     // A LIVE frame in the SAME harness must move it.
-    let live = run_inject(&req(inject::InjectOrigin::Live, "obs-live"), &allow, &fsm, &dl, &dedup)
+    let live = run_inject(&req(inject::InjectOrigin::Live, "obs-live"), &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground)
         .expect("a live frame produces a verdict");
     assert_eq!(live["error"], serde_json::json!(error_codes::INJECT_FOCUS_LOST));
     assert!(
@@ -379,7 +380,7 @@ fn a_disk_ledger_replay_never_re_claims_a_window_it_did_not_observe() {
         );
     }
     let dedup = Mutex::new(InjectDeduper::load_spec_default(path.clone()));
-    let out = run_inject(&r, &allow, &fsm, &dl, &dedup).expect("a replay answers");
+    let out = run_inject(&r, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).expect("a replay answers");
     assert_eq!(out["ok"], serde_json::json!(true), "precondition: this IS the replay branch");
     assert_eq!(out["mode"], serde_json::json!("sendinput"));
     // 🔴 A window WAS resolvable in this harness (the FSM is locked onto notepad),
@@ -397,4 +398,123 @@ fn the_no_target_exit_prints_no_fake_hwnd() {
     // like an answer ("we tried hwnd 0") instead of "there was nothing to try".
     let l = ChordExit::NoTarget.line("tab", None, 1);
     assert!(l.contains("hwnd=-") || !l.contains("hwnd="), "no fabricated hwnd: {l}");
+}
+
+// ── 0.3.31: 「点了胶囊上的再注入，它注不进去」 ──────────────────────────────────
+//
+// owner 2026-08-24, on the capsule strip's re-inject icon: 「点了这个胶囊窗口之后，
+// 它的焦点就是当前的这个胶囊窗口了，所以这个没办法注入到之前的这个窗口里面去」
+// ("once you click the capsule window, the focus IS the capsule window, so it
+// cannot inject into the window you were in before"). Measured on this machine at
+// 2026-08-24T03:13:50.625Z, from a real click:
+//
+//   [self-focus] own window is foreground with NO editable focus (stale…) →
+//   ok=false mode=cached err=INJECT_SELF_WINDOW_NO_INPUT; nothing typed
+//
+// These drive [`choose_target`] rather than [`resolve_inject_target`] because the
+// latter reads the REAL foreground of whatever machine runs the suite, so it can
+// only ever exercise the locked branch — and the branch this fixes is unlocked.
+
+/// `(hwnd, window_title, process_name)` — the shape every CONSUMER wants.
+fn consumer(h: u64, title: &str, app: &str) -> Option<(u64, String, String)> {
+    Some((h, title.to_string(), app.to_string()))
+}
+/// `(hwnd, app_name, window_title)` — the shape the FSM's sidecar STORES.
+fn sidecar(h: u64, app: &str, title: &str) -> Option<(u64, String, String)> {
+    Some((h, app.to_string(), title.to_string()))
+}
+
+#[test]
+fn a_click_on_our_own_window_aims_at_the_program_the_user_was_in_before() {
+    // Unlocked + no live foreground == 「前台是 FlowMic 自己」, because
+    // `current_foreground_target` answers None for our own windows by design.
+    let out = choose_target(
+        None,
+        None,
+        sidecar(0x320872, "Cursor", "flowmic-app - Cursor"),
+        TargetIntent::BeforeTheClick,
+    );
+    // 🔴 BOTH HALVES NAMED. The sidecar stores (hwnd, app, title) and this
+    // function returns (hwnd, title, app); the swap COMPILES (three Strings) and
+    // would only ever show up as a forensic line reading "flowmic-app - Cursor:Cursor".
+    let (h, title, app) = out.expect("the window they were in before IS the target");
+    assert_eq!(h, 0x320872);
+    assert_eq!(title, "flowmic-app - Cursor", "slot 2 is the WINDOW TITLE");
+    assert_eq!(app, "Cursor", "slot 3 is the PROCESS NAME");
+}
+
+#[test]
+fn the_same_inputs_from_a_wire_frame_still_have_no_destination() {
+    // 🔴 REVERSE CONTROL FOR THE WHOLE CARD. Identical inputs, other intent. If
+    // this ever returns Some, the fallback has leaked onto the path where 「前台是
+    // FlowMic」 genuinely means 「没有目的地」 — the phone would start typing into a
+    // window the user is not looking at, which is a different product.
+    assert_eq!(
+        choose_target(
+            None,
+            None,
+            sidecar(0x320872, "Cursor", "flowmic-app - Cursor"),
+            TargetIntent::LiveForeground,
+        ),
+        None,
+    );
+}
+
+#[test]
+fn a_live_foreground_is_never_overridden_by_the_sidecar() {
+    // The fallback is for 「前台是我们自己」 ONLY. A real external foreground is the
+    // answer to the question a click asks, too — the user clicked us from THERE.
+    // Reading the sidecar first would resurrect a window they have since left.
+    for intent in [TargetIntent::LiveForeground, TargetIntent::BeforeTheClick] {
+        let out = choose_target(
+            None,
+            consumer(0x1F00D, "Notepad - a.txt", "notepad"),
+            sidecar(0x320872, "Cursor", "flowmic-app - Cursor"),
+            intent,
+        );
+        assert_eq!(out.unwrap().2, "notepad", "{intent:?}");
+    }
+}
+
+#[test]
+fn the_speaking_lock_still_beats_both_under_either_intent() {
+    // F-203 / ruling 2 untouched: a mid-utterance switch must not re-target, and
+    // that outranks everything this card adds.
+    for intent in [TargetIntent::LiveForeground, TargetIntent::BeforeTheClick] {
+        let out = choose_target(
+            consumer(0xAAA, "locked title", "locked-app"),
+            consumer(0xBBB, "live title", "live-app"),
+            sidecar(0xCCC, "side-app", "side title"),
+            intent,
+        );
+        assert_eq!(out.unwrap().0, 0xAAA, "{intent:?}");
+    }
+}
+
+#[test]
+fn with_nothing_ever_recorded_there_is_still_no_destination() {
+    // A machine where FlowMic has been in front since launch. There is no window
+    // to name, and inventing one is the forbidden direction of 没有静默失败.
+    assert_eq!(choose_target(None, None, None, TargetIntent::BeforeTheClick), None);
+}
+
+#[test]
+fn no_wire_path_can_ask_for_the_before_the_click_intent() {
+    // The type system already makes this true — the intent is a PARAMETER of
+    // run_inject, not a field of InjectRequest, so there is no key for a phone to
+    // send. This pins the other half: that no socket CALL SITE hands it over.
+    // (`local_inject.rs` is the one legitimate producer and is excluded.)
+    let wire_side = include_str!("client.rs");
+    assert!(
+        wire_side.contains("TargetIntent::LiveForeground"),
+        "control: the socket path must still pass an intent at all",
+    );
+    assert!(
+        !wire_side.contains("TargetIntent::BeforeTheClick"),
+        "a frame must never be able to aim at the window behind our own",
+    );
+    assert!(
+        include_str!("local_inject.rs").contains("TargetIntent::BeforeTheClick"),
+        "control: the local re-inject really is the producer",
+    );
 }

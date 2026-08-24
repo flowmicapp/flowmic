@@ -43,7 +43,16 @@ const REPO_ROOT = path.resolve(HERE, '../../..');
 const SERVER_ENTRY = path.join(REPO_ROOT, 'apps', 'server-core', 'src', 'index.ts');
 const PROTOCOL_DIST = path.join(REPO_ROOT, 'packages', 'protocol', 'dist', 'index.js');
 const SIDECAR_ARTIFACT = path.join(REPO_ROOT, 'apps', 'desktop', 'src-tauri', 'resources', 'server.js');
+// 🔴 TWO FILES, ONE ADAPTER. `soniox.ts` was split at the 800-line cap
+// (2026-08-24: `buildConfigFrame` + the model id moved to
+// `soniox-config-frame.ts`), and this control went red the moment they left —
+// correctly, because it hunts the fingerprints in a NAMED file. The control is
+// widened to the adapter's files rather than pinned to one of them: a
+// fingerprint may live in either, and the property being controlled for is
+// 「these strings still exist in the private source」, not 「they live in this
+// particular file」.
 const SONIOX_SOURCE = path.join(REPO_ROOT, 'packages', 'stt-cloud', 'src', 'engines', 'soniox.ts');
+const SONIOX_FRAME_SOURCE = path.join(REPO_ROOT, 'packages', 'stt-cloud', 'src', 'engines', 'soniox-config-frame.ts');
 // The whole private package — the discriminator between the two trees this
 // suite runs in (private repo: present; OSS export: stripped by design).
 const STT_CLOUD_PKG = path.join(REPO_ROOT, 'packages', 'stt-cloud');
@@ -137,10 +146,12 @@ describe('sidecar bundle must not contain @flowmic/stt-cloud (card §207)', () =
     // assert the WHOLE PACKAGE is gone, which is what "excluded" means there.
     if (!existsSync(STT_CLOUD_PKG)) {
       expect(existsSync(SONIOX_SOURCE)).toBe(false);
+      expect(existsSync(SONIOX_FRAME_SOURCE)).toBe(false);
       return;
     }
     expect(existsSync(SONIOX_SOURCE)).toBe(true);
-    const src = readFileSync(SONIOX_SOURCE, 'utf8');
+    expect(existsSync(SONIOX_FRAME_SOURCE)).toBe(true);
+    const src = readFileSync(SONIOX_SOURCE, 'utf8') + readFileSync(SONIOX_FRAME_SOURCE, 'utf8');
     for (const f of PRIVATE_FINGERPRINTS) expect(src).toContain(f);
   });
 

@@ -55,6 +55,28 @@ export const PERMISSION_KEYS = [
   // header. Uses macOS's OWN wording per language, because the reader is
   // hunting for these exact words on their screen; a faithful translation that
   // does not match the menu is worse than no translation.
+  // ── The copy for the case where granting it CANNOT work ───────────────────
+  //
+  // 🔴 Two sentences exist because the same OS reading (`AXIsProcessTrusted()`
+  // = false) has two causes that need opposite instructions, and telling a
+  // reader the wrong one costs them an afternoon. [measured, owner's Mac mini,
+  // 2026-08-24] the owner granted the permission, watched the switch turn on,
+  // restarted FlowMic, and was refused — three times — because macOS was
+  // running the app from a throwaway copy it makes for anything opened straight
+  // out of the download folder, at a path that is different on every launch.
+  //
+  // ⚠️ Neither string may name the mechanism. There is no user-facing word for
+  // App Translocation and inventing one would be 自说自话 (owner 2026-08-17);
+  // what the reader needs is the observable fact (it is still running from
+  // where it was downloaded) and the move that fixes it.
+  'perm_ax_move_body',
+  // 🔴 Deliberately NOT paired with a button. Every other action in this notice
+  // has one; this one does not, because the only place worth opening is where
+  // the ORIGINAL copy sits, and a translocated process cannot name it — it can
+  // see only the throwaway copy it is running from. A button aimed at a guess
+  // is the façade this repo hunts (R8: a control that cannot report is worse
+  // than no control), so the instruction is words the reader can carry out.
+  'perm_ax_move_how',
   'perm_ax_pane',
   'perm_ax_open',
   // Why there is no 「知道了」 button. The notice is state-style (owner

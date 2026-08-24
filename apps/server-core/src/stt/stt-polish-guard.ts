@@ -399,6 +399,59 @@ export interface GuardOpts {
    *  existing caller and every ported vector is unaffected by the parameter's
    *  existence. */
   strength?: PolishStrength;
+  /**
+   * The terms the USER declared (scenario card + dictionary packs + personal
+   * dictionary). An edit that introduces one of these does not count against the
+   * §3.1 cardinality budget.
+   *
+   * 🔴 WHY THIS EXISTS — measured 2026-08-24 against the production DeepSeek
+   * line (report: .local/pipeline-probe/polish-context-eval.json). With the
+   * scenario block carrying the user's own term list, the model answered
+   * 「这批数据都存在洛克斯托里面」 with 「…存在Rockstore里面」 — exactly the
+   * correction the whole terminology feature exists to produce — AND THE GUARD
+   * THREW IT AWAY as `edit-distance-exceeded`. It had to: four Han characters
+   * became nine Latin ones, which IS a large character-level edit. The same run
+   * refused 「打开FlowMic…」 as `length-ratio-exceeded`.
+   *
+   * So the budget was not wrong about the DISTANCE, it was wrong about what the
+   * distance MEANT. Substituting a span with a term the user themselves typed
+   * into their settings is the intended behaviour; counting it as drift makes
+   * the guard refuse the product's differentiator, and refusing correct work is
+   * how a guard gets loosened until it never fires (this file's own history).
+   *
+   * ⚠️ DELIBERATELY NOT A WIDER BOUND. The measured calibration above does not
+   * move by a single digit — a blanket loosening would buy this case by paying
+   * for every other case too. The allowance is capped by the declared terms'
+   * OWN LENGTHS and applies only to terms present in the output and absent from
+   * the input, so a model cannot use it to smuggle content: the most it can add
+   * for free is the words the user already asked for.
+   *
+   * ⚠️ §3.2 (closed-class multiset) is NOT touched by this and must never be. A
+   * declared term cannot license a negation flip.
+   */
+  declaredTerms?: readonly string[];
+}
+
+/**
+ * How many characters of divergence are explained by the user's own vocabulary.
+ *
+ * A term counts only when it is ABSENT from the input and PRESENT in the output
+ * — i.e. the model introduced it. A term that was already in both was never part
+ * of the delta, and giving it an allowance would hand out budget for work nobody
+ * did.
+ */
+function declaredTermAllowance(raw: string, polished: string, terms: readonly string[]): number {
+  let allowance = 0;
+  const seen = new Set<string>();
+  for (const raw_term of terms) {
+    const term = raw_term.trim();
+    if (term.length === 0 || seen.has(term)) continue;
+    seen.add(term);
+    if (!polished.includes(term)) continue;
+    if (raw.includes(term)) continue;
+    allowance += [...term].length;
+  }
+  return allowance;
 }
 
 /**
@@ -434,7 +487,14 @@ export function checkMeaningPreserved(
   const rawLen = [...rawText].length;
   const polLen = [...polishedText].length;
   const { distance, hunks } = diffChars(rawText, polishedText);
-  const editBound = Math.max(bounds.editFloor, bounds.editRatio * rawLen);
+  // The user's own vocabulary, discounted from the budget rather than added to
+  // the bound — see GuardOpts.declaredTerms. `allowance` is 0 for every caller
+  // that passes no terms, so the legacy calibration is bit-for-bit unchanged
+  // wherever this feature is not in play.
+  const allowance = opts.declaredTerms && opts.declaredTerms.length > 0
+    ? declaredTermAllowance(rawText, polishedText, opts.declaredTerms)
+    : 0;
+  const editBound = Math.max(bounds.editFloor, bounds.editRatio * rawLen) + allowance;
 
   // Computed BEFORE the first early return so that every verdict carries the
   // full picture. A rejection that only reports the axis it tripped on cannot
@@ -458,7 +518,17 @@ export function checkMeaningPreserved(
   if (distance > editBound) return { ok: false, reason: 'edit-distance-exceeded', metrics };
 
   if (rawLen >= RATIO_MIN_LEN) {
-    if (metrics.lengthRatio > bounds.lengthRatioMax || metrics.lengthRatio < bounds.lengthRatioMin) {
+    // The same allowance applies here, and for the same reason: 「打开飞麦克…」
+    // -> 「打开FlowMic…」 grows the string because the declared term is longer
+    // than what was misheard. Measured on the production line 2026-08-24 — that
+    // exact pair was refused as `length-ratio-exceeded` while being correct.
+    // The ratio is judged against a length that already accounts for the term
+    // the user asked for; `lengthRatio` in `metrics` stays the RAW measurement,
+    // because a metric that quietly reports an adjusted number would make every
+    // future calibration read from a value that is not the thing it names.
+    const adjustedPolLen = Math.max(1, polLen - allowance);
+    const adjustedRatio = adjustedPolLen / Math.max(1, rawLen);
+    if (adjustedRatio > bounds.lengthRatioMax || adjustedRatio < bounds.lengthRatioMin) {
       return { ok: false, reason: 'length-ratio-exceeded', metrics };
     }
   }

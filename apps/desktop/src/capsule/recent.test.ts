@@ -58,6 +58,7 @@ describe('① V2-15 translated row: processed text by default, original expandab
   it('a translate wire row yields the translation (译文) as the face and the original text (原文) as the source', () => {
     const line = toRecentLine(
       wire({ mode: 'translate', output_text: 'Hello everyone', source_text: '大家好' }),
+      'lan',
     );
     expect(line?.mode).toBe('translate');
     expect(line?.text).toBe('Hello everyone'); // the PROCESSED result…
@@ -78,7 +79,7 @@ describe('① V2-15 translated row: processed text by default, original expandab
 describe('② V2-15 the three content states are mutually distinct on the row', () => {
   it('realtime / translate / organize narrow to three different modes…', () => {
     const modes = (['realtime', 'translate', 'organize'] as const).map(
-      (m) => toRecentLine(wire({ mode: m }))?.mode,
+      (m) => toRecentLine(wire({ mode: m }), 'lan')?.mode,
     );
     expect(new Set(modes).size).toBe(3);
   });
@@ -98,17 +99,17 @@ describe('② V2-15 the three content states are mutually distinct on the row', 
 
 describe('③ V2-15 a missing field is OMITTED, never back-filled (the fabricating-data (编数据) guard)', () => {
   it('an unknown wire mode stays null — it is NOT defaulted to realtime', () => {
-    expect(toRecentLine(wire({ mode: 'hyperdrive' as never }))?.mode).toBeNull();
+    expect(toRecentLine(wire({ mode: 'hyperdrive' as never }), 'lan')?.mode).toBeNull();
   });
 
   it('an absent/unparseable created_at yields NO time (and no borrowed timestamp)', () => {
-    expect(toRecentLine(wire({ created_at: '' }))?.time).toBeNull();
-    expect(toRecentLine(wire({ created_at: 'not-a-date' }))?.time).toBeNull();
+    expect(toRecentLine(wire({ created_at: '' }), 'lan')?.time).toBeNull();
+    expect(toRecentLine(wire({ created_at: 'not-a-date' }), 'lan')?.time).toBeNull();
   });
 
   it('an absent mobile_id yields NO sender id', () => {
-    expect(toRecentLine(wire({}))?.mobileId).toBeNull();
-    expect(toRecentLine(wire({ mobile_id: 'pair-9' }))?.mobileId).toBe('pair-9');
+    expect(toRecentLine(wire({}), 'lan')?.mobileId).toBeNull();
+    expect(toRecentLine(wire({ mobile_id: 'pair-9' }), 'lan')?.mobileId).toBe('pair-9');
   });
 
   // 卡 P/D — a row minted from a delivery frame carries `device_label` and NEVER a
@@ -116,9 +117,9 @@ describe('③ V2-15 a missing field is OMITTED, never back-filled (the fabricati
   // id). Without this the strip's device cell would be omitted on every new row, i.e.
   // the field would exist with nothing rendering it.
   it('the phone’s own label is narrowed the same way, and empty is not a label', () => {
-    expect(toRecentLine(wire({}))?.deviceLabel).toBeNull();
-    expect(toRecentLine(wire({ device_label: '' }))?.deviceLabel).toBeNull();
-    expect(toRecentLine(wire({ device_label: 'Pixel 8-ab12' }))?.deviceLabel).toBe('Pixel 8-ab12');
+    expect(toRecentLine(wire({}), 'lan')?.deviceLabel).toBeNull();
+    expect(toRecentLine(wire({ device_label: '' }), 'lan')?.deviceLabel).toBeNull();
+    expect(toRecentLine(wire({ device_label: 'Pixel 8-ab12' }), 'lan')?.deviceLabel).toBe('Pixel 8-ab12');
   });
 
   it('the SFC resolves the sender name from the pairing map FIRST, then that label', () => {
@@ -129,7 +130,7 @@ describe('③ V2-15 a missing field is OMITTED, never back-filled (the fabricati
   });
 
   it('a row without an id cannot be rendered at all', () => {
-    expect(toRecentLine(wire({ id: '' }))).toBeNull();
+    expect(toRecentLine(wire({ id: '' }), 'lan')).toBeNull();
   });
 
   it('the SFC omits each missing CELL (v-if), instead of rendering a placeholder', () => {
@@ -160,17 +161,17 @@ describe('③ V2-15 a missing field is OMITTED, never back-filled (the fabricati
   // WAVEFORM badge, i.e. it looked like something that had been said. `mode` is
   // meaningless for a picture, and the strip was rendering it anyway.
   it('an image row carries entryType + thumb off the wire', () => {
-    const img = toRecentLine(wire({ entry_type: 'image', thumb_b64: 'QUJD' }));
+    const img = toRecentLine(wire({ entry_type: 'image', thumb_b64: 'QUJD' }), 'lan');
     expect(img?.entryType).toBe('image');
     expect(img?.thumb).toBe('QUJD');
     // A transcript row is the default and must NOT claim a picture.
-    const txt = toRecentLine(wire({}));
+    const txt = toRecentLine(wire({}), 'lan');
     expect(txt?.entryType).toBe('transcript');
     expect(txt?.thumb).toBeNull();
     // An image row WITHOUT a preview is still an image row — the badge falls
     // back to an icon rather than the row pretending to be a transcript.
-    expect(toRecentLine(wire({ entry_type: 'image' }))?.thumb).toBeNull();
-    expect(toRecentLine(wire({ entry_type: 'image', thumb_b64: '' }))?.thumb).toBeNull();
+    expect(toRecentLine(wire({ entry_type: 'image' }), 'lan')?.thumb).toBeNull();
+    expect(toRecentLine(wire({ entry_type: 'image', thumb_b64: '' }), 'lan')?.thumb).toBeNull();
   });
 
   it('the SFC gives an image row its OWN badge, ahead of the mode badge', () => {
@@ -195,13 +196,13 @@ describe('V2-15 line shape: time format + ordering + upsert', () => {
     const d = new Date(iso);
     const pad = (n: number): string => String(n).padStart(2, '0');
     const want = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    expect(toRecentLine(wire({ created_at: iso }))?.time).toBe(want);
+    expect(toRecentLine(wire({ created_at: iso }), 'lan')?.time).toBe(want);
   });
 
   it('upsert: a new id prepends and the strip caps at 5', () => {
     let list: RecentLine[] = [];
     for (let i = 0; i < 7; i++) {
-      const line = toRecentLine(wire({ id: `r${i}` }))!;
+      const line = toRecentLine(wire({ id: `r${i}` }), 'lan')!;
       list = upsertRecentLine(list, line);
     }
     expect(list.map((l) => l.id)).toEqual(['r6', 'r5', 'r4', 'r3', 'r2']);
@@ -209,9 +210,9 @@ describe('V2-15 line shape: time format + ordering + upsert', () => {
 
   it('upsert: a stt:refined / peer edit REPLACES IN PLACE — no duplicate, no jump to top', () => {
     let list: RecentLine[] = [];
-    list = upsertRecentLine(list, toRecentLine(wire({ id: 'a' }))!);
-    list = upsertRecentLine(list, toRecentLine(wire({ id: 'b' }))!);
-    const refined = toRecentLine(wire({ id: 'a', output_text: '第二遍的更好版本' }))!;
+    list = upsertRecentLine(list, toRecentLine(wire({ id: 'a' }), 'lan')!);
+    list = upsertRecentLine(list, toRecentLine(wire({ id: 'b' }), 'lan')!);
+    const refined = toRecentLine(wire({ id: 'a', output_text: '第二遍的更好版本' }), 'lan')!;
     list = upsertRecentLine(list, refined);
     expect(list.map((l) => l.id)).toEqual(['b', 'a']);
     expect(list[1]?.text).toBe('第二遍的更好版本');
@@ -483,19 +484,19 @@ describe('V2-20 channel visual identity (owner 2026-08-01, consumed not reinvent
 // there on the ack, and the phone dropped it on the floor", the same shape).
 describe('卡 L7 — the strip knows whether a row was injected', () => {
   it('narrows `status` off the wire row', () => {
-    expect(toRecentLine(wire({ status: 'injected' }))?.status).toBe('injected');
-    expect(toRecentLine(wire({ status: 'cached' }))?.status).toBe('cached');
-    expect(toRecentLine(wire({ status: 'failed' }))?.status).toBe('failed');
-    expect(toRecentLine(wire({ status: 'noted' }))?.status).toBe('noted');
+    expect(toRecentLine(wire({ status: 'injected' }), 'lan')?.status).toBe('injected');
+    expect(toRecentLine(wire({ status: 'cached' }), 'lan')?.status).toBe('cached');
+    expect(toRecentLine(wire({ status: 'failed' }), 'lan')?.status).toBe('failed');
+    expect(toRecentLine(wire({ status: 'noted' }), 'lan')?.status).toBe('noted');
   });
 
   it('an ABSENT or unknown status stays null — never guessed into a value', () => {
     // Same rule as `mode` (V2-15 ③): a missing field vanishes, it is never
     // back-filled with a plausible default. A guessed 'injected' here would
     // paint a NOT-injected row as if it had landed.
-    const unknown = toRecentLine(wire({ status: 'teleported' as never }));
+    const unknown = toRecentLine(wire({ status: 'teleported' as never }), 'lan');
     expect(unknown?.status).toBeNull();
-    const absent = toRecentLine({ ...wire({}), status: undefined as never });
+    const absent = toRecentLine({ ...wire({}), status: undefined as never }, 'lan');
     expect(absent?.status).toBeNull();
   });
 
@@ -536,10 +537,10 @@ describe('卡 L7 — the strip knows whether a row was injected', () => {
 
   it('a late verdict re-paints the SAME row through the existing upsert (no new mechanism)', () => {
     // book 15 §2.5c-2 ②: the row and its verdict are two frames of unknown order.
-    const first = toRecentLine(wire({ id: 'r9', status: 'cached' }))!;
+    const first = toRecentLine(wire({ id: 'r9', status: 'cached' }), 'lan')!;
     let list = upsertRecentLine([], first);
     expect(list[0]!.status).toBe('cached');
-    const verdict = toRecentLine(wire({ id: 'r9', status: 'injected' }))!;
+    const verdict = toRecentLine(wire({ id: 'r9', status: 'injected' }), 'lan')!;
     list = upsertRecentLine(list, verdict);
     expect(list).toHaveLength(1);          // replaced IN PLACE, not appended
     expect(list[0]!.status).toBe('injected');

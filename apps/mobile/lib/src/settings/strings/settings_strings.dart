@@ -264,6 +264,17 @@ mixin SettingsStrings on AppStringsLeaves {
   String get textScaleMedium => _lfTextScaleMedium;
   String get textScaleSmall => _lfTextScaleSmall;
 
+  // ── 0.3.28 —— the two rungs above the old ceiling ─────────────────────────
+  //
+  // The same "no number in the label" rule as the three above, for the same
+  // reason. ⚠️ And a second one that only applies to these two: they are the
+  // only tiers that make the app **bigger than it has ever been**, so the words
+  // must not promise a fixed size either — `AppTextScale.xxlarge` is 1.30 times
+  // whatever the system curve already produced, which on a phone with the OS
+  // large-text setting on is a great deal more than "largest" suggests.
+  String get textScaleXlarge => _lfTextScaleXlarge;
+  String get textScaleXxlarge => _lfTextScaleXxlarge;
+
   /// 🔴 This sentence is this row's **duty to be honest**: the tier
   /// multiplies on top of the system setting, it does not replace it.
   /// Without it, a user who has enlarged the system font would think

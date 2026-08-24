@@ -37,6 +37,29 @@
 // because #4 is believed, but so that the refutation has something that would
 // go loud if it ever stopped being true.
 //
+// ── 🔴 IT WENT LOUD, AND THE HYPOTHESIS ABOVE IS ALSO WRONG (2026-08-24) ──────
+//
+// The SECONDARY line fired 8 times between 2026-08-21 and 2026-08-24 on this
+// machine, every one of them naming the **same HWND we configured** — so the
+// window was never recreated and the paragraph above is refuted along with
+// suspect #4. Both guesses looked for someone who CLEARS the bit; nobody does.
+// tao 0.35.3 REGENERATES the entire ex-style from its own `WindowFlags` on every
+// flag change (`WindowFlags::apply_diff` → `SetWindowLongW(GWL_EXSTYLE, …)`), and
+// its flags have no room for anything we OR'd in. The trigger on the hot path is
+// our own `capsule_click_through` → `set_ignore_cursor_events`, i.e. every
+// injection. Whole account, and the fix (hand the bit to tao via
+// `set_focusable(false)` so it regenerates it FOR us), in `shell/capsule_style.rs`.
+//
+// ⚠️ THIS FILE'S JOB DOES NOT END HERE. `WS_EX_TOOLWINDOW` has no tao flag, so it
+// is still painted on and will still be lost — cosmetic (taskbar / alt-tab), not a
+// stolen foreground. The secondary line is now the only thing that would notice.
+//
+// 🔴 THE PART WORTH CARRYING FORWARD: this instrument answered correctly for
+// months and nobody read it. Its 8 lines were sitting in the forensic log the
+// whole time, and the defect was found only when owner hit the CONSEQUENCE (a
+// capsule button that could not inject). An instrument nobody reads is a façade
+// with a good conscience.
+//
 // ── WHAT IT DOES NOT DO ──────────────────────────────────────────────────────
 // · No thread, no timer, no polling. It rides touchpoints the capsule path
 //   already crosses (`resize` / `move` / `click_through` / `surface` / `drag`).

@@ -397,8 +397,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             shell::accessibility::accessibility_status,
             shell::accessibility::open_accessibility_settings,
-            shell::settings_update,
-            shell::settings_list,
+            shell::settings_route::settings_update,
+            shell::settings_route::settings_list,
             // 0.2.27: `history_list` / `history_update` / `history_delete` /
             // `history_inject` are GONE. The server stores no transcripts (owner's
             // architecture ruling), so a pull returns nothing forever and an edit/delete has no

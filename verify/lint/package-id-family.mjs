@@ -177,6 +177,29 @@ function requiredSurfaces() {
       why: 'Kotlin side of the device-info channel',
     },
     {
+      file: 'apps/mobile/ios/Runner/DeviceInfo.swift',
+      must: [`CHANNEL = "${METHOD_CHANNELS.deviceInfo}"`],
+      why: 'Swift side of the device-info channel (0.3.28). Until then iOS had '
+        + 'no handler at all, so the Dart side silently answered "this platform '
+        + 'told me nothing" on every iPhone — the failure this gate exists to '
+        + 'make loud is the same one, just now reachable by a rename',
+    },
+    // 🔴 A channel string that agrees on both sides proves nothing if the Swift
+    // file is not COMPILED. Unlike Kotlin (Gradle globs the source set), an
+    // iOS target lists its sources explicitly, so a new .swift that nobody adds
+    // to project.pbxproj builds green, ships, and the handler is simply absent
+    // — which is byte-for-byte the state this card was written to end. The two
+    // ids below are the file reference and its Sources build-phase entry.
+    {
+      file: 'apps/mobile/ios/Runner.xcodeproj/project.pbxproj',
+      must: [
+        'path = DeviceInfo.swift',
+        '/* DeviceInfo.swift in Sources */',
+      ],
+      why: 'DeviceInfo.swift must be in the Runner target\'s Sources phase, not '
+        + 'merely on disk',
+    },
+    {
       file: 'apps/mobile/lib/src/session/image_clipboard.dart',
       must: [`'${METHOD_CHANNELS.imageClipboard}'`],
       why: 'Dart side of the image-clipboard channel',

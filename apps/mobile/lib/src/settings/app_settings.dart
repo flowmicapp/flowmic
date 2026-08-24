@@ -263,7 +263,28 @@ const List<String> kSpokenLangs = <String>['en', 'zh', 'fr', 'es', 'de', 'ja', '
 enum AppTextScale {
   large(1.00),
   medium(0.92),
-  small(0.85);
+  small(0.85),
+  // ── 0.3.28 —— two tiers ABOVE the old ceiling (owner 2026-08-23) ──────────
+  //
+  // owner reported the transcript text as too small on a small Apple handset.
+  // The measured root cause was not iOS and not the screen size: the ladder was
+  // `1.00 / 0.92 / 0.85`, i.e. **the default was already the largest rung**, so
+  // a user who wanted it bigger had no control at all inside the app.
+  //
+  // 🔴 THESE ARE APPENDED, AND NOTHING ABOVE IS RENAMED. `AppTextScale.name` IS
+  // the storage key (`setTextScale` writes `next.name`, and `load` parses those
+  // literals back). Renaming `large` to free the word up for a bigger rung would
+  // silently reset every existing user's choice to the default arm, and not one
+  // layer would report it. The words the user reads are a different table
+  // (`textScaleLarge` … `textScaleXxlarge`) — "what it is called on screen" and
+  // "what is on disk" are two questions, and one value does not answer both.
+  //
+  // ⚠️ The factors multiply on top of the SYSTEM curve (`FlowMicTextScaler`),
+  // so 1.30 here means 1.30 **of whatever the phone's own accessibility setting
+  // already produced** — which is exactly why the measurement suite had to be
+  // re-run at this rung and not only at 1.00 (`test/support/legibility.dart`).
+  xlarge(1.15),
+  xxlarge(1.30);
 
   const AppTextScale(this.factor);
 
@@ -437,11 +458,20 @@ class AppSettingsController extends ChangeNotifier {
     _spokenLang = kSpokenLangs.contains(storedSpoken)
         ? storedSpoken!
         : kSpokenLangDefault;
-    // FB-4 — the same whitelist parsing: a stored value not among the three
-    // tiers falls back to "large" = today's behaviour.
+    // FB-4 — the same whitelist parsing: a stored value not among the tiers
+    // falls back to "large" = the behaviour every install had before 0.3.28.
+    //
+    // ⚠️ The default arm is load-bearing in BOTH directions. A phone that goes
+    // back to a pre-0.3.28 build finds `xxlarge` on disk, does not recognise
+    // it, and lands on `large` — the old ceiling, which is the only honest
+    // answer that build can give. Appending the two rungs is what makes the
+    // upgrade direction lossless; this arm is what makes the downgrade
+    // direction survivable.
     _textScale = switch (_prefs.getString(_kTextScale)) {
       'medium' => AppTextScale.medium,
       'small' => AppTextScale.small,
+      'xlarge' => AppTextScale.xlarge,
+      'xxlarge' => AppTextScale.xxlarge,
       _ => AppTextScale.large,
     };
     // Push the hydrated choice into the live theme state BEFORE the first

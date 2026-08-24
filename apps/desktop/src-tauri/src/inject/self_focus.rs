@@ -196,6 +196,18 @@ static REPORT: Mutex<Option<StampedReport>> = Mutex::new(None);
 /// with the live foreground rather than with a per-window table. (In practice the
 /// capsule is `WS_EX_NOACTIVATE` and can never BE the foreground, so it can never
 /// win a race it could not have won anyway.)
+///
+/// 🔴 CORRECTED 2026-08-24 — the parenthesis above was FALSE ON THIS MACHINE, and
+/// it is left standing because it is exactly the shape anti-façade rule ④ is about:
+/// a sentence asserting ANOTHER file's behaviour, whose truth value changes when
+/// that other behaviour does, while the sentence itself never moves. The capsule's
+/// `WS_EX_NOACTIVATE` was being wiped by tao on every injection (whole account and
+/// the fix in `shell/capsule_style.rs`), so from the first utterance of a session
+/// onwards the capsule COULD take the foreground — and did: owner clicked a
+/// re-inject icon on a capsule row at 2026-08-24T03:13:50Z and this very module
+/// answered `own window is foreground with NO editable focus`, about the capsule.
+/// The claim should hold again now that tao owns the bit; it is written here as a
+/// thing that can stop being true, not as a property of the universe.
 pub fn record_report(hwnd: u64, editable: bool) {
     let stamped = StampedReport {
         report: SelfFocusReport { hwnd, editable },

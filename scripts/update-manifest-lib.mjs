@@ -570,5 +570,63 @@ export function gateShippedPlatformsLive({ shipped, version, fetched, url }) {
       );
     }
   }
+
+  // ── iOS: the platform ./publish can never be evidence for ──────────────────
+  //
+  // 🔴 WHY THIS IS SEPARATE FROM THE LOOP ABOVE. iOS ships through TestFlight
+  // from the mac line, outside scripts/publish.mjs (apps/mobile/Makefile's
+  // `release-ios` target says so in writing), so it puts NOTHING in ./publish
+  // and `shipped` can never contain it. Every gate this repo has for "did the
+  // round reach the user" is keyed on ./publish ⇒ iOS had no gate at all.
+  //
+  // 🔴 MEASURED CONSEQUENCE, not a hypothetical: as of 2026-08-23 the live
+  // manifest had NO `store_platforms` block whatsoever, while 0.3.27 had
+  // genuinely shipped to TestFlight. An iPhone asking for updates fell into
+  // `incompleteInfo / platform_absent` (update_check.dart) and was told
+  // nothing — and the whole release chain was green, because nothing in it
+  // looked. The relay has supported the block since 0.3.11, so this was never
+  // a code gap; it was a step nobody could forget out loud.
+  //
+  // 🔴 THE CRITERION IS "EVERY ROUND SHIPS iOS", NOT "IS THERE AN ios BLOCK".
+  // The second phrasing is the trap: it is vacuously satisfied on the very
+  // first round (no block has ever existed ⇒ nothing to compare ⇒ green), which
+  // is precisely the round it needed to fire on. The first phrasing is not an
+  // invention either — it is `docs/RELEASE-IRONRULES.md` §1-18, owner
+  // 2026-08-22: a release ships every platform, TestFlight included. So a round
+  // whose live face says nothing about iOS is, by that rule, an unfinished
+  // release, and this gate is allowed to say so.
+  //
+  // ⚠️ It will be RED between the Windows publish and the mac line's upload.
+  // That is the same shape the platform loop above already has (red until the
+  // manifest is deployed) and the file header calls that loop the intended
+  // workflow, not a failure mode. Re-run until green.
+  const ios = fetched.manifest.store_platforms?.ios;
+  const remedy =
+    `node scripts/build-update-manifest.mjs … --ios ${version}` +
+    ` (add --ios-store-url <link> to mint the store page; a block with no link is legal` +
+    ` and the phone still says "update in the store" — settings_update_card.dart keys that` +
+    ` sentence on the CHANNEL, not on the link)`;
+  if (!ios) {
+    failures.push(
+      `ios: the live manifest carries NO store_platforms.ios entry, so every iPhone asking ` +
+        `"is there an update" lands on incompleteInfo/platform_absent and is told nothing at ` +
+        `all. This is not a code gap — the relay has understood the block since 0.3.11; it is ` +
+        `the generator step being skipped. Regenerate with ${remedy}, deploy, then re-run.`,
+    );
+  } else if (ios.version === version) {
+    okLines.push(`ios: live manifest advertises ${version} on the store channel`);
+  } else if (compareVersions(ios.version, version) < 0) {
+    failures.push(
+      `ios: shipped ${version} this round, but the live manifest still advertises ${ios.version} ` +
+        `on the store channel — every iPhone is being told ${ios.version} is the latest. Same ` +
+        `shape as the stale-platform case above. Fix with ${remedy}, deploy, then re-run.`,
+    );
+  } else {
+    failures.push(
+      `ios: live manifest advertises ${ios.version}, NEWER than this round's ${version}. Stop and ` +
+        `establish which round is actually the latest before touching anything.`,
+    );
+  }
+
   return { failures, okLines };
 }

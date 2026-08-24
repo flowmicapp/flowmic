@@ -12,5 +12,17 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // 0.3.28 — the device-identity channel (`DeviceInfo.swift`). Registered
+    // here, beside the generated plugins, because this is the one place that
+    // runs before Dart's `deviceLabel()` warms its cache at app start.
+    //
+    // 🔴 The registrar is asked for a messenger rather than reaching for
+    // `window?.rootViewController as? FlutterViewController`: this target uses
+    // a `SceneDelegate`, so the root view controller is owned by a scene and is
+    // not there yet at this point. Going through the plugin registry is the
+    // path that does not depend on when the UI exists.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FlowMicDeviceInfo") {
+      DeviceInfo.register(messenger: registrar.messenger())
+    }
   }
 }

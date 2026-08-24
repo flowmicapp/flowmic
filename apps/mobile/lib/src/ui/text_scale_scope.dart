@@ -13,6 +13,13 @@
 //   · those 173 spots are numbers from a **measured inventory** (design draft
 //     §5); changing them one by one is 173 chances to get it wrong, and every
 //     new screen added afterwards is one more spot that can be missed;
+//     ⚠️ **173 is now 256** [measured, dev-pc-a 2026-08-24: `grep -c
+//     'fontSize:' apps/mobile/lib`]. The count is corrected rather than the
+//     sentence, because the sentence's own second clause is what came true:
+//     every screen added since put more spots there, and nothing counts them.
+//     🔴 That also makes this the argument for why 0.3.28 added two RUNGS to
+//     the ladder instead of raising base sizes — 256 chances to get it wrong
+//     is a worse answer today than it was at 173, not a better one.
 //   · `textScaler` is the layer Flutter already multiplies into every
 //     `TextStyle.fontSize`, so "multiply uniformly" is the only implementation
 //     in this framework that **cannot miss a spot**.

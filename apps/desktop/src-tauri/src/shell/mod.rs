@@ -16,7 +16,6 @@
 // is env-level in tauri.conf (`additionalBrowserArgs … CalculateNativeWinOcclusion`)
 // and shared by both windows — nothing to configure here.
 
-use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::ShellExt;
 
@@ -52,6 +51,11 @@ pub mod capsule_drag;
 /// module header for why this replaced the bit-change monitor R8 §2-1 designed.
 #[cfg(windows)]
 pub mod capsule_watch;
+
+/// The capsule's non-activating ex-style, and the tao behaviour that kept
+/// erasing it. Split out of this file at the 800-line cap.
+pub mod capsule_style;
+pub use capsule_style::configure_capsule_window;
 
 /// The cloud-relay channel (R6 T-2) — the managed CloudState (endpoint + Cloud
 /// Key, DPAPI at rest), the device-page commands, and the fail-loud teardown when
@@ -181,35 +185,12 @@ pub(crate) fn current_channel(state: &State<'_, SocketState>) -> crate::socket::
 
 // ── outbound settings / history verbs (main window → server) ─────────────────
 
-/// Change-immediately-persist-immediately settings write (07 §8). Returns whether the frame reached the wire;
-/// `false` → the frontend holds it pending and re-flushes on reconnect.
-///
-/// `stamp` is the frontend's `updated_at` — WHEN THE USER MADE THE EDIT (04 §3.7-a,
-/// card C3), minted in `apps/desktop/src/lib/settings-client.ts` and persisted with
-/// the durable queue, so a replayed offline edit carries its own moment rather than
-/// the reconnect's. Passed through untouched and omitted from the frame when
-/// `None`: absent means UNKNOWN, which is exactly the pre-C3 behaviour.
-///
-/// ⚠️ The IPC argument is one word on purpose. `apps/desktop/src/lib/bridge.ts`
-/// states that this boundary uses single-word argument names so that
-/// camelCase↔snake_case never has to be reasoned about; `stamp` honours that,
-/// while the WIRE field stays `updated_at`. The two names answer to two layers.
-#[tauri::command]
-pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value, stamp: Option<String>) -> bool {
-    // owner ⑤: settings target the LAN server only — see with_lan_socket.
-    with_lan_socket(&state, |s| s.emit_settings_update(&key, value, stamp.as_deref()), false)
-}
+/// The settings write/read route (which server a settings verb is addressed to)
+/// — moved out VERBATIM for the 800-line cap, same technique as `tray` below.
+/// It owns `PREFERENCE_SETTING_KEYS`, i.e. the split between 「what this user
+/// prefers」 (both legs) and 「what a server shall do」 (LAN only).
+pub mod settings_route;
 
-/// settings:list snapshot pull (WP-R3.5; 07 §8). Unlike history_list this AWAITS
-/// the ack and RETURNS the `items` array (`[{key,value}]`) directly, so the
-/// frontend can adopt the server-authoritative settings into its local display
-/// cache on the connected rising edge. `None` when the socket is down / the ack
-/// times out — the frontend then keeps its local cache (never a blank overwrite).
-#[tauri::command]
-pub fn settings_list(state: State<'_, SocketState>) -> Option<Value> {
-    // owner ⑤: hydrate from the LAN server — the one this page configures.
-    with_lan_socket(&state, |s| s.fetch_settings_list(std::time::Duration::from_secs(5)), None)
-}
 
 /// Deferred re-delivery — the ONE timeline verb that still needs Rust (0.2.27). The other three
 /// (list / update / delete) are gone with the server's transcript store: the PC owns
@@ -699,68 +680,6 @@ pub fn surface_capsule(app: &AppHandle, user_gesture: bool) {
     }
 }
 
-/// Apply the WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW extended styles to the capsule so
-/// clicking it never steals foreground and it stays off the taskbar / alt-tab
-/// (07 §4 ruling 1). Called once at setup.
-///
-/// 🔴 FAILS LOUD (REQ-13-16). Both lookups used to be silent `if let`s, so the
-/// case「the anti-focus-steal ex-style was never applied at all」 produced exactly
-/// the same log as the case where it was applied and later lost — and the whole
-/// R8 §2-1 investigation had to start by ruling that out by reading code, since
-/// no run could answer it. Nothing about the WRITE changed; only its silence.
-///
-/// The ex-style is READ BACK after the write and the log reports what the OS
-/// actually holds, not what we asked for — same discipline as the autostart
-/// registry write. The read-back is also the reference the `capsule_watch`
-/// instrument compares live windows against.
-#[cfg(windows)]
-pub fn configure_capsule_window(app: &AppHandle) {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    };
-    let Some(w) = app.get_webview_window(CAPSULE) else {
-        crate::forensic::record(
-            "capsule",
-            "configure: REFUSED — no window labelled `capsule`; WS_EX_NOACTIVATE + \
-             WS_EX_TOOLWINDOW were NEVER applied and the capsule can take foreground",
-        );
-        return;
-    };
-    let h = match w.hwnd() {
-        Ok(h) => h,
-        Err(e) => {
-            crate::forensic::record(
-                "capsule",
-                &format!(
-                    "configure: REFUSED — the `capsule` window has no HWND yet ({e}); \
-                     WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW were NEVER applied"
-                ),
-            );
-            return;
-        }
-    };
-    let hwnd = HWND(h.0);
-    let (before, after) = unsafe {
-        let before = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let want = before | (WS_EX_NOACTIVATE.0 as isize) | (WS_EX_TOOLWINDOW.0 as isize);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
-        (before, GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
-    };
-    capsule_watch::note_configured(h.0 as isize, after);
-    crate::forensic::record(
-        "capsule",
-        &format!(
-            "configure: hwnd=0x{:X} before {} -> after {}",
-            h.0 as usize,
-            capsule_watch::decode(before),
-            capsule_watch::decode(after)
-        ),
-    );
-}
-
-#[cfg(not(windows))]
-pub fn configure_capsule_window(_app: &AppHandle) {}
 
 /// Show the capsule WITHOUT activating it (SW_SHOWNOACTIVATE + a topmost
 /// SetWindowPos with SWP_NOACTIVATE) — the F-2344 anti-focus-steal path. Tauri's

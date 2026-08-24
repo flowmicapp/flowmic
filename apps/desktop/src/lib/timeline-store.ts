@@ -127,7 +127,7 @@ import {
 import { planEviction } from './timeline-retention';
 import { mergeIntoOwnedRow, refusedBy } from './timeline-row-merge';
 import { IMAGE_IDS_MAX } from './timeline-store-surface';
-import type { RetentionFacts, TimelineOpFailure } from './timeline-store-surface';
+import type { ReinjectVerdict, RetentionFacts, TimelineOpFailure } from './timeline-store-surface';
 import type { InjectResultMiss, RowMintReport } from './timeline-reports';
 import type {
   ChannelTag,
@@ -535,11 +535,11 @@ export class TimelineStore {
    *  focused AT THE MOMENT it runs, so replaying one minutes later would paste into a
    *  window the user never chose. `null` (nothing was typed) is stated instead, and
    *  the button stays. */
-  async reInject(id: string, channel: ChannelTag): Promise<void> {
+  async reInject(id: string, channel: ChannelTag): Promise<ReinjectVerdict> {
     const row = this.addressed(id, channel);
     if (!row) {
       this.fail(id, channel);
-      return;
+      return { ran: false, reason: 'no-such-row' };
     }
     // *** DEPTH GUARD, NOT A FIX FOR A REACHABLE BUG (B3-7 card report) ***
     //
@@ -573,12 +573,12 @@ export class TimelineStore {
     // types its own face into the user's document.
     if (row.entry_type !== 'transcript') {
       this.fail(id, channel);
-      return;
+      return { ran: false, reason: 'not-a-transcript' };
     }
     const result = await this.transport.reInjectLocally(row.output_text, id);
     if (result === null) {
       this.fail(id, channel);
-      return;
+      return { ran: false, reason: 'nothing-typed' };
     }
     // The store stamps the FULL address it already knows. The Rust side does not echo
     // either half back: `timeline_reinject` never routed anywhere (so it has nothing to
@@ -587,6 +587,24 @@ export class TimelineStore {
     // the producer of the address). A value pretending to answer a question it was only
     // handed is the shape this repo keeps paying for; here the store IS the authority.
     this.onInjectResult({ ...result, channel, row_id: id });
+    // 🔴 The verdict is READ BACK OFF THE ROW, never re-derived from `result`.
+    // `onInjectResult` is the one authority on what a result MEANS for a row, and
+    // it can decline to apply one at all — it answers an `InjectResultMiss` when
+    // the row is unaddressable. Mapping `result` a second time here would build a
+    // second answer to 「这一行现在是什么状态」("what is this row's status
+    // now"), and the caller would be told about a row this store never changed.
+    // What the caller is told is what the row says.
+    //
+    // ⚠️ AN EARLIER DRAFT OF THIS COMMENT CLAIMED `onInjectResult` REFUSES A
+    // BACKWARDS MOVE (injected → cached). **That is false and a test caught it**
+    // — the forward-only rule belongs to `onHistoryUpdated`, which governs
+    // ARRIVING FRAMES, not to this path. A re-inject that lands nowhere really
+    // does move an `injected` row to `cached`. Whether it SHOULD is a separate
+    // question about the timeline's own button, which has behaved this way since
+    // long before this call had a return value; it is registered, not changed
+    // here. The point stands regardless: what the caller is told is the row.
+    const after = this.addressed(id, channel);
+    return { ran: true, status: after ? after.status : 'failed' };
   }
 
   // ── inbound reconciliation ──

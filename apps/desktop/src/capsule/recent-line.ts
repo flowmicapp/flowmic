@@ -12,7 +12,7 @@
 // controller.ts re-exports all four names, so every existing import site
 // (CapsuleApp.vue, capsule-copy.ts, recent.test.ts) is untouched.
 
-import type { WireHistoryItem } from '../lib/types';
+import type { ChannelTag, WireHistoryItem } from '../lib/types';
 
 /** V2-15 — one structured "delivered-in record" (转入记录) line. Every field is narrowed from the
  *  history:updated / history:list-result wire row; what the wire did not say
@@ -22,6 +22,24 @@ export interface RecentLine {
   /** History row id — the upsert key (a stt:refined / peer-edit row updates in
    *  place instead of duplicating the strip). */
   id: string;
+  /** 🔴 THE OTHER HALF OF THE ROW'S ADDRESS.
+   *
+   *  A row is addressed by `(channel, id)` — that is this repo's standing rule and
+   *  `onHistoryDeleted` right below already says so in as many words. The strip has
+   *  nonetheless been keeping only the id, because a sieve at the door
+   *  (`acceptRecentChannel`) meant every row on the strip HAPPENED to be on
+   *  `state.channel`, so the field looked redundant.
+   *
+   *  🔴 It is not redundant, and 0.3.30 is where that stops being theoretical: the
+   *  capsule's re-inject button asks the main window to act on a row, and owner's
+   *  iron rule (2026-07-31) is that a delivery item **carries its full address** and
+   *  is never re-derived from 「当前是谁」("who is current now") at the moment it acts.
+   *  `state.channel` is exactly 「当前是谁」, and it moves — a strip row minted on LAN
+   *  and acted on after a switch to cloud would address the wrong list.
+   *  ⚠️ The channel stored here is the one the ARRIVING FRAME carried, already
+   *  validated by the sieve; it is not read back off `state` at any later moment.
+   */
+  channel: ChannelTag;
   /** content-status (内容状态) from item.mode. null when the wire carried no KNOWN mode — never
    *  a guessed 'realtime' (that guess is wrong two times out of three). */
   mode: 'realtime' | 'translate' | 'organize' | null;
@@ -92,7 +110,7 @@ function hhmm(iso: unknown): string | null {
 /** Narrow one wire history row to a RecentLine, or null when it has no usable
  *  id (same first rule as the timeline's mapItem — an unidentifiable row cannot
  *  be rendered honestly). */
-export function toRecentLine(item: WireHistoryItem): RecentLine | null {
+export function toRecentLine(item: WireHistoryItem, channel: ChannelTag): RecentLine | null {
   if (item === null || typeof item !== 'object') return null;
   const id = typeof item.id === 'string' ? item.id : '';
   if (id === '') return null;
@@ -110,6 +128,12 @@ export function toRecentLine(item: WireHistoryItem): RecentLine | null {
   const rawCreated = typeof item.created_at === 'string' ? item.created_at : '';
   return {
     id,
+    // Handed in by the caller, which has already put the arriving frame's stamp
+    // through `acceptRecentChannel`. Deliberately a PARAMETER and not a read of
+    // `state.channel` inside this function: this module is the pure narrowing family
+    // and touches no reactive state — and a value read here would be read at a
+    // different moment than the one the sieve judged.
+    channel,
     mode: (KNOWN_MODES.has(rawMode) ? rawMode : null) as RecentLine['mode'],
     text: typeof item.output_text === 'string' ? item.output_text : '',
     source: typeof item.source_text === 'string' && item.source_text !== '' ? item.source_text : null,

@@ -47,7 +47,7 @@ use crate::socket::pairing::{self, AuthFailureHook, Pairing, SharedCode, SharedC
 use crate::socket::pump;
 use crate::socket::reconcile::Reconciler;
 use crate::socket::speak_liveness::SpeakLiveness;
-use crate::socket::inject_ops::{run_control_key, run_inject};
+use crate::socket::inject_ops::{run_control_key, run_inject, TargetIntent};
 use crate::socket::{control_row, presence, row_transit, wire};
 
 pub(in crate::socket) type SharedFsm = Arc<Mutex<FocusStateMachine>>;
@@ -629,7 +629,9 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
                 my_channel,
                 obj,
                 &req,
-                run_inject(&req, &allow, &fsm_i, &dl_i, &dedup_i),
+                // A FRAME asked for this, so the destination is the program the
+                // user is in RIGHT NOW — and if that is FlowMic there is none.
+                run_inject(&req, &allow, &fsm_i, &dl_i, &dedup_i, TargetIntent::LiveForeground),
             ) else {
                 return;
             };

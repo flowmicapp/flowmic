@@ -274,6 +274,20 @@ class _LoginSheetState extends State<_LoginSheet> {
   /// only. This footer replaces the removed register tab — it names the fact,
   /// shows the address (selectable) and copies it on demand. No opener: the
   /// app deliberately ships without url_launcher (see help_link.dart).
+  ///
+  /// ⚠️ **Correction (0.3.28, 2026-08-24): the last sentence above is false and
+  /// is kept as written.** `url_launcher: ^6.3.1` has been a dependency since
+  /// 2026-08-14 (0.2.66, `5078c38b`), with production callers in
+  /// `data_flow_disclosure_page.dart`, `cloud_signout_row.dart` and — as of
+  /// this round — `settings_update_card.dart`.
+  /// 🔴 **The BEHAVIOUR here is unchanged and is not a defect**: selectable
+  /// address plus copy is a working affordance, not a dead control. What was
+  /// defective was the REASON, and a false reason is what stops the next person
+  /// from asking the question at all — which is exactly how the update card
+  /// carried this same sentence for ten days while it blocked something owner
+  /// had asked for. Adding an opener here is a real improvement and a
+  /// deliberately unclaimed one: it was not in this round's scope, and it is
+  /// recorded as open rather than done.
   Widget _registerGuidance(AppStrings s) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     decoration: BoxDecoration(

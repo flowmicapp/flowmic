@@ -91,6 +91,12 @@ export interface SttSessionDeps {
    *  interim payloads are never touched (06 §5 contract). Absent → identity
    *  (adapter-only unit harnesses); the ONE production injector is stt-factory. */
   finalText?: FinalTextTransform;
+  /** Correlation id shared with the `session.start` / `terms.resolved` /
+   *  `hotwords` records this session's factory already emitted, so the per-final
+   *  stages join onto them. Absent (adapter-only harnesses) ⇒ the trace calls
+   *  degrade to an unjoined id rather than being skipped: a stage record with no
+   *  session header is still evidence, a missing one is not. */
+  traceId?: string;
   /** WP-R4-6 opt-in LLM polish, snapshotted per audio session at build time.
    *  PRESENT ⇔ this session snapshotted stt.polish ON at audio:start AND the
    *  llm_tokens valve had headroom (M6) AND an `llm.config` resolved (RT-1a) —

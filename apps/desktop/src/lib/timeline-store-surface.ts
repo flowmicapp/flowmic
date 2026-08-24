@@ -1,3 +1,5 @@
+import type { HistoryStatus } from '@flowmic/protocol';
+
 // The exported SURFACE of the timeline-store module — everything that stood between
 // the imports and `class TimelineStore`: the two interfaces the page reads off the
 // store (RetentionFacts / TimelineOpFailure), the three re-export blocks that keep
@@ -82,3 +84,23 @@ export type { InjectResultMiss, RowMintReport } from './timeline-reports';
 /** Bound on the remembered image-id set. Losing the oldest chip is a display
  *  nuance, never a loss of delivery truth (that lives in `status`). */
 export const IMAGE_IDS_MAX = 500;
+
+/** What one [[TimelineStore.reInject]] call actually did.
+ *
+ *  🔴 ADDED 0.3.30, and the reason is a SECOND CALLER, not tidiness. Until now the
+ *  only caller was TimelinePage.vue's button, which sits in the same window as the
+ *  store and learns the outcome by watching the row and [[TimelineStore.lastFailure]]
+ *  re-render. The capsule's new per-row button is in ANOTHER WINDOW: it can see
+ *  neither, so a `Promise<void>` would leave it with nothing to say — and 「点了之后
+ *  什么都没说」("clicked and it said nothing") is the façade shape (R8) this repo
+ *  keeps paying for.
+ *
+ *  ⚠️ `ran: true` is NOT 「注入成功」("injection succeeded"). It means the pipeline
+ *  ran and authored a verdict; `status` is that verdict and it may well be
+ *  `cached` — the utterance reached no window. Any caller that renders this as a
+ *  success without looking at `status` is committing R11 (a status word whose
+ *  evidence does not support it), and the two words exist separately so that
+ *  mistake has to be made on purpose. */
+export type ReinjectVerdict =
+  | { ran: true; status: HistoryStatus }
+  | { ran: false; reason: 'no-such-row' | 'not-a-transcript' | 'nothing-typed' };

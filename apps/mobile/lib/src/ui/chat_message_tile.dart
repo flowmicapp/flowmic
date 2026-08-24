@@ -724,7 +724,7 @@ class ChatMessageTile extends StatelessWidget {
           ],
           Text(
             entry.displayText,
-            style: TextStyle(color: FlowMicColors.t1, fontSize: 13.5),
+            style: TextStyle(color: FlowMicColors.t1, fontSize: kTranscriptBodySize),
           ),
           // 🔴 Card M6-1 (0.2.53) — 「凭什么说没注入」("what grounds is there for
           // saying it wasn't injected")'s full sentence, filling the whole

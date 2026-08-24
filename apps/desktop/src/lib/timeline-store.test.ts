@@ -88,6 +88,71 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
     expect(store.entries()[0]!.status).toBe('cached'); // unchanged — no fabricated verdict
   });
 
+// ── 0.3.30: reInject now ANSWERS, because a second caller lives in another
+  //    window and can see neither the row nor `lastFailure` re-render ───────
+  it('🔴 the verdict it returns is read off the ROW, so it can never disagree with what the row says', async () => {
+    const { store, t } = fresh();
+    seed(store, [item('1', { status: 'cached' })]);
+    t.result = { ok: true, mode: 'sendinput' };
+    const v = await store.reInject('1', 'lan');
+    expect(v).toEqual({ ran: true, status: 'injected' });
+    expect(v.ran && v.status).toBe(store.entries()[0]!.status);
+  });
+
+  it('🔴 a run that lands NOWHERE still says ran:true — and says `cached`, not success', async () => {
+    // The distinction the capsule's third icon face exists for: the pipeline
+    // ran to completion, and the utterance reached no window. A caller that
+    // renders `ran: true` as a success without reading `status` commits R11,
+    // and this is the case where it would be wrong.
+    const { store, t } = fresh();
+    seed(store, [item('1', { status: 'failed' })]);
+    t.result = { ok: false, mode: 'cached', error: 'INJECT_FOCUS_LOST' };
+    const v = await store.reInject('1', 'lan');
+    expect(v).toEqual({ ran: true, status: 'cached' });
+  });
+
+  it('🔴 a re-inject that lands nowhere DOES move an injected row back to cached — and the caller is told the truth', async () => {
+    // ⚠️ THIS TEST WAS WRITTEN THE OTHER WAY ROUND FIRST, asserting that the row
+    // stayed `injected`, on the strength of the 「状态只往前走」("status moves
+    // forward only") rule. That rule is real — and it belongs to
+    // `onHistoryUpdated`, which governs ARRIVING FRAMES. This path is not one.
+    // The test failed on its first run and the CODE was right; the comment that
+    // sent me here has been corrected in place.
+    //
+    // 🔴 Registered, not fixed: this means a row that really was typed can end up
+    // saying `cached` after a later re-inject misses. That behaviour predates this
+    // card by a long way (it is the timeline's own button), and changing it is a
+    // change to the audited injection path's meaning, not a return-value card.
+    // What this card owes is that the CALLER is told the same thing the row says,
+    // and that is what is asserted.
+    const { store, t } = fresh();
+    seed(store, [item('1', { status: 'injected' })]);
+    t.result = { ok: false, mode: 'cached', error: 'INJECT_FOCUS_LOST' };
+    const v = await store.reInject('1', 'lan');
+    expect(store.entries()[0]!.status).toBe('cached');
+    expect(v).toEqual({ ran: true, status: 'cached' });
+  });
+
+  it('the three ways nothing was typed each answer with their own reason', async () => {
+    const { store, t } = fresh();
+    seed(store, [item('1'), item('2', { entry_type: 'image', output_text: '🖼 PNG · 1 KB' })]);
+    expect(await store.reInject('nope', 'cloud')).toEqual({
+      ran: false,
+      reason: 'no-such-row',
+    });
+    expect(await store.reInject('2', 'lan')).toEqual({
+      ran: false,
+      reason: 'not-a-transcript',
+    });
+    t.result = null;
+    expect(await store.reInject('1', 'lan')).toEqual({
+      ran: false,
+      reason: 'nothing-typed',
+    });
+    // Control: the image row was never handed to the transport at all.
+    expect(t.calls.some((c) => c.text.includes('PNG'))).toBe(false);
+  });
+
   it('a 补投 on a row this store does not hold is refused, not sent', async () => {
     const { store, t } = fresh();
     seed(store, [item('1')]);

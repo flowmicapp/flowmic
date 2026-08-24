@@ -189,21 +189,6 @@
       "params": []
     },
     {
-      "key": "appendCancelArmed",
-      "leaf": "_lfAppendCancelArmed",
-      "params": []
-    },
-    {
-      "key": "appendHold",
-      "leaf": "_lfAppendHold",
-      "params": []
-    },
-    {
-      "key": "appendRelease",
-      "leaf": "_lfAppendRelease",
-      "params": []
-    },
-    {
       "key": "appVersionLabel",
       "leaf": "_lfAppVersionLabel",
       "params": []
@@ -219,6 +204,21 @@
       "params": [
         "v"
       ]
+    },
+    {
+      "key": "appendCancelArmed",
+      "leaf": "_lfAppendCancelArmed",
+      "params": []
+    },
+    {
+      "key": "appendHold",
+      "leaf": "_lfAppendHold",
+      "params": []
+    },
+    {
+      "key": "appendRelease",
+      "leaf": "_lfAppendRelease",
+      "params": []
     },
     {
       "key": "backToBottom",
@@ -301,20 +301,6 @@
       ]
     },
     {
-      "key": "clearedImagesBefore",
-      "leaf": "_lfClearedImagesBefore",
-      "params": [
-        "when"
-      ]
-    },
-    {
-      "key": "clearedTextBefore",
-      "leaf": "_lfClearedTextBefore",
-      "params": [
-        "when"
-      ]
-    },
-    {
       "key": "clearIrreversible",
       "leaf": "_lfClearIrreversible",
       "params": []
@@ -386,6 +372,20 @@
       "key": "clearWinYear",
       "leaf": "_lfClearWinYear",
       "params": []
+    },
+    {
+      "key": "clearedImagesBefore",
+      "leaf": "_lfClearedImagesBefore",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "clearedTextBefore",
+      "leaf": "_lfClearedTextBefore",
+      "params": [
+        "when"
+      ]
     },
     {
       "key": "cloudError_AUTH_LOGIN_FAILED",
@@ -462,11 +462,6 @@
       "params": []
     },
     {
-      "key": "composeCardSaveNoted",
-      "leaf": "_lfComposeCardSaveNoted",
-      "params": []
-    },
-    {
       "key": "composeCardDiscard",
       "leaf": "_lfComposeCardDiscard",
       "params": []
@@ -474,6 +469,11 @@
     {
       "key": "composeCardHeader",
       "leaf": "_lfComposeCardHeader",
+      "params": []
+    },
+    {
+      "key": "composeCardSaveNoted",
+      "leaf": "_lfComposeCardSaveNoted",
       "params": []
     },
     {
@@ -567,6 +567,11 @@
       "params": []
     },
     {
+      "key": "connError",
+      "leaf": "_lfConnError",
+      "params": []
+    },
+    {
       "key": "connectedLan",
       "leaf": "_lfConnectedLan",
       "params": []
@@ -579,11 +584,6 @@
     {
       "key": "connectingRow",
       "leaf": "_lfConnectingRow",
-      "params": []
-    },
-    {
-      "key": "connError",
-      "leaf": "_lfConnError",
       "params": []
     },
     {
@@ -689,13 +689,13 @@
       "params": []
     },
     {
-      "key": "diagEngineConnected",
-      "leaf": "_lfDiagEngineConnected",
+      "key": "diagEngineConnectFailed",
+      "leaf": "_lfDiagEngineConnectFailed",
       "params": []
     },
     {
-      "key": "diagEngineConnectFailed",
-      "leaf": "_lfDiagEngineConnectFailed",
+      "key": "diagEngineConnected",
+      "leaf": "_lfDiagEngineConnected",
       "params": []
     },
     {
@@ -785,16 +785,6 @@
       "params": []
     },
     {
-      "key": "discardUnsentAction",
-      "leaf": "_lfDiscardUnsentAction",
-      "params": []
-    },
-    {
-      "key": "discardUnsentConfirm",
-      "leaf": "_lfDiscardUnsentConfirm",
-      "params": []
-    },
-    {
       "key": "discCopyLink",
       "leaf": "_lfDiscCopyLink",
       "params": []
@@ -837,11 +827,6 @@
     {
       "key": "discLinkCopied",
       "leaf": "_lfDiscLinkCopied",
-      "params": []
-    },
-    {
-      "key": "disconnect",
-      "leaf": "_lfDisconnect",
       "params": []
     },
     {
@@ -930,6 +915,21 @@
       "params": []
     },
     {
+      "key": "discardUnsentAction",
+      "leaf": "_lfDiscardUnsentAction",
+      "params": []
+    },
+    {
+      "key": "discardUnsentConfirm",
+      "leaf": "_lfDiscardUnsentConfirm",
+      "params": []
+    },
+    {
+      "key": "disconnect",
+      "leaf": "_lfDisconnect",
+      "params": []
+    },
+    {
       "key": "domain",
       "leaf": "_lfDomain",
       "params": []
@@ -975,11 +975,6 @@
       "params": []
     },
     {
-      "key": "editedMark",
-      "leaf": "_lfEditedMark",
-      "params": []
-    },
-    {
       "key": "editEntryNote",
       "leaf": "_lfEditEntryNote",
       "params": [
@@ -989,6 +984,11 @@
     {
       "key": "editEntryTitle",
       "leaf": "_lfEditEntryTitle",
+      "params": []
+    },
+    {
+      "key": "editedMark",
+      "leaf": "_lfEditedMark",
       "params": []
     },
     {
@@ -1231,13 +1231,13 @@
       "params": []
     },
     {
-      "key": "guideGesturesTitle",
-      "leaf": "_lfGuideGesturesTitle",
+      "key": "guideGestureSwipe",
+      "leaf": "_lfGuideGestureSwipe",
       "params": []
     },
     {
-      "key": "guideGestureSwipe",
-      "leaf": "_lfGuideGestureSwipe",
+      "key": "guideGesturesTitle",
+      "leaf": "_lfGuideGesturesTitle",
       "params": []
     },
     {
@@ -1359,13 +1359,13 @@
       "params": []
     },
     {
-      "key": "guideStatusPcSignedOut",
-      "leaf": "_lfGuideStatusPcSignedOut",
+      "key": "guideStatusPcOtherAccount",
+      "leaf": "_lfGuideStatusPcOtherAccount",
       "params": []
     },
     {
-      "key": "guideStatusPcOtherAccount",
-      "leaf": "_lfGuideStatusPcOtherAccount",
+      "key": "guideStatusPcSignedOut",
+      "leaf": "_lfGuideStatusPcSignedOut",
       "params": []
     },
     {
@@ -2428,11 +2428,6 @@
       "params": []
     },
     {
-      "key": "pairing",
-      "leaf": "_lfPairing",
-      "params": []
-    },
-    {
       "key": "pairNeedAddress",
       "leaf": "_lfPairNeedAddress",
       "params": []
@@ -2448,6 +2443,11 @@
       "params": []
     },
     {
+      "key": "pairScanAgain",
+      "leaf": "_lfPairScanAgain",
+      "params": []
+    },
+    {
       "key": "pairScanDenied",
       "leaf": "_lfPairScanDenied",
       "params": []
@@ -2455,11 +2455,6 @@
     {
       "key": "pairScanForeign",
       "leaf": "_lfPairScanForeign",
-      "params": []
-    },
-    {
-      "key": "pairScanAgain",
-      "leaf": "_lfPairScanAgain",
       "params": []
     },
     {
@@ -2488,6 +2483,16 @@
       "params": []
     },
     {
+      "key": "pairing",
+      "leaf": "_lfPairing",
+      "params": []
+    },
+    {
+      "key": "pairingRevokedChip",
+      "leaf": "_lfPairingRevokedChip",
+      "params": []
+    },
+    {
       "key": "passwordHint",
       "leaf": "_lfPasswordHint",
       "params": []
@@ -2500,16 +2505,6 @@
     {
       "key": "pcAddressLabel",
       "leaf": "_lfPcAddressLabel",
-      "params": []
-    },
-    {
-      "key": "pcidInputHint",
-      "leaf": "_lfPcidInputHint",
-      "params": []
-    },
-    {
-      "key": "pcidLabel",
-      "leaf": "_lfPcidLabel",
       "params": []
     },
     {
@@ -2528,6 +2523,11 @@
       "params": []
     },
     {
+      "key": "pcOtherAccountChip",
+      "leaf": "_lfPcOtherAccountChip",
+      "params": []
+    },
+    {
       "key": "pcReleasedNotice",
       "leaf": "_lfPcReleasedNotice",
       "params": [
@@ -2535,18 +2535,18 @@
       ]
     },
     {
-      "key": "pairingRevokedChip",
-      "leaf": "_lfPairingRevokedChip",
-      "params": []
-    },
-    {
       "key": "pcSignedOutChip",
       "leaf": "_lfPcSignedOutChip",
       "params": []
     },
     {
-      "key": "pcOtherAccountChip",
-      "leaf": "_lfPcOtherAccountChip",
+      "key": "pcidInputHint",
+      "leaf": "_lfPcidInputHint",
+      "params": []
+    },
+    {
+      "key": "pcidLabel",
+      "leaf": "_lfPcidLabel",
       "params": []
     },
     {
@@ -2662,11 +2662,6 @@
       ]
     },
     {
-      "key": "pttStartingMic",
-      "leaf": "_lfPttStartingMic",
-      "params": []
-    },
-    {
       "key": "pttJustDone",
       "leaf": "_lfPttJustDone",
       "params": []
@@ -2679,6 +2674,11 @@
     {
       "key": "pttRecording",
       "leaf": "_lfPttRecording",
+      "params": []
+    },
+    {
+      "key": "pttStartingMic",
+      "leaf": "_lfPttStartingMic",
       "params": []
     },
     {
@@ -2739,8 +2739,25 @@
       "params": []
     },
     {
+      "key": "recSegments",
+      "leaf": "_lfRecSegments",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "recSwipeCancel",
+      "leaf": "_lfRecSwipeCancel",
+      "params": []
+    },
+    {
       "key": "reconnectNowAction",
       "leaf": "_lfReconnectNowAction",
+      "params": []
+    },
+    {
+      "key": "recordOnly",
+      "leaf": "_lfRecordOnly",
       "params": []
     },
     {
@@ -2773,23 +2790,6 @@
     {
       "key": "recordingStoppedLinkLossKept",
       "leaf": "_lfRecordingStoppedLinkLossKept",
-      "params": []
-    },
-    {
-      "key": "recordOnly",
-      "leaf": "_lfRecordOnly",
-      "params": []
-    },
-    {
-      "key": "recSegments",
-      "leaf": "_lfRecSegments",
-      "params": [
-        "n"
-      ]
-    },
-    {
-      "key": "recSwipeCancel",
-      "leaf": "_lfRecSwipeCancel",
       "params": []
     },
     {
@@ -3171,13 +3171,13 @@
       "params": []
     },
     {
-      "key": "statsImages",
-      "leaf": "_lfStatsImages",
+      "key": "statsImageSize",
+      "leaf": "_lfStatsImageSize",
       "params": []
     },
     {
-      "key": "statsImageSize",
-      "leaf": "_lfStatsImageSize",
+      "key": "statsImages",
+      "leaf": "_lfStatsImages",
       "params": []
     },
     {
@@ -3311,6 +3311,11 @@
       ]
     },
     {
+      "key": "sttStallLanguageUnsupported",
+      "leaf": "_lfSttStallLanguageUnsupported",
+      "params": []
+    },
+    {
       "key": "sttStallMessage__1",
       "leaf": "_lfSttStallMessage__1",
       "params": []
@@ -3338,11 +3343,6 @@
     {
       "key": "sttStallPoolNoRoute",
       "leaf": "_lfSttStallPoolNoRoute",
-      "params": []
-    },
-    {
-      "key": "sttStallLanguageUnsupported",
-      "leaf": "_lfSttStallLanguageUnsupported",
       "params": []
     },
     {
@@ -3431,6 +3431,16 @@
       "params": []
     },
     {
+      "key": "textScaleXlarge",
+      "leaf": "_lfTextScaleXlarge",
+      "params": []
+    },
+    {
+      "key": "textScaleXxlarge",
+      "leaf": "_lfTextScaleXxlarge",
+      "params": []
+    },
+    {
       "key": "themeDark",
       "leaf": "_lfThemeDark",
       "params": []
@@ -3483,13 +3493,13 @@
       ]
     },
     {
-      "key": "updateChecking",
-      "leaf": "_lfUpdateChecking",
+      "key": "updateCheckNow",
+      "leaf": "_lfUpdateCheckNow",
       "params": []
     },
     {
-      "key": "updateCheckNow",
-      "leaf": "_lfUpdateCheckNow",
+      "key": "updateChecking",
+      "leaf": "_lfUpdateChecking",
       "params": []
     },
     {
@@ -3513,13 +3523,6 @@
       "params": []
     },
     {
-      "key": "updateDownloading",
-      "leaf": "_lfUpdateDownloading",
-      "params": [
-        "percent"
-      ]
-    },
-    {
       "key": "updateDownloadServerRefused",
       "leaf": "_lfUpdateDownloadServerRefused",
       "params": []
@@ -3538,6 +3541,13 @@
       "key": "updateDownloadUrlLabel",
       "leaf": "_lfUpdateDownloadUrlLabel",
       "params": []
+    },
+    {
+      "key": "updateDownloading",
+      "leaf": "_lfUpdateDownloading",
+      "params": [
+        "percent"
+      ]
     },
     {
       "key": "updateFromStoreNote",
@@ -3622,6 +3632,26 @@
       "params": []
     },
     {
+      "key": "updateOfficialSiteLabel",
+      "leaf": "_lfUpdateOfficialSiteLabel",
+      "params": []
+    },
+    {
+      "key": "updateOpenFailed",
+      "leaf": "_lfUpdateOpenFailed",
+      "params": []
+    },
+    {
+      "key": "updateOpenLink",
+      "leaf": "_lfUpdateOpenLink",
+      "params": []
+    },
+    {
+      "key": "updateOpenStore",
+      "leaf": "_lfUpdateOpenStore",
+      "params": []
+    },
+    {
       "key": "updateOwnVersionUnknown",
       "leaf": "_lfUpdateOwnVersionUnknown",
       "params": []
@@ -3629,6 +3659,11 @@
     {
       "key": "updateStoreChannelNote",
       "leaf": "_lfUpdateStoreChannelNote",
+      "params": []
+    },
+    {
+      "key": "updateStoreNoLinkNote",
+      "leaf": "_lfUpdateStoreNoLinkNote",
       "params": []
     },
     {

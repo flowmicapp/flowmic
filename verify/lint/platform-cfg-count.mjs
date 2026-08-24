@@ -148,7 +148,27 @@ const EXPECTED = {
   // which any Windows gate can see.
   'cfg(not(target_os = "windows"))': 12,
   'cfg(unix)': 9,
-  'cfg(target_os = "macos")': 32,
+  // 32 → 37 (2026-08-24, 0.3.28 card B — the macOS default machine name).
+  // Five new sites in `pc_name.rs` / `pc_name_tests.rs`: the two arms of
+  // `read_name_half_uncached`, `read_scutil`, `read_hw_model`, and one
+  // macOS-only test. (One of the five is prose — the tests file names the
+  // attribute in a comment — which is the "prose alone can demand a Mac run"
+  // property recorded below, working as designed.)
+  //
+  // 🔴 BLESSED FROM A REAL MAC RUN, AND THE RUN EARNED ITS KEEP. Mac mini
+  // (flowmic-mac), macOS 26.5.1, rustc via that box's own toolchain, this
+  // file's tree copied onto it:
+  //     cargo clippy --lib -- -D warnings              → Finished, EXIT=0
+  //     cargo clippy --lib --features app -- -D warnings → Finished, EXIT=0
+  //     cargo test  --lib                              → 719 passed; 0 failed; 1 ignored
+  // 🔴 The FIRST run of that clippy was RED — `error: unneeded return
+  // statement` on the tail of the macOS arm, `-D clippy::needless_return`.
+  // Windows had compiled the other arm and said nothing, twice. That is this
+  // gate's whole thesis arriving on schedule: the count moved, the Mac was
+  // asked, and the Mac had something to say.
+  // ⚠️ What ran is the two clippy invocations and `cargo test --lib` above. It
+  // was NOT `scripts/mac-verify.sh` and NOT `verify:delivery` — say what ran.
+  'cfg(target_os = "macos")': 37,
   // Windows side, kept as a CONTROL. If every count collapses at once the
   // scanner broke; if only the non-Windows ones move, the code did. Those two
   // states must not produce the same verdict (the UP-7 marker lesson).
@@ -172,7 +192,14 @@ const EXPECTED = {
   // tripwire for "a platform branch appeared", not a census.
   // Windows-SIDE row, so it owes no Mac run; the mechanism is Win32-only because
   // the defect is (Tauri's cross-platform `set_icon` reaches ICON_SMALL only).
-  'cfg(windows)': 72,
+  // 72 → 74 (2026-08-24): capsule_style.rs arrived with an UNCONDITIONAL
+  // `use super::{capsule_watch, CAPSULE}`, and capsule_watch is windows-gated —
+  // so the desktop crate did not compile on macOS at all from the commit that
+  // created the file. Both new sites are the imports that Windows function owns.
+  // 🔴 Worth the four lines: this counter did NOT move while the crate was
+  // unbuildable, because a MISSING gate is not a site. The instrument that found
+  // it was ./scripts/mac-verify.sh, which is what the header already says.
+  'cfg(windows)': 74,
   // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the

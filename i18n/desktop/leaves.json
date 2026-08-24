@@ -3655,6 +3655,18 @@
       "name": "perm_ax_how"
     },
     {
+      "key": "perm_ax_move_body",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_move_body"
+    },
+    {
+      "key": "perm_ax_move_how",
+      "shard": "permission",
+      "kind": "string",
+      "name": "perm_ax_move_how"
+    },
+    {
       "key": "perm_ax_pane",
       "shard": "permission",
       "kind": "string",
@@ -4089,6 +4101,18 @@
       "params": [
         "size"
       ]
+    },
+    {
+      "key": "op_reinject_nothing",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_reinject_nothing"
+    },
+    {
+      "key": "op_reinject_failed",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_reinject_failed"
     }
   ]
 }

@@ -39,6 +39,17 @@ class MethodChannelDeviceInfo {
       );
     } on Object catch (e) {
       // Missing channel (a platform we have not wired), or an OEM that threw.
+      //
+      // ⚠️ 0.3.28 — "a platform we have not wired" was, until this round, **the
+      // normal case on iOS**: there was no Swift handler, so every iPhone took
+      // this branch at app start and paired as a nameless `Phone`. The
+      // degradation was right; what was missing was the thing to degrade FROM
+      // (`ios/Runner/DeviceInfo.swift`, and its entry in project.pbxproj —
+      // both pinned by `verify/lint/package-id-family.mjs`).
+      // 🔴 That is worth leaving written down: this catch was doing its job
+      // perfectly and the feature was absent, so nothing anywhere went red. A
+      // correct fallback is not evidence that the thing it falls back from
+      // exists.
       debugPrint('[flowmic.device] identity unavailable: $e');
       return const DeviceIdentity();
     }

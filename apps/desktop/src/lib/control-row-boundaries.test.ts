@@ -112,8 +112,8 @@ describe('② stats and export: a control-key row is not a portable record', () 
 
 describe('③④ the capsule strip and batch copy: an empty string must never become an empty piece of content', () => {
   it('🔴 the capsule\'s "delivered-in record" does not accept control-key rows', () => {
-    expect(toRecentLine(WIRE)).toBeNull();
-    expect(toRecentLine({ ...WIRE, entry_type: 'transcript', output_text: '一句话' })).not.toBeNull();
+    expect(toRecentLine(WIRE, 'lan')).toBeNull();
+    expect(toRecentLine({ ...WIRE, entry_type: 'transcript', output_text: '一句话' }, 'lan')).not.toBeNull();
   });
 
   it('🔴 batch copy skips it, and does not impersonate an image', () => {

@@ -16,6 +16,28 @@
 // ⑥ all four languages present;
 // ⑦ production really hung that layer (`main.dart`'s structural guard).
 //
+// ── 🔴 0.3.28: THE LADDER GREW UPWARD, AND ⑤ HAD TO BE REDONE ──────────────
+//
+// The list above is kept as written; only the counts moved. There are now
+// **five** rungs (`xlarge` 1.15 / `xxlarge` 1.30 appended) and **nine**
+// languages. Almost every group here already iterated `AppTextScale.values`
+// and `AppLocale.values`, so they widened for free — which is why they were
+// written that way.
+//
+// **⑤'s status-badge case did not widen for free, and that is the point.** It
+// asserted `width(step) <= width(large)` under FB-4's "only shrink" promise.
+// That promise is gone, and its own failure text had already named the
+// consequence ("the 'only shrink' premise is broken, every
+// 'layout-direction-safe' claim on this card has to be redone"). It is redone
+// in place, with the original paragraph preserved above the correction: the
+// assertion is now **monotonicity in the tier order** plus **the top tier fits
+// a real 411dp screen's per-script Ahem budget**. Sizing the box to the top
+// tier's own intrinsic width would have been the circular version of that, and
+// is called out at the site.
+//
+// ⚠️ What this file still does NOT prove: that 1.30 is comfortable, or that
+// any of this looks right on glass. Ahem only answers "can it clip".
+//
 // 🔴 **Why ① must be paired with ② — this is the easiest place on this
 // card to fake it.** The window brief that dispatched the card wrote
 // "the new key will pass the `settings-key-drift` lint" — **that sentence
@@ -292,10 +314,20 @@ void main() {
           reason: '${step.name} did not reach the render tree',
         );
       }
-      // The three numbers owner ruled, pinned verbatim: changing a factor must be a conscious act.
+      // The numbers, pinned verbatim: changing a factor must be a conscious act.
+      // 1.00/0.92/0.85 = owner's 2026-08-06 ruling D3; 1.15/1.30 = 0.3.28.
       expect(AppTextScale.large.factor, 1.00);
       expect(AppTextScale.medium.factor, 0.92);
       expect(AppTextScale.small.factor, 0.85);
+      expect(AppTextScale.xlarge.factor, 1.15);
+      expect(AppTextScale.xxlarge.factor, 1.30);
+      // 🔴 The enum names ARE the storage keys (`setTextScale` writes
+      // `next.name`). Pinning them here is what makes a rename go red instead
+      // of silently resetting every existing user's choice to the default arm.
+      expect(
+        AppTextScale.values.map((AppTextScale s) => s.name).toList(),
+        <String>['large', 'medium', 'small', 'xlarge', 'xxlarge'],
+      );
     });
 
     testWidgets('🔴 the step-change itself: the controller fires, this frame switches (no restart)',
@@ -397,10 +429,12 @@ void main() {
       expect(scalerAtChip(AppTextScale.large), closeTo(10.0, 1e-9),
           reason: 'the default is no longer 「大」');
 
+      // 0.3.28: was a hand-written list of the three tiers, which would have
+      // stayed green while the two new chips went unwired. Driven off the enum
+      // now, so a rung that exists but is not tappable goes red here.
       for (final AppTextScale step in <AppTextScale>[
-        AppTextScale.medium,
-        AppTextScale.small,
-        AppTextScale.large,
+        ...AppTextScale.values.where((AppTextScale s) => s != AppTextScale.large),
+        AppTextScale.large, // land back on the default so later reads are unsurprising
       ]) {
         await tester.tap(chip(step));
         await tester.pumpAndSettle();
@@ -494,8 +528,8 @@ void main() {
   });
 
   // ── ⑤ no overflow at three sites under all three steps (ruler: see header; Ahem is the conservative direction) ──
-  group('⑤ none of the three steps overflow', () {
-    testWidgets('PTT area: three steps × the longest hint, none overflow',
+  group('⑤ no tier overflows (three steps until 0.3.28, five since)', () {
+    testWidgets('PTT area: every tier × the longest hint, none overflow',
         (WidgetTester tester) async {
       // en's "Release to send · swipe up to cancel" is the longest sentence (recorded on card U12).
       // PA-2: the caption line under the bar joins the same harness — mirrored
@@ -523,7 +557,30 @@ void main() {
                   TextScaleScope(appSettings: c, child: page!),
               home: Scaffold(
                 body: SizedBox(
-                  width: 360,
+                  // 🔴 0.3.28 — WAS a bare `360`, and that number was doing two
+                  // jobs at once: "the product must work on a 360dp phone" AND
+                  // "how much Ahem inflates this script". `support/legibility.
+                  // dart`'s header names that exact fusion as the mistake, and
+                  // this is the last measure point in the suite still making it.
+                  //
+                  // 🔴 THE RED THAT FOUND IT WAS A RULER RED, NOT A PRODUCT RED,
+                  // and here are the numbers rather than the claim [measured on
+                  // dev-pc-a via a throwaway probe, 2026-08-24]:
+                  // the longest caption (`disabled`, 57 chars) needs, on ONE
+                  // unconstrained Ahem line, 612.8px at `large` → 702.5 at
+                  // `xlarge` → **792.3 at `xxlarge`**. A bare-360 box gives two
+                  // lines ≈ 720px of capacity, so `xxlarge` misses by ~72px and
+                  // `didExceedMaxLines` went true. Against the box a 360dp
+                  // screen is actually worth for Latin under Ahem
+                  // (`ahemWidthFor(360, en)` = 648 ⇒ ~1296px over two lines) the
+                  // same 792.3 has ~40% headroom.
+                  //
+                  // ⚠️ Stated so nobody has to take it on faith that this is a
+                  // ruler fix and not a test being loosened to go green: the
+                  // case still has teeth in the direction that matters — push
+                  // `xxlarge`'s factor to 3.0 and the need becomes ~1828px,
+                  // which this budget refuses. That reverse control was run.
+                  width: ahemWidthFor(360, AppLocale.en),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -679,7 +736,7 @@ void main() {
       }
     });
 
-    testWidgets('status badge: medium/small must not be tighter than 「大」 (large = today\'s behaviour, that is the ruler)',
+    testWidgets('status badge: width is monotonic in the tier, and the TOP tier still fits a real screen\'s per-script budget',
         (WidgetTester tester) async {
       // 🔴 **Check your ruler first.** This case originally wrote "fits in
       // 240dp without overflow" — that 240 was a number I picked, and it
@@ -695,6 +752,35 @@ void main() {
       //   「大」 fits.
       //   This assertion depends on no constant; it still holds if the
       //   font or the copy changes.
+      //
+      // 🔴🔴 **IN-PLACE CORRECTION (0.3.28, owner 2026-08-23). The paragraph
+      // above is kept verbatim: every sentence in it was true when written,
+      // and its ruler argument still is. What expired is its PREMISE.**
+      //
+      // FB-4's promise was "only shrink" (1.00 / 0.92 / 0.85, the default
+      // already the ceiling). 0.3.28 appends `xlarge` 1.15 and `xxlarge` 1.30
+      // because a user who found the text too small had, measurably, no
+      // control at all. ⇒ `widths[step] <= widths[large]` is now **false by
+      // design**, and its own failure text said what that means: "the 'only
+      // shrink' premise is broken, every 'layout-direction-safe' claim on this
+      // card has to be redone". This is that redo — the assertion is not
+      // deleted, it is **replaced by the two claims that are true now**:
+      //
+      //   ① **monotonicity in the tier order** — a wider factor must not
+      //      produce a narrower pill. This is the positive control: it is the
+      //      only thing here that would go red if the scaler stopped reaching
+      //      the pill at all (two equal-width runs prove nothing about which
+      //      tier was in force);
+      //   ② **the top tier fits the box a real screen actually gives it** —
+      //      `ahemWidthAtLeast(600, 411, locale)`, the same per-script ruler
+      //      the rest of this suite uses, NOT the top tier's own intrinsic
+      //      width. Sizing the box to what the widest tier happens to need
+      //      would be circular: it would pass for any factor whatsoever,
+      //      including one that makes the pill wider than any phone.
+      //
+      // ⚠️ Ruler asymmetry unchanged (file header): Ahem inflates, so "fits
+      // here ⇒ fits on a real device" holds and the converse does not. That is
+      // the direction this case needs — it is asking "can the top tier clip".
       for (final AppLocale locale in AppLocale.values) {
         for (final DeliveryFace face in DeliveryFace.values) {
           final Map<AppTextScale, double> widths = <AppTextScale, double>{};
@@ -727,21 +813,40 @@ void main() {
             widths[step] = tester.getSize(find.byType(StatusPill)).width;
           }
 
-          final double budget = widths[AppTextScale.large]!;
+          // ② The box a real 411dp screen is worth for THIS script. A constant
+          // here would be the 240dp mistake again; the top tier's own
+          // intrinsic width would be circular. This is the one number that is
+          // neither.
+          final double budget = ahemWidthAtLeast(600, 411, locale);
           // Positive control: this pill must actually have width, otherwise the comparison below is two zeros.
-          expect(budget, greaterThan(0),
+          expect(widths[AppTextScale.large]!, greaterThan(0),
               reason: '${locale.name}/${face.name} pill width is 0 ⇒ this round measured nothing');
-          for (final AppTextScale step in AppTextScale.values) {
+
+          // ① Monotonic in the tier order. Sorted by factor rather than by
+          // declaration order on purpose: the enum's order is a storage
+          // contract (`AppTextScale.name` is the pref value), so a future
+          // append must not be able to silently reorder what this asserts.
+          final List<AppTextScale> byFactor = AppTextScale.values.toList()
+            ..sort((AppTextScale a, AppTextScale b) => a.factor.compareTo(b.factor));
+          for (int i = 1; i < byFactor.length; i++) {
             expect(
-              widths[step]!,
-              lessThanOrEqualTo(budget + 0.01),
-              reason: '${step.name} is wider than the large step: ${locale.name}/${face.name} '
-                  '(${widths[step]} > $budget) — the "only shrink" premise is broken, '
-                  'every "layout-direction-safe" claim on this card has to be redone',
+              widths[byFactor[i]]!,
+              greaterThanOrEqualTo(widths[byFactor[i - 1]]! - 0.01),
+              reason: '${byFactor[i].name} (×${byFactor[i].factor}) is NARROWER than '
+                  '${byFactor[i - 1].name} (×${byFactor[i - 1].factor}) on '
+                  '${locale.name}/${face.name} — either the tier is not reaching '
+                  'this pill at all, or two tiers are wired to the same factor',
             );
           }
+          expect(
+            widths[AppTextScale.xxlarge]!,
+            lessThanOrEqualTo(budget),
+            reason: 'the top tier needs ${widths[AppTextScale.xxlarge]!.toStringAsFixed(1)}px on '
+                '${locale.name}/${face.name}, more than the ${budget.toStringAsFixed(1)}px a '
+                '411dp screen is worth for this script ⇒ shipping xxlarge clips this pill',
+          );
 
-          // Walk again: in the box that the large step fits, none of the three steps may overflow even once.
+          // Walk again: in that box, no tier may overflow even once.
           for (final AppTextScale step in AppTextScale.values) {
             final AppSettingsController c = await _boot(<String, Object>{
               kTextScaleKey: step.name,
@@ -773,25 +878,32 @@ void main() {
     });
   });
 
-  // ── ⑥ four languages ────────────────────────────────────────────────────
-  group('⑥ all four languages present and pairwise distinct', () {
-    test('the five copy strings on the type-size row are non-empty in all four languages; the three step names are pairwise distinct within a language', () {
+  // ── ⑥ all languages ────────────────────────────────────────────────────
+  group('⑥ all languages present and pairwise distinct', () {
+    test('every copy string on the type-size row is non-empty in every language; the step names are pairwise distinct within a language', () {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);
-        for (final String v in <String>[
-          s.textScaleTitle,
+        // 0.3.28: the two new rungs join the same two checks. A locale that
+        // has not been translated falls back to English structurally
+        // (gen-mobile-dart's `extends AppStringsEn`), so "non-empty" cannot be
+        // satisfied by a bare key — but two rungs sharing ONE word can still
+        // happen, and that is what the set below is for.
+        final List<String> stepNames = <String>[
+          s.textScaleXxlarge,
+          s.textScaleXlarge,
           s.textScaleLarge,
           s.textScaleMedium,
           s.textScaleSmall,
-          s.textScaleNote,
-        ]) {
+        ];
+        for (final String v in <String>[s.textScaleTitle, s.textScaleNote, ...stepNames]) {
           expect(v, isNotEmpty, reason: locale.name);
         }
-        // Three step names colliding = the user sees three identical chips.
+        // Names colliding = the user sees two identical chips and cannot tell
+        // which rung they are on.
         expect(
-          <String>{s.textScaleLarge, s.textScaleMedium, s.textScaleSmall},
-          hasLength(3),
-          reason: locale.name,
+          stepNames.toSet(),
+          hasLength(AppTextScale.values.length),
+          reason: '${locale.name}: $stepNames',
         );
       }
     });

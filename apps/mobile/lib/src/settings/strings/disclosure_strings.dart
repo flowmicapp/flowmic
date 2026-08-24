@@ -161,7 +161,7 @@
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all
-//   apps/server-core/src/engine/stt-session.ts:225
+//   apps/server-core/src/engine/stt-session.ts:236
 //     `if (this.deps.polish && !isSegment && this.polishDelivery() === 'sync')`
 //     【CORRECTED 2026-08-19 — this header quoted the guard's first two clauses
 //     as the whole condition. A third was added when the DETACHED (replace-late)

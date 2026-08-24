@@ -15,6 +15,7 @@
 import 'dart:io';
 
 import 'package:flowmic/src/settings/app_settings.dart';
+import 'package:flowmic/src/auth/saas_endpoint.dart' show kDefaultSaasEndpoint;
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/ui/settings_update_card.dart';
 import 'package:flowmic/src/update/update_check.dart';
@@ -345,6 +346,10 @@ void main() {
         // that copy would point at a download address this channel never has.
         expect(find.text(s.updateStoreChannelNote), findsOneWidget);
         expect(find.text(s.updateKindUnknownNote), findsNothing);
+        // ...and NOT the link-less sentence. The pair of this assertion and its
+        // twin in the next test is what keeps the two sentences from collapsing
+        // back into one: either one alone stays green if they do.
+        expect(find.text(s.updateStoreNoLinkNote), findsNothing);
         // The page the user can walk to, visible and labelled.
         expect(find.text(s.updateStoreUrlLabel), findsOneWidget);
         expect(find.text('https://testflight.apple.com/join/example'), findsOneWidget);
@@ -355,8 +360,22 @@ void main() {
       },
     );
 
+    // 🔴🔴 0.3.29 REWRITE — THIS TEST USED TO PIN THE DEFECT AS THE SPEC.
+    // Its name was, verbatim:
+    //   「a store entry with no link yet still says the store sentence — never
+    //    the download copy with no address」
+    // and it asserted `find.text(s.updateStoreChannelNote), findsOneWidget`.
+    // The reasoning behind it was sound as far as it went (do not fall back to
+    // the download copy — there is no address), and the conclusion it drew was
+    // still wrong: it sent the user to TestFlight when nobody had minted an
+    // invite. **A true premise carrying a false conclusion, written as an
+    // assertion** — 0.2.52 named this shape and this is its next appearance.
+    // Owner reported it from the product side on 2026-08-24 and ruled the
+    // sentence: 「有新版本：XXXX，联系官方团队获取」.
+    // The original assertion is not deleted quietly; it is recorded here
+    // because a test that had to be reversed is evidence about how we reason.
     testWidgets(
-      'a store entry with no link yet still says the store sentence — never the download copy with no address',
+      '🔴 a store entry with no link says CONTACT US, and names where — never a store the user cannot reach',
       (WidgetTester tester) async {
         final UpdateController c = await _rig(
           selfUpdateEnabled: false,
@@ -373,9 +392,18 @@ void main() {
         await tester.pumpAndSettle();
 
         final AppStrings s = AppStrings.of(AppLocale.zh);
-        expect(find.text(s.updateStoreChannelNote), findsOneWidget);
+        // There IS a new version, and that half never changed.
+        expect(find.text(s.updateAvailableTitle('9.9.9')), findsOneWidget);
+        expect(find.text(s.updateStoreNoLinkNote), findsOneWidget);
+        // 🔴 The old sentence must be GONE, not merely joined. Two sentences on
+        // screen would give the user two different instructions at once.
+        expect(find.text(s.updateStoreChannelNote), findsNothing);
         expect(find.text(s.updateKindUnknownNote), findsNothing);
         expect(find.text(s.updateStoreUrlLabel), findsNothing);
+        // 「Contact the official team」 has to name somewhere. An instruction
+        // with no address is the dead end this card already shipped once.
+        expect(find.text(s.updateOfficialSiteLabel), findsOneWidget);
+        expect(find.text(kDefaultSaasEndpoint), findsOneWidget);
         expectEverythingLegible(tester);
       },
     );

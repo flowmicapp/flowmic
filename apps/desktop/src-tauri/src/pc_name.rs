@@ -288,9 +288,190 @@ pub fn hostname() -> String {
     String::new()
 }
 
+// ── 0.3.28: the NAME half had to stop being the hostname on macOS ───────────
+//
+// owner 2026-08-23: 「iOS/Mac 上要能检测到当前操作系统的类型，在命名时如果获取不到
+// 机器标识或 ID 以机器系统类型来命名」 ("on iOS/Mac we must detect the current OS
+// type, and when no machine identifier or ID can be obtained, name it by the
+// machine's system type").
+//
+// 🔴 MAC-02 (above, in `machine_id`) already moved the IDENTITY off the
+// hostname, and wrote down exactly why: **macOS's hostname changes on its
+// own** — a different network, a DHCP assignment, or renaming the sharing name
+// all change it. That correction stopped at the identity and left the NAME
+// half untouched, which is this line's whole reason to exist: the same Mac
+// still renames itself in the phone's pairing list when it moves network.
+//
+// 🔴 MEASURED ON THE ONE MAC WE HAVE, and it is worse than the sentence above
+// predicted [flowmic-mac, macOS 26.5.1, 2026-08-24]:
+//
+//     hostname                  = 172-77-77-142.adr01.atmr.al.ip.frontiernet.net
+//     scutil --get ComputerName = Bitbalabala的Mac mini
+//     sysctl -n hw.model        = Mac16,10
+//
+// The first line is not a drifting machine name, it is **the ISP's reverse-DNS
+// record for the current IP address**. Today that Mac's default name would be
+// `FlowMic-172-77-77-142.adr01.atmr.al.ip.frontier-<4>` (the composer's 60-char
+// clip lands mid-domain), and it would change with the address.
+//
+// ⇒ Two things follow, and only the second one was in the original plan:
+//   ① macOS has a value that IS the counterpart of Windows' `COMPUTERNAME`,
+//      and it is not `hostname()` — it is `scutil --get ComputerName`. Windows
+//      was never reading a network-derived string; macOS was, by accident.
+//      So the first rung is the user's own name for the machine.
+//   ② `hw.model` = `Mac16,10` is the CLASS fallback owner asked for — and note
+//      which arm of the table catches it: the generic Apple-Silicon one. A
+//      prefix table of `Macmini` / `MacBookPro` / `iMac` would have returned
+//      None **on the only Mac in this project**.
+//
+// ⚠️ **Windows is untouched, deliberately.** Nobody has reported a bad name
+// there, `COMPUTERNAME` does not drift, and changing what a fresh Windows
+// install proposes would split "what is this machine called" across versions
+// for no gain.
+//
+// ⚠️ Only fresh installs see any of this. A machine that has stored a name
+// keeps it (`reconcile_stored_pc_name` falls back to the default only when
+// NEITHER channel has credentials), which is pinned by a test below rather
+// than only asserted here.
+
+/// The readable half of the default name for THIS platform.
+///
+/// Split out from [default_pc_name] so the platform choice has one home, and
+/// so the pure mapping it leans on ([mac_hardware_class]) is testable on a box
+/// that will never run the `sysctl` beside it.
+fn default_name_half() -> String {
+    // Cached for the same reason `machine_id` is: `default_pc_name` runs ~4×
+    // per launch and each miss here would spawn a process.
+    static CACHED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHED.get_or_init(read_name_half_uncached).clone()
+}
+
+fn read_name_half_uncached() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // ① The user's OWN name for this machine — the true counterpart of the
+        //    Windows branch below. Windows reads `COMPUTERNAME`, which IS the
+        //    name the user set; the bug was that `hostname()`'s macOS answer is
+        //    a completely different value that merely looks like one.
+        if let Some(name) = read_scutil("ComputerName") {
+            return name;
+        }
+        // ② owner's ask, literally: no machine name to be had ⇒ name it by what
+        //    kind of machine it is.
+        if let Some(class) = read_hw_model().as_deref().and_then(mac_hardware_class) {
+            return class.to_string();
+        }
+        // ③ The old behaviour, demoted to third. See the measurement above for
+        //    why it is no longer allowed anywhere near the top.
+        let host = hostname();
+        if !host.trim().is_empty() {
+            return host;
+        }
+        // Never empty on a Mac: `compose_default_name` would then produce
+        // `FlowMic-3f2a`, which answers "which machine is this" with four hex
+        // digits and nothing else.
+        //
+        // ⚠️ No `return` — this block IS the whole function body once cfg has
+        // removed the other one, so the tail expression is the return value and
+        // `return` here is `clippy::needless_return`. Windows clippy cannot see
+        // that (it compiles the other block), and it did not: caught by
+        // `cargo clippy -D warnings` on the Mac mini, which is the only judge
+        // this branch has.
+        "Mac".to_string()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        hostname()
+    }
+}
+
+/// One `scutil --get <key>`, trimmed, or `None`.
+///
+/// `ComputerName` is the name in System Settings → General → About, the one
+/// Finder and AirDrop show. It is NOT the same value as `hostname()`, and that
+/// distinction is the whole content of this change.
+#[cfg(target_os = "macos")]
+fn read_scutil(key: &str) -> Option<String> {
+    let out = std::process::Command::new("/usr/sbin/scutil")
+        .args(["--get", key])
+        .output()
+        .ok()?;
+    // scutil writes "<key>: not set" to stderr and exits non-zero when unset;
+    // an unset key must read as None, never as that sentence.
+    if !out.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+/// Apple's `hw.model` → the human name of the machine class.
+///
+/// Pure, and matched by PREFIX against an ORDERED table. Both properties are
+/// load-bearing:
+///
+/// 🔴 **The order is the correctness.** `MacBookPro18,3` starts with `MacBook`,
+/// so a table that tests `MacBook` first calls every MacBook Pro a "MacBook".
+/// Longest-first is not tidiness here, it is the difference between a true and
+/// a false name, and the test below walks the table in the order a wrong sort
+/// would break.
+///
+/// 🔴 **The `Mac` arm at the bottom is not a catch-all afterthought — it is the
+/// arm that serves most machines sold today.** Apple Silicon reports a GENERIC
+/// identifier with no class word in it: Mac Studio is `Mac13,1`, the M2 Mac
+/// mini is `Mac14,3`, and later models continue `Mac15,x` / `Mac16,x`. A table
+/// of only the classic `Macmini` / `MacBookPro` / `iMac` prefixes returns
+/// `None` for every one of them — silently, with the caller falling through to
+/// the drifting hostname this whole change exists to stop using. The office Mac
+/// mini is very likely in exactly that bucket.
+///
+/// `None` means "this string names no Mac at all" (empty, or something that is
+/// not an Apple hardware identifier), and the caller then falls back rather
+/// than inventing a class.
+pub fn mac_hardware_class(hw_model: &str) -> Option<&'static str> {
+    // Longest prefix first. `iMacPro` before `iMac`, the two MacBook variants
+    // before `MacBook`, and the bare `Mac` last of all.
+    const TABLE: &[(&str, &str)] = &[
+        ("MacBookPro", "MacBook Pro"),
+        ("MacBookAir", "MacBook Air"),
+        ("MacBook", "MacBook"),
+        ("Macmini", "Mac mini"),
+        ("MacPro", "Mac Pro"),
+        ("iMacPro", "iMac Pro"),
+        ("iMac", "iMac"),
+        // A VM under Virtualization.framework reports `VirtualMac2,1`. It is a
+        // Mac to every layer that matters here, and calling it one beats
+        // falling through to a hostname.
+        ("VirtualMac", "Mac"),
+        ("Mac", "Mac"),
+    ];
+    let model = hw_model.trim();
+    if model.is_empty() {
+        return None;
+    }
+    TABLE
+        .iter()
+        .find(|(prefix, _)| model.starts_with(prefix))
+        .map(|(_, name)| *name)
+}
+
+/// This Mac's hardware model string (`Macmini9,1`, `Mac14,3`, …).
+///
+/// Shelled out for the same reason `ioreg` and `reg.exe` are: one string is not
+/// worth a dependency, and a failure is not an error — the caller falls back.
+#[cfg(target_os = "macos")]
+fn read_hw_model() -> Option<String> {
+    let out = std::process::Command::new("/usr/sbin/sysctl")
+        .args(["-n", "hw.model"])
+        .output()
+        .ok()?;
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if value.is_empty() { None } else { Some(value) }
+}
+
 /// The name a fresh install proposes.
 pub fn default_pc_name() -> String {
-    compose_default_name(&hostname(), &machine_id())
+    compose_default_name(&default_name_half(), &machine_id())
 }
 
 // ── v0.2.1: ONE name per machine, not one per channel ───────────────────────
@@ -444,224 +625,6 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     }
     out
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── v0.2.4 machine uid ────────────────────────────────────────────────
-
-    #[test]
-    fn the_same_machine_yields_the_same_uid_every_time() {
-        // The entire feature rests on this: the LAN channel and the cloud
-        // channel each call machine_uid() independently, and they must agree
-        // with nothing shared between them but the machine itself.
-        let a = compose_machine_uid("GUID-1234", "owner").expect("uid");
-        let b = compose_machine_uid("GUID-1234", "owner").expect("uid");
-        assert_eq!(a, b);
-        assert!(a.starts_with("pc-"), "prefix keeps it distinct from a phone's mb-");
-        assert_eq!(a.len(), 3 + 16, "pc- + 8 bytes of digest");
-        assert!(a[3..].chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn the_uid_matches_the_protocol_shape() {
-        // protocol-primitives.ts DeviceUid: /^[a-z]{2}-[0-9a-f]{16,48}$/. A uid
-        // that fails it is DROPPED at the server boundary (.catch(undefined)),
-        // which would be silent — so the shape is asserted on this side too.
-        let uid = compose_machine_uid("GUID-1234", "owner").expect("uid");
-        let (prefix, hex) = uid.split_at(3);
-        assert_eq!(prefix, "pc-");
-        assert!((16..=48).contains(&hex.len()));
-        assert!(hex.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)));
-    }
-
-    #[test]
-    fn two_windows_users_on_one_machine_do_not_collide() {
-        // The ping-pong this prevents: registry.registerPc resolves a returning
-        // machine by uid when the instance id misses, so two Windows accounts
-        // sharing a uid would take turns stealing each other's row and rotating
-        // each other's token, forever. See the module note.
-        let a = compose_machine_uid("GUID-1234", "alice").expect("uid");
-        let b = compose_machine_uid("GUID-1234", "bob").expect("uid");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn two_machines_do_not_collide() {
-        let a = compose_machine_uid("GUID-1111", "owner").expect("uid");
-        let b = compose_machine_uid("GUID-2222", "owner").expect("uid");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn no_machine_id_means_no_claim_at_all() {
-        // NOT a placeholder. A constant fallback would be the same string on
-        // every machine that also could not read its id, and the server would
-        // then merge two strangers into one PC row.
-        assert_eq!(compose_machine_uid("", "owner"), None);
-        assert_eq!(compose_machine_uid("   ", "owner"), None);
-    }
-
-    #[test]
-    fn a_machine_with_no_readable_user_still_gets_a_uid() {
-        // Degraded but usable: the machine id alone still separates machines.
-        // Only the two-Windows-users case loses its guard, and that is strictly
-        // better than claiming nothing.
-        let uid = compose_machine_uid("GUID-1234", "").expect("uid");
-        assert!(uid.starts_with("pc-"));
-        assert_ne!(uid, compose_machine_uid("GUID-1234", "owner").expect("uid"));
-    }
-
-    #[test]
-    fn the_raw_machine_id_never_appears_in_the_uid() {
-        // The privacy claim, asserted rather than asserted-in-a-comment.
-        let uid = compose_machine_uid("4c4c4544-0037-5210-8044-b4c04f434finstance", "owner").expect("uid");
-        assert!(!uid.contains("4c4c4544"));
-        assert!(!uid.contains("owner"));
-    }
-
-    #[test]
-    fn sha256_matches_the_known_vectors() {
-        // Without this the digest could be quietly wrong and the suffix would
-        // still "look fine" — four hex characters reveal nothing by eye.
-        let empty = sha256(b"");
-        assert_eq!(
-            hex(&empty),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-        assert_eq!(
-            hex(&sha256(b"abc")),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
-
-    #[test]
-    fn the_default_name_is_readable_and_disambiguated() {
-        let a = compose_default_name("STUDIO-PC", "guid-aaaa");
-        assert!(a.starts_with("FlowMic-STUDIO-PC-"), "{a}");
-        assert_eq!(a.chars().count(), "FlowMic-STUDIO-PC-".len() + 4);
-    }
-
-    #[test]
-    fn two_machines_that_share_a_hostname_still_differ() {
-        // The whole reason the suffix exists: a cloned/reimaged box keeps its name.
-        let a = compose_default_name("PC", "machine-guid-one");
-        let b = compose_default_name("PC", "machine-guid-two");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn the_suffix_is_stable_across_launches() {
-        // A name that changed every start would be worse than a duplicate.
-        assert_eq!(short_digest("machine-guid-one"), short_digest("machine-guid-one"));
-        assert_eq!(short_digest("").len(), 4, "unknown id → stable placeholder");
-        assert_eq!(short_digest(""), "0000");
-    }
-
-    #[test]
-    fn the_raw_machine_id_never_appears_in_the_name() {
-        let id = "9f8e7d6c-5b4a-3210-fedc-ba9876543210";
-        let name = compose_default_name("PC", id);
-        assert!(!name.contains(id));
-        assert!(!name.contains("9f8e7d6c"));
-    }
-
-    #[test]
-    fn a_missing_hostname_still_yields_a_usable_name() {
-        let n = compose_default_name("   ", "guid");
-        assert!(n.starts_with("FlowMic-"));
-        assert_eq!(n.chars().count(), "FlowMic-".len() + 4);
-    }
-
-    #[test]
-    fn the_default_always_fits_the_protocol_cap() {
-        let long = "H".repeat(300);
-        let n = compose_default_name(&long, "guid");
-        assert!(n.chars().count() <= PC_NAME_MAX_CHARS, "{}", n.chars().count());
-        assert!(sanitize_pc_name(&n).is_some());
-    }
-
-    #[test]
-    fn sanitize_refuses_rather_than_truncates() {
-        assert_eq!(sanitize_pc_name("  书房台式机  ").as_deref(), Some("书房台式机"));
-        assert_eq!(sanitize_pc_name("   "), None);
-        assert_eq!(sanitize_pc_name(""), None);
-        // 81 chars — refused, NOT silently cut down to 80.
-        assert_eq!(sanitize_pc_name(&"x".repeat(PC_NAME_MAX_CHARS + 1)), None);
-        assert!(sanitize_pc_name(&"x".repeat(PC_NAME_MAX_CHARS)).is_some());
-    }
-
-    // ── v0.2.1: ONE name per machine ────────────────────────────────────────
-    //
-    // The case that produced these: a real smoke run of the 0.2.1 build logged
-    //   re-asserted pc name on connect: "FlowMic PC"        (cloud)
-    //   re-asserted pc name on connect: "office-pc-windows" (lan)
-    // Two channels, two credential files, two names. Every unit test agreed with
-    // itself; only a live launch showed it.
-
-    #[test]
-    fn a_user_chosen_name_beats_the_legacy_default_whichever_side_holds_it() {
-        assert_eq!(
-            reconcile_machine_name(Some("office-pc-windows"), Some(LEGACY_DEFAULT_PC_NAME), "fb"),
-            ("office-pc-windows".to_string(), false),
-            "the exact split observed on owner's machine"
-        );
-        // …and symmetrically, so the fix does not depend on WHICH file drifted.
-        assert_eq!(
-            reconcile_machine_name(Some(LEGACY_DEFAULT_PC_NAME), Some("书房台式机"), "fb"),
-            ("书房台式机".to_string(), false),
-        );
-    }
-
-    #[test]
-    fn an_empty_or_missing_slot_never_wins() {
-        assert_eq!(reconcile_machine_name(None, Some("书房"), "fb").0, "书房");
-        assert_eq!(reconcile_machine_name(Some("   "), Some("书房"), "fb").0, "书房");
-        assert_eq!(reconcile_machine_name(Some(""), None, "fb").0, "fb");
-    }
-
-    #[test]
-    fn two_leftover_defaults_fall_back_to_the_per_machine_name() {
-        // Neither side was ever renamed ⇒ neither is a choice, so the unique
-        // per-machine default is the right answer rather than the ancient literal
-        // that made two machines look identical (GA-10 iron rule ④).
-        let (name, conflicted) = reconcile_machine_name(
-            Some(LEGACY_DEFAULT_PC_NAME),
-            Some(LEGACY_DEFAULT_PC_NAME),
-            "FlowMic-STUDIO-3f7a",
-        );
-        assert_eq!(name, "FlowMic-STUDIO-3f7a");
-        assert!(!conflicted, "two leftovers are not a user conflict");
-    }
-
-    #[test]
-    // `REPORTED` IS SHOUTED ON PURPOSE — do not snake_case it (DOC-HYG, 2026-08-09).
-    // The name's whole content is the contrast `REPORTED … not_a_silent_pick`: LAN
-    // wins by precedence either way, so what this test pins is not WHICH name is
-    // chosen but that the loser's disappearance is REPORTABLE. Flattened to
-    // lowercase the two halves read as one bland phrase and the contrast — the
-    // thing that would be silently lost if `conflicted` ever stopped being
-    // returned — stops being visible in the failure line. Narrowest scope on
-    // purpose: an accidentally camelCased name elsewhere must still go red.
-    #[allow(non_snake_case)]
-    fn two_different_user_names_are_a_REPORTED_conflict_not_a_silent_pick() {
-        // LAN wins by precedence, but the caller must be able to say WHY the
-        // other one disappeared — a rename that silently reverts is the thing
-        // this whole area exists to stop.
-        let (name, conflicted) = reconcile_machine_name(Some("书房"), Some("客厅"), "fb");
-        assert_eq!(name, "书房");
-        assert!(conflicted);
-    }
-
-    #[test]
-    fn identical_names_are_never_a_conflict_and_never_rewritten() {
-        let (name, conflicted) = reconcile_machine_name(Some("书房"), Some(" 书房 "), "fb");
-        assert_eq!(name, "书房", "trimmed comparison, trimmed result");
-        assert!(!conflicted);
-    }
-}
+#[path = "pc_name_tests.rs"]
+mod tests;

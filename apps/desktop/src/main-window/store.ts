@@ -34,6 +34,7 @@ import {
   type TimelineOpFailure,
 } from '../lib/timeline-store';
 import { CH, appendForensic, fetchConnectionSnapshot, fetchOfflineState, fetchPairedMobiles, onChannel, settingsTransport, timelineTransport } from '../lib/bridge';
+import { serveRowReinject } from '../lib/bridge-reinject';
 import { localKv } from '../lib/storage';
 import type { ChannelTag, ConnectionState, InjectResult, TimelineRow, WireHistoryItem } from '../lib/types';
 
@@ -176,6 +177,34 @@ export const lanConnected = computed(() => connByChannel.lan?.connected === true
 // primary channel's account (one flag must answer one question).
 watch(
   lanConnected,
+  (up, was) => {
+    if (up && was !== true) void settings.flushPending();
+  },
+  { flush: 'sync' },
+);
+
+// The CLOUD connected rising edge → the same replay (owner ruling 2026-08-24).
+//
+// 🔴 THIS IS THE OTHER HALF OF "settings target both legs", and without it that
+// ruling would be half-delivered in the direction nobody would notice. The Rust
+// `settings_update` emits on every LIVE socket and reports success when the
+// sockets that existed accepted the frame — so an edit made while the relay is
+// down is NOT pending (the LAN leg took it, correctly) and would never be sent
+// to the relay again. The relay would then hold a stale copy forever, which is
+// the exact state the ruling exists to end.
+//
+// `flushPending` re-sends EVERY remembered key, not only the dirty ones, so this
+// edge is what carries the whole preference set onto a relay that has just come
+// up. It is safe to re-send: the server upserts, and each key travels with the
+// `updated_at` of its OWN edit, so the regress guard still refuses anything
+// older than what is already there (card C3).
+//
+// ⚠️ A SEPARATE WATCHER, not a combined `lanConnected || cloudConnected`: two
+// edges are two facts, and OR-ing them would swallow the cloud edge whenever LAN
+// was already up — i.e. in the common case. One flag, one question.
+const cloudConnected = computed(() => connByChannel.cloud?.connected === true);
+watch(
+  cloudConnected,
   (up, was) => {
     if (up && was !== true) void settings.flushPending();
   },
@@ -423,6 +452,17 @@ export async function initBridge(): Promise<void> {
       );
     }
   });
+  // 0.3.30 — the capsule's per-row re-inject button asks HERE, because the store in
+  // this window is the one authority on what re-injecting a row means: it holds the
+  // transcript-only guard and it is the only thing that puts the verdict back onto
+  // the row. See capsule/capsule-reinject.ts's header for why the capsule does not
+  // invoke the Rust command itself the way its copy button does.
+  //
+  // 🔴 `timeline.reInject` is called with the address the CAPSULE sent, never with
+  // anything re-derived here — owner's 2026-07-31 iron rule: an item carries its
+  // own address and is not matched against 「当前是谁」("who is current now").
+  // The verdict travels back verbatim; this layer decides nothing.
+  await serveRowReinject((id, channel) => timeline.reInject(id, channel));
   // NOTE (RV-22): the flowmic://settings-updated listener is NOT here. Its sink is
   // `pullServerSettings` in settings-model.ts, which already imports this module —
   // wiring it from here would close an import cycle (lint 3/9 `circular`). The

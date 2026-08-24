@@ -127,6 +127,11 @@ export const SHIPPED_SECTIONS = [
   // records the removal). This edits published copy on purpose, by owner order;
   // the GitHub release body and public-repo CHANGELOG are updated in the same
   // round so all outward copies say the same thing.
+  '0.3.28|9fce985ff617|76',
+  '0.3.29|175545df4553|73',
+  '0.3.30|ad326f97b185|77',
+  '0.3.32|26ad4deb7bf3|58',
+  '0.3.31|b00f08c4ff9c|84',
   '0.3.27|78794b3328ae|73',
   '0.3.9|0a6d6f8fb40d|26',
 ];

@@ -32,6 +32,7 @@ import {
 import { makePoolManagedDefault } from './pool-routing';
 import { isStreamingEngine } from './streaming-engines';
 import { buildHotwords, type SttDictionaryEntry } from './hotwords';
+import { buildSonioxContext } from './terminology-context';
 import { SttEngineOrchestrator } from './orchestrator-core';
 import { DEFAULT_ENGINE_IDLE_HANGUP_MS, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
@@ -287,6 +288,31 @@ function withHotwords(inner: EngineFactory, hotwords: string | undefined): Engin
 }
 
 /**
+ * The SECOND terminology destination (owner ruling 2026-08-24): Soniox's
+ * `context`. Same three sources, different wire shape — see
+ * `stt/terminology-context.ts` for why this is not a branch inside
+ * `withHotwords`.
+ *
+ * 🔴 The engine check is per-ENGINE and stays that way. The comment above
+ * withHotwords warned that "carrying terminology to any other vendor's biasing
+ * API is an owner call, not a tidy-up"; that call has now been made for Soniox
+ * and for Soniox only. A future engine gets its own line here, deliberately, so
+ * that adding one is a decision somebody makes rather than something that
+ * happens to it.
+ */
+function withSonioxContext(inner: EngineFactory, context: string | undefined): EngineFactory {
+  if (context === undefined) return inner;
+  return (id, cfg) => inner(id, id === 'soniox' ? { ...cfg, context } : cfg);
+}
+
+/** The canonical terms for this user, as the recognizer-facing `context` string.
+ *  Reads the SAME resolver as loadHotwords so the two destinations can never
+ *  disagree about which terms the user configured. */
+export function loadSonioxContext(settings: SettingsRepo, userId: string): string | undefined {
+  return buildSonioxContext(resolveReplacementRules(settings, userId).map((r) => r.canonical));
+}
+
+/**
  * BYOK judgement (06 §4): the matched routing's api_key is USER-supplied and
  * non-empty; the LLM sentinel 'EMPTY' (vLLM Bearer) counts as a platform
  * endpoint, NOT BYOK. Platform managed default → not BYOK → counts toward quota
@@ -382,7 +408,7 @@ export function makeSttOrchestratorFactory(
   return (session, language, userId, vad) => {
     const routings = loadRoutings(deps.settings, userId);
     const hotwords = loadHotwords(deps.settings, userId);
-    const factory = withHotwords(engineFactory, hotwords);
+    const factory = withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(deps.settings, userId));
     const router = makeEngineRouter({ managedDefault });
     // #16 fail-fast: no matching routing → throw synchronously so the sync
     // sttFactory call surfaces stt:error (no implicit fallback engine).

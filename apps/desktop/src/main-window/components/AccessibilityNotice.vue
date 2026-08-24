@@ -30,7 +30,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { fetchAccessibilityStatus, openAccessibilitySettings } from '../../lib/bridge-os';
-import { needsAccessibilityGrant, type AccessibilityStatus } from '../../lib/accessibility-notice';
+import {
+  isBlockedByLocation,
+  needsAccessibilityGrant,
+  type AccessibilityStatus,
+} from '../../lib/accessibility-notice';
 import { S } from '../../lib/strings';
 
 /** Every re-check writes here; the template derives from it and nothing else. */
@@ -96,16 +100,38 @@ onUnmounted(() => {
        re-announce itself on every poll. -->
   <section v-if="needsAccessibilityGrant(status)" class="ax-note" role="status">
     <div class="ax-head">{{ S.perm_ax_title }}</div>
-    <p class="ax-body">{{ S.perm_ax_body }}</p>
+    <!-- The title is shared on purpose: what is broken is the same thing in
+         both cases. Only the CAUSE and therefore the instruction differ. -->
+    <p class="ax-body">
+      {{ isBlockedByLocation(status) ? S.perm_ax_move_body : S.perm_ax_body }}
+    </p>
     <div class="ax-how">
-      <span class="ax-how-lbl">{{ S.perm_ax_how }}</span>
-      <!-- The path stays on screen even when the button works. A button that
-           opens the wrong thing (or nothing, on a future macOS that renames the
-           pane) would otherwise leave the reader with no second route. -->
-      <code class="ax-pane">{{ S.perm_ax_pane }}</code>
+      <!-- 🔴 The settings path is withheld when it cannot help. Showing it
+           alongside 「move the app」 would leave the reader choosing between two
+           instructions, and the one they already tried is the wrong one. -->
+      <template v-if="isBlockedByLocation(status)">
+        <span class="ax-how-lbl">{{ S.perm_ax_move_how }}</span>
+      </template>
+      <template v-else>
+        <span class="ax-how-lbl">{{ S.perm_ax_how }}</span>
+        <!-- The path stays on screen even when the button works. A button that
+             opens the wrong thing (or nothing, on a future macOS that renames the
+             pane) would otherwise leave the reader with no second route. -->
+        <code class="ax-pane">{{ S.perm_ax_pane }}</code>
+      </template>
     </div>
     <div class="ax-actions">
-      <button class="btn pri" type="button" @click="onOpen">{{ S.perm_ax_open }}</button>
+      <!-- No button in the blocked case, and that is a decision: the pane it
+           would open is exactly where the reader has already been, and pressing
+           it again cannot change the answer. -->
+      <button
+        v-if="!isBlockedByLocation(status)"
+        class="btn pri"
+        type="button"
+        @click="onOpen"
+      >
+        {{ S.perm_ax_open }}
+      </button>
       <span class="ax-self">{{ S.perm_ax_selfclears }}</span>
     </div>
     <p v-if="openFailed" class="ax-failed">{{ S.perm_ax_open_failed }}</p>

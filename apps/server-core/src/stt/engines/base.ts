@@ -33,6 +33,16 @@ export interface SttEngineConfig {
    * frame is byte-identical to baseline (field omitted).
    */
   hotwords?: string;
+  /**
+   * Soniox `context` (RT-6 card): free text naming the terms likely to be
+   * spoken, built from the SAME three terminology sources as [hotwords] by
+   * `stt/terminology-context.ts`. A DIFFERENT wire shape for the same data —
+   * Soniox does not parse FunASR's `{term:weight}` string — which is why the
+   * two fields coexist instead of one being reused. Consumed only by the
+   * Soniox adapter; `undefined` (default) → the config frame is byte-identical
+   * to baseline (field omitted).
+   */
+  context?: string;
 }
 
 export interface InterimResult {

@@ -34,10 +34,12 @@ import { readSttPolish } from '../stt/stt-polish-settings';
 import { readSttRefine } from '../stt/stt-refine-settings';
 import { batchEngineIdFor, transcribeBatch } from '../stt/batch-transcribe';
 import { buildDictionaryReplacer } from '../compose/dictionary-replace';
-import { resolveReplacementRules } from '../compose/scenario-context';
+import { resolveReplacementRules, resolveScenarioContext } from '../compose/scenario-context';
+import { buildScenarioBlock } from '../compose/scenario';
 import { resolveLlmConfigWithSource, type SelectedLlmConfig } from '../compose/llm-config';
 import type { PolishDeps, PolishSkipReason } from '../stt/stt-polish';
 import { ServerError } from '../errors';
+import { newTraceId, trace, traceEnabled, tracedList } from '../trace/pipeline-trace';
 
 export interface SttFactoryDeps {
   settings: SettingsRepo;
@@ -246,7 +248,61 @@ export function makeSttSessionFactory(
     // switch that is on and does nothing must at least be explainable.
     const refineSetting = readSttRefine(deps.settings, args.userId);
     const refine = refineSetting.enabled ? resolveRefine(deps, args, refineSetting) : undefined;
+    // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
+    // Everything below is gathered ONLY when tracing is on, so the untraced path
+    // pays nothing: `selectRouting` re-reads settings, and doing that on every
+    // audio:start to feed a disabled logger would be a real cost for no reader.
+    //
+    // 🔴 These three records answer the question the existing WARN lines cannot.
+    // They are not "what went wrong" — they are "what did this session actually
+    // use", and they sit at the three places a terminology setting can die on
+    // the way to the engine: it was never resolved; it was resolved but this
+    // engine is not told hotwords at all; or the correction leg that would have
+    // consumed it was never armed.
+    const traceId = newTraceId();
+    if (traceEnabled()) {
+      const tracedRouting = selectRouting(args.sourceLang, loadRoutings(deps.settings, args.userId));
+      const engineId = tracedRouting?.engine_id;
+      trace('session.start', traceId, {
+        user_id: args.userId,
+        server_mode: deps.mode,
+        session_mode: args.mode,
+        source_lang: args.sourceLang,
+        target_lang: args.targetLang,
+        engine: engineId ?? '(no routing matched)',
+        model: tracedRouting?.model,
+        polish: polish.armed
+          ? { armed: true, strength: readSttPolish(deps.settings, args.userId).strength ?? DEFAULT_POLISH_STRENGTH }
+          : { armed: false, reason: polish.unavailable ?? '(switch is off)' },
+        refine: refineSetting.enabled
+          ? {
+              requested: true,
+              armed: refine !== undefined,
+              batch_engine: engineId === undefined ? null : batchEngineIdFor(engineId),
+            }
+          : { requested: false },
+      });
+      trace('terms.resolved', traceId, {
+        rule_count: replacementRules.length,
+        ...tracedList(replacementRules.map((r) => r.canonical)),
+        alias_count: replacementRules.reduce((n, r) => n + (r.aliases?.length ?? 0), 0),
+      });
+      // The honest statement about biasing: the SOURCE of terminology is
+      // engine-independent, the DESTINATION is not. `withHotwords` in
+      // stt/engine-factory.ts hands the payload to FunASR and to nothing else,
+      // so on any other engine the terms resolved above never reach the
+      // recognizer — they can still act through the deterministic replacement
+      // and (for compose tasks) through the scenario block, and this line is
+      // what lets a reader tell those cases apart instead of assuming.
+      trace('hotwords', traceId, {
+        engine: engineId ?? '(no routing matched)',
+        engine_accepts_hotwords: engineId === 'funasr',
+        term_count: replacementRules.length,
+        delivered: engineId === 'funasr' && replacementRules.length > 0,
+      });
+    }
     return new SttSessionBridge({
+      traceId,
       build: withQuotaBudget(build, quotaBudgetMs),
       emitter,
       userId: args.userId,
@@ -256,7 +312,12 @@ export function makeSttSessionFactory(
       onComplete: args.onComplete,
       ...(args.onPolishUsage !== undefined ? { onPolishUsage: args.onPolishUsage } : {}),
       finalText,
-      ...(polish.armed ? { polish: { llm: polish.llm, deps: polish.deps } } : {}),
+      // `traceId` is attached HERE rather than inside resolvePolishDep so that
+      // function keeps answering exactly one question ("can polish run, and with
+      // what"). A correlation id is not part of that answer — it is plumbing for
+      // the trace, and threading it through the arming logic would put a
+      // diagnostic concern inside the decision the census polices.
+      ...(polish.armed ? { polish: { llm: polish.llm, deps: { ...polish.deps, traceId } } } : {}),
       // 🔴 POLISH-1 (owner, 2026-08-11) — production delivers the polish ON THE
       // FINAL again. This line said `'detached'` from 0.2.59 (7976cc3) until now,
       // and the detached pass HAS NO DELIVERY CODE: `runDetachedPolish` computes
@@ -484,7 +545,24 @@ export function resolvePolishDep(
     // Card C8: the per-session correction strength travels with the other
     // per-session polish input. `readSttPolish` has already resolved an absent
     // field to the default, so this is total by the time it gets here.
-    deps: { protectedTerms: [...protectedTerms], strength: polishSetting.strength ?? DEFAULT_POLISH_STRENGTH },
+    deps: {
+      protectedTerms: [...protectedTerms],
+      strength: polishSetting.strength ?? DEFAULT_POLISH_STRENGTH,
+      // Card A4 (owner ruling 2026-08-24): the scenario card now reaches the
+      // realtime correction pass. Built HERE, at the audio:start snapshot, for
+      // the same reason the terminology rules are: a settings:update mid-session
+      // must not change what this utterance is being corrected against, and the
+      // block has to be byte-stable across the session or every sentence pays a
+      // prefix-cache miss.
+      //
+      // 🔴 The app-scenario descriptor (source ②) is deliberately NOT resolved
+      // here. It needs the focus process_name, which lives on the compose path's
+      // room presence and is not a fact this layer has; inventing one would put
+      // a second answer to "what application is this" in the tree, which is the
+      // thing ScenarioInferenceStore exists to prevent. Professions, domains and
+      // preferred terminology all flow — those are the parts a user typed.
+      scenarioBlock: buildScenarioBlock(resolveScenarioContext(deps.settings, userId)),
+    },
   };
 }
 

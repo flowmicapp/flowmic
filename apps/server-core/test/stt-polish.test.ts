@@ -134,17 +134,36 @@ describe('polishFinalText — ported budget / cache / fallback vectors', () => {
     expect(polishWireSignal(r)).toEqual({ polish: 'skipped', polish_reason: 'guard_reject' });
   });
 
-  it('drift is count-based both ways — an INVENTED protected-term occurrence also rejects', async () => {
-    // Input has 1 `FlowMic`, output has 2 (the LLM "canonicalized" an extra spot
-    // on its own): occurrence-count drift ⇒ reject. Only the deterministic leg
-    // may introduce canonical terms.
+  it('an INTRODUCED protected term is the correction, not drift (owner ruling 2026-08-24)', async () => {
+    // 🔴 THIS TEST ASSERTED THE OPPOSITE UNTIL 2026-08-24, and its reasoning was
+    // sound for the world it was written in. Verbatim, so the change is legible:
+    //
+    //     「Input has 1 `FlowMic`, output has 2 (the LLM "canonicalized" an extra
+    //      spot on its own): occurrence-count drift ⇒ reject. Only the
+    //      deterministic leg may introduce canonical terms.」
+    //
+    // That last sentence was true because the model was never TOLD the user's
+    // vocabulary — the deterministic replacer ran first and had already put the
+    // canonical form into the input, so an introduction could only be the model
+    // inventing something. Card A4 (owner ruling 2026-08-24) hands the model the
+    // scenario card, precisely so it can repair a mis-hearing the replacer
+    // cannot: a bare CJK term with no alias has nothing to map FROM.
+    //
+    // With the old rule those two changes cancel exactly: every successful use
+    // of the vocabulary we just supplied became `guard_reject`, and the user got
+    // the mis-heard text back. Measured shape of that on the production line is
+    // in test/polish-guard-declared-terms.test.ts.
+    //
+    // ⚠️ The UNDO direction is unchanged and is asserted in the test above: a
+    // model that DROPS a declared term is still refused. That is what the check
+    // was written to catch and it still catches it.
     const r = await polishFinalText(
       '打开飞麦克然后用FlowMic',
       CFG,
       { fetch: fakeFetchOnce('打开FlowMic然后用FlowMic'), protectedTerms: ['FlowMic'] },
     );
-    expect(r.skipReason).toBe('guard_reject');
-    expect(r.reason).toBe('dict-term-drift:FlowMic');
+    expect(r.skipReason).toBeUndefined();
+    expect(r.text).toBe('打开FlowMic然后用FlowMic');
   });
 
   it('accepts an output that keeps every protected term intact (punctuation-only fix)', async () => {

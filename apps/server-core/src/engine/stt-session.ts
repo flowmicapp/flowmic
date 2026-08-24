@@ -32,6 +32,7 @@ function peakSample16(buf: Buffer): number {
 import { polishFinalText, polishWireSignal, type PolishSkipReason, type PolishWireSignal } from '../stt/stt-polish';
 import { resolveByokLlm, type SelectedLlmConfig } from '../compose/llm-config';
 import { log } from '../log';
+import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 // 🔴 W8-4 — the origin → reason table lives beside this file, not in it; the
 // 800-line cap forced the split and the module header says so. `onAutoStopped`
 // is its one caller.
@@ -196,6 +197,16 @@ export class SttSessionBridge implements SttOrchestrator {
       const pure = this.deps.finalText
         ? this.deps.finalText(raw, { isSegment, language })
         : raw;
+      // Trace the ONE comparison that settles "did my dictionary do anything":
+      // raw is what the engine said, pure is what the two pure stages made of
+      // it. Equal digests ⇒ neither the replacer nor the normalizer touched this
+      // sentence, and that is a fact about this utterance rather than an
+      // inference from the rule count.
+      if (traceEnabled()) {
+        const id = this.deps.traceId ?? 'no-session';
+        trace('stt.final.raw', id, { is_segment: isSegment, language, ...tracedText(raw) });
+        trace('stt.final.pure', id, { is_segment: isSegment, changed: pure !== raw, ...tracedText(pure) });
+      }
       // A2-5 — counted HERE, at the moment the text exists, and counted for EVERY
       // final including soft-segment ones: "how many characters did this utterance transcribe to in total" is a property of
       // the utterance, not of the last frame of it. Interims are deliberately NOT
@@ -383,6 +394,19 @@ export class SttSessionBridge implements SttOrchestrator {
    */
   private emitFinal(text: string, rest: Record<string, unknown>): void {
     this.deliveredChars += text.length;
+    // The last record of the chain, and deliberately here rather than at the two
+    // call sites — for the same reason `deliveredChars` is: a `delivered` line
+    // emitted beside a call site would be a claim maintained by remembering, and
+    // the `disposed` early-return above is precisely the branch that gets
+    // forgotten. Inside the emit, "delivered" cannot be traced for anything that
+    // did not go out.
+    if (traceEnabled()) {
+      trace('delivered', this.deps.traceId ?? 'no-session', {
+        polish: rest.polish ?? 'applied-or-off',
+        polish_reason: rest.polish_reason,
+        ...tracedText(text),
+      });
+    }
     this.deps.emitter.emit('stt:final', { text, ...rest });
   }
 

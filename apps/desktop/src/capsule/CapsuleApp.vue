@@ -26,6 +26,8 @@ import { CHANNEL_VISUAL } from '../lib/channel';
 import type { KvStore } from '../lib/types';
 import { dismiss, initCapsule, setFirstSurfaceAnchor, state, toggleDiag, type RecentLine } from './controller';
 import { canCopyLine, copyPayload } from './capsule-copy';
+import { canReinjectLine } from './capsule-reinject';
+import { useRowReinject } from './use-row-reinject';
 import { hasSourceLine } from '../lib/source-line';
 
 // ── V2-15 structured recent rows ──
@@ -117,6 +119,14 @@ async function copyLine(l: RecentLine): Promise<void> {
     }, 1200),
   );
 }
+
+// ── 0.3.30 per-row RE-INJECT (owner 2026-08-24: an inject icon beside the copy
+//    icon, clicking it ATTEMPTS a re-inject) ─────────────────────────────
+// The state and the handler live in `use-row-reinject.ts` — this file was at the
+// 800-line cap, and a composable is testable WITHOUT reading this SFC as text,
+// which is strictly better evidence than the string assertions the copy button
+// next door has to settle for.
+const { injectStatus, injectBusy, injectTitle, reinjectLine } = useRowReinject();
 
 /** v0.2.2 — open the picture where a picture can actually be looked at.
  *
@@ -642,6 +652,26 @@ watch(
               :title="copyStatus[l.id] === 'error' ? S.op_copy_failed : S.op_copy"
               @click="copyLine(l)"
             ><Icon :name="copyStatus[l.id] === 'copied' ? 'check' : copyStatus[l.id] === 'error' ? 'x' : 'copy'" /></button>
+            <!-- 0.3.30 (owner 2026-08-24): the re-inject control, beside copy.
+                 Omitted — not disabled — when the row is not something that can be
+                 typed (canReinjectLine, the R8 gate: see capsule-reinject.ts).
+                 🔴 THREE outcome faces, not two: `cached` means the pipeline ran and
+                 the utterance still landed nowhere, and wearing the same green check
+                 an `injected` gets would be R11. -->
+            <button
+              v-if="canReinjectLine(l)"
+              type="button"
+              class="rcopy rinject"
+              :class="{
+                ok: injectStatus[l.id]?.tone === 'ok',
+                warn: injectStatus[l.id]?.tone === 'warn',
+                err: injectStatus[l.id]?.tone === 'err',
+                busy: injectBusy.has(l.id),
+              }"
+              :disabled="injectBusy.has(l.id)"
+              :title="injectTitle(l)"
+              @click="reinjectLine(l)"
+            ><Icon :name="injectStatus[l.id]?.icon ?? 'reinject'" /></button>
           </div>
           <div v-if="canShowSource(l) && expandedSrc.has(l.id)" class="ropen">{{ S.tl_source_label }}{{ l.source }}</div>
         </div>
@@ -682,6 +712,15 @@ watch(
 .rcopy .icon { width: 11px; height: 11px; }
 .rcopy.ok { color: var(--green); }
 .rcopy.err { color: var(--red); }
+/* 0.3.30 — the re-inject control shares .rcopy's 16px slot so the strip's
+   columns stay aligned whichever controls a row has. `.warn` is the third face
+   `.rcopy` never needed: the act ran and the utterance landed nowhere. Its
+   colour is --amber, the SAME one the 📥 face and the st-cached row bar already
+   use — one status, one colour (docs/rebuild/15 §2.5c). */
+.rcopy.warn { color: var(--amber); }
+/* In flight: dimmed and not clickable, so a second click cannot start a second
+   injection whose answer would paint the wrong face on this row. */
+.rcopy.busy { opacity: 0.45; cursor: default; }
 .ropen { padding: 1px 0 3px 22px; font-size: 11.5px; color: var(--t3); white-space: normal; word-break: break-all; }
 /* 🔴 卡 L7 / owner 2026-08-02 — "a row for a message that wasn't injected
    should use a different background or style to distinguish it"

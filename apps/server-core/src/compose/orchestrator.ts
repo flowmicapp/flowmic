@@ -23,6 +23,7 @@ import type { LlmConfig, LlmStreamer } from './llm';
 import { COMPOSE_BUDGET_MS } from './mode';
 import { guardComposeOutput, ComposeOutputRejectedError } from './output-guard';
 import { log } from '../log';
+import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 
 export interface ComposeUsage {
   tokensIn: number;
@@ -48,6 +49,9 @@ export interface ComposeRunDeps {
   /** §4.1 deterministic dictionary replacement (dictionary replacement), applied to the correction
    *  INPUT before the LLM sees it. Absent = identity. Never mutates source_text. */
   replace?: (text: string) => string;
+  /** Correlation id shared with the `compose.scenario` record the factory
+   *  emitted for this turn. Diagnostic only — never on the wire to the vendor. */
+  traceId?: string;
 }
 
 function asErrorCode(code: string): ErrorCode {
@@ -97,6 +101,24 @@ class ComposeRunImpl implements ComposeRun {
         signal: ctrl.signal,
         ...(this.deps.fetch ? { fetch: this.deps.fetch } : {}),
       };
+      // What actually goes to the vendor for this turn. `dict_replaced` is the
+      // point of the record: `source_text` is what the user said and `user` is
+      // what the model is being given, and the only way to see the dictionary
+      // leg do its job on a compose turn is to compare those two. A single
+      // `user` field would have shown the result without showing the effect.
+      if (traceEnabled()) {
+        trace('compose.request', this.deps.traceId ?? 'no-turn', {
+          task: input.task,
+          model: this.cfg.model,
+          protocol: this.cfg.protocol,
+          source_lang: input.source_lang,
+          target_lang: input.target_lang,
+          budget_ms: budgetMs,
+          dict_replaced: user !== input.source_text,
+          system: tracedText(this.system),
+          user: tracedText(user),
+        });
+      }
       for await (const ev of streamer(opts)) {
         if (ev.kind === 'delta') {
           streamed += ev.text;
@@ -121,7 +143,19 @@ class ComposeRunImpl implements ComposeRun {
           // Prefer `streamed` over `ev.full`: a streamer that ends without a
           // `full` must still be judged, and `streamed` is by construction the
           // string the handler will send as output_text.
-          this.assertOutputDeliverable(input, streamed !== '' ? streamed : ev.full);
+          // Recorded BEFORE the guard runs, so a guard rejection leaves both
+          // halves on disk: what the model produced, and (from the guard's own
+          // WARN line) why it was refused. Tracing after the guard would delete
+          // the evidence for exactly the turns worth investigating.
+          if (traceEnabled()) {
+            trace('compose.response', this.deps.traceId ?? 'no-turn', {
+              task: input.task,
+              tokens_in: this._usage.tokensIn,
+              tokens_out: this._usage.tokensOut,
+              ...tracedText(streamed !== '' ? streamed : ev.full),
+            });
+          }
+          this.assertOutputDeliverable(input, streamed !== '' ? streamed : ev.full, user);
           return;
         } else {
           // Fail loud: propagate the LLM error code. The handler catches this and
@@ -150,15 +184,39 @@ class ComposeRunImpl implements ComposeRun {
    * ⚠️ Called UNCONDITIONALLY — deliberately not behind an injectable seam. A
    * defaulted-off guard is this repo's #1 façade class (a dial that cannot
    * move); there must be no configuration in which compose runs unvalidated.
+   *
+   * 🔴 `sentToModel` IS THE THIRD ARGUMENT BECAUSE THE GUARD WAS JUDGING THE
+   * WRONG STRING, and the contract it was breaking is written on the field it
+   * fills: [[ComposeGuardInput.source]] says, verbatim, "the text we sent the
+   * model (the compose input, POST dictionary-replace)". This method passed
+   * `input.source_text` — the utterance as spoken, BEFORE the replacer ran — so
+   * the guard compared the model's answer against a question the model was
+   * never asked.
+   *
+   * What that cost, measured: with any alias that maps a CJK surface to a Latin
+   * canonical — which is what the SHIPPED `tech-dev` pack does (多克→Docker,
+   * 库伯耐提斯→Kubernetes, 吉特哈布→GitHub) — the replacer hands the model
+   * "这个跑在Kubernetes上面", the model correctly returns a sentence containing
+   * "Kubernetes", and rule 8 (`invented_latin_tokens`) then finds that token
+   * absent from the raw Han source and REFUSES THE WHOLE TURN. Enabling a
+   * built-in dictionary pack therefore broke organize for Chinese speech:
+   * compose:error, nothing delivered, and the named reason blamed the model for
+   * inventing a word the user's own settings had put there.
+   *
+   * ⚠️ The two strings stay DISTINCT rather than one being dropped: the raw
+   * utterance is still the row that gets persisted and is still what the user
+   * said. Only the guard's question moves, because the guard's question is
+   * "did the model answer what it was given" — and what it was given is this.
    */
   private assertOutputDeliverable(
     input: { task: 'translate' | 'organize' | 'draft_polish'; source_text: string; source_lang?: string; target_lang?: string },
     complete: string,
+    sentToModel: string,
   ): void {
     if (input.task === 'draft_polish') return;
     const verdict = guardComposeOutput({
       task: input.task,
-      source: input.source_text,
+      source: sentToModel,
       output: complete,
       ...(input.source_lang !== undefined ? { source_lang: input.source_lang } : {}),
       ...(input.target_lang !== undefined ? { target_lang: input.target_lang } : {}),

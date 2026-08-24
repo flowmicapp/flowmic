@@ -26,6 +26,7 @@ import { createComposeRun } from './orchestrator';
 import { buildDictionaryReplacer } from './dictionary-replace';
 import { COMPOSE_BUDGET_MS } from './mode';
 import { ScenarioInferenceStore, type ScenarioInferenceSeams } from './scenario-infer-store';
+import { newTraceId, trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 
 /** Args the compose handler passes per compose:start. `processName` is the
  *  focus-target seam (source ②) — optional, unset until desktop focus tracking
@@ -129,10 +130,36 @@ export function createComposeFactory(
     // correction. The raw source_text ROW (as spoken) is never rewritten by this
     // (the server compose reads source_text, it does not persist it).
     const replacer = buildDictionaryReplacer(resolveReplacementRules(deps.settings, args.userId));
+    // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
+    // The compose turn's own correlation id. It is NOT the audio session's:
+    // compose:start is a separate client verb that may arrive for text the user
+    // typed, so pretending the two are one session would be a join that is
+    // sometimes false. The records carry `task` and the user id, which is what
+    // actually lets a reader line a turn up with the utterance behind it.
+    const traceId = newTraceId();
+    if (traceEnabled()) {
+      // 🔴 The one record that answers "did my scenario card reach the model".
+      // `block_present:false` with a non-empty card would mean the card resolved
+      // to nothing; an empty card legitimately produces no block at all. The
+      // counts are what tell those two apart without reading the user's words.
+      trace('compose.scenario', traceId, {
+        task: args.task,
+        user_id: args.userId,
+        professions: ctx.professions.length,
+        domains: ctx.domains.length,
+        app_context: appScenario?.descriptor ?? null,
+        app_context_source: appScenario?.source ?? null,
+        term_count: ctx.terms.length,
+        replacer_rule_count: replacer.ruleCount,
+        block_present: scenarioBlock.length > 0,
+        block: tracedText(scenarioBlock),
+      });
+    }
     return createComposeRun(cfg, system, byok, {
       streamerFor,
       budgetMs,
       replace: (text) => replacer.apply(text),
+      traceId,
       ...(deps.fetch ? { fetch: deps.fetch } : {}),
     });
   };

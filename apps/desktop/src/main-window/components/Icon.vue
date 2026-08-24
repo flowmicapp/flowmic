@@ -12,6 +12,12 @@ const ICONS: Record<string, string> = {
   edit: '<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  // 0.3.30 — the capsule re-inject's THIRD outcome face: the pipeline ran and the
+  // utterance still landed nowhere (`cached`). It exists because `check` and `x` are
+  // the only two this file had, and either one of them would have been a lie about
+  // that state. ⚠️ The header's rule applies to this card literally: an unknown name
+  // renders a silently blank box, so a view asking for `alert` needs the set to own it.
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
   'chev-right': '<path d="m9 6 6 6-6 6"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',

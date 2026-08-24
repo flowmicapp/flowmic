@@ -63,11 +63,34 @@
 // `package_info_plus` to 9.x, per pubspec's own comment there). And the repo
 // **already has a precedent**: `_aboutCard`'s help row already presents a raw
 // URL as `SelectableText` for the user to grab themselves. Follow it.
+//
+// 🔴🔴 **IN-PLACE CORRECTION (0.3.28, 2026-08-24). The paragraph above is
+// FALSE today, and it is kept verbatim because of what it was doing while it
+// was false.** `url_launcher: ^6.3.1` has been in `apps/mobile/pubspec.yaml`
+// since 2026-08-14 (0.2.66, commit 5078c38b) with two production callers
+// (`ui/cloud_signout_row.dart`, `ui/data_flow_disclosure_page.dart`), and that
+// commit's own note records the resolution worry as "true about the pins and
+// false about this package — dry-run resolved cleanly".
+//
+// So for ten days this card carried a `[measured]` sentence whose measurement
+// had expired, and that sentence was **the entire justification** for the one
+// thing owner asked for on 2026-08-23: tell the user where the new version is,
+// and if a store can install it, go straight there. This is the repo's
+// anti-façade ④ shape at full size — a comment asserting the state of
+// somewhere else, whose truth value moved when that somewhere else did, while
+// the comment itself could not.
+// ⇒ The addresses are now openable, and **the copy control stays**:
+// `launchUrl` returns false and throws, and `data_flow_disclosure_page.dart`
+// already fixed the rule for that ("FAIL LOUDLY"). A tap that does nothing is
+// worse than the control it replaced.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:url_launcher/url_launcher.dart';
 
+import '../auth/saas_endpoint.dart' show kDefaultSaasEndpoint;
 import '../settings/app_strings.dart';
+import '../update/install_source.dart' show storeListingUrls;
 import '../update/update_check.dart';
 import '../update/update_controller.dart';
 import '../update/update_download.dart' show UpdateDownloadOutcome;
@@ -75,15 +98,39 @@ import '../update/update_installer.dart' show UpdateInstallOutcome;
 import 'settings_widgets.dart';
 import 'tokens.dart';
 
+/// Opens [url] externally; returns whether anything took it.
+///
+/// A seam rather than a direct `launchUrl` call so a test can prove a tap by
+/// **the call it made**, not by a widget existing — the same shape
+/// `data_flow_disclosure_page.dart` uses, and for the same reason: a control
+/// whose only evidence is that it renders is exactly the façade this repo keeps
+/// finding.
+typedef UpdateUrlLauncher = Future<bool> Function(
+  Uri url, {
+  required LaunchMode mode,
+});
+
+Future<bool> _launchUpdateUrl(Uri url, {required LaunchMode mode}) =>
+    launchUrl(url, mode: mode);
+
+/// Where a store-delivered copy should be sent. Seam for the same reason.
+typedef StoreListingResolver = Future<List<String>> Function();
+
 class SettingsUpdateCard extends StatelessWidget {
   const SettingsUpdateCard({
     super.key,
     required this.controller,
     required this.strings,
+    this.urlLauncher = _launchUpdateUrl,
+    this.storeListings = storeListingUrls,
   });
 
   final UpdateController controller;
   final AppStrings strings;
+
+  /// Test seam. Production leaves the defaults.
+  final UpdateUrlLauncher urlLauncher;
+  final StoreListingResolver storeListings;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -111,9 +158,16 @@ class SettingsUpdateCard extends StatelessWidget {
       // is Android installer packages), and a notify-only build's job is
       // precisely to keep checking.
       if (controller.selfUpdateEnabled && controller.installedFromAppStore) {
+        // 0.3.28 — this card named an action ("new versions arrive there") and
+        // then offered no way to take it. owner 2026-08-23 asked for the
+        // handoff; `storeListingUrls` supplies the candidates and answers with
+        // an EMPTY list when it could not learn our own package name, in which
+        // case the sentence stands alone exactly as before. A control that
+        // cannot know where it would go is not offered.
         return _staticCard(
           strings.updateFromStoreTitle,
           strings.updateFromStoreNote,
+          storeControl: true,
         );
       }
       return settingsCard(
@@ -131,27 +185,36 @@ class SettingsUpdateCard extends StatelessWidget {
   /// this copy」 both render as a single explanatory row. The SHAPE is shared
   /// because it is the same kind of statement; the SENTENCES are not, and the
   /// caller picks which — never this method.
-  Widget _staticCard(String title, String note) => settingsCard(
-    child: settingsRow(
-      last: true,
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.system_update_outlined, size: 20, color: FlowMicColors.t3),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title, style: kRowTitle),
-                const SizedBox(height: 3),
-                Text(note, style: kRowSub),
-              ],
-            ),
+  Widget _staticCard(String title, String note, {bool storeControl = false}) =>
+      settingsCard(
+        child: settingsRow(
+          last: true,
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.system_update_outlined, size: 20, color: FlowMicColors.t3),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(title, style: kRowTitle),
+                    const SizedBox(height: 3),
+                    Text(note, style: kRowSub),
+                    if (storeControl) ...<Widget>[
+                      const SizedBox(height: 8),
+                      _StoreHandoff(
+                        strings: strings,
+                        urlLauncher: urlLauncher,
+                        storeListings: storeListings,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 
   /// 🔴 **The verdict + its evidence, one block, indivisible.** See the file header.
   Widget _verdictBlock() {
@@ -205,13 +268,30 @@ class SettingsUpdateCard extends StatelessWidget {
             ],
           ),
           // The store-delivered channel (iOS): the update arrives through
-          // TestFlight / the App Store. Keyed on `storeChannel`, NOT on
-          // `storeUrl != null` — a store entry whose link has not been minted
-          // yet must still say the store sentence, never fall through to the
-          // 「download it from the address below」 copy with no address below.
+          // TestFlight / the App Store. The BRANCH is keyed on `storeChannel`,
+          // NOT on `storeUrl != null` — a link-less store entry must never
+          // fall through to the 「download it from the address below」 copy
+          // with no address below.
+          // ⚠️ 0.3.29 corrects this paragraph: it used to end 「must still say
+          // the store sentence」, and that was one step short. Keying the
+          // BRANCH on the channel is right; keying the SENTENCE on it too made
+          // one sentence answer two questions — 「a store delivers this」 and
+          // 「here is how to reach it」 — and the second answer was absent.
           if (r.storeChannel) ...<Widget>[
             const SizedBox(height: 6),
-            Text(strings.updateStoreChannelNote, style: kRowSub),
+            // 🔴 0.3.29 — TWO FACTS, TWO SENTENCES. `storeChannel` says the
+            // update arrives through a store; `storeUrl` says whether anyone
+            // has minted the way in. Sending someone to TestFlight when no
+            // invite exists is an instruction they cannot carry out — the same
+            // shape as pointing at a download address that is not there, which
+            // is the exact thing the branch below this one was written to
+            // avoid. Owner ruled the linkless sentence on 2026-08-24.
+            Text(
+              r.storeUrl == null
+                  ? strings.updateStoreNoLinkNote
+                  : strings.updateStoreChannelNote,
+              style: kRowSub,
+            ),
           ]
           // 🔴 The manifest ships a type we don't recognise for this release
           // (`portable-zip` / `dmg` / …).
@@ -226,6 +306,12 @@ class SettingsUpdateCard extends StatelessWidget {
           if (r.downloadUrl != null)
             ..._linkRow(strings.updateDownloadUrlLabel, r.downloadUrl!),
           if (r.storeUrl != null) ..._linkRow(strings.updateStoreUrlLabel, r.storeUrl!),
+          // 「联系官方团队」 with no address is a dead end. This row is the
+          // address, and it is the SAME constant the check itself dialled
+          // (update_check.dart::resolveUpdateEndpoint) — not a second literal
+          // that can drift away from it.
+          if (r.storeChannel && r.storeUrl == null)
+            ..._linkRow(strings.updateOfficialSiteLabel, kDefaultSaasEndpoint),
         ];
       // 🔴 The one and only slot in the whole app allowed to say this
       // sentence, and the evidence line above it is its sole justification.
@@ -349,42 +435,18 @@ class SettingsUpdateCard extends StatelessWidget {
     ),
   ];
 
-  /// An address the user can use right now: visible, selectable, one-tap copy.
+  /// An address the user can act on right now: visible, openable, copyable.
+  ///
+  /// 🔴 0.3.28 — this used to be selectable text plus a copy control and
+  /// nothing else. See the correction block at the top of this file for why
+  /// it stayed that way ten days longer than it had to.
   List<Widget> _linkRow(String label, String url) => <Widget>[
     const SizedBox(height: 8),
-    Text(label, style: kRowSub),
-    const SizedBox(height: 2),
-    SelectableText(url, style: kRowSub),
-    const SizedBox(height: 4),
-    Builder(
-      builder: (BuildContext context) => InkWell(
-        key: ValueKey<String>('update.copy.$label'),
-        onTap: () {
-          Clipboard.setData(ClipboardData(text: url));
-          ScaffoldMessenger.maybeOf(
-            context,
-          )?.showSnackBar(SnackBar(content: Text(strings.updateLinkCopied)));
-        },
-        // ⚠️ `Row` hands a non-flex child an **unbounded width** constraint ⇒
-        // that label would lay itself out inside infinite width, meaning the
-        // question 「does it actually fit」 is **never even asked** in the
-        // render tree (`test/support/legibility.dart`'s check ③ caught this
-        // build red on the spot). Adding `Flexible` is not a layout
-        // preference, it is what makes this sentence **falsifiable again**.
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.copy_outlined, size: 14, color: FlowMicColors.brand),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                strings.updateCopyLink,
-                style: TextStyle(color: FlowMicColors.brand, fontSize: 11),
-              ),
-            ),
-          ],
-        ),
-      ),
+    _UpdateLink(
+      label: label,
+      url: url,
+      strings: strings,
+      urlLauncher: urlLauncher,
     ),
   ];
 
@@ -448,4 +510,225 @@ String formatCheckedAt(DateTime at) {
   final DateTime t = at.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
   return '${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+}
+
+/// One address: what it is, what it says, and two ways to act on it.
+///
+/// 🔴 THE COPY CONTROL IS UNCONDITIONAL, not a consolation prize revealed after
+/// a failure. `data_flow_disclosure_page.dart` shows its copy control only once
+/// opening has failed, and that is right for a legal page nobody transcribes.
+/// These addresses are different: the common reason to want a download URL is
+/// to finish the job **on the other machine**, and hiding the copy behind a
+/// failure would mean the working path is the one that serves that badly.
+class _UpdateLink extends StatefulWidget {
+  const _UpdateLink({
+    required this.label,
+    required this.url,
+    required this.strings,
+    required this.urlLauncher,
+  });
+
+  final String label;
+  final String url;
+  final AppStrings strings;
+  final UpdateUrlLauncher urlLauncher;
+
+  @override
+  State<_UpdateLink> createState() => _UpdateLinkState();
+}
+
+class _UpdateLinkState extends State<_UpdateLink> {
+  bool _openFailed = false;
+
+  Future<void> _open() async {
+    bool opened = false;
+    try {
+      opened = await widget.urlLauncher(
+        Uri.parse(widget.url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      // 🔴 A throw and a `false` are the SAME fact to the user — nothing on
+      // this phone took the address — so they get the same sentence. They are
+      // not the same fact to us, which is why neither is swallowed into a
+      // no-op: the sentence appears either way.
+      opened = false;
+    }
+    if (!mounted || opened) return;
+    setState(() => _openFailed = true);
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.url));
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(widget.strings.updateLinkCopied)));
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: <Widget>[
+      Text(widget.label, style: kRowSub),
+      const SizedBox(height: 2),
+      // Still selectable: the address is the evidence for the two controls
+      // under it, and a user who trusts neither can read it.
+      SelectableText(widget.url, style: kRowSub),
+      const SizedBox(height: 4),
+      // 🔴 `Wrap`, not `Row`, and it is a measurement concern rather than a
+      // layout preference. A `Row` hands a non-flex child an UNBOUNDED width
+      // constraint, so every `Text` under it lays itself out inside infinite
+      // width and the question 「does it fit」 is never asked in the render
+      // tree — `support/legibility.dart`'s check ③ exists for exactly that
+      // cell and caught this build red the first time these two controls sat
+      // in a Row. `Wrap` passes finite loose constraints down, which is what
+      // makes the sentence falsifiable again; the wrapping itself is the bonus
+      // (「Копировать ссылку」 beside 「Открыть」 is a long line at 360dp).
+      Wrap(
+        spacing: 16,
+        runSpacing: 6,
+        children: <Widget>[
+          _MiniAction(
+            controlKey: 'update.open.${widget.label}',
+            icon: Icons.open_in_new,
+            label: widget.strings.updateOpenLink,
+            onTap: _open,
+          ),
+          _MiniAction(
+            controlKey: 'update.copy.${widget.label}',
+            icon: Icons.copy_outlined,
+            label: widget.strings.updateCopyLink,
+            onTap: _copy,
+          ),
+        ],
+      ),
+      if (_openFailed) ...<Widget>[
+        const SizedBox(height: 4),
+        Text(
+          widget.strings.updateOpenFailed,
+          key: ValueKey<String>('update.openFailed.${widget.label}'),
+          style: TextStyle(color: FlowMicColors.amber, fontSize: 11, height: 1.4),
+        ),
+      ],
+    ],
+  );
+}
+
+/// The 「a store delivered this copy」 card's way out (owner 2026-08-23).
+///
+/// 🔴 It resolves the destination on TAP, not at build time, and the two
+/// candidates are tried IN ORDER: `market://` hands straight to the Play app,
+/// and on a device without Play Services it resolves to nothing at all — which
+/// is common in this product's market, not an edge case. The `https://` form
+/// always lands somewhere. Falling through is the whole design; offering only
+/// the first would be a dead tap for a large share of users.
+///
+/// ⚠️ An empty candidate list (we could not read our own package name) renders
+/// NOTHING. The card's sentence then stands alone, exactly as it did before —
+/// a control that cannot know where it goes is not offered.
+class _StoreHandoff extends StatefulWidget {
+  const _StoreHandoff({
+    required this.strings,
+    required this.urlLauncher,
+    required this.storeListings,
+  });
+
+  final AppStrings strings;
+  final UpdateUrlLauncher urlLauncher;
+  final StoreListingResolver storeListings;
+
+  @override
+  State<_StoreHandoff> createState() => _StoreHandoffState();
+}
+
+class _StoreHandoffState extends State<_StoreHandoff> {
+  bool _failed = false;
+
+  Future<void> _open() async {
+    List<String> candidates;
+    try {
+      candidates = await widget.storeListings();
+    } catch (_) {
+      candidates = const <String>[];
+    }
+    for (final String candidate in candidates) {
+      try {
+        if (await widget.urlLauncher(
+          Uri.parse(candidate),
+          mode: LaunchMode.externalApplication,
+        )) {
+          return;
+        }
+      } catch (_) {
+        // Try the next candidate. A `market://` scheme nothing claims throws
+        // on some Android versions and returns false on others; both mean the
+        // same thing here.
+      }
+    }
+    if (!mounted) return;
+    setState(() => _failed = true);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: <Widget>[
+      _MiniAction(
+        controlKey: 'update.openStore',
+        icon: Icons.storefront_outlined,
+        label: widget.strings.updateOpenStore,
+        onTap: _open,
+      ),
+      if (_failed) ...<Widget>[
+        const SizedBox(height: 4),
+        Text(
+          widget.strings.updateOpenFailed,
+          key: const ValueKey<String>('update.openFailed.store'),
+          style: TextStyle(color: FlowMicColors.amber, fontSize: 11, height: 1.4),
+        ),
+      ],
+    ],
+  );
+}
+
+/// The small brand-coloured icon+label control this card uses for every action
+/// that is not the install button.
+///
+/// ⚠️ `Flexible` around the label is not a layout preference. `Row` hands a
+/// non-flex child an **unbounded** width constraint, so 「does it fit」 is never
+/// even asked in the render tree — `test/support/legibility.dart`'s check ③
+/// caught this exact build red once already. It is what keeps the sentence
+/// falsifiable.
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({
+    required this.controlKey,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final String controlKey;
+  final IconData icon;
+  final String label;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    key: ValueKey<String>(controlKey),
+    onTap: onTap,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 14, color: FlowMicColors.brand),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(color: FlowMicColors.brand, fontSize: 11),
+          ),
+        ),
+      ],
+    ),
+  );
 }

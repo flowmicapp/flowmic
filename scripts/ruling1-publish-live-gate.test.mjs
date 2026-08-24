@@ -55,7 +55,22 @@ function liveEntry(version) {
     ],
   };
 }
-const okFetched = (platforms) => ({ verdict: 'ok', status: 200, manifest: { platforms }, detail: null, error: null });
+/// 0.3.28 — every fetched manifest now also has to answer for iOS.
+///
+/// 🔴 `iosVersion` defaults to whatever the round is, so the cases below keep
+/// asking the question they were written to ask. That default is a TEST
+/// convenience and nothing else: in production this block was ABSENT for the
+/// whole life of the feature, which is the defect §1-ios exists for.
+const okFetched = (platforms, iosVersion = '0.0.2') => ({
+  verdict: 'ok',
+  status: 200,
+  manifest: {
+    platforms,
+    ...(iosVersion === null ? {} : { store_platforms: { ios: { version: iosVersion, notes_url: null, store_url: null } } }),
+  },
+  detail: null,
+  error: null,
+});
 
 // ── §1 the pure judgment: each verdict names ITS action, and only its own ────
 section('§1 gateShippedPlatformsLive — five states, five distinguishable messages');
@@ -66,7 +81,7 @@ section('§1 gateShippedPlatformsLive — five states, five distinguishable mess
     fetched: okFetched({ 'windows-x64': liveEntry('0.0.2'), android: liveEntry('0.0.2') }),
     url: URL_UNDER_TEST,
   });
-  assertTrue(green.failures.length === 0 && green.okLines.length === 2, 'both platforms live at this round → zero failures, two ok lines');
+  assertTrue(green.failures.length === 0 && green.okLines.length === 3, 'both platforms live at this round → zero failures; three ok lines, the third being the iOS store channel');
 
   const stale = gateShippedPlatformsLive({
     shipped: ['android'],
@@ -90,7 +105,7 @@ section('§1 gateShippedPlatformsLive — five states, five distinguishable mess
     missing.failures.length === 1 && /windows-x64.*NO entry/.test(missing.failures[0]),
     'a shipped platform absent from the live manifest is its own failure, and the other platform still passes',
   );
-  assertTrue(missing.okLines.length === 1, '(that other platform is reported ok — one run tells the operator everything)');
+  assertTrue(missing.okLines.length === 2, '(the other platform and iOS are still reported ok — one run tells the operator everything)');
 
   const newer = gateShippedPlatformsLive({
     shipped: ['android'],
@@ -138,6 +153,7 @@ section('§2 loopback end-to-end — green when live == round, red when live is 
     manifest_version: 1,
     generated_at: '2026-08-10T00:00:00.000Z',
     platforms: { 'windows-x64': liveEntry(v), android: liveEntry(v) },
+    store_platforms: { ios: { version: v, notes_url: null, store_url: null } },
   });
 
   async function runAgainst(liveVersion) {
@@ -157,12 +173,81 @@ section('§2 loopback end-to-end — green when live == round, red when live is 
   }
 
   const green = await runAgainst('0.0.2');
-  assertTrue(green.failures.length === 0 && green.okLines.length === 2, 'live serves this round → green, through the REAL fetch');
+  assertTrue(green.failures.length === 0 && green.okLines.length === 3, 'live serves this round → green, through the REAL fetch');
 
   const red = await runAgainst('0.0.1');
   assertTrue(
-    red.failures.length === 2 && red.failures.every((f) => /still advertises 0\.0\.1/.test(f)),
-    'live serves the previous round → red per platform — exactly the state 0.2.61 shipped in',
+    red.failures.length === 3 && red.failures.every((f) => /still advertises 0\.0\.1/.test(f)),
+    'live serves the previous round → red per platform AND on the iOS store channel — the 0.2.61 state, now including the platform that never had a gate',
+  );
+  assertTrue(
+    red.failures.some((f) => /^ios:/.test(f)),
+    'and the iOS failure is its own line, not folded into a platform one — the two are fixed by different halves of the release',
+  );
+}
+
+// ── §1-ios the platform ./publish can never be evidence for ─────────────────
+section('§1-ios store_platforms.ios — the block whose absence was silent for the whole life of the feature');
+{
+  // 🔴 THE CASE THAT MATTERS, and the one a "is there an ios block" criterion
+  // would have been green on. Measured in production 2026-08-23: the live
+  // manifest carried NO store_platforms at all while 0.3.27 had genuinely
+  // shipped to TestFlight, and every gate in the release chain was green.
+  const noBlock = gateShippedPlatformsLive({
+    shipped: ['windows-x64', 'android'],
+    version: '0.0.2',
+    fetched: okFetched({ 'windows-x64': liveEntry('0.0.2'), android: liveEntry('0.0.2') }, null),
+    url: URL_UNDER_TEST,
+  });
+  assertTrue(
+    noBlock.failures.length === 1 && /^ios: the live manifest carries NO store_platforms\.ios/.test(noBlock.failures[0]),
+    '🔴 no store_platforms at all → red, even though every downloadable platform is perfectly live',
+  );
+  assertTrue(
+    /incompleteInfo\/platform_absent/.test(noBlock.failures[0]),
+    'and it names what the iPhone actually experiences, not just what the file lacks',
+  );
+  assertTrue(
+    /--ios 0\.0\.2/.test(noBlock.failures[0]),
+    'and it names the exact remedy with this round\'s version already substituted in',
+  );
+
+  const stale = gateShippedPlatformsLive({
+    shipped: ['android'],
+    version: '0.0.2',
+    fetched: okFetched({ android: liveEntry('0.0.2') }, '0.0.1'),
+    url: URL_UNDER_TEST,
+  });
+  assertTrue(
+    stale.failures.length === 1 && /^ios: shipped 0\.0\.2 .*still advertises 0\.0\.1/.test(stale.failures[0]),
+    'an iOS block one round behind is the same defect as a stale platform, and says so',
+  );
+
+  const newer = gateShippedPlatformsLive({
+    shipped: ['android'],
+    version: '0.0.2',
+    fetched: okFetched({ android: liveEntry('0.0.2') }, '0.0.9'),
+    url: URL_UNDER_TEST,
+  });
+  assertTrue(
+    newer.failures.length === 1 && /NEWER/.test(newer.failures[0]) && !/--ios/.test(newer.failures[0]),
+    'an iOS block AHEAD of this round says stop-and-investigate and does NOT offer the regenerate command — the wrong action would walk a later round backwards',
+  );
+
+  // A store entry with no link is legal and must stay green: the phone's card
+  // keys "update in the store" on the CHANNEL, not on the link
+  // (settings_update_card.dart), so the news is deliverable before the
+  // TestFlight page exists — which matters because minting that page is an
+  // owner-only action.
+  const linkless = gateShippedPlatformsLive({
+    shipped: ['android'],
+    version: '0.0.2',
+    fetched: okFetched({ android: liveEntry('0.0.2') }, '0.0.2'),
+    url: URL_UNDER_TEST,
+  });
+  assertTrue(
+    linkless.failures.length === 0 && linkless.okLines.some((l) => /^ios: live manifest advertises 0\.0\.2/.test(l)),
+    'a store entry carrying a version but no store_url is green — an unminted link must not block telling users a version exists',
   );
 }
 

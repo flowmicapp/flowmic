@@ -30,11 +30,14 @@
 // after it had been fixed. The poll lives in the component; what lives here is
 // the rule that the answer is derived from the latest reading and nothing else.
 
-/** What `accessibility_status` returns. Two facts, deliberately not one
+/** What `accessibility_status` returns. THREE facts, deliberately not one
  *  tri-state — see the Rust side, which explains the same split from its end. */
 export interface AccessibilityStatus {
   supported: boolean;
   trusted: boolean;
+  /** This copy runs from macOS's App Translocation mount, so the permission
+   *  cannot be granted to it at all — see `isBlockedByLocation`. */
+  translocated: boolean;
 }
 
 /** Field-by-field narrowing rather than a cast.
@@ -49,7 +52,13 @@ export function asAccessibilityStatus(v: unknown): AccessibilityStatus | null {
   if (v === null || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (typeof o.supported !== 'boolean' || typeof o.trusted !== 'boolean') return null;
-  return { supported: o.supported, trusted: o.trusted };
+  // ⚠️ NOT narrowed as strictly as its two siblings, and the asymmetry is the
+  // point. Rejecting the whole object over this field would turn a REAL missing
+  // permission into a blank screen — the notice would vanish rather than degrade.
+  // So an absent or malformed value reads as `false`, which means the reader is
+  // told to grant the permission: what we told them before this field existed.
+  // The failure directions are not equivalent, so the narrowing is not either.
+  return { supported: o.supported, trusted: o.trusted, translocated: o.translocated === true };
 }
 
 /** The one question the banner asks.
@@ -58,4 +67,21 @@ export function asAccessibilityStatus(v: unknown): AccessibilityStatus | null {
  *  answer it differently. */
 export function needsAccessibilityGrant(s: AccessibilityStatus | null): boolean {
   return s !== null && s.supported && !s.trusted;
+}
+
+/** Is the permission UNREACHABLE for this copy, rather than merely ungranted?
+ *
+ *  🔴 The two states look identical to `AXIsProcessTrusted()` and need opposite
+ *  sentences. Ungranted: go and switch it on. Unreachable: switching it on will
+ *  not work, however many times you do it — macOS is running this app from a
+ *  throwaway location because it was opened straight out of the download folder,
+ *  and that location changes on every launch.
+ *
+ *  [measured, owner's Mac mini, 2026-08-24] this is not a hypothetical: the
+ *  owner granted the permission, saw it enabled, restarted the app, and was
+ *  refused — repeatedly — while our banner kept telling them to grant it. A
+ *  message whose recommended action cannot succeed is the R11 shape one level
+ *  up from the status words: not a wrong state, a wrong instruction. */
+export function isBlockedByLocation(s: AccessibilityStatus | null): boolean {
+  return needsAccessibilityGrant(s) && s !== null && s.translocated;
 }

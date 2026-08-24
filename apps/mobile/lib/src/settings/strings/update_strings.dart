@@ -117,10 +117,60 @@ mixin UpdateStrings on AppStringsLeaves {
   /// Label for the store-page link row (TestFlight invite / store listing).
   String get updateStoreUrlLabel => _lfUpdateStoreUrlLabel;
 
+  /// 🔴 The SAME channel, and a **different fact**: the store entry exists but
+  /// **nobody has minted its link yet** ([UpdateCheckResult.storeUrl] is null).
+  ///
+  /// [updateStoreChannelNote] sends the user to TestFlight / the App Store —
+  /// which, with no link, is an instruction they cannot carry out. Owner ruled
+  /// the sentence on 2026-08-24: 「有新版本：XXXX，联系官方团队获取」. It is a
+  /// different sentence because it points at a different action, the same
+  /// reason update_check.dart refuses to collapse its failure slots into one.
+  ///
+  /// ⚠️ It is paired with an [updateOfficialSiteLabel] row, so 「contact the
+  /// official team」 names somewhere the user can actually go. A sentence that
+  /// asks for an action while withholding the address is the dead end this
+  /// card has already shipped once.
+  String get updateStoreNoLinkNote => _lfUpdateStoreNoLinkNote;
+
+  /// Label for the official-site row that accompanies [updateStoreNoLinkNote].
+  String get updateOfficialSiteLabel => _lfUpdateOfficialSiteLabel;
+
   String get updateCopyLink =>
       _lfUpdateCopyLink;
 
   String get updateLinkCopied => _lfUpdateLinkCopied;
+
+  // ── 0.3.28: the addresses became reachable, not just readable ────────────
+  //
+  // 🔴 Every address on this card used to be a `SelectableText` plus a copy
+  // control, and the reason was written at the top of
+  // `ui/settings_update_card.dart`: 「this repo has **no `url_launcher`
+  // dependency** [measured: pubspec.yaml has no such entry]」. That sentence
+  // stopped being true on 2026-08-14 (0.2.66, commit 5078c38b), which added
+  // the package and two production callers — and the comment stayed, quietly
+  // defending a design whose only justification had gone. owner 2026-08-23
+  // asked for exactly what it was blocking: tell the user where to get the
+  // new version, and if a store can do it, go there.
+  //
+  // 🔴 The copy control does NOT go away. `launchUrl` can return false and can
+  // throw; `ui/data_flow_disclosure_page.dart` already set the rule for that
+  // ("FAIL LOUDLY"), and a tap that silently does nothing is worse than the
+  // control it replaced.
+
+  /// The primary control on an address row.
+  String get updateOpenLink => _lfUpdateOpenLink;
+
+  /// Shown when nothing on the phone accepted the address. It names the way
+  /// out (copy it) rather than only stating the failure — the address is still
+  /// right there, and the user can finish the job by hand.
+  String get updateOpenFailed => _lfUpdateOpenFailed;
+
+  /// The control on the 「a store delivered this copy」 card.
+  ///
+  /// 🔴 That card had NO way out at all before 0.3.28: it stated that updates
+  /// arrive through the store and then stopped, leaving the one action it
+  /// named for the user to find on their own.
+  String get updateOpenStore => _lfUpdateOpenStore;
 
   // ── UP-2b: download → verify → hand off to the system installer ─────────
   //

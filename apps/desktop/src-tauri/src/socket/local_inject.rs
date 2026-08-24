@@ -28,7 +28,7 @@ use serde_json::Value;
 use crate::forensic;
 use crate::socket::client::{DesktopSocket, SharedDeadline, SharedFsm};
 use crate::socket::dedup::SharedDeduper;
-use crate::socket::inject_ops::run_inject;
+use crate::socket::inject_ops::{run_inject, TargetIntent};
 use crate::socket::wire;
 
 /// Everything `inject_ops::run_inject` needs, as one bundle held on the session handle.
@@ -89,6 +89,11 @@ impl DesktopSocket {
             &self.inject.fsm,
             &self.inject.lock_deadline,
             &self.inject.deduper,
+            // 🔴 THE ONE PRODUCER OF THIS INTENT IN THE WHOLE BINARY. A human just
+            // clicked a row's re-inject button, so FlowMic is in front BECAUSE of
+            // that click — reading the live foreground here answers a question
+            // nobody asked and makes the act impossible (see [`TargetIntent`]).
+            TargetIntent::BeforeTheClick,
         );
         match &out {
             Some(r) => forensic::record(

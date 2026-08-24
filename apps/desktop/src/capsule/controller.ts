@@ -557,7 +557,9 @@ export function onHistoryItem(p: unknown): void {
   const item = envelope?.item;
   if (!item) return;
   if (!acceptRecentChannel(envelope?.channel)) return;
-  const line = toRecentLine(item);
+  // The stamp the sieve just accepted is the one the row keeps — not `state.channel`
+  // read again later (owner 2026-07-31: an item carries its own address).
+  const line = toRecentLine(item, state.channel);
   if (!line) return;
   state.recent = upsertRecentLine(state.recent, line);
   // A sender the directory has never seen (paired while we were not looking) →
