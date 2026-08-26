@@ -346,6 +346,23 @@ export interface ConnectionState {
   channel?: string;
   /** GA-28: whether that channel is the one carrying the runtime right now. */
   primary?: boolean;
+  /** 🔴 How many presence EVENTS this shell has seen — 「did a phone just
+   *  arrive」, which `mobiles` cannot answer (2026-08-26).
+   *
+   *  The desktop's presence set is keyed by `mobile_id`, so a phone leaving the
+   *  transcription page and coming back does not move the count, and this frame
+   *  is only forwarded when its fields change — so the frontend used to be told
+   *  nothing at all. Watch it for CHANGE; its VALUE means nothing.
+   *
+   *  Optional: a frame from an older shell simply has no events to report, and
+   *  every consumer must keep working on the count alone in that case. */
+  presence_epoch?: number;
+  /** 🔴 Joins ONLY — a strict subset of `presence_epoch`, which also counts
+   *  departures. The QR modal's success criterion (`joinEpochSum`) reads THIS
+   *  one: reading `presence_epoch` there made a phone LEAVING close the QR
+   *  with a success face (2026-08-26 review). Watch it for INCREASE; its VALUE
+   *  means nothing. Optional for the same older-shell reason as above. */
+  join_epoch?: number;
 }
 
 // ── transports (injected so the stores are testable without Tauri) ──
@@ -427,6 +444,15 @@ export interface TimelineTransport {
    *  `null` is NOT: an `ok:false` result is a real answer ("tried, but it didn't
    *  land") and comes back as a value; `null` means the attempt never happened at all. */
   reInjectLocally(text: string, entryId: string): Promise<InjectResult | null>;
+
+  /** The IMAGE sibling of [[reInjectLocally]] (0.3.36 — 15-vol §2.5e-7 ①'s PC
+   *  half). Runs the Rust `timeline_reinject_image` command: the row's ORIGINAL
+   *  picture is read from disk (never the preview — pasting a 256 px thumbnail
+   *  as if it were the picture is a claim the bytes do not support), put on the
+   *  clipboard and pasted by the SAME `run_inject` pipeline, so `injected`
+   *  keeps one meaning. `null` = nothing was pasted (no original on disk, no
+   *  resident session, or deduped) — state it, never dress it as success. */
+  reInjectImageLocally(entryId: string): Promise<InjectResult | null>;
 
   /** RV-93 — this row's DELIVERED picture as a `data:` URL, fetched on demand when
    *  the user opens one (the row itself carries only the 256 px thumbnail).

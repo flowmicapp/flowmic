@@ -11,6 +11,7 @@ import {
   loadSelectedHost,
   resolveSelected,
   saveSelectedHost,
+  toLanCandidates,
   type LanCandidate,
 } from './lan-endpoint';
 
@@ -100,5 +101,31 @@ describe('device-local persistence', () => {
     // Which cable THIS machine is reachable on is a property of this machine's
     // wiring; syncing it would push one PC's NIC choice onto another.
     expect(LAN_HOST_KEY.startsWith('flowmic.pairing.')).toBe(true);
+  });
+});
+
+describe('toLanCandidates (moved verbatim from DevicesPage.vue, 2026-08-26)', () => {
+  it('labels a legal-but-non-RFC1918 private address instead of demoting it', () => {
+    // 172.77.x is the whole reason the flag exists (GA-21): the server offered
+    // it, so it IS dialable — the UI labels it, never hides it.
+    expect(toLanCandidates(['100.64.7.78'])).toEqual([
+      { address: '100.64.7.78', nonStandardPrivate: true },
+    ]);
+  });
+
+  it('every RFC1918 block is standard — 10/8, 192.168/16 and all of 172.16–31', () => {
+    const flags = toLanCandidates(['10.0.0.5', '192.168.1.9', '172.16.0.1', '172.31.255.1']).map(
+      (c) => c.nonStandardPrivate,
+    );
+    expect(flags).toEqual([false, false, false, false]);
+    // The 172 boundary itself: .15 and .32 are OUTSIDE the RFC1918 block.
+    expect(toLanCandidates(['172.15.0.1', '172.32.0.1']).map((c) => c.nonStandardPrivate)).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it('a missing list is an empty list — an older shell must not crash the picker', () => {
+    expect(toLanCandidates(undefined)).toEqual([]);
   });
 });

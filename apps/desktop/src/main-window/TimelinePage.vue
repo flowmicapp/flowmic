@@ -215,8 +215,16 @@ function canExpandSource(e: TimelineRow): boolean {
  *  the safe direction for a control that acts on someone else's document.
  *  (The store keeps its own guard — timeline-store.ts `reInject` — because a v-if
  *  only covers the callers it renders.) */
+/*  ✅ 0.3.36 (owner 2026-08-26) — the gap the R6 T-4 block above logs is CLOSED
+ *  for Re-inject: a picture row's button now exists, and it does exactly what
+ *  that block said a real one would have to do (a NEW capability — the Rust
+ *  side reads the row's ORIGINAL from disk → clipboard → paste through the same
+ *  pipeline — not a relaxed gate: no descriptor text is ever typed). `image`
+ *  joins the whitelist BY NAME, so the REQ-12-13 fail-closed argument is
+ *  untouched: `'control'` and any future kind still get no verb. Edit stays
+ *  transcript-only — that half of the block above is still every word true. */
 function rowCanReinject(e: TimelineRow): boolean {
-  return e.entry_type === 'transcript' && canReinject(e.status);
+  return (e.entry_type === 'transcript' || e.entry_type === 'image') && canReinject(e.status);
 }
 function rowCanEdit(e: TimelineRow): boolean {
   return e.entry_type === 'transcript';

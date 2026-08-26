@@ -110,7 +110,9 @@ function isExcludedFile(relPath) {
 // nine files during a 30-batch translation is how a mechanical change becomes a
 // behavioural one.
 const TRANSLATION_BLOAT_BASELINE = new Map([
-  ['apps/desktop/src/main-window/DevicesPage.vue', 825],
+  // DevicesPage.vue's entry was DELETED 2026-08-26: the presence key moved to
+  // lib/per-channel-presence.ts and the SFC came back under the real 800 cap.
+  // The debt is paid, not waived — this lint asked for the deletion itself.
   ['apps/mobile/lib/src/ptt/ptt_session.dart', 833],
   ['apps/mobile/lib/src/session/image_send_controller.dart', 803],
   ['apps/mobile/lib/src/session/manual_delivery.dart', 842],

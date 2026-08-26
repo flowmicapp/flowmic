@@ -535,9 +535,40 @@ fn a_local_reinject_carries_its_text_and_the_dedup_bypass_source() {
     );
     // No request_id: nobody asked for this delivery (see the builder's doc).
     assert_eq!(req.request_id, None);
-    // Not an image frame — the picture path is refused at the UI (a picture's
-    // stored text is its descriptor, so re-typing it would fabricate a delivery).
+    // Not an image frame — pictures have their OWN builder since 0.3.36
+    // (`local_reinject_image_request`, next test); the text builder must never
+    // half-claim to be one (a malformed image frame fails by name downstream).
     assert!(req.image().is_none() && !req.is_malformed_image());
+}
+
+/// 0.3.36 — the IMAGE sibling (15-vol §2.5e-7 ①'s PC half). The one property a
+/// runtime failure could never surface: the fabricated frame must be a
+/// WELL-FORMED image request, or `run_inject` routes it to the malformed-image
+/// refusal and the button "does nothing" with a perfectly healthy pipeline.
+#[test]
+fn a_local_image_reinject_is_a_well_formed_image_frame_with_the_bypass_source() {
+    let req = local_reinject_image_request("aGVsbG8=", "image/png", "h-77");
+    // THE assertion: `InjectRequest::image()` — the exact gate the pipeline's
+    // picture arm reads — accepts it.
+    assert_eq!(req.image(), Some(("aGVsbG8=", "image/png")));
+    assert!(!req.is_malformed_image());
+    assert_eq!(req.entry_id.as_deref(), Some("h-77"), "A-58 correlation echo");
+    assert_eq!(req.text, "", "the image arm types no text — empty is the honest value");
+    // `source:'image'` is on the INJ-1 skip list, same argument as the text
+    // sibling above: two clicks are two deliveries.
+    let mut d = crate::socket::dedup::InjectDeduper::default_spec();
+    assert_eq!(
+        d.classify(&req.source, req.request_id.as_deref(), &req.text, 0),
+        crate::socket::InjectDecision::Proceed,
+    );
+    d.record(&req.source, req.request_id.as_deref(), &req.text, &json!({ "ok": true }), 0);
+    assert_eq!(
+        d.classify(&req.source, req.request_id.as_deref(), &req.text, 900),
+        crate::socket::InjectDecision::Proceed,
+        "a second image-reinject click inside the INJ-1 window must never be deduped away",
+    );
+    // No request_id: nobody asked for this delivery, so INJ-3 has no key.
+    assert_eq!(req.request_id, None);
 }
 
 #[test]

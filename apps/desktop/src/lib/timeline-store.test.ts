@@ -135,7 +135,10 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
 
   it('the three ways nothing was typed each answer with their own reason', async () => {
     const { store, t } = fresh();
-    seed(store, [item('1'), item('2', { entry_type: 'image', output_text: '🖼 PNG · 1 KB' })]);
+    // ✅ 0.3.36: the not-a-transcript example is a CONTROL row now — an image
+    // row RUNS (its own arm pastes the picture; that suite lives in
+    // ./timeline-store-reinject-image.test.ts).
+    seed(store, [item('1'), item('2', { entry_type: 'control', output_text: 'Clear' })]);
     expect(await store.reInject('nope', 'cloud')).toEqual({
       ran: false,
       reason: 'no-such-row',
@@ -149,8 +152,9 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
       ran: false,
       reason: 'nothing-typed',
     });
-    // Control: the image row was never handed to the transport at all.
-    expect(t.calls.some((c) => c.text.includes('PNG'))).toBe(false);
+    // Control: the refused row's face was never handed to either transport.
+    expect(t.calls.some((c) => c.text.includes('Clear'))).toBe(false);
+    expect(t.imageCalls).toEqual([]);
   });
 
   it('a 补投 on a row this store does not hold is refused, not sent', async () => {
@@ -192,33 +196,6 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
 // predates this card unchanged. This guard is depth for a caller that does not
 // exist yet, mirroring the mobile side's store-level rule
 // (manual_delivery.dart `reInject`: `if (entry.isImage) return null;`).
-describe('TimelineStore — 补投 refuses an image row no matter what output_text holds', () => {
-  it('never reaches the ONE seam this store has into native code — not the caption, not anything', async () => {
-    const { store, t } = fresh();
-    seed(store, [item('1', { entry_type: 'image', output_text: '🖼 PNG · 214 KB', status: 'failed' })]);
-
-    await store.reInject('1', 'lan');
-
-    // THE assertion: transport.reInjectLocally — the actual typing exit point —
-    // was never called at all. Not with the caption, not with an empty string.
-    expect(t.calls).toEqual([]);
-    // Refused NAMED, not swallowed (red line: no silent failure): the existing inject-failure
-    // face is reused rather than a new silent branch invented for this one case.
-    expect(store.lastFailure).toEqual({ op: 'inject', id: '1', channel: 'lan' });
-    expect(store.entries()[0]!.status).toBe('failed'); // unchanged — no fabricated verdict
-  });
-
-  it('positive control: a TEXT row on the same store still goes through the typer', async () => {
-    const { store, t } = fresh();
-    seed(store, [item('1', { entry_type: 'transcript', output_text: 'a real sentence', status: 'failed' })]);
-
-    await store.reInject('1', 'lan');
-
-    expect(t.calls).toEqual([{ text: 'a real sentence', entryId: '1' }]);
-    expect(store.entries()[0]!.status).toBe('injected');
-  });
-});
-
 // ── 0.2.27: edit and delete are LOCAL writes, and send nothing at all ───────────
 describe('TimelineStore — edit / delete write this machine’s own store', () => {
   it('an edit sends NOTHING and is not「pending」anything', async () => {

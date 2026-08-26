@@ -159,11 +159,25 @@ describe('the listen-address fold keeps owner ②’s red line intact', () => {
     // two channels, legitimately — they feed the two FIXED cards' "N phone(s) connected"
     // lines, where "which two channels" is the layout itself. A guard that forbids a
     // shape the file is right to contain teaches the next person to delete the guard.
-    const digest = CODE.match(/const perChannelMobiles = computed\(([\s\S]*?)\n\);/)?.[1] ?? '';
-    expect(digest, 'perChannelMobiles must be findable').not.toBe('');
-    expect(digest).toContain('Object.keys(connByChannel)');
-    expect(digest).not.toContain('connByChannel.lan');
-    expect(digest).not.toContain('connByChannel.cloud');
+    // 🔴 THE DIGEST MOVED 2026-08-26 (lib/per-channel-presence.ts) and this
+    // assertion followed it rather than being relaxed. The property is
+    // unchanged — 「enumerate the reactive map, never name two channels」 — but
+    // it is now asserted where the code lives, and the SFC only has to prove it
+    // still delegates. Reading the old body out of the SFC would have quietly
+    // become a scan of nothing, which passes.
+    expect(CODE).toContain('presenceKey(connByChannel)');
+    const digest = readFileSync(
+      fileURLToPath(new URL('../lib/per-channel-presence.ts', import.meta.url)),
+      'utf8',
+    );
+    const body = digest.match(/export function presenceKey\(([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(body, 'presenceKey must be findable').not.toBe('');
+    expect(body).toContain('Object.keys(rows)');
+    expect(body).not.toContain('rows.lan');
+    expect(body).not.toContain('rows.cloud');
+    // …and the fix this move carried: the key must include the presence epoch,
+    // or a phone re-entering the transcription page moves nothing again.
+    expect(body, 'the count alone cannot say a phone just arrived').toContain('presence_epoch');
   });
 
   it('equal height is still `stretch`, not a hand-tuned min-height', () => {

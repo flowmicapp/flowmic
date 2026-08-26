@@ -91,12 +91,14 @@ import {
 } from '../lib/cloud-signout-gate';
 import { cloudPairBlock, formatPcid, initialPairTab, isLoopbackEndpoint, type PairingInfo } from '../lib/pairing';
 import { mergeWithCache, readPairedCache, writePairedCache, type PairedPresenceView } from '../lib/paired-mobiles';
+import { joinEpochSum, presenceKey } from '../lib/per-channel-presence';
 import { localKv } from '../lib/storage';
 import {
   applySelectedHost,
   loadSelectedHost,
   resolveSelected,
   saveSelectedHost,
+  toLanCandidates,
   type LanCandidate,
 } from '../lib/lan-endpoint';
 
@@ -109,16 +111,9 @@ const rawInfo = ref<PairingInfo>({ ...EMPTY });
 // phone actually shares. Device-local, never a synced setting (see lan-endpoint).
 const selectedHost = ref<string | null>(loadSelectedHost());
 
-const lanCandidates = computed<LanCandidate[]>(() =>
-  (rawInfo.value.lan_candidates ?? []).map((address) => ({
-    address,
-    // The server marks these; the desktop only needs the flag, and re-deriving
-    // it here would be a second classifier to drift. Recomputed narrowly: an
-    // address outside RFC1918 that the server still offered IS the non-standard
-    // case, since the server already dropped loopback/APIPA.
-    nonStandardPrivate: !/^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(address),
-  })),
-);
+// The mapping moved VERBATIM to lib/lan-endpoint.ts (size budget); it is a pure
+// derivation and is unit-asserted there.
+const lanCandidates = computed<LanCandidate[]>(() => toLanCandidates(rawInfo.value.lan_candidates));
 
 const effectiveHost = computed(() => resolveSelected(lanCandidates.value, selectedHost.value));
 
@@ -229,7 +224,7 @@ async function loadPaired(): Promise<void> {
     const merged = mergeWithCache(raw, readPairedCache(localKv), new Date());
     writePairedCache(localKv, merged.nextCache);
     pairedView.value = merged.view;
-    pairSuccess.observe(raw.rows); // card PAIR-SUCCESS: LIVE rows only — the cache's stale rows must not look new
+    pairSuccess.observe(raw.rows, joinEpoch.value); // card PAIR-SUCCESS: LIVE rows only — the cache's stale rows must not look new
   } finally {
     pairedLoading.value = false;
   }
@@ -248,7 +243,7 @@ async function openModal(): Promise<void> {
   if (info.value.connected && !info.value.short_code) {
     if (await refreshPairingCode(pairTarget.value)) await loadInfo();
   }
-  pairSuccess.arm(pairedView.value?.rows ?? null); // card PAIR-SUCCESS: freeze WHO is paired as the QR opens
+  pairSuccess.arm(pairedView.value?.rows ?? null, joinEpoch.value); // card PAIR-SUCCESS: freeze WHO is paired as the QR opens
   modalOpen.value = true;
 }
 function closeModal(): void {
@@ -378,35 +373,12 @@ watch(
 const lanUp = computed(() => connByChannel.lan?.connected === true);
 const cloudUp = computed(() => connByChannel.cloud?.connected === true);
 
-/** EVERY resident channel's own phone count, as one comparable value.
- *
- *  🔴 The real defect from owner 2026-08-02 UI batch 1 ② is exactly here
- *  (screenshot: the phone card's header says "offline" while right next to it
- *  it says "last active just now"). This watch's original source included
- *  `conn.mobiles`, and `conn` **by construction is only the snapshot of the
- *  primary channel** (main-window/store.ts's `applyConnectionRows` does a bare
- *  `continue` on `primary === false`). `lanUp` / `cloudUp` from that same source
- *  also don't track phones — they read `connByChannel[x].connected`, i.e. the
- *  **desktop ↔ server** socket.
- *  ⇒ When a phone joins/leaves the room on a **non-primary channel**, none of
- *  these three values move, `loadPaired()` never gets triggered, and that
- *  column's online dot freezes on whatever it last read. This is precisely the
- *  first of the four classes of structural defects: "pushed state with no
- *  matching pull".
- *
- *  ⚠️ Why "one concatenated string" rather than listing the two numbers
- *  separately: `connByChannel` is a reactive **dictionary**, and channels are
- *  keys that only appear at runtime (a single-channel shell has just one).
- *  Fixed enumeration like `connByChannel.lan?.mobiles` / `.cloud?.mobiles`
- *  would silently miss a future third channel, and that kind of omission has
- *  no symbol you can grep for.
- *  ⚠️ `conn.mobiles` was **removed** from the source, not forgotten: it is a
- *  subset of this summary (the primary channel's row is also in
- *  `connByChannel`), and keeping it would just be a second answer to the same
- *  question. */
-const perChannelMobiles = computed(() =>
-  Object.keys(connByChannel).sort().map((ch) => `${ch}:${connByChannel[ch]?.mobiles ?? 0}`).join('|'),
-);
+// The presence key moved VERBATIM to lib/per-channel-presence.ts (size budget);
+// it is a pure derivation and is unit-asserted there.
+const perChannelMobiles = computed(() => presenceKey(connByChannel));
+// JOINS only (never presence_epoch): a departure while the QR is open must not
+// read as a pairing — see joinEpochSum's own doc for the measured false positive.
+const joinEpoch = computed(() => joinEpochSum(connByChannel));
 
 // Refresh the snapshot whenever the connection state or ANY channel's phone count
 // changes, so the endpoint / pc_name and the paired table (incl. its live online dots)

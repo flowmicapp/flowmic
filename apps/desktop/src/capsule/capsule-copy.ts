@@ -54,6 +54,30 @@ export function copyPayload(l: Pick<RecentLine, 'text'>): string {
  *  image rows: not a special case, just the same「missing field is OMITTED,
  *  never back-filled」rule (V2-15 red line) every other cell on this row already
  *  follows — no button ever claims to have copied nothing. */
-export function canCopyLine(l: Pick<RecentLine, 'text'>): boolean {
+/** 🔴 REWRITTEN 2026-08-26 (owner). The previous round hid the copy button on an
+ *  uncaptioned picture, and the round before that let it copy the size label.
+ *  Both were wrong in the same way: they treated a picture row as a text row
+ *  with an awkward string in it.
+ *
+ *  owner's ruling: a row has TWO controls — copy and re-inject — and they mean
+ *  the same thing on every row. On a picture row, copy copies the PICTURE.
+ *  「没必要就为图片这一行再增加一个特别的一个操作」.
+ *
+ *  So this gate answers 「is there anything on this row worth taking」, and
+ *  `copyLine` decides WHICH thing. The two questions used to be one.
+ */
+export function canCopyLine(l: Pick<RecentLine, 'text' | 'entryType' | 'fullImage' | 'thumb'>): boolean {
+  // A picture row is answered by the PICTURE alone. Its `.rtext` is a generated
+  // descriptor when there is no caption, and that string is exactly what two
+  // earlier rounds put on the clipboard — so it may not keep the button alive
+  // either. No bytes left ⇒ nothing to take ⇒ no button (R8: a control that can
+  // only fail is a façade). `copyLine` in CapsuleApp.vue routes the click.
+  if (l.entryType === 'image') return rowHasPicture(l);
   return l.text.trim() !== '';
+}
+
+/** Does this row still hold a picture we could put on the clipboard — the
+ *  original kept on disk, or the 256 px preview the strip already carries? */
+export function rowHasPicture(l: Pick<RecentLine, 'entryType' | 'fullImage' | 'thumb'>): boolean {
+  return l.entryType === 'image' && (l.fullImage === true || l.thumb !== null);
 }

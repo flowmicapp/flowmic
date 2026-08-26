@@ -276,6 +276,31 @@ fn focus_emits(changed: bool, have_target: bool, server_ready: bool, server_stal
     }
 }
 
+/// The per-tick facts one CONNECTION frame carries.
+///
+/// A STRUCT rather than a seventh, eighth and ninth parameter: the argument list
+/// grew past what anyone can read positionally, and a positional list is exactly
+/// where `mobiles` and `presence_epoch` — two integers that mean opposite kinds
+/// of thing — would eventually get swapped by someone editing in a hurry.
+struct ConnFacts {
+    connected: bool,
+    registered: bool,
+    mobiles: usize,
+    primary: bool,
+    /// 「did SOMETHING happen to presence」 (joins AND departures). See
+    /// `Reconciler::epoch`; watch it for CHANGE.
+    presence_epoch: u64,
+    /// 「did a phone just ENTER」 — joins only, a strict subset of the above.
+    /// The QR modal's success criterion reads THIS one; reading
+    /// `presence_epoch` there made a departure close the QR as a success.
+    join_epoch: u64,
+}
+
+/// What the change-only forward compares tick to tick. Named because clippy is
+/// right that a seven-slot tuple is unreadable — and because every slot in it is
+/// load-bearing: dropping one is how the presence blind spot happened.
+type ConnMemo = (bool, bool, bool, usize, Option<String>, bool, u64);
+
 /// Build the CONNECTION bridge payload the frontend derives its reconnect re-flush
 /// + history refresh triggers from (07 §9). `room_uuid` lets the capsule
 ///   visibility FSM reset to `persistent` on a session change.
@@ -296,26 +321,39 @@ fn focus_emits(changed: bool, have_target: bool, server_ready: bool, server_stal
 /// this one. Both travel; neither has to stand in for the other.
 fn build_connection(
     creds: &SharedCreds,
-    connected: bool,
-    registered: bool,
-    mobiles: usize,
+    f: &ConnFacts,
     reason: &str,
     channel: Channel,
-    primary: bool,
 ) -> Value {
     let (has_token, room) = creds
         .lock()
         .map(|c| (c.is_registered(), c.room_uuid.clone()))
         .unwrap_or((false, None));
     json!({
-        "connected": connected,
-        "registered": registered,
+        "connected": f.connected,
+        "registered": f.registered,
         "has_token": has_token,
         "room_uuid": room,
-        "mobiles": mobiles,
+        "mobiles": f.mobiles,
         "reason": reason,
         "channel": channel.tag(),
-        "primary": primary,
+        "primary": f.primary,
+        // 🔴 「did a phone just arrive」, which `mobiles` cannot answer.
+        //
+        // The presence set is keyed by mobile_id, so the same phone leaving the
+        // transcription page and coming back does not change the count — and
+        // this frame is forwarded ONLY when its tuple changes, so until
+        // 2026-08-26 the frontend was told nothing at all. Measured six times in
+        // one session on owner's machine; the capsule, retreated by audio:pause,
+        // never came back, and the QR modal never closed.
+        //
+        // Watch it for CHANGE. Its VALUE means nothing (see Reconciler::epoch).
+        "presence_epoch": f.presence_epoch,
+        // 🔴 Joins ONLY — `presence_epoch` also counts departures, and the one
+        // consumer of this field (the QR modal's success face, lib/
+        // per-channel-presence.ts `joinEpochSum`) must never see a departure
+        // as a pairing. Watch it for INCREASE; its value means nothing.
+        "join_epoch": f.join_epoch,
     })
 }
 
@@ -409,7 +447,7 @@ pub(super) fn spawn(
         // RV-34: `has_token` is IN the tuple, not just in the frame, so a token that
         // is cleared or minted is a change the UI hears about even when the handshake
         // judgment happens not to move.
-        let mut last_conn: Option<(bool, bool, bool, usize, Option<String>, bool)> = None;
+        let mut last_conn: Option<ConnMemo> = None;
         // (The tray's 「only on change」 memo is the process-wide TRAY_SHOWING above —
         // it used to be a local here, which is the F3 staleness bug.)
         // RV-26: this connection's register-retry ledger (reset on a new socket).
@@ -510,12 +548,32 @@ pub(super) fn spawn(
                 // `map_or(true, …)`, not `is_none_or` — that method needs Rust 1.82 and
                 // the declared MSRV is 1.78 (see the same note in fanout.rs).
                 let primary = admission.as_ref().is_none_or(|a| a.is_primary(channel));
-                let cur = (conn, acked, has_token, mob, room, primary);
+                // 🔴 THE TUPLE HAD NO NOTION OF 「WHICH PHONE, AND DID IT JUST
+                // ARRIVE」, and that was the whole defect. `mob` is a SET SIZE:
+                // the same phone re-entering the transcription page inserts an id
+                // that is already there, so every field here stayed equal and this
+                // branch never ran. Three consumers keyed off this frame — the
+                // capsule's re-surface, DevicesPage's paired-list read (and with
+                // it the QR modal's success face), and the phone-name directory —
+                // and all three went blind together, silently.
+                // Trace: docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+                let epoch = reconciler.presence_epoch();
+                let joins = reconciler.join_epoch();
+                // `joins` is deliberately NOT in the memo: every join moves
+                // `epoch` too (both bump in `Reconciler::on_join`), so a change
+                // here is already a change there — and reconcile.rs pins that
+                // subset relationship in its own tests.
+                let cur = (conn, acked, has_token, mob, room, primary, epoch);
                 if last_conn.as_ref() != Some(&cur) {
                     bridge::forward(
                         &bridge,
                         bridge::channel::CONNECTION,
-                        build_connection(&creds, conn, acked, mob, "pump", channel, primary),
+                        build_connection(
+                            &creds,
+                            &ConnFacts { connected: conn, registered: acked, mobiles: mob, primary, presence_epoch: epoch, join_epoch: joins },
+                            "pump",
+                            channel,
+                        ),
                     );
                     // Recorded because this frame is the ONLY thing that moves the
                     // UI's connection state, and it is fire-and-forget: nothing

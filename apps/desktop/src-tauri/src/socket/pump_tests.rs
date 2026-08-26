@@ -145,20 +145,25 @@ fn the_connection_frame_no_longer_calls_a_token_a_registration() {
     creds.accept_registration("fm_tok", Some("pc-1".into()), Some("room-7".into()));
     let shared: SharedCreds = Arc::new(Mutex::new(creds));
 
-    let down = build_connection(&shared, false, false, 0, "pump", Channel::Cloud, false);
+    let down = build_connection(&shared, &ConnFacts { connected: false, registered: false, mobiles: 0, primary: false, presence_epoch: 0, join_epoch: 0 }, "pump", Channel::Cloud);
     assert_eq!(down["connected"], false);
     assert_eq!(down["registered"], false, "a socket that is DOWN is not registered");
     assert_eq!(down["has_token"], true, "…and the token is still reported, by name");
     assert_eq!(down["room_uuid"], "room-7");
 
     // Connected but the handshake has not landed: yellow, not green (conn-dot.ts).
-    let waiting = build_connection(&shared, true, false, 0, "pump", Channel::Lan, true);
+    let waiting = build_connection(&shared, &ConnFacts { connected: true, registered: false, mobiles: 0, primary: true, presence_epoch: 0, join_epoch: 0 }, "pump", Channel::Lan);
     assert_eq!(waiting["registered"], false);
     assert_eq!(waiting["has_token"], true);
 
-    let up = build_connection(&shared, true, true, 2, "pump", Channel::Lan, true);
+    let up = build_connection(&shared, &ConnFacts { connected: true, registered: true, mobiles: 2, primary: true, presence_epoch: 7, join_epoch: 4 }, "pump", Channel::Lan);
     assert_eq!(up["registered"], true);
     assert_eq!(up["mobiles"], 2);
+    // Two counters, two questions: 7 events total, 4 of them joins. The frame
+    // must carry BOTH — collapsing them is how a departure closed the QR modal
+    // with a success face (2026-08-26).
+    assert_eq!(up["presence_epoch"], 7);
+    assert_eq!(up["join_epoch"], 4);
 }
 
 // ── F3 (owner 2026-08-02: "the tray is always a red dot, but I'm not speaking") ────────────────────

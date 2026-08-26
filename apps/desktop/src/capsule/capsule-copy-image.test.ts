@@ -59,26 +59,48 @@ describe('the strip (CapsuleApp.vue, read literally)', () => {
   const tpl = capsuleVue.slice(capsuleVue.indexOf('<template>'), capsuleVue.indexOf('<style'));
   const css = capsuleVue.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1] ?? '';
 
-  it('the copy-picture button exists, is gated on the picture gate, and calls the picture door', () => {
-    expect(tpl).toContain('v-if="canCopyImageLine(l)"');
-    expect(tpl).toContain('@click="copyImageLine(l)"');
+  /** 🔴 REWRITTEN 2026-08-26 (owner). Four assertions here pinned a SEPARATE
+   *  copy-picture button, and owner ruled that button away on sight of it:
+   *  a row has two controls — copy and re-inject — and they must mean the same
+   *  thing on every row. 「没必要就为图片这一行再增加一个特别的一个操作」.
+   *
+   *  Every property those four defended is still defended below; what changed
+   *  is the door they are asserted through. Deleting them instead would have
+   *  been the easy move and the wrong one: the picture path, its gate and its
+   *  loud failure are all still exactly as load-bearing as they were.
+   */
+  it('the ONE copy button reaches the picture door for a picture row', () => {
+    expect(tpl).toContain('v-if="canCopyLine(l)"');
+    expect(tpl).toContain('@click="copyLine(l)"');
+    expect(capsuleVue).toContain("import { canCopyLine, copyPayload, rowHasPicture } from './capsule-copy';");
     expect(capsuleVue).toContain("import { copyRowImage } from '../lib/bridge-clipboard';");
     expect(capsuleVue).toContain('copyRowImage(l.id, l.thumb)');
+    // …and the routing is on what the ROW HOLDS, not on which button was hit.
+    expect(capsuleVue).toContain('rowHasPicture(l)');
   });
 
-  it('the title names the ORIGINAL vs. the 256px PREVIEW off fullImage — one fact, not a guess', () => {
-    expect(tpl).toContain('l.fullImage ? S.op_copy_image : S.op_copy_image_preview');
+  it('🔴 the picture row does not grow a third verb again', () => {
+    // The defect owner actually saw was a COUNT of buttons, which no assertion
+    // about any single button could ever notice.
+    expect(capsuleVue).not.toContain('copyImageLine');
+    expect(capsuleVue).not.toContain('canCopyImageLine');
+    expect(tpl).not.toContain('rcopy-img');
+    expect(tpl.split('@click="copyLine(l)"').length - 1).toBe(1);
+    expect(tpl.split('@click="reinjectLine(l)"').length - 1).toBe(1);
   });
 
   it('the gate omits (never disables) a picture row with neither an original nor a preview', () => {
-    expect(capsuleVue).toMatch(/function canCopyImageLine\(l: RecentLine\): boolean \{\s*return l\.entryType === 'image' && \(l\.fullImage \|\| l\.thumb !== null\);/);
-    expect(tpl).not.toMatch(/rcopy-img[\s\S]{0,300}:disabled/);
+    // Moved to capsule-copy.ts with the rest of the decision; asserted there on
+    // behaviour rather than here on a source pattern. This keeps the SFC half:
+    // an unusable control is OMITTED, never rendered greyed out.
+    expect(tpl).not.toMatch(/rcopy[sS]{0,300}:disabled/);
   });
 
   it('a refused write is never silent: ✗ state + forensic line', () => {
-    const fn = capsuleVue.slice(capsuleVue.indexOf('async function copyImageLine'), capsuleVue.indexOf('function canCopyImageLine'));
-    expect(fn).toContain("[l.id]: 'error'");
-    expect(fn).toContain("appendForensic('capsule', `copy image row ${l.id} FAILED: ${result.reason}`)");
+    const fn = capsuleVue.slice(capsuleVue.indexOf('async function copyLine'));
+    const body = fn.slice(0, fn.indexOf(String.fromCharCode(10) + '}'));
+    expect(body).toContain("[l.id]: 'error'");
+    expect(body).toContain("appendForensic('capsule',");
   });
 
   it('the preview is larger than the 16px badge it replaced', () => {

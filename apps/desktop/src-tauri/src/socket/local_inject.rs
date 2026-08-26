@@ -116,4 +116,56 @@ impl DesktopSocket {
         }
         out
     }
+
+    /// The IMAGE sibling of [`Self::reinject_locally`] (0.3.36 — the 15-vol
+    /// §2.5e-7 ① gap's PC half). Same posture, same constraint, one difference:
+    /// the payload is the row's ORIGINAL picture, loaded by the caller
+    /// (`shell::reinject::timeline_reinject_image`) from `socket::row_image` —
+    /// this method takes bytes it is handed, exactly as `reinject_locally`
+    /// takes text it is handed, so the session handle never grows a disk path.
+    ///
+    /// ONE DECISION PATH, still: the fabricated request is `source:'image'`,
+    /// which `run_inject` routes down the SAME picture arm an inbound image
+    /// `inject:request` takes (`inject::inject_image` — clipboard + paste, the
+    /// hold/readback machinery included), on the same FSM / deduper /
+    /// allowlist. `injected` keeps one meaning because there is one path.
+    /// Dedup facts, for the record: `source:'image'` skips the INJ-1 byte
+    /// window (`dedup::skips_the_inj1_byte_window`) and no `request_id` is
+    /// minted, so INJ-3 has no key — two clicks are two deliveries, same as the
+    /// text button.
+    pub fn reinject_image_locally(&self, image_b64: &str, image_mime: &str, entry_id: &str) -> Option<Value> {
+        let req = wire::local_reinject_image_request(image_b64, image_mime, entry_id);
+        let out = run_inject(
+            &req,
+            &self.inject.allowlist,
+            &self.inject.fsm,
+            &self.inject.lock_deadline,
+            &self.inject.deduper,
+            // Same intent, same producer argument as the text arm above: a human
+            // just clicked this row's button, so the target is the window that
+            // was in front BEFORE the click.
+            TargetIntent::BeforeTheClick,
+        );
+        match &out {
+            Some(r) => forensic::record(
+                "timeline",
+                &format!(
+                    "local reinject IMAGE entry_id={entry_id} mime={image_mime} b64_chars={} → ok={} mode={:?} \
+                     (no server round trip)",
+                    image_b64.chars().count(),
+                    r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                    r.get("mode").and_then(Value::as_str).unwrap_or("?"),
+                ),
+            ),
+            None => forensic::record(
+                "timeline",
+                &format!(
+                    "local reinject IMAGE entry_id={entry_id} produced NO result — run_inject deduped it \
+                     (source={:?} is expected to bypass dedup; nothing was pasted)",
+                    req.source
+                ),
+            ),
+        }
+        out
+    }
 }

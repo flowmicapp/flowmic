@@ -53,9 +53,14 @@ export interface PairingSuccess {
   /** The `${channel}:${pairing_id}` of the row currently flashing, or null. */
   flashKey: Ref<string | null>;
   /** Call when the QR modal opens: freezes the identity snapshot. */
-  arm(rows: readonly PairedMobile[] | null | undefined): void;
-  /** Call on every paired-list read while armed. */
-  observe(rows: readonly PairedMobile[] | null | undefined): void;
+  arm(rows: readonly PairedMobile[] | null | undefined, epoch?: number): void;
+  /** Call on every paired-list read while armed. `epoch` is the shell's JOIN
+   *  counter (socket/reconcile.rs `join_epoch`, summed over channels) — an
+   *  INCREASE since arming means a phone entered the room while the QR was on
+   *  screen, which is the only ruler that can see a RE-pair (owner 2026-08-26).
+   *  🔴 Never feed it `presence_epoch`: that one also counts departures, and a
+   *  phone LEAVING must not close the QR with a success face. */
+  observe(rows: readonly PairedMobile[] | null | undefined, epoch?: number): void;
   /** Call when the modal closes for any other reason (✕): disarms. */
   disarm(): void;
   dispose(): void;
@@ -87,9 +92,12 @@ export function usePairingSuccess(deps: PairingSuccessDeps): PairingSuccess {
    *  ⇒ An unreadable list does not arm anything. The first list we can actually
    *  see becomes the baseline, and that same read is never judged against it. */
   let awaitingBaseline = false;
+  /** The join counter as the QR opened; null when we never saw one. */
+  let armedEpoch: number | null = null;
 
-  function arm(rows: readonly PairedMobile[] | null | undefined): void {
+  function arm(rows: readonly PairedMobile[] | null | undefined, epoch?: number): void {
     success.value = false;
+    armedEpoch = epoch ?? null;
     if (!rows) {
       armed = null;
       awaitingBaseline = true;
@@ -104,7 +112,7 @@ export function usePairingSuccess(deps: PairingSuccessDeps): PairingSuccess {
     awaitingBaseline = false;
   }
 
-  function observe(rows: readonly PairedMobile[] | null | undefined): void {
+  function observe(rows: readonly PairedMobile[] | null | undefined, epoch?: number): void {
     if (success.value) return;
     if (awaitingBaseline) {
       if (!rows) return; // still nothing to compare against
@@ -113,7 +121,14 @@ export function usePairingSuccess(deps: PairingSuccessDeps): PairingSuccess {
       return; // the read that BECAME the baseline is not judged against it
     }
     if (armed === null) return;
-    const verdict = detectPairingSuccess(armed, rows);
+    // `>` and never `!==`: the sum can DECREASE without any phone doing anything
+    // (a channel's row leaving the map, a shell restart resetting its counter),
+    // and the safe failure direction is a modal that stays open — the user
+    // closes it by hand, the old behaviour — not one that closes claiming a
+    // pairing that never happened. The known residual: a decrease can mask the
+    // next real join for one arming; recorded, not hidden.
+    const joined = armedEpoch !== null && epoch !== undefined && epoch > armedEpoch;
+    const verdict = detectPairingSuccess(armed, rows, joined);
     if (!verdict.matched) return;
     // One detection per arming: the snapshot is consumed so a second read of
     // the same list cannot re-fire while the face is up.

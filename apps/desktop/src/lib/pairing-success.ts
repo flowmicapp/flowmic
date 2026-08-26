@@ -41,7 +41,7 @@ export type PairingSuccessVerdict =
   | {
       matched: true;
       /** Which ruler decided — written to the forensic log by the caller. */
-      criterion: 'uid' | 'count';
+      criterion: 'uid' | 'count' | 'presence-event';
       /** Row keys that were not in the armed snapshot — the rows to flash. */
       newKeys: string[];
     };
@@ -80,27 +80,63 @@ export function snapshotPairing(rows: readonly PairedMobile[] | null | undefined
 }
 
 /** Did a NEW device appear between `armed` (the QR opened) and `now`? */
+/** Did a pairing just succeed between `armed` (the QR opened) and `now`?
+ *
+ * 🔴 `joined` (2026-08-26, owner) — 「a phone entered the room while the QR was
+ * on screen」, and it is the rule that finally makes RE-pairing work.
+ *
+ * The two rulers below both ask 「did this LIST change」, and re-pairing a
+ * handset that is already in it changes nothing: same device_uid, same count.
+ * Measured on owner's machine 2026-08-26 — the epoch fix had the paired list
+ * re-reading correctly by then, and the modal STILL never closed, because there
+ * was nothing new to find. owner's ruling is that the confirmation fires on
+ * every new pairing INCLUDING a re-pair.
+ *
+ * A modal is a person standing in front of the screen holding a phone at it. A
+ * phone joining during that window IS the pairing they just did — no diff
+ * required. The identity rulers are kept because they still answer a second
+ * question this one cannot: WHICH row to flash.
+ */
 export function detectPairingSuccess(
   armed: PairingSnapshot,
   rows: readonly PairedMobile[] | null | undefined,
+  joined = false,
 ): PairingSuccessVerdict {
   if (!rows) return { matched: false };
   const now = snapshotPairing(rows);
   const newKeys = rows.filter((r) => !armed.keys.has(rowKeyOf(r))).map(rowKeyOf);
   if (armed.uids !== null && now.uids !== null) {
     // The trustworthy ruler: a device identity we had never seen.
+    //
+    // 🔴 Finding nothing FALLS THROUGH now (2026-08-26 review). The first cut
+    // early-returned `matched: false` here — which made the `joined` ruler
+    // below unreachable in exactly the case it was added for: a RE-pair has
+    // readable uids on both sides and nothing fresh, so the headline case of
+    // that change never fired. Zero tests covered it, so nothing said so.
     const fresh = [...now.uids].filter((u) => !armed.uids!.has(u));
-    if (fresh.length === 0) return { matched: false };
-    const freshSet = new Set(fresh);
-    return {
-      matched: true,
-      criterion: 'uid',
-      newKeys: rows.filter((r) => r.device_uid !== null && freshSet.has(r.device_uid)).map(rowKeyOf),
-    };
+    if (fresh.length > 0) {
+      const freshSet = new Set(fresh);
+      return {
+        matched: true,
+        criterion: 'uid',
+        newKeys: rows.filter((r) => r.device_uid !== null && freshSet.has(r.device_uid)).map(rowKeyOf),
+      };
+    }
+  } else if (now.count > armed.count) {
+    // A null uid is in play on one side or the other: fall back to the count and
+    // SAY so. (Same-device second-channel rows are indistinguishable here — that
+    // is the known cost of pre-0.2.4 phones, recorded rather than hidden.)
+    return { matched: true, criterion: 'count', newKeys };
   }
-  // A null uid is in play on one side or the other: fall back to the count and
-  // SAY so. (Same-device second-channel rows are indistinguishable here — that
-  // is the known cost of pre-0.2.4 phones, recorded rather than hidden.)
-  if (now.count > armed.count) return { matched: true, criterion: 'count', newKeys };
+  // Neither list ruler found anything — which for a RE-pair is the correct
+  // answer to the question they were asked. The event answers the question the
+  // user actually asked by holding a phone up to the QR.
+  if (joined) {
+    // Nothing new by identity, so flash the row that is actually in the room —
+    // and only when there is exactly one, because naming one of several would
+    // be a guess. No key just means no flash; the modal still closes.
+    const online = rows.filter((r) => r.online).map(rowKeyOf);
+    return { matched: true, criterion: 'presence-event', newKeys: online.length === 1 ? online : [] };
+  }
   return { matched: false };
 }

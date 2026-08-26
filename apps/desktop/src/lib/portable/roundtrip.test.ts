@@ -29,6 +29,9 @@ class Transport implements TimelineTransport {
   async reInjectLocally(): Promise<InjectResult | null> {
     return null;
   }
+  async reInjectImageLocally(): Promise<InjectResult | null> {
+    return null;
+  }
   async rowImage(): Promise<string | null> {
     return null;
   }

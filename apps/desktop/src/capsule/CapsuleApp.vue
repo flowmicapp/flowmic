@@ -25,7 +25,7 @@ import { connChannelLabel, deriveConnDot } from '../lib/conn-dot';
 import { CHANNEL_VISUAL } from '../lib/channel';
 import type { KvStore } from '../lib/types';
 import { dismiss, initCapsule, setFirstSurfaceAnchor, state, toggleDiag, type RecentLine } from './controller';
-import { canCopyLine, copyPayload } from './capsule-copy';
+import { canCopyLine, copyPayload, rowHasPicture } from './capsule-copy';
 import { copyRowImage } from '../lib/bridge-clipboard';
 import { canReinjectLine } from './capsule-reinject';
 import { useRowReinject } from './use-row-reinject';
@@ -105,7 +105,13 @@ async function copyLine(l: RecentLine): Promise<void> {
   if (!canCopyLine(l)) return;
   const prior = copyTimers.get(l.id);
   if (prior) clearTimeout(prior);
-  const result = await capsule.copyText(copyPayload(l));
+  // 🔴 ONE COPY BUTTON, and it takes whatever the row holds (owner 2026-08-26:
+  // 「没必要就为图片这一行再增加一个特别的一个操作」). A picture row copies the
+  // PICTURE. The separate picture button this replaced was a third verb on a
+  // row that has two, and the first of the two copied a size label.
+  const result = rowHasPicture(l)
+    ? await copyRowImage(l.id, l.thumb)
+    : await capsule.copyText(copyPayload(l));
   if (result.ok) {
     copyStatus.value = { ...copyStatus.value, [l.id]: 'copied' };
   } else {
@@ -121,37 +127,7 @@ async function copyLine(l: RecentLine): Promise<void> {
   );
 }
 
-/** Card IMG-COPY (owner P0, 2026-08-25) — the picture row's copy-PICTURE
- *  button. Same status/icon machinery as [copyLine] (one `copyStatus` map, one
- *  timer table), a different payload and a different door: `copyRowImage`
- *  (lib/bridge-clipboard.ts → `capsule_copy_image`), which writes the ORIGINAL
- *  kept on disk and falls back to the 256 px thumbnail the strip already holds.
- *  A refused write is never silent: ✗ + tooltip + forensic line. */
-async function copyImageLine(l: RecentLine): Promise<void> {
-  if (!canCopyImageLine(l)) return;
-  const prior = copyTimers.get(l.id);
-  if (prior) clearTimeout(prior);
-  const result = await copyRowImage(l.id, l.thumb);
-  if (result.ok) {
-    copyStatus.value = { ...copyStatus.value, [l.id]: 'copied' };
-  } else {
-    copyStatus.value = { ...copyStatus.value, [l.id]: 'error' };
-    appendForensic('capsule', `copy image row ${l.id} FAILED: ${result.reason}`);
-  }
-  copyTimers.set(
-    l.id,
-    setTimeout(() => {
-      copyTimers.delete(l.id);
-      clearCopyStatus(l.id);
-    }, 1200),
-  );
-}
 
-/** Omit, never disable: a picture row with neither an original nor a preview
- *  has nothing to copy (the same R8 gate `canCopyLine` applies to text). */
-function canCopyImageLine(l: RecentLine): boolean {
-  return l.entryType === 'image' && (l.fullImage || l.thumb !== null);
-}
 
 // ── 0.3.30 per-row RE-INJECT (owner 2026-08-24: an inject icon beside the copy
 //    icon, clicking it ATTEMPTS a re-inject) ─────────────────────────────
@@ -685,18 +661,6 @@ watch(
               :title="copyStatus[l.id] === 'error' ? S.op_copy_failed : S.op_copy"
               @click="copyLine(l)"
             ><Icon :name="copyStatus[l.id] === 'copied' ? 'check' : copyStatus[l.id] === 'error' ? 'x' : 'copy'" /></button>
-            <!-- Card IMG-COPY (owner P0, 2026-08-25): a PICTURE row copies the
-                 picture itself — the original on disk, or the 256 px preview when
-                 that is all this row kept (the title says which). Omitted for a
-                 row with neither. -->
-            <button
-              v-if="canCopyImageLine(l)"
-              type="button"
-              class="rcopy rcopy-img"
-              :class="{ err: copyStatus[l.id] === 'error', ok: copyStatus[l.id] === 'copied' }"
-              :title="copyStatus[l.id] === 'error' ? S.op_copy_failed : (l.fullImage ? S.op_copy_image : S.op_copy_image_preview)"
-              @click="copyImageLine(l)"
-            ><Icon :name="copyStatus[l.id] === 'copied' ? 'check' : copyStatus[l.id] === 'error' ? 'x' : 'image'" /></button>
             <!-- 0.3.30 (owner 2026-08-24): the re-inject control, beside copy.
                  Omitted — not disabled — when the row is not something that can be
                  typed (canReinjectLine, the R8 gate: see capsule-reinject.ts).

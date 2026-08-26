@@ -42,14 +42,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'package:flowmic/src/ui/pairing_success_toast.dart';
 import 'support/legibility.dart' show ahemWidthFor, expectLegible;
 import 'support/mic_permission_fakes.dart';
 
 const double kPhoneDp = 411;
 const AppStrings _zh = AppStringsZh();
 
+/// 🔴 THE SUBJECT MOVED 2026-08-26 (owner): this confirmation is no longer a
+/// banner. It is a CENTRED, self-fading panel, because the one banner slot
+/// renders a single entry by severity and this one was pushed last — so
+/// anything else queued silently kept the slot. Full reasoning in
+/// ui/pairing_success_toast.dart.
+///
+/// Every assertion below is unchanged in what it defends; only the finder moved.
+/// Deleting them and starting over would have lost the two that matter most —
+/// 「an automatic reconnect raises nothing」 and 「it ends by itself」.
 Finder _banner(String message) =>
-    find.descendant(of: find.byType(BannerSlot), matching: find.text(message));
+    find.descendant(of: find.byType(PairingSuccessToast), matching: find.text(message));
 
 class _Rig {
   _Rig() {

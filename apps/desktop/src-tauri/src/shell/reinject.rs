@@ -110,3 +110,59 @@ pub fn timeline_reinject(
         }
     }
 }
+
+/// Re-inject one row's PICTURE into this machine's focused window (0.3.36 — the
+/// 15-vol §2.5e-7 ① gap's PC half: read the file → clipboard → paste).
+///
+/// THE ORIGINAL ONLY, refused by name when it is gone. `picture_bytes_in` is
+/// called with `thumb: None` on purpose: pasting the 256 px preview into the
+/// user's document while the row reads as a re-send of the picture would be a
+/// success claim the bytes do not support (R11). A missing original returns
+/// `None` — nothing was pasted — with the cause on the forensic record, which
+/// is the same contract `timeline_reinject` keeps for its own nothing-typed
+/// cases. (The capsule's gate additionally withholds the button when the row
+/// kept no original — `full_image` — so this arm is the store-level guard, not
+/// the everyday path.)
+///
+/// Everything else is [`timeline_reinject`]'s doc verbatim: one pipeline, one
+/// meaning of `injected`, no wire emission, session required and refused OUT
+/// LOUD when absent.
+#[tauri::command]
+pub fn timeline_reinject_image(state: State<'_, SocketState>, id: String) -> Option<Value> {
+    let (mime, bytes, _which) = match crate::shell::clipboard_image::picture_bytes_in(
+        &crate::socket::row_image::dir(),
+        &id,
+        None,
+    ) {
+        Ok(loaded) => loaded,
+        Err(reason) => {
+            crate::forensic::record(
+                "timeline",
+                &format!(
+                    "local re-inject IMAGE REFUSED entry_id={id} — {reason}; NOTHING was pasted \
+                     (original-only by design: a preview must not impersonate the picture)"
+                ),
+            );
+            return None;
+        }
+    };
+    let b64 = crate::socket::row_image::encode_b64(&bytes);
+    let ran: Option<Option<Value>> = with_socket(
+        &state,
+        |s| Some(s.reinject_image_locally(&b64, mime.wire(), &id)),
+        None,
+    );
+    match ran {
+        Some(result) => result,
+        None => {
+            crate::forensic::record(
+                "timeline",
+                &format!(
+                    "local re-inject IMAGE REFUSED entry_id={id} — no resident session, so no focus \
+                     state machine exists to resolve a target against; NOTHING was pasted"
+                ),
+            );
+            None
+        }
+    }
+}

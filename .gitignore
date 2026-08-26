@@ -106,3 +106,14 @@ window-forensics.log
 # reason this never came up before.
 __pycache__/
 *.pyc
+
+# Externally-owned WORKING directories that were swept into the repo by a
+# `git add -A docs` on 2026-08-26 (handoff §2-4) and untracked again on owner's
+# order the same day. They are someone else's live workspace: their files
+# change continuously while this repo's gates run, which both re-invites the
+# accidental commit and voids every gate receipt (the receipt needs a still
+# tree). The files stay on disk — only git stops looking at them.
+docs/scene-demo/
+docs/ui-design/brand/final-overview/
+# A stray sibling the same external work drops at the repo root.
+/scene-common.js

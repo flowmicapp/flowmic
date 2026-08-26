@@ -35,7 +35,7 @@
 // ids the server no longer knows about are dropped by construction.
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -59,6 +59,38 @@ pub struct Reconciler {
     ids: Mutex<HashSet<String>>,
     count: Arc<AtomicUsize>,
     last_join: Mutex<Option<Instant>>,
+    /// 🔴 HOW MANY PRESENCE EVENTS HAVE HAPPENED — not how many phones are here.
+    ///
+    /// `count` answers 「how many phones are here」. Nothing answered 「did a
+    /// phone just arrive」, and those are different questions: this set is keyed
+    /// by `mobile_id`, so the SAME phone leaving the transcription page and
+    /// coming back inserts an id that is already in the set ⇒ the count does not
+    /// move ⇒ every consumer downstream of the count is told nothing at all.
+    ///
+    /// MEASURED 2026-08-26 on owner's machine, six times in one session:
+    /// `pc:mobile-joined <same-uid> (mobiles=1)` with no `mobile-left` between,
+    /// no CONNECTION frame forwarded, and the capsule — retreated earlier by
+    /// `audio:pause` — never came back. Full trace:
+    /// docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+    ///
+    /// ⚠️ It is a SEPARATE value on purpose. Encoding 「an event happened」 into
+    /// the count (bumping it, toggling it) would be this repo's #1 defect shape
+    /// — one value answering two questions — and the count is load-bearing for
+    /// `phonePresent`, the focus:state gate and the capsule.
+    epoch: AtomicU64,
+    /// 🔴 HOW MANY JOINS HAVE HAPPENED — a strict subset of `epoch`.
+    ///
+    /// `epoch` moves on ANY presence event, departures included — that is what
+    /// its consumers (the capsule re-surface, the paired-list refresh) want:
+    /// 「something changed, go look」. The QR modal's success face asks a
+    /// narrower question — 「did a phone ENTER the room」 — and feeding it
+    /// `epoch` made a phone LEAVING (another handset backgrounding its app
+    /// while the QR was on screen) read as a pairing success. One value was
+    /// answering two questions; this is the second value.
+    ///
+    /// Monotonic, join-only: `on_join` moves both counters, `on_left` moves
+    /// only `epoch`. Watch it for INCREASE; its value means nothing.
+    join_epoch: AtomicU64,
     gate: Mutex<()>,
     suppress: Duration,
 }
@@ -74,6 +106,8 @@ impl Reconciler {
             ids: Mutex::new(HashSet::new()),
             count,
             last_join: Mutex::new(None),
+            epoch: AtomicU64::new(0),
+            join_epoch: AtomicU64::new(0),
             gate: Mutex::new(()),
             suppress,
         }
@@ -89,6 +123,22 @@ impl Reconciler {
     /// Current believed mobile count = the size of the presence set.
     pub fn count(&self) -> usize {
         self.count.load(Ordering::SeqCst)
+    }
+
+    /// How many presence EVENTS have been observed. Monotonic; it never goes
+    /// down, and it says nothing about how many phones are here — ask
+    /// [`Self::count`] for that. A consumer watches it for CHANGE and must
+    /// never read meaning into its value.
+    pub fn presence_epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    /// How many JOIN events have been observed — departures do not move this.
+    /// Monotonic. The QR modal's presence-event criterion reads this one, and
+    /// must NOT read [`Self::presence_epoch`]: that one also counts departures,
+    /// and 「a phone left」 must never close the QR with a success face.
+    pub fn join_epoch(&self) -> u64 {
+        self.join_epoch.load(Ordering::SeqCst)
     }
 
     /// The ids currently believed present (diagnostics / forensic / the optional
@@ -111,7 +161,17 @@ impl Reconciler {
         };
         // Stamped even for a duplicate: a join frame DID just arrive, so the
         // suppress window it protects is just as real.
+        //
+        // 🔴 …and for EXACTLY the same reason the epoch moves too. These two
+        // lines now say the same thing to two different consumers; until
+        // 2026-08-26 only the suppress window was ever told. The fact was
+        // collected here and then dropped on the way to the UI — R11 in its
+        // purest form: the layer making the judgement never received it.
         *self.last_join.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        // 🔴 The join-only counter moves HERE and nowhere else. `on_left` moves
+        // `epoch` alone — see the field docs for why they must stay two values.
+        self.join_epoch.fetch_add(1, Ordering::SeqCst);
         n
     }
 
@@ -120,7 +180,13 @@ impl Reconciler {
     /// new count.
     pub fn on_left(&self, mobile_id: &str) -> usize {
         let mut ids = self.ids.lock().unwrap_or_else(|p| p.into_inner());
-        ids.remove(mobile_id);
+        // Only a REAL removal is an event. A departure for an id we never had is
+        // already a no-op by the doc above, and bumping the epoch for it would
+        // hand the UI a phantom to react to — the opposite of the defect this
+        // value exists to fix.
+        if ids.remove(mobile_id) {
+            self.epoch.fetch_add(1, Ordering::SeqCst);
+        }
         self.publish(&ids)
     }
 
@@ -167,6 +233,94 @@ mod tests {
 
     fn ids(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// 🔴 THE DEFECT owner measured on 2026-08-26, reduced to one assertion.
+    ///
+    /// The same phone leaving the transcription page and coming back is a REAL
+    /// event with NO count change, and until this value existed there was
+    /// nothing for the desktop to notice. Six occurrences in one session,
+    /// capsule never came back, QR modal never closed.
+    #[test]
+    fn a_repeat_join_by_the_same_phone_moves_the_epoch_and_not_the_count() {
+        let r = fresh();
+        assert_eq!(r.presence_epoch(), 0, "nothing has happened yet");
+
+        assert_eq!(r.on_join("phone-a"), 1);
+        let after_first = r.presence_epoch();
+        assert!(after_first > 0, "a join is an event");
+
+        // The exact shape from the forensic log: joined again, still one phone.
+        assert_eq!(r.on_join("phone-a"), 1, "one phone is still one phone");
+        assert!(
+            r.presence_epoch() > after_first,
+            "the count could not say a phone just arrived — this is the value that can",
+        );
+    }
+
+    #[test]
+    fn a_departure_that_removes_nothing_is_not_an_event() {
+        // The reverse control for the arm above. `on_left` for an id we never
+        // had is documented as a no-op, and a phantom the UI reacts to would be
+        // worse than the silence this whole change is fixing.
+        let r = fresh();
+        r.on_join("phone-a");
+        let before = r.presence_epoch();
+        assert_eq!(r.on_left("never-seen"), 1);
+        assert_eq!(r.presence_epoch(), before, "nothing left, so nothing happened");
+        // …while a real departure IS one.
+        assert_eq!(r.on_left("phone-a"), 0);
+        assert!(r.presence_epoch() > before);
+    }
+
+    /// 🔴 THE FALSE POSITIVE this counter exists to prevent (2026-08-26 review):
+    /// feeding the QR modal's 「a phone just entered」 criterion from `epoch`
+    /// made a DEPARTURE — another paired handset backgrounding its app while
+    /// the QR was on screen — close the modal with a success face. A leave is
+    /// an event (`epoch` moves, the paired list must refresh its dots), but it
+    /// is never a pairing.
+    #[test]
+    fn a_departure_moves_the_presence_epoch_and_never_the_join_epoch() {
+        let r = fresh();
+        r.on_join("phone-a");
+        let epoch_before = r.presence_epoch();
+        let joins_before = r.join_epoch();
+        assert_eq!(r.on_left("phone-a"), 0);
+        assert!(r.presence_epoch() > epoch_before, "a real departure IS a presence event");
+        assert_eq!(
+            r.join_epoch(),
+            joins_before,
+            "…but it is NOT a join — reading it as one is what closed the QR on a disconnect",
+        );
+        // …while the join that follows moves BOTH.
+        r.on_join("phone-a");
+        assert!(r.join_epoch() > joins_before, "a join moves the join counter");
+    }
+
+    /// The repeat-join case from the arm above, on the join-only counter: the
+    /// same phone re-entering is a real JOIN with no count change, and this is
+    /// the value the QR criterion watches for it (owner: a re-pair counts).
+    #[test]
+    fn a_repeat_join_by_the_same_phone_moves_the_join_epoch_too() {
+        let r = fresh();
+        r.on_join("phone-a");
+        let joins = r.join_epoch();
+        assert_eq!(r.on_join("phone-a"), 1, "one phone is still one phone");
+        assert!(r.join_epoch() > joins);
+    }
+
+    #[test]
+    fn the_epoch_never_goes_backwards() {
+        // It is a counter, not a state: consumers compare it to what they last
+        // saw. If it could repeat a value, a consumer would miss an event.
+        let r = fresh();
+        let mut seen = r.presence_epoch();
+        for id in ["a", "b", "a", "b", "a"] {
+            r.on_join(id);
+            let now = r.presence_epoch();
+            assert!(now > seen, "epoch must strictly increase on every join");
+            seen = now;
+        }
     }
 
     #[test]

@@ -81,7 +81,15 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.composeSend,
   BannerIds.imageSend,
   BannerIds.aiCompose,
-  // Card PAIR-SUCCESS: a past event (a deliberate entry succeeded), 4 s window.
+  // Card PAIR-SUCCESS: a past event (a pairing was just established). Since
+  // 2026-08-26 the RENDERER is the centred panel (ui/pairing_success_toast.dart,
+  // ~2 s), which clears the ticket itself — this entry is the BACKSTOP for the
+  // one path the panel cannot cover: the chat page unmounting before the panel
+  // expires (its timers die with the widget, the ticket would stay up, and the
+  // NEXT entry would replay a stale confirmation). This reconciler lives on the
+  // controller, so it survives the page.
+  // ⚠️ Its window (kBannerAutoHideAfter, 4 s) must stay LONGER than the panel's
+  // hold+fade (~2 s), or it would kill a panel that is still on screen.
   BannerIds.pairingSuccess,
 ];
 

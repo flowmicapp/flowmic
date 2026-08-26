@@ -73,6 +73,8 @@ import 'image_transfer_bar.dart';
 import 'mic_glyph.dart';
 import 'mode_chip.dart';
 import 'plus_panel.dart';
+import 'chat_flow_toast.dart';
+import 'pairing_success_toast.dart';
 import 'ptt_bar.dart';
 import 'recording_panel.dart';
 // Card FB-7 multi-select / batch copy / hand off to AI to organize. Three
@@ -692,6 +694,16 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
                   ),
                   if (_sheetOpen)
                     ..._editSheetOverlayRouted(this, context, strings),
+                  // Card PAIR-SUCCESS (owner 2026-08-26): the centred 「配对成功」
+                  // panel. LAST in the Stack so it floats over the page, and
+                  // IgnorePointer inside so it never stands between the user and
+                  // the PTT button. It is not in the banner queue on purpose —
+                  // see chat_banner_sources.dart.
+                  PairingSuccessToast(
+                    ticket: controller.pairingSuccess.ticket,
+                    strings: strings,
+                    onExpired: controller.pairingSuccess.dismiss,
+                  ),
                 ],
               );
             },
@@ -772,23 +784,9 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   /// Short confirmation for the purely-local favourites actions. Delivery
   /// failures do NOT come through here — those are the banner slot's job (P-3),
   /// which is persistent and dismissible rather than a 2-second flash.
-  void _toast(BuildContext context, String message) {
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: TextStyle(color: FlowMicColors.t1, fontSize: 12.5),
-          ),
-          backgroundColor: FlowMicColors.surface2,
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-  }
+  // Body moved VERBATIM to chat_flow_toast.dart (800-line cap); the call sites
+  // below are untouched.
+  void _toast(BuildContext context, String message) => showChatToast(context, message);
 
   // ── composer ─────────────────────────────────────────────────────────────
   // Body moved to chat_flow_composer.dart (800-line cap), verbatim, as

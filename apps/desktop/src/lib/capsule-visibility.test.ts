@@ -184,6 +184,56 @@ d2('capsule-visibility — 卡 F1 phone pause is NOT phone loss', () => {
     e2(v.mode).toBe('persistent'); // no mode flip: this was not a Dismiss either
   });
 
+  /** 🔴 THE DEFECT owner measured on 2026-08-26, reduced to one assertion.
+   *
+   *  The phone leaves the transcription page and comes back. The desktop's
+   *  presence set is keyed by mobile_id, so the count is 1 before and 1 after —
+   *  `arrived` is false, this method does nothing, and the capsule that
+   *  `audio:pause` collapsed stays collapsed for ever. The user's own words:
+   *  「PC端没有胶囊窗口，退出后再重进会有」— the second time works only because
+   *  the socket really dropped and the count finally moved.
+   *
+   *  Note the shape: a `resume` never arrives here. The phone did not resume,
+   *  it re-entered — a different event, and the only one the PC was told about
+   *  (as `pc:mobile-joined`), which was then dropped before it reached the UI. */
+  i2('a phone RE-ENTERING is an arrival, even though the count never moved', () => {
+    const v = new CV2();
+    v.onConnection(true, 'room-1');
+    v.onPhonePaused();
+    e2(v.visible).toBe(false);
+
+    // Same room, same count, no resume — only the presence event.
+    v.onConnection(true, 'room-1', true);
+    e2(v.visible).toBe(true);
+    e2(v.isPhonePresent()).toBe(true);
+    e2(v.mode).toBe('persistent');
+  });
+
+  i2('a presence event with NO phone present surfaces nothing', () => {
+    // The reverse control. A departure bumps the same counter, so if the event
+    // alone could surface the capsule, leaving the room would pop an empty HUD
+    // over the desktop — the exact 「无手机却浮出」 defect R6-C1 exists to stop.
+    const v = new CV2();
+    v.onConnection(true, 'room-1');
+    v.onConnection(false, 'room-1', true);
+    e2(v.visible).toBe(false);
+    e2(v.isPhonePresent()).toBe(false);
+  });
+
+  i2('a presence event does NOT resurrect a capsule the user dismissed', () => {
+    // The property the old rising-edge guard was really protecting, kept: the
+    // event says a phone arrived, and an ARRIVAL has always outranked a dismiss
+    // (owner 2026-07-27). What must not happen is the OTHER thing the comment
+    // warned about — a routine presence tick re-popping it — and a tick carries
+    // no event, so it cannot.
+    const v = new CV2();
+    v.onConnection(true, 'room-1');
+    v.onDismiss(0);
+    e2(v.visible).toBe(false);
+    v.onConnection(true, 'room-1'); // a routine tick: no event
+    e2(v.visible).toBe(false);
+  });
+
   i2('resume brings the capsule back', () => {
     const v = new CV2();
     v.onConnection(true, 'room-1');

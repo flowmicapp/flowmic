@@ -231,6 +231,14 @@ export const timelineTransport: TimelineTransport = {
     const r = await invokeSafe<InjectResult | null>('timeline_reinject', { text, id: entryId });
     return r ?? null;
   },
+  async reInjectImageLocally(entryId) {
+    // Same collapse as the text sibling above: `undefined` (outside Tauri / an
+    // invoke that threw) and `null` from Rust (no original on disk / no session
+    // / deduped) both mean nothing was pasted, and the exact cause is on the
+    // forensic record every time.
+    const r = await invokeSafe<InjectResult | null>('timeline_reinject_image', { id: entryId });
+    return r ?? null;
+  },
   async rowImage(id) {
     // RV-93. `undefined` (outside Tauri / an invoke that threw) and `null` (this row
     // has no picture) collapse to `null` on purpose: the caller's response to both is

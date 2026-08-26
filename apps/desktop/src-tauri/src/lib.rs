@@ -405,6 +405,7 @@ pub fn run() {
             // remote row to mirror; the PC owns its timeline and writes it locally.
             // Deferred re-delivery kept its command and lost its round trip — see shell::reinject.
             shell::reinject::timeline_reinject,
+            shell::reinject::timeline_reinject_image,
             // RV-93 two sizes: the row list keeps the 256 px thumbnail; the DELIVERED
             // picture lives on disk and is fetched only when the user opens one.
             shell::timeline_images::timeline_image,

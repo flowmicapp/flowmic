@@ -104,3 +104,30 @@ export const IMAGE_IDS_MAX = 500;
 export type ReinjectVerdict =
   | { ran: true; status: HistoryStatus }
   | { ran: false; reason: 'no-such-row' | 'not-a-transcript' | 'nothing-typed' };
+
+/** Which transport door a row's re-inject goes through, or `null` = refuse.
+ *
+ *  Moved out of `TimelineStore.reInject` 2026-08-26 (800-line cap) — and the
+ *  move made the decision directly assertable, which the inline branch never
+ *  was. The narrative that used to sit on it, condensed:
+ *
+ *  · 🔴 A WHITELIST BY NAME, never an inequality (REQ-12-13): `!== 'image'`
+ *    fails OPEN — the day `entry_type` gained `'control'` such a guard let a
+ *    remote-key row through, and re-injecting one types its own face ("Clear")
+ *    into the user's document. A kind nobody has taught this function about
+ *    gets `null`, the safe direction.
+ *  · `'transcript'` → the TEXT door (`reInjectLocally`, types `output_text`).
+ *  · `'image'` → the IMAGE door (`reInjectImageLocally`, 0.3.36 — 15-vol
+ *    §2.5e-7 ①'s PC half: the Rust side reads the row's ORIGINAL picture from
+ *    disk and pastes it through the same pipeline). The old B3-7 depth guard —
+ *    "an image row's `output_text` is a generated descriptor (`🖼 PNG · 214 KB`,
+ *    row_transit.rs `row_face`), and typing it while reporting `injected`
+ *    fabricates a delivery" — is honoured by ROUTING, not refusal: the image
+ *    door carries no text at all, so the descriptor structurally cannot travel.
+ *    The store's tests pin exactly that (the caption never reaches either door
+ *    wrongly). */
+export function reinjectRouteOf(entryType: string): 'text' | 'image' | null {
+  if (entryType === 'transcript') return 'text';
+  if (entryType === 'image') return 'image';
+  return null;
+}

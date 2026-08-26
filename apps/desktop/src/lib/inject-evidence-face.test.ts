@@ -54,6 +54,7 @@ class MemStore implements ReportingKvStore {
 /** The store's ONE native call, stubbed. Nothing here drives deferred redelivery (补投). */
 const noTransport: TimelineTransport = {
   async reInjectLocally() { return null; },
+  async reInjectImageLocally() { return null; },
   async rowImage() { return null; },
   dropRowImages() { /* nothing to drop in these fixtures */ },
 };

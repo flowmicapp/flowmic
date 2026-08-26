@@ -29,6 +29,20 @@ export interface LanCandidate {
 /** Device-local, deliberately NOT a synced settings key (see file header). */
 export const LAN_HOST_KEY = 'flowmic.pairing.lan_host';
 
+/** The pairing snapshot's raw address list → picker rows. Moved VERBATIM from
+ *  DevicesPage.vue 2026-08-26 (800-line cap — same split rule as presenceKey).
+ *
+ *  The server marks these; the desktop only needs the flag, and re-deriving
+ *  it here would be a second classifier to drift. Recomputed narrowly: an
+ *  address outside RFC1918 that the server still offered IS the non-standard
+ *  case, since the server already dropped loopback/APIPA. */
+export function toLanCandidates(addresses: readonly string[] | undefined): LanCandidate[] {
+  return (addresses ?? []).map((address) => ({
+    address,
+    nonStandardPrivate: !/^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(address),
+  }));
+}
+
 /** Strip an `http://host:port` down to its host, '' when unparseable. */
 export function hostOf(endpoint: string): string {
   const e = endpoint.trim();

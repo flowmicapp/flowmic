@@ -126,7 +126,7 @@ import {
 } from './timeline-purge';
 import { planEviction } from './timeline-retention';
 import { mergeIntoOwnedRow, refusedBy } from './timeline-row-merge';
-import { IMAGE_IDS_MAX } from './timeline-store-surface';
+import { IMAGE_IDS_MAX, reinjectRouteOf } from './timeline-store-surface';
 import type { ReinjectVerdict, RetentionFacts, TimelineOpFailure } from './timeline-store-surface';
 import type { InjectResultMiss, RowMintReport } from './timeline-reports';
 import type {
@@ -541,41 +541,20 @@ export class TimelineStore {
       this.fail(id, channel);
       return { ran: false, reason: 'no-such-row' };
     }
-    // *** DEPTH GUARD, NOT A FIX FOR A REACHABLE BUG (B3-7 card report) ***
-    //
-    // RV-68 (src-tauri/socket/row_transit.rs `row_face`) made an image row's
-    // `output_text` a real CAPTION (e.g. `🖼 PNG · 214 KB`) instead of the always-
-    // empty string it used to be. That flips what this line below would do if it
-    // ever ran on an image row: it used to type nothing, now it would type real
-    // words the user never spoke into whatever window is focused, and report
-    // `injected` — "claiming that picture was re-sent, while what actually got
-    // typed was a line of descriptor text", exactly the second
-    // shape of no silent failure (claiming a thing happened that did not).
-    //
-    // TODAY this line cannot run on an image row: the ONLY production caller of
-    // `reInject` is TimelinePage.vue's button, and it is withheld by
-    // `rowCanReinject` (`entry_type !== 'image'`) BEFORE this method is ever
-    // called — that guard predates this card and this card does not touch it.
-    // So this is depth, not a patch for something reachable today: the UI v-if
-    // is a guard that holds against the ONE caller that exists, not against a
-    // caller that does not exist yet. The guard belongs HERE, at the store, for
-    // the same reason it belongs at the store on the phone
-    // (apps/mobile/lib/src/session/manual_delivery.dart `reInject`:
-    // `if (entry.isImage) return null;`, commented "the menu already withholds
-    // the action; this is the guard that holds even if some future caller
-    // forgets") — a menu/v-if is UI, and this store is not the view: any window,
-    // any future button, any keyboard shortcut that ends up calling
-    // `TimelineStore.reInject` must get the same answer without having to
-    // remember to re-derive TimelinePage.vue's check.
-    // 🔴 REQ-12-13 widened this from `=== 'image'` to 「not a transcript」: an
-    // inequality on ONE known kind fails OPEN, so the day `entry_type` gained
-    // `'control'` this guard let a remote-key row through — and re-injecting one
-    // types its own face into the user's document.
-    if (row.entry_type !== 'transcript') {
+    // Which door, or a named refusal — the whitelist and its whole history
+    // (the B3-7 depth guard, REQ-12-13's fail-closed flip, the 0.3.36 image
+    // arm) moved with the decision to `reinjectRouteOf` (timeline-store-surface
+    // .ts), where it is unit-asserted. The store-level guard still holds
+    // against every caller, not just the buttons that render today.
+    const route = reinjectRouteOf(row.entry_type);
+    if (route === null) {
       this.fail(id, channel);
       return { ran: false, reason: 'not-a-transcript' };
     }
-    const result = await this.transport.reInjectLocally(row.output_text, id);
+    const result =
+      route === 'image'
+        ? await this.transport.reInjectImageLocally(id)
+        : await this.transport.reInjectLocally(row.output_text, id);
     if (result === null) {
       this.fail(id, channel);
       return { ran: false, reason: 'nothing-typed' };

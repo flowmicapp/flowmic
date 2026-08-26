@@ -217,6 +217,83 @@ describe('the composable: success face → close → flash that ends by itself',
   });
 });
 
+// ── the presence-event criterion (2026-08-26, owner: a RE-pair counts) ──────
+//
+// Re-pairing a handset that is already in the list moves neither identity
+// ruler: same device_uid, same count. The only thing that moves is the shell's
+// JOIN counter (reconcile.rs `join_epoch`, summed by joinEpochSum) — so that
+// counter, passed to arm()/observe(), is the third criterion.
+//
+// 🔴 MANDATORY REVERSE CONTROL, seen red (recorded in the commit): with the
+// comparison flipped from `>` to `!==` — the tempting 「it changed」 — the
+// decrease test below fails with `expected true to be false`: a counter that
+// went DOWN (a channel row leaving the map, a shell restart) closed the QR
+// claiming a pairing that never happened. `>` fails toward a modal that stays
+// open, which the user can close by hand — the old behaviour.
+describe('the presence-event criterion: a JOIN while the QR is open', () => {
+  const rows = [phone({ pairing_id: 'p-a', device_uid: 'uid-a', online: true })];
+  const armed = snapshotPairing(rows);
+
+  it('🔴 a RE-pair (same rows, join counter moved) ⇒ matched, and the one online row flashes', () => {
+    const v = detectPairingSuccess(armed, rows, true);
+    expect(v).toEqual({ matched: true, criterion: 'presence-event', newKeys: ['lan:p-a'] });
+  });
+
+  it('several phones online ⇒ still matched, but no flash — naming one would be a guess', () => {
+    const many = [
+      phone({ pairing_id: 'p-a', device_uid: 'uid-a', online: true }),
+      phone({ pairing_id: 'p-b', device_uid: 'uid-b', online: true }),
+    ];
+    const v = detectPairingSuccess(snapshotPairing(many), many, true);
+    expect(v).toEqual({ matched: true, criterion: 'presence-event', newKeys: [] });
+  });
+
+  it('identity still wins when it CAN answer — the new row is named, not guessed', () => {
+    const v = detectPairingSuccess(armed, [...rows, phone({ pairing_id: 'p-b', device_uid: 'uid-b' })], true);
+    expect(v.matched && v.criterion === 'uid').toBe(true);
+  });
+
+  it('the composable fires on a join-counter INCREASE since arming, and says which ruler', () => {
+    vi.useFakeTimers();
+    const close = vi.fn();
+    const forensic = vi.fn();
+    const ps = usePairingSuccess({ close, forensic });
+    ps.arm(rows, 5);
+    ps.observe(rows, 5); // nothing happened yet — same counter, same rows
+    expect(ps.success.value).toBe(false);
+    ps.observe(rows, 6); // the phone re-joined while the QR was up
+    expect(ps.success.value).toBe(true);
+    expect(forensic.mock.calls[0]?.[0]).toContain('criterion=presence-event');
+    vi.advanceTimersByTime(PAIR_SUCCESS_HOLD_MS);
+    expect(close).toHaveBeenCalledTimes(1);
+    ps.dispose();
+    vi.useRealTimers();
+  });
+
+  it('🔴 a DECREASE never fires — a departure or reset is not a pairing', () => {
+    // The measured false positive this whole criterion split exists to prevent:
+    // the sum can go down without any phone doing anything, and `presence_epoch`
+    // (which also counts leaves) must never be what feeds this. joinEpochSum's
+    // own tests pin the leave half; this pins the comparison direction.
+    const close = vi.fn();
+    const ps = usePairingSuccess({ close, forensic: vi.fn() });
+    ps.arm(rows, 5);
+    ps.observe(rows, 4);
+    expect(ps.success.value).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+    ps.dispose();
+  });
+
+  it('an older shell (no counter at all) degrades to the identity rulers', () => {
+    const close = vi.fn();
+    const ps = usePairingSuccess({ close, forensic: vi.fn() });
+    ps.arm(rows); // no epoch observed at arming
+    ps.observe(rows, 7); // …so a later number has no baseline and means nothing
+    expect(ps.success.value).toBe(false);
+    ps.dispose();
+  });
+});
+
 describe('【rendered-result】 the two faces', () => {
   const info: PairingInfo = {
     short_code: '1234',

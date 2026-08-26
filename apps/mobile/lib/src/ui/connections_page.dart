@@ -76,11 +76,15 @@ class ConnectionsPage extends StatefulWidget {
   });
 
   final ConnectionsController connections;
-  /// Card PAIR-SUCCESS (owner 2026-08-25): fired from [_enterChat] — the ONE
-  /// funnel every DELIBERATE entry goes through (scan-pair, typed code, a tap on
-  /// a listed PC, the cloud card). main.dart wires it to the chat controller's
-  /// pairing-success notice. 🔴 Nothing automatic reaches this: the reconnect
-  /// ladder never pushes the chat page, so a network flap cannot raise it.
+  /// Card PAIR-SUCCESS (owner 2026-08-25; narrowed 2026-08-26): fired from
+  /// [_enterChat] ONLY when `pairingJustEstablished` — i.e. from `_add()`
+  /// (scan or typed code, a re-pair included). `_connect()` (tapping a PC
+  /// paired weeks ago) and `_openCloud()` go through the same funnel and do
+  /// NOT reach this — raising it for all three is why owner saw the
+  /// confirmation on every entry. main.dart wires it to the chat controller's
+  /// pairing-success notice. 🔴 Nothing automatic reaches this either: the
+  /// reconnect ladder never pushes the chat page, so a network flap cannot
+  /// raise it.
   final void Function()? onDeliberateEntry;
 
   final AppSettingsController appSettings;
@@ -187,8 +191,16 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     await widget.connections.refreshReachability();
   }
 
-  Future<void> _enterChat() async {
-    widget.onDeliberateEntry?.call();
+  /// 🔴 `pairingJustEstablished` (2026-08-26, owner) — this funnel is shared by
+  /// THREE entries and only one of them is a pairing: `_add()` (scan or typed
+  /// code, a re-pair included), against `_connect()` (tapping a PC you paired
+  /// weeks ago) and `_openCloud()`. Raising the confirmation for all three is
+  /// why owner saw it 「第二次进入、第三次进入」 as well.
+  ///
+  /// The scope-setting below is still done for EVERY entry, deliberately — read
+  /// its own note. Two different questions, one funnel.
+  Future<void> _enterChat({bool pairingJustEstablished = false}) async {
+    if (pairingJustEstablished) widget.onDeliberateEntry?.call();
     // v0.2.6 — scope the destination HERE, from the pairing we are actually
     // entering, because this is the ONE funnel every entry path goes through.
     //
@@ -320,7 +332,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       strings: s,
       initialEndpoint: lastEndpoint,
     );
-    if (ok && mounted) await _enterChat();
+    if (ok && mounted) await _enterChat(pairingJustEstablished: true);
   }
 
   Future<void> _openCloud() async {

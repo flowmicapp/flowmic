@@ -42,6 +42,20 @@ export class RecordingTransport implements TimelineTransport {
     return { entry_id: entryId, ...this.result };
   }
 
+  /** 0.3.36 — the image arm's calls, recorded SEPARATELY from `calls`: the two
+   *  doors carrying different payloads is the whole point of the split (the
+   *  caption must never travel through either), so a shared recorder would hide
+   *  exactly the mix-up the tests exist to catch. */
+  imageCalls: string[] = [];
+  /** What the image arm answers; `null` = nothing was pasted. */
+  imageResult: InjectResult | null = { ok: true, mode: 'clipboard' };
+
+  async reInjectImageLocally(entryId: string): Promise<InjectResult | null> {
+    this.imageCalls.push(entryId);
+    if (this.imageResult === null) return null;
+    return { entry_id: entryId, ...this.imageResult };
+  }
+
   async rowImage(): Promise<string | null> {
     return this.image;
   }

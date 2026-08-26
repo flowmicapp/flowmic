@@ -42,28 +42,11 @@ import { toRecentLine, upsertRecentLine, type RecentLine } from './recent-line';
 export { toRecentLine, upsertRecentLine } from './recent-line';
 export type { RecentLine, RecentStatus } from './recent-line';
 
-/** V2-16 — the capsule title. The CONNECTION frame carries NO phone name (pump.rs
- *  build_connection emits connected/registered/room_uuid/mobiles/reason/channel/
- *  primary — that is the whole payload), so the label is derived from pc:list-mobiles
- *  live presence instead: exactly ONE online phone → its pairing name; zero or ≥2 →
- *  the generic default (naming one of several would be a guess).
- *
- *  ⚠️ CORRECTION (卡 D-a, 2026-07-31). This doc used to end "While an utterance is in
- *  flight the title belongs to audio:start's device_label — left alone", and that
- *  sentence was false in a way that hid a dead branch: `AudioStartSchema` has no
- *  `device_label` field at all (protocol-schemas-audio.ts — sample_rate / channels /
- *  encoding / mode / send_policy / delivery / source_lang / target_lang), zod strips
- *  unknown keys, and the server forwards `parsed.data`. `onAudioStart`'s read of it
- *  was therefore unreachable BY CONSTRUCTION, and the mobile had no producer for it
- *  either. The read is deleted; this is the assertion that replaces it.
- *
- *  `speaking` still guards, for the reason that was always the real one: a directory
- *  refresh mid-utterance must not re-label the capsule under the user's eyes. That is
- *  a stability rule about THIS derivation, not a hand-off to another writer. */
-export function deriveSessionTitle(online: readonly string[], speaking: boolean, current: string): string {
-  if (speaking) return current;
-  return online.length === 1 ? online[0]! : (S.cap_session_default as string);
-}
+// V2-16 — `deriveSessionTitle` and its doc moved VERBATIM to session-title.ts
+// (800-line cap). Re-exported here so no import site moved.
+import { deriveSessionTitle } from './session-title';
+export { deriveSessionTitle } from './session-title';
+
 
 const morph = new CapsuleMorph();
 const vis = new CapsuleVisibility();
@@ -430,15 +413,31 @@ export function onConnection(p: unknown): void {
   state.registered = c.registered === true;
   state.mobiles = typeof c.mobiles === 'number' ? c.mobiles : 0;
   state.phonePresent = state.mobiles > 0;
-  // V2-16: join/leave edges are exactly the mobiles-count changes — refresh the
-  // name directory (and with it the pre-utterance session title) then. The boot
-  // frame always fires (lastDirectoryMobiles starts at -1), warming the map for
-  // the history rows that arrive before any phone change.
-  if (state.mobiles !== lastDirectoryMobiles) {
+  // 🔴 CORRECTED 2026-08-26. The line that used to be here read 「V2-16:
+  // join/leave edges are EXACTLY the mobiles-count changes」 — FALSE, and two
+  // things were built on it. The full account (what was measured, why the count
+  // cannot answer it) lives once, in `socket/reconcile.rs::epoch` and in
+  // `capsule-visibility.onConnection`; repeating it here would be a third copy
+  // that can rot on its own.
+  //
+  // In one line: the presence set is keyed by mobile_id, so a phone re-entering
+  // the transcription page moves nothing the pump forwards. `presence_epoch` is
+  // the missing fact — watch it for CHANGE, never read meaning into its value.
+  const epoch = typeof c.presence_epoch === 'number' ? c.presence_epoch : null;
+  const presenceEvent = epoch !== null && epoch !== lastPresenceEpoch;
+  if (epoch !== null) lastPresenceEpoch = epoch;
+  // The directory refresh now hangs off the EVENT as well as the count, so a
+  // returning phone re-reads its own name too.
+  if (state.mobiles !== lastDirectoryMobiles || presenceEvent) {
     lastDirectoryMobiles = state.mobiles;
     void refreshMobileDirectory();
   }
-  vis.onConnection(state.phonePresent, c.room_uuid ?? null);
+  // The event rides INTO the FSM, not around it: `onConnection` still owns every
+  // rule about whether the capsule may show.
+  if (presenceEvent) {
+    appendForensic('capsule', `presence event (epoch=${epoch}) phonePresent=${state.phonePresent}`);
+  }
+  vis.onConnection(state.phonePresent, c.room_uuid ?? null, presenceEvent);
 }
 
 // ── RV-07 CONNECTION seed (pull) ──
@@ -492,6 +491,9 @@ export function setDirectoryFetcher(fn: () => Promise<PairedMobile[] | null>): v
   fetchDirectory = fn;
 }
 let lastDirectoryMobiles = -1;
+/** Card PRESENCE-EPOCH: the last presence-event counter seen. Starts below any
+ *  real value so the boot frame counts as an event exactly once. */
+let lastPresenceEpoch = -1;
 let directoryInFlight = false;
 
 /** Test hook: the mobiles-change edge is module state, so specs re-arm it here

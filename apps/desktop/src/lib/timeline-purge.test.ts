@@ -179,6 +179,7 @@ class RecordingTransport implements TimelineTransport {
     this.pictures.push(...ids);
   }
   reInjectLocally = vi.fn(async () => null);
+  reInjectImageLocally = vi.fn(async () => null);
   rowImage = vi.fn(async () => null);
 }
 

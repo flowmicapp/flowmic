@@ -54,13 +54,29 @@ export class CapsuleVisibility {
    *  NEW session → reset to persistent (07 §4). A same-session reconnect keeps the
    *  current mode. In persistent mode the capsule tracks presence directly: a
    *  phone present surfaces it, an empty room retreats it back to the tray. */
-  onConnection(phonePresent: boolean, roomUuid: string | null): void {
+  ///
+  /// 🔴 `presenceEvent` (2026-08-26) — 「a join frame just arrived」, which the
+  /// rising edge below CANNOT see and which nothing else can supply.
+  ///
+  /// The desktop's presence set is keyed by `mobile_id`, so a phone leaving the
+  /// transcription page and coming back re-inserts an id that is already there:
+  /// `phonePresent` was true before and is true after, so `arrived` is false and
+  /// this method does nothing. Measured six times in one session on owner's
+  /// machine 2026-08-26 — the capsule, retreated earlier by `audio:pause`, never
+  /// came back until the socket really dropped. Trace:
+  /// docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+  ///
+  /// ⚠️ Deliberately a PARAMETER here rather than a new `onPhoneArrived()`
+  /// method: 「should the capsule be on screen」 already has exactly one door,
+  /// and a second entrance would be a second author of the same answer (RV-97).
+  /// The caller supplies the fact; every rule below still decides.
+  onConnection(phonePresent: boolean, roomUuid: string | null, presenceEvent = false): void {
     if (roomUuid !== this.room) {
       this.room = roomUuid;
       this.mode = 'persistent';
       this.suppressUntil = 0;
     }
-    const arrived = phonePresent && !this.phonePresent;
+    const arrived = phonePresent && (!this.phonePresent || presenceEvent);
     this.phonePresent = phonePresent;
     if (!phonePresent) {
       // lead review (主控人审) (R6-C1): NO phone in the room means there is nothing to show in

@@ -539,6 +539,28 @@ pub fn local_reinject_request(text: &str, entry_id: &str) -> InjectRequest {
     }
 }
 
+/// The IMAGE sibling of [`local_reinject_request`] (0.3.36 — the 15-vol §2.5e-7 ①
+/// gap's PC half: a picture row's re-inject). Same fabricated-locally posture,
+/// field for field: `origin: Live` for the same human-clicked reason, no
+/// `request_id` (INJ-3 has no key to replay), `entry_id` as the A-58 echo.
+/// `source: "image"` + both image fields is exactly the well-formed shape
+/// [`InjectRequest::image`] requires — the pipeline's image arm, not a text
+/// inject that happens to carry bytes.
+pub fn local_reinject_image_request(image_b64: &str, image_mime: &str, entry_id: &str) -> InjectRequest {
+    InjectRequest {
+        // The image arm never types text; empty is the honest value (an inbound
+        // image frame's `text` is likewise unused by the pipeline's image path).
+        text: String::new(),
+        source: "image".to_string(),
+        request_id: None,
+        entry_id: Some(entry_id.to_string()),
+        image_b64: Some(image_b64.to_string()),
+        image_mime: Some(image_mime.to_string()),
+        origin: crate::inject::InjectOrigin::Live,
+        origin_stated: false,
+    }
+}
+
 /// Read a pc:register / pc:reconnect ack object into (token, pc_id, room_uuid).
 pub fn parse_register_ack(v: &Value) -> (Option<String>, Option<String>, Option<String>) {
     (

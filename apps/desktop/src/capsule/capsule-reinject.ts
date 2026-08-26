@@ -50,12 +50,14 @@ import type { RecentLine } from './recent-line';
  *
  *  TWO conditions, and each is somebody else's rule read literally:
  *
- *  ① `entryType === 'transcript'`. The store refuses anything else and would
- *     answer `not-a-transcript`, so showing the button on an image row would be
- *     offering an act that is defined to fail. 🔴 Written as an EQUALITY on the
- *     one kind that works, never `!== 'image'`: REQ-12-13 already paid for that
- *     — an inequality on one known kind fails OPEN, and the day `entry_type`
- *     gained `'control'` the old guard let a remote-key row through.
+ *  ① the kind is one the store ACCEPTS — `transcript`, or (since 0.3.36)
+ *     `image`, whose arm pastes the row's original picture rather than typing
+ *     anything. Everything else would be answered `not-a-transcript`, so
+ *     showing the button there would be offering an act that is defined to
+ *     fail. 🔴 Still written as EQUALITIES on the kinds that work, never an
+ *     inequality: REQ-12-13 already paid for that — an inequality on one known
+ *     kind fails OPEN, and the day `entry_type` gained `'control'` the old
+ *     guard let a remote-key row through.
  *
  *  ② the rendered text is non-empty — the same test `canCopyLine` applies, for
  *     the same reason: an un-captioned image row has nothing to act on, and a
@@ -70,7 +72,15 @@ import type { RecentLine } from './recent-line';
  *  always true, and `status` may additionally be **null** here (the frame did not
  *  say). A gate whose answer never changes is not a gate; adding one would only
  *  create a second place to keep in sync with `canReinject`. */
-export function canReinjectLine(l: Pick<RecentLine, 'entryType' | 'text'>): boolean {
+export function canReinjectLine(l: Pick<RecentLine, 'entryType' | 'text' | 'fullImage'>): boolean {
+  // ✅ 0.3.36 (owner 2026-08-26, 15-vol §2.5e-7 ① closed): an image row CAN
+  // re-inject now — the store's image arm reads the ORIGINAL from disk and
+  // pastes it through the same pipeline. The gate is `fullImage`, not the
+  // thumbnail: the Rust side is original-only by design (a pasted preview
+  // impersonating the picture is R11), so a row that kept no original would be
+  // offered an act that is defined to fail — the same R8 rule as ② below.
+  // Still a whitelist of kinds: anything that is neither gets no button.
+  if (l.entryType === 'image') return l.fullImage === true;
   return l.entryType === 'transcript' && l.text.trim() !== '';
 }
 

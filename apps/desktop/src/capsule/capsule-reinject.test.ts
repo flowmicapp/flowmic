@@ -33,19 +33,26 @@ const iconVue = readFileSync(
 
 describe('canReinjectLine: the R8 gate — omit rather than offer an act that is defined to fail', () => {
   it('a transcript row with text can be re-injected', () => {
-    expect(canReinjectLine({ entryType: 'transcript', text: '你好' })).toBe(true);
+    expect(canReinjectLine({ entryType: 'transcript', text: '你好', fullImage: false })).toBe(true);
   });
 
-  it('🔴 an image row cannot — the store refuses it, so offering it would be a button that only fails', () => {
-    expect(canReinjectLine({ entryType: 'image', text: '🖼 PNG · 214 KB' })).toBe(false);
+  it('✅ 0.3.36 — an image row that KEPT its original can re-inject (the store pastes the picture)', () => {
+    expect(canReinjectLine({ entryType: 'image', text: '🖼 PNG · 214 KB', fullImage: true })).toBe(true);
+  });
+
+  it('🔴 an image row with NO original cannot — the Rust arm is original-only, so the button would be defined to fail', () => {
+    // R11's other face: pasting the 256 px preview while the row reads as a
+    // re-send of the picture is a claim the bytes do not support, so the arm
+    // refuses thumbnail-only rows — and R8 says such a row gets no button.
+    expect(canReinjectLine({ entryType: 'image', text: '🖼 PNG · 214 KB', fullImage: false })).toBe(false);
   });
 
   it('a transcript row with nothing rendered cannot (same rule as canCopyLine)', () => {
-    expect(canReinjectLine({ entryType: 'transcript', text: '' })).toBe(false);
-    expect(canReinjectLine({ entryType: 'transcript', text: '   \n' })).toBe(false);
+    expect(canReinjectLine({ entryType: 'transcript', text: '', fullImage: false })).toBe(false);
+    expect(canReinjectLine({ entryType: 'transcript', text: '   \n', fullImage: false })).toBe(false);
   });
 
-  it('🔴 is written as an EQUALITY on transcript, not an inequality on image — REQ-12-13 already paid for that', () => {
+  it('🔴 is written as EQUALITIES on the kinds that work, not an inequality — REQ-12-13 already paid for that', () => {
     // The source, not the behaviour: an `!== "image"` test passes every case
     // above and STILL fails open the day a third kind arrives, which is exactly
     // what happened when `entry_type` gained 'control'. Only reading the code
