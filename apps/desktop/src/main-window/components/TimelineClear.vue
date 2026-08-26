@@ -213,7 +213,7 @@ const cutLine = computed<string>(() => {
       <p class="small">{{ kindLabel(kind) }} · {{ winLabel(window) }} — {{ previewText }}</p>
       <p class="warn-line small">{{ S.cl_irreversible }}</p>
       <div class="acts">
-        <button class="btn" type="button" @click="confirming = false">{{ S.cl_confirm_cancel }}</button>
+        <button class="btn ghost" type="button" @click="confirming = false">{{ S.cl_confirm_cancel }}</button>
         <button class="btn danger" type="button" :disabled="busy" @click="run">{{ S.cl_confirm_ok }}</button>
       </div>
     </div>

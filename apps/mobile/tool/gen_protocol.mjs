@@ -194,6 +194,11 @@ function writeSettingsConsts() {
   const dictionary = readFileSync(DICTIONARY_TS, 'utf8');
 
   const scenarioCardKey = readConstStr(constants, 'SETTINGS_KEY_SCENARIO_CARD');
+  // Card LLM-NOTICE (2026-08-25): the READ-ONLY capability fact the phone
+  // consumes (settings/llm_capability.dart). Mirrored so the phone never
+  // hand-copies the key string; the constant NAME below is what
+  // verify/lint/settings-key-drift.mjs greps for a UI consumer.
+  const capabilityLlmKey = readConstStr(constants, 'SETTINGS_KEY_CAPABILITY_LLM');
   const maxLabel = readConstInt(scenario, 'SCENARIO_MAX_LABEL_LEN');
   const maxProf = readConstInt(scenario, 'SCENARIO_MAX_PROFESSIONS');
   const maxDom = readConstInt(scenario, 'SCENARIO_MAX_DOMAINS');
@@ -222,6 +227,11 @@ class FlowMicSettingsKeys {
 
   /// settings:update payload key for the structured scenario card.
   static const String scenarioCard = '${dartStr(scenarioCardKey)}';
+
+  /// READ-ONLY: 'capability.llm' (SETTINGS_KEY_CAPABILITY_LLM), value
+  /// {usable: bool}, synthesised by the server on every settings read and
+  /// never storable — the phone only ever READS it (settings/llm_capability.dart).
+  static const String capabilityLlm = '${dartStr(capabilityLlmKey)}';
 }
 
 /// ScenarioCard array/label caps (master-plan §4.1) — the UI enforces these at
@@ -260,7 +270,7 @@ ${packLines}
 }
 `;
   writeFileSync(join(OUT_DIR, 'flowmic_settings.g.dart'), dart, 'utf8');
-  return { keys: 2, packs: packs.length };
+  return { keys: 3, packs: packs.length };
 }
 
 function main() {

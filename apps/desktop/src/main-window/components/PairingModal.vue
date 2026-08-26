@@ -75,6 +75,11 @@ const props = defineProps<{
    *  offered at all. Taken raw (not a pre-computed boolean) so the reason shown is
    *  the same wording the device page's cloud card uses for the same fact. */
   cloud: CloudStatus;
+  /** Card PAIR-SUCCESS (owner 2026-08-25): a NEW phone just paired (the parent's
+   *  identity diff, lib/pairing-success.ts). While true the QR gives way to a
+   *  「connected ✓」 face for ~1 s; the PARENT closes the modal afterwards — a
+   *  dialog that vanishes unexplained reads as a crash. */
+  success?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -378,6 +383,13 @@ onUnmounted(() => {
         <button class="modal-x" @click="emit('close')"><Icon name="x" /></button>
       </div>
 
+      <!-- Card PAIR-SUCCESS: the ~1 s success face. role=status, never focused —
+           the user is holding a phone, not this window. -->
+      <div v-if="success" class="pair-success" role="status" data-testid="pair-success">
+        <Icon name="check" />
+        <b>{{ S.pair_success }}</b>
+      </div>
+      <template v-else>
       <!-- U8: a first-time user landed here with no idea WHERE the thing that
            reads this code comes from. Shown for both channels (LAN also needs
            the phone app), always — not just on a blocked/pending tab. The
@@ -550,6 +562,7 @@ onUnmounted(() => {
         </button>
         <button class="btn pri sm" @click="emit('close')">{{ S.pair_close }}</button>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -569,6 +582,10 @@ onUnmounted(() => {
 @keyframes scrim-in { from { opacity: 0; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }
 .modal-head { display: flex; align-items: center; margin-bottom: 10px; }
+/* Card PAIR-SUCCESS: the ~1 s face that replaces the QR. Same green ink the
+   status badges use for 「done」 — nothing new to learn. */
+.pair-success { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0 20px; color: var(--green-ink); font-size: 15px; }
+.pair-success .icon { width: 28px; height: 28px; }
 .modal-head b { font-size: 15px; }
 .modal-x { margin-left: auto; width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--t3); }
 .modal-x:hover { background: var(--line-soft); color: var(--t1); }

@@ -32,6 +32,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import Icon from './components/Icon.vue';
 import PairingModal from './components/PairingModal.vue';
 import PairedList from './components/PairedList.vue';
+import { usePairingSuccess } from './use-pairing-success'; // card PAIR-SUCCESS: identity diff → success face → close → flash
 import CloudAccountLines from './components/CloudAccountLines.vue';
 // REQ-12-14: the head both channel cards wear (identity tile · name · state pill).
 // One component so the two cards cannot drift — read its header for the C-8 note.
@@ -45,6 +46,7 @@ import { conn, connByChannel, currentChannel } from './store';
 import { S, SIDECAR_LABEL } from '../lib/strings';
 import {
   CH,
+  appendForensic,
   clearCloudKey,
   fetchCloudStatus,
   fetchPairedMobilesView,
@@ -208,6 +210,7 @@ async function pickPairChannel(channel: ChannelId): Promise<void> {
 const pairedView = ref<PairedPresenceView | null | undefined>(undefined);
 const pairedLoading = ref(false);
 
+const pairSuccess = usePairingSuccess({ close: closeModal, forensic: (m) => appendForensic('devices', m) }); // card PAIR-SUCCESS
 async function loadPaired(): Promise<void> {
   if (pairedLoading.value) return;
   pairedLoading.value = true;
@@ -226,6 +229,7 @@ async function loadPaired(): Promise<void> {
     const merged = mergeWithCache(raw, readPairedCache(localKv), new Date());
     writePairedCache(localKv, merged.nextCache);
     pairedView.value = merged.view;
+    pairSuccess.observe(raw.rows); // card PAIR-SUCCESS: LIVE rows only — the cache's stale rows must not look new
   } finally {
     pairedLoading.value = false;
   }
@@ -244,11 +248,12 @@ async function openModal(): Promise<void> {
   if (info.value.connected && !info.value.short_code) {
     if (await refreshPairingCode(pairTarget.value)) await loadInfo();
   }
+  pairSuccess.arm(pairedView.value?.rows ?? null); // card PAIR-SUCCESS: freeze WHO is paired as the QR opens
   modalOpen.value = true;
 }
-
 function closeModal(): void {
   modalOpen.value = false;
+  pairSuccess.disarm();
 }
 
 // ── GA-10: rename THIS PC ──────────────────────────────────────────────────
@@ -400,10 +405,7 @@ const cloudUp = computed(() => connByChannel.cloud?.connected === true);
  *  `connByChannel`), and keeping it would just be a second answer to the same
  *  question. */
 const perChannelMobiles = computed(() =>
-  Object.keys(connByChannel)
-    .sort()
-    .map((ch) => `${ch}:${connByChannel[ch]?.mobiles ?? 0}`)
-    .join('|'),
+  Object.keys(connByChannel).sort().map((ch) => `${ch}:${connByChannel[ch]?.mobiles ?? 0}`).join('|'),
 );
 
 // Refresh the snapshot whenever the connection state or ANY channel's phone count
@@ -420,11 +422,7 @@ const perChannelMobiles = computed(() =>
 // promises. It must be declared after the computeds it depends on.
 watch(
   () => [conn.connected, conn.registered, perChannelMobiles.value, lanUp.value, cloudUp.value] as const,
-  () => {
-    void loadInfo();
-    void loadPaired();
-  },
-  { immediate: true },
+  () => { void loadInfo(); void loadPaired(); }, { immediate: true },
 );
 const lanCard = computed(() =>
   deriveLanCard({
@@ -797,7 +795,7 @@ onUnmounted(() => {
          physical handset (2026-07-29 polish D1) by PairedList.vue. This page
          still owns the fetch (loadPaired); the card owns the states, the
          grouping, the row actions and their release state machine binding. -->
-    <PairedList :view="pairedView" :reload="loadPaired" />
+    <PairedList :view="pairedView" :reload="loadPaired" :flash-key="pairSuccess.flashKey.value" />
 
     <!-- this PC — GA-10 made the name editable HERE and nowhere else (04 §3.7;
          owner's iron rule: "naming on the PC side can only be controlled by the
@@ -815,6 +813,7 @@ onUnmounted(() => {
       :info="info"
       :channel="pairTarget"
       :cloud="cloud"
+      :success="pairSuccess.success.value"
       @close="closeModal"
       @reload="loadInfo"
       @channel="pickPairChannel"

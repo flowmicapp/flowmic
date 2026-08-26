@@ -43,6 +43,7 @@ import 'src/portable/portable_export.dart';
 import 'src/portable/portable_import.dart';
 import 'src/portable/timeline_import_sink.dart';
 import 'src/portable/unknown_field_vault.dart';
+import 'src/settings/llm_capability.dart';
 import 'src/settings/local_prefs.dart';
 import 'src/update/update_controller.dart';
 import 'src/update/update_prefs.dart';
@@ -256,6 +257,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
   late final DestinationController _destination;
   late final TimelineSyncGate _syncGate;
   late final SettingsClient _settingsClient;
+  late final LlmCapability _llmCapability; // card LLM-NOTICE: the capability.llm reader
   late final ScenarioCardController _scenario;
   late final LoginController _login;
   late final ChatController _controller;
@@ -341,10 +343,9 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // ingress's item shape.
     _syncGate = TimelineSyncGate(transport: _session.transport);
     _settingsClient = SettingsClient(transport: _session.transport, roomJoins: _session.roomJoins);
-    _scenario = ScenarioCardController(
-      settingsClient: _settingsClient,
-      cache: SharedPrefsScenarioCardCache(widget.prefs),
-    );
+    // Card LLM-NOTICE: the SERVER's capability.llm fact, never inferred locally.
+    _llmCapability = LlmCapability(settingsClient: _settingsClient);
+    _scenario = ScenarioCardController(settingsClient: _settingsClient, cache: SharedPrefsScenarioCardCache(widget.prefs));
     // Persist the SaaS JWT + public user (never the password) across launches so
     // the account area shows email/plan on boot (hydrate below).
     _login = LoginController(
@@ -361,6 +362,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // **SAME instance** the settings page reads, so 「what was chosen in
       // settings」 and 「what the next utterance sends on the wire」 cannot disagree.
       appSettings: widget.appSettings,
+      llmCapability: _llmCapability, // card LLM-NOTICE: the mode row's standing note
       // Window B3-2a — the delivery queue's disk.
       //
       // ⚠️ THE FALLBACK IS EXPLICIT AND IS A REAL DEGRADATION. When SQLite could
@@ -430,10 +432,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // version am I」 has only one answer in this
     // App, otherwise 「the version shown」 and 「the version compared against」 could
     // each tell a different story.
-    _update = UpdateController(
-      version: const PackageAppVersion(),
-      prefs: SharedPrefsUpdatePrefs(widget.prefs),
-    );
+    _update = UpdateController(version: const PackageAppVersion(), prefs: SharedPrefsUpdatePrefs(widget.prefs));
     // Card E-CL — the blind-store cloud leg. When `storage.cloudState` is null
     // (SQLite failed to open), the whole leg
     // is **NOT built**: running it with nowhere to record the debt would turn
@@ -561,6 +560,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     _controller.dispose();
     _login.dispose();
     _scenario.dispose();
+    _llmCapability.dispose();
     _settingsClient.dispose();
     _destination.dispose();
     _store.dispose();
@@ -772,6 +772,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
             // the `child:` of the layer above and is never rebuilt by it).
             updateListenable: _update,
             hasUpdate: () => _update.hasUpdate,
+            onDeliberateEntry: _controller.pairingSuccess.raise, // card PAIR-SUCCESS
           ),
         ),
         ),

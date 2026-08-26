@@ -62,4 +62,12 @@ abstract final class FlowMicHaptics {
   /// happened」 without
   /// saying WHAT is the thing this file exists to prevent.
   static Future<void> controlKeyRefused() => injectFailure();
+
+  // ── Card PAIR-SUCCESS (owner 2026-08-25) ────────────────────────────────────
+  /// A DELIBERATE entry into the transcription page succeeded (scan-pair, typed
+  /// code, a tap on a listed PC). The platform's plain `vibrate` — a longer,
+  /// untyped buzz — so it is distinguishable by feel from all three
+  /// push-to-talk impacts (medium / light / heavy) and from the two-pulse
+  /// failure and the selection click. Never on an automatic reconnect.
+  static Future<void> pairingSuccess() => HapticFeedback.vibrate();
 }

@@ -50,6 +50,11 @@ const props = defineProps<{
    *  success (its rule ②: a failed action never refreshes the table), so this
    *  must be the async fetch itself, not a fire-and-forget emit. */
   reload: () => Promise<void>;
+  /** Card PAIR-SUCCESS (owner 2026-08-25): the `${channel}:${pairing_id}` of the
+   *  row that JUST paired, while the parent's flash timer runs; null otherwise.
+   *  EVENT-type: the parent clears it on a timer (use-pairing-success.ts), so
+   *  the emphasis ends by itself — the CSS below only paints it. */
+  flashKey?: string | null;
 }>();
 
 const pairedList = computed(() =>
@@ -229,7 +234,7 @@ function lastSeenTitle(stamp: string | null): string {
           <span v-if="g.multi" class="chip pg-count" :title="S.dev_group_hint">{{ g.rows.length }} {{ S.dev_group_pairings }}</span>
         </div>
         <ul class="pg-rows">
-          <li v-for="m in g.rows" :key="`${m.channel}:${m.pairing_id}`" class="paired-row">
+          <li v-for="m in g.rows" :key="`${m.channel}:${m.pairing_id}`" class="paired-row" :class="{ 'just-paired': flashKey === `${m.channel}:${m.pairing_id}` }">
             <!-- Each sub-row is one PAIRING on one channel — its chip, times and
                  buttons all remain its own (disconnect/unpair on one does nothing
                  to the other). owner 2026-08-01: colour + icon combination, must
@@ -355,6 +360,13 @@ function lastSeenTitle(stamp: string | null): string {
 /* Rows divide INSIDE the shell; between shells the gap + border do the work. */
 .paired-row + .paired-row { border-top: 1px dashed var(--line-soft); }
 .paired-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 0; font-size: 13px; color: var(--t1); }
+/* Card PAIR-SUCCESS: the just-paired row flashes TWICE and stops. Two
+   iterations, not infinite: an event, not a state. Motion is decoration — a
+   reader who asked the OS to stop moving things gets no flash and loses no
+   information (the row is on the list either way). */
+@keyframes just-paired { 0%, 100% { background: transparent; } 50% { background: var(--brand-soft); } }
+.paired-row.just-paired { animation: just-paired 0.7s ease-in-out 2; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) { .paired-row.just-paired { animation: none; } }
 /* a phone name is user-supplied and unbounded — ellipsize instead of letting
    it shove the chips and actions off the row */
 .pm-name { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -23,7 +23,7 @@ import 'dart:async';
 import 'dart:ui' show PathMetric;
 
 import 'package:flutter/material.dart' hide ConnectionState;
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show ValueListenable, setEquals;
 import 'dart:typed_data' show Uint8List;
 
 import '../session/chat_controller.dart';

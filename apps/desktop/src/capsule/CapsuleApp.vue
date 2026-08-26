@@ -26,6 +26,7 @@ import { CHANNEL_VISUAL } from '../lib/channel';
 import type { KvStore } from '../lib/types';
 import { dismiss, initCapsule, setFirstSurfaceAnchor, state, toggleDiag, type RecentLine } from './controller';
 import { canCopyLine, copyPayload } from './capsule-copy';
+import { copyRowImage } from '../lib/bridge-clipboard';
 import { canReinjectLine } from './capsule-reinject';
 import { useRowReinject } from './use-row-reinject';
 import { hasSourceLine } from '../lib/source-line';
@@ -118,6 +119,38 @@ async function copyLine(l: RecentLine): Promise<void> {
       clearCopyStatus(l.id);
     }, 1200),
   );
+}
+
+/** Card IMG-COPY (owner P0, 2026-08-25) — the picture row's copy-PICTURE
+ *  button. Same status/icon machinery as [copyLine] (one `copyStatus` map, one
+ *  timer table), a different payload and a different door: `copyRowImage`
+ *  (lib/bridge-clipboard.ts → `capsule_copy_image`), which writes the ORIGINAL
+ *  kept on disk and falls back to the 256 px thumbnail the strip already holds.
+ *  A refused write is never silent: ✗ + tooltip + forensic line. */
+async function copyImageLine(l: RecentLine): Promise<void> {
+  if (!canCopyImageLine(l)) return;
+  const prior = copyTimers.get(l.id);
+  if (prior) clearTimeout(prior);
+  const result = await copyRowImage(l.id, l.thumb);
+  if (result.ok) {
+    copyStatus.value = { ...copyStatus.value, [l.id]: 'copied' };
+  } else {
+    copyStatus.value = { ...copyStatus.value, [l.id]: 'error' };
+    appendForensic('capsule', `copy image row ${l.id} FAILED: ${result.reason}`);
+  }
+  copyTimers.set(
+    l.id,
+    setTimeout(() => {
+      copyTimers.delete(l.id);
+      clearCopyStatus(l.id);
+    }, 1200),
+  );
+}
+
+/** Omit, never disable: a picture row with neither an original nor a preview
+ *  has nothing to copy (the same R8 gate `canCopyLine` applies to text). */
+function canCopyImageLine(l: RecentLine): boolean {
+  return l.entryType === 'image' && (l.fullImage || l.thumb !== null);
 }
 
 // ── 0.3.30 per-row RE-INJECT (owner 2026-08-24: an inject icon beside the copy
@@ -652,6 +685,18 @@ watch(
               :title="copyStatus[l.id] === 'error' ? S.op_copy_failed : S.op_copy"
               @click="copyLine(l)"
             ><Icon :name="copyStatus[l.id] === 'copied' ? 'check' : copyStatus[l.id] === 'error' ? 'x' : 'copy'" /></button>
+            <!-- Card IMG-COPY (owner P0, 2026-08-25): a PICTURE row copies the
+                 picture itself — the original on disk, or the 256 px preview when
+                 that is all this row kept (the title says which). Omitted for a
+                 row with neither. -->
+            <button
+              v-if="canCopyImageLine(l)"
+              type="button"
+              class="rcopy rcopy-img"
+              :class="{ err: copyStatus[l.id] === 'error', ok: copyStatus[l.id] === 'copied' }"
+              :title="copyStatus[l.id] === 'error' ? S.op_copy_failed : (l.fullImage ? S.op_copy_image : S.op_copy_image_preview)"
+              @click="copyImageLine(l)"
+            ><Icon :name="copyStatus[l.id] === 'copied' ? 'check' : copyStatus[l.id] === 'error' ? 'x' : 'image'" /></button>
             <!-- 0.3.30 (owner 2026-08-24): the re-inject control, beside copy.
                  Omitted — not disabled — when the row is not something that can be
                  typed (canReinjectLine, the R8 gate: see capsule-reinject.ts).
@@ -695,7 +740,11 @@ watch(
 .rbadge { width: 16px; height: 16px; border-radius: 5px; }
 /* v0.2.2 — the image row's badge IS the picture. Same 16px slot the mode badge
    occupies so the strip's columns stay aligned whichever kind of row it is. */
-.rimg { flex: none; width: 16px; height: 16px; border-radius: 5px; overflow: hidden; display: grid; place-items: center; background: var(--caps-hover); color: var(--t2); padding: 0; cursor: pointer; }
+/* Card IMG-COPY (owner P0, 2026-08-25): the preview was a 16px badge — enough
+   to tell "a picture", not WHICH picture. 40px is the largest square the strip
+   row can hold without growing the capsule's fixed row height budget by more
+   than one line; a generic icon (no thumbnail) stays small. */
+.rimg { flex: none; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; background: var(--caps-hover); color: var(--t2); padding: 0; cursor: pointer; }
 .rimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rimg .icon { width: 11px; height: 11px; }
 .rimg:hover { outline: 1px solid var(--brand); outline-offset: 1px; }

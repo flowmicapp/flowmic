@@ -157,6 +157,7 @@ const S_EN_OWN = {
   pair_refresh: 'Refresh code',
   pair_refresh_failed: 'Refresh failed — try again later',
   pair_close: 'Close',
+  pair_success: 'Phone connected',
   pair_pcid_label: "This PC's PCID",
   pair_pcid_hint: 'The PCID identifies this PC and never changes; the pairing code is valid for 5 minutes and changes on every refresh. Your phone needs both.',
   pair_pcid_copy: 'Copy',
@@ -233,6 +234,13 @@ const S_EN_OWN = {
   refine_precondition: 'Requires a batch engine (whisper / custom-openai / funspeech); if the current language routes to a streaming engine (soniox / funasr / deepgram / openai-realtime), this setting has no effect. The cloud channel uses soniox by default, so this setting currently has no effect there. By default it only runs on sentences longer than 15 seconds — each re-transcription is an extra engine bill.',
   llm_title: 'Language model',
   llm_hint: 'The large model used by Organize / Translate; “AI polish” uses this same configuration. Authentication failures or an unavailable model are reported explicitly.',
+  llm_modes_unsupported: 'Translate and Organize need a language model on this PC — until one is configured, those two modes are not supported.',
+  scenario_terms_still_work: 'Without a language model the terms on this card still reach the speech engine as hotwords and replacements; only the part that feeds AI polish is not in effect.',
+  llm_setup_title: 'Set up your models',
+  llm_setup_body: 'This PC has no language model configured. Speech still becomes text without one; Translate, Organize and AI polish need one. The two buttons below go straight to each configuration.',
+  llm_setup_go_stt: 'Speech model',
+  llm_setup_go_llm: 'Language model',
+  llm_setup_dismiss: 'Got it',
   llm_preset: 'Model preset',
   llm_protocol: 'Protocol',
   llm_endpoint: 'Endpoint',
@@ -284,7 +292,8 @@ const S_EN_OWN = {
   crash_banner: 'The UI hit an error and some content may not have rendered. Details were written to the diagnostic log:',
   tl_store_write_failed: "This PC's local storage refused the write: the entries below exist only in memory and will be lost when this window closes.",
   op_copy: 'Copy',
-  op_copy_image: 'Copy preview (256px, not the original)',
+  op_copy_image: 'Copy image',
+  op_copy_image_preview: 'Copy image (only the 256px preview was kept for this row)',
   op_copy_failed: 'Copy failed',
   tl_sender_tip: 'The phone that sent this',
   tl_zoom_hint: 'Double-click to zoom',
@@ -677,7 +686,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 643/643 translated;
+// zh-CN (中文) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -814,6 +823,7 @@ const S_ZH_CN_OWN = {
   pair_refresh: '刷新配对码',
   pair_refresh_failed: '刷新失败，请稍后重试',
   pair_close: '关闭',
+  pair_success: '手机已连接',
   pair_pcid_label: '这台电脑的 PCID',
   pair_pcid_hint: 'PCID 固定标识这台电脑，不会变；配对码 5 分钟有效，刷新一次就换一个。手机上两样都要填。',
   pair_pcid_copy: '复制',
@@ -890,6 +900,13 @@ const S_ZH_CN_OWN = {
   refine_precondition: '需要批式识别引擎（whisper / custom-openai / funspeech）；当前语言若路由到流式引擎（soniox / funasr / deepgram / openai-realtime），本项不会生效。云端通道默认使用 soniox，因此在云端通道上本项目前不生效。默认只对 15 秒以上的长句执行——一次重转是一次额外的引擎账单。',
   llm_title: '语言模型',
   llm_hint: '整理 / 翻译使用的大模型；「AI 润色」用的也是这一份配置。鉴权失败或模型不可用会明确报错。',
+  llm_modes_unsupported: '翻译与整理需要 PC 侧的语言模型：未配置前，这两个模式不支持。',
+  scenario_terms_still_work: '没有语言模型时，这张卡里的术语仍会作为热词与替换规则送给识别引擎；只有进入 AI 优化的那一半不生效。',
+  llm_setup_title: '配置模型',
+  llm_setup_body: '这台电脑还没有配置语言模型。没有它，语音照样变成文字；翻译、整理与 AI 优化需要它。下面两个按钮直达各自的配置。',
+  llm_setup_go_stt: '语音模型',
+  llm_setup_go_llm: '语言模型',
+  llm_setup_dismiss: '知道了',
   llm_preset: '模型预设',
   llm_protocol: '协议',
   llm_endpoint: 'Endpoint',
@@ -941,7 +958,8 @@ const S_ZH_CN_OWN = {
   crash_banner: '界面出现异常，部分内容可能没有显示。详情已写入诊断日志：',
   tl_store_write_failed: '本机存储写不进去了：下面这些记录只在内存里，关掉这个窗口就会丢。',
   op_copy: '复制',
-  op_copy_image: '复制预览图（256px，非原图）',
+  op_copy_image: '复制图片',
+  op_copy_image_preview: '复制图片（这一行只保留了 256px 预览图）',
   op_copy_failed: '复制失败',
   tl_sender_tip: '发出这条的手机',
   tl_zoom_hint: '双击放大',
@@ -1334,7 +1352,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 638/643 translated;
+// zh-TW (繁體中文) — 647/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1466,6 +1484,7 @@ const S_ZH_TW_OWN = {
   pair_refresh: '重新整理配對碼',
   pair_refresh_failed: '重新整理失敗，請稍後再試',
   pair_close: '關閉',
+  pair_success: '手機已連線',
   pair_pcid_label: '這台電腦的 PCID',
   pair_pcid_hint: 'PCID 固定標示這台電腦，不會改變；配對碼 5 分鐘有效，每重新整理一次就換一組。手機上兩樣都要填。',
   pair_pcid_copy: '複製',
@@ -1542,6 +1561,13 @@ const S_ZH_TW_OWN = {
   refine_precondition: '需要批次辨識引擎（whisper / custom-openai / funspeech）；目前語言若路由到串流引擎（funasr / deepgram / openai-realtime），本項不會生效。預設只對 15 秒以上的長句執行——一次重新轉錄就是一次額外的引擎帳單。',
   llm_title: '語言模型',
   llm_hint: '整理 / 翻譯使用的大型模型；「AI 潤飾」用的也是這一份設定。認證失敗或模型無法使用時會明確報錯。',
+  llm_modes_unsupported: '翻譯與整理需要 PC 端的語言模型：未設定前，這兩個模式不支援。',
+  scenario_terms_still_work: '沒有語言模型時，這張卡裡的術語仍會作為熱詞與替換規則送給辨識引擎；只有進入 AI 優化的那一半不生效。',
+  llm_setup_title: '設定模型',
+  llm_setup_body: '這台電腦還沒有設定語言模型。沒有它，語音照樣變成文字；翻譯、整理與 AI 優化需要它。下面兩個按鈕直達各自的設定。',
+  llm_setup_go_stt: '語音模型',
+  llm_setup_go_llm: '語言模型',
+  llm_setup_dismiss: '知道了',
   llm_preset: '模型預設',
   llm_protocol: '通訊協定',
   llm_endpoint: 'Endpoint',
@@ -1593,7 +1619,8 @@ const S_ZH_TW_OWN = {
   crash_banner: '介面發生異常，部分內容可能沒有顯示。詳情已寫入診斷記錄檔：',
   tl_store_write_failed: '本機儲存空間寫不進去了：下面這些記錄只在記憶體裡，關掉這個視窗就會不見。',
   op_copy: '複製',
-  op_copy_image: '複製預覽圖（256px，非原圖）',
+  op_copy_image: '複製圖片',
+  op_copy_image_preview: '複製圖片（這一行只保留了 256px 預覽圖）',
   op_copy_failed: '複製失敗',
   tl_sender_tip: '送出這一筆的手機',
   tl_zoom_hint: '按兩下放大',
@@ -1986,7 +2013,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 643/643 translated;
+// fr (Français) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2123,6 +2150,7 @@ const S_FR_OWN = {
   pair_refresh: 'Actualiser le code',
   pair_refresh_failed: "Échec de l'actualisation — réessayez plus tard",
   pair_close: 'Fermer',
+  pair_success: 'Téléphone connecté',
   pair_pcid_label: 'PCID de ce PC',
   pair_pcid_hint: "Le PCID identifie ce PC et ne change jamais ; le code d'appairage est valable 5 minutes et change à chaque actualisation. Votre téléphone a besoin des deux.",
   pair_pcid_copy: 'Copier',
@@ -2199,6 +2227,13 @@ const S_FR_OWN = {
   refine_precondition: 'Nécessite un moteur par lots (whisper / custom-openai / funspeech) ; si la langue actuelle est routée vers un moteur en flux (soniox / funasr / deepgram / openai-realtime), ce réglage est sans effet. Le canal cloud utilise soniox par défaut, ce réglage y est donc actuellement sans effet. Par défaut, il ne s’exécute que sur les phrases de plus de 15 secondes — chaque nouvelle transcription est une facture moteur supplémentaire.',
   llm_title: 'Modèle de langage',
   llm_hint: "Le grand modèle utilisé par Organisation / Traduction ; « Amélioration IA » utilise cette même configuration. Les échecs d'authentification ou un modèle indisponible sont signalés explicitement.",
+  llm_modes_unsupported: 'Traduire et Organiser ont besoin d’un modèle de langage sur ce PC : tant qu’aucun n’est configuré, ces deux modes ne sont pas pris en charge.',
+  scenario_terms_still_work: 'Sans modèle de langage, les termes de cette carte parviennent toujours au moteur vocal comme mots-clés et remplacements ; seule la partie qui alimente le polissage IA n’est pas active.',
+  llm_setup_title: 'Configurer vos modèles',
+  llm_setup_body: 'Ce PC n’a aucun modèle de langage configuré. La voix devient du texte même sans lui ; Traduire, Organiser et le polissage IA en ont besoin. Les deux boutons ci-dessous mènent directement à chaque configuration.',
+  llm_setup_go_stt: 'Modèle vocal',
+  llm_setup_go_llm: 'Modèle de langage',
+  llm_setup_dismiss: 'Compris',
   llm_preset: 'Préréglage de modèle',
   llm_protocol: 'Protocole',
   llm_endpoint: 'Endpoint',
@@ -2250,7 +2285,8 @@ const S_FR_OWN = {
   crash_banner: "L'interface a rencontré une erreur et une partie du contenu n'a peut-être pas été affichée. Les détails ont été écrits dans le journal de diagnostic :",
   tl_store_write_failed: "Le stockage local de ce PC a refusé l'écriture : les entrées ci-dessous n'existent qu'en mémoire et seront perdues à la fermeture de cette fenêtre.",
   op_copy: 'Copier',
-  op_copy_image: "Copier l'aperçu (256 px, pas l'original)",
+  op_copy_image: 'Copier l’image',
+  op_copy_image_preview: 'Copier l’image (seul l’aperçu 256 px a été conservé pour cette ligne)',
   op_copy_failed: 'Échec de la copie',
   tl_sender_tip: 'Le téléphone qui a envoyé cette entrée',
   tl_zoom_hint: 'Double-cliquez pour agrandir',
@@ -2643,7 +2679,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 643/643 translated;
+// es (Español) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2780,6 +2816,7 @@ const S_ES_OWN = {
   pair_refresh: 'Actualizar código',
   pair_refresh_failed: 'No se pudo actualizar; inténtalo más tarde',
   pair_close: 'Cerrar',
+  pair_success: 'Teléfono conectado',
   pair_pcid_label: 'PCID de este PC',
   pair_pcid_hint: 'El PCID identifica este PC y nunca cambia; el código de emparejamiento vale 5 minutos y cambia cada vez que se actualiza. Tu teléfono necesita los dos.',
   pair_pcid_copy: 'Copiar',
@@ -2856,6 +2893,13 @@ const S_ES_OWN = {
   refine_precondition: 'Requiere un motor por lotes (whisper / custom-openai / funspeech); si el idioma actual se enruta a un motor de streaming (soniox / funasr / deepgram / openai-realtime), este ajuste no tiene efecto. El canal en la nube usa soniox de forma predeterminada, así que allí este ajuste no tiene efecto por ahora. De forma predeterminada solo se ejecuta en frases de más de 15 segundos: cada retranscripción es una factura de motor adicional.',
   llm_title: 'Modelo de lenguaje',
   llm_hint: 'El modelo grande que usan Organizar / Traducir; el «pulido con IA» usa esta misma configuración. Los errores de autenticación o un modelo no disponible se comunican de forma explícita.',
+  llm_modes_unsupported: 'Traducir y Organizar necesitan un modelo de lenguaje en este PC: hasta que configures uno, esos dos modos no están disponibles.',
+  scenario_terms_still_work: 'Sin modelo de lenguaje, los términos de esta tarjeta siguen llegando al motor de voz como palabras clave y sustituciones; solo la parte que alimenta el pulido con IA no está en efecto.',
+  llm_setup_title: 'Configura tus modelos',
+  llm_setup_body: 'Este PC no tiene un modelo de lenguaje configurado. La voz se convierte en texto igualmente sin él; Traducir, Organizar y el pulido con IA lo necesitan. Los dos botones de abajo llevan directamente a cada configuración.',
+  llm_setup_go_stt: 'Modelo de voz',
+  llm_setup_go_llm: 'Modelo de lenguaje',
+  llm_setup_dismiss: 'Entendido',
   llm_preset: 'Preajuste de modelo',
   llm_protocol: 'Protocolo',
   llm_endpoint: 'Endpoint',
@@ -2907,7 +2951,8 @@ const S_ES_OWN = {
   crash_banner: 'La interfaz tuvo un problema y puede que parte del contenido no se haya mostrado. Los detalles se han escrito en el registro de diagnóstico:',
   tl_store_write_failed: 'El almacenamiento local de este PC rechazó la escritura: las entradas de abajo solo existen en memoria y se perderán al cerrar esta ventana.',
   op_copy: 'Copiar',
-  op_copy_image: 'Copiar la vista previa (256 px, no el original)',
+  op_copy_image: 'Copiar imagen',
+  op_copy_image_preview: 'Copiar imagen (de esta fila solo se conservó la vista previa de 256 px)',
   op_copy_failed: 'No se pudo copiar',
   tl_sender_tip: 'El teléfono que envió esto',
   tl_zoom_hint: 'Doble clic para ampliar',
@@ -3300,7 +3345,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 643/643 translated;
+// de (Deutsch) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3437,6 +3482,7 @@ const S_DE_OWN = {
   pair_refresh: 'Code erneuern',
   pair_refresh_failed: 'Erneuern fehlgeschlagen – später erneut versuchen',
   pair_close: 'Schließen',
+  pair_success: 'Telefon verbunden',
   pair_pcid_label: 'PCID dieses PCs',
   pair_pcid_hint: 'Die PCID identifiziert diesen PC und ändert sich nie; der Kopplungscode gilt 5 Minuten und ändert sich bei jedem Erneuern. Das Handy braucht beides.',
   pair_pcid_copy: 'Kopieren',
@@ -3513,6 +3559,13 @@ const S_DE_OWN = {
   refine_precondition: 'Erfordert eine Batch-Engine (whisper / custom-openai / funspeech); wird die aktuelle Sprache an eine Streaming-Engine (soniox / funasr / deepgram / openai-realtime) geleitet, hat diese Einstellung keine Wirkung. Der Cloud-Kanal nutzt standardmäßig soniox, dort wirkt die Einstellung derzeit also nicht. Standardmäßig läuft sie nur bei Sätzen über 15 Sekunden — jede erneute Transkription ist eine zusätzliche Engine-Rechnung.',
   llm_title: 'Sprachmodell',
   llm_hint: 'Das große Modell, das Aufbereiten / Übersetzen verwendet; „KI-Feinschliff“ nutzt dieselbe Konfiguration. Fehlgeschlagene Authentifizierung oder ein nicht verfügbares Modell werden ausdrücklich gemeldet.',
+  llm_modes_unsupported: 'Übersetzen und Ordnen brauchen ein Sprachmodell auf diesem PC – bis eines eingerichtet ist, werden diese beiden Modi nicht unterstützt.',
+  scenario_terms_still_work: 'Ohne Sprachmodell erreichen die Begriffe dieser Karte die Spracherkennung weiterhin als Hotwords und Ersetzungen; nur der Teil, der in die KI-Nachbearbeitung fließt, ist nicht wirksam.',
+  llm_setup_title: 'Modelle einrichten',
+  llm_setup_body: 'Auf diesem PC ist kein Sprachmodell eingerichtet. Sprache wird auch ohne zu Text; Übersetzen, Ordnen und KI-Nachbearbeitung brauchen eines. Die beiden Schaltflächen führen direkt zur jeweiligen Einstellung.',
+  llm_setup_go_stt: 'Spracherkennungsmodell',
+  llm_setup_go_llm: 'KI-Sprachmodell',
+  llm_setup_dismiss: 'Verstanden',
   llm_preset: 'Modell-Voreinstellung',
   llm_protocol: 'Protokoll',
   llm_endpoint: 'Endpunkt',
@@ -3564,7 +3617,8 @@ const S_DE_OWN = {
   crash_banner: 'In der Oberfläche ist ein Fehler aufgetreten, einige Inhalte wurden möglicherweise nicht dargestellt. Details wurden ins Diagnoseprotokoll geschrieben:',
   tl_store_write_failed: 'Der lokale Speicher dieses PCs hat den Schreibvorgang abgelehnt: Die Einträge unten liegen nur im Arbeitsspeicher und gehen beim Schließen dieses Fensters verloren.',
   op_copy: 'Kopieren',
-  op_copy_image: 'Vorschau kopieren (256px, nicht das Original)',
+  op_copy_image: 'Bild kopieren',
+  op_copy_image_preview: 'Bild kopieren (für diese Zeile wurde nur die 256-px-Vorschau behalten)',
   op_copy_failed: 'Kopieren fehlgeschlagen',
   tl_sender_tip: 'Das Handy, das dies gesendet hat',
   tl_zoom_hint: 'Zum Vergrößern doppelklicken',
@@ -3957,7 +4011,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 643/643 translated;
+// ja (日本語) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4094,6 +4148,7 @@ const S_JA_OWN = {
   pair_refresh: 'コードを更新',
   pair_refresh_failed: '更新に失敗しました — しばらくしてから再試行してください',
   pair_close: '閉じる',
+  pair_success: 'スマートフォンが接続されました',
   pair_pcid_label: 'このPCのPCID',
   pair_pcid_hint: 'PCIDはこのPCを識別する固定の番号で、変わりません。ペアリングコードは5分間有効で、更新のたびに変わります。スマホでは両方を入力します。',
   pair_pcid_copy: 'コピー',
@@ -4170,6 +4225,13 @@ const S_JA_OWN = {
   refine_precondition: 'バッチ型エンジン（whisper / custom-openai / funspeech）が必要です。現在の言語がストリーミング型エンジン（soniox / funasr / deepgram / openai-realtime）に振り分けられる場合、この設定は無効です。クラウド経路は既定で soniox を使用するため、現在クラウド経路ではこの設定は効きません。既定では 15 秒を超える文にのみ実行されます — 再文字起こしは追加のエンジン課金です。',
   llm_title: '言語モデル',
   llm_hint: '整理 / 翻訳で使用する大規模モデルです。「AI 推敲」も同じこの設定を使います。認証失敗やモデル利用不可は明示的にエラー報告されます。',
+  llm_modes_unsupported: '翻訳と整理にはこの PC 側の言語モデルが必要です。設定されるまで、この 2 つのモードは利用できません。',
+  scenario_terms_still_work: '言語モデルがなくても、このカードの用語はホットワードと置換ルールとして音声認識エンジンに渡されます。AI 補正に渡される部分だけが無効です。',
+  llm_setup_title: 'モデルを設定する',
+  llm_setup_body: 'この PC には言語モデルが設定されていません。なくても音声はテキストになりますが、翻訳・整理・AI 補正には必要です。下の 2 つのボタンからそれぞれの設定に直接進めます。',
+  llm_setup_go_stt: '音声モデル',
+  llm_setup_go_llm: '言語モデル',
+  llm_setup_dismiss: 'わかりました',
   llm_preset: 'モデルプリセット',
   llm_protocol: 'プロトコル',
   llm_endpoint: 'Endpoint',
@@ -4221,7 +4283,8 @@ const S_JA_OWN = {
   crash_banner: 'UIでエラーが発生し、一部の内容が表示されていない可能性があります。詳細は診断ログに記録されました：',
   tl_store_write_failed: 'このPCのローカル保存に書き込めませんでした：以下の記録はメモリ上にしかなく、このウィンドウを閉じると失われます。',
   op_copy: 'コピー',
-  op_copy_image: 'プレビューをコピー（256px・原本ではありません）',
+  op_copy_image: '画像をコピー',
+  op_copy_image_preview: '画像をコピー（この行は 256px のプレビューのみ保持）',
   op_copy_failed: 'コピーに失敗しました',
   tl_sender_tip: 'これを送信したスマホ',
   tl_zoom_hint: 'ダブルクリックで拡大',
@@ -4614,7 +4677,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 643/643 translated;
+// ko (한국어) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4751,6 +4814,7 @@ const S_KO_OWN = {
   pair_refresh: '코드 새로고침',
   pair_refresh_failed: '새로고침에 실패했습니다 — 잠시 후 다시 시도하세요',
   pair_close: '닫기',
+  pair_success: '휴대폰이 연결되었습니다',
   pair_pcid_label: '이 PC의 PCID',
   pair_pcid_hint: 'PCID는 이 PC를 가리키는 고정 번호로 바뀌지 않습니다. 페어링 코드는 5분간 유효하며 새로고침할 때마다 바뀝니다. 휴대폰에는 둘 다 입력해야 합니다.',
   pair_pcid_copy: '복사',
@@ -4827,6 +4891,13 @@ const S_KO_OWN = {
   refine_precondition: '배치 엔진(whisper / custom-openai / funspeech)이 필요합니다. 현재 언어가 스트리밍 엔진(soniox / funasr / deepgram / openai-realtime)으로 라우팅되면 이 설정은 적용되지 않습니다. 클라우드 채널은 기본적으로 soniox를 사용하므로 현재 클라우드 채널에서는 적용되지 않습니다. 기본적으로 15초를 넘는 문장에만 실행됩니다 — 재전사는 추가 엔진 비용입니다.',
   llm_title: '언어 모델',
   llm_hint: '정리 / 번역에 사용하는 대규모 모델입니다. 「AI 윤문」도 같은 이 설정을 사용합니다. 인증 실패나 모델 사용 불가는 명시적으로 오류가 보고됩니다.',
+  llm_modes_unsupported: '번역과 정리에는 이 PC의 언어 모델이 필요합니다. 설정하기 전까지 두 모드는 지원되지 않습니다.',
+  scenario_terms_still_work: '언어 모델이 없어도 이 카드의 용어는 핫워드와 치환 규칙으로 음성 인식 엔진에 전달됩니다. AI 다듬기로 전달되는 부분만 적용되지 않습니다.',
+  llm_setup_title: '모델 설정',
+  llm_setup_body: '이 PC에는 언어 모델이 설정되어 있지 않습니다. 없어도 음성은 텍스트가 되지만 번역, 정리, AI 다듬기에는 필요합니다. 아래 두 버튼으로 각 설정으로 바로 이동합니다.',
+  llm_setup_go_stt: '음성 모델',
+  llm_setup_go_llm: '언어 모델',
+  llm_setup_dismiss: '확인',
   llm_preset: '모델 프리셋',
   llm_protocol: '프로토콜',
   llm_endpoint: 'Endpoint',
@@ -4878,7 +4949,8 @@ const S_KO_OWN = {
   crash_banner: 'UI에 오류가 발생해 일부 내용이 표시되지 않았을 수 있습니다. 자세한 내용은 진단 로그에 기록되었습니다:',
   tl_store_write_failed: '이 PC의 로컬 저장소에 쓰지 못했습니다: 아래 기록은 메모리에만 있으며 이 창을 닫으면 사라집니다.',
   op_copy: '복사',
-  op_copy_image: '미리보기 복사(256px, 원본이 아닙니다)',
+  op_copy_image: '이미지 복사',
+  op_copy_image_preview: '이미지 복사(이 행은 256px 미리보기만 보관됨)',
   op_copy_failed: '복사에 실패했습니다',
   tl_sender_tip: '이 항목을 보낸 휴대폰',
   tl_zoom_hint: '두 번 클릭하여 확대',
@@ -5271,7 +5343,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 643/643 translated;
+// ru (Русский) — 652/652 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5408,6 +5480,7 @@ const S_RU_OWN = {
   pair_refresh: 'Обновить код',
   pair_refresh_failed: 'Не удалось обновить — попробуйте позже',
   pair_close: 'Закрыть',
+  pair_success: 'Телефон подключён',
   pair_pcid_label: 'PCID этого компьютера',
   pair_pcid_hint: 'PCID постоянно идентифицирует этот компьютер и никогда не меняется; код сопряжения действует 5 минут и меняется при каждом обновлении. На телефоне нужны оба.',
   pair_pcid_copy: 'Копировать',
@@ -5484,6 +5557,13 @@ const S_RU_OWN = {
   refine_precondition: 'Требуется пакетный движок (whisper / custom-openai / funspeech); если текущий язык направляется в потоковый движок (soniox / funasr / deepgram / openai-realtime), эта настройка не действует. Облачный канал по умолчанию использует soniox, поэтому там она сейчас не действует. По умолчанию выполняется только для фраз длиннее 15 секунд — каждая повторная расшифровка это дополнительный счёт за движок.',
   llm_title: 'Языковая модель',
   llm_hint: 'Большая модель, которую используют «Структурирование» и «Перевод»; «AI-улучшение» использует эту же конфигурацию. Об ошибках аутентификации или недоступности модели сообщается явно.',
+  llm_modes_unsupported: 'Для режимов «Перевод» и «Упорядочить» нужна языковая модель на этом ПК — пока она не настроена, эти два режима не поддерживаются.',
+  scenario_terms_still_work: 'Без языковой модели термины этой карточки по-прежнему передаются движку распознавания как подсказки и замены; не действует только та часть, что идёт в ИИ-доработку.',
+  llm_setup_title: 'Настройте модели',
+  llm_setup_body: 'На этом ПК не настроена языковая модель. Речь превращается в текст и без неё; для перевода, упорядочивания и ИИ-доработки она нужна. Две кнопки ниже ведут прямо к нужным настройкам.',
+  llm_setup_go_stt: 'Речевая модель',
+  llm_setup_go_llm: 'Языковая модель',
+  llm_setup_dismiss: 'Понятно',
   llm_preset: 'Пресет модели',
   llm_protocol: 'Протокол',
   llm_endpoint: 'Endpoint',
@@ -5535,7 +5615,8 @@ const S_RU_OWN = {
   crash_banner: 'В интерфейсе произошла ошибка, часть содержимого могла не отобразиться. Подробности записаны в журнал диагностики:',
   tl_store_write_failed: 'Локальное хранилище этого компьютера отказало в записи: записи ниже существуют только в памяти и будут потеряны при закрытии этого окна.',
   op_copy: 'Копировать',
-  op_copy_image: 'Копировать предпросмотр (256px, не оригинал)',
+  op_copy_image: 'Копировать изображение',
+  op_copy_image_preview: 'Копировать изображение (для этой строки сохранён только предпросмотр 256px)',
   op_copy_failed: 'Не удалось скопировать',
   tl_sender_tip: 'Телефон, отправивший эту запись',
   tl_zoom_hint: 'Двойной щелчок — увеличить',

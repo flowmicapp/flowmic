@@ -63,3 +63,56 @@ default   → TARGET REPORTS: GOT[INJECTED-yyyy]len=49    ← the fix, reproduce
 Windows, Microsoft Edge (any Chromium works — change the exe), Windows PowerShell
 5.1 for `UIAutomationClient`. Nothing is installed and nothing is left behind;
 close the target window when done.
+
+---
+
+## `desktop-uia-probe.ps1` — read and drive the desktop UI from outside the app
+
+**What it is for:** asserting what is ACTUALLY on the desktop's screen during a
+real-device session, with timestamps. The main window is a WebView2, so its own
+interface is a UIA tree — element names, rectangles, and presence/absence over
+time are all readable, and `InvokePattern` can press a control the way a user
+would.
+
+**Why it cannot be a unit test:** it is the instrument, not the test. It exists
+so that a device-line claim like 「the QR modal closes by itself after a new
+phone pairs」 is three measured timestamps rather than a recollection.
+
+**Two things that look like failures and are not** (both cost real time before
+they were written down — see the script header): `TreeWalker` stops at the
+WebView2 host, so only `FindAll(Descendants)` reaches the page; and the FIRST
+query is expected to come back nearly empty, because WebView2 enables its
+accessibility provider lazily on that very request. Ask twice.
+
+**What it cannot see:** paint. A control it reports as present can still be
+invisible to a human — that is `button-skin-door.test.ts`'s job, and the reason
+that fence is separate.
+
+### Run it
+
+```powershell
+pwsh -File scripts\drills\desktop-uia-probe.ps1 -Action list
+pwsh -File scripts\drills\desktop-uia-probe.ps1 -Action list  -Match 添加手机 -Type Button
+pwsh -File scripts\drills\desktop-uia-probe.ps1 -Action click -Match 添加手机 -Type Button -Exact
+```
+
+### Reading it
+
+`Type | Name | x,y,WxH`, in document order, plus a `TOTAL=` line that also
+reports how many elements were scanned — a scan count near 30 means you are
+looking at the host chrome and should ask again.
+
+⚠️ `-Index` is document order and it RE-ORDERS after every list mutation. Re-list
+between two removals instead of reusing an index; on 2026-08-26 a reused index
+deleted the wrong pairing. And `-Match "关闭"` matches the window's own close
+button — pass `-Type` and check the rect before clicking.
+
+### The phone half
+
+`uiautomator dump` returns no text for a Flutter app (no semantics tree unless
+an accessibility service is running), so the phone's channel is screenshots:
+`adb exec-out screencap -p > shot.png`. Two more measured traps: a Chinese IME
+rewrites `adb shell input text` (typing `https://…` produced 「还天天平时:、、」)
+— switch to `com.android.inputmethod.latin/.LatinIME` for the duration and set
+it back; and screencap sampling at ~1s intervals is too coarse to catch a
+transient confirmation banner.

@@ -49,6 +49,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/mic_permission_fakes.dart';
 
 /// Minimal platform double for the pairing sheet's camera pane. Traced call
 /// path: `_initializeController` → `controller.attach()` (no platform call) →
@@ -133,6 +134,9 @@ void main() {
                 unawaited(
                   showAddPairingSheet(
                     context,
+                    // Card SCAN-PERM: the production camera port never resolves under
+                    // flutter_test (see newTestCameraPermission) — inject the double.
+                    cameraPermission: newTestCameraPermission(),
                     controller: controller,
                     strings: strings,
                   ),

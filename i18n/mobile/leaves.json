@@ -253,6 +253,31 @@
       "params": []
     },
     {
+      "key": "cameraAllowAction",
+      "leaf": "_lfCameraAllowAction",
+      "params": []
+    },
+    {
+      "key": "cameraDenied",
+      "leaf": "_lfCameraDenied",
+      "params": []
+    },
+    {
+      "key": "cameraOpenSettingsAction",
+      "leaf": "_lfCameraOpenSettingsAction",
+      "params": []
+    },
+    {
+      "key": "cameraPermanentlyDenied",
+      "leaf": "_lfCameraPermanentlyDenied",
+      "params": []
+    },
+    {
+      "key": "cameraRationale",
+      "leaf": "_lfCameraRationale",
+      "params": []
+    },
+    {
       "key": "cancel",
       "leaf": "_lfCancel",
       "params": []
@@ -1958,6 +1983,11 @@
       "params": []
     },
     {
+      "key": "llmModeUnsupported",
+      "leaf": "_lfLlmModeUnsupported",
+      "params": []
+    },
+    {
       "key": "localLan",
       "leaf": "_lfLocalLan",
       "params": []
@@ -2490,6 +2520,11 @@
     {
       "key": "pairingRevokedChip",
       "leaf": "_lfPairingRevokedChip",
+      "params": []
+    },
+    {
+      "key": "pairingSuccessBanner",
+      "leaf": "_lfPairingSuccessBanner",
       "params": []
     },
     {

@@ -10,13 +10,24 @@
 // to the caller's `onScan`, and closes when the caller says the value was
 // terminal. The caller keeps the meaning — this file owns only pixels and the
 // permission failure.
+//
+// ── card SCAN-PERM (2026-08-25) ─────────────────────────────────────────────
+// The controller used to be a FIELD INITIALISER, so asking the OS for the
+// camera was a side effect of constructing the State, and the only face for a
+// refusal was a banner with no way back (no re-request, no `openAppSettings`,
+// no re-probe on resume). Same shape as the pairing sheet's defect, and worse.
+// Both now share `ScannerCameraLifecycle`: probe → explain → request from the
+// rendered surface → settings → re-probe on resume.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../permission/camera_permission.dart';
 import '../settings/app_strings.dart';
+import 'scan_permission_pane.dart';
+import 'scanner_camera_lifecycle.dart';
 import 'tokens.dart';
 
 /// Present a full-width scan sheet. [onScan] receives each decoded value and
@@ -29,12 +40,21 @@ Future<bool> showScanSheet(
   required String title,
   required String hint,
   required Future<bool> Function(String value) onScan,
+  /// Card SCAN-PERM — the camera decision layer; null (production) builds the
+  /// real one. Tests inject a flow over a fake port.
+  CameraPermissionFlow? cameraPermission,
 }) async {
   final bool? ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ScanSheet(strings: strings, title: title, hint: hint, onScan: onScan),
+    builder: (_) => _ScanSheet(
+      strings: strings,
+      title: title,
+      hint: hint,
+      onScan: onScan,
+      cameraPermission: cameraPermission,
+    ),
   );
   return ok ?? false;
 }
@@ -45,27 +65,32 @@ class _ScanSheet extends StatefulWidget {
     required this.title,
     required this.hint,
     required this.onScan,
+    this.cameraPermission,
   });
   final AppStrings strings;
   final String title;
   final String hint;
   final Future<bool> Function(String value) onScan;
+  final CameraPermissionFlow? cameraPermission;
 
   @override
   State<_ScanSheet> createState() => _ScanSheetState();
 }
 
-class _ScanSheetState extends State<_ScanSheet> {
-  final MobileScannerController _scanner = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: const <BarcodeFormat>[BarcodeFormat.qrCode],
-  );
+class _ScanSheetState extends State<_ScanSheet>
+    with WidgetsBindingObserver, ScannerCameraLifecycle<_ScanSheet> {
   String? _notice;
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    attachCamera(injected: widget.cameraPermission);
+  }
+
+  @override
   void dispose() {
-    unawaited(_scanner.dispose());
+    detachCamera();
     super.dispose();
   }
 
@@ -120,23 +145,7 @@ class _ScanSheetState extends State<_ScanSheet> {
             ],
           ),
           const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: SizedBox(
-              height: 240,
-              child: MobileScanner(
-                controller: _scanner,
-                onDetect: (BarcodeCapture c) => unawaited(_onDetect(c)),
-                // Fail-loud: a refused permission or a camera-less device shows
-                // the reason here instead of a black rectangle.
-                errorBuilder: (BuildContext context, MobileScannerException error) => _banner(
-                  error.errorCode == MobileScannerErrorCode.permissionDenied
-                      ? s.pairScanDenied
-                      : s.pairScanNoCamera,
-                ),
-              ),
-            ),
-          ),
+          _scanPane(s),
           const SizedBox(height: 10),
           Center(
             child: Text(widget.hint, style: TextStyle(color: FlowMicColors.t3, fontSize: 12)),
@@ -146,6 +155,35 @@ class _ScanSheetState extends State<_ScanSheet> {
             _banner(_notice!),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Card SCAN-PERM: the permission faces render in the scanner's slot, each
+  /// with its own action; READY renders the camera. No manual-entry tab here
+  /// (this is the LOGIN scanner) — the way back is the face's own button, and
+  /// the typed sign-in form is one ✕ away.
+  Widget _scanPane(AppStrings s) {
+    if (camera.face.value != ScanPermissionFace.ready) {
+      return ScanPermissionPane(flow: camera, strings: s);
+    }
+    final MobileScannerController? c = scanner;
+    if (c == null) return _banner(s.pairScanNoCamera);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        height: kScanPaneHeight,
+        child: MobileScanner(
+          controller: c,
+          onDetect: (BarcodeCapture c) => unawaited(_onDetect(c)),
+          // Fail-loud: a refusal that still reaches the scanner, or a
+          // camera-less device, shows the reason here instead of a black box.
+          errorBuilder: (BuildContext context, MobileScannerException error) => _banner(
+            error.errorCode == MobileScannerErrorCode.permissionDenied
+                ? s.pairScanDenied
+                : s.pairScanNoCamera,
+          ),
+        ),
       ),
     );
   }

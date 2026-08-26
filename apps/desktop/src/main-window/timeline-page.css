@@ -1,0 +1,54 @@
+/* TimelinePage's scoped styles — lifted OUT of the SFC on 2026-08-26, VERBATIM,
+   when that file sat exactly on the 800-line cap.
+
+   Same move DevicesPage.vue already made (./devices-page.css): an SFC's style
+   block is the one part that can leave without touching behaviour, so it is the
+   split to reach for before anything that would restructure the script. Vue
+   applies scoping to a src= stylesheet exactly as it does to an inline one —
+   the data-v attribute comes from the component, not from where the CSS lives.
+
+   Nothing here was rewritten or dropped. Diff against TimelinePage.vue's history
+   before believing otherwise. */
+/* V2-18 selection mode. Only the token palette + the existing .btn/.card
+   geometry — no new control system (styles/main.css is outside this card's
+   scope, so these rules live scoped to the page). */
+.sel-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r12); box-shadow: var(--sh-sm); }
+.sel-count { font-size: 12.5px; font-weight: 600; color: var(--t1); }
+.sel-hint { font-size: 12px; font-weight: 600; color: var(--amber-ink); background: var(--amber-soft); border-radius: 8px; padding: 3px 9px; }
+.sel-copy { margin-left: auto; }
+.sel-bar .btn:disabled { opacity: .45; cursor: default; }
+.hrow.selecting { cursor: pointer; }
+.hrow.selected { border-color: var(--brand); background: var(--brand-soft); }
+.selbox { flex: none; display: flex; align-items: center; height: 24px; }
+.selbox input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.tl-batchmsg { font-size: 12px; font-weight: 600; margin: 6px 2px; }
+.tl-batchmsg.ok { color: var(--green); }
+.tl-batchmsg.warn { color: var(--amber-ink); }
+
+/* N6 search row. Only existing tokens (styles/main.css is outside this card). */
+.tl-search { display: flex; align-items: center; gap: 8px; margin: 0 2px 12px; color: var(--t3); }
+.tl-search-in { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+/* owner 2026-07-31 ② retention line: quiet but always present once it applies — it
+   states a fact about the list above it, not an error. */
+.tl-retention { margin: 10px 2px 0; font-size: 12px; line-height: 1.6; color: var(--t3); }
+/* owner ① channel chip → 2026-08-01: now `.chan-badge` (icon + colour, ONE
+   definition in styles/tokens.css — this page no longer draws its own). */
+/* owner 2026-08-01 §4-2 ⑧ word-count chip: same quiet weight the old inline
+   `.chan-chip` had (this page's other "context, not subject" pill). */
+.wc-chip { font-size: 11px; color: var(--t3); background: var(--surface-inset); border-radius: 6px; padding: 1px 6px; }
+
+/* RV-01 op-refused line. Loud on purpose (a --red-soft block, not the one-line
+   grey the copy error gets): it says an action the user took did not happen. Only
+   existing tokens — styles/main.css is outside this card's scope. */
+.tl-operr { display: flex; align-items: flex-start; gap: 8px; margin: 8px 2px; padding: 9px 12px; border: 1px solid var(--danger-line); background: var(--red-soft); border-radius: var(--r12); color: var(--red-ink); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.tl-operr-x { flex: none; border: 0; background: none; color: var(--red-ink); cursor: pointer; font-size: 12px; padding: 0 2px; }
+
+/* owner 2026-08-02 rework: the two-segment view switch (Timeline ⇄ Data). A pill
+   segmented control — same family as the filter fchip but a separate class name:
+   fchip means "filter this list", this means "switch to a different view" —
+   different meanings don't share a class. */
+.tl-views { display: inline-flex; gap: 2px; margin-left: 14px; padding: 2px;
+  background: var(--surface-inset); border-radius: 999px; }
+.vseg { border: 0; background: transparent; color: var(--t3); font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.vseg.on { background: var(--surface); color: var(--t1); box-shadow: var(--sh-sm); }

@@ -92,6 +92,24 @@ mixin ChatStrings on AppStringsLeaves {
     }
   }
 
+  /// Card LLM-NOTICE (owner 2026-08-25, zh-CN verbatim 「PC侧未配置LLM语言模型，
+  /// 此模式不支持」): the STANDING note under the mode row while translate or
+  /// organize is selected and the PC's `capability.llm` says `usable:false`.
+  ///
+  /// 🔴 ONE sentence, ONE subject: the two modes. It must not be reused for AI
+  /// polish (「未生效」 — not in effect, a different claim) nor for the scenario
+  /// card (whose terms still reach the speech engine — saying 「不支持」 about it
+  /// would be false). Three facts, three sentences, never merged.
+  /// The mode stays selectable (owner ruling: no silent disable, no fallback).
+  String get llmModeUnsupported => _lfLlmModeUnsupported;
+
+  /// Card PAIR-SUCCESS (owner 2026-08-25, 「这非常重要」): the EVENT-type banner
+  /// on the transcription page after a DELIBERATE entry — scan-pair, typed
+  /// code, a tap on a listed PC, the cloud card. Never on an automatic
+  /// reconnect (a banner that fires on every network flap is a banner nobody
+  /// reads). Auto-hides on kBannerAutoHideAfter like every other event banner.
+  String get pairingSuccessBanner => _lfPairingSuccessBanner;
+
   // ── M4: the mode-switch-clears-buffer confirmation — RETIRED along with its
   // one and only producer ────────────────────────────────────────────
   // `modeSwitchConfirmTitle` / `…Body` / `…Action`, three strings, used to live

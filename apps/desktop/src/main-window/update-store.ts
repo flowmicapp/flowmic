@@ -35,7 +35,12 @@
 import { computed, ref } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { invokeSafe } from '../lib/bridge';
-import { UPDATE_MANIFEST_BASE, verdict, type UpdateStateDto } from '../lib/update-view';
+import {
+  UPDATE_MANIFEST_BASE,
+  verdict,
+  type UpdateActivity,
+  type UpdateStateDto,
+} from '../lib/update-view';
 
 /** `form: 'dev'` as the pre-load value, so nothing renders and nothing checks
  *  until Rust has answered. Defaulting to a real form would flash a verdict
@@ -65,7 +70,39 @@ function emptyState(): UpdateStateDto {
 }
 
 export const updateState = ref<UpdateStateDto>(emptyState());
-export const updateBusy = ref(false);
+
+/**
+ * What this card is doing right now — `null` when it is doing nothing.
+ *
+ * 🔴 It carries the VERB rather than a boolean because the card must say WHICH
+ * thing is running (「正在检查…」 vs 「正在下载」), and because that is the only
+ * signal a renderer can have: see `UpdateActivity`'s note on why
+ * `UpdateStateDto.checking` can never be observed as true from here.
+ *
+ * ⚠️ One in-flight call at a time is assumed — the buttons are disabled while
+ * this is non-null, and the commands themselves are serialised on Rust's side.
+ * If two ever overlapped, the first to finish would clear the second's verb;
+ * that is not a new risk (the boolean this replaced had it too) but it is the
+ * thing to fix if a second concurrent entry point is ever added.
+ */
+export const updateBusy = ref<UpdateActivity>(null);
+
+/**
+ * Which verb each command shows.
+ *
+ * 🔴 `update_state` maps to `null` ON PURPOSE: the boot snapshot is not
+ * something the user asked for, and putting a spinner on the card every time
+ * the window opens would make the indicator mean "the app is alive" instead of
+ * "your click is being worked on".
+ */
+const ACTIVITY: Record<string, UpdateActivity> = {
+  update_state: null,
+  update_check: 'checking',
+  update_download: 'downloading',
+  update_apply: 'installing',
+  update_dismiss_pending: 'saving',
+  update_set_auto_check: 'saving',
+};
 
 /** True while a newer version than this build is known to exist — the ONLY
  *  question the header dot answers. Both `available` (we can fetch it) and
@@ -79,12 +116,16 @@ export const updateAvailable = computed(() => {
 });
 
 async function updatePull(cmd: string, args?: Record<string, unknown>): Promise<void> {
-  updateBusy.value = true;
+  // 🔴 An unregistered command gets `saving`, never `null`. A command nobody
+  // added to the table above must not be able to run with the card showing
+  // nothing at all — the buttons would stay live during it, which is the state
+  // this ref exists to prevent.
+  updateBusy.value = cmd in ACTIVITY ? (ACTIVITY[cmd] ?? null) : 'saving';
   try {
     const next = await invokeSafe<UpdateStateDto>(cmd, args);
     if (next) updateState.value = next;
   } finally {
-    updateBusy.value = false;
+    updateBusy.value = null;
   }
 }
 
@@ -126,11 +167,40 @@ let started = false;
 export async function initUpdateStore(): Promise<void> {
   if (started) return;
   started = true;
-  void listen<UpdateStateDto>('update:state', (e) => {
+  void listen<unknown>('update:state', (e) => {
     // A pushed payload may be a throttled progress fragment rather than a
     // whole state, so the shape is checked before it is adopted wholesale.
     const next = e.payload;
-    if (next && typeof next === 'object' && 'current_version' in next) updateState.value = next;
+    if (!next || typeof next !== 'object') return;
+    if ('current_version' in next) {
+      updateState.value = next as UpdateStateDto;
+      return;
+    }
+    // 🔴 THE FRAGMENT BRANCH (0.3.33). Until this existed the shape check above
+    // was the whole handler, so every throttled `{ progress: {...} }` frame
+    // `update_download` emits was dropped — recognised as "not a whole state"
+    // and then acted on by nobody. The download's numbers therefore only ever
+    // moved on the two FULL states around it (active=true, received=0 at the
+    // start; the finished state at the end), and the card sat at
+    // 「正在下载 0%」("downloading 0%") for the entire transfer. A ~48 MB MSI on
+    // a slow line spends minutes there, and a progress bar frozen at 0 is
+    // indistinguishable from a hang — the user's only reading is 「点了没反应」
+    // ("I clicked it and nothing happened").
+    //
+    // 🔴 A fragment UPDATES a download; it never STARTS one. `active` is left
+    // to the full states that own it, and a fragment arriving when nothing is
+    // downloading is discarded rather than used to invent a transfer — the
+    // final full state is emitted from a different thread than the progress
+    // frames, so "a late fragment overtakes the finish" is a real ordering, not
+    // a hypothetical, and resurrecting `active` there would leave the card
+    // showing a download that has already completed.
+    const frag = (next as { progress?: { received?: unknown; total?: unknown } }).progress;
+    if (!frag || typeof frag.received !== 'number' || typeof frag.total !== 'number') return;
+    if (!updateState.value.download.active) return;
+    updateState.value = {
+      ...updateState.value,
+      download: { active: true, received: frag.received, total: frag.total },
+    };
   }).catch(() => {
     /* Not inside Tauri (component tests / browser preview): no event source. */
   });

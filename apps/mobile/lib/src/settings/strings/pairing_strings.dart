@@ -55,6 +55,22 @@ mixin PairingStrings on AppStringsLeaves {
   /// A pairing code scanned on the LOGIN screen — right app, wrong screen.
   String get loginScanIsPair => _lfLoginScanIsPair;
   String get pairScanDenied => _lfPairScanDenied;
+  // ── card SCAN-PERM (2026-08-25): the camera-permission FACES ─────────────
+  // Rendered by ui/scan_permission_pane.dart in the scanner's own slot, on the
+  // decision of permission/camera_permission.dart. Deliberately NOT the
+  // microphone's `mic*` sentences: the two permissions are asked for different
+  // reasons and answer different questions, and a shared sentence would say
+  // 「microphone」 over a camera box the day someone tidied the two together.
+  // `pairScanDenied` above stays: it is the scanner's OWN errorBuilder sentence
+  // (the seam for a refusal that reaches MobileScanner despite the probe).
+  /// Explain first (U2 ①): why the camera is needed, before the first OS dialog.
+  String get cameraRationale => _lfCameraRationale;
+  /// Refused, askable again — states the refusal, offers the request again.
+  String get cameraDenied => _lfCameraDenied;
+  /// The OS will not ask again; the ONLY way out is the system settings screen.
+  String get cameraPermanentlyDenied => _lfCameraPermanentlyDenied;
+  String get cameraAllowAction => _lfCameraAllowAction;
+  String get cameraOpenSettingsAction => _lfCameraOpenSettingsAction;
   String get pairNeedAddress =>
       _lfPairNeedAddress;
   String get pairNeedCode => _lfPairNeedCode;

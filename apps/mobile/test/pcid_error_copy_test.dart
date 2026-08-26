@@ -24,6 +24,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/mic_permission_fakes.dart';
 import 'support/mobile_scanner_fake.dart';
 
 const String kRelay = 'https://relay.test';
@@ -58,6 +59,9 @@ void main() {
                 unawaited(
                   showAddPairingSheet(
                     context,
+                    // Card SCAN-PERM: the production camera port never resolves under
+                    // flutter_test (see newTestCameraPermission) — inject the double.
+                    cameraPermission: newTestCameraPermission(),
                     controller: controller,
                     strings: strings,
                     initialEndpoint: kRelay,

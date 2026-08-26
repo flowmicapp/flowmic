@@ -50,6 +50,12 @@ onBeforeUnmount(() => watcher?.disconnect());
     <div class="scope-note">{{ S.settings_scope_lan }}</div>
     <h3>{{ S.llm_title }}</h3>
     <p class="hint">{{ S.llm_hint }}</p>
+    <!-- Card LLM-NOTICE (owner 2026-08-25 D2): the STANDING hint on this section —
+         translate / organize are NOT SUPPORTED until a model is configured. One
+         subject, one sentence: AI polish has its own line beside its own switch
+         (polish_no_llm) and the scenario card has its own (its terms still work).
+         Gated on the SERVER fact, same as those two — never on an empty endpoint. -->
+    <p v-if="!model.llmCapabilityUsable" class="hint llm-standing" role="status">{{ S.llm_modes_unsupported }}</p>
 
     <div class="field">
       <label>{{ S.llm_preset }}</label>

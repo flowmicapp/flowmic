@@ -254,7 +254,7 @@ Widget _modePolicyRowRouted(
       ],
     ],
   );
-  return Row(
+  final Widget row = Row(
     children: <Widget>[
       Expanded(child: segmentsGroup),
       const SizedBox(width: 8),
@@ -272,6 +272,36 @@ Widget _modePolicyRowRouted(
         onToggle: s.controller.toggleSendPolicy,
       ),
     ],
+  );
+  // Card LLM-NOTICE (owner 2026-08-25 D1): translate / organize need a language
+  // model on the PC. The mode STAYS selectable (owner: no silent disable, no
+  // silent fallback); what changes is that a standing sentence appears under
+  // the row while such a mode is selected and the PC's `capability.llm` says
+  // `usable:false`. null (not told yet) and true both render nothing.
+  final ValueListenable<bool?>? cap = s.controller.llmCapability;
+  if (cap == null) return row;
+  return ValueListenableBuilder<bool?>(
+    valueListenable: cap,
+    builder: (BuildContext context, bool? usable, _) {
+      final bool needsLlm =
+          s.controller.mode == FlowMode.translate || s.controller.mode == FlowMode.organize;
+      if (usable != false || !needsLlm) return row;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          row,
+          const SizedBox(height: 6),
+          // No maxLines / no ellipsis — the sentence must be readable in full
+          // (0.2.53's rule), and the test measures the laid-out paragraph.
+          Text(
+            strings.llmModeUnsupported,
+            key: const ValueKey<String>('mode.llm_unsupported'),
+            style: TextStyle(color: FlowMicColors.t2, fontSize: 12, height: 1.35),
+          ),
+        ],
+      );
+    },
   );
 }
 

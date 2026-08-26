@@ -138,6 +138,48 @@ export function coverageReport(rootDir) {
   const delivery = scripts['verify:delivery'];
   if (!delivery) return { status: 'FAIL', detail: 'root package.json has no verify:delivery' };
 
+  // 🔴 …and ONE level further when a stage delegates to make (2026-08-25).
+  //
+  // `verify:mobile-tests` became `make -C apps/mobile gate-test` because the
+  // old inline `flutter test` skipped the codegen that target depends on, and a
+  // gate that reads generated, gitignored sources it does not generate is green
+  // or red according to what is on the disk rather than what is in the commit.
+  // Measured: the same commit was 2894 green on the machine that had run the
+  // generator and failed to compile on one that had only pulled.
+  //
+  // That indirection hid the evidence THIS lint looks for, and the lint was
+  // right to go red — so it learns to follow, rather than being worked around.
+  // What it follows is the RECIPE: the proof that apps/mobile is gated is that
+  // the target this gate invokes really runs `flutter test`, not that some
+  // string in package.json says so. A target that stopped running it would turn
+  // this red again, which is the whole point.
+  //
+  // Deliberately one level and no recursion: a Makefile that delegates to
+  // another Makefile is not a shape this repo has, and inventing support for it
+  // would be checking something nobody can point at.
+  function followMake(dir, command) {
+    const m = /make\s+-C\s+(\S+)\s+(\S+)/.exec(command);
+    if (!m) return command;
+    const [, sub, target] = m;
+    let makefile;
+    try {
+      makefile = readFileSync(join(dir, sub, 'Makefile'), 'utf8');
+    } catch {
+      return command; // no Makefile => nothing to follow; the caller stays uncovered
+    }
+    const lines = makefile.split(/\r?\n/);
+    const start = lines.findIndex((l) => l.startsWith(`${target}:`));
+    if (start < 0) return command;
+    const recipe = [];
+    for (let i = start + 1; i < lines.length && /^\t/.test(lines[i]); i += 1) {
+      // Prefixed with the directory so the coverage check below — which wants
+      // the directory AND the face on one line — sees them together, exactly as
+      // it would for an inline `cd apps/mobile && flutter test`.
+      recipe.push(`${sub}: ${lines[i].trim()}`);
+    }
+    return [command, ...recipe].join('\n');
+  }
+
   // Expand the chain one level: verify:delivery calls named scripts, and those are
   // where the --filter lives. Resolved from the manifest rather than hardcoded, so
   // renaming a stage cannot silently drop a package out of coverage.
@@ -145,7 +187,7 @@ export function coverageReport(rootDir) {
     .split('&&')
     .map((s) => s.trim().replace(/^pnpm\s+/, ''))
     .filter(Boolean);
-  const expanded = staged.map((name) => scripts[name] ?? name).join('\n');
+  const expanded = staged.map((name) => followMake(rootDir, scripts[name] ?? name)).join('\n');
 
   const missing = [];
   let checked = 0;

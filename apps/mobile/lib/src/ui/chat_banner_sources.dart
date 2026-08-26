@@ -44,6 +44,21 @@ BannerQueue chatBannerSources({
     flow: controller.session.micPermission,
     strings: strings,
   );
+  // Card PAIR-SUCCESS — the 「you just connected」 event banner. Read off the
+  // controller's notice (session/pairing_success_notice.dart), whose ONLY
+  // writer is the connections page's deliberate-entry funnel; an automatic
+  // rejoin never reaches it, so this cannot fire on a network flap.
+  if (controller.pairingSuccess.ticket != null) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.pairingSuccess,
+        severity: BannerSeverity.info,
+        message: strings.pairingSuccessBanner,
+        dismissible: true,
+        onAction: controller.pairingSuccess.dismiss,
+      ),
+    );
+  }
   return queue;
 }
 

@@ -37,6 +37,12 @@ function submitTerm(): void {
     <div class="sub-h" style="margin-top:0">{{ S.scenario_title }}
       <span class="muted" style="font-weight:400">{{ S.scenario_hint }}</span>
     </div>
+    <!-- Card LLM-NOTICE: the card is HALF-dependent on the language model, and
+         this sentence says which half. stt/engine-factory.ts feeds these terms
+         to the SPEECH engine as hotwords/replacements (no model involved); only
+         the part that rides into the polish prompt goes down. Saying "not
+         supported" here would be false. Gated on the server's capability fact. -->
+    <p v-if="!model.llmCapabilityUsable" class="hint scenario-no-llm" role="status">{{ S.scenario_terms_still_work }}</p>
 
     <div class="field">
       <label>{{ S.scenario_professions }}</label>

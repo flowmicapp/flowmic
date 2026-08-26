@@ -73,7 +73,46 @@
     <div v-else-if="v.kind === 'up_to_date'" class="upd-headline ok" role="status">
       ✓ {{ S.upd_up_to_date }}
     </div>
-    <div v-else-if="s.checking" class="muted">{{ S.upd_checking }}</div>
+    <!-- 🔴 NOT `v-else-if="s.checking"` (0.3.33), which is what stood here and
+         could not render for two independent reasons. First, it sat at the end
+         of the verdict chain, so any earlier verdict — including the 「有新版本」
+         the user was looking at when they pressed the button — won and the
+         checking line never appeared. Second, and fatally, `s.checking` is
+         never observed as true at all: `update_check` sets it, blocks, clears
+         it, and emits nothing in between, so the only value that ever reaches
+         this renderer is `false`. Owner, 2026-08-25: 「当前的检查更新没有进度」
+         ("checking for updates has no progress"). It had none because the fact
+         it was bound to never arrived.
+         ⇒ Driven by the frontend's own `busy` verb, rendered ABOVE the verdict
+         rather than instead of it — 「我正在检查」 and 「上次的结论是什么」 are two
+         questions and the user is entitled to both at once. -->
+    <div v-if="busy === 'checking'" class="upd-run" role="status" aria-live="polite">
+      <span class="upd-spin" aria-hidden="true"></span>
+      <span>{{ S.upd_checking }}</span>
+    </div>
+
+    <!-- The download, with its own bar. `pct` is `null` unless Rust says the
+         download is active, so the two conditions answer different questions:
+         `busy` covers the moment between the click and the first frame (the
+         connection, the redirect — seconds on a slow line, and previously a
+         span in which nothing on screen had changed at all), `pct` covers the
+         transfer once bytes are moving. -->
+    <div
+      v-if="busy === 'downloading' || pct !== null"
+      class="upd-run"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="upd-spin" aria-hidden="true"></span>
+      <span>{{ S.upd_downloading }}</span>
+      <b v-if="pct !== null" class="mono">{{ pct }}%</b>
+      <span v-if="pct !== null" class="muted mono upd-bytes">
+        {{ megabytes(s.download.received) }} / {{ megabytes(s.download.total) }}
+      </span>
+    </div>
+    <div v-if="pct !== null" class="upd-bar" aria-hidden="true">
+      <div class="upd-bar-fill" :style="{ width: `${pct}%` }"></div>
+    </div>
 
     <!-- 🔴 Each failure speaks for itself, never merged into one blanket "update failed." -->
     <div v-if="s.failure" class="upd-fail" :class="{ blocking: s.failure.blocking }" role="alert">
@@ -84,7 +123,6 @@
     <!-- 🔴 Standing, never conditionally rendered — see file header ② -->
     <div class="upd-last muted">{{ S.upd_last_check }}：{{ lastCheckText }}</div>
 
-    <div v-if="pct !== null" class="upd-progress muted">{{ S.upd_downloading }} {{ pct }}%</div>
 
     <!-- 🔴 The hash gate's user-visible evidence (the mockup's §5.2 line) -->
     <div v-if="s.verified_sha256" class="upd-verified">✓ {{ S.upd_verified }}</div>
@@ -98,20 +136,42 @@
       <button v-if="s.notes_url" class="btn ghost sm" type="button" @click="emit('open-page')">
         {{ S.upd_notes }}
       </button>
+      <!-- 🔴 `btn pri sm`, and the skin is not decoration (0.3.33). These two
+           buttons WERE `class="btn sm"` and `class="btn sm primary"`, and
+           neither string paints anything: `tokens.css` gives `.btn` only
+           layout and `.btn.sm` only padding/size — every visible affordance
+           lives in `.btn.pri` / `.btn.ghost` / `.btn.danger` — while the global
+           reset (`button { border: none; background: none }`) strips what the
+           UA would have drawn. `primary` is not a class this repo defines at
+           all; the token has always been `pri`.
+           ⇒ the ONLY two action buttons on the whole update path rendered as
+           bare grey text. Reported from a real machine (owner 2026-08-25,
+           Windows 10 on 0.3.27, dark theme): 「提示了有新版，但是没有升级的按
+           钮」("it says there's a new version, but there is no upgrade
+           button"). The button was there and was clickable; it did not look
+           like one. Every other button in the app carries a skin — these were
+           the only two that did not, which is why nothing else showed the
+           symptom.
+           🔴 Pinned two ways rather than by memory: `button-skin-door.test.ts`
+           reads the skins out of `tokens.css` and refuses an unskinned `.btn`
+           anywhere in `apps/desktop/src`, and `update-block.test.ts` asserts on
+           the RENDERED class of these two, per 0.2.53's law — a control's
+           verification belongs on what rendering produced, never on the props
+           it was handed. -->
       <button
         v-if="act.kind === 'download'"
-        class="btn sm"
+        class="btn pri sm"
         type="button"
-        :disabled="busy"
+        :disabled="isBusy"
         @click="emit('download')"
       >
         {{ S.upd_download }}<span v-if="s.verified_size"> ({{ megabytes(s.verified_size) }})</span>
       </button>
       <button
         v-else-if="act.kind === 'install_msi' || act.kind === 'install_portable'"
-        class="btn sm primary"
+        class="btn pri sm"
         type="button"
-        :disabled="busy"
+        :disabled="isBusy"
         @click="emit('apply')"
       >
         {{ act.kind === 'install_msi' ? S.upd_install_msi : S.upd_install_portable }}
@@ -144,8 +204,8 @@
     <!-- 🔴 §3 line 8: turned off ≠ up to date. Without this line, once turned
          off the UI would be left with nothing but a silent checkbox. -->
     <div v-if="!s.auto_check" class="muted upd-hint">{{ S.upd_auto_off_note }}</div>
-    <button class="btn ghost sm" type="button" :disabled="s.checking" @click="emit('check')">
-      {{ s.checking ? S.upd_checking : S.upd_check_now }}
+    <button class="btn ghost sm" type="button" :disabled="isBusy" @click="emit('check')">
+      {{ busy === 'checking' ? S.upd_checking : S.upd_check_now }}
     </button>
   </div>
 </template>
@@ -162,17 +222,26 @@ import {
   progressPercent,
   showsUpdateBlock,
   verdict,
+  type UpdateActivity,
   type UpdateStateDto,
 } from '../../lib/update-view';
 
-const props = defineProps<{ s: UpdateStateDto; busy?: boolean; openFailed?: string | null }>();
+const props = defineProps<{
+  s: UpdateStateDto;
+  /** The VERB in flight, or nothing. See `UpdateActivity` for why this is the
+   *  frontend's fact and not `s.checking`. */
+  busy?: UpdateActivity;
+  openFailed?: string | null;
+}>();
 const emit = defineEmits<{
   (e: 'check' | 'download' | 'apply' | 'dismiss' | 'open-page'): void;
   (e: 'toggle-auto', enabled: boolean): void;
 }>();
 
 const s = computed(() => props.s);
-const busy = computed(() => props.busy === true);
+const busy = computed(() => props.busy ?? null);
+/** Any command in flight — every action on this card is unavailable while one is. */
+const isBusy = computed(() => busy.value !== null);
 const openFailed = computed(() => props.openFailed ?? null);
 const v = computed(() => verdict(props.s));
 const act = computed(() => action(props.s));
@@ -214,7 +283,30 @@ const lastCheckText = computed(() => {
    colour, which is the product's own success ink, not a green invented here. */
 .upd-headline.ok { color: var(--green-ink); }
 .upd-last { font-size: 12px; margin: 6px 0; }
-.upd-progress { font-size: 12px; margin: 4px 0; }
+/* 🔴 The RUNNING face (0.3.33). Deliberately not `.muted`, for the same reason
+   the 「已是最新」 verdict stopped being muted in 0.3.24: the one line that
+   answers the question the user's click just asked must not be the quietest
+   thing on the card. Brand ink + a moving spinner, so 「有事在发生」 survives a
+   glance and does not depend on reading a sentence. */
+.upd-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12.5px; font-weight: 600; color: var(--brand-ink); margin: 6px 0; }
+.upd-bytes { font-weight: 400; font-size: 11.5px; }
+.upd-spin { flex: none; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--brand);
+  animation: upd-spin .8s linear infinite; }
+@keyframes upd-spin { to { transform: rotate(360deg); } }
+/* The bar is the only thing that says how FAR along it is; the spinner alone
+   would say 「还活着」 forever. Both, because they answer different questions. */
+.upd-bar { height: 6px; border-radius: 999px; background: var(--line-soft);
+  overflow: hidden; margin: 2px 0 8px; }
+.upd-bar-fill { height: 100%; border-radius: 999px; background: var(--brand);
+  transition: width .18s linear; }
+/* 🔴 A spinner is decoration; the words and the bar are the information. Anyone
+   who has asked the OS to stop moving things still gets both. */
+@media (prefers-reduced-motion: reduce) {
+  .upd-spin { animation: none; }
+  .upd-bar-fill { transition: none; }
+}
 .upd-verified { font-size: 12px; color: var(--green-ink); margin: 4px 0; }
 .upd-fail { margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); color: var(--amber-ink); font-size: 12px; line-height: 1.55; }
 .upd-fail.blocking { background: var(--red-soft); color: var(--red-ink); }

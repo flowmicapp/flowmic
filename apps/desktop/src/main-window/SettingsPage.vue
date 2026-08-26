@@ -48,6 +48,7 @@ import {
 import { useCloudAccount } from '../lib/use-cloud-account';
 import { clearPos } from '../lib/capsule-position';
 import { localKv } from '../lib/storage';
+import { SETTINGS_SECTION_DOM, sectionFromEvent } from '../lib/settings-section-jump';
 import { APP_VERSION } from '../lib/version';
 
 type Sec = 'account' | 'stt' | 'llm' | 'prefs' | 'about' | 'privacy';
@@ -196,6 +197,12 @@ async function openLogs(): Promise<void> {
 let spySuppressed = false;
 let settleTimer = 0;
 
+function onSectionJump(ev: Event): void {
+  const section = sectionFromEvent(ev);
+  // nextTick: the page switch that precedes this event may still be painting.
+  if (section !== null) void nextTick(() => scrollTo(section));
+}
+
 function scrollTo(id: Sec): void {
   active.value = id;
   const el = document.getElementById(`set-${id}`);
@@ -281,9 +288,15 @@ onMounted(async () => {
   scroller = anchor ? scrollParentOf(anchor) : null;
   scroller?.addEventListener('scroll', spy, { passive: true });
   spy();
+  // Card LLM-NOTICE: the first-run card's two buttons ask for a SECTION, not
+  // just the page (lib/settings-section-jump.ts). The listener lives for the
+  // page's lifetime because the page is v-show'n, never unmounted, while the
+  // window is up — so the jump works from any page, any time.
+  window.addEventListener(SETTINGS_SECTION_DOM, onSectionJump);
 });
 
 onUnmounted(() => {
+  window.removeEventListener(SETTINGS_SECTION_DOM, onSectionJump);
   scroller?.removeEventListener('scroll', spy);
   window.clearTimeout(settleTimer);
   unlistenCloud?.();

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { UpdateStateDto } from '../lib/update-view';
+import { megabytes, type UpdateActivity, type UpdateStateDto } from '../lib/update-view';
 
 import UpdateBlock from './components/UpdateBlock.vue';
 import { S, hydrateLocale, setLocale, wireLocaleStore } from '../lib/strings';
@@ -79,6 +79,12 @@ async function render(s: UpdateStateDto): Promise<string> {
   // ⇒ A test asserting what a user can READ must look at rendered TEXT, not at
   // markup. Comments are not rendered text, and neither are the `<!---->`
   // placeholders Vue emits for a false `v-if`.
+  return html.replace(/<!--[\s\S]*?-->/g, '');
+}
+
+/** Render with a command in flight — the second half of what this card shows. */
+async function renderWith(s: UpdateStateDto, busy: UpdateActivity): Promise<string> {
+  const html = await renderToString(createSSRApp(UpdateBlock, { s, busy }));
   return html.replace(/<!--[\s\S]*?-->/g, '');
 }
 
@@ -231,6 +237,140 @@ describe('UpdateBlock (rendered)', () => {
     expect(html).not.toContain(S.upd_up_to_date);
     // …and the manual button is still reachable.
     expect(html).toContain(S.upd_check_now);
+  });
+
+  /**
+   * 🔴 THE TWO ACTION BUTTONS MUST LOOK LIKE BUTTONS (0.3.33).
+   *
+   * They did not. `class="btn sm"` (download) and `class="btn sm primary"`
+   * (install) paint nothing: in `tokens.css` the `.btn` base is layout only,
+   * `.btn.sm` is size only, every affordance lives in `.btn.pri`/`.ghost`/
+   * `.danger`, and `button { border: none; background: none }` removes the UA's
+   * default on top. `primary` is not a class this repo defines. Owner reported
+   * it from Windows 10 on 0.3.27 as 「提示了有新版，但是没有升级的按钮」("it says
+   * there's a new version, but there is no upgrade button") — the button was
+   * there, enabled and clickable, rendered as grey text.
+   *
+   * ⚠️ WHY THIS ASSERTION IS SHAPED THIS WAY. Every existing test in this file
+   * was green throughout: `update-view.test.ts` proved `action()` returns
+   * `download`, and the tests here proved the WORD "下载" reaches the output.
+   * Both are true of a control the user cannot see. So this one reads the class
+   * off the rendered `<button>` element that carries the label — 0.2.53's law
+   * ("a verification of what the user can perceive belongs on the rendered
+   * result") applied to affordance instead of text.
+   *
+   * The repo-wide fence against the next one is `button-skin-door.test.ts`.
+   */
+  it('🔴 renders the download and install actions as skinned buttons', async () => {
+    const classOf = (html: string, label: string): string | null => {
+      for (const m of html.matchAll(/<button[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)) {
+        const [, cls, body] = m;
+        if (cls !== undefined && body?.includes(label)) return cls;
+      }
+      return null;
+    };
+
+    const offered = await render(state({ plan: 'available', latest: '0.3.32', form: 'msi' }));
+    const download = classOf(offered, S.upd_download);
+    expect(download, 'no <button> carried the download label').not.toBeNull();
+    expect(download?.split(/\s+/)).toContain('pri');
+
+    const ready = await render(
+      state({
+        plan: 'available',
+        latest: '0.3.32',
+        form: 'msi',
+        verified_sha256: SHA,
+        verified_filename: 'FlowMic_0.3.32_x64_en-US.msi',
+        verified_size: 48 * 1024 * 1024,
+      }),
+    );
+    const install = classOf(ready, S.upd_install_msi);
+    expect(install, 'no <button> carried the install label').not.toBeNull();
+    expect(install?.split(/\s+/)).toContain('pri');
+    // 🔴 The near-miss spelling that shipped. `primary` matches no rule at all.
+    expect(install).not.toContain('primary');
+  });
+
+  /**
+   * 🔴 THE CARD SAYS WHAT IT IS DOING (0.3.33).
+   *
+   * owner 2026-08-25: 「当前的检查更新没有进度」 and 「在检查和下载时都要以明显的
+   * 样式信息来表明当前的状态」 ("checking has no progress" / "both checking and
+   * downloading must show their state in an obvious style").
+   *
+   * The old checking line was bound to `s.checking`, which this renderer can
+   * never see as true (`update_check` sets it, blocks, clears it, emits nothing
+   * in between), AND sat at the end of the verdict chain where any earlier
+   * verdict won. Two independent reasons for the same nothing.
+   *
+   * ⚠️ These assert on the rendered output — the spinner element and the bar's
+   * inline width — rather than on the props, for the reason the file header
+   * gives. A test that only checked "the word 正在检查 is in the DTO path" would
+   * have passed against the old code too.
+   */
+  it('🔴 shows an obvious running state while checking, without hiding the verdict', async () => {
+    const html = await renderWith(state({ plan: 'available', latest: '0.3.32' }), 'checking');
+    expect(html).toContain(S.upd_checking);
+    expect(html).toContain('upd-spin');
+    // The previous conclusion stays on screen: "what am I doing" and "what did
+    // the last check find" are two questions.
+    expect(html).toContain('0.3.32');
+  });
+
+  it('🔴 shows a moving bar with percent and bytes while downloading', async () => {
+    const html = await renderWith(
+      state({
+        plan: 'available',
+        latest: '0.3.32',
+        download: { active: true, received: 12 * 1024 * 1024, total: 48 * 1024 * 1024 },
+      }),
+      'downloading',
+    );
+    expect(html).toContain(S.upd_downloading);
+    expect(html).toContain('25%');
+    // The bar is filled to the same number the text claims — one fact, two
+    // renderings, and the width is what a user actually perceives.
+    expect(html).toContain('width:25%');
+    // Bytes, so "25%" of what is answerable without arithmetic.
+    expect(html).toContain(megabytes(12 * 1024 * 1024));
+  });
+
+  /**
+   * 🔴 The gap between the click and the first byte. Connecting and following
+   * the redirect is seconds on a slow line, and Rust reports no download as
+   * active yet — previously nothing on the card changed at all in that window,
+   * which is indistinguishable from a click that did not register.
+   */
+  it('🔴 says it is downloading before the first byte arrives', async () => {
+    const html = await renderWith(state({ plan: 'available', latest: '0.3.32' }), 'downloading');
+    expect(html).toContain(S.upd_downloading);
+    expect(html).toContain('upd-spin');
+    // No percentage is claimed, because none is known yet.
+    expect(html).not.toContain('upd-bar-fill');
+  });
+
+  /** Nothing in flight ⇒ no running face at all. The reverse control for the three above. */
+  it('renders no running state when nothing is in flight', async () => {
+    const html = await renderWith(state({ plan: 'available', latest: '0.3.32' }), null);
+    expect(html).not.toContain('upd-spin');
+    expect(html).not.toContain(S.upd_checking);
+  });
+
+  /**
+   * 🔴 Every action is disabled while a command is in flight, and the check
+   * button says which one it is doing. The old binding was `s.checking`, so the
+   * label never changed and the button stayed live — a second click issued a
+   * second check on top of the first.
+   */
+  it('🔴 disables the actions while a command is in flight', async () => {
+    const idle = await renderWith(state({ plan: 'available', latest: '0.3.32' }), null);
+    expect(idle).toContain(S.upd_check_now);
+    expect(idle).not.toContain('disabled');
+
+    const busy = await renderWith(state({ plan: 'available', latest: '0.3.32' }), 'checking');
+    expect(busy).toContain('disabled');
+    expect(busy).not.toContain(S.upd_check_now);
   });
 
   it('reports the last attempt, and only claims a rollback when there was one', async () => {

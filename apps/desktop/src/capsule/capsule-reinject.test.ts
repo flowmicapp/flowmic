@@ -192,6 +192,7 @@ describe('useRowReinject: driven, not read — what a click actually does', () =
       time: '09:12',
       entryType: 'transcript',
       thumb: null,
+      fullImage: false,
       created: 0,
       status: 'cached',
       ...over,

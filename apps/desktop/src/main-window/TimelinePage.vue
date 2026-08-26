@@ -21,6 +21,8 @@ import {
 import { INJECT_FAIL_REASON, MODE_BADGE, S } from '../lib/strings';
 import { TL_BATCH_MSG, TL_METRICS_MSG, TL_RETENTION_MSG } from '../lib/strings/timeline';
 import { planBatchCopy, preCopyHint, resultMessage, selectedInOrder } from './batch-copy';
+import { canCopyRow, performRowCopy, planRowCopy } from './timeline-copy';
+import { copyRowImage } from '../lib/bridge-clipboard';
 import { canReinject, reinjectLabel, statusBadge, statusLine } from '../lib/status';
 import { cachedCauseTooltip, failedCauseInline, injectProvenanceTooltip } from '../lib/inject-provenance';
 import { hasSourceLine } from '../lib/source-line';
@@ -301,29 +303,33 @@ function cancelEdit(): void {
 }
 
 // ── copy (owner 2026-07-27: the row button copies the PICTURE on a picture row) ──
+// Card IMG-COPY (owner P0, 2026-08-25): WHAT gets copied is decided by
+// timeline-copy.ts — the ORIGINAL picture via rowImage (the zoom's disk read),
+// thumbnail as fallback, text only when non-empty. This function only writes and
+// reports. The old body wrote the 256 px preview for every picture and, for an
+// un-captioned picture with no preview, writeText('')-ed and ticked while
+// emptying the user's clipboard. Neither path exists any more.
 const copiedId = ref<string | null>(null);
 const copyError = ref('');
-
-/** base64 → Blob without a fetch() round-trip through a data: URL. */
-function pngBlob(b64: string): Blob {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: 'image/png' });
-}
 
 async function copy(e: TimelineRow): Promise<void> {
   copyError.value = '';
   try {
-    if (e.thumb_b64 && typeof ClipboardItem !== 'undefined') {
-      // The picture, not its "🖼 PNG · 78 KB" descriptor. Same honest ceiling as
-      // the phone and the console: this is the bounded 256 px PREVIEW, because
-      // the original bytes are pasted and dropped and live nowhere.
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob(e.thumb_b64) })]);
-    } else {
-      const text = timeline.textOf(e.id, e.channel);
-      if (text === null) return;
-      await navigator.clipboard.writeText(text);
+    const plan = await planRowCopy(e, { rowImage, textOf: (id, ch) => timeline.textOf(id, ch) });
+    // PNG → the browser clipboard; JPEG/WebP originals → the native command
+    // (Chromium writes PNG only — timeline-copy.ts rule 4); text → writeText.
+    const outcome = await performRowCopy(plan, e, {
+      writeText: (t) => navigator.clipboard.writeText(t),
+      writeImage: (mime, bytes) =>
+        navigator.clipboard.write([new ClipboardItem({ [mime]: new Blob([bytes.slice()], { type: mime }) })]),
+      native: copyRowImage,
+    });
+    if (outcome.wrote === null) {
+      // Nothing honest to copy, or a refused native write: no success tick (the
+      // P0). `none` rows normally have no button at all (canCopyRow); a refused
+      // write is reported, never swallowed.
+      if (outcome.reason !== 'empty-text' && outcome.reason !== 'no-image') copyError.value = outcome.reason;
+      return;
     }
     copiedId.value = rowKey(e);
     setTimeout(() => {
@@ -695,7 +701,13 @@ const view = ref<'rows' | 'data'>('rows');
           && !(confirming !== null && rowKey(confirming) === rowKey(e))"
         class="ops"
       >
-        <button :title="e.thumb_b64 ? S.op_copy_image : S.op_copy" @click="copy(e)">
+        <!-- Card IMG-COPY: OMITTED (not disabled) when the row has nothing honest to
+             copy; the title names the original vs. the 256 px preview (timeline-copy.ts). -->
+        <button
+          v-if="canCopyRow(e)"
+          :title="e.entry_type === 'image' ? (e.full_image ? S.op_copy_image : S.op_copy_image_preview) : S.op_copy"
+          @click="copy(e)"
+        >
           <Icon :name="copiedId === rowKey(e) ? 'check' : 'copy'" />
         </button>
         <button v-if="rowCanReinject(e)" :title="reinjectLabel(e.status)" @click="reInject(e)"><Icon name="reinject" /></button>
@@ -741,48 +753,4 @@ const view = ref<'rows' | 'data'>('rows');
   </div>
 </template>
 
-<style scoped>
-/* V2-18 selection mode. Only the token palette + the existing .btn/.card
-   geometry — no new control system (styles/main.css is outside this card's
-   scope, so these rules live scoped to the page). */
-.sel-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r12); box-shadow: var(--sh-sm); }
-.sel-count { font-size: 12.5px; font-weight: 600; color: var(--t1); }
-.sel-hint { font-size: 12px; font-weight: 600; color: var(--amber-ink); background: var(--amber-soft); border-radius: 8px; padding: 3px 9px; }
-.sel-copy { margin-left: auto; }
-.sel-bar .btn:disabled { opacity: .45; cursor: default; }
-.hrow.selecting { cursor: pointer; }
-.hrow.selected { border-color: var(--brand); background: var(--brand-soft); }
-.selbox { flex: none; display: flex; align-items: center; height: 24px; }
-.selbox input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
-.tl-batchmsg { font-size: 12px; font-weight: 600; margin: 6px 2px; }
-.tl-batchmsg.ok { color: var(--green); }
-.tl-batchmsg.warn { color: var(--amber-ink); }
-
-/* N6 search row. Only existing tokens (styles/main.css is outside this card). */
-.tl-search { display: flex; align-items: center; gap: 8px; margin: 0 2px 12px; color: var(--t3); }
-.tl-search-in { flex: 1 1 auto; min-width: 0; font-size: 13px; }
-/* owner 2026-07-31 ② retention line: quiet but always present once it applies — it
-   states a fact about the list above it, not an error. */
-.tl-retention { margin: 10px 2px 0; font-size: 12px; line-height: 1.6; color: var(--t3); }
-/* owner ① channel chip → 2026-08-01: now `.chan-badge` (icon + colour, ONE
-   definition in styles/tokens.css — this page no longer draws its own). */
-/* owner 2026-08-01 §4-2 ⑧ word-count chip: same quiet weight the old inline
-   `.chan-chip` had (this page's other "context, not subject" pill). */
-.wc-chip { font-size: 11px; color: var(--t3); background: var(--surface-inset); border-radius: 6px; padding: 1px 6px; }
-
-/* RV-01 op-refused line. Loud on purpose (a --red-soft block, not the one-line
-   grey the copy error gets): it says an action the user took did not happen. Only
-   existing tokens — styles/main.css is outside this card's scope. */
-.tl-operr { display: flex; align-items: flex-start; gap: 8px; margin: 8px 2px; padding: 9px 12px; border: 1px solid var(--danger-line); background: var(--red-soft); border-radius: var(--r12); color: var(--red-ink); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
-.tl-operr-x { flex: none; border: 0; background: none; color: var(--red-ink); cursor: pointer; font-size: 12px; padding: 0 2px; }
-
-/* owner 2026-08-02 rework: the two-segment view switch (Timeline ⇄ Data). A pill
-   segmented control — same family as the filter fchip but a separate class name:
-   fchip means "filter this list", this means "switch to a different view" —
-   different meanings don't share a class. */
-.tl-views { display: inline-flex; gap: 2px; margin-left: 14px; padding: 2px;
-  background: var(--surface-inset); border-radius: 999px; }
-.vseg { border: 0; background: transparent; color: var(--t3); font-size: 12px; font-weight: 600;
-  border-radius: 999px; padding: 3px 12px; cursor: pointer; }
-.vseg.on { background: var(--surface); color: var(--t1); box-shadow: var(--sh-sm); }
-</style>
+<style scoped src="./timeline-page.css"></style>

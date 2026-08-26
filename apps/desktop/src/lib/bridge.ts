@@ -1,4 +1,4 @@
-// WP-R2-2 Tauri IPC adapter — the ONLY frontend module that imports @tauri-apps
+// WP-R2-2 Tauri IPC adapter — the ONLY frontend module that calls `invoke`,
 // and the concrete implementation of the injectable transports the stores use
 // (so the stores stay Tauri-free + unit-testable). The bridge channel names are
 // the exact `flowmic://…` strings the Rust `socket::bridge::channel` module emits;
@@ -7,6 +7,25 @@
 //
 // Everything degrades gracefully outside Tauri (a plain `vite dev` browser): the
 // invoke/listen calls no-op so the UI can be inspected without the desktop shell.
+//
+// 🔴 CORRECTED 2026-08-26, measured. Line 1 used to read 「the ONLY frontend
+// module that imports @tauri-apps」 and that was FALSE: three other modules
+// import from it — bridge-reinject.ts and main-window/update-store.ts take
+// `listen`/`emit` from api/event, and components/WindowTitlebar.vue takes
+// `getCurrentWindow` from api/window.
+//
+// The invariant that IS true, and the one worth having, is narrower: this file
+// is the only place `invoke` is imported, so every command crossing into Rust
+// goes through one funnel (RV-97: a funnel with a second entry point is not a
+// funnel). Subscribing to an event and asking your own window to minimise do
+// not dispatch commands, and folding them into the same sentence made a
+// precise rule sound like a sloppy one — which is how it rotted unnoticed,
+// and how it got copied into bridge-clipboard.ts's header as well.
+//
+// ⇒ anti-façade ④, in its own words: a comment asserting behaviour elsewhere
+// is only as true as the last time someone checked. This one is now pinned by
+// `invoke-funnel-door.test.ts`, which scans the tree instead of trusting this
+// paragraph.
 
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -20,6 +39,7 @@ import {
 } from './paired-mobiles';
 import { asCloudStatus, cloudEndpointSsot, type ChannelId, type CloudStatus } from './channel';
 import { asCloudAccountRaw, type CloudAccountRaw } from './cloud-account';
+import { asPairingInfo } from './pairing-info';
 
 /** Bridge channel names — must equal apps/desktop/src-tauri/src/socket/bridge.rs. */
 export const CH = {
@@ -162,7 +182,7 @@ function hasTauri(): boolean {
  *  general-purpose escape hatch: every rejection it sees becomes one `undefined`,
  *  which is why the portable file's own doors answer with verdict objects instead.
  *  A new caller outside this pair should be adding a door HERE, not invoking by
- *  hand — that is what keeps 「the only module that imports @tauri-apps」 true. */
+ *  hand — that is what keeps 「the only module that calls `invoke`」 true. */
 export async function invokeSafe<T>(cmd: string, args?: Record<string, unknown>): Promise<T | undefined> {
   if (!hasTauri()) return undefined;
   try {
@@ -229,89 +249,6 @@ export const timelineTransport: TimelineTransport = {
 };
 
 // ── device page: pairing code + endpoint (WP-R23-1) ──
-const EMPTY_PAIRING: PairingInfo = {
-  short_code: null,
-  endpoint: '',
-  pc_name: '',
-  connected: false,
-  mobiles: 0,
-};
-
-/** Narrow a `pairing_code` ack to the PairingInfo contract.
- *
- *  owner 2026-07-27: `?? EMPTY_PAIRING` only covers a WHOLE missing snapshot. An
- *  ack that is an object but lacks `endpoint` (an older shell, a serde rename)
- *  sailed through the cast, and the device page then called `endpoint.trim()` on
- *  undefined — a render throw that blanks the page, the same defect the timeline
- *  had. Field-by-field narrowing is the only thing a runtime cast never gives. */
-export function asPairingInfo(v: unknown): PairingInfo {
-  if (v === null || typeof v !== 'object') return { ...EMPTY_PAIRING };
-  const o = v as Record<string, unknown>;
-  // owner 2026-07-30 ② "the LAN card must list all the IPs it's listening on" — and they were all being thrown
-  // away right here. `lan_candidates` is `string[]` (Rust `Vec<String>`), but the
-  // filter asserted `c is string` while TESTING `typeof c === 'object'`, so every
-  // address failed it and the field arrived as `[]` on every machine. A type
-  // predicate is an assertion the compiler does not check, which is exactly why the
-  // façade rule says to grep the production reader: the GA-21 multi-NIC picker has
-  // never once had a candidate to show.
-  const candidates = Array.isArray(o.lan_candidates)
-    ? o.lan_candidates.filter((c): c is string => typeof c === 'string' && c !== '')
-    : undefined;
-  return {
-    ...EMPTY_PAIRING,
-    short_code: typeof o.short_code === 'string' ? o.short_code : null,
-    endpoint: typeof o.endpoint === 'string' ? o.endpoint : '',
-    pc_name: typeof o.pc_name === 'string' ? o.pc_name : '',
-    connected: o.connected === true,
-    mobiles: typeof o.mobiles === 'number' && Number.isFinite(o.mobiles) ? o.mobiles : 0,
-    ...(candidates !== undefined ? { lan_candidates: candidates } : {}),
-    // Three more fields the Rust side has been sending and this narrowing DROPPED,
-    // found while wiring the LAN card's address list (same class as the filter
-    // above — a field absent from the literal is a field the caller can never see):
-    //   · lan_endpoint — the LAN card's OWN address (v0.2.4). Without it the card
-    //     falls back to the pairing endpoint, the very conflation 0.2.4 split apart.
-    //   · expires_in_ms — GA-18's code TTL. PairingModal computes a deadline from it
-    //     and has therefore always shown the static "valid within 5 minutes" (5 分钟内有效) line instead of the
-    //     countdown lib/pair-countdown.ts implements and tests.
-    //   · machine_uid — v0.2.4's cross-channel machine identity; ConnDiagPage has
-    //     always printed "unreadable" (读不到) for it.
-    ...(typeof o.lan_endpoint === 'string' ? { lan_endpoint: o.lan_endpoint } : {}),
-    ...(typeof o.expires_in_ms === 'number' && Number.isFinite(o.expires_in_ms)
-      ? { expires_in_ms: o.expires_in_ms }
-      : {}),
-    ...(typeof o.machine_uid === 'string' && o.machine_uid !== '' ? { machine_uid: o.machine_uid } : {}),
-    // N5 — WHICH channel this snapshot describes. Narrowed to the two known tags
-    // and otherwise left ABSENT rather than defaulted: a snapshot from a shell that
-    // does not report it must not claim to be 'lan', or the modal's cross-channel
-    // gate would compare against a value nobody sent.
-    ...(o.channel === 'lan' || o.channel === 'cloud' ? { channel: o.channel } : {}),
-    // D2LAN-B2b — the LAN TLS fingerprint the QR carries as `fp=`.
-    //
-    // 🔴 THIS LINE IS THE WHOLE REASON THE FIELD ARRIVES. Everything upstream of
-    // it can be perfect — the server publishing `lan_tls_fp`, the Rust snapshot
-    // serializing it — and a field missing from this literal is a field the caller
-    // can never see (the exact defect the three fields above were added for, and
-    // the `lan_candidates` filter before them). A wired chain with a hole here
-    // fails EXACTLY like an unwired one: no `fp=`, no error, all tests green.
-    //
-    // Absent / empty / not-a-string ⇒ left ABSENT rather than defaulted, so the
-    // payload builder's 「no fingerprint」 branch is reached and the QR keeps its
-    // pre-D2-LAN bytes.
-    ...(typeof o.lan_tls_fp === 'string' && o.lan_tls_fp !== '' ? { lan_tls_fp: o.lan_tls_fp } : {}),
-    // 0.2.66 — the relay's PCID. SIXTH field to be added to this literal, and the
-    // block above says why that keeps happening: everything upstream can be perfect
-    // and a field missing from HERE is a field the caller can never see. The proof
-    // that this line is load-bearing is `pairing-pcid.test.ts`, which feeds a
-    // Rust-SHAPED object in (serde key names, not a hand-built PairingInfo) and
-    // asserts the id comes out non-empty — "it compiled" proves nothing.
-    //
-    // Only "whether it's a non-empty string" is decided here. The nine-digit SHAPE is the wire
-    // parser's call (`socket/wire.rs`, symbol `parse_pcid`), and re-deciding it in a
-    // second place would be two answers to one question — the drift that outlives
-    // whichever of the two someone remembers to change.
-    ...(typeof o.pcid === 'string' && o.pcid !== '' ? { pcid: o.pcid } : {}),
-  };
-}
 
 /** Read the current pairing snapshot (code + endpoint + presence) for the device
  *  page. Outside Tauri it degrades to an empty (disconnected) snapshot.

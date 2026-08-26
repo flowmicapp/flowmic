@@ -56,6 +56,7 @@ import 'outbox_failure_text.dart';
 import 'outbox_frame.dart';
 import 'outbox_item.dart';
 import 'outbox_store.dart';
+import 'pairing_success_notice.dart';
 import 'pc_presence.dart';
 import 'image_send_controller.dart';
 import 'manual_delivery.dart';
@@ -135,6 +136,7 @@ class ChatController extends ChangeNotifier
     required OutboxStore outboxStore,
     required OutboxBlobStore outboxBlobs,
     this.appSettings,
+    this.llmCapability,
     ComposeGate? composeGate,
     ImagePickerPort? imagePicker,
     DateTime Function()? clock,
@@ -143,17 +145,10 @@ class ChatController extends ChangeNotifier
     // run on a collapsed window instead of sleeping through the real one.
     this.sessionLostAfter = kSessionLostAfter,
   }) : favorites = FavoritesStore(prefs: localPrefs),
-       composeGate =
-           composeGate ?? ComposeGate(transport: session.transport) {
-    recording = RecordingTelemetry(
-      clock: clock ?? DateTime.now,
-      onTick: notifyListeners,
-    );
+       composeGate = composeGate ?? ComposeGate(transport: session.transport) {
+    recording = RecordingTelemetry(clock: clock ?? DateTime.now, onTick: notifyListeners);
     aiCompose = AiComposeController(host: this, gate: this.composeGate);
-    utteranceCompose = UtteranceComposeController(
-      host: this,
-      gate: this.composeGate,
-    );
+    utteranceCompose = UtteranceComposeController(host: this, gate: this.composeGate);
     delivery = ManualDelivery(host: this, gate: this.composeGate);
     // Built here for the same reason `delivery` is: it needs `host: this`.
     outbox = DeliveryOutbox(store: outboxStore, blobs: outboxBlobs, host: this);
@@ -227,6 +222,11 @@ class ChatController extends ChangeNotifier
   void _onRoomJoined() => unawaited(outbox.drain());
 
   final PttSession session;
+  /// Card PAIR-SUCCESS — raised by main.dart from the connections page's deliberate-entry funnel only.
+  late final PairingSuccessNotice pairingSuccess = PairingSuccessNotice(onChanged: notifyUi);
+  /// Card LLM-NOTICE — the PC's `capability.llm` (settings/llm_capability.dart):
+  /// null = not told · false = no usable model (mode note renders) · true = silent.
+  final ValueListenable<bool?>? llmCapability;
   @override
   final TimelineStore store;
   final DestinationController destination;

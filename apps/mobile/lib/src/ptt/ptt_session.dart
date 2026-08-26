@@ -149,7 +149,7 @@ class PttSession {
        micPermission = micPermission ??
            MicPermissionFlow(
              port: const PlatformMicPermission(),
-             asked: SharedPrefsMicAskedStore(),
+             asked: const SharedPrefsMicAskedStore(),
            ),
        stt = sttStream ?? SttStream() {
     this.reconnect =

@@ -18,7 +18,7 @@
 // picture is still scannable.
 
 import { describe, expect, it } from 'vitest';
-import { asPairingInfo } from './bridge';
+import { asPairingInfo } from './pairing-info';
 import { buildQrPayload, derivePairingModal, formatPcid } from './pairing';
 
 const PCID = '302914775';

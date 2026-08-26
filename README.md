@@ -26,11 +26,30 @@ on real devices before anything is tagged.
 | **Windows 10/11** | ✅ **Shipped** | MSI installer (en-US / zh-CN) and a portable zip. Tauri v2 + a native injection layer; the primary development target. |
 | **Android** | ✅ **Shipped** | APK, installed directly. Tested on real devices every round. |
 | **macOS (Apple Silicon)** | ✅ **Shipped** | Notarized, stapled `FlowMic.app` zip (arm64) — Gatekeeper opens it without warnings. |
-| **iOS / iPadOS** | 🚧 **Built, TestFlight-internal** | Builds from the same tree and runs on real iPads, uploaded to TestFlight — but not yet publicly installable. Store review is an external clock we do not control. |
+| **iOS / iPadOS** | 🧪 **Public TestFlight beta** | [Join the beta](https://testflight.apple.com/join/fvTxBgE3) — Apple's beta channel, so it comes with limits. Read them below before you click. |
 | **Linux** | ⏳ **Server yes, desktop not yet** | The server runs on Linux today — that is what the relay is. The *desktop* app does not; nobody has written the injection layer for X11/Wayland. Contributions very welcome. |
 
-A platform marked 🚧 has no download link because no public artifact exists —
+A platform marked ⏳ has no download link because no public artifact exists —
 we would rather show you a blank than a 404.
+
+### About the iOS / iPadOS beta
+
+TestFlight is Apple's beta channel, not a store listing. Four limits are worth
+knowing before you join, because none of them are ours to lift:
+
+- **A new version does not show up straight away.** Every build goes through
+  Apple's Beta App Review first — usually inside 24 hours, sometimes longer.
+  Until a build clears, the link installs the **previous approved** build, which
+  may be older than the newest release notes on this page.
+- **300 testers.** That is the cap on this public link. When it is full, the
+  page stops accepting people until a slot frees up.
+- **Each build expires 90 days after we upload it.** TestFlight tells you when;
+  reinstall from the same link.
+- **iOS or iPadOS 15 and later**, plus Apple's free TestFlight app.
+
+And one that is ours: **you also need a computer running FlowMic.** The phone is
+the microphone — the words land on the computer. On its own, the phone app has
+nowhere to send anything.
 
 ---
 

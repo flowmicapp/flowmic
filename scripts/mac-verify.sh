@@ -124,6 +124,49 @@ for pair in "node:$NODE" "cargo:$CARGO" "flutter:$FLUTTER"; do
 done
 note ""
 
+# ── 1b. codegen, BEFORE lint. ───────────────────────────────────────────────
+#
+# 🔴 MEASURED 2026-08-26, first run of this script after a 20-commit pull:
+# `verify:lint` came back 27 pass / 4 skip / 1 FAIL, and the failure was
+# `i18n-generated-fresh` — 「l10n/*.g.dart is stale」 — on a tree that was
+# perfectly correct.
+#
+# Why it is not a defect HERE: those files are GITIGNORED. Nobody commits them;
+# `make gen` rebuilds them, and every build/test target depends on `gen`. So
+# after any pull the copy on this machine's disk is behind its source BY
+# CONSTRUCTION, and the very next build repairs it. The lint row handles the
+# 「never generated」 case (`--skip-missing`) but not the 「generated once, then
+# pulled」 case, which is the normal state of any long-lived checkout.
+#
+# ⚠️ STATED, NOT HIDDEN: running the generator here means that row can no longer
+# catch anything ON THIS MACHINE. That costs nothing, because the drift it
+# exists to catch — edit i18n/mobile/<code>.json, forget to regenerate — can
+# only be committed on an AUTHORING machine, and this one authors nothing; it
+# pulls. On Windows the row still runs against whatever the author left on disk.
+#
+# The committed artefacts in that same lint (the desktop Rust table, the
+# webview catalogue) are NOT touched by this step and stay fully checked here:
+# for those, stale IS a defect, because a stale one ships.
+note "--- 1b. mobile codegen (gitignored *.g.dart — stale after every pull) ---"
+if [ -x "$NODE" ] && [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1; then
+  (
+    cd apps/mobile || exit 2
+    PATH="$(dirname "$NODE"):$(dirname "$FLUTTER"):$PATH" make gen
+  ) >"$LOGS/gen.log" 2>&1
+  GEN_EXIT=$?
+  if [ "$GEN_EXIT" -eq 0 ]; then
+    pass "mobile codegen"
+  else
+    # A generator that CRASHES is a real defect and must not be folded into the
+    # staleness story above — it is the one thing this step could legitimately
+    # go red for.
+    fail "mobile codegen (exit $GEN_EXIT) — see $LOGS/gen.log; the generator itself failed, this is not staleness"
+  fi
+else
+  skip "mobile codegen — need the staged node, flutter and make"
+fi
+note ""
+
 # ── 2. lint (node) ──────────────────────────────────────────────────────────
 note "--- 2. verify:lint ---"
 if [ -x "$NODE" ]; then
@@ -210,6 +253,45 @@ else
 fi
 note ""
 
+# ── 3b. cargo test WITH the `app` feature. ──────────────────────────────────
+#
+# 🔴 THIS SECTION EXISTS BECAUSE SECTION 3 WAS BLIND, AND BLIND TO EXACTLY THE
+# THING THIS SCRIPT IS CITED AS THE JUDGE OF. Measured 2026-08-26.
+#
+# `pub mod shell` is behind `#[cfg(feature = "app")]` (so `cargo test` does not
+# drag in wry/webview2). Section 3 runs a bare `cargo test --lib`, so until
+# today NOTHING under src/shell/ had ever been compiled on this machine — and
+# EIGHT of the crate's files carrying non-Windows branches live there:
+# accessibility.rs (the macOS Accessibility permission surface), clipboard_copy.rs
+# (the NSPasteboard write), clipboard_image.rs, tray.rs, autostart.rs,
+# capsule_style.rs, capsule_watch.rs, mod.rs.
+#
+# That matters more than an ordinary gap, because verify/lint/platform-cfg-count
+# names THIS SCRIPT as the remedy: 「The only honest judge of a non-Windows
+# branch is a run on the Mac — ./scripts/mac-verify.sh」. It was pointing at an
+# instrument that could not see a third of the files it was talking about. The
+# Windows delivery gate has run both feature sets all along (`verify:rust-tests`
+# = `--lib` && `--lib --features app`); this machine ran only the first.
+#
+# First reading, 2026-08-26: 730 tests without the feature, 755 with it.
+# 「先核你的尺子」 — the 25 that were missing are the ones only this machine can
+# judge.
+note "--- 3b. cargo test --lib --features app (shell/, incl. the macOS surfaces) ---"
+if [ -x "$CARGO" ]; then
+  ( cd apps/desktop/src-tauri && "$CARGO" test --lib --features app ) >"$LOGS/cargo-app.log" 2>&1
+  CARGO_APP_EXIT=$?
+  grep -m1 '^test result:' "$LOGS/cargo-app.log" 2>/dev/null | sed 's/^/  /' \
+    || note "  (no test result line)"
+  if [ "$CARGO_APP_EXIT" -eq 0 ]; then
+    pass "cargo test --lib --features app"
+  else
+    fail "cargo test --lib --features app (exit $CARGO_APP_EXIT) — see $LOGS/cargo-app.log"
+  fi
+else
+  skip "cargo test --features app — cargo not found at $CARGO"
+fi
+note ""
+
 # ── 4. mobile tests — via make, NEVER via bare `flutter test` ───────────────
 # 🔴 `make test` depends on `gen`, and that dependency is load-bearing on any
 # fresh checkout. `lib/generated/*.g.dart` is generated from @flowmic/protocol
@@ -229,11 +311,17 @@ note ""
 #
 # `make gen` invokes a bare `node`, which is NOT on PATH here, so the staged
 # runtime's directory is prepended for this call only.
-note "--- 4. mobile tests (make test = gen + flutter test) ---"
+#
+# It runs the SAME target the Windows delivery gate runs (`gate-test`, since
+# 2026-08-25), not the looser `test`: identical flags mean the two machines'
+# numbers are comparable, and `--timeout 90s` matters more here than there —
+# a hung widget test over SSH prints nothing for twenty minutes and looks
+# exactly like a slow machine.
+note "--- 4. mobile tests (make gate-test = gen + flutter test) ---"
 if [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1 && [ -x "$NODE" ]; then
   (
     cd apps/mobile || exit 2
-    PATH="$(dirname "$NODE"):$(dirname "$FLUTTER"):$PATH" make test
+    PATH="$(dirname "$NODE"):$(dirname "$FLUTTER"):$PATH" make gate-test
   ) >"$LOGS/mobile.log" 2>&1
   MOBILE_EXIT=$?
   tail -3 "$LOGS/mobile.log" | sed 's/^/  /'

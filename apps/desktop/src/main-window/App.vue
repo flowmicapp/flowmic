@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './components/Icon.vue';
 import WindowTitlebar from './components/WindowTitlebar.vue';
 import FirstRunLocale from './components/FirstRunLocale.vue';
+import LlmSetupCard from './components/LlmSetupCard.vue';
 import AccessibilityNotice from './components/AccessibilityNotice.vue';
 // 2026-08-19 §5-B — the built-in speech model, said BEFORE the user holds the
 // button and speaks. Mounted unconditionally (its own v-if is inside), because
@@ -217,6 +218,10 @@ onUnmounted(() => {
            reports does not go away on its own, it goes away when the reader
            decides to spend the bandwidth (§5-B). -->
       <LocalModelNotice />
+      <!-- Card LLM-NOTICE (owner D2): the dismissible first-run door to the two
+           model configurations. Same slot and the same argument as the strip
+           above: true on whichever page a first-run user happens to open. -->
+      <LlmSetupCard />
       <DevicesPage v-show="page === 'devices'" />
       <ConnDiagPage v-if="page === 'diag'" />
       <TimelinePage v-show="page === 'timeline'" />

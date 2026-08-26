@@ -183,6 +183,32 @@ export const SETTINGS_KEYS = [
   // asserts that equality per locale, so renaming the feature reddens a test
   // rather than orphaning this sentence.
   'llm_hint',
+  // ── card LLM-NOTICE (owner 2026-08-25 D1/D2) — three sentences, three subjects ──
+  //
+  // THREE SEPARATE STATEMENTS, NEVER MERGED, because they are three different
+  // truths about one missing model (execution plan §1.1, measured):
+  //   · Translate / Organize  → NOT SUPPORTED  (`llm_modes_unsupported`, LLM section)
+  //   · AI polish             → NOT IN EFFECT  (`polish_no_llm`, already above)
+  //   · the scenario card     → its terms STILL WORK: stt/engine-factory.ts feeds
+  //     `scenario.card.terms` to the SPEECH engine as hotwords/replacements; only
+  //     the half that rides into the polish prompt (stt-polish.ts) goes down
+  //     (`scenario_terms_still_work`, on the card itself). Calling the card
+  //     "not supported" would be false, and a wrong status word is R11 territory.
+  // All three render ONLY on the server-supplied `capability.llm` fact — never
+  // inferred from an empty endpoint (a managed cloud account has no row).
+  // None may assert a DEFAULT VALUE of any switch (DEFAULT_VALUE_CLAIMS rule).
+  'llm_modes_unsupported',
+  'scenario_terms_still_work',
+  // The dismissible first-run card (owner D2): a title, a body that names what
+  // works without a model and what does not, two buttons that JUMP to the speech
+  // model and language model configurations, and a remembered dismissal.
+  // No "read the guide" link: that web section does not exist yet, and a link
+  // that opens nothing is the dead-link defect 0.3.24 fixed.
+  'llm_setup_title',
+  'llm_setup_body',
+  'llm_setup_go_stt',
+  'llm_setup_go_llm',
+  'llm_setup_dismiss',
   'llm_preset',
   'llm_protocol',
   'llm_endpoint',

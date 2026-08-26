@@ -69,6 +69,12 @@ export interface RecentLine {
    *  since 0.1.7), or null when the row carries none — an image row without a
    *  thumbnail falls back to a generic icon rather than inventing a picture. */
   thumb: string | null;
+  /** Card IMG-COPY (2026-08-25) — whether THIS PC kept the delivered picture on
+   *  disk (`WireHistoryItem.full_image`, the write's own verdict stamped by
+   *  `socket::row_image::store`). Read by the strip's copy-picture button so the
+   *  row can say whether the ORIGINAL or only the 256 px preview will be copied.
+   *  Absent on the wire ⇒ false, never guessed true. */
+  fullImage: boolean;
   /** created_at as epoch ms for newest-first ordering; NaN when unknown. */
   created: number;
   /** 🔴 卡 L7 / owner 2026-08-02 "on the PC-side capsule window, the row for a
@@ -143,6 +149,7 @@ export function toRecentLine(item: WireHistoryItem, channel: ChannelTag): Recent
     created: Date.parse(rawCreated),
     entryType: item.entry_type === 'image' ? 'image' : 'transcript',
     thumb: typeof item.thumb_b64 === 'string' && item.thumb_b64 !== '' ? item.thumb_b64 : null,
+    fullImage: item.full_image === true,
     // 卡 L7 — see [[RecentLine.status]]. An unknown/absent value stays null and the
     // view draws the baseline style; it is never guessed into 'injected'.
     status: (typeof item.status === 'string' && KNOWN_STATUSES.has(item.status)

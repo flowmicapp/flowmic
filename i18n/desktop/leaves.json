@@ -799,6 +799,12 @@
       "name": "pair_close"
     },
     {
+      "key": "pair_success",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_success"
+    },
+    {
       "key": "pair_pcid_label",
       "shard": "pairing",
       "kind": "string",
@@ -1255,6 +1261,48 @@
       "name": "llm_hint"
     },
     {
+      "key": "llm_modes_unsupported",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_modes_unsupported"
+    },
+    {
+      "key": "scenario_terms_still_work",
+      "shard": "settings",
+      "kind": "string",
+      "name": "scenario_terms_still_work"
+    },
+    {
+      "key": "llm_setup_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_title"
+    },
+    {
+      "key": "llm_setup_body",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_body"
+    },
+    {
+      "key": "llm_setup_go_stt",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_go_stt"
+    },
+    {
+      "key": "llm_setup_go_llm",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_go_llm"
+    },
+    {
+      "key": "llm_setup_dismiss",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_dismiss"
+    },
+    {
       "key": "llm_preset",
       "shard": "settings",
       "kind": "string",
@@ -1565,6 +1613,12 @@
       "shard": "timeline",
       "kind": "string",
       "name": "op_copy_image"
+    },
+    {
+      "key": "op_copy_image_preview",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "op_copy_image_preview"
     },
     {
       "key": "op_copy_failed",

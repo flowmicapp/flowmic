@@ -25,6 +25,28 @@ analyze: gen
 test: gen
 	flutter test
 
+# 🔴 THE GATE'S ENTRY POINT (2026-08-25). `verify:mobile-tests` used to call
+# `flutter test --timeout 90s --reporter compact` directly from the repo root,
+# which skipped `gen` — so whether the delivery gate passed depended on what
+# happened to be on that machine's disk.
+#
+# MEASURED: the LLM-NOTICE card added a reference to a constant this Makefile
+# generates. On the machine that wrote it (codegen fresh) the suite was 2894
+# green; on a machine that had only pulled, the SAME commit failed to compile
+# — 「Member not found: 'capabilityLlm'」. Both machines were telling the truth
+# about their own disk, which is the problem: a gate that reads generated,
+# gitignored sources it does not generate can go red on correct code and green
+# on stale code. CLAUDE.md already records the same shape for the protocol
+# `dist` ("陈旧的 dist 会双向骗人").
+#
+# The flags live here rather than at the call site because they are not
+# cosmetic: a hung widget test makes a bare `flutter test` run for twenty
+# minutes printing nothing (flowmic-realdevice-playbook). One target, both
+# requirements, one place to change either.
+.PHONY: gate-test
+gate-test: gen
+	flutter test --timeout 90s --reporter compact
+
 build: gen
 	flutter build apk --debug
 

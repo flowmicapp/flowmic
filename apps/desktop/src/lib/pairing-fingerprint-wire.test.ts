@@ -17,7 +17,7 @@
 // hand-built `PairingInfo` — the narrowing is inside the tested path, not around it.
 
 import { describe, expect, it } from 'vitest';
-import { asPairingInfo } from './bridge';
+import { asPairingInfo } from './pairing-info';
 import { derivePairingModal } from './pairing';
 
 /** 24 base64url chars, containing a 4-digit run (`9421`) on purpose so that any

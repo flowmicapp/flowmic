@@ -63,10 +63,16 @@ export const TIMELINE_KEYS = [
    *  "looks like everything's fine" is the worst kind of failure. */
   'tl_store_write_failed',
   'op_copy',
-  // owner 2026-07-27: on a picture row the same button copies the PICTURE. It
-  // says "preview image" because that is what this end has — the original was pasted on
-  // arrival and kept nowhere.
+  // owner 2026-07-27: on a picture row the same button copies the PICTURE.
+  // Card IMG-COPY (owner P0, 2026-08-25): it copies the ORIGINAL — the
+  // delivered bytes kept on disk since RV-93 (socket::row_image) — and the
+  // earlier wording here ("the original was pasted on arrival and kept
+  // nowhere") was an expired truth the same day RV-93 landed. The preview
+  // variant below is the title for a row that genuinely has only its 256 px
+  // thumbnail (pre-RV-93 rows, rows whose write failed): a smaller picture,
+  // named as such, never a claim to be the original.
   'op_copy_image',
+  'op_copy_image_preview',
   'op_copy_failed',
   /** 0.3.30 — the capsule's per-row re-inject reporting that NOTHING WAS TYPED.
    *  Distinct from `st_failed` (「未注入」) on purpose: that is a VERDICT the

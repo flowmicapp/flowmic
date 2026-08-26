@@ -146,7 +146,39 @@ const EXPECTED = {
   // and it took two rounds on the Mac to go green: the first found three
   // dead-code warnings and the second an unused `Duration` import, neither of
   // which any Windows gate can see.
-  'cfg(not(target_os = "windows"))': 12,
+  // 12 → 13 (card IMG-COPY, 2026-08-25, machine dev-pc-a, Windows): the new
+  // shell/clipboard_image.rs carries ONE non-Windows arm — `copy_image_native`
+  // returning a NAMED refusal (no clipboard image write on that host), the same
+  // shape as clipboard_copy.rs's third arm. 🔴 NOT COMPILED by any gate on the
+  // Windows lead box; it owes a ./scripts/mac-verify.sh run on the Mac before
+  // any claim stronger than 「written」 (the device line's job, flagged in the
+  // card's report).
+  //
+  // ✅ 13 → 14 (2026-08-26). THAT OWED RUN HAPPENED, AND IT PAID FOR ITSELF —
+  // by exposing that the instrument this file names as the remedy could not see
+  // the file in question. Mac mini (flowmic-mac), macOS 26.5.1:
+  //
+  //     cargo test --lib                  → 730 tests, ZERO of them shell::*
+  //     cargo test --lib --features app   → 755 passed; 0 failed; 1 ignored
+  //     …--features app, filtered to clipboard_image → 5 passed; 0 failed, incl.
+  //       shell::clipboard_image::tests::
+  //         this_platform_refuses_by_name_instead_of_claiming_the_copy_happened
+  //
+  // `pub mod shell` sits behind `#[cfg(feature = "app")]`, and mac-verify.sh ran
+  // a bare `cargo test --lib` — so src/shell/ had NEVER been compiled on that
+  // machine, and EIGHT of the files this gate counts live there. The header
+  // above says 「the only honest judge of a non-Windows branch is a run on the
+  // Mac — ./scripts/mac-verify.sh」; that sentence was true about the intent and
+  // false about the tool. Fixed in the same commit: mac-verify §3b runs both
+  // feature sets, the way `verify:rust-tests` has on Windows all along.
+  //
+  // The +1 itself is the test that makes the arm's promise checkable rather than
+  // merely written: an `Ok` from that arm cannot pass it.
+  //
+  // ⚠️ What is still NOT proven: that a macOS user can copy a picture. There is
+  // no macOS implementation — the arm's entire content is the refusal. That is
+  // the product state, recorded, not a gap in this run.
+  'cfg(not(target_os = "windows"))': 14,
   'cfg(unix)': 9,
   // 32 → 37 (2026-08-24, 0.3.28 card B — the macOS default machine name).
   // Five new sites in `pc_name.rs` / `pc_name_tests.rs`: the two arms of
@@ -204,7 +236,10 @@ const EXPECTED = {
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the
   // CONTROL that tells 「the code moved」 apart from 「the scanner broke」.
-  'cfg(target_os = "windows")': 31,
+  // 31 → 34 (card IMG-COPY, 2026-08-25): clipboard_image.rs's three Windows
+  // sites — `image_formats_in` (the DIB needs WIC), `copy_image_native`, and
+  // the byte-for-byte clipboard-table test. Windows-side rows owe no Mac run.
+  'cfg(target_os = "windows")': 34,
   'cfg!(windows)': 4,
 };
 

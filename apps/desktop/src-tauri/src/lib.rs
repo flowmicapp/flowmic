@@ -441,6 +441,7 @@ pub fn run() {
             shell::capsule_surface,
             shell::capsule_hide,
             shell::clipboard_copy::capsule_copy_text,
+            shell::clipboard_image::capsule_copy_image,
             shell::show_main,
             shell::open_log_directory,
             // 0.3.24 — the ONLY way this app can put a page in front of the

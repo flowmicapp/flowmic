@@ -81,6 +81,8 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.composeSend,
   BannerIds.imageSend,
   BannerIds.aiCompose,
+  // Card PAIR-SUCCESS: a past event (a deliberate entry succeeded), 4 s window.
+  BannerIds.pairingSuccess,
 ];
 
 /// [key]'s current face: the value that decides whether this is a FRESH
@@ -110,6 +112,11 @@ const List<String> _autoHideBannerKeys = <String>[
     dismiss: c.dismissImageFailure,
   ),
   BannerIds.aiCompose => (value: c.aiFailure, dismiss: c.dismissAiFailure),
+  // The ticket is the face value: a NEW raise is a new number ⇒ a fresh window.
+  BannerIds.pairingSuccess => (
+    value: c.pairingSuccess.ticket,
+    dismiss: c.pairingSuccess.dismiss,
+  ),
   _ => (value: null, dismiss: () {}),
 };
 

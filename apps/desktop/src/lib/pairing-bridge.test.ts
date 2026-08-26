@@ -24,7 +24,13 @@ afterAll(() => {
   if (!hadWindow) delete (globalThis as { window?: unknown }).window;
 });
 
-const { asPairingInfo, fetchPairingInfo, refreshPairingCode } = await import('./bridge');
+const { fetchPairingInfo, refreshPairingCode } = await import('./bridge');
+
+// The narrowing moved out of bridge.ts on 2026-08-26 (that file was on the
+// 800-line cap). It is a pure `unknown -> PairingInfo` function, so it needs
+// none of the Tauri scaffolding above — a plain static import, deliberately
+// NOT re-exported from bridge.ts: one door per thing (RV-97).
+import { asPairingInfo } from './pairing-info';
 
 /** The args of the single invoke made by the call under test. */
 function lastArgs(): Record<string, unknown> {

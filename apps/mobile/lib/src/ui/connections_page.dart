@@ -72,9 +72,17 @@ class ConnectionsPage extends StatefulWidget {
     required this.historyPageBuilder,
     required this.updateListenable,
     required this.hasUpdate,
+    this.onDeliberateEntry,
   });
 
   final ConnectionsController connections;
+  /// Card PAIR-SUCCESS (owner 2026-08-25): fired from [_enterChat] — the ONE
+  /// funnel every DELIBERATE entry goes through (scan-pair, typed code, a tap on
+  /// a listed PC, the cloud card). main.dart wires it to the chat controller's
+  /// pairing-success notice. 🔴 Nothing automatic reaches this: the reconnect
+  /// ladder never pushes the chat page, so a network flap cannot raise it.
+  final void Function()? onDeliberateEntry;
+
   final AppSettingsController appSettings;
   final LoginController login;
 
@@ -180,6 +188,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   }
 
   Future<void> _enterChat() async {
+    widget.onDeliberateEntry?.call();
     // v0.2.6 — scope the destination HERE, from the pairing we are actually
     // entering, because this is the ONE funnel every entry path goes through.
     //

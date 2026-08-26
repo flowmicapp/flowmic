@@ -79,6 +79,21 @@ const GENERATORS = [
     // the case that matters — someone edits i18n/mobile/<code>.json, forgets to
     // regenerate, and the app keeps shipping the OLD sentence while every gate
     // stays green.
+    //
+    // 🔴 KNOWN LIMITATION, measured 2026-08-26 on the mac line. `--skip-missing`
+    // covers 「never generated」; it does NOT cover 「generated once, then
+    // pulled」, which is the normal state of every long-lived checkout. A clean
+    // tree at 55bffec3 failed this row purely because the gitignored artefact on
+    // that disk predated the pull. The verdict was true and useless: nothing
+    // could ship from it, because every build/test target depends on `make gen`.
+    //
+    // The verdict is deliberately NOT downgraded here. On an AUTHORING machine
+    // this row is the only thing standing between an edited JSON and a stale
+    // catalogue, and a non-zero exit also covers 「the generator crashed」, which
+    // is a genuine defect — collapsing the two would hide it. The repair belongs
+    // where the false red actually lands: scripts/mac-verify.sh runs the
+    // generator before lint and says, in the script, that it thereby disarms
+    // this row on that machine.
     label: 'mobile string catalogue (l10n/*.g.dart)',
     script: 'scripts/i18n/gen-mobile-dart.mjs',
     args: ['--check', '--skip-missing'],

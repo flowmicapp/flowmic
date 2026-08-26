@@ -39,6 +39,7 @@ pub mod locale_sync;
 /// pure one-shot write primitives (`write_clipboard_formats` on Windows,
 /// `pasteboard::write_text` on macOS — B3, platform-neutral entry).
 pub mod clipboard_copy;
+pub mod clipboard_image; // card IMG-COPY: the capsule's copy-PICTURE command — a forward write, never the injection paste path
 /// REQ-12-15 capsule drag — the drag itself is handed to the OS move loop
 /// (`start_dragging`) instead of being reconstructed from pointer deltas one
 /// IPC round trip per frame; see module header for what was measured and for

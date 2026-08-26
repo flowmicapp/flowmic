@@ -22,6 +22,16 @@
 //     code problem they do not have.
 // And when the camera cannot be used at all, the sheet falls back to manual entry
 // WITH the reason on screen — a silent fallback would just look like a form.
+//
+// ── card SCAN-PERM (2026-08-25): the permission is no longer a side effect ──
+// The scanner controller used to be built exactly once, in `initState`, and
+// asking Android for the camera was a side effect of building it. A user who
+// refused, then granted the permission in system settings, came back to a dead
+// controller and a sheet with no way to notice — the only way out was to unmount
+// the sheet (owner, real device). Now `permission/camera_permission.dart`
+// PROBES first, the controller is built only on the READY face (and rebuilt every
+// time the face returns to ready), and a `WidgetsBindingObserver` re-probes on
+// resume. The manual-entry fallback below is unchanged and still states its reason.
 
 import 'dart:async';
 
@@ -29,12 +39,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../permission/camera_permission.dart';
 import '../session/connections_controller.dart';
 import '../session/pcid.dart';
 import '../settings/app_strings.dart';
 import 'guide/pairing_guide_view.dart';
 import 'ime_normalizer.dart';
 import 'scan_payload.dart';
+import 'scan_permission_pane.dart';
+import 'scanner_camera_lifecycle.dart';
 import 'tokens.dart';
 
 /// Presents the add-pairing sheet. Resolves to true iff a pairing succeeded.
@@ -43,6 +56,10 @@ Future<bool> showAddPairingSheet(
   required ConnectionsController controller,
   required AppStrings strings,
   String? initialEndpoint,
+  /// Card SCAN-PERM — the camera decision layer. Null (production) builds the
+  /// REAL one (`CameraPermissionFlow.production()`), never a granted-by-default
+  /// double; tests inject a flow over a fake port to script the four OS answers.
+  CameraPermissionFlow? cameraPermission,
 }) async {
   controller.clearError();
   final bool? ok = await showModalBottomSheet<bool>(
@@ -53,6 +70,7 @@ Future<bool> showAddPairingSheet(
       controller: controller,
       strings: strings,
       initialEndpoint: initialEndpoint,
+      cameraPermission: cameraPermission,
     ),
   );
   return ok ?? false;
@@ -63,16 +81,19 @@ class _AddPairingSheet extends StatefulWidget {
     required this.controller,
     required this.strings,
     this.initialEndpoint,
+    this.cameraPermission,
   });
   final ConnectionsController controller;
   final AppStrings strings;
   final String? initialEndpoint;
+  final CameraPermissionFlow? cameraPermission;
 
   @override
   State<_AddPairingSheet> createState() => _AddPairingSheetState();
 }
 
-class _AddPairingSheetState extends State<_AddPairingSheet> {
+class _AddPairingSheetState extends State<_AddPairingSheet>
+    with WidgetsBindingObserver, ScannerCameraLifecycle<_AddPairingSheet> {
   /// P2 (0.3.1 design §4) — segment preselection: an initialEndpoint whose
   /// host IS the official relay means the last pairing (or the no-history
   /// fallback, which is the relay) was cloud ⇒ open on the cloud segment.
@@ -124,7 +145,6 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
   /// pairing FAILURE must not raise it (design §4.3): the sheet is at that
   /// moment displaying the specific reason, and this would cover it.
   bool _showGuide = false;
-  MobileScannerController? _scanner;
   /// Loud, transient copy for a barcode we read but cannot use.
   String? _scanNotice;
   /// Set once a pairing link has been accepted, so a camera that keeps firing
@@ -134,16 +154,10 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
   @override
   void initState() {
     super.initState();
-    _startScanner();
-  }
-
-  void _startScanner() {
-    // Constructing the controller is what asks Android for the camera; a refusal
-    // surfaces through MobileScanner's errorBuilder below, never as a blank box.
-    _scanner = MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      formats: const <BarcodeFormat>[BarcodeFormat.qrCode],
-    );
+    // Card SCAN-PERM: PROBE first, build the scanner only when the face says
+    // so, re-probe on resume — the whole lifecycle is the shared mixin
+    // (scanner_camera_lifecycle.dart), so the login sheet cannot drift from it.
+    attachCamera(injected: widget.cameraPermission);
   }
 
   /// Fall back to manual entry and SAY WHY (the whole point of the fallback).
@@ -237,7 +251,7 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
     _code.dispose();
     _pcid.dispose();
     _pcidFocus.dispose();
-    unawaited(_scanner?.dispose());
+    detachCamera();
     super.dispose();
   }
 
@@ -642,14 +656,19 @@ class _AddPairingSheetState extends State<_AddPairingSheet> {
   /// or a device with no camera lands there, and we move the user to manual entry
   /// WITH the reason rather than leaving a black rectangle on screen.
   Widget _scanPane(AppStrings s) {
-    final MobileScannerController? c = _scanner;
+    // Card SCAN-PERM: every non-ready face renders in the scanner's slot with
+    // its own action (request / open settings); READY renders the camera.
+    if (camera.face.value != ScanPermissionFace.ready) {
+      return ScanPermissionPane(flow: camera, strings: s);
+    }
+    final MobileScannerController? c = scanner;
     if (c == null) {
       return _errorBanner(s.pairScanNoCamera);
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: SizedBox(
-        height: 240,
+        height: kScanPaneHeight,
         child: MobileScanner(
           controller: c,
           onDetect: _onDetect,

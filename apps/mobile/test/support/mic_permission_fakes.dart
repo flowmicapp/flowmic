@@ -4,6 +4,7 @@
 
 import 'dart:typed_data';
 
+import 'package:flowmic/src/permission/camera_permission.dart';
 import 'package:flowmic/src/ptt/mic_permission.dart';
 
 import 'fakes.dart';
@@ -74,3 +75,22 @@ class ExplodingAudioRecorder extends FakeAudioRecorder {
   @override
   Stream<Uint8List> get pcmStream => const Stream<Uint8List>.empty();
 }
+
+/// Card SCAN-PERM — a [CameraPermissionFlow] over the fake port, for harnesses
+/// whose subject is NOT the camera permission. GRANTED by default: those
+/// fixtures describe a phone whose camera may open.
+///
+/// 🔴 Why every scanner-sheet fixture needs one (measured 2026-08-25): the
+/// production default is the real `PlatformOsPermission(Permission.camera)`,
+/// and under `flutter_test` its method-channel call NEVER RESOLVES (a 5-minute
+/// probe timed out) — so a sheet pumped without this double sits on the
+/// probing face forever and never builds a scanner. Same lesson as
+/// [newTestMicPermission]: the DI seam working, never a friendlier production
+/// default (13 册 §7 F1 ②).
+CameraPermissionFlow newTestCameraPermission({
+  MicPermissionProbe probe = MicPermissionProbe.granted,
+  bool askedBefore = true,
+}) => CameraPermissionFlow(
+  port: FakeMicPermissionPort(probe),
+  asked: InMemoryMicAskedStore(asked: askedBefore),
+);

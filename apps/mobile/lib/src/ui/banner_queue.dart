@@ -159,6 +159,12 @@ class BannerIds {
   /// a text failure overwrite an image failure the user still has to act on.
   static const String imageSend = 'image_send';
 
+  /// Card PAIR-SUCCESS (owner 2026-08-25, 「这非常重要」): a DELIBERATE entry into
+  /// the chat page just succeeded. EVENT-type — raised by the connections
+  /// page's entry funnel only, never by a reconnect edge — and auto-hidden by
+  /// the ChatController reconciler like every other past-event banner.
+  static const String pairingSuccess = 'pairing_success';
+
   /// Window B3-2b — 「还有 N 条未投递」("N still not delivered"). owner's NON-BLOCKING observability: it adds
   /// no interception step (「不管时间多久全部都要投递」"however long it takes,
   /// everything must still be delivered"), it only lets the user SEE

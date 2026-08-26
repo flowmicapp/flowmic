@@ -13,8 +13,22 @@
 //     was bricked with ZERO on-screen evidence and zero `openAppSettings` calls
 //     in the whole repo.
 // CONTRAST: camera denial (pairing_strings.pairScanDenied) and gallery denial
-// (image_strings / ImagePickDenied) are named, four-language and actionable.
+// (image_strings / ImagePickDenied) are named and four-language.
 // This file gives the microphone the same treatment.
+//
+// 🔴 ORIGINAL WORDING CORRECTED (card CAM-1, 2026-08-25). The sentence above
+// used to call those two 「actionable」 as well, and for the CAMERA that was
+// false — measured: the scan sheet named the refusal and then offered no way
+// back at all. The controller was built once in `initState` (asking for the
+// permission is a side effect of building it), nothing re-armed it, no
+// lifecycle observer re-checked on resume, and `openAppSettings` was never
+// called on that path — so a user who granted the permission afterwards had to
+// unmount the whole sheet before the camera would work. owner reported exactly
+// that on 2026-08-25.
+// ⇒ anti-façade ④ in its purest form: a comment asserting ANOTHER surface's
+// behaviour, whose truth value changes when that surface changes while the
+// comment never does. CAM-1 makes the claim true; the correction stays so the
+// next reader knows the claim was checked rather than assumed.
 //
 // SHAPE. [MicPermissionFlow] is the ONE decision layer:
 //   · `gateForPtt()` runs BEFORE `AudioCapture.start()`, so the OS dialog is
@@ -33,94 +47,36 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../permission/os_permission.dart';
 
 import '../diag/diag_log.dart';
 
-/// What the OS says about the microphone right now. A closed vocabulary rather
-/// than the plugin's `PermissionStatus`, so the decision layer cannot grow a
-/// dependency on plugin enum details (and a fake port cannot half-agree).
-enum MicPermissionProbe {
-  granted,
+/// ── THE VOCABULARY MOVED OUT (card CAM-1, 2026-08-25) ─────────────────────
+///
+/// The four-state probe, the port and the asked-once store now live in
+/// `permission/os_permission.dart`, because the CAMERA needs exactly the same
+/// three things and a copy of them would have been a second enum answering
+/// 「操作系统怎么说」("what does the OS say") — this repo's headline bug shape.
+///
+/// 🔴 They are ALIASES, not replacements: every call site, every fake and every
+/// existing U2 test keeps compiling and keeps meaning what it meant. What stays
+/// microphone-specific below is the part that genuinely is: [MicFlowFace] (what
+/// the TALK surface renders) and the persisted key.
+typedef MicPermissionProbe = OsPermissionProbe;
+typedef MicPermissionPort = OsPermissionPort;
+typedef MicAskedStore = AskedOnceStore;
+typedef InMemoryMicAskedStore = InMemoryAskedOnceStore;
 
-  /// Refused, but the OS would still show a dialog if asked again.
-  denied,
-
-  /// The OS will never show the dialog again (Android "don't ask again" /
-  /// second refusal, iOS Settings toggle off, iOS `restricted`). The ONLY way
-  /// out is the system settings screen — which is why this value exists as its
-  /// own word: it changes what the action button must do.
-  permanentlyDenied,
-
-  /// The platform could not be asked at all (a host whose plugin registry has
-  /// no permission_handler). NOT a friendly default: the gate falls through to
-  /// `AudioCapture.start()`, whose failure is itself surfaced via
-  /// [MicPermissionFlow.noteCaptureStartRefused] — so a real refusal still
-  /// cannot pass silently, it just cannot be CLASSIFIED here.
-  ///
-  /// ⚠️ This is NOT how the Dart test VM arrives: with no binding the platform
-  /// call throws before any channel work and is deliberately not caught (see
-  /// platform_mic_permission.dart's `status`). Fixtures inject a fake port.
-  unavailable,
-}
-
-/// The seam to the OS permission machinery. Production: `PlatformMicPermission`
-/// (platform_mic_permission.dart, backed by `permission_handler`). Tests: a
-/// fake. Same rule as [AudioRecorder]: the default a composition root gets is
-/// the REAL thing, never a friendly no-op (13 册 §7 F1 ②).
-abstract class MicPermissionPort {
-  /// Read-only probe — MUST NOT show any OS UI.
-  Future<MicPermissionProbe> status();
-
-  /// May show the OS permission dialog. When already permanently denied the OS
-  /// shows nothing and this resolves immediately — the flow relies on that to
-  /// flip the face to [MicFlowFace.permanentlyDenied] with the settings action.
-  Future<MicPermissionProbe> request();
-
-  /// Open the app's page in system settings (the 「去设置开启」("go to Settings
-  /// to enable it") way out).
-  Future<void> openSettings();
-}
-
-/// Device-local 「已经问过一次了吗」("have we already asked once"). Decides
-/// rationale-vs-denied wording only —
-/// it is NOT a permission cache (the OS stays the single source of truth for
-/// granted/denied). Deliberately OUTSIDE the settings-sync store, same ruling
-/// and same mechanism as local_prefs.dart: phone-local, never synced, no
-/// server-side reader.
-abstract class MicAskedStore {
-  Future<bool> askedBefore();
-  Future<void> markAsked();
-}
-
-/// The one persisted key. 「asked」 is stamped BEFORE the OS dialog resolves, so
-/// a dialog killed by the OS mid-flight still counts as asked — the user saw
-/// it, re-explaining would be the second explain the card forbids.
+/// The one persisted key for the MICROPHONE.
+///
+/// 🔴 One key per permission — see [SharedPrefsAskedOnceStore.key]. Sharing a
+/// key with the camera would make granting one silence the other's rationale.
 const String kMicPermissionAskedKey = 'flowmic.mic.permission_asked';
 
-class SharedPrefsMicAskedStore implements MicAskedStore {
-  @override
-  Future<bool> askedBefore() async =>
-      (await SharedPreferences.getInstance()).getBool(kMicPermissionAskedKey) ??
-      false;
-
-  @override
-  Future<void> markAsked() async {
-    await (await SharedPreferences.getInstance())
-        .setBool(kMicPermissionAskedKey, true);
-  }
+class SharedPrefsMicAskedStore extends SharedPrefsAskedOnceStore {
+  const SharedPrefsMicAskedStore() : super(kMicPermissionAskedKey);
 }
 
-class InMemoryMicAskedStore implements MicAskedStore {
-  InMemoryMicAskedStore({bool asked = false}) : _asked = asked;
-  bool _asked;
-
-  @override
-  Future<bool> askedBefore() async => _asked;
-
-  @override
-  Future<void> markAsked() async => _asked = true;
-}
 
 /// What the talk surface must render right now. Written ONLY by
 /// [MicPermissionFlow]; the renderer (ui/mic_permission_banner.dart) maps each

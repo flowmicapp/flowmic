@@ -32,6 +32,11 @@ export const PAIRING_KEYS = [
   'pair_refresh',
   'pair_refresh_failed',
   'pair_close',
+  // Card PAIR-SUCCESS (owner 2026-08-25): the modal's face for the ~1 s between
+  // 「a NEW phone just paired」 (lib/pairing-success.ts, an identity diff) and
+  // the modal closing itself. A dialog that vanishes unexplained reads as a
+  // crash; this sentence is what makes the close read as success instead.
+  'pair_success',
   // 0.2.66 — cloud-relay pairing needs two things, a PCID + a pairing code
   // (owner 2026-08-14). The entire job of these entries is to keep people
   // **from confusing the two**: one is this computer's fixed number, safe

@@ -44,6 +44,27 @@ export interface UpdatePendingDto {
   detail: string | null;
 }
 
+/**
+ * What the card is doing RIGHT NOW, owned by the frontend.
+ *
+ * 🔴 A VERB, not a boolean, and the reason is that the card has to say which
+ * thing it is doing — 「正在检查…」 and 「正在下载」 are different sentences and
+ * the user asked for both to be visible. `LocalModelCard`'s store already
+ * carries its `busy` this way; this follows it rather than inventing a second
+ * shape.
+ *
+ * 🔴 AND IT IS THE FRONTEND'S FACT, NOT RUST'S. `UpdateStateDto.checking` is
+ * set true by `update_check` before it starts and false when it finishes, and
+ * NOTHING is emitted in between — the only two ways this renderer learns
+ * anything are an invoke's return value (which arrives after `checking` is
+ * already false again) and an `update:state` event (which that command never
+ * sends). So the field is honest in Rust and unobservable-true here: the check
+ * line bound to it could not render, whatever the user pressed. The signal that
+ * can be rendered is the one this side owns — "we asked and have not been
+ * answered yet" — so that is what the card is driven by.
+ */
+export type UpdateActivity = 'checking' | 'downloading' | 'installing' | 'saving' | null;
+
 export interface UpdateStateDto {
   current_version: string;
   form: UpdateForm | string;
