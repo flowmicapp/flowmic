@@ -157,13 +157,36 @@ mod tests {
 
     // ── per-app learning is fed by the call result, and only by that ──────────
 
+    /// 🔴 REWRITTEN 2026-08-26 — and note WHICH APP the old version named.
+    ///
+    /// It was `an_app_that_accepts_sendinput_stays_on_sendinput`, its subject
+    /// was literally `"cursor"`, and it asserted the exact behaviour the owner
+    /// reported as a bug that same day: English typed into Cursor loses
+    /// characters, for ever, because a typed 「success」 re-elects the typed
+    /// path. `Ok(1)` here means the OS accepted one event — it is not evidence
+    /// the editor received a character. Full account in
+    /// `app_learning::record_outcome`.
+    ///
+    /// Second sighting in one file-pair of the 0.2.52 law: a control pointed
+    /// the wrong way turns the defect into the acceptance criterion.
+    ///
+    /// ⚠️ The EXPECTATION here moved again the same afternoon, and the reason is
+    /// worth more than the value. It first asserted `Some(Clipboard)` — 「a typed
+    /// success votes for the paste instead」 — which was how the app healed while
+    /// typing was still the default. Once the clipboard BECAME the default
+    /// (`text_route::route_text`), writing `Clipboard` on every typed success
+    /// would have silently switched off the console exception after one sentence
+    /// in every terminal. The store now records nothing here, so `None` is the
+    /// assertion, and `None` is the stronger claim: not 「vote for the other
+    /// road」 but 「cast no vote at all」.
     #[test]
-    fn an_app_that_accepts_sendinput_stays_on_sendinput() {
+    fn a_typed_call_that_the_os_accepted_does_not_vote_for_the_typed_path() {
         let store = AppLearningStore::new();
         map_sendinput_outcome(Ok(1), Some("cursor"), &store);
         assert_eq!(
             store.preferred_mode_for("cursor"),
-            Some(InjectMode::SendInput)
+            None,
+            "the OS accepting our events says nothing about the target receiving them",
         );
     }
 

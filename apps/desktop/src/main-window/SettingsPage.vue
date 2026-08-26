@@ -48,10 +48,11 @@ import {
 import { useCloudAccount } from '../lib/use-cloud-account';
 import { clearPos } from '../lib/capsule-position';
 import { localKv } from '../lib/storage';
+import InjectDisclosure from './components/InjectDisclosure.vue';
 import { SETTINGS_SECTION_DOM, sectionFromEvent } from '../lib/settings-section-jump';
 import { APP_VERSION } from '../lib/version';
 
-type Sec = 'account' | 'stt' | 'llm' | 'prefs' | 'about' | 'privacy';
+type Sec = 'account' | 'stt' | 'llm' | 'prefs' | 'inject' | 'about' | 'privacy';
 // V2-07.8a: a COMPUTED, not a setup-time array — `label: S.set_nav_account`
 // evaluated once would keep the nav in the launch language after a switch.
 //
@@ -74,6 +75,11 @@ const SECS = computed<Array<{ id: Sec; label: string }>>(() => [
   // where the sheet says it is. Being last in the body costs nothing for
   // reachability — this nav lists every section the moment the page opens.
   { id: 'privacy', label: S.disc_nav },
+  // 0.3.33 — APPENDED, for the third time and for the same stated reason: the
+  // four positions above are the ones the 2026-08-04 real-device sheet names,
+  // and appending is the one edit that leaves every one of them where the sheet
+  // says it is.
+  { id: 'inject', label: S.set_nav_inject },
 ]);
 
 const active = ref<Sec>('account');
@@ -402,6 +408,7 @@ onUnmounted(() => {
           </div>
         </section>
 
+
         <!-- About: the true version + a real bridge to the log directory (shows the
              manual path on failure) -->
         <section id="set-about" class="set-sec">
@@ -442,6 +449,25 @@ onUnmounted(() => {
           <h3>{{ S.disc_title }}</h3>
           <p class="hint">{{ S.disc_entry_sub }}</p>
           <DataFlowDisclosure />
+        </section>
+
+        <!-- Injection & input (2026-08-26) — a STANDING disclosure, not a warning
+             that fires. It is here because on this day the clipboard became the
+             DEFAULT road for injected text (src-tauri/src/inject/text_route.rs):
+             what used to be a minority side effect now happens on nearly every
+             sentence, and owner ruled the user must be told somewhere they can
+             act on it rather than discover their clipboard changing under them.
+             Read-only on purpose: there is no toggle, because the alternative
+             path is the one that silently loses characters.
+
+             ⚠️ PLACED LAST, matching its position in SECS. That is enforced:
+             timeline-data-group.test.ts asserts SECS order equals DOM order,
+             because the scroll spy's 「bottom of the scroller ⇒ last section」
+             rule reads the array while the user reads the page. This block sat
+             above 「About」 for one test run and went red on exactly that. -->
+        <section id="set-inject" class="set-sec">
+          <h3>{{ S.set_inject_title }}</h3>
+          <InjectDisclosure />
         </section>
         <!-- owner 2026-08-02 UI batch 1 ③: the "Data" section moved as a group to the
              Timeline page (TimelinePage.vue's `tl-data` area). **No orphan heading is

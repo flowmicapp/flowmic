@@ -249,28 +249,26 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
 ///              receipt (`confirmed`) rides the forensic line.
 ///   Err(..)  → one of OUR Win32 steps failed, or the user's clipboard could not
 ///              be restored → `failed` (INJECT_CLIPBOARD_FAIL).
-/// Map a paste chosen by the IME-SAFE CONTENT ROUTE (2026-08-21,
-/// docs/strategy/2026-08-21-ime-safe-inject-routing-design.md §2): the text
-/// carries CJK/fullwidth characters, so typing it as a VK_PACKET stream risks
-/// the CN-state-IME punctuation corruption measured on WeChat/DingTalk.
+/// Map a paste taken by the ROUTED path — which, since 2026-08-26, is the
+/// DEFAULT path for text, not a special case. `reason` says which rule sent it
+/// here (`text_route::route_text`) and rides the forensic line, so a reader can
+/// tell 「the text carried CJK」 from 「this app hard-rejected typing」 from
+/// 「nothing else was called for」 without re-deriving the rules.
 ///
-/// Two deliberate differences from [`map_clipboard_outcome`], both from one
-/// fact — this paste says NOTHING about the app:
-///   · NO `AppLearningStore` write, enforced by the signature (no store
-///     parameter exists to misuse). The route was chosen by the TEXT, not by
-///     evidence this app rejects typing; recording `Clipboard` here would flip
-///     the app's pure-ASCII injections onto the paste path too
-///     (`record_outcome`: `(Clipboard, _) → Clipboard`) — a preference change
-///     driven by a question the store never asked.
-///   · the forensic line names the route, so a window-forensics reader can tell
-///     「content routing」 from 「this app hard-rejected SendInput」.
+/// One deliberate difference from [`map_clipboard_outcome`], from one fact —
+/// this paste says NOTHING about the app: there is NO `AppLearningStore` write,
+/// and that is enforced by the signature (no store parameter exists to misuse).
+/// The route was chosen by the text and by rules, not by evidence about this
+/// app; the single fact the store still carries is written in exactly one place
+/// (`map_sendinput_outcome`, on a hard rejection).
 ///
-/// The truth mapping itself is identical: an error-free paste at the verified
-/// focus is `injected`; a hard error is INJECT_CLIPBOARD_FAIL, after which the
-/// pipeline falls back to typing (`type_or_paste_with`) rather than dropping
-/// the utterance.
-pub(crate) fn map_ime_routed_clipboard_outcome(
+/// The truth mapping itself is identical to the other mapper: an error-free
+/// paste at the verified focus is `injected`; a hard error is
+/// INJECT_CLIPBOARD_FAIL, after which the dispatch falls back to typing
+/// (`text_dispatch::type_or_paste_with`) rather than dropping the utterance.
+pub(crate) fn map_routed_paste_outcome(
     result: Result<PasteOutcome, InjectError>,
+    reason: crate::inject::text_route::PasteReason,
 ) -> InjectOutcome {
     match result {
         Ok(PasteOutcome {
@@ -281,11 +279,9 @@ pub(crate) fn map_ime_routed_clipboard_outcome(
             crate::forensic::record(
                 "inject",
                 &format!(
-                    "text paste DONE — {} sendinput=not-attempted(ime-safe content route: text \
-                     carries CJK/fullwidth chars, and a CN-state IME in some TSF apps doubles \
-                     typed fullwidth punctuation and swallows the next char — \
-                     docs/strategy/2026-08-21-ime-safe-inject-routing-design.md)",
+                    "text paste DONE — {} sendinput=not-attempted({})",
                     evidence_phrase(confirmed, landing, held_ms),
+                    reason.forensic_phrase(),
                 ),
             );
             InjectOutcome {
@@ -300,7 +296,10 @@ pub(crate) fn map_ime_routed_clipboard_outcome(
             ok: false,
             mode: InjectMode::Clipboard,
             error_code: Some(error_codes::INJECT_CLIPBOARD_FAIL),
-            error_message: Some(format!("ime-safe clipboard route failed; paste={paste_err}")),
+            error_message: Some(format!(
+                "clipboard route failed ({}); paste={paste_err}",
+                reason.forensic_phrase()
+            )),
             focus_evidence: None,
         },
     }
@@ -310,7 +309,6 @@ pub(crate) fn map_clipboard_outcome(
     result: Result<PasteOutcome, InjectError>,
     app_id: Option<&str>,
     store: &AppLearningStore,
-    skipped_sendinput: bool,
 ) -> InjectOutcome {
     // Per-app learning now follows the same narrowing: only a hard error counts as
     // this app rejecting the paste path. An unconsumed-but-error-free paste used to
@@ -334,11 +332,7 @@ pub(crate) fn map_clipboard_outcome(
                 &format!(
                     "text paste DONE — {} sendinput={} (receipt not a gate since 2026-07-30)",
                     evidence_phrase(confirmed, landing, held_ms),
-                    if skipped_sendinput {
-                        "skipped(prior-hard-failure)"
-                    } else {
-                        "failed"
-                    },
+                    "failed",
                 ),
             );
             InjectOutcome {
@@ -362,8 +356,8 @@ pub(crate) fn map_clipboard_outcome(
                 //
                 // 「Which physical path did this take」 is `mode`'s question and `mode:
                 // clipboard` answers it. 「Why we ended up there」 is diagnostic and now
-                // rides the forensic line above (`sendinput=skipped(prior-hard-failure)`
-                // / `sendinput=failed`), which is where a fact no user can act on
+                // rides the forensic line above (`sendinput=failed`
+                // ), which is where a fact no user can act on
                 // belongs. Nothing is lost; one lie is.
                 error_code: None,
                 error_message: None,

@@ -202,6 +202,11 @@ const S_EN_OWN = {
   set_prefs_autostart_failed: 'Failed to set launch at login: ',
   set_prefs_autostart_read_failed: 'Failed to read the launch-at-login state: ',
   set_about_title: 'About',
+  set_nav_inject: 'Injection & input',
+  set_inject_title: 'Injection & input',
+  set_inject_clip_title: 'Injecting borrows your clipboard for a moment',
+  set_inject_clip_body: 'To put text into the window you are using, FlowMic copies it to the clipboard, presses Ctrl+V once, and puts your previous clipboard content straight back — usually in well under a second. It works this way because sending text one keystroke at a time gets silently swallowed by some apps and some Chinese input methods, and you would never see it happen.',
+  set_inject_clip_backup: 'In almost every case your original clipboard content comes back unchanged. If something goes wrong mid-injection, or you had copied an unusual format such as a vector drawing from a design tool, it may not be fully restored. Save anything important somewhere else first.',
   set_about_version: 'Version',
   set_about_log_title: 'Diagnostic logs',
   set_about_log_hint: 'Diagnostic logs such as server.log and window-forensics.log are saved by default in:',
@@ -686,7 +691,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 652/652 translated;
+// zh-CN (中文) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -868,6 +873,11 @@ const S_ZH_CN_OWN = {
   set_prefs_autostart_failed: '开机自启设置失败：',
   set_prefs_autostart_read_failed: '开机自启状态读取失败：',
   set_about_title: '关于',
+  set_nav_inject: '注入与输入',
+  set_inject_title: '注入与输入',
+  set_inject_clip_title: '注入会短暂借用剪贴板',
+  set_inject_clip_body: '把文字送进你正在使用的窗口时，FlowMic 会先把这段文字放到剪贴板、按一次 Ctrl+V，随后立刻把你原来的剪贴板内容放回去，整个过程通常不到一秒。之所以这样做，是因为逐个模拟按键会被一些应用和中文输入法悄悄吞掉字符，而你不会察觉。',
+  set_inject_clip_backup: '绝大多数情况下，你原来的剪贴板内容会原样回来。但如果注入过程中出现异常，或者你复制的是某些特殊格式（例如从绘图软件复制的矢量图），它可能无法完整恢复。重要内容请先另存一份。',
   set_about_version: '版本',
   set_about_log_title: '诊断日志',
   set_about_log_hint: 'server.log、window-forensics.log 等诊断日志默认保存在：',
@@ -1352,7 +1362,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 647/652 translated;
+// zh-TW (繁體中文) — 652/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1529,6 +1539,11 @@ const S_ZH_TW_OWN = {
   set_prefs_autostart_failed: '開機自動啟動設定失敗：',
   set_prefs_autostart_read_failed: '開機自動啟動狀態讀取失敗：',
   set_about_title: '關於',
+  set_nav_inject: '注入與輸入',
+  set_inject_title: '注入與輸入',
+  set_inject_clip_title: '注入會短暫借用剪貼簿',
+  set_inject_clip_body: '把文字送進你正在使用的視窗時，FlowMic 會先把這段文字放到剪貼簿、按一次 Ctrl+V，隨後立刻把你原來的剪貼簿內容放回去，整個過程通常不到一秒。之所以這樣做，是因為逐個模擬按鍵會被一些應用程式和中文輸入法悄悄吞掉字元，而你不會察覺。',
+  set_inject_clip_backup: '絕大多數情況下，你原來的剪貼簿內容會原樣回來。但如果注入過程中出現異常，或者你複製的是某些特殊格式（例如從繪圖軟體複製的向量圖），它可能無法完整還原。重要內容請先另存一份。',
   set_about_version: '版本',
   set_about_log_title: '診斷記錄檔',
   set_about_log_hint: 'server.log、window-forensics.log 等診斷記錄檔預設存放在：',
@@ -2013,7 +2028,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 652/652 translated;
+// fr (Français) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2195,6 +2210,11 @@ const S_FR_OWN = {
   set_prefs_autostart_failed: "Échec de la configuration du lancement à l'ouverture de session : ",
   set_prefs_autostart_read_failed: "Échec de la lecture de l'état du lancement à l'ouverture de session : ",
   set_about_title: 'À propos',
+  set_nav_inject: 'Injection et saisie',
+  set_inject_title: 'Injection et saisie',
+  set_inject_clip_title: "L'injection emprunte brièvement votre presse-papiers",
+  set_inject_clip_body: "Pour écrire du texte dans la fenêtre que vous utilisez, FlowMic le copie dans le presse-papiers, appuie une fois sur Ctrl+V, puis y remet aussitôt votre contenu précédent — en général en bien moins d'une seconde. Nous procédons ainsi parce que l'envoi touche par touche est silencieusement avalé par certaines applications et certaines méthodes de saisie chinoises, sans que vous puissiez le voir.",
+  set_inject_clip_backup: "Dans la quasi-totalité des cas, votre presse-papiers est restauré à l'identique. En cas d'incident pendant l'injection, ou si vous aviez copié un format particulier comme un dessin vectoriel issu d'un logiciel de création, la restauration peut être incomplète. Enregistrez ailleurs ce qui est important.",
   set_about_version: 'Version',
   set_about_log_title: 'Journaux de diagnostic',
   set_about_log_hint: 'Les journaux de diagnostic comme server.log et window-forensics.log sont enregistrés par défaut dans :',
@@ -2679,7 +2699,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 652/652 translated;
+// es (Español) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2861,6 +2881,11 @@ const S_ES_OWN = {
   set_prefs_autostart_failed: 'No se pudo configurar la apertura al iniciar sesión: ',
   set_prefs_autostart_read_failed: 'No se pudo leer el estado de la apertura al iniciar sesión: ',
   set_about_title: 'Acerca de',
+  set_nav_inject: 'Inyección y entrada',
+  set_inject_title: 'Inyección y entrada',
+  set_inject_clip_title: 'La inyección toma prestado el portapapeles un instante',
+  set_inject_clip_body: 'Para escribir texto en la ventana que estás usando, FlowMic lo copia al portapapeles, pulsa Ctrl+V una vez y devuelve enseguida el contenido que tenías antes, normalmente en bastante menos de un segundo. Lo hacemos así porque enviar el texto tecla a tecla lo pierden en silencio algunas aplicaciones y algunos métodos de entrada chinos, y no habría forma de que lo notaras.',
+  set_inject_clip_backup: 'En casi todos los casos tu portapapeles vuelve tal cual. Si algo falla durante la inyección, o habías copiado un formato poco común como un dibujo vectorial de un programa de diseño, puede que no se restaure por completo. Guarda antes en otro sitio lo que sea importante.',
   set_about_version: 'Versión',
   set_about_log_title: 'Registros de diagnóstico',
   set_about_log_hint: 'Los registros de diagnóstico como server.log y window-forensics.log se guardan por defecto en:',
@@ -3345,7 +3370,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 652/652 translated;
+// de (Deutsch) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3527,6 +3552,11 @@ const S_DE_OWN = {
   set_prefs_autostart_failed: 'Autostart konnte nicht gesetzt werden: ',
   set_prefs_autostart_read_failed: 'Autostart-Status konnte nicht gelesen werden: ',
   set_about_title: 'Über',
+  set_nav_inject: 'Einfügen und Eingabe',
+  set_inject_title: 'Einfügen und Eingabe',
+  set_inject_clip_title: 'Beim Einfügen wird die Zwischenablage kurz mitbenutzt',
+  set_inject_clip_body: 'Um Text in das Fenster zu bringen, das du gerade benutzt, legt FlowMic ihn in die Zwischenablage, drückt einmal Strg+V und stellt danach sofort deinen vorherigen Inhalt wieder her — meist in deutlich unter einer Sekunde. Der Grund: Text Taste für Taste zu senden wird von manchen Programmen und von manchen chinesischen Eingabemethoden stillschweigend verschluckt, ohne dass du es merken würdest.',
+  set_inject_clip_backup: 'In fast allen Fällen kommt deine ursprüngliche Zwischenablage unverändert zurück. Geht während des Einfügens etwas schief, oder hattest du ein besonderes Format kopiert, etwa eine Vektorgrafik aus einem Designprogramm, kann die Wiederherstellung unvollständig sein. Sichere Wichtiges vorher an anderer Stelle.',
   set_about_version: 'Version',
   set_about_log_title: 'Diagnoseprotokolle',
   set_about_log_hint: 'Diagnoseprotokolle wie server.log und window-forensics.log werden standardmäßig hier gespeichert:',
@@ -4011,7 +4041,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 652/652 translated;
+// ja (日本語) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4193,6 +4223,11 @@ const S_JA_OWN = {
   set_prefs_autostart_failed: 'ログイン時起動の設定に失敗しました：',
   set_prefs_autostart_read_failed: 'ログイン時起動の状態読み取りに失敗しました：',
   set_about_title: '情報',
+  set_nav_inject: '入力と注入',
+  set_inject_title: '入力と注入',
+  set_inject_clip_title: '注入中は一時的にクリップボードをお借りします',
+  set_inject_clip_body: '使用中のウィンドウに文字を入れるため、FlowMic はいったんクリップボードにコピーして Ctrl+V を一度押し、その直後に元のクリップボードの内容を戻します。通常は 1 秒もかかりません。1 文字ずつキー入力を送る方法では、一部のアプリや中国語入力システムが文字を黙って取りこぼすことがあり、しかもそれに気づけないためです。',
+  set_inject_clip_backup: 'ほとんどの場合、元のクリップボードの内容はそのまま戻ります。ただし注入中に異常が起きた場合や、デザインソフトからコピーしたベクター画像のような特殊な形式の場合は、完全には復元できないことがあります。大切な内容は先に別の場所へ保存してください。',
   set_about_version: 'バージョン',
   set_about_log_title: '診断ログ',
   set_about_log_hint: 'server.log、window-forensics.log などの診断ログの既定の保存先：',
@@ -4677,7 +4712,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 652/652 translated;
+// ko (한국어) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4859,6 +4894,11 @@ const S_KO_OWN = {
   set_prefs_autostart_failed: '자동 실행 설정에 실패했습니다: ',
   set_prefs_autostart_read_failed: '자동 실행 상태 읽기에 실패했습니다: ',
   set_about_title: '정보',
+  set_nav_inject: '입력과 주입',
+  set_inject_title: '입력과 주입',
+  set_inject_clip_title: '주입할 때 클립보드를 잠시 빌려 씁니다',
+  set_inject_clip_body: '사용 중인 창에 글자를 넣기 위해 FlowMic 은 먼저 클립보드에 복사한 뒤 Ctrl+V 를 한 번 누르고, 곧바로 원래 클립보드 내용을 되돌려 놓습니다. 보통 1 초도 걸리지 않습니다. 키를 하나씩 보내는 방식은 일부 앱과 중국어 입력기가 글자를 조용히 삼켜 버리며, 사용자는 그것을 알아차릴 수 없기 때문입니다.',
+  set_inject_clip_backup: '대부분의 경우 원래 클립보드 내용은 그대로 돌아옵니다. 다만 주입 도중 문제가 생기거나 디자인 도구에서 복사한 벡터 그림처럼 특수한 형식이라면 완전히 복원되지 않을 수 있습니다. 중요한 내용은 먼저 다른 곳에 저장해 두세요.',
   set_about_version: '버전',
   set_about_log_title: '진단 로그',
   set_about_log_hint: 'server.log, window-forensics.log 등 진단 로그의 기본 저장 위치:',
@@ -5343,7 +5383,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 652/652 translated;
+// ru (Русский) — 657/657 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5525,6 +5565,11 @@ const S_RU_OWN = {
   set_prefs_autostart_failed: 'Не удалось настроить запуск при входе в систему: ',
   set_prefs_autostart_read_failed: 'Не удалось прочитать состояние запуска при входе в систему: ',
   set_about_title: 'О программе',
+  set_nav_inject: 'Ввод и вставка',
+  set_inject_title: 'Ввод и вставка',
+  set_inject_clip_title: 'При вставке буфер обмена используется на мгновение',
+  set_inject_clip_body: 'Чтобы поместить текст в окно, с которым вы работаете, FlowMic копирует его в буфер обмена, один раз нажимает Ctrl+V и сразу возвращает прежнее содержимое буфера — обычно значительно быстрее секунды. Так сделано потому, что посимвольная отправка текста молча теряется в некоторых приложениях и некоторых китайских методах ввода, и заметить это невозможно.',
+  set_inject_clip_backup: 'Почти всегда прежнее содержимое буфера обмена возвращается без изменений. Если во время вставки произойдёт сбой или вы скопировали необычный формат, например векторный рисунок из графического редактора, восстановление может оказаться неполным. Важное сохраните заранее в другом месте.',
   set_about_version: 'Версия',
   set_about_log_title: 'Журналы диагностики',
   set_about_log_hint: 'Журналы диагностики, такие как server.log и window-forensics.log, по умолчанию сохраняются в:',

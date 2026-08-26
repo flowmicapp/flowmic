@@ -104,7 +104,6 @@ fn an_unconfirmed_clipboard_paste_is_still_a_performed_delivery() {
         Ok(PasteOutcome { confirmed: false, ..Default::default() }),
         None,
         &store,
-        false,
     );
     assert!(out.ok, "the paste was performed at a verified focus");
     assert_eq!(out.mode, InjectMode::Clipboard);
@@ -125,12 +124,11 @@ fn an_unconfirmed_clipboard_paste_is_still_a_performed_delivery() {
 #[test]
 fn a_delivered_clipboard_paste_carries_no_error_code() {
     let store = AppLearningStore::new();
-    for skipped_sendinput in [false, true] {
+    {
         let out = map_clipboard_outcome(
             Ok(PasteOutcome { confirmed: true, ..Default::default() }),
             None,
             &store,
-            skipped_sendinput,
         );
         assert!(out.ok, "confirmed consumption is a real delivery");
         assert_eq!(out.mode, InjectMode::Clipboard, "mode is what says 「by paste」");
@@ -223,7 +221,7 @@ fn clipboard_error_is_failed() {
     // The reverse assertion for the de-gating above: a real Win32 error is OURS,
     // knowably did not happen, and must NOT be swept into the new ok=true branch.
     let store = AppLearningStore::new();
-    let out = map_clipboard_outcome(Err(InjectError::AppRejected), None, &store, true);
+    let out = map_clipboard_outcome(Err(InjectError::AppRejected), None, &store);
     assert!(!out.ok);
     assert_eq!(out.error_code, Some(error_codes::INJECT_CLIPBOARD_FAIL));
     assert_ne!(out.mode, InjectMode::Cached, "an error is failed, not re-deliverable");

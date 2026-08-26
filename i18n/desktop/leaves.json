@@ -1069,6 +1069,36 @@
       "name": "set_about_title"
     },
     {
+      "key": "set_nav_inject",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_nav_inject"
+    },
+    {
+      "key": "set_inject_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_inject_title"
+    },
+    {
+      "key": "set_inject_clip_title",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_inject_clip_title"
+    },
+    {
+      "key": "set_inject_clip_body",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_inject_clip_body"
+    },
+    {
+      "key": "set_inject_clip_backup",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_inject_clip_backup"
+    },
+    {
       "key": "set_about_version",
       "shard": "settings",
       "kind": "string",

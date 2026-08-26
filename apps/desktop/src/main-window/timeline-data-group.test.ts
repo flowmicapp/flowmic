@@ -125,7 +125,11 @@ describe('the settings page handed off the data group, no orphan left behind', (
     // 0.3.0 P1 appends "privacy & data" — the same shape of addition as that
     // year's "data" section: APPEND to the end, none of the five above move,
     // so it is likewise the one item that can be cleanly lifted back out.
-    expect(secs.slice(5)).toEqual(['privacy']);
+    // 0.3.33 appends 「注入与输入」 the same way, and for the same reason: the
+    // five positions above are the ones the run sheet names. Two appends in a
+    // row is the point at which someone will be tempted to sort this nav by
+    // importance — that edit is exactly what the first assertion forbids.
+    expect(secs.slice(5)).toEqual(['privacy', 'inject']);
     // 🔴 The assertion was changed to "position" rather than "what the last
     // item is called." What the spy's "scroll to the bottom ⇒ last section"
     // actually depends on is not SECS's literal content, but **SECS order

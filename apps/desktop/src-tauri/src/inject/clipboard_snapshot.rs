@@ -17,6 +17,20 @@
 // proceeds, and the restore brings back everything that was readable. The
 // skipped format does not survive the restore — said out loud, never silent.
 //
+// 🔴 CORRECTED 2026-08-26 (measured, the Windows lead box). The last clause of the
+// paragraph above — 「the skipped format does not survive the restore」 — is
+// OVERSTATED for the case users actually hit. Raw `EnumClipboardFormats` with a
+// bitmap on the clipboard returns CF_BITMAP (2, GlobalSize err 6, skipped) AND
+// the synthesised CF_DIB (8, 308 bytes) AND CF_DIBV5 (17, 392 bytes) — both
+// HGLOBALs, both captured. The PICTURE is snapshotted and restored; what is
+// skipped is one handle form of it, which Windows regenerates from the DIB.
+// Original text left in place: it was written from a true observation about
+// CF_BITMAP itself, and the repo does not rewrite records.
+// What genuinely does not come back: metafiles (CF_METAFILEPICT /
+// CF_ENHMETAFILE — every member of that family is a GDI handle) and CF_PALETTE.
+// Ask `ClipboardSnapshot::unrecoverable()`, never `skipped`, when the answer
+// will be shown to a user.
+//
 // RV-38 (2026-07-30): that policy was RIGHT and its MECHANISM was fatal. See
 // `is_hglobal_bytes_format` — 「GlobalSize on a GDI handle returns an error」 was
 // an observation, not a contract, and the other outcome is a dead process.
@@ -30,9 +44,65 @@ pub struct ClipboardSnapshot {
     pub formats: Vec<(u32, Vec<u8>)>,
     /// Formats that were on the clipboard but could not be snapshotted as
     /// bytes (GDI-handle formats such as CF_BITMAP — see the module header).
-    /// They are absent from `formats`, so a restore cannot bring them back;
-    /// `save_clipboard` says so on the forensic record.
+    ///
+    /// 🔴 A FORMAT IN HERE HAS NOT NECESSARILY BEEN LOST. Ask
+    /// [`ClipboardSnapshot::unrecoverable`] instead — see its measurement.
     pub skipped: Vec<u32>,
+}
+
+/// Windows' documented automatic-conversion families: put ONE member on the
+/// clipboard and the OS synthesises the others into the enumeration on demand.
+/// Restoring any member therefore restores the content for the whole family.
+///
+/// Only the families that matter to a snapshot are listed. The text family
+/// (CF_TEXT/CF_OEMTEXT/CF_UNICODETEXT) is deliberately absent: every member of
+/// it is an HGLOBAL, so none of them is ever skipped and it could not change an
+/// answer here.
+fn synthesis_family(format: u32) -> Option<&'static [u32]> {
+    const BITMAP: &[u32] = &[2, 8, 17]; // CF_BITMAP, CF_DIB, CF_DIBV5
+    const METAFILE: &[u32] = &[3, 14]; // CF_METAFILEPICT, CF_ENHMETAFILE
+    match format {
+        2 | 8 | 17 => Some(BITMAP),
+        3 | 14 => Some(METAFILE),
+        _ => None,
+    }
+}
+
+impl ClipboardSnapshot {
+    /// The formats whose CONTENT this snapshot genuinely cannot bring back.
+    ///
+    /// 🔴 WHY THIS IS NOT JUST `skipped` — MEASURED 2026-08-26 on the Windows
+    /// lead box, raw `EnumClipboardFormats` with a bitmap on the clipboard:
+    /// CF_BITMAP (2) errors at read (GlobalSize err 6) and is skipped, while
+    /// the OS-synthesised CF_DIB (8, 308 bytes) and CF_DIBV5 (17, 392 bytes)
+    /// sit beside it as plain HGLOBALs and ARE captured. So the picture is
+    /// snapshotted and restored already; what is skipped is one HANDLE FORM of
+    /// it, which the OS regenerates from the DIB on demand. The module header's
+    /// flat 「does not survive the restore」 is corrected there with this reading.
+    ///
+    /// 🔴 AND THIS DISTINCTION IS THE WHOLE POINT: a user-facing 「we could not
+    /// preserve your clipboard」 notice wired to `skipped` would fire on EVERY
+    /// injection that happens while an image is on the clipboard, about a loss
+    /// that did not occur. This repo has already shipped one warning that fired
+    /// 36 times out of 36 because it measured something other than its own name
+    /// (`dropped_unrendered`, 2026-08-22). A notice that always fires is not a
+    /// notice. Wire the notice to THIS.
+    ///
+    /// What still genuinely goes: metafiles (CF_METAFILEPICT / CF_ENHMETAFILE —
+    /// both members of that family are GDI handles, so neither can be captured)
+    /// and CF_PALETTE, which has no family at all.
+    pub fn unrecoverable(&self) -> Vec<u32> {
+        self.skipped
+            .iter()
+            .copied()
+            .filter(|&fmt| {
+                let Some(family) = synthesis_family(fmt) else {
+                    return true; // no sibling can stand in for it
+                };
+                !family.iter().any(|sib| self.formats.iter().any(|(f, _)| f == sib))
+            })
+            .collect()
+    }
 }
 
 /// ⚠️ GATED 2026-08-07 (MAC-05): this trait and the two functions below are the
@@ -381,15 +451,22 @@ impl ClipboardApi for WinClipboardApi {
 pub fn save_clipboard() -> Result<ClipboardSnapshot, InjectError> {
     let snap = save_with(&mut WinClipboardApi)?;
     if !snap.skipped.is_empty() {
-        // The skipped formats will NOT survive the restore — a real loss the
-        // user can otherwise never explain (no silent failures). Kept to ids and a
-        // count: the data itself may be the user's private content.
+        // Two different facts, said separately on purpose (2026-08-26). A
+        // skipped format is a HANDLE we could not read; a LOST format is
+        // content the user will not get back. For a bitmap they are not the
+        // same thing — CF_BITMAP is skipped while the picture rides home in
+        // CF_DIB — and collapsing them is how a user-facing notice ends up
+        // crying wolf on every screenshot. Kept to ids and counts: the data
+        // itself may be the user's private content.
+        let lost = snap.unrecoverable();
         crate::forensic::record(
             "inject",
             &format!(
-                "clipboard snapshot skipped {} non-byte format(s) {:?} — restore cannot bring them back",
+                "clipboard snapshot skipped {} non-byte format(s) {:?}; unrecoverable={} {:?}",
                 snap.skipped.len(),
-                snap.skipped
+                snap.skipped,
+                lost.len(),
+                lost
             ),
         );
     }
@@ -574,6 +651,61 @@ mod tests {
         replace_with(&mut clip, snap.formats).expect("restore");
         assert_eq!(clip.store.get(&1).unwrap(), b"user text");
         assert_eq!(clip.store.get(&13).unwrap(), &vec![0xDE, 0xAD]);
+    }
+
+    /// 🔴 THE SHAPE A REAL WINDOWS CLIPBOARD PRESENTS WHEN IT HOLDS A PICTURE,
+    /// measured 2026-08-26 on the Windows lead box with raw `EnumClipboardFormats`:
+    /// CF_BITMAP errors at read, and the OS-synthesised CF_DIB / CF_DIBV5 sit
+    /// right beside it as plain HGLOBALs. The picture therefore SURVIVES, and
+    /// `unrecoverable()` must say so — otherwise a 「we lost your clipboard」
+    /// notice fires on every screenshot, about a loss that did not happen.
+    #[test]
+    fn a_bitmap_is_skipped_but_not_lost_the_dib_carries_it() {
+        let mut clip = FakeClip::default();
+        clip.unreadable.insert(2); // CF_BITMAP — GlobalSize err 6
+        clip.store.insert(8, vec![0x28, 0x00]); // CF_DIB — 308 bytes on the real box
+        clip.store.insert(17, vec![0x7C, 0x00]); // CF_DIBV5
+
+        let snap = save_with(&mut clip).expect("save");
+        assert_eq!(snap.skipped, vec![2], "the handle form is still reported as skipped");
+        assert!(
+            snap.unrecoverable().is_empty(),
+            "a sibling of the same synthesis family was captured, so nothing was lost"
+        );
+    }
+
+    /// The other direction, so the family logic cannot pass by answering
+    /// 「nothing is ever lost」: a metafile has no HGLOBAL sibling to fall back
+    /// on, and CF_PALETTE has no family at all.
+    #[test]
+    fn a_metafile_and_a_palette_really_are_lost() {
+        let mut clip = FakeClip::default();
+        clip.store.insert(1, b"user text".to_vec());
+        clip.unreadable.insert(3); // CF_METAFILEPICT
+        clip.unreadable.insert(14); // CF_ENHMETAFILE — same family, also a handle
+        clip.unreadable.insert(9); // CF_PALETTE — no family
+
+        let snap = save_with(&mut clip).expect("save");
+        let mut lost = snap.unrecoverable();
+        lost.sort_unstable();
+        assert_eq!(lost, vec![3, 9, 14], "every one of these is content the user will not get back");
+    }
+
+    /// A bitmap whose DIB is ALSO unreadable is a genuine loss — the family
+    /// rule must key on what was CAPTURED, not on the family existing.
+    #[test]
+    fn a_bitmap_with_no_readable_sibling_is_lost() {
+        let mut clip = FakeClip::default();
+        clip.unreadable.insert(2);
+        clip.unreadable.insert(8);
+        let snap = save_with(&mut clip).expect("save");
+        let mut lost = snap.unrecoverable();
+        lost.sort_unstable();
+        assert_eq!(
+            lost,
+            vec![2, 8],
+            "the family exists, but nothing from it was captured — that is a loss"
+        );
     }
 
     #[test]

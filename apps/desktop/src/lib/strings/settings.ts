@@ -92,6 +92,26 @@ export const SETTINGS_KEYS = [
   'set_prefs_autostart_failed',
   'set_prefs_autostart_read_failed',
   'set_about_title',
+  // ── 「注入与输入」 (2026-08-26) — the standing disclosure that injecting text
+  // borrows the clipboard. It exists because the DEFAULT inject path became the
+  // clipboard that day (`inject/text_route.rs`): a side effect that used to hit
+  // a minority of sentences now hits nearly all of them, and owner's ruling was
+  // that the user must be told where they can act on it (back something up)
+  // rather than left to notice their clipboard changing under them.
+  //
+  // ⚠️ These are the only strings in this shard that describe a MECHANISM, so
+  // they are the ones most likely to rot. The anchor is `PasteReason` in
+  // `inject/text_route.rs`: if the clipboard ever stops being the default, this
+  // section is a lie the same day and must go with it.
+  //
+  // ⚠️ Deliberately NOT a jump target: `set_inject_*` is a place to read, and
+  // `JumpableSettingsSection` (lib/settings-section-jump.ts) is deliberately a
+  // closed union so nobody can jump to a section id nobody rendered.
+  'set_nav_inject',
+  'set_inject_title',
+  'set_inject_clip_title',
+  'set_inject_clip_body',
+  'set_inject_clip_backup',
   'set_about_version',
   'set_about_log_title',
   'set_about_log_hint',
