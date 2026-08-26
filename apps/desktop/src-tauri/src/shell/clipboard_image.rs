@@ -43,10 +43,17 @@
 
 use std::path::Path;
 
-use crate::inject::image::{
-    decode_pixels, pack_dib, registered_png_format, validated_bytes, ImageError, ImageMime,
-    CF_DIB_U32,
-};
+use crate::inject::image::{validated_bytes, ImageError, ImageMime};
+// 🔴 Windows-only, and the compiler only says so on the OTHER platform. Every
+// user of these four is Windows-gated — the `image_formats_in` clipboard table
+// and the single gated test that reads it back. Imported unconditionally they
+// are dead on macOS/Linux, and `-D warnings` turns that into `could not
+// compile`. The Windows gate cannot see it: there they are used, so it is green
+// either way. (Prose deliberately does not spell the attribute out —
+// platform-cfg-count regexes raw source, so a mention would inflate the very
+// count that is supposed to mean "how many branches do not compile here".)
+#[cfg(target_os = "windows")]
+use crate::inject::image::{decode_pixels, pack_dib, registered_png_format, CF_DIB_U32};
 use crate::socket::row_image;
 
 /// Which picture ended up on the clipboard — reported to the page so the row

@@ -239,7 +239,13 @@ const EXPECTED = {
   // 31 → 34 (card IMG-COPY, 2026-08-25): clipboard_image.rs's three Windows
   // sites — `image_formats_in` (the DIB needs WIC), `copy_image_native`, and
   // the byte-for-byte clipboard-table test. Windows-side rows owe no Mac run.
-  'cfg(target_os = "windows")': 34,
+  // 34 → 35 (2026-08-26): the import split that unbroke verify-macos. The four
+  // clipboard imports are used only by the Windows sites above, so on macOS they
+  // were dead and `-D warnings` refused to compile the crate. Windows-side row,
+  // owes no Mac run — but this one WAS measured there anyway, because the whole
+  // point of the change is that Windows cannot see the failure it fixes:
+  // clippy --lib 0/0, tests 729 + 755, doctests 0 on the Mac mini.
+  'cfg(target_os = "windows")': 35,
   'cfg!(windows)': 4,
 };
 
