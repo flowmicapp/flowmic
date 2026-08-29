@@ -28,9 +28,15 @@
 // ends; `sttStallBannerMessage` then keys on the WIRE CODE. Zero protocol
 // change: same whitelisted event, same schema, same direction.
 //
-// ⚠️ The `AUTH_TOKEN_INVALID` arm is deliberately NOT covered — that socket is
-// not an authenticated mobile and has its own re-pair surface. Asserted below so
-// the exclusion is a decision on the record rather than an oversight.
+// 🔴 CORRECTION (2026-08-27). This paragraph read: 「The `AUTH_TOKEN_INVALID`
+// arm is deliberately NOT covered — that socket is not an authenticated mobile
+// and has its own re-pair surface. Asserted below so the exclusion is a decision
+// on the record rather than an oversight.」 It was a decision on the record, and
+// it was the wrong one: the paragraph three above it says this event's ack has
+// no reader, so 「filled the ack」 meant 「told nobody」 for that arm too. The
+// exclusion is lifted; see the case near the end of the first block for the full
+// argument and for why the 0.2.53 objection is answered on the phone's copy
+// instead. Owner ruling 2026-08-27 §R1 追加.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Socket } from 'socket.io';
@@ -139,14 +145,38 @@ describe('QTA-1: audio:start refusals are spoken, not only acked', () => {
     expect(mobile.received('stt:error')).toHaveLength(0);
   });
 
-  it('an unauthenticated socket is NOT dressed as an engine fault (the deliberate exclusion)', () => {
+  // 🔴 THIS CASE WAS INVERTED ON 2026-08-27, and the old one is worth naming.
+  // It read: 「an unauthenticated socket is NOT dressed as an engine fault (the
+  // deliberate exclusion)」 and asserted `stt:error` was NOT emitted, with the
+  // reason 「auth has its own surface (re-pair)」.
+  //
+  // The premise was true and the conclusion was false — 0.2.52's law, third
+  // occurrence: a negative assertion whose direction is wrong does not merely
+  // miss a defect, it writes the defect into the spec and goes red on the day
+  // somebody fixes it. 「Dressing an auth failure as an engine fault」 is an
+  // argument about the PHONE'S COPY, not about whether the refusal should leave
+  // the server. This very file's own opening paragraph says why that matters:
+  // `audio:start` is emitted FIRE-AND-FORGET, so the ack this arm filled had no
+  // reader. A phone whose account had been deleted held the mic, recorded, and
+  // was told nothing — the exact silence the file was written to abolish, sitting
+  // in the file, asserted.
+  //
+  // Owner ruling 2026-08-27 §R1 追加 settles the direction: the credential no
+  // longer expires on a clock, so a relay refusal is the only thing left that can
+  // say「your account stopped being served」. The 0.2.53 half is honoured where it
+  // belongs — `sttStallBannerMessage` has a NAMED arm for AUTH_TOKEN_INVALID
+  // (banner_queue_test.dart, reverse control executed), so the user reads「this
+  // phone is signed out」and never an engine sentence.
+  it('an unauthenticated socket is TOLD — the refusal leaves the server instead of filling an unread ack', () => {
     const mobile = wire(false, { authed: false });
     let acked: unknown = null;
     mobile.fire('audio:start', START, (r) => { acked = r; });
+    // The ack is unchanged, byte for byte: anything that did read it still reads
+    // the same thing.
     expect(acked).toMatchObject({ error: 'AUTH_TOKEN_INVALID' });
-    // Auth has its own surface (re-pair). Calling it an engine error would be
-    // the 0.2.53 shape; this asserts the boundary rather than trusting a comment.
-    expect(mobile.received('stt:error')).toHaveLength(0);
+    const spoken = mobile.received('stt:error');
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0]).toMatchObject({ code: 'AUTH_TOKEN_INVALID', retryable: false });
   });
 });
 

@@ -38,6 +38,7 @@ import {
 } from '../../engine/audio-registry';
 import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
+import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import { getAuth, getRoomUuid, safeAck } from '../wire';
 import { markAudioStop } from '../../obs/latency';
 import { log } from '../../log';
@@ -84,6 +85,18 @@ export interface AudioHandlerDeps {
    * behaviour, which is also correct whenever the two ids are equal.
    */
   pcOwnerUserId?: (pc_device_id: string) => string | null;
+  /**
+   * NR-2a — the 3-day unverified grace (auth/verification-grace.ts). ONE of the
+   * two enforcement sites in the whole server, deliberately the SAME two the
+   * quota guard uses: 「云端拒新会话」 (owner ruling item 4) is a statement about
+   * SESSION STARTS, and this is where a session starts.
+   *
+   * Absent ⇒ no gate, which is the pre-NR-2a behaviour every existing test was
+   * written against. Standalone is exempt inside the guard itself
+   * (`config.mode !== 'saas'` NOOP), not by being unwired here — so the
+   * exemption is a fact a test can drive rather than a wiring accident.
+   */
+  verificationGrace?: VerificationGraceGuard;
 }
 
 /**
@@ -99,7 +112,7 @@ export interface AudioHandlerDeps {
  * Ids, codes and the delivery intent only; never payload text (error-handling.ts
  * PRIVACY: audio frames carry user speech, the log file must not).
  */
-type StartRefusalGate = 'payload' | 'acting' | 'pc_owner' | 'engine';
+type StartRefusalGate = 'auth' | 'payload' | 'verify_grace' | 'acting' | 'pc_owner' | 'engine';
 
 export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): void {
   const { guard, usageTracker, store, sessions } = deps;
@@ -218,11 +231,32 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
    * true. Zero protocol change: same whitelisted event, same schema, same
    * direction — only which frames survive the trip.
    *
-   * ⚠️ It does NOT cover the `AUTH_TOKEN_INVALID` arm above on purpose: that
-   * socket is not an authenticated mobile, it has its own re-pair surface, and
-   * dressing an auth failure as an engine fault would be the 0.2.53 shape again.
+   * 🔴 IT NOW COVERS THE `AUTH_TOKEN_INVALID` ARM TOO — this paragraph used to
+   * say it deliberately did not, and the argument it gave was half right.
+   * 「Dressing an auth failure as an engine fault would be the 0.2.53 shape」 is
+   * true, and it is an argument about the PHONE'S COPY, not about whether the
+   * refusal should leave the server. What actually happened while this arm was
+   * excluded: `audio:start` is emitted WITHOUT an ack callback (ptt_session), so
+   * the ack this arm filled was read by nobody — a phone whose account had been
+   * deleted held the mic, recorded, and was told nothing at all. 「It has its own
+   * re-pair surface」 was a claim about a path that only runs if something else
+   * happens to notice.
+   * ⇒ The refusal leaves the server (QTA-1), and the 0.2.53 half is honoured
+   * where it belongs: `sttStallBannerMessage` has a NAMED arm for this code that
+   * says the phone is no longer signed in — never the generic engine sentence.
+   * Owner ruling 2026-08-27 §R1 追加: every relay refusal must reach the screen.
    */
-  function refuseStart(e: ErrorPayload, at: {
+  // 🔴 NR-2a widened the FIRST parameter from `ErrorPayload` to a structural
+  // `{error: string}`. That is not a loosening for convenience: the grace
+  // refusal is an ACK-LOCAL name and deliberately NOT a protocol `ErrorCode`
+  // (auth/verification-grace.ts states why), so it cannot be typed as one — and
+  // routing it around this function instead would have given `audio:start` a
+  // SECOND refusal path, one of which emits `stt:error` and one of which does
+  // not. The phone reads `stt:error` and does not read this ack (QTA-1, and the
+  // quota-guard correction block); a refusal that skipped this function would
+  // therefore be a silent failure by construction. `ErrorPayload` still
+  // satisfies the parameter, so every existing call site is unchanged.
+  function refuseStart(e: { error: string; message?: string }, at: {
     gate: StartRefusalGate;
     /** The account this gate JUDGED — not always the acting one (see K-5). */
     userId: string | null;
@@ -246,7 +280,14 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
 
   socket.on('audio:start', (payload: unknown, ack: unknown) => {
     const auth = getAuth(socket);
-    if (!auth || auth.kind !== 'mobile') return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    if (!auth || auth.kind !== 'mobile') {
+      // Through refuseStart, so the verdict LEAVES the server instead of filling
+      // an ack nobody reads (this event is emitted without an ack callback). See
+      // that function's header for why this arm stopped being an exception.
+      const e = { error: 'AUTH_TOKEN_INVALID', message: 'audio:start from a socket with no mobile identity' };
+      refuseStart(e, { gate: 'auth', userId: null, delivery: null });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
     const parsed = safeParseEvent('audio:start', payload);
     if (!parsed.success) {
       const e: ErrorPayload = { error: 'STT_CONFIG_MISSING', message: 'invalid audio:start payload' };
@@ -268,6 +309,48 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // That branch lives in the finalize path the R1-3 orchestrator drives; the
     // intent is fixed here and passed through immutably.
     const delivery: Delivery = parsed.data.delivery ?? 'inject';
+
+    // *** NR-2a — the 3-day unverified grace, one of TWO enforcement sites ***
+    //
+    // BEFORE the quota gate, on purpose: quota is a question about a paid
+    // ceiling, and this is a question about whether this account may use the
+    // managed cloud at all. Asking the expensive question first would also
+    // spend a `recordQuotaRefusal` row on an account that was never going to be
+    // admitted, i.e. a ledger row whose stated cause is wrong.
+    //
+    // 🔴 IT JUDGES `auth.userId` — the ACTING account, the one whose minutes
+    // this recording would spend. Deliberately NOT the PC owner as well, unlike
+    // QTA-2's quota check below: the PC-owner gate exists because two ledgers
+    // can be billed, and there is no ledger here. Refusing a phone's sentence
+    // because someone ELSE has not opened their email would be a wall whose
+    // stated reason is about an account the user does not control.
+    //
+    // ⚠️ THE ACK IS VERY PROBABLY UNREAD, and that is inherited rather than
+    // introduced — billing/quota-guard.ts's 2026-08-07 correction block
+    // measured it: the phone emits `audio:start` fire-and-forget
+    // (`transport.emit`, not `emitWithAck`), so no ack on this leg has a
+    // reader. That is why `verify_grace_days_left` rides on every user
+    // projection (auth-service.ts `publicUser`) — a client warns from the
+    // countdown, not from this refusal. Fixing the ack visibility belongs to
+    // the window that owns apps/mobile and is NOT attempted here.
+    // 🔴 AND IT GOES THROUGH `refuseStart`, WHICH MEANS IT REACHES THE PHONE.
+    // That function emits a terminal `stt:error` alongside the ack (QTA-1 —
+    // 「a refusal must LEAVE THE SERVER, not just fill an ack nobody reads」),
+    // and it writes the structured line NR-2a item 3 (ii) asks for: 「somebody
+    // minted a pile of addresses」 shows up as `auth: account minted` lines
+    // (http/auth-routes.ts) and 「they are all hitting the wall」 shows up as
+    // `audio:start refused` with `gate:'verify_grace'`. One grep, both halves.
+    //
+    // ⚠️ WHAT THE PHONE DOES WITH IT: `sttStallBannerMessage` keys on the wire
+    // code, and this code is not in its table, so the user sees the generic
+    // stall banner rather than 「verify your email」. That is a real gap, named
+    // here rather than left to be discovered — and it is why
+    // `verify_grace_days_left` rides on the user projection.
+    const graceRefusal = deps.verificationGrace?.check(auth.userId) ?? null;
+    if (graceRefusal !== null) {
+      refuseStart(graceRefusal, { gate: 'verify_grace', userId: auth.userId, delivery });
+      return safeAck(ack, graceRefusal);
+    }
 
     // *** billing call site (STT quota) — the ONE ensureQuota('stt') site ***
     // Live now (standalone NOOP). Over-quota fails loud → QUOTA_EXCEEDED.
@@ -510,11 +593,29 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       state.fannedOut = false;
       state.paused = false;
       if (state.orchestrator) {
-        // finish() flushes the terminal final (+ the single recordSttUsage) THEN
-        // dispose() tears down — never dispose mid-flush (would drop the final).
         const s = state.orchestrator;
         state.orchestrator = null;
-        void s.finish().catch((err) => console.error('[audio.handler] finish error:', err)).finally(() => s.dispose());
+        if (parsed.data.discard === true) {
+          // 🔴 SWIPE-UP CANCEL (owner report 2026-08-28) — tear down WITHOUT
+          // finishing. `finish()` exists to flush the engine's terminal final
+          // and bank the usage; both are wrong for a recording the user threw
+          // away. Before `discard` existed this frame was byte-identical to a
+          // release, so a cancel finalised, shipped the words back to the phone
+          // and charged the account for them.
+          //
+          // ⚠️ THIS IS THE SAVING, NOT THE FIX. The phone drops any late
+          // transcript frame on its own (ptt_inbound.dart), because a relay
+          // older than this line strips the unknown key and finalises exactly as
+          // before. Deleting the client latch on the strength of this branch
+          // would re-open the defect for every user whose relay is behind.
+          void Promise.resolve()
+            .then(() => s.dispose())
+            .catch((err) => console.error('[audio.handler] discard dispose error:', err));
+        } else {
+          // finish() flushes the terminal final (+ the single recordSttUsage) THEN
+          // dispose() tears down — never dispose mid-flush (would drop the final).
+          void s.finish().catch((err) => console.error('[audio.handler] finish error:', err)).finally(() => s.dispose());
+        }
       }
     }
     safeAck(ack, { ok: true });

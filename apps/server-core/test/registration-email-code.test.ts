@@ -167,6 +167,12 @@ describe('fix-023 enumeration proof: the malformed-email refusal cannot become a
       // what forced this line, and the ops account list is emphatically a method
       // registration must never reach.
       listPage: () => { throw new Error('test bug: listPage() must not be called'); },
+      // NR-1 — same rule again, and this pair is the sharpest example of why the
+      // literal is exhaustive: `findByGoogleSub` is an ACCOUNT LOOKUP, so a
+      // registration path that ever reached it would be exactly the existence
+      // oracle this test exists to forbid, just through a different door.
+      findByGoogleSub: () => { throw new Error('test bug: findByGoogleSub() must not be called for a malformed email — that would make this an existence oracle'); },
+      bindGoogleSub: () => { throw new Error('test bug: bindGoogleSub() must not be called'); },
     };
     const svc = makeAuthService({ users: spy, jwtSecret: SECRET });
     const err = await registerRejection(svc, { email: 'still-not-an-email', password: 'longenough123' });

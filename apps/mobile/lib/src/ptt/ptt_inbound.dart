@@ -24,6 +24,16 @@
 
 part of 'ptt_session.dart';
 
+/// The three inbound frames that carry, or amend, WHAT THE USER SAID. Only
+/// these are dropped after a cancel; everything else on the wire (engine status,
+/// presence, auth, inject results, compose) describes the session or the link
+/// rather than the abandoned utterance, and silencing those would turn one
+/// cancelled recording into a blind client.
+bool _isAbortableTranscriptFrame(String event) =>
+    event == FlowMicEvents.sttInterim ||
+    event == FlowMicEvents.sttFinal ||
+    event == FlowMicEvents.sttRefined;
+
 extension PttSessionInbound on PttSession {
   // ─────────────────────────────────────────── inbound dispatch
 
@@ -32,6 +42,47 @@ extension PttSessionInbound on PttSession {
     final Map<String, Object?> data = raw is Map
         ? Map<String, Object?>.from(raw.cast<String, dynamic>())
         : const <String, Object?>{};
+    // ── 🔴 SWIPE-UP CANCEL: DROP THE TRANSCRIPT FRAMES THIS UTTERANCE STILL OWES ──
+    //
+    // owner report 2026-08-28: speak for five seconds, swipe up to cancel, and
+    // the words reach the PC anyway. Measured cause, in three hops:
+    //
+    //   ① `pttCancel` emits `audio:stop` — BYTE-IDENTICAL to the frame a normal
+    //      release sends (`AudioStopSchema` is `z.object({})`, it has no field
+    //      that could say "throw it away"). The server therefore cannot tell the
+    //      two apart and does what it always does: `finish()`, which flushes the
+    //      engine's TERMINAL final back to this phone.
+    //   ② `pttCancel` clears `segments`, so by the time that final lands the
+    //      phone's own assembly is empty — and `_handleTerminalFinal` falls back
+    //      to `f.text` precisely when the assembly is empty. `f.text` is the
+    //      server's transcript of everything the user just said.
+    //   ③ nothing downstream asks whether the utterance was abandoned, so a row
+    //      is minted and delivered.
+    //
+    // The FSM was never fooled: it is IDLE by then and `onSttFinal` REFUSES.
+    // That refusal simply had no reader — the row is built on another layer that
+    // never asked. (CLAUDE.md R11: the layer making the call did not hold the
+    // fact it needed.)
+    //
+    // 🔴 WHY THE GUARD IS HERE AND NOT AT THE ROW BUILDER. `sttInterim` writes
+    // into `segments` and banks retained-audio indices; `sttFinal` banks
+    // durations; `sttRefined` amends THE MOST RECENT ROW — which after a cancel
+    // is somebody else's row, so a late refine would graft the abandoned words
+    // onto the previous utterance. One choke point covers all three; a guard at
+    // the builder would leave the other two writing.
+    //
+    // ⚠️ SAFE TO DROP THE WHOLE FRAME HERE, and `_handleTerminalFinal`'s J5 note
+    // is why that needs saying: it warns that suppressing a final elsewhere can
+    // strand the FSM in PROCESSING. It cannot here — `onPttCancel` already put
+    // the FSM in IDLE, where `onSttFinal` is refused anyway. Dropping changes
+    // nothing about the state machine and everything about what gets delivered.
+    //
+    // The latch clears on the next `pttDown`, so it can never outlive the
+    // utterance it belongs to.
+    if (fsm.utteranceCancelled && _isAbortableTranscriptFrame(env.name)) {
+      diag('ptt.cancel.frame_dropped', <String, Object?>{'event': env.name});
+      return;
+    }
     switch (env.name) {
       case FlowMicEvents.sttInterim:
         stt.onInterim(data);

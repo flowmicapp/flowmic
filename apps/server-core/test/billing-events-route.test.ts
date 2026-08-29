@@ -18,6 +18,7 @@
 // exists and is unreachable in production. See the handoff note in the round
 // report.
 
+import { RoomStore } from '../src/room/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -59,6 +60,10 @@ function makeDeps(): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    // 2026-08-28: the console's device surface now takes live room membership.
+    // An EMPTY store is the honest fixture for these suites — none of them has a
+    // socket, so every PC reads absent, which is what "no relay session here" means.
+    store: new RoomStore(),
     settings: db.settings,
     // 0.3.0 P4 — required by ConsoleRoutesDeps since account delete/export
     // landed. Real repos off the same connection (a stub would be a friendly

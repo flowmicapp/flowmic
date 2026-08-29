@@ -37,8 +37,10 @@ import type { InjectRoutesDeps } from './inject-routes';
 import type { TimelineKeymetaRoutesDeps } from './timeline-keymeta-routes';
 import type { TimelineGrantsRoutesDeps } from './timeline-grants-routes';
 import type { EmailVerificationRoutesDeps } from './email-verification-routes';
+import type { GoogleAuthRoutesDeps } from './google-auth-routes';
 import type { PaddleRoutesDeps } from './paddle-routes';
 import type { UpdateRoutesDeps } from './update-routes';
+import type { NodeRoutesDeps } from './node-routes';
 import type { StatusRoutesDeps } from './status-routes';
 import type { SiteCollectRoutesDeps } from './site-collect-routes';
 import type { OpsSiteRoutesDeps } from './ops-site-routes';
@@ -194,6 +196,16 @@ export interface HttpDeps {
    *  routes are themselves EXEMPT from the verified-email gate they feed —
    *  gating the door's own key would lock it forever. */
   emailVerification?: EmailVerificationRoutesDeps;
+  /** NR-1 — POST /api/auth/google. SAAS ONLY, the same double-gated mounting as
+   *  its neighbours (standalone has no account layer, so a Google sign-in there
+   *  would mint a session for a person the deployment cannot have).
+   *
+   *  ⚠️ PRESENT DOES NOT MEAN CONFIGURED. bootstrap builds this dep for every
+   *  saas deployment, with a verifier that may be the LOUD unconfigured one; the
+   *  route then answers a named 503 rather than a 404. "This deployment has no
+   *  account layer" and "this deployment has no Google client id" are different
+   *  facts, and only the second one is an operator's next action. */
+  googleAuth?: GoogleAuthRoutesDeps;
   /** RV-98 — GET /api/pc/presence: "the PC this Bearer token is paired to, is it
    *  in its room right now". Mounted in BOTH modes, unlike every other route
    *  above: saas is the mode that needs it (the relay answering /api/health says
@@ -218,6 +230,18 @@ export interface HttpDeps {
    *  design — 0.2.37 shipped without a relay deploy — so the manifest is DATA on
    *  disk, never derived from SERVER_VERSION. See update-routes.ts's header. */
   updates?: UpdateRoutesDeps;
+  /** 2026-08-29 multi-node — GET /api/node/{ping,list,locate}. Present ONLY when
+   *  `FLOWMIC_NODE_ID` is configured; absent → the paths fall through to the
+   *  routers 404, the same 「not mounted in this deployment」 answer
+   *  auth/console/updates give. A single-node deployment therefore behaves
+   *  exactly as it does today, which is the compatibility guarantee the design
+   *  rests on (§1: the node list is an ADDITION, never a replacement).
+   *
+   *  🔴 /ping answers 「how far is this ORIGIN」, which is NOT what a TCP or TLS
+   *  handshake answers behind a CDN — measured 2026-08-28, five regions spanned
+   *  3 ms at the handshake and 6x at the session. That is the whole reason this
+   *  dep exists rather than letting a client time a connect(). */
+  nodes?: NodeRoutesDeps;
   /** W-5a (REQ-13-03) — GET /api/status, the public status page's data source.
    *  Present when bootstrap armed the probe timer; absent → the path falls
    *  through to the router's 404, the same "not mounted in this deployment"

@@ -80,8 +80,18 @@ publish-mac/
 key.properties
 vps.env
 
-# local scratch (gitignored by convention, see CLAUDE.md)
+# local secrets / machine-local state (see CLAUDE.md)
 .local/
+
+# scratch/: NEW files falling in here are ignored — what this blocks is build
+# artifacts polluting the tree state and voiding gate receipts (measured
+# 2026-08-28: a mac zip scp'd into scratch/ 11s into a gate run made the
+# receipt refuse to sign, correctly). ⚠️ 163 files committed BEFORE this rule
+# remain TRACKED historical evidence (real-device findings, logcats, drills)
+# — do not migrate or delete them; the mixed state is a deliberate choice.
+# The old comment here claimed scratch/ was "gitignored by convention" while
+# no rule covered it — this rule makes the sentence true.
+scratch/
 
 # editor / os
 .DS_Store
@@ -117,3 +127,7 @@ docs/scene-demo/
 docs/ui-design/brand/final-overview/
 # A stray sibling the same external work drops at the repo root.
 /scene-common.js
+
+# NR-5 S0a load-test harness output (scripts/loadtest/README.md) — one JSON +
+# one .txt per run, machine-specific measurements, never something to check in.
+/scripts/loadtest/results/

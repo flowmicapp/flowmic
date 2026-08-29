@@ -51,8 +51,9 @@ class LoginErrorCodes {
 /// The second half of the logout truth (owner ruling A5-4 / E4). These are NOT
 /// errors — the user IS signed out on this device in every branch, and no
 /// branch may claim the cloud session was revoked (nothing revokes it: the JWT
-/// is stateless and lives until its exp, at most 7 days; real revocation is
-/// W4-4). They only say WHICH honest sentence to add. Localized copy:
+/// is stateless and lives until its exp — which, since owner ruling 2026-08-27
+/// §R1, is ~100 years out; real revocation is still W4-4). They only say WHICH
+/// honest sentence to add. Localized copy:
 /// AppStrings.logoutNotice.
 class LogoutNoticeCodes {
   LogoutNoticeCodes._();
@@ -142,6 +143,24 @@ class LoginController extends ChangeNotifier {
   /// device), then dials the SaaS endpoint and emits mobile:login, AWAITING the
   /// ack. Only an explicit ok ack enters success; every other outcome — error
   /// envelope, ack timeout, no connection — is surfaced loudly and distinctly.
+  ///
+  /// 🔴 NO PRODUCTION CALLER SINCE 2026-08-27 (card NR-2b). Owner ruled that
+  /// neither client carries a username/password login any more
+  /// (`docs/decisions/2026-08-27-owner-no-password-login-on-clients.md`): the
+  /// phone signs in through the browser or by QR, both of which land in
+  /// [loginWithQr]. `login_sheet.dart` was this method's only caller and its
+  /// email/password form is gone. Measured at the time of writing:
+  /// `grep -rn '\.login('` over `apps/mobile/lib` returns nothing.
+  ///
+  /// ⚠️ KEPT DELIBERATELY, AND NOT QUIETLY. The ruling says the server's
+  /// `{email,password}` arm stays (removing a protocol arm is an owner gate)
+  /// and registers the client side as a future cleanup item — so deleting the
+  /// Dart half today would leave a live wire with nothing in this repo that
+  /// still describes it. It is also what every fixture in `test/` uses to reach
+  /// a signed-in state cheaply, and rewriting those onto a nonce would change
+  /// what a dozen unrelated tests are actually exercising.
+  /// ⇒ **Do not wire this back into any screen.** If it is ever to come back,
+  /// that is a new owner ruling, not a convenience.
   Future<void> login({required String email, required String password}) async {
     if (_phase == LoginPhase.submitting) return;
     final String trimmed = email.trim();
@@ -279,10 +298,12 @@ class LoginController extends ChangeNotifier {
   ///     we know the other side received it」at all.
   ///
   /// What NEITHER half claims: that the cloud session was revoked. It is not —
-  /// the JWT is stateless and stays valid until its own exp (≤7 days, server
-  /// auth/jwt.ts DEFAULT_TTL_MS); a jti denylist is W4-4, deferred by owner
-  /// ruling A5-4 pending the H5 security assessment. The copy says exactly that
-  /// and nothing more.
+  /// the JWT is stateless and stays valid until its own exp (server
+  /// auth/jwt.ts DEFAULT_TTL_MS, ~100 years since owner ruling 2026-08-27 §R1 —
+  /// this line used to bound it at「≤7 days」, which made the gap sound
+  /// self-closing); a jti denylist is W4-4, no longer merely deferred but a hard
+  /// prerequisite for the paid-launch / public-release gates. The copy says
+  /// exactly that and nothing more.
   Future<void> logout() async {
     // ── 1. local, unconditional, and BEFORE any await ──────────────────────
     // In-memory first so nothing — not a wedged secure store, not a dead

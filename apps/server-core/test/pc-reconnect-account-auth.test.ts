@@ -20,6 +20,7 @@
 //           docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §4 R11
 // *** HUMAN-AUDIT SENSITIVE (auth) — reviewable in isolation ***
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerPcHandlers } from '../src/socket/handlers/pc.handler';
@@ -90,7 +91,7 @@ let registry: Registry;
 let store: RoomStore<Socket>;
 
 function wirePc(socket: FakeSocket): FakeSocket {
-  registerPcHandlers(socket as unknown as Socket, {
+  registerPcHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

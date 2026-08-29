@@ -32,6 +32,7 @@ import 'package:flowmic/src/settings/settings_client.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/portable_fakes.dart';
@@ -365,6 +366,7 @@ void main() {
             timeline: newTestStore(),
             version: const FixedAppVersion('0.0.0-test'),
             update: newTestUpdateController(),
+            cloudSummary: newTestCloudSummary(login: login),
           ),
         ),
       );

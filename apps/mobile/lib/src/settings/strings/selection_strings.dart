@@ -144,4 +144,74 @@ mixin SelectionStrings on AppStringsLeaves {
   /// 「where did those words go」 —
   /// one fact, one outlet, not said twice in two places.
   String get selectionOrganizeNotStarted => _lfSelectionOrganizeNotStarted;
+
+  // ── Card NR-3: batch delete ───────────────────────────────────────────────
+  // owner ruling 2026-08-27 item 8 (`docs/decisions/
+  // 2026-08-27-owner-web-rulings-nr-ledger.md`); the design is §3 of
+  // `docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md`.
+  //
+  // 🔴 **There is deliberately no `selectionDelete` label key.** The toolbar's
+  // third button prints [confirmDelete], the SAME string the confirm dialog's
+  // confirm button prints — which is the precedent `entry_context_menu.dart`
+  // already set for this exact action and stated verbatim beside its own delete
+  // row: 「Delete = the destructive timeline-entry delete, i.e. the SAME action
+  // the confirm dialog's confirm button commits — so both use
+  // AppStrings.confirmDelete」. A second key holding the same word in nine
+  // languages is a copy that can drift, and drift here would put two different
+  // words on the two halves of one action.
+
+  /// The third toolbar button's sub-line.
+  ///
+  /// 🔴 It carries the fact that decides whether the user should press it, in
+  /// the same posture as [selectionCopySub] 「Text only」: pinning the scope
+  /// down BEFORE the press. What a batch delete costs is irreversibility, so
+  /// that is what it says — the count and the picture tally are the confirm
+  /// dialog's job, because they are not known until the press.
+  String get selectionDeleteSub => _lfSelectionDeleteSub;
+
+  /// The confirm dialog's title. Takes the count: 「Delete this entry?」 is the
+  /// SINGLE-row dialog's title ([deleteEntryConfirmTitle]) and would understate
+  /// a 40-row batch by exactly the number that matters.
+  String selectionDeleteConfirmTitle(int n) => _lfSelectionDeleteConfirmTitle(n);
+
+  /// The confirm body when nothing selected is a picture.
+  String selectionDeleteConfirmBody(int n) => _lfSelectionDeleteConfirmBody(n);
+
+  /// 🔴 The confirm body when the batch contains pictures, and the picture
+  /// count is in it because **a picture row costs more than a row**: the one
+  /// deleter takes the image FILE off this phone with it
+  /// (`TimelineReaper.reap` ②). A user who ticked 「select all」 to tidy up
+  /// text has no way to know a photo went with it unless the dialog says so
+  /// before the fact — and after the fact there is nothing to say it about.
+  String selectionDeleteConfirmBodyWithImages(int n, int images) =>
+      _lfSelectionDeleteConfirmBodyWithImages(n, images);
+
+  /// Pressed with nothing ticked. Deliberately a spoken refusal rather than a
+  /// disabled button — 「a control that changes nothing is worse than no
+  /// control」 (0.2.27), the same rule the six organize refusals follow.
+  ///
+  /// ⚠️ It is its OWN key even though it currently reads exactly like
+  /// [selectionOrganizeNoSelection]. Sharing that one would mean the delete
+  /// button's refusal is spelled by a string whose name says 「organize」, and
+  /// the next person editing the organize copy would silently edit this too.
+  String get selectionDeleteNoSelection => _lfSelectionDeleteNoSelection;
+
+  /// The result. 🔴 The number comes from [ReapResult.rows] — what the deleter
+  /// **actually removed** — never from how many rows were ticked (doc 16
+  /// §6.2-5 forbids reporting an unmeasured outcome).
+  String selectionDeleted(int n) => _lfSelectionDeleted(n);
+
+  /// The result when picture FILES went too. `pictures` is likewise measured:
+  /// it can be lower than the number of picture rows, because a row delivered
+  /// before RV-93 is a picture row with no file left to delete.
+  String selectionDeletedWithImages(int n, int images) =>
+      _lfSelectionDeletedWithImages(n, images);
+
+  /// The batch threw part-way. 🔴 Not optional politeness: [TimelineStore
+  /// .deleteMany] deliberately leaves the rows ON SCREEN when the reap fails
+  /// (under-claim rather than over-claim, the discipline `clear` established),
+  /// so without this sentence the user sees a delete that appears to have done
+  /// nothing and is told nothing — the swallowing half of 「no silent
+  /// failure」.
+  String get selectionDeleteFailed => _lfSelectionDeleteFailed;
 }

@@ -24,6 +24,36 @@ enum ConnectionState { disconnected, connecting, connected, reconnecting, error 
 
 enum SessionState { disconnected, idle, recording, processing, justDone }
 
+/// 🔴 NR-4-P1 (a) — THE ONE AUTHOR of 「may a fresh PTT-down start from here」.
+///
+/// Four layers ask this question on every press — [PttBar] (is the bar even
+/// enabled), `ChatController.canPtt` (the UI mirror), `PttSession.pttDown`
+/// (the data-layer gate) and [FlowmicStateMachine.onPttDown] (the transition
+/// itself). They each used to spell `== SessionState.idle` on their own, which
+/// is four answers to one question and is exactly how this repo's headline bug
+/// shape starts. They read this instead.
+///
+/// JUST_DONE is admitted because it is a VISUAL FACE and nothing else: a green
+/// ✓ held for 1500 ms after a final has already landed. The utterance it
+/// confirms is over — the row is minted, the delivery has been handed off — so
+/// there is nothing for a new hold to collide with, while the previous
+/// behaviour spent that window refusing presses and the ledger measured the
+/// cost as 「说完被锁 ~1.5s+」 (NR-4 row a): continuous dictation was chopped up
+/// by a face.
+///
+/// 🔴 THE BOUNDARY THIS CARD DELIBERATELY DOES NOT CROSS: **PROCESSING stays
+/// closed.** That window is not cosmetic — capture has ended and the terminal
+/// `stt:final` for the previous utterance has not arrived, so a second hold
+/// there means two utterances in flight at once, which is the coexistence
+/// 08 §2 forbids and which decides ORDERING of what lands in the PC's focus
+/// window. Opening it is a state-machine question (who owns the pending
+/// final, what the compose watchdog covers, whether the outbox can reorder)
+/// and needs its own card plus a real-device measurement, not a widened
+/// predicate. See the NR-4 ledger §4 P1 ① for the same boundary in the owner's
+/// words.
+bool sessionAcceptsPttDown(SessionState s) =>
+    s == SessionState.idle || s == SessionState.justDone;
+
 /// Why PROCESSING was closed WITHOUT a terminal stt:final (GA-03). The two
 /// causes read differently to the user —「nothing came back」 vs 「the engine
 /// said it broke」 — so they travel as distinct reasons rather than one blob.
@@ -271,17 +301,54 @@ class FlowmicStateMachine {
     _emit();
   }
 
-  /// PTT down — only valid at CONNECTED + IDLE.
+  /// PTT down — valid at CONNECTED + [sessionAcceptsPttDown] (IDLE, or the
+  /// cosmetic JUST_DONE window; NR-4-P1 (a) — that predicate carries the whole
+  /// rationale and the PROCESSING boundary).
+  /// 🔴 「the utterance in flight was ABANDONED」 — owner report 2026-08-28.
+  ///
+  /// Set by [onPttCancel], cleared by the next accepted [onPttDown], so it can
+  /// never outlive the utterance it describes. Read by the inbound dispatch,
+  /// which drops the transcript frames the server still owes a cancelled
+  /// recording (ptt_inbound.dart carries the full argument, including why the
+  /// server keeps sending a terminal final after a cancel at all).
+  ///
+  /// 🔴 IT LIVES HERE BECAUSE THIS IS THE OBJECT THAT KNOWS. The defect was that
+  /// a cancelled utterance still reached the PC, and this machine was never
+  /// fooled for a moment: it goes IDLE on cancel and correctly refuses the late
+  /// `onSttFinal`. The refusal simply had no reader — the row is built on a
+  /// layer that never asked. Putting the fact on a second object would have been
+  /// a second answer to a question this one already answers.
+  bool _utteranceCancelled = false;
+  bool get utteranceCancelled => _utteranceCancelled;
+
   void onPttDown() {
     if (_conn != ConnectionState.connected) {
       _refuse('pttDown', 'requires connection=connected');
       return;
     }
-    if (_sess != SessionState.idle) {
+    if (!sessionAcceptsPttDown(_sess)) {
       _refuse('pttDown',
-          'requires session=idle (RECORDING + PROCESSING coexistence forbidden)');
+          'requires session=idle|justDone (RECORDING + PROCESSING coexistence forbidden)');
       return;
     }
+    // A fresh utterance is never born abandoned. Cleared on the ACCEPTED edge
+    // only, past both guards above: a refused press must not un-silence the
+    // frames still owed to the cancelled utterance before it.
+    _utteranceCancelled = false;
+    // 🔴 NR-4-P1 (a) — leaving JUST_DONE by this edge disarms its window.
+    //
+    // ⚠️ STATED HONESTLY, because the first draft of the test for this said
+    // otherwise and the reverse control caught it: WITHOUT this cancel the
+    // session is still correct. `_onJustDoneTimerFired` re-checks
+    // `if (_sess == justDone)`, so an orphan fires into a live RECORDING and
+    // does nothing. What the cancel buys is that the orphan does not EXIST —
+    // no armed Timer holding this FSM, counting down on behalf of an utterance
+    // that is over, inside a state it has no business in. That is the
+    // difference a test can see (`fakeAsync.nonPeriodicTimerCount`), and it is
+    // the difference this line is here for. Every other edge out of JUST_DONE
+    // in this file already does the same thing, for the same reason.
+    _justDoneTimer?.cancel();
+    _justDoneTimer = null;
     _sess = SessionState.recording;
     // Belt: a fresh utterance must never inherit a previous one's latched
     // terminal error (every exit from RECORDING already clears it).
@@ -323,6 +390,10 @@ class FlowmicStateMachine {
       _refuse('pttCancel', 'requires session=recording');
       return;
     }
+    // owner report 2026-08-28 — see [utteranceCancelled]. Set INSIDE the guard,
+    // so a refused cancel never latches: only a cancel that really happened may
+    // silence the transcript frames that follow it.
+    _utteranceCancelled = true;
     _justDoneTimer?.cancel();
     _justDoneTimer = null;
     // Insurance only: cancel never runs from PROCESSING, but an edge that

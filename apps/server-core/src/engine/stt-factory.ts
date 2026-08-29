@@ -240,7 +240,7 @@ export function makeSttSessionFactory(
     const finalText = makeFinalTextPipeline(buildDictionaryReplacer(replacementRules));
     // WP-R4-6 ⑤⑥ + M4/M6: per-session stt.polish snapshot — see resolvePolishDep
     // for the full contract (fail-loud settings, provenance, the llm valve).
-    const polish = resolvePolishDep(deps, args.userId, replacementRules.map((r) => r.canonical));
+    const polish = resolvePolishDep(deps, args.userId, replacementRules.map((r) => r.canonical), args.sourceLang);
     // GA-14 ⑤: per-session `stt.refine` snapshot, same cadence + fail-loud
     // discipline as the polish leg. Refine needs a BATCH engine (whole-utterance
     // POST); a streaming routing has no whole-utterance mode, so no substitute is
@@ -303,7 +303,7 @@ export function makeSttSessionFactory(
     }
     return new SttSessionBridge({
       traceId,
-      build: withQuotaBudget(build, quotaBudgetMs),
+      build: withQuotaBudget(build, quotaBudgetMs, deps.quota),
       emitter,
       userId: args.userId,
       mode: args.mode,
@@ -385,9 +385,21 @@ export function makeSttSessionFactory(
 function withQuotaBudget(
   build: SttSessionDeps['build'],
   quotaBudgetMs: number,
+  quota: { remainingSttMs(userId: string): number },
 ): SttSessionDeps['build'] {
   return (session, language, userId, vad) => {
     session.setQuotaBudgetMs(quotaBudgetMs);
+    // 🔴 card CR-Q (owner 2026-08-29) — installed in the SAME act that declares
+    // the opening budget, so a session can never end up with a snapshot and no
+    // way to refresh it. The reader is the same call the declaration above used;
+    // what changes is only WHEN it is asked (orchestrator-core's spawnEngine
+    // tail, once per floor window), never WHO answers.
+    //
+    // ⚠️ `userId` here is the build argument, not the outer `args.userId`: it is
+    // the id this session was actually built for, and using anything else would
+    // re-check somebody else's budget — a mistake nothing downstream could see,
+    // because the number would still look like a plausible number of minutes.
+    session.setQuotaRefresher(() => quota.remainingSttMs(userId));
     return build(session, language, userId, vad);
   };
 }
@@ -501,6 +513,10 @@ export function resolvePolishDep(
   deps: Pick<SttFactoryDeps, 'settings' | 'quota'>,
   userId: string,
   protectedTerms: readonly string[],
+  /** The session's spoken language, for the polish diagnostics ONLY — see
+   *  PolishDeps.language. Optional so the arming path stays callable from tests
+   *  that do not model a language; production always passes it. */
+  sourceLang?: string,
 ): PolishArming {
   // Fail-loud PRESERVED: a present-but-malformed `stt.polish` row still throws
   // SETTINGS_SCHEMA_INVALID. That answers a DIFFERENT question ("your settings row is broken",
@@ -548,6 +564,12 @@ export function resolvePolishDep(
     deps: {
       protectedTerms: [...protectedTerms],
       strength: polishSetting.strength ?? DEFAULT_POLISH_STRENGTH,
+      // Diagnostic only (PolishDeps.language). The session SNAPSHOT value, which
+      // is the honest answer to 「which language did this session believe it was
+      // hearing」 — deliberately not the engine's per-final observation, because
+      // this dep is frozen at audio:start and a field that silently meant two
+      // different things depending on the caller would be worse than none.
+      ...(sourceLang !== undefined ? { language: sourceLang } : {}),
       // Card A4 (owner ruling 2026-08-24): the scenario card now reaches the
       // realtime correction pass. Built HERE, at the audio:start snapshot, for
       // the same reason the terminology rules are: a settings:update mid-session

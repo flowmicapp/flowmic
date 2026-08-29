@@ -46,7 +46,7 @@ import {
  * `ComposeGuardInput`) imports exactly the name it did before. Public surface
  * unchanged; the dependency now points one way only.
  */
-export type ComposeGuardTask = 'translate' | 'organize';
+export type ComposeGuardTask = 'translate' | 'organize' | 'draft_polish';
 
 // ─── volume thresholds ──────────────────────────────────────────────────────
 
@@ -124,6 +124,15 @@ export const VOLUME_FLOOR_CHARS = 24;
 export const MAX_EXPANSION: Readonly<Record<ComposeGuardTask, number>> = {
   translate: 6,
   organize: 4,
+  // draft_polish shares organize's ceiling rather than getting a fitted number
+  // of its own. Both are EDITS — the output is the input rewritten, not
+  // re-expressed in another language — so translate's wider allowance (which
+  // exists for dense CJK sources that legitimately expand) does not apply.
+  // ⚠️ NOT measured against a corpus: draft_polish has no eval suite at all
+  // (docs/strategy/2026-08-28-multilingual-chain-audit.md F7). Borrowing a
+  // sibling's calibrated ceiling is the honest move when you have no sample —
+  // inventing a tighter number would look like a measurement and be a guess.
+  draft_polish: 4,
 };
 
 /** Organize only, and only on inputs long enough for the ratio to mean

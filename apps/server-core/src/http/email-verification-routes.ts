@@ -35,23 +35,41 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MailNotConfiguredError, type EmailVerificationMailer } from '../mail';
 import { accountFromBearer, accountUserFromBearer, type AccountVerifier } from './account-auth';
 import { readJsonBody, sendJson, str } from './console-http';
+import { clientIpFromRequest } from './trusted-proxy';
 import type { EmailVerificationRepo } from '../db/repos/email-verification.repo';
+import type { SettingsRepo } from '../db/repos/settings.repo';
+import type { RegisterRateLimiter } from '../auth/register-rate-limit';
 import {
   EMAIL_VERIFICATION_CODE_TTL_MS,
   EMAIL_VERIFICATION_MAX_ATTEMPTS,
   EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
-  generateVerificationCode,
-  hashVerificationCode,
   isEmailVerified,
   verificationCodeMatches,
   type VerificationSendLimiter,
 } from '../auth/email-verification';
+import {
+  EMAIL_VERIFICATION_LINK_KEY,
+  readStoredVerificationLink,
+  splitVerificationLinkToken,
+  verificationLinkMatches,
+  VERIFY_LINK_EXPIRED,
+  VERIFY_LINK_INVALID,
+} from '../auth/verification-link';
+import { mintVerification, sendVerificationMail, storeVerification } from '../auth/verification-issue';
 import { log } from '../log';
 
 /** Exported for the tests — the TIMELINE_KEYMETA_PATH argument: a hand-copied
  *  literal in a test could drift into passing against a route nobody serves. */
 export const EMAIL_VERIFICATION_SEND_PATH = '/api/auth/email-verification/send';
 export const EMAIL_VERIFICATION_CONFIRM_PATH = '/api/auth/email-verification/confirm';
+/** NR-2a — the one-click arm. NO Bearer: it is reached from a mail client,
+ *  which has no session and cannot be given one. */
+export const EMAIL_VERIFICATION_CONFIRM_LINK_PATH = '/api/auth/email-verification/confirm-link';
+
+/** Re-exported so a caller (and a test) has one import for every refusal this
+ *  route file can answer with — the link arm's two names live with the link
+ *  policy, beside the compare that produces them. */
+export { VERIFY_LINK_INVALID, VERIFY_LINK_EXPIRED };
 
 /** send/confirm on an account whose gate is already open — 409, nothing done.
  *  (For confirm this doubles as the double-click answer; the UI re-reads
@@ -111,6 +129,25 @@ export interface EmailVerificationRoutesDeps {
   mailer: EmailVerificationMailer;
   /** ONE per server (bootstrap) — a per-request limiter limits nothing. */
   sendLimiter: VerificationSendLimiter;
+  /**
+   * NR-2a — where the LINK arm's single-use token is kept
+   * (`account.email_verification_link`, a `account.*` key so it never fans out
+   * to a phone). The SAME instance the send route writes through and the
+   * confirm-link route reads through: two stores would be two answers to
+   * 「is this link still live」.
+   */
+  settings: SettingsRepo;
+  /**
+   * NR-2a — per-IP throttle for `confirm-link`, which is the ONLY route in this
+   * file an anonymous caller can reach. Its own bucket, not the shared
+   * register/login one, for the reason password-reset-routes.ts states about
+   * its own limiter: a burst of link clicks must not spend the budget a
+   * legitimate sign-in needs (and vice-versa).
+   *
+   * ⚠️ It is NOT the thing that makes the token unguessable — 144 bits of
+   * CSPRNG is. It bounds the work an anonymous caller can make this process do.
+   */
+  linkLimiter: RegisterRateLimiter;
   /** ms-since-epoch clock; defaults to Date.now. Injectable for TTL tests. */
   now?: () => number;
 }
@@ -159,16 +196,18 @@ export function tryHandleEmailVerificationRoutes(
       if (!deps.sendLimiter.check(user.id)) {
         return sendJson(res, 429, { error: VERIFY_RATE_LIMITED });
       }
-      const code = generateVerificationCode();
-      const expiresAtMs = t + EMAIL_VERIFICATION_CODE_TTL_MS;
-      const expiresAtIso = new Date(expiresAtMs).toISOString();
+      // NR-2a — ONE mint for BOTH arms (auth/verification-issue.ts), so a
+      // resend cannot produce a mail whose code and link disagree about which
+      // send they belong to.
+      const minted = mintVerification(user.id, t);
+      const code = minted.code;
       const echo = verificationCodeEchoEnabled();
       let dispatched = true;
       try {
         // AWAITED, deliberately — see the file header: honesty beats latency
         // here, and there is no enumeration clock to hide (the caller is
         // mailing their own address).
-        await deps.mailer.sendVerificationCode({ to: user.email, code, expiresAt: expiresAtIso });
+        await sendVerificationMail(deps.mailer, user.email, minted);
       } catch (err) {
         // Two named reasons in the LOG (operator action differs: env vars vs
         // vendor status) — password-reset's dispatch makes the same split.
@@ -193,9 +232,14 @@ export function tryHandleEmailVerificationRoutes(
         dispatched = false; // echo mode: stored + echoed below, failure named
       }
       deps.sendLimiter.record(user.id);
-      deps.repo.putCode(user.id, hashVerificationCode(code), expiresAtMs, t);
+      // NR-2a — BOTH rows, written together (verification-issue.ts states why).
+      storeVerification(deps.repo, deps.settings, user.id, minted);
       // The code itself is NEVER in the response or a log line — except under
       // the internal echo flag (its doc block above is the whole argument).
+      // ⚠️ The LINK TOKEN is not echoed even then: the echo exists so a golden
+      // path that spawns a real server with no mail channel can still pass the
+      // console gate, and the code arm alone does that. A token in a response
+      // body is a token in whatever logs that body.
       return sendJson(res, 200, {
         ok: true,
         expires_in_ms: EMAIL_VERIFICATION_CODE_TTL_MS,
@@ -261,6 +305,73 @@ export function tryHandleEmailVerificationRoutes(
       // confirm cannot move the stamp.
       deps.repo.markVerified(userId, t);
       deps.repo.removeCode(userId);
+      // NR-2a — and burn the LINK the same mail carried. Both arms open the one
+      // gate, so once it is open the other arm is a live single-use credential
+      // sitting in a mailbox with nothing left to do. Leaving it would be a
+      // credential whose only remaining effect is to be stolen.
+      deps.settings.remove(userId, EMAIL_VERIFICATION_LINK_KEY);
+      return sendJson(res, 200, { ok: true, email_verified: true });
+    })();
+    return true;
+  }
+
+  // ── POST /api/auth/email-verification/confirm-link (NR-2a) ────────────────
+  //
+  // 🔴 NO BEARER, ON PURPOSE. The link is opened from a mail client, which has
+  // no session — requiring one would rebuild the very step this arm exists to
+  // delete. What stands in for the session is the token itself: 144 bits of
+  // CSPRNG that we minted, addressed to exactly one account, good once.
+  //
+  // 🔴 IT IS A POST, WHICH IS WHY MAIL SCANNERS CANNOT SPEND THE LINK. Corporate
+  // mail gateways and link previewers GET every URL in a message. If the gate
+  // opened on GET, a scanner would verify the address before the human ever
+  // clicked — and, worse, would burn the single use so the human's click landed
+  // on a named failure. The emailed URL points at a PAGE (`/verify?token=…`);
+  // that page's script issues this POST. A GET of the page changes nothing.
+  if (url === EMAIL_VERIFICATION_CONFIRM_LINK_PATH && method === 'POST') {
+    void (async (): Promise<void> => {
+      const ip = clientIpFromRequest(req);
+      if (!deps.linkLimiter.check(ip).allowed) return sendJson(res, 429, { error: VERIFY_RATE_LIMITED });
+      deps.linkLimiter.record(ip);
+      const body = await readJsonBody(req);
+      const presented = str(body.token);
+      const parts = presented === '' ? null : splitVerificationLinkToken(presented);
+      if (parts === null) {
+        return sendJson(res, 400, { error: VERIFY_LINK_INVALID, message: 'token required' });
+      }
+      const stored = readStoredVerificationLink(deps.settings.read(parts.userId, EMAIL_VERIFICATION_LINK_KEY)?.value);
+      // ONE refusal for「no such account」,「no pending link」and「wrong secret」.
+      // The compare is constant-time and covers the WHOLE token, so a caller
+      // cannot learn which half was wrong (auth/verification-link.ts).
+      if (stored === null || !verificationLinkMatches(stored.token, presented)) {
+        return sendJson(res, 400, { error: VERIFY_LINK_INVALID });
+      }
+      const t = now();
+      if (t >= stored.expiresAtMs) {
+        // Burned on read, exactly as an expired CODE is: an expired credential
+        // must not keep sitting in the store waiting to be probed.
+        deps.settings.remove(parts.userId, EMAIL_VERIFICATION_LINK_KEY);
+        return sendJson(res, 400, { error: VERIFY_LINK_EXPIRED });
+      }
+      // 🔴 SINGLE USE — the row is removed BEFORE the gate is opened, so a
+      // second click (or a concurrent one) finds nothing and gets the same
+      // refusal a stranger gets. The QrGrantStore.redeem ordering, for the same
+      // reason it states: delete first, then act.
+      deps.settings.remove(parts.userId, EMAIL_VERIFICATION_LINK_KEY);
+      // `markVerified` writes only a NULL column and reports whether a row
+      // moved — false means the account was ALREADY verified (a code confirm
+      // beat this click, or Google minted it verified). That is not a failure
+      // for the person holding the link: the address IS verified. Same 200,
+      // and the code row is burned either way.
+      deps.repo.markVerified(parts.userId, t);
+      deps.repo.removeCode(parts.userId);
+      // No user id, no token, no address in the line — `user_id` alone is what
+      // the password-reset dispatch line carries and for the same reason. Here
+      // even that is enough to answer 「did one-click conversion work」 in
+      // aggregate without writing a credential to a file.
+      log.info('verification: account verified through the emailed one-click link', {
+        user_id: parts.userId,
+      });
       return sendJson(res, 200, { ok: true, email_verified: true });
     })();
     return true;

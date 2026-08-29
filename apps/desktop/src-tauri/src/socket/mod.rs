@@ -17,6 +17,7 @@ pub mod client;
 /// so the literals it compares against can arrive from the frontend (see its
 /// header) without channel.rs growing an endpoint constant it is not allowed to have.
 pub mod cloud_endpoint;
+pub mod node_select;
 pub mod credentials;
 pub mod dedup;
 /// The server→frontend fan-out seam (GA-28 primary gate + RV-01 channel stamp),

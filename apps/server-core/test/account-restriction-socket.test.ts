@@ -32,6 +32,7 @@
 //     evidence about WIRING, because a gate bootstrap forgot to hand a reader to
 //     would pass every test above and refuse nobody in production.
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import type { Server, Socket } from 'socket.io';
@@ -101,7 +102,7 @@ let clock = 1_700_000_000_000;
  *  satisfies structurally in bootstrap, so the gate under test does a real row
  *  read and not a stub's opinion. */
 function wireMobile(socket: FakeSocket, mode: 'standalone' | 'saas' = 'standalone', actingUserId = USER): FakeSocket {
-  registerMobileHandlers(socket as unknown as Socket, {
+  registerMobileHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

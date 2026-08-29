@@ -41,6 +41,8 @@ import ChannelCardHead from './components/ChannelCardHead.vue';
 import SelfPcCard from './components/SelfPcCard.vue';
 // MAC-08: non-Windows plaintext credentials disclosure (full-width under This-machine).
 import CredentialsAtRestNote from './components/CredentialsAtRestNote.vue';
+// Card NR-2b: the guided browser sign-in that sits above the Cloud Key field.
+import CloudSignInGuide from './components/CloudSignInGuide.vue';
 import OfflineSwitch from './components/OfflineSwitch.vue'; // P7: see its header
 import { conn, connByChannel, currentChannel } from './store';
 import { S, SIDECAR_LABEL } from '../lib/strings';
@@ -55,16 +57,13 @@ import {
   onChannel,
   refreshPairingCode,
   retrySidecar,
-  saveCloudKey,
   type SidecarStatus,
 } from '../lib/bridge';
 import {
   asCloudStatus,
-  DEFAULT_CLOUD_ENDPOINT,
   deriveCloudCard,
   deriveLanCard,
   EMPTY_CLOUD_STATUS,
-  isJwtShaped,
   type ChannelId,
   type CloudStatus,
 } from '../lib/channel';
@@ -328,11 +327,6 @@ watch([modalOpen, loopback], ([open, isLoop]) => {
 
 // ── cloud relay channel (R6 T-2) ──
 const cloud = ref<CloudStatus>({ ...EMPTY_CLOUD_STATUS });
-const keyInput = ref('');
-const endpointInput = ref('');
-const savingKey = ref(false);
-// Local paste-shape complaint (the Rust side re-checks and latches its own).
-const keyShapeError = ref(false);
 
 /** RV-新B — the channel the "Add phone" modal OPENS on: the CURRENT one, derived from
  *  which phone is admitted (`store.currentChannel` ← the CONNECTION frame's own tag).
@@ -439,7 +433,13 @@ const cloudAccessLine = computed(() => accessLine(cloudMobiles.value));
  *  diag fold. */
 const cloudDetailOpen = ref(false);
 const { card: accountCard, refresh: refreshAccount } = useCloudAccount(cloud);
-const cloudEndpointLabel = computed(() => cloud.value.endpoint || DEFAULT_CLOUD_ENDPOINT);
+// 🔴 `cloudEndpointLabel` IS GONE, not merely unrendered (owner 2026-08-27,
+// docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md ③:「PC 端云卡不再
+// 显示 flowmic.app 域名，直接显示套餐额度图形」). The card's one line of spare room
+// now carries the plan-quota gauge inside CloudAccountLines. Deleting the computed
+// rather than leaving it unused is what stops it being re-added by an edit that only
+// has to un-comment a template line — and the endpoint is still readable, and still
+// EDITABLE, where it is actually acted on (CloudSignInGuide's endpoint field).
 
 function applyCloud(next: CloudStatus): void {
   // REQ-12-01 — the signed-in/out state changed under the card (a push from the
@@ -448,32 +448,13 @@ function applyCloud(next: CloudStatus): void {
   // block re-renders, never after.
   if (next.key_set !== cloud.value.key_set) cancelClearKey();
   cloud.value = next;
-  // Keep the endpoint box on the saved value (or the protocol default) unless the
-  // user is mid-edit — never blank a field they are typing into.
-  if (document.activeElement?.getAttribute('data-field') !== 'cloud-endpoint') {
-    endpointInput.value = next.endpoint || DEFAULT_CLOUD_ENDPOINT;
-  }
+  // Card NR-2b: keeping the endpoint box on the saved value moved into
+  // CloudSignInGuide.vue with the form itself — same rule, same mid-edit guard,
+  // now driven by the `endpoint` prop this line feeds.
 }
 
 async function loadCloud(): Promise<void> {
   applyCloud(await fetchCloudStatus());
-}
-
-async function doSaveKey(): Promise<void> {
-  if (savingKey.value) return;
-  const key = keyInput.value.trim();
-  const endpoint = (endpointInput.value.trim() || DEFAULT_CLOUD_ENDPOINT).trim();
-  keyShapeError.value = !isJwtShaped(key);
-  if (keyShapeError.value) return; // fail-loud locally; nothing is sent or stored
-  savingKey.value = true;
-  try {
-    applyCloud(await saveCloudKey(key, endpoint));
-    // The key is now DPAPI-wrapped on the Rust side; drop the plaintext copy the
-    // input is holding so it does not sit in the DOM for the rest of the session.
-    keyInput.value = '';
-  } finally {
-    savingKey.value = false;
-  }
 }
 
 // owner 2026-07-27 double confirm: signing out DESTROYS the stored Cloud Key —
@@ -681,7 +662,6 @@ onUnmounted(() => {
           <ChannelCardHead channel="cloud" :dot="cloudCard.dot" />
           <div class="st">{{ cloudCard.status }}</div>
           <div v-if="cloudUp" class="st2">{{ cloudAccessLine }}</div>
-          <span class="addr mono">{{ cloudEndpointLabel }}</span>
           <!-- 0.2.66 (owner 2026-08-14): the relay now addresses this PC by a PCID,
                and a phone pairing over the cloud needs it BEFORE any modal is open —
                someone reads it out loud, or types it while looking at this card.
@@ -741,23 +721,16 @@ onUnmounted(() => {
                paste form whenever the details are merely FOLDED — a signed-in
                card asking you to sign in (the exact bug the first live screenshot
                of this rework caught). -->
-          <div v-if="!cloud.key_set" class="keyform">
-            <label class="fld">
-              <span class="fld-l">{{ S.cloud_endpoint_label }}</span>
-              <input v-model="endpointInput" class="input" data-field="cloud-endpoint" spellcheck="false"
-                :placeholder="DEFAULT_CLOUD_ENDPOINT" />
-            </label>
-            <div class="fld-hint">{{ S.cloud_endpoint_hint }}</div>
-            <label class="fld">
-              <span class="fld-l">{{ S.cloud_key_label }}</span>
-              <input v-model="keyInput" class="input" type="password" spellcheck="false" autocomplete="off"
-                :placeholder="S.cloud_key_ph" @keyup.enter="doSaveKey" />
-            </label>
-            <div v-if="keyShapeError" class="chan-loud">{{ S.cloud_err_malformed }}</div>
-            <button class="btn pri sm" :disabled="savingKey || keyInput.trim() === ''" @click="doSaveKey">
-              {{ savingKey ? S.saving : S.cloud_key_save }}
-            </button>
-          </div>
+          <!-- Card NR-2b (owner 2026-08-27): the block moved into its own
+               component when this file reached the 800-line cap. It gained the
+               guided browser sign-in above the fields (the route to GETTING a
+               key, next to the field that wants one) and paste-time validation;
+               the paste form itself is a verbatim lift. -->
+          <CloudSignInGuide
+            v-if="!cloud.key_set"
+            :endpoint="cloud.endpoint"
+            @saved="applyCloud"
+          />
 
         </div>
       </div>

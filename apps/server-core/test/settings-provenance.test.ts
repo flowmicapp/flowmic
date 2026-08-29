@@ -17,6 +17,7 @@
 // SPEC-REF: apps/server-core/src/settings/provenance.ts (the argument in full);
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §4; CLAUDE.md anti-façade / one value answers one question.
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { createDbConnection, type DbConnection } from '../src/db/connection';
@@ -377,7 +378,7 @@ describe('D3 — a client cannot forge the marker', () => {
       on(event: string, fn: (p: unknown, ack: unknown) => void) { handlers.set(event, fn); return this; },
       emit() { /* origin gets the ack, not a broadcast */ },
     };
-    registerSettingsHandlers(origin as unknown as Socket, { io, repo: db.settings });
+    registerSettingsHandlers(origin as unknown as Socket, { writerOnly: NODE_CAN_WRITE, io, repo: db.settings });
 
     const forged = [{ language: 'zh', engine_id: 'deepgram', api_key: 'sk-mine', [PROVENANCE_FIELD]: SEED_PROVENANCE }];
     const ack = await new Promise<Record<string, unknown>>((resolve) => {

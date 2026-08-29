@@ -46,13 +46,58 @@ mixin CloudStrings on AppStringsLeaves {
   String get cloudFixedNote => _lfCloudFixedNote(recordOnly);
 
   // ── login sheet ─────────────────────────────────────────────────────────
+  //
+  // 🔴 2026-08-27 owner ruling (docs/decisions/2026-08-27-owner-no-password-
+  // login-on-clients.md): the clients carry NO username/password login at all.
+  // `emailHint`, `passwordHint`, `forgotPassword` and `loginButton` are GONE
+  // with the form that produced them — `forgotPassword` was the worst of the
+  // four, a line of static text with no tap handler that had been promising a
+  // recovery flow this app never had. A user-visible string outliving its only
+  // producer is how this repo grows sentences nobody can reach (the
+  // INJECT_NO_RECEIPT precedent), so they left in the same commit.
   String get loginTitle => _lfLoginTitle;
   String get tabLogin => _lfTabLogin;
-  String get emailHint => _lfEmailHint;
-  String get passwordHint => _lfPasswordHint;
-  String get forgotPassword => _lfForgotPassword;
-  String get loginButton => _lfLoginButton;
   String get connecting => _lfConnecting;
+
+  // ── browser sign-in (card NR-2b) ────────────────────────────────────────
+  /// The first of the sheet's two entries: hand the whole account business —
+  /// signing in, registering, Google, password recovery — to the browser, and
+  /// take a one-time code back through the deep link.
+  String get browserLoginTitle => _lfBrowserLoginTitle;
+
+  /// The explainer under it. This is ALSO where the old 「accounts are created
+  /// on the website」 footer went: registration now happens inside this very
+  /// flow, so a separate footer pointing at the same page would be a second
+  /// answer to a question this sentence already answers.
+  String get browserLoginHint => _lfBrowserLoginHint;
+
+  /// Shown while the browser has the flow. It says what the user should do
+  /// next, because nothing on this screen can happen without them.
+  String get browserLoginWaiting => _lfBrowserLoginWaiting;
+
+  /// 🔴 THE ONE REFUSAL THIS APP CANNOT SEE, SAID BEFORE IT HAPPENS.
+  ///
+  /// owner 2026-08-27 UAT ①, measured on a Lenovo tablet: its STOCK browser is
+  /// the phone's default, and Google's sign-in page refuses that browser
+  /// outright (「this browser is not secure」). Chrome on the same tablet works.
+  ///
+  /// From inside this app the refusal is INVISIBLE: it happens on a page in
+  /// another process, and what arrives here is silence — i.e. exactly the
+  /// [BrowserLoginCodes.timedOut] a user who closed the tab produces. No code
+  /// can be minted for it and none is invented (that would be a cause we do not
+  /// know). What is left is to say the thing in advance, where a user who just
+  /// hit it will look: in the explainer that already carries the address, so the
+  /// sentence and the address the user must re-open sit together.
+  ///
+  /// ⚠️ NO PROGRAMMATIC「open in Chrome」 GOES WITH IT (owner: a note only).
+  /// Picking a browser for the user is a choice this app has no basis to make,
+  /// and a launch aimed at a package that may not be installed would add a
+  /// second failure to a screen that is already explaining one.
+  String get browserLoginBrowserRefused => _lfBrowserLoginBrowserRefused;
+
+  /// Back out of the wait. Not a failure — see BrowserLoginController.cancel.
+  String get browserLoginCancel => _lfBrowserLoginCancel;
+  String get browserLoginRetry => _lfBrowserLoginRetry;
   // Same red line as cloudInstanceSub: drop the unshipped E2EE-sync selling
   // point. Keep the true capability (record without a PC). Do not flip to
   // "unencrypted" either — that path never writes server ciphertext at all.
@@ -63,7 +108,13 @@ mixin CloudStrings on AppStringsLeaves {
   // "registration not yet open (private-domain edition)")
   // was an expired truth — the website DOES accept registration now — and left
   // with its only producer, the removed register tab.
-  String get registerOnWebsite => _lfRegisterOnWebsite;
+  //
+  // 🔴 2026-08-27 (NR-2b): `registerOnWebsite` — the sentence that footer led
+  // with — is GONE, folded into [browserLoginHint], because the browser flow IS
+  // the registration route now and two sentences pointing at one page is two
+  // answers to one question. The two below did NOT go with it: the address is
+  // still shown and still copyable, which is the route left when this phone
+  // cannot open a browser at all (BROWSER_LOGIN_OPEN_FAILED).
   String get registerCopyLink =>
       _lfRegisterCopyLink;
   String get registerLinkCopied => _lfRegisterLinkCopied;
@@ -95,11 +146,47 @@ mixin CloudStrings on AppStringsLeaves {
     }
   }
 
+  /// What went wrong with the ROUND TRIP THROUGH THE BROWSER — codes from
+  /// [BrowserLoginCodes], never from the account server. The two are separate
+  /// surfaces on purpose: 「the browser never came back」 and 「the server
+  /// rejected the code」 are different problems with opposite next actions, and
+  /// one field answering both is this repo's number-one defect shape.
+  ///
+  /// 🔴 AN UNKNOWN CODE GETS THE BARE IDENTIFIER, NOT AN INVENTED SENTENCE.
+  /// That is the 0.2.53 rule, and it is the only default that cannot lie:
+  /// making one up would state a cause we do not know. `browser_login_test.dart`
+  /// asserts every member of [BrowserLoginCodes.all] maps to a real sentence in
+  /// every language, so the bare identifier can only ever appear for a code
+  /// that was added without its copy — and that test goes red the moment one is.
+  String browserLoginError(String? code) {
+    switch (code) {
+      case 'BROWSER_LOGIN_OPEN_FAILED':
+        return _lfBrowserLoginError__1;
+      case 'BROWSER_LOGIN_TIMED_OUT':
+        return _lfBrowserLoginError__2;
+      case 'BROWSER_LOGIN_NO_REQUEST':
+        return _lfBrowserLoginError__3;
+      case 'BROWSER_LOGIN_STATE_MISMATCH':
+        return _lfBrowserLoginError__4;
+      case 'BROWSER_LOGIN_EXPIRED':
+        return _lfBrowserLoginError__5;
+      case 'BROWSER_LOGIN_NO_CODE':
+        return _lfBrowserLoginError__6;
+      case 'BROWSER_LOGIN_ENDPOINT_MISMATCH':
+        return _lfBrowserLoginError__7;
+      default:
+        return code ?? '';
+    }
+  }
+
   /// The second half of the logout truth (LogoutNoticeCodes, owner ruling
   /// A5-4). NOT an error message: every branch already signed the user out on
   /// this device, and no branch may say the cloud session was revoked — nothing
-  /// revokes it, the token simply expires on its own (≤7 days, server
-  /// auth/jwt.ts DEFAULT_TTL_MS). An unknown code degrades to the WEAKEST claim
+  /// revokes it, and — since owner ruling 2026-08-27 §R1 made the server default
+  /// TTL 100 years — it no longer expires on its own in any useful sense either
+  /// (auth/jwt.ts DEFAULT_TTL_MS). That is why [_lfLogoutNotice__2] was
+  /// rewritten: it used to promise the session would lapse「within 7 days」, and
+  /// that promise now has nothing behind it. An unknown code degrades to the WEAKEST claim
   /// below, which is true in every case — never to an empty string, which would
   /// be a silent failure wearing a default branch.
   String logoutNotice(String? code) {
@@ -160,18 +247,60 @@ mixin CloudStrings on AppStringsLeaves {
   }
 
   /// A short plan-tier label for the account pill. Unknown tiers show verbatim.
+  ///
+  /// 🔴 `max` JOINED THE LADDER ON 2026-08-27 AND HAD NO SENTENCE HERE. Until
+  /// then this switch answered 「free」and「pro」 and let everything else through
+  /// as the raw wire value, so an account on the top tier wore a pill reading
+  /// the bare identifier `max` next to two properly translated neighbours —
+  /// the 0.2.53 shape (an identifier reaching the screen because a table was
+  /// not updated with the code that produced the new value), in its cheapest
+  /// form. `PLAN_LADDER` in `apps/server-core/src/billing/plans.ts` is the list
+  /// this switch owes an arm to; there are three names on it and there are now
+  /// three arms.
+  ///
+  /// ⚠️ THE DEFAULT STAYS 「show it verbatim」 and must. An invented sentence
+  /// for a tier we do not know would state a product fact we do not have.
   String planLabel(String plan) {
     switch (plan) {
       case 'free':
         return _lfPlanLabel_free;
       case 'pro':
         return _lfPlanLabel_pro;
+      case 'max':
+        return _lfPlanLabel_max;
       case '':
         return '';
       default:
         return plan;
     }
   }
+
+  // ── the two-way quota gauge (owner 2026-08-27) ───────────────────────────
+  //
+  // 🔴 TWO LEAVES, AND THERE IS DELIBERATELY NO 「UNLIMITED」 THIRD. The ruling's
+  // own wording asks for one (「`limit` 为 null（豁免/∞）⇒ 该侧文字「不限」」), and
+  // its parenthesis names the premise the server retired on 2026-08-07: ∞ no
+  // longer crosses the wire as `null`, an exempt account gets the MAX tier's
+  // finite ceiling, and a `null` can now ONLY mean 「we failed to compute it」
+  // (`billing/billing-service.ts`, QuotaView, verbatim). A sentence saying
+  // 「unlimited」 under a live gate that is in fact enforcing a number is the R11
+  // red line ⇒ that end of the gauge is absent instead, and there is no string
+  // for it to render. The desktop card made the same call on the same day; if
+  // an unbounded meter ever returns it needs a POSITIVE signal on the wire, and
+  // a new leaf then.
+  //
+  // ⚠️ THE NUMBERS ARRIVE PRE-FORMATTED (ui/quota_gauge.dart), never as raw
+  // doubles: 「≤1 decimal」 and 「tokens are counted in millions」 are product
+  // rules, and a rule spelled out in nine translations is a rule with nine
+  // chances to drift.
+
+  /// Left half: speech minutes spent against the month's allowance.
+  String quotaVoiceUsed(Object? used, Object? limit) =>
+      _lfQuotaVoiceUsed(used, limit);
+
+  /// Right half: context tokens, in millions, against the month's allowance.
+  String quotaContextUsed(Object? used, Object? limit) =>
+      _lfQuotaContextUsed(used, limit);
 
   /// Shown when a stored JWT expires — the fail-loud re-login prompt.
   String get reloginRequired => _lfReloginRequired;

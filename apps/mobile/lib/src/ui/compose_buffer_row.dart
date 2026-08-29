@@ -17,7 +17,10 @@
 //     placeholder) + the plain form;
 //   · [_plainBufferRow]: direct, or manual with the buffer still empty;
 //   · [ComposeBufferPreview]: since T-2, **the cell row 2 draws when idle**
-//     (not an input field);
+//     (not an input field). ⚠️ NR-4 (e), 2026-08-27: it grew a two-line clamp
+//     and an origin glyph, went past this library's 800-line cap with them, and
+//     now lives in the sibling part `compose_preview_strip.dart`. Same class,
+//     same keys, same reasoning block — moved, not rewritten;
 //   · [ComposeBufferField] / [SendPolicyChip] / [ComposeModeSwitchHint]:
 //     the plain row and the floating card **share the exact same**
 //     components (one component, one key, one author) — these three are
@@ -77,158 +80,11 @@ extension _ComposeBufferRow on _ComposeBandState {
     strings: widget.strings,
     enabled: widget.enabled,
     buffer: widget.buffer,
+    origin: widget.origin,
     onTap: widget.onExpand,
   );
 }
 
-// ── SHARED COMPONENTS (plain row + floating card, one implementation) ───────
-
-/// 🔴 T-2 (0.2.63, owner Q3㋐) — the cell row 2 shows when idle, key
-/// `compose.preview`.
-///
-/// ── WHY THIS IS A StatelessWidget AND NOT A "READ-ONLY TextField" ─────────
-/// owner's own words judged row 2's fake box as "not particularly
-/// meaningful", and its **concrete harm** is that it is tappable: a
-/// `readOnly: true` TextField still grabs focus, still pops the system
-/// keyboard, and is still an `EditableText` in the tree. Design doc §9 ④
-/// therefore writes the criterion as a **TYPE**, not an appearance — "the
-/// preview strip is **NOT** a TextField (it CANNOT grab focus or pop the
-/// keyboard)". This cell being unable to do that thing **is structural**, not
-/// something switched off by a boolean.
-///
-/// ⚠️ This does NOT conflict with D4 — it is actually the same rule: D4
-/// guards against **automatically** popping the keyboard; this cell cannot
-/// pop it even **manually** — the keyboard only comes up through T-3's
-/// expanded face (which the user taps by hand).
-///
-/// ── THREE FACES (design doc §3's S1/S2/S3 and S8) ──────────────────────
-///   · buffer empty (S1/S3): one line of small entry-point text
-///     [AppStrings.composeEntryStrip], t3;
-///   · buffer non-empty (S2): a single-line preview (ellipsis) + word count,
-///     body text color;
-///   · `!enabled` (S8): a grey strip + the existing sentence
-///     [AppStrings.composeDisabled], and it is **inert** — **it doesn't even
-///     build an InkWell**. This is deliberately NOT "an InkWell with
-///     onTap: null": the latter is still a control that swallows a tap,
-///     while S8's contract is that this cell accepts nothing at all.
-///
-/// 🔴 The word count goes through **the one and only copy in this repo**,
-/// `textWordCount` + [AppStrings
-/// .entryWordCountLabel] (`entry_metrics.dart`'s file header states, verbatim,
-/// "Do not add a second `.length` … anywhere else in the app"). Writing
-/// `buffer.length` would let "how many words is this" have one answer on the
-/// live draft row and another on this cell, and the two answers would
-/// diverge the moment Chinese and English text are mixed — a literal replay
-/// of this repo's #1 bug shape.
-class ComposeBufferPreview extends StatelessWidget {
-  const ComposeBufferPreview({
-    super.key,
-    required this.strings,
-    required this.enabled,
-    required this.buffer,
-    required this.onTap,
-  });
-
-  final AppStrings strings;
-
-  /// ChatController.canCompose. false ⇒ S8: grey, can say why, accepts nothing.
-  final bool enabled;
-
-  /// The authoritative buffer text (ChatController.buffer).
-  final String buffer;
-
-  /// T-3: opens the expanded face. **No friendly default** (anti-façade
-  /// rule ②) — an entry-point strip that does nothing when tapped is exactly
-  /// the kind of thing this card exists to eliminate.
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final String text = buffer.trim();
-    final bool has = text.isNotEmpty;
-    final Widget strip = Container(
-      key: const ValueKey<String>('compose.preview'),
-      // 🔴 WP8 VF-2 — the mock's `.hint{height:44px;border:1px solid var(--line);
-      // border-radius:13px;padding:0 14px;color:var(--sub);font-size:13px}`.
-      // ⚠️ 38 → 44 REOPENS the 320/360dp width account the T-2 comment here
-      // warned about, and it was re-measured rather than assumed: the strip is
-      // the row's only flexible child ("row width − 44 − 8"), so the extra 6dp is
-      // pure HEIGHT — the width account is untouched by it. The horizontal
-      // padding did move (4 → 14), and that IS width; it is bought back by the
-      // trailing chevron leaving (see below), which was 4 + 15.
-      constraints: const BoxConstraints(minHeight: kComposeTouchTarget),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        border: Border.all(color: FlowMicDockColors.line),
-        borderRadius: BorderRadius.circular(13),
-      ),
-      alignment: Alignment.centerLeft,
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              !enabled
-                  ? strings.composeDisabled
-                  : has
-                  ? text
-                  : strings.composeEntryStrip,
-              key: const ValueKey<String>('compose.preview.text'),
-              // Single line + ellipsis is the definition of a **preview**. The
-              // 0.2.53 rule still applies, just to a different surface: "can
-              // the entry-point sentence be read in full" is judged on the
-              // RENDERED result (see compose_preview_strip_test.dart's
-              // four-language measurement assertions); while a long draft
-              // being truncated to one line **is this card's spec**, not a
-              // defect — the path to reading the full text is tapping it open.
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                // The mock gives the strip ONE type size (13px) and colours the
-                // draft apart from the placeholder rather than sizing it apart.
-                color: enabled && has
-                    ? FlowMicDockColors.ink
-                    : FlowMicDockColors.sub,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          if (enabled && has) ...<Widget>[
-            const SizedBox(width: 6),
-            Text(
-              strings.entryWordCountLabel(textWordCount(buffer)),
-              key: const ValueKey<String>('compose.preview.count'),
-              maxLines: 1,
-              style: TextStyle(color: FlowMicDockColors.sub, fontSize: 10.5),
-            ),
-          ],
-          // 🔴 THE TRAILING `keyboard_arrow_up` IS GONE (mock `.hint` is a bare
-          // bordered field — every A-frame draws it with text only). The
-          // affordance it carried did not evaporate: the strip's whole surface
-          // is the tap target, the Semantics label below still SAYS what the
-          // tap does, and the Tooltip still names it on long-press. What the
-          // chevron bought was a second, silent copy of that promise; what it
-          // cost was 19dp of the narrowest row on the narrowest screen.
-        ],
-      ),
-    );
-    // S8: inert — no InkWell wrapper, so it doesn't even swallow one tap.
-    if (!enabled) return strip;
-    return Tooltip(
-      message: strings.composeExpandHint,
-      child: Semantics(
-        label: '${has ? text : strings.composeEntryStrip} · '
-            '${strings.composeExpandHint}',
-        button: true,
-        child: InkWell(
-          key: const ValueKey<String>('compose.preview.tap'),
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(13),
-          child: strip,
-        ),
-      ),
-    );
-  }
-}
 
 /// The editable buffer box (key `compose.field`). ONE widget for its two homes
 /// (floating edit card / T-3 expanded face) so 「16px / D4 no-autofocus / hint
@@ -707,6 +563,18 @@ class _SendPolicyFlashChipState extends State<SendPolicyFlashChip> {
 /// (`discardBufferedRowsRouted`), so what this says is "this box will be
 /// cleared", NOT "what you said is gone" — the latter would be false, and
 /// writing it that way would make users afraid to switch modes.
+///
+/// 🔴 NR-4-P1 (f) — that ⚠️ was HALF true when it was written, and the copy
+/// has changed because the mechanism did. `discardBufferedRowsRouted` only
+/// ever kept rows that already existed, i.e. SPOKEN text nobody had edited;
+/// a TYPED draft (no rows at all) and an edited / AI-transformed draft (rows
+/// that hold the older wording) were destroyed by this tap with nothing said.
+/// `foldDraftToNotedOnModeSwitch` (chat_mode_chip.dart) now mints a
+/// record-only row for exactly the part the old mechanism could not carry, so
+/// the sentence on screen can name where the words go instead of only naming
+/// what disappears. **The hint is still a protection, not a receipt**: it must
+/// stay readable BEFORE the tap, which is why it is a persistent strip and why
+/// its assertion is on `didExceedMaxLines`, not on `Text.data` (0.2.53).
 class ComposeModeSwitchHint extends StatelessWidget {
   const ComposeModeSwitchHint({super.key, required this.strings});
 

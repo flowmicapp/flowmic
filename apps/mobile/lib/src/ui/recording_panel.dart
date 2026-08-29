@@ -100,11 +100,9 @@ class RecordingPanel extends StatelessWidget {
 
   /// Plan A′ §5-1 geometry: 12 bars, 3px wide, 2px radius, 3px gap, 24px lane,
   /// 4dp floor.
-  static const int kBars = 12;
-  static const double _barW = 3;
-  static const double _barGap = 3;
-  static const double _waveH = 24;
-  static const double _barMinH = 4;
+  static const int kBars = RecordingAmplitudeBars.kBars;
+  static const double _barW = RecordingAmplitudeBars.barW;
+  static const double _barGap = RecordingAmplitudeBars.barGap;
 
   /// The meter's own content floor: 12 bars + 11 gaps = 69dp. Derived, not a
   /// second literal — retuning the bar geometry above retunes this with it.
@@ -122,8 +120,6 @@ class RecordingPanel extends StatelessWidget {
   /// dBFS floor under which the meter reads as silence (F-7 「silence turns grey」).
   static const double kSilenceFloorDb = -55;
 
-  /// dBFS window mapped onto the bar height.
-  static const double _dbFloor = -60;
 
   /// §6.3 5-min hard cap: the timer turns amber on the approach so the
   /// auto-stop is not a surprise. The cap itself is enforced server-side.
@@ -141,9 +137,6 @@ class RecordingPanel extends StatelessWidget {
     final String ss = (total % 60).toString().padLeft(2, '0');
     return '${total ~/ 60}:$ss';
   }
-
-  static double _level(double db) =>
-      ((db - _dbFloor) / (0 - _dbFloor)).clamp(0.0, 1.0);
 
   @override
   Widget build(BuildContext context) {
@@ -288,43 +281,10 @@ class RecordingPanel extends StatelessWidget {
 
   // ── 📊 amplitude ────────────────────────────────────────────────────────
   Widget _wave() {
-    // The newest sample sits at the RIGHT-most bar; missing history pads the
-    // left with floor bars (no data ⇒ no motion).
-    final List<double?> slots = List<double?>.filled(kBars, null);
-    final int take =
-        amplitudeWindow.length < kBars ? amplitudeWindow.length : kBars;
-    for (int i = 0; i < take; i++) {
-      slots[kBars - take + i] = amplitudeWindow[amplitudeWindow.length - take + i];
-    }
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        SizedBox(
-          height: _waveH,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              for (int i = 0; i < kBars; i++) ...<Widget>[
-                if (i > 0) const SizedBox(width: _barGap),
-                Container(
-                  width: _barW,
-                  height: slots[i] == null
-                      ? _barMinH
-                      : _barMinH + (_waveH - _barMinH) * _level(slots[i]!),
-                  decoration: BoxDecoration(
-                    // WP8 VF-5: bars are ALWAYS the recording red — silence
-                    // and no-data drop to the 4dp FLOOR HEIGHT (computed
-                    // above, unchanged) but never recolour. See this file's
-                    // header SPEC-REF for why the earlier grey face (F-7)
-                    // died and the mock-vs-contract-prose discrepancy on it.
-                    color: FlowMicDockColors.rec,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
+        RecordingAmplitudeBars(amplitudeWindow: amplitudeWindow),
         if (_silent) ...<Widget>[
           const SizedBox(width: 8),
           Flexible(
@@ -385,6 +345,83 @@ class RecordingPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(99),
       ),
       child: child,
+    );
+  }
+}
+
+/// The live amplitude meter, as its own widget.
+///
+/// ── 🔴 WHY IT IS PUBLIC AND WHY IT IS HERE (CR-9) ───────────────────────────
+///
+/// The continuous-recording bar needs the same meter, and §5-3 forbids a
+/// fabricated one in as many words (「真幅度波形（不许伪造）」). Two copies of the
+/// geometry would be two authors for one visual language, which is what the
+/// design-token lint exists to notice and what a retune would break silently —
+/// so the meter moved OUT of [RecordingPanel] rather than being reproduced.
+///
+/// It stays in this file because this is where the contract for it is written:
+/// the SPEC-REF at the top, the recorded mock-vs-prose discrepancy about grey,
+/// and the ruling that height is the only honesty signal. A new file would have
+/// carried the code away from its argument.
+///
+/// ⚠️ NOTHING IS CLAIMED WITHOUT A SAMPLE. An empty window pads every slot with
+/// a floor bar and holds still: no data ⇒ no motion, never a decorative
+/// animation that implies a microphone is hearing something.
+class RecordingAmplitudeBars extends StatelessWidget {
+  const RecordingAmplitudeBars({super.key, required this.amplitudeWindow});
+
+  /// Real dBFS samples, oldest → newest. Longer than [kBars] is fine — the
+  /// newest [kBars] are drawn.
+  final List<double> amplitudeWindow;
+
+  /// Plan A′ §5-1 geometry: 12 bars, 3px wide, 2px radius, 3px gap, 24px lane,
+  /// 4dp floor.
+  static const int kBars = 12;
+  static const double barW = 3;
+  static const double barGap = 3;
+  static const double waveH = 24;
+  static const double barMinH = 4;
+
+  /// dBFS window mapped onto the bar height.
+  static const double dbFloor = -60;
+
+  static double level(double db) =>
+      ((db - dbFloor) / (0 - dbFloor)).clamp(0.0, 1.0);
+
+  @override
+  Widget build(BuildContext context) {
+    // The newest sample sits at the RIGHT-most bar; missing history pads the
+    // left with floor bars (no data ⇒ no motion).
+    final List<double?> slots = List<double?>.filled(kBars, null);
+    final int take =
+        amplitudeWindow.length < kBars ? amplitudeWindow.length : kBars;
+    for (int i = 0; i < take; i++) {
+      slots[kBars - take + i] = amplitudeWindow[amplitudeWindow.length - take + i];
+    }
+    return SizedBox(
+      height: waveH,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          for (int i = 0; i < kBars; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: barGap),
+            Container(
+              width: barW,
+              height: slots[i] == null
+                  ? barMinH
+                  : barMinH + (waveH - barMinH) * level(slots[i]!),
+              decoration: BoxDecoration(
+                // WP8 VF-5: bars are ALWAYS the recording red — silence and
+                // no-data drop to the 4dp FLOOR HEIGHT but never recolour. See
+                // this file's header SPEC-REF for why the earlier grey face
+                // (F-7) died and the mock-vs-contract-prose discrepancy on it.
+                color: FlowMicDockColors.rec,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

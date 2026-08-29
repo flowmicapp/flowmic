@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/cloud_summary_fakes.dart';
 import 'support/fakes.dart';
 import 'support/di.dart';
 import 'support/portable_fakes.dart';
@@ -76,6 +77,7 @@ class _Rig {
           timeline: newTestStore(),
           version: const FixedAppVersion('0.0.0-test'),
           update: newTestUpdateController(),
+          cloudSummary: newTestCloudSummary(login: login),
         ),
       );
 

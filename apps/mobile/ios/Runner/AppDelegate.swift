@@ -24,5 +24,13 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FlowMicDeviceInfo") {
       DeviceInfo.register(messenger: registrar.messenger())
     }
+    // Card CR-2 — the screen-wake channel (`ScreenWake.swift`), registered the
+    // same way and for the same reason: this target uses a SceneDelegate, so
+    // there is no root view controller to reach for at this point. Its Android
+    // twin needs the Activity for a window flag; here the API is on
+    // UIApplication, so a messenger is all it takes.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FlowMicScreenWake") {
+      ScreenWake.register(messenger: registrar.messenger())
+    }
   }
 }

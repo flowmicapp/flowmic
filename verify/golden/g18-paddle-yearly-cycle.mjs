@@ -67,9 +67,11 @@ import { paddleSignature, subscriptionFrame, diff } from './g17-paddle-billing-c
 const FREE_STT_MIN = 20;
 const FREE_LLM = 1_000_000;
 const PRO_STT_MIN = 900;
-const PRO_LLM = 20_000_000;
+// 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+const PRO_LLM = 5_000_000;
 const MAX_STT_MIN = 3_000;
-const MAX_LLM = 100_000_000;
+// 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+const MAX_LLM = 15_000_000;
 
 /** A throwaway notification-destination secret — never a real one. Different
  *  from G17's on purpose: two paths sharing one secret would let a bug that
@@ -143,7 +145,13 @@ export const G18 = {
       };
       /** ONE POST per account — /api/register and /api/login share a 5-per-10-min
        *  per-IP window, and the 201 already carries both the Bearer and the user
-       *  id that goes into custom_data (G17's note explains this in full). */
+       *  id that goes into custom_data (G17's note explains this in full).
+       *
+       *  🔴 2026-08-27 — and a SECOND budget now governs it too: the per-IP
+       *  DAILY ACCOUNT CAP (owner-ruled 2). Fewer POSTs does not help there —
+       *  it counts MINTS — and this case mints three against its first server.
+       *  Answered once in the harness via `FLOWMIC_REGISTER_DAILY_CAP`; G17's
+       *  note carries the whole argument. */
       const signup = async (url, email) => {
         const res = await fetch(`${url}/api/register`, {
           method: 'POST',

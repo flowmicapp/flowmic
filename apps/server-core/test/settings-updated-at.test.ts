@@ -1,3 +1,4 @@
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerSettingsHandlers, SETTINGS_STAMP_MAX_SKEW_MS } from '../src/socket/handlers/settings.handler';
@@ -75,7 +76,7 @@ function harness(kind: AuthContext['kind'] = 'pc') {
     on(event: string, fn: (p: unknown, ack: unknown) => void) { handlers.set(event, fn); return this; },
     emit: (event: string, payload: unknown) => { emittedToOrigin.push({ event, payload }); },
   };
-  registerSettingsHandlers(origin as unknown as Socket, { io, repo: db.settings });
+  registerSettingsHandlers(origin as unknown as Socket, { writerOnly: NODE_CAN_WRITE, io, repo: db.settings });
 
   const update = (payload: unknown): Promise<Record<string, unknown>> =>
     new Promise((resolve) => { handlers.get('settings:update')!(payload, resolve as unknown); });

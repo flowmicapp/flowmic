@@ -257,6 +257,101 @@ export function builtinEngineSelected(routings: readonly { engine_id: string }[]
   return routings.some((r) => r.engine_id === BUILTIN_STT_ENGINE_ID);
 }
 
+// ── per-language readiness, for the ROUTING TABLE (owner 2026-08-27 §2-3) ────
+
+/** `'zh-CN'` → `'zh'`. Same region-strip as the server's `baseLang()` and the
+ *  router's `toShortLang()`; three spellings of one rule is already one too
+ *  many, and this side cannot import either of the other two (they are Node
+ *  modules in another workspace). Kept to one line and pinned by the tests that
+ *  drive the routing rows so it cannot quietly disagree with them. */
+export function baseSpokenLang(tag: string): string {
+  const raw = tag.trim().toLowerCase();
+  const dash = raw.indexOf('-');
+  return dash === -1 ? raw : raw.slice(0, dash);
+}
+
+/** Rows a language may not be served by, this phase: the streaming packs the
+ *  product lists honestly and refuses to load (`isLoadableThisPhase` on the
+ *  server). Mirrored, and mirrored is the right word — if it drifts, this side
+ *  will promise a model the engine will not open. */
+function loadableThisPhase(e: CatalogEntry): boolean {
+  return e.loader !== 'streaming-transducer' && e.streaming !== 'streaming';
+}
+
+/**
+ * The one pack to OFFER for `lang` — the head of [catalogRowsFor] once the rows
+ * this phase refuses to load are removed, or `null` when the catalog has none.
+ *
+ * 🔴 `null` IS A REAL ANSWER AND ITS CALLER MUST RENDER NOTHING. A language with
+ * no loadable row is a card carrying a button that cannot do anything, which is
+ * worse than no card. French, by contrast, HAS an answer and it is honestly the
+ * multilingual pack — the catalog has no dedicated fr row and this function does
+ * not invent one (owner ruling 2026-08-28: 「按目录真实答案给」).
+ *
+ * ⚠️ The refusal filter is the same mirror of the server's `isLoadableThisPhase`
+ * that [readyPackForLang] uses, and it carries the same liability: offering a
+ * streaming pack would download files the engine then declines to open.
+ */
+export function recommendedPackForLang(
+  status: ModelsStatus | null,
+  lang: string,
+): CatalogEntry | null {
+  return catalogRowsFor(status, baseSpokenLang(lang)).filter(loadableThisPhase)[0] ?? null;
+}
+
+/**
+ * WHICH pack would actually open if this language were spoken right now, or
+ * `null` for "none would".
+ *
+ * 🔴 THIS IS A MIRROR OF `stt/sherpa/model-resolve.ts` AND THAT IS A LIABILITY
+ * WORTH NAMING. The server owns the real answer; the desktop cannot ask it per
+ * language, because the status endpoint reports FACTS (catalog / snapshots /
+ * selection) rather than verdicts. So the §6 ladder is reproduced here —
+ * selected row first if ready, then any ready row by tier — and the
+ * reproduction is the risk: a change to the server's preference order not made
+ * here turns this sentence into a confident wrong one. It is mirrored rather
+ * than invented for the same reason `MODEL_STATES` is — the alternative is a
+ * second opinion, and a second opinion on screen beside the first is how a user
+ * learns to distrust both.
+ *
+ * ⚠️ `ready` still only certifies THE FILES (§3's closing warning). This
+ * answers 「is there a pack to open」, never 「the engine will load」 — two
+ * questions, and the copy beside it may not fold them.
+ *
+ * ⚠️ Returns `null` when `status` is null, and the caller must render NOTHING
+ * for that: 「我们问不到」 and 「没有模型」 are the two faces this whole module
+ * refuses to merge.
+ */
+export function readyPackForLang(status: ModelsStatus | null, language: string): CatalogEntry | null {
+  if (status === null) return null;
+  const raw = language.trim().toLowerCase();
+  const isReady = (e: CatalogEntry): boolean => snapshotForModel(status, e.model_id)?.state === 'ready';
+
+  if (raw === '' || raw === '*' || raw === 'auto') {
+    // No language named ⇒ any loadable pack may serve, the selected ones first
+    // and catalog order after — the server's wildcard arm, verbatim.
+    const selected = [...new Set(Object.values(status.selected_by_lang))];
+    return (
+      [
+        ...selected
+          .map((id) => status.catalog.find((c) => c.model_id === id))
+          .filter((c): c is CatalogEntry => c !== undefined),
+        ...status.catalog.filter((c) => !selected.includes(c.model_id)),
+      ]
+        .filter(loadableThisPhase)
+        .find(isReady) ?? null
+    );
+  }
+
+  const base = baseSpokenLang(language);
+  const rows = catalogRowsFor(status, base).filter(loadableThisPhase);
+  const selectedId = status.selected_by_lang[base];
+  const ordered = selectedId
+    ? [...rows.filter((r) => r.model_id === selectedId), ...rows.filter((r) => r.model_id !== selectedId)]
+    : rows;
+  return ordered.find(isReady) ?? null;
+}
+
 /**
  * §5-B — may the main window put a notice in front of the reader at all?
  *

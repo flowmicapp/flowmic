@@ -25,6 +25,7 @@
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1; docs/rebuild/05-DATA-MODEL.md §7;
 //           docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08 / GA-18
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerPcHandlers } from '../src/socket/handlers/pc.handler';
@@ -88,7 +89,7 @@ let suppression: ReleaseSuppression;
 let clock = 1_700_000_000_000;
 
 function wirePc(socket: FakeSocket): FakeSocket {
-  registerPcHandlers(socket as unknown as Socket, {
+  registerPcHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,
@@ -99,7 +100,7 @@ function wirePc(socket: FakeSocket): FakeSocket {
 }
 
 function wireMobile(socket: FakeSocket): FakeSocket {
-  registerMobileHandlers(socket as unknown as Socket, {
+  registerMobileHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

@@ -112,6 +112,15 @@ const ALLOWLIST = [
   'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFF5B54E8)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFF7C74F2)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Colors.white',
+  // NR-6 (2026-08-27) — the onboarding QR code's plate and modules. THE SAME
+  // FAMILY as the desktop pairing modal's `#fff` five lines above, and it is a
+  // family rather than an exception: a QR code is a machine-readable target,
+  // not a surface. Scanners expect dark modules on a light plate, so re-tinting
+  // it per theme would produce a code that renders beautifully in dark mode and
+  // cannot be read. There is no token for 「the colour a camera needs」 and
+  // inventing one would be worse — it would look reusable.
+  'apps/mobile/lib/src/ui/onboarding/onboarding_download_block.dart|Color(0xFFFFFFFF)',
+  'apps/mobile/lib/src/ui/onboarding/onboarding_download_block.dart|Color(0xFF000000)',
   'apps/mobile/lib/src/ui/plus_panel.dart|Color(0x66818CF8)',
   'apps/mobile/lib/src/ui/plus_panel.dart|Color(0x66818CF8)',
   // ptt_bar.dart's four entries (Colors.black in _glow, 3× white face/pulse

@@ -113,13 +113,31 @@ const TRANSLATION_BLOAT_BASELINE = new Map([
   // DevicesPage.vue's entry was DELETED 2026-08-26: the presence key moved to
   // lib/per-channel-presence.ts and the SFC came back under the real 800 cap.
   // The debt is paid, not waived — this lint asked for the deletion itself.
-  ['apps/mobile/lib/src/ptt/ptt_session.dart', 833],
+  // ptt_session.dart's entry was DELETED 2026-08-28 (owner's swipe-up-cancel
+  // report): the three PTT edges — down opens the server-side utterance, up
+  // closes it, cancel abandons it — moved VERBATIM to ptt_edges.dart and the
+  // file came back to 772, under the real 800 cap. Repaid in the shape this list
+  // asks for, not waived. The trigger is worth recording: the fix for that bug
+  // turns on an ORDER (latch before emit), an order nobody writes down is an
+  // order the next reader tidies away, and there was no room left in the file to
+  // write it. Debt is not only a number — it is the sentence you cannot add.
   ['apps/mobile/lib/src/session/image_send_controller.dart', 803],
   ['apps/mobile/lib/src/session/manual_delivery.dart', 842],
-  ['apps/mobile/lib/src/timeline/timeline_store.dart', 829],
+  // timeline_store.dart's entry was DELETED 2026-08-27 (card NR-3): the delete
+  // family — one row / a multi-select batch / a range clear, i.e. every trigger
+  // of the one deleter — moved VERBATIM to timeline_store_batch_delete.dart and
+  // the file came back to 762, under the real 800 cap. Repaid in the shape this
+  // list asks for, not waived.
+  // orchestrator-core.ts's entry was DELETED 2026-08-29 (card CR-Q), and repaid
+  // the same way: two coherent families moved out whole — `quota-recheck.ts`
+  // (what a failed budget re-read MEANS, which is a product decision the engine
+  // driver had no business holding) and `replay-debt.ts` (the predicate the RT-3
+  // retention pin is armed from) — bringing the file to 800, under the real cap.
+  // 🔴 The card that paid this off is also the one that would have grown it: the
+  // file sat EXACTLY on its pinned 801, so the gate refused an eight-line
+  // addition and the split happened because of that refusal, not despite it.
   ['apps/mobile/lib/src/ui/chat_message_tile.dart', 835],
   ['apps/mobile/lib/src/ui/status_badge.dart', 907],
-  ['apps/server-core/src/stt/orchestrator-core.ts', 801],
 ]);
 
 function isTestFile(relPath) {

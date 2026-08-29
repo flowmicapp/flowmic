@@ -57,8 +57,29 @@ export const SIDECAR_BUILD_COMMAND = 'pnpm --filter @flowmic/desktop build:sidec
 
 /** Base config + the per-platform overlays Tauri merges on top of it. Tauri
  *  REPLACES arrays rather than concatenating them, so an overlay that declares
- *  `bundle.resources` wins outright — which is why macOS is a different list
- *  (`resources/node`, no `node_modules`) and not the Windows list plus extras. */
+ *  `bundle.resources` wins outright — the overlay is a WHOLE LIST, never the
+ *  base list plus extras.
+ *
+ *  🔴 THAT REPLACEMENT COST US THE MAC ENGINE FOR FIVE RELEASES, and the
+ *  sentence that used to be on this line is how it stayed invisible. It read
+ *  「which is why macOS is a different list (`resources/node`, no
+ *  `node_modules`)」 — stating the divergence as if it were a decision. It was
+ *  not: `resources/node_modules` was added to the WINDOWS list on 2026-08-13
+ *  (ENG-1b) and simply never added to the overlay frozen on 08-12, so no mac
+ *  .app ever carried the sherpa native addon (0.3.5 / 0.3.7 / 0.3.8 artefacts
+ *  measured: zero `.node` files) and every LAN transcription on a Mac died on
+ *  `Cannot find module 'sherpa-onnx-node'` while the model sat downloaded and
+ *  verified on disk. Owner ruling 2026-08-27
+ *  (docs/decisions/2026-08-27-owner-mac-local-stt-and-language-selector.md ①).
+ *  The two lists agree again as of that ruling; this note stays because the
+ *  hazard — an overlay silently omitting what the base gained — did not go
+ *  away, only this instance of it did. A NEW entry in `tauri.conf.json`'s
+ *  `bundle.resources` must be added to every overlay here in the same commit.
+ *
+ *  ⚠️ And note what this preflight can and cannot see: it derives the list from
+ *  the configs, so it reports on the list Tauri will validate. It says nothing
+ *  about whether the two lists SHOULD match — a divergence that is deliberate
+ *  and a divergence that is an oversight are the same green line here. */
 const PLATFORM_CONF = {
   darwin: 'tauri.macos.conf.json',
 };

@@ -28,10 +28,71 @@ use serde_json::Value;
 
 use crate::events;
 use crate::socket::client::DesktopSocket;
-use crate::socket::pairing::ShortCodeState;
+use crate::socket::pairing::{is_account_auth_failure, ShortCodeState};
 use crate::socket::wire;
 
+/// 🔴 A SECOND, WIDER QUESTION THAN `pairing::is_account_auth_failure` — and
+/// deliberately NOT folded into it.
+///
+/// That predicate answers 「should the Cloud Key be dropped」, and its two codes
+/// are frozen (pairing_tests `account_auth_failures_are_exactly_the_two_frozen_
+/// codes`). This one answers 「is this refusal a verdict about the ACCOUNT, or
+/// about the one verb that asked」.
+///
+/// `ACCOUNT_RESTRICTED` is in this set and must never join that one: a restricted
+/// account's key is perfectly valid, so clearing it would send the user to sign
+/// in again — an action that succeeds and changes nothing, the dead-end button
+/// this repo has ruled against twice.
+///
+/// (It lives here rather than beside its sibling because pairing.rs is at the
+/// 800-line cap. Its only caller is [`DesktopSocket::note_account_refusal`]
+/// below.)
+pub fn is_account_validity_refusal(code: &str) -> bool {
+    is_account_auth_failure(code) || code == "ACCOUNT_RESTRICTED"
+}
+
 impl DesktopSocket {
+    /// 🔴 THE ONE PLACE A DEVICE-PAGE VERB HANDS AN ACCOUNT VERDICT TO THE SCREEN.
+    ///
+    /// Owner ruling 2026-08-27 §R1 追加
+    /// (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md):
+    /// 「signed in locally」 and 「the service is available right now」 are two
+    /// questions, and every refusal the relay sends must reach the screen. Since
+    /// the credential stopped expiring on a clock, the relay's per-call verdict is
+    /// the ONLY thing that can still tell a user their account stopped being served
+    /// — so throwing it away is no longer merely untidy.
+    ///
+    /// WHAT WAS WRONG. Each verb below reduced its ack to `bool`/`Option` inside
+    /// the socket callback. A relay answering `AUTH_TOKEN_INVALID` (which is also
+    /// how a DELETED account arrives) came out as plain `false`, and the device
+    /// page said 「the operation did not take effect (not connected or refused by
+    /// the server) — please retry」 / 「… cannot be reached right now」: a network
+    /// sentence for an auth verdict, a retry that can never work, and the Cloud Key
+    /// left in place so the app went on looking signed in and fine. Meanwhile
+    /// `pc:register` / `pc:reconnect` had carried exactly this verdict to exactly
+    /// this surface since 0.2.x — the machinery existed, these five verbs simply
+    /// never called it.
+    ///
+    /// WHAT THIS DOES NOT DO. It does not touch what the VERB reports. 「the rename
+    /// did not take effect」 is still true and still shown; the account verdict is a
+    /// SECOND fact with a second home (the red line on the cloud card), and folding
+    /// them into one string is the shape this repo keeps paying for.
+    ///
+    /// Only [`is_account_validity_refusal`] codes are routed. A `PAIR_RATE_LIMITED`
+    /// or a registry error is the verb's own business; painting it as an identity
+    /// refusal would be the same defect pointing the other way.
+    ///
+    /// ⚠️ On the LAN channel this is a no-op beyond forensic: `auth_failure` is
+    /// installed for the cloud channel only (pairing.rs `AuthFailureHook`), and a
+    /// standalone sidecar has no accounts to refuse.
+    fn note_account_refusal(&self, ctx: &str, code: Option<&str>) {
+        if let Some(code) = code {
+            if is_account_validity_refusal(code) {
+                self.pairing.report_refusal(ctx, code);
+            }
+        }
+    }
+
     /// GA-18: milliseconds until the cached pairing code expires, or `None` when
     /// there is no code / the server sent no TTL. Lives beside the refresh verb
     /// that fills it (client.rs is at the file-size cap and this serves the same
@@ -64,26 +125,31 @@ impl DesktopSocket {
     /// its table only after a genuine `{ok:true}`, so a failed action is never painted
     /// as a successful one.
     pub fn release_mobile(&self, mobile_id: &str, revoke: bool, timeout: Duration) -> bool {
-        let (tx, rx) = mpsc::channel::<bool>();
+        let (tx, rx) = mpsc::channel::<(bool, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::PC_RELEASE_MOBILE,
             wire::build_pc_release_mobile(mobile_id, revoke),
             timeout,
             move |ack, _s| {
-                let ok = if let Payload::Text(vals) = ack {
-                    wire::unwrap_ack(&vals)
+                let out = if let Payload::Text(vals) = ack {
+                    let ok = wire::unwrap_ack(&vals)
                         .map(|o| wire::parse_release_mobile_ack(o, revoke))
-                        .unwrap_or(false)
+                        .unwrap_or(false);
+                    (ok, wire::ack_error_code(&vals))
                 } else {
-                    false
+                    (false, None)
                 };
-                let _ = tx.send(ok);
+                let _ = tx.send(out);
             },
         );
         if emit.is_err() {
             return false;
         }
-        rx.recv_timeout(timeout + Duration::from_millis(500)).unwrap_or(false)
+        let (ok, refusal) = rx
+            .recv_timeout(timeout + Duration::from_millis(500))
+            .unwrap_or((false, None));
+        self.note_account_refusal(events::PC_RELEASE_MOBILE, refusal.as_deref());
+        ok
     }
 
     /// GA-10 — rename THIS PC (04 §3.7 reserved key), awaiting the ack.
@@ -94,28 +160,30 @@ impl DesktopSocket {
     /// would silently restore the old label the first time its token died and it
     /// re-registered — a rename that quietly undoes itself weeks later.
     pub fn rename_pc(&self, name: &str, creds_path: &std::path::Path, timeout: Duration) -> bool {
-        let (tx, rx) = mpsc::channel::<bool>();
+        let (tx, rx) = mpsc::channel::<(bool, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::SETTINGS_UPDATE,
             wire::build_pc_name_update(name),
             timeout,
             move |ack, _s| {
-                let ok = if let Payload::Text(vals) = ack {
-                    wire::unwrap_ack(&vals)
+                let out = if let Payload::Text(vals) = ack {
+                    let ok = wire::unwrap_ack(&vals)
                         .map(|v| v.get("ok").and_then(serde_json::Value::as_bool).unwrap_or(false))
-                        .unwrap_or(false)
+                        .unwrap_or(false);
+                    (ok, wire::ack_error_code(&vals))
                 } else {
-                    false
+                    (false, None)
                 };
-                let _ = tx.send(ok);
+                let _ = tx.send(out);
             },
         );
         if emit.is_err() {
             return false;
         }
-        let ok = rx
+        let (ok, refusal) = rx
             .recv_timeout(timeout + Duration::from_millis(500))
-            .unwrap_or(false);
+            .unwrap_or((false, None));
+        self.note_account_refusal(events::SETTINGS_UPDATE, refusal.as_deref());
         if ok {
             if let Ok(mut c) = self.creds.lock() {
                 c.device_name = name.to_string();
@@ -132,7 +200,7 @@ impl DesktopSocket {
     /// `timeout` for the ack; `None` if the socket is down or the ack times out.
     /// Unlike the fire-and-forget verbs below, this one AWAITS an ack (the code).
     pub fn refresh_pairing_code(&self, timeout: Duration) -> Option<String> {
-        let (tx, rx) = mpsc::channel::<Option<String>>();
+        let (tx, rx) = mpsc::channel::<(Option<String>, Option<String>)>();
         let sc = self.short_code.clone();
         // 🔴 0.2.66 — NO PCID IS READ HERE, and that is a decision rather than an
         // omission. The design (§5.5) listed this ack among the three that carry one;
@@ -148,6 +216,7 @@ impl DesktopSocket {
             wire::build_pc_refresh_code(),
             timeout,
             move |ack, _s| {
+                let refusal = if let Payload::Text(vals) = &ack { wire::ack_error_code(vals) } else { None };
                 let parsed = if let Payload::Text(vals) = ack {
                     wire::unwrap_ack(&vals).and_then(|o| {
                         o.get("short_code")
@@ -166,14 +235,18 @@ impl DesktopSocket {
                         *g = Some(state);
                     }
                 }
-                let _ = tx.send(code);
+                let _ = tx.send((code, refusal));
             },
         );
         if emit.is_err() {
             return None;
         }
         // Give the ack callback a beat beyond its own timeout to land.
-        rx.recv_timeout(timeout + Duration::from_millis(500)).ok().flatten()
+        let (code, refusal) = rx
+            .recv_timeout(timeout + Duration::from_millis(500))
+            .unwrap_or((None, None));
+        self.note_account_refusal(events::PC_REFRESH_CODE, refusal.as_deref());
+        code
     }
 
     /// pc:list-mobiles — the phones PAIRED to this PC (R6 T-8 device page). Like
@@ -183,24 +256,31 @@ impl DesktopSocket {
     /// reach the frontend). `None` on a down socket / ack timeout / error ack —
     /// the page then says so instead of rendering a confident empty table.
     pub fn fetch_paired_mobiles(&self, timeout: Duration) -> Option<Value> {
-        let (tx, rx) = mpsc::channel::<Option<Value>>();
+        let (tx, rx) = mpsc::channel::<(Option<Value>, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::PC_LIST_MOBILES,
             wire::build_pc_list_mobiles(),
             timeout,
             move |ack, _s| {
-                let rows = if let Payload::Text(vals) = ack {
-                    wire::unwrap_ack(&vals).and_then(wire::parse_list_mobiles_ack)
+                let out = if let Payload::Text(vals) = ack {
+                    (
+                        wire::unwrap_ack(&vals).and_then(wire::parse_list_mobiles_ack),
+                        wire::ack_error_code(&vals),
+                    )
                 } else {
-                    None
+                    (None, None)
                 };
-                let _ = tx.send(rows);
+                let _ = tx.send(out);
             },
         );
         if emit.is_err() {
             return None;
         }
-        rx.recv_timeout(timeout + Duration::from_millis(500)).ok().flatten()
+        let (rows, refusal) = rx
+            .recv_timeout(timeout + Duration::from_millis(500))
+            .unwrap_or((None, None));
+        self.note_account_refusal(events::PC_LIST_MOBILES, refusal.as_deref());
+        rows
     }
 
     /// settings:update{key, value, updated_at?} — save instantly on change (07 §8).
@@ -224,24 +304,31 @@ impl DesktopSocket {
     /// display cache. `None` on a down socket / ack timeout / malformed ack — the
     /// frontend then simply keeps its local cache (never a fabricated snapshot).
     pub fn fetch_settings_list(&self, timeout: Duration) -> Option<Value> {
-        let (tx, rx) = mpsc::channel::<Option<Value>>();
+        let (tx, rx) = mpsc::channel::<(Option<Value>, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::SETTINGS_LIST,
             wire::build_settings_list(),
             timeout,
             move |ack, _s| {
-                let items = if let Payload::Text(vals) = ack {
-                    wire::unwrap_ack(&vals).and_then(wire::parse_settings_list_ack)
+                let out = if let Payload::Text(vals) = ack {
+                    (
+                        wire::unwrap_ack(&vals).and_then(wire::parse_settings_list_ack),
+                        wire::ack_error_code(&vals),
+                    )
                 } else {
-                    None
+                    (None, None)
                 };
-                let _ = tx.send(items);
+                let _ = tx.send(out);
             },
         );
         if emit.is_err() {
             return None;
         }
-        rx.recv_timeout(timeout + Duration::from_millis(500)).ok().flatten()
+        let (items, refusal) = rx
+            .recv_timeout(timeout + Duration::from_millis(500))
+            .unwrap_or((None, None));
+        self.note_account_refusal(events::SETTINGS_LIST, refusal.as_deref());
+        items
     }
 
     // 0.2.27: the four TIMELINE verbs (history:list / update / delete / inject) are

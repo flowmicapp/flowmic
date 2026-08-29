@@ -21,6 +21,13 @@ export interface PcRecord {
    *  credential — it answers "which PC", the short code still answers "what is
    *  the secret" (04 §3.1 PCID addressing). */
   pcid: string | null;
+  /** 2026-08-29 multi-node — which relay node this PC is registered on
+   *  (`srvny` / `srvjp`). NULL means 「single-node deployment, or a row that has
+   *  not registered since the column landed」, and BOTH callers must read that
+   *  as 「dial the host you already have」 rather than as an error: a phone that
+   *  treated NULL as 「PC is nowhere」 would break every existing pairing on the
+   *  day multi-node ships. See design §4-2. */
+  home_node: string | null;
   device_token: string;
   room_uuid: string;
   short_code: string;
@@ -79,6 +86,13 @@ export interface PcRepo {
    *  (registry.mintPcid) retries with a fresh draw, and a swallowed collision
    *  would leave a PC unaddressable while looking successful. */
   setPcid(id: string, pcid: string): void;
+  /** 2026-08-29 multi-node — stamp which node this PC just registered on.
+   *  Unconditional, like setMachineUid and unlike claimClientInstance: the PC
+   *  chose the node and is the authority on it, so this must CORRECT a stale
+   *  value and not merely fill a NULL. A PC that moved from srvny to srvjp and
+   *  left the old value behind would send its phone to the wrong node — the one
+   *  failure this column exists to prevent. */
+  setHomeNode(id: string, home_node: string): void;
   /** Stamp the machine uid. Unconditional — unlike `claimClientInstance` this
    *  fills NULLs AND corrects a stale value, because the uid is derived from
    *  the hardware and the client is the authority on it. */
@@ -155,6 +169,7 @@ function toRecord(r: Record<string, unknown>): PcRecord {
     client_instance_id: (r.client_instance_id as string | null) ?? null,
     machine_uid: (r.machine_uid as string | null) ?? null,
     pcid: (r.pcid as string | null) ?? null,
+    home_node: (r.home_node as string | null) ?? null,
     device_token: r.device_token as string,
     room_uuid: r.room_uuid as string,
     short_code: r.short_code as string,
@@ -188,6 +203,7 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
   );
   const byPcid = db.prepare('SELECT * FROM pc_devices WHERE pcid=?');
   const setPcidStmt = db.prepare('UPDATE pc_devices SET pcid=? WHERE id=?');
+  const setHomeNodeStmt = db.prepare('UPDATE pc_devices SET home_node=? WHERE id=?');
   const adoptInstanceStmt = db.prepare('UPDATE OR IGNORE pc_devices SET client_instance_id=? WHERE id=?');
   const setOnlineStmt = db.prepare('UPDATE pc_devices SET is_online=?, last_seen_at=? WHERE id=?');
   const touchSeenStmt = db.prepare('UPDATE pc_devices SET last_seen_at=? WHERE id=?');
@@ -265,6 +281,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     },
     setPcid(id, pcid): void {
       setPcidStmt.run(pcid, id);
+    },
+    setHomeNode(id, home_node): void {
+      setHomeNodeStmt.run(home_node, id);
     },
     setOnline(id, online): void {
       setOnlineStmt.run(online ? 1 : 0, new Date().toISOString(), id);

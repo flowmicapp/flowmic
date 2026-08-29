@@ -17,6 +17,7 @@
 //             this file does not repeat — this file is only the decrypt-failure
 //             branch and its positive controls)
 
+import { RoomStore } from '../src/room/store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -54,6 +55,10 @@ function makeDeps(settingsForRoute: SettingsRepo): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    // 2026-08-28: the console's device surface now takes live room membership.
+    // An EMPTY store is the honest fixture for these suites — none of them has a
+    // socket, so every PC reads absent, which is what "no relay session here" means.
+    store: new RoomStore(),
     // 🔴 THE SEAM: a SettingsRepo built over the SAME raw connection but with a
     // DIFFERENT key than the one the data was written under — this is exactly
     // §1.3's production scenario ("the DB was restored but the env was not"), reproduced without

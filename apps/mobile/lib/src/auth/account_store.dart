@@ -28,7 +28,15 @@ class CloudAccount {
     this.plan = '',
   });
 
-  /// Server-issued HS256 JWT (7-day TTL). The ONLY secret persisted.
+  /// Server-issued HS256 JWT. The ONLY secret persisted.
+  ///
+  /// ⚠️ This used to say「7-day TTL」. Owner ruling 2026-08-27 §R1
+  /// (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md)
+  /// made the server default 100 years:「as long as the local credential is not
+  /// deleted, you stay signed in」. ⇒ DELETING THIS VALUE IS NOW THE ONLY THING
+  /// THAT ENDS THE SESSION ON THIS PHONE — there is no longer a clock that will
+  /// do it for us. Nothing about the storage changes; what changes is that a
+  /// failure to clear it is no longer self-healing within a week.
   final String jwt;
 
   final String email;

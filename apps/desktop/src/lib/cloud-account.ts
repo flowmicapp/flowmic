@@ -34,24 +34,34 @@
 //      couldn't compute it", so both branches skip rendering this line when
 //      there's no limit to get. Meanwhile the sentence "unlimited" has
 //      itself been deleted — the server really is capping it, and the UI
-//      still saying unlimited is exactly the R11 red line (criterion in [usageLine]).
+//      still saying unlimited is exactly the R11 red line (criterion in [quotaGauge]).
 //
 //   🔴 Unknown ≠ error ≠ stale value ≠ currently asking — four states that may not be merged ([AccountPhase]).
 
+import { isRestrictionReason, RESTRICTION_REASONS } from '@flowmic/protocol';
 import { S } from './strings';
+import { getLocale } from './strings/locale';
 import type { CloudStatus } from './channel';
 import { formatExpiry } from './channel';
+import { maskAccountEmail } from './account-mask';
 
 /** What the Rust `cloud_account_fetch` command reports. Mirrors `CloudAccountDto`
- *  in src-tauri/src/shell/cloud.rs — see the long note there for why these are six
- *  values and not a bool. `no_bridge` is the ONE value Rust never produces: it is
+ *  in src-tauri/src/shell/cloud.rs — see the long note there for why these are
+ *  distinct values and not a bool. `no_bridge` is the ONE value Rust never produces: it is
  *  what the frontend records when the command could not be invoked at all (running
- *  outside Tauri), which is a different fact from "the server didn't answer". */
+ *  outside Tauri), which is a different fact from "the server didn't answer".
+ *
+ *  🔴 `restricted` was split out of `unauthorized` by owner ruling 2026-08-27
+ *  §R1 追加. The relay refuses a restricted account with `403 ACCOUNT_RESTRICTED`,
+ *  and folding that into `unauthorized` made this card say "session expired —
+ *  please sign in again": the credential is fine, signing in again succeeds, and
+ *  nothing changes. Two verdicts, two outcomes. */
 export type AccountOutcome =
   | 'ok'
   | 'no_key'
   | 'no_endpoint'
   | 'unauthorized'
+  | 'restricted'
   | 'unreachable'
   | 'bad_response'
   | 'no_bridge';
@@ -94,7 +104,7 @@ export interface LiveAccount {
   /** PlanView.quota_exempt — "what justifies these numbers being these numbers". ⚠️ 2026-08-07: it no
    *  longer means "unlimited" (the server caps an exempt account at the MAX tier);
    *  it means "the quota doesn't come from the `plan` table". It still selects which usage sentence
-   *  we print — see [usageLine]. */
+   *  we print — see [quotaGauge]. */
   quota_exempt: boolean;
   /** PlanView.state. */
   sub_state: SubState;
@@ -109,6 +119,15 @@ export interface LiveAccount {
    *  not decide "whether it's exempt": that is `quota_exempt`'s job, and merging them is
    *  how one value ends up answering two questions. */
   limit_min: number | null;
+  /** QuotaView.llm.used — the ENFORCED token meter (output tokens only). ⚠️ NOT
+   *  `used_in`: the server split those two on 2026-08-14 precisely because one
+   *  number was answering both "how much quota is left" and "how much was
+   *  processed" (billing-service.ts QuotaView). The gauge shows what is charged. */
+  used_tokens: number | null;
+  /** QuotaView.llm.limit. Same single meaning as [limit_min]: `null` can only mean
+   *  "couldn't be read" — see [quotaGauge] for why that is NOT rendered as
+   *  "unlimited". */
+  limit_tokens: number | null;
 }
 
 // ── narrowing helpers ────────────────────────────────────────────────────────
@@ -176,6 +195,12 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
   if (plan === null) return null;
   const user = obj(obj(raw.me)?.user);
   const quota = obj(obj(summary?.quota)?.stt);
+  // owner 2026-08-27 (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md):
+  // the card now draws BOTH meters, so this is the round where `quota.llm` stops
+  // being parsed away. It has been on the wire since the summary route existed —
+  // the desktop simply never read it, which is why the card could only ever answer
+  // half of "how much of my plan have I used".
+  const llm = obj(obj(summary?.quota)?.llm);
   return {
     email: str(user?.email),
     plan: str(plan.plan),
@@ -186,6 +211,8 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
     sub_expires_at: str(plan.expires_at),
     used_min: num(quota?.used_min),
     limit_min: num(quota?.limit_min),
+    used_tokens: num(llm?.used),
+    limit_tokens: num(llm?.limit),
   };
 }
 
@@ -203,8 +230,13 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
  *                   not a dash, and above all not the Cloud Key's own claims.
  *  - `expired`    — the server said 401. LOUD and actionable (sign in again),
  *                   which is why it is not folded into `unknown`.
+ *  - `restricted` — the server said 403 ACCOUNT_RESTRICTED. LOUD and NOT
+ *                   actionable: the key is valid, so there is no button that
+ *                   helps. Kept apart from `expired` for exactly that reason —
+ *                   the two differ in what the user should do, which is the only
+ *                   thing a state is for (owner ruling 2026-08-27 §R1 追加).
  */
-export type AccountPhase = 'signed_out' | 'loading' | 'live' | 'stale' | 'unknown' | 'expired';
+export type AccountPhase = 'signed_out' | 'loading' | 'live' | 'stale' | 'unknown' | 'expired' | 'restricted';
 
 export interface AccountCard {
   phase: AccountPhase;
@@ -217,8 +249,10 @@ export interface AccountCard {
   planBadge: string | null;
   /** ③ "what justifies being this tier" chip — `null` when `source === 'none'` (nothing to say). */
   sourceBadge: string | null;
-  /** ④ "this month's usage" value, already formatted. */
-  usageText: string | null;
+  /** ④ "this month's usage" — the two-ended gauge (owner 2026-08-27). It replaced a
+   *  single `usageText` string that could only speak about minutes; the token meter
+   *  was on the wire the whole time and had nowhere to go. */
+  gauge: QuotaGauge | null;
   /** ⑤ subscription validity period. 🔴 `null` means THE ROW DOES NOT EXIST — free tiers have no
    *  subscription expiry, and rendering "—" would be answering a question that
    *  does not apply. */
@@ -247,18 +281,57 @@ export interface AccountCardInput {
   lastLive: { account: LiveAccount; at: number } | null;
   /** A read is in flight. */
   loading: boolean;
+  /** ms-since-epoch; defaults to `Date.now()`. Injectable so [keyExpiryLine]'s
+   *  「is this date so far out that it is not a date any more」 branch can be
+   *  asserted without waiting a year. */
+  nowMs?: number;
+}
+
+/**
+ * A Cloud Key expiry further out than this is not reported as a DATE.
+ *
+ * 🔴 WHY A THRESHOLD AND NOT `ttl === LONG_LIVED`. This side never sees the
+ * server's TTL constant — it only ever holds one number, the `exp` in the key it
+ * was handed. So the question it can honestly answer is not「which policy minted
+ * this」but「is the answer to *valid until?* still a useful date」. One year is
+ * where those two stop differing in practice: every credential minted under the
+ * old policy is ≤7 days out, and every one minted since owner ruling 2026-08-27
+ * §R1 (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md) is
+ * ~100 years out. Nothing the server can mint lands in between.
+ *
+ * ⚠️ Legacy keys therefore keep TODAY'S rendering, unchanged — a 7-day key
+ * really does lapse on a date, and showing 「long-lived」 for it would be the
+ * same lie in the other direction.
+ */
+export const LONG_LIVED_KEY_THRESHOLD_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The ⑥ Cloud Key row's VALUE.
+ *
+ * Three answers, not two: no key (`null` — the row does not exist), a date, or
+ * the sentence that says the key does not lapse on a date at all. The third is
+ * not decoration: since §R1 the honest answer to 「valid until?」 is 「until you
+ * sign out on this PC」, and printing a date in the year 2126 would be a true
+ * number that answers a question nobody asked.
+ */
+export function keyExpiryLine(expiresAt: number | null, nowMs: number): string | null {
+  if (expiresAt !== null && Number.isFinite(expiresAt) && expiresAt > 0
+      && expiresAt * 1000 - nowMs > LONG_LIVED_KEY_THRESHOLD_MS) {
+    return S.cloud_key_expires_long_lived;
+  }
+  return formatExpiry(expiresAt);
 }
 
 export function deriveAccountCard(input: AccountCardInput): AccountCard {
   const { cloud, raw, lastLive, loading } = input;
-  const keyExpiresText = formatExpiry(cloud.expires_at);
+  const keyExpiresText = keyExpiryLine(cloud.expires_at, input.nowMs ?? Date.now());
   const empty: AccountCard = {
     phase: 'signed_out',
     account: null,
     identityText: null,
     planBadge: null,
     sourceBadge: null,
-    usageText: null,
+    gauge: null,
     subExpiresText: null,
     subStateText: null,
     keyExpiresText: null,
@@ -269,6 +342,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
   if (!cloud.key_set) return empty;
 
   const phase: AccountPhase = ((): AccountPhase => {
+    if (raw !== null && raw.outcome === 'restricted') return 'restricted';
     if (raw !== null && raw.outcome === 'unauthorized') return 'expired';
     if (loading) return 'loading';
     if (raw === null) return lastLive === null ? 'unknown' : 'stale';
@@ -279,7 +353,9 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
   // The values on screen: the fresh answer when there is one, otherwise the last
   // one we had. `expired` and `unknown` deliberately show NOTHING.
   const live = raw !== null && raw.outcome === 'ok' ? parseLiveAccount(raw) : null;
-  const account = phase === 'expired' || phase === 'unknown' ? null : (live ?? lastLive?.account ?? null);
+  const account = phase === 'expired' || phase === 'restricted' || phase === 'unknown'
+    ? null
+    : (live ?? lastLive?.account ?? null);
   const asOf = phase === 'live' ? (raw?.fetched_at ?? null) : (lastLive?.at ?? null);
 
   return {
@@ -288,7 +364,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
     identityText: identityLine(account),
     planBadge: planTierBadge(account),
     sourceBadge: sourceChip(account),
-    usageText: usageLine(account),
+    gauge: quotaGauge(account),
     subExpiresText: subscriptionExpiry(account),
     subStateText: subscriptionState(account),
     keyExpiresText,
@@ -302,8 +378,54 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
     // must fail" (必然失败的按钮)
     // the paired-list rework already ruled against.
     canRetry: phase === 'live' || phase === 'stale' || phase === 'unknown',
-    loud: phase === 'expired' ? S.cloud_err_expired : null,
+    loud: loudLine(phase, raw?.detail ?? null),
   };
+}
+
+/**
+ * The red line. Two phases produce one, and they say opposite things about what
+ * to do next (owner ruling 2026-08-27 §R1 追加).
+ *
+ * 🔴 `restricted` DELIBERATELY CARRIES NO IMPERATIVE. There is nothing on this
+ * screen the user can press: the Cloud Key is valid, so "sign in again" would
+ * succeed and change nothing — the dead-end button the paired-list rework and
+ * `INJECT_PC_MISMATCH` both ruled against. The phone's `ACCOUNT_RESTRICTED` copy
+ * made the same call for the same reason (`pairing_strings.dart`).
+ *
+ * The enumerated `reason` is APPENDED WHEN THE SERVER SENT ONE, never invented:
+ * `RESTRICTION_REASONS` is the single registry both ends read (the phone renders
+ * it too), so the two faces cannot drift into two answers about one person. A
+ * reason key this build does not recognise is kept and labelled rather than
+ * dropped — it is the one artefact the user could quote to us.
+ *
+ * ⚠️ That registry carries zh_CN/en/ja/ko only, while this surface has nine UI
+ * locales. A locale it does not cover falls back to `en`, which is this
+ * pipeline's declared rule for an untranslated leaf (gen-desktop-ts.mjs header),
+ * not a special case invented here. The HEAD sentence is translated in all nine.
+ */
+function loudLine(phase: AccountPhase, detail: string | null): string | null {
+  if (phase === 'expired') return S.cloud_err_expired;
+  if (phase !== 'restricted') return null;
+  const head = S.cloud_err_restricted;
+  if (detail === null || detail === '') return head;
+  const why = restrictionReasonSentence(detail);
+  return why === null ? `${head}（${detail}）` : `${head}\n${why}`;
+}
+
+/** The enumerated sentence for a restriction reason key, or `null` when this
+ *  build does not recognise the key. Reads the protocol registry rather than a
+ *  copy — a second table here is how one person gets told two things. */
+function restrictionReasonSentence(reasonKey: string): string | null {
+  if (!isRestrictionReason(reasonKey)) return null;
+  // 🔴 DERIVED, NOT LISTED. The registry's row keys are the locale codes with the
+  // hyphen swapped for an underscore (`zh-CN` → `zh_CN`), so the current UI
+  // locale addresses its own row — no list of language names lives here, and
+  // adding a tenth UI language does not mean editing this file
+  // (verify:lint i18n-add-locale-cost; 2026-08-14 locale architecture §2).
+  // `en` is the declared base fallback for a leaf a language has not translated
+  // (gen-desktop-ts.mjs header), which is what this registry's four rows are.
+  const row = RESTRICTION_REASONS[reasonKey] as unknown as Record<string, string | undefined>;
+  return row[getLocale().replace('-', '_')] ?? row.en ?? null;
 }
 
 /** ②"who am I" —— the ONE producer of the account (账号) row's value (M3-8).
@@ -333,7 +455,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
  *
  *  🔴 Why not "fall back to the email in the JWT" (the handoff report's leaning):
  *  **there is no email in the JWT.** `JwtClaims` is exactly `{ sub, plan, iat, exp }`
- *  (`apps/server-core/src/auth/jwt.ts:34-39,107`), and the `subject` field of
+ *  (`apps/server-core/src/auth/jwt.ts:38-43,139`), and the `subject` field of
  *  `shell/cloud.rs:125-128` says so verbatim: "the email only exists".
  *
  *  🔴 Why no replacement sentence in this row: every phase that returns `null` here
@@ -344,7 +466,21 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
  *  A second sentence here would be a second answer to a question already answered. */
 function identityLine(a: LiveAccount | null): string | null {
   if (a === null) return null;
-  return a.email ?? S.cloud_acct_no_email;
+  // owner 2026-08-27:「所有显示账号的地方都要用星号遮盖」. Masked HERE, in the one
+  // place that decides what the identity line says, rather than in the component
+  // that paints it — and that placement is the whole point. `AccountCard` is
+  // what leaves this module; if the mask lived in the template, a second render
+  // site (a tooltip, a sign-out dialog, the next page someone adds) would get
+  // the raw address and nothing would say so. There is one identity string in
+  // this app and it is already masked by the time anyone can render it.
+  //
+  // ⚠️ `a.email` ITSELF IS NOT TOUCHED. `LiveAccount` keeps the real address,
+  // because 「every place that PAINTS it」 is the rule and 「every value that
+  // holds it」 is not — see account-mask.ts's header for the two mobile call
+  // sites that are KDF input and must never be masked. The desktop has no such
+  // caller today (`account-mask.test.ts` pins that), and the honest way to keep
+  // it that way is a narrow mask at the render decision, not a poisoned field.
+  return a.email === null ? S.cloud_acct_no_email : maskAccountEmail(a.email);
 }
 
 /** 'free' → 'FREE'. 🔴 Uppercasing the SERVER's word — never a tier this file
@@ -368,30 +504,119 @@ function sourceChip(a: LiveAccount | null): string | null {
   }
 }
 
-/** ④. 🔴 WHICH SENTENCE we print still comes from `quota_exempt` and nothing
- *  else. What changed on 2026-08-07 is WHAT that sentence says.
+// ── ④ the bidirectional quota gauge ─────────────────────────────────────────
+//
+// owner 2026-08-27 (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md):
+// ONE track with a centre tick. Speech minutes grow from the LEFT edge toward the
+// centre, LLM context tokens grow from the RIGHT edge toward the centre, and each
+// side's 100% IS the centre — so two independent meters share one track and can
+// never collide or be read as one bar. Same shape on all three surfaces (phone /
+// PC / web console); this file owns the PC's half of the arithmetic.
+//
+// 🔴 WHICH SENTENCE the minutes side prints still comes from `quota_exempt` and
+// nothing else, and it is still the same two strings as before the gauge — the
+// 2026-08-07 reasoning is unchanged and worth restating because it is what keeps
+// this honest:
+//
+//   Until then an exempt account had no limit at all, so the exempt line printed
+//   "unlimited" and needed no `{limit}`. owner then capped `permanent_free` at the
+//   monthly MAX tier (docs/decisions/2026-08-07-owner-permanent-free-becomes-max-
+//   and-test-accounts-reset-to-free.md ①) ⇒ the server enforces 3,000 minutes on
+//   that account, and "unlimited" became a LABEL CONTRADICTING A LIVE GATE — R11 /
+//   D1's red line exactly.
+//
+// ⇒ both branches render a real `{used}/{limit}`; the exempt branch adds the one
+// thing that is still uniquely true of it (nothing is billed). Every number is the
+// SERVER's — 3,000 and 1M/5M/15M live in billing/plans.ts, and typing any of them
+// here would make this the second answer.
+
+/** Half the track. Each side's full bar ends at the centre tick, so "100% of this
+ *  meter" is 50% of the width — the reason the two fills can never overlap. */
+const HALF_TRACK_PCT = 50;
+
+/** One end of the track. */
+export interface GaugeSide {
+  /** Width **as a percentage of the WHOLE track** (0–50). Already clamped. */
+  pct: number;
+  /** The small line under this end, already formatted in the current locale. */
+  label: string;
+  /** used ≥ limit — the fill has reached the centre and must switch to the warning
+   *  colour. 🔴 It does NOT change the numbers: the label keeps saying what was
+   *  really used, including when that is more than the limit. */
+  over: boolean;
+}
+
+/** ④ what the card draws. A side is `null` when its meter could not be read —
+ *  which is a missing end of the gauge, never a zero-length bar (a zero bar reads
+ *  as "you have used none of it", an answer we do not have). */
+export interface QuotaGauge {
+  minutes: GaugeSide | null;
+  context: GaugeSide | null;
+}
+
+/** `min(used/limit, 1) × 50`, rounded to 2 decimals. Exported so the width the
+ *  browser is handed is the width a test measured — the component only pastes it
+ *  into a `style`. */
+export function gaugePct(used: number, limit: number): number {
+  // A non-positive limit cannot be divided by. "Zero allowance and something used"
+  // is a full bar, not NaN%; "zero allowance and nothing used" is an empty one.
+  if (!(limit > 0)) return used > 0 ? HALF_TRACK_PCT : 0;
+  return Math.round(Math.min(used / limit, 1) * HALF_TRACK_PCT * 100) / 100;
+}
+
+/** Tokens → millions, at most one decimal ("0" / "0.4" / "5" / "15").
  *
- *  Until then an exempt account had no limit at all, so the exempt line printed
- *  "unlimited" and needed no `{limit}`. owner then capped `permanent_free` at the
- *  monthly MAX tier (docs/decisions/2026-08-07-owner-permanent-free-becomes-max-
- *  and-test-accounts-reset-to-free.md ①) ⇒ the server enforces 3,000 minutes on
- *  that account, and "unlimited" became a LABEL CONTRADICTING A LIVE GATE — R11 /
- *  D1's red line exactly, and the very split that ruling claims to have fixed.
+ *  Why M and not the raw count: the tiers are 1M / 5M / 15M and the used figure
+ *  runs to seven digits, so `12345678 / 15000000` on a 12px line is a wall of
+ *  digits nobody reads. The unit is spelled in the string (`cloud_usage_context`),
+ *  so this returns the bare number and no locale has to agree about the letter. */
+export function formatTokensM(n: number): string {
+  const m = Math.round((n / 1_000_000) * 10) / 10;
+  return Number.isInteger(m) ? String(m) : m.toFixed(1);
+}
+
+/** ④. The whole gauge, from one live answer.
  *
- *  ⇒ both branches now render a real `{used}/{limit}`; the exempt branch adds the
- *  one thing that is still uniquely true of it (nothing is billed). The `limit`
- *  is the SERVER's number, never a constant typed here — 3,000 lives in
- *  billing/plans.ts and copying it would make this the second answer. */
-function usageLine(a: LiveAccount | null): string | null {
-  if (a === null || a.used_min === null) return null;
-  // Moved ABOVE the exempt branch, deliberately: an exempt account now needs a
-  // limit like everyone else, so a missing one means "we couldn't compute it" for BOTH
-  // kinds of account, and printing a half-line would be inventing an answer.
-  if (a.limit_min === null) return null;
-  const used = String(Math.round(a.used_min));
-  const limit = String(Math.round(a.limit_min));
-  const template = a.quota_exempt ? S.cloud_usage_minutes_exempt : S.cloud_usage_minutes;
-  return template.replace('{used}', used).replace('{limit}', limit);
+ *  🔴 A `null` LIMIT DOES NOT RENDER "UNLIMITED", and this is a deliberate
+ *  narrowing of the ruling's own wording. The ruling says 「`limit` 为 null（豁免/∞）
+ *  ⇒ 该侧文字「不限」」 — its parenthesis names the premise: ∞ crossing the wire as
+ *  `null`. **The server retired that premise on 2026-08-07** and says so verbatim
+ *  in the field's own contract (apps/server-core/src/billing/billing-service.ts,
+ *  `QuotaView`: 「nothing here reaches the wire as `null` any more, and a `null`
+ *  that does show up means we failed to compute it」) — an exempt account gets the
+ *  MAX tier's finite number like everyone else. There is therefore no exempt-∞ left
+ *  to label, and the only thing a `null` can still be is a read we did not manage
+ *  ⇒ printing "unlimited" for it would put a boundless claim under a live gate,
+ *  which is the exact R11 defect the 2026-08-07 ruling was issued to remove.
+ *  ⇒ that end of the gauge is ABSENT instead (same choice the minutes row has made
+ *  since 0.2.5x). If a meter is ever genuinely unbounded again it will need a
+ *  positive signal on the wire — never an empty field, which cannot tell the two
+ *  apart. */
+export function quotaGauge(a: LiveAccount | null): QuotaGauge | null {
+  if (a === null) return null;
+  const minutes: GaugeSide | null =
+    a.used_min === null || a.limit_min === null
+      ? null
+      : {
+          pct: gaugePct(a.used_min, a.limit_min),
+          label: (a.quota_exempt ? S.cloud_usage_minutes_exempt : S.cloud_usage_minutes)
+            .replace('{used}', String(Math.round(a.used_min)))
+            .replace('{limit}', String(Math.round(a.limit_min))),
+          over: a.used_min >= a.limit_min,
+        };
+  const context: GaugeSide | null =
+    a.used_tokens === null || a.limit_tokens === null
+      ? null
+      : {
+          pct: gaugePct(a.used_tokens, a.limit_tokens),
+          label: S.cloud_usage_context
+            .replace('{used}', formatTokensM(a.used_tokens))
+            .replace('{limit}', formatTokensM(a.limit_tokens)),
+          over: a.used_tokens >= a.limit_tokens,
+        };
+  // Neither end readable ⇒ no track at all. An empty rail under "This month" would
+  // be a control that answers nothing.
+  return minutes === null && context === null ? null : { minutes, context };
 }
 
 /** ⑤. 🔴 The row EXISTS only for an account that actually bought a subscription.

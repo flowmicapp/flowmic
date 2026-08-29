@@ -90,6 +90,207 @@ mixin ComposeStrings on AppStringsLeaves {
   /// 「不可用」 ("unavailable"): the keys act on a focused window, and this destination has none.
   String get pcKeysUnavailableNoted => _lfPcKeysUnavailableNoted;
 
+  // ── Card CR-9 — the continuous-recording entry (demo cells A-1 / A-2) ─────
+  //
+  // It stands where the PC key group would be on an inject destination, in the
+  // one dock that has no PC focus to act on. `ContinuousOffer`
+  // (audio/continuous_offer.dart) decides which of these is drawn; this shard
+  // only owns the words.
+
+  /// The entry's own label. Names what the user gets — a recording that can run
+  /// for a long time — rather than the mechanism behind it.
+  String get continuousEntryTitle => _lfContinuousEntryTitle;
+
+  /// Sub-line when the per-session ceiling is known and the month's balance is
+  /// NOT (§5-2 「读不到就不画」).
+  ///
+  /// 🔴 IT SAYS ONE THING AND STOPS. The rule this obeys was set by
+  /// `quota_gauge.dart`: an end of the meter we could not read is an end we do
+  /// not draw. Printing 「还剩 0 分」 for a balance we never received would be a
+  /// claim we do not have, and softening the whole line into 「额度有限」 would
+  /// throw away the number we DO have.
+  String continuousEntryCap(Object? minutes) => _lfContinuousEntryCap(minutes);
+
+  /// Sub-line when both numbers are known — 「最多 X 分 · 本月还剩 Y 分」.
+  ///
+  /// 🔴 TWO NUMBERS, TWO QUESTIONS, AND OWNER'S RULING ⑭ KEEPS THEM APART. The
+  /// ceiling answers 「how long may this sitting be」 and the balance answers
+  /// 「how much of the month is left」; free is 20 minutes a month against a
+  /// 10-minute ceiling, so one blended figure would be wrong in both directions
+  /// at once.
+  ///
+  /// ⚠️ Both digits are INTERPOLATED, not baked into nine translations — and
+  /// the ceiling is the same value that arms the stop timer, so the button and
+  /// the enforcement can never disagree. `recordingStoppedContinuousCap` carries
+  /// no digits for the mirror-image reason: it has no way to read them.
+  String continuousEntryCapAndLeft(Object? minutes, Object? left) =>
+      _lfContinuousEntryCapAndLeft(minutes, left);
+
+  /// A-2 — why the entry is dimmed under translate / organize.
+  ///
+  /// Says which mode DOES work, because that is the step the user can take: the
+  /// mode chip is on the same screen. A bare 「不可用」 would turn a block they
+  /// can clear in one tap into a dead end — the `INJECT_NO_ACCESSIBILITY`
+  /// argument, in a place with no error code.
+  String get continuousEntryModeNote => _lfContinuousEntryModeNote;
+
+  /// The ceiling could not be read, so the length of the sitting is unknown and
+  /// it may not start (see `CloudSummary.continuousMinutes`).
+  ///
+  /// ⚠️ It names the account, not the network, because the account is what the
+  /// user can check. It deliberately does NOT say 「未登录」: this phone cannot
+  /// tell 「not signed in」 from 「signed in, and the server did not answer」, and
+  /// a sentence that picks one would be right half the time.
+  String get continuousEntryNoCeilingNote => _lfContinuousEntryNoCeilingNote;
+
+  /// The month's transcription minutes are gone.
+  ///
+  /// ⚠️ NOT ONE DIGIT AND NOT ONE TIER NAME, exactly as
+  /// [recordingAutoStoppedQuota] carries none and for the same reason: the
+  /// per-plan numbers live in `billing/plans.ts`, and a copy of them here is a
+  /// third copy that goes stale in silence.
+  String get continuousEntryQuotaSpentNote => _lfContinuousEntryQuotaSpentNote;
+
+  // ── Card CR-9 — the pre-flight sheet (demo cells B-1 / B-2) ──────────────
+  //
+  // 🔴 A BRIEFING, NOT A CONFIRM, AND THE TWO MUST NOT BE MERGED LATER.
+  // `confirmDestructive` exists for actions that destroy something and its own
+  // header refuses to be used more widely: 「a confirm on everything trains
+  // people to tap through confirms, which is how the one that mattered gets
+  // tapped through」. Starting a recording destroys nothing. This sheet is here
+  // because of ruling ⑥ — 「按下的时候它就知道」 — the user is being TOLD three
+  // things, and 「cancel」 is simply the way out of being told.
+  //
+  // ⚠️ It is also the ONLY moment the user can change their mind, which is why
+  // the no-cancel sentence belongs here and not somewhere later.
+
+  /// B-1 line 1 — this sitting's ceiling, and what happens when it is reached.
+  ///
+  /// Both halves are provable at the moment it is drawn: the number is the same
+  /// `continuous_minutes` that arms the timer, and 「stops and saves」 is the
+  /// ordinary release path (`audio:stop` → terminal final), never
+  /// `fenceAndStop()` — whose meaning is 「this utterance never happened」.
+  String continuousSheetCap(Object? minutes) => _lfContinuousSheetCap(minutes);
+
+  /// B-1 line 2 — the month's balance.
+  ///
+  /// ⚠️ ONE STRING FOR THIS FACT, deliberately, where the approved demo drew two
+  /// (「本月还剩 X」 in B-1 and 「本月只剩 X」 in B-2). The two differ only in
+  /// tone, and B-2 already carries [continuousSheetEarlyStop] saying the
+  /// recording will end early — a second author for the same number, whose only
+  /// job is to sound more worried, is a copy that can drift out of step with the
+  /// sentence doing the actual work.
+  String continuousSheetLeft(Object? minutes) => _lfContinuousSheetLeft(minutes);
+
+  /// B-2 — the balance is below the ceiling, so this sitting ends on the MONTH
+  /// rather than on the ceiling, and roughly when.
+  ///
+  /// 🔴 THIS IS THE FREE TIER'S SECOND RECORDING, NOT AN EDGE CASE: 20 minutes a
+  /// month against a 10-minute ceiling is exactly two sittings. Owner's ruling is
+  /// that the subtraction is ours to do — putting two numbers on screen and
+  /// leaving the user to work out which one bites is how they find out
+  /// afterwards.
+  ///
+  /// ⚠️ 「about」 is load-bearing and must survive translation. The figure is a
+  /// floored balance measured before the press; the server settles usage after
+  /// the session, so an exact promise here would be a number we cannot keep.
+  String continuousSheetEarlyStop(Object? minutes) =>
+      _lfContinuousSheetEarlyStop(minutes);
+
+  /// B-1 line 3 — there is a stop and there is no cancel.
+  ///
+  /// 🔴 IT DELIBERATELY DOES NOT SAY 「留在这一篇里」, and the demo's own B-1 does.
+  /// 「一篇」 is the article data model, card CR-7, and it does not exist yet:
+  /// until it does, a continuous recording settles into ordinary light-record
+  /// rows. Volume 15 §2.0-b's ban is on copy that promises a mechanism we have
+  /// not built, and this would be one — the same reason CR-3's offline banner
+  /// says 「audio kept on this phone」 and not 「will be transcribed later」.
+  ///
+  /// ⚠️ WHEN CR-7 LANDS, THIS SENTENCE IS PART OF ITS SCOPE. What it may then
+  /// say is 「everything you say stays in this one piece」, because there will be
+  /// one piece. Registered here rather than in a task list, because this is the
+  /// file somebody edits when they are looking at these words.
+  String get continuousSheetNoCancel => _lfContinuousSheetNoCancel;
+
+  /// The go-ahead, when the sitting will run its full length.
+  String get continuousSheetStart => _lfContinuousSheetStart;
+
+  /// The go-ahead in the B-2 case.
+  ///
+  /// A DIFFERENT LABEL, not the same one: the user has just been told this
+  /// recording will be cut short, and a button that still says 「start
+  /// recording」 reads as though the warning above it were decoration. The demo
+  /// makes the same change for the same reason.
+  String get continuousSheetStartAnyway => _lfContinuousSheetStartAnyway;
+
+  /// The way out.
+  ///
+  /// ⚠️ Its own string rather than a reach into another surface's 「取消」: this
+  /// catalogue already keeps four, one per surface, so that a locale needing a
+  /// different word in one place can have it without moving the other three.
+  String get continuousSheetCancel => _lfContinuousSheetCancel;
+
+  // ── Card CR-9 — the in-progress face (demo cell C-1) ─────────────────────
+  //
+  // The user's finger left the screen minutes ago. Everything here is something
+  // WE say without being asked, and the one control is 「stop」.
+
+  /// The live label beside the red dot.
+  String get continuousLiveLabel => _lfContinuousLiveLabel;
+
+  /// 🔴 A COUNTDOWN, NOT A STOPWATCH, and the copy has to keep it one. The
+  /// question a user asks mid-meeting is 「how much longer can I go」, not 「how
+  /// long have I been going」 — and one clock answering both is how somebody
+  /// finds out in the last minute that they did the subtraction wrong.
+  String continuousRemaining(Object? clock) => _lfContinuousRemaining(clock);
+
+  /// How many segments the SERVER has finalised so far.
+  ///
+  /// ⚠️ Deliberately terse: it shares a row with the label, the clock and the
+  /// screen note. `SegmentBuffer.finalizedCount`'s doc carries what the number
+  /// means and why it counts finalised slots rather than slots.
+  String continuousSegments(Object? n) => _lfContinuousSegments(n);
+
+  /// 🔴 DRAWN ONLY WHEN `ScreenWakeHold.isHeld` IS TRUE, and that flag exists
+  /// for this sentence: it is false when we asked the platform and were
+  /// refused, which is exactly the case where this line would be a lie. Its own
+  /// doc says so in as many words — 「read this before drawing any 『screen
+  /// stays on』 face」.
+  String get continuousScreenOn => _lfContinuousScreenOn;
+
+  /// The only control on this face.
+  ///
+  /// 🔴 THERE IS NO CANCEL AND THERE MUST NOT BE ONE (CR-D ③, owner-approved
+  /// 2026-08-29). Push-to-talk has swipe-up-to-cancel; a continuous recording
+  /// physically cannot be cancelled, because each segment is finished and saved
+  /// as it is spoken. A cancel button that cannot undo anything is worse than
+  /// no button.
+  String get continuousStop => _lfContinuousStop;
+
+  /// The caption under the stop button.
+  ///
+  /// 🔴 IT SAYS 「FINISHED PARTS」, NOT 「everything you have said」, AND THE
+  /// DIFFERENCE IS THE SENTENCE STILL IN THE AIR. The segment being spoken has
+  /// not been finalised, so it is not saved yet; the claim is trimmed to the
+  /// part that is provable at every instant it is on screen.
+  ///
+  /// ⚠️ It also avoids 「这一篇」 for the reason [continuousSheetNoCancel] gives
+  /// at length: the article is CR-7 and does not exist yet.
+  String get continuousLiveCaption => _lfContinuousLiveCaption;
+
+  /// C-2 — the single reminder before the ceiling.
+  ///
+  /// 🔴 EVENT-TYPE, ONCE, A FEW SECONDS (owner §5-4). A permanent 「1:00 left」
+  /// bar turns the last minute of somebody's meeting into an anxiety meter, and
+  /// the person it interrupts is mid-sentence. The RUNNING countdown belongs on
+  /// the recording face, where the user chose to look at it.
+  ///
+  /// ⚠️ The number is interpolated from `kContinuousCapWarningLead` rather than
+  /// written into nine translations: a hard-coded 「1」 here becomes nine lies the
+  /// day the lead is retuned, and nothing would go red.
+  String continuousCapWarning(Object? minutes) =>
+      _lfContinuousCapWarning(minutes);
+
   // The two toolbar group labels (toolsLocalGroup / toolsRemoteGroup) were
   // removed in the M1/M3 pass: neither had a caller, and M3 gave the four
   // remote keys per-key hints that say what each does ON THE PC — strictly more
@@ -318,10 +519,49 @@ mixin ComposeStrings on AppStringsLeaves {
   /// bar's release wording family (● + release verb).
   String get appendRelease => _lfAppendRelease;
 
+  /// 🔴 0.3.43 Q5-③ — why the in-sheet append button is not pressable RIGHT NOW.
+  ///
+  /// SPEC-REF: ruling
+  /// docs/decisions/2026-08-28-owner-settings-catalogue-shortpress-ios-swipe-rulings.md Q5-③.
+  ///
+  /// The button used to render its full live face while `ChatController.canPtt`
+  /// was false, so a press LOOKED accepted and did nothing at all — the fake
+  /// affordance this repo's oldest red line bans (「一个改变不了任何东西的控件比
+  /// 没有控件更坏」 — "a control that can change nothing is worse than no
+  /// control"). The face is disabled now, and a tap answers with a sentence.
+  ///
+  /// 🔴 THIS SENTENCE ANSWERS ONE REASON ONLY. `canPtt` is a conjunction of
+  /// three terms and they call for opposite actions, so they must not share one
+  /// string (this repo's #1 bug shape): 「not connected」 already has owner-frozen
+  /// copy in [RecordingStrings.pttDisabled] and the call site uses THAT; this
+  /// one covers the remaining terms — a previous utterance still in PROCESSING,
+  /// or an AI compose run still in flight — which are the same fact to the user
+  /// (「the sentence before this one has not finished」) and have the same
+  /// remedy (wait a moment).
+  ///
+  /// ⚠️ NO IMPERATIVE ABOUT THE PC, and no number: the wait is bounded by the
+  /// 15 s processing net / the 45 s compose watchdog, and naming either would be
+  /// a promise this layer cannot keep.
+  String get appendUnavailableBusy => _lfAppendUnavailableBusy;
+
   /// Same overlay as [RecordingStrings.pttCancelArmed], on the in-sheet
   /// append button: finger is past the swipe-up threshold, release discards
   /// only the in-flight append.
   String get appendCancelArmed => _lfAppendCancelArmed;
+
+  /// NR-4 (g), 2026-08-27 — the append button's accessible discard action.
+  ///
+  /// SPEC-REF: docs/ui-design/2026-08-27-nr4p3-edit-sheet-and-at-cancel-design.md §4
+  ///
+  /// 🔴 THE LEDGER ONLY NAMED THE PTT BAR; THIS BUTTON HAD THE SAME HOLE.
+  /// `chat_flow_edit_sheet_append.dart`'s header says it runs the 「SAME
+  /// GESTURE CHAIN as the PTT bar」, and it does — including the half that was
+  /// missing. Fixing one and not the other would have left the accessible
+  /// discard available exactly where the user is NOT editing.
+  ///
+  /// See [RecordingStrings.pttCancelSemanticAction] for why the two labels are
+  /// two strings rather than one shared 「cancel」.
+  String get appendCancelSemanticAction => _lfAppendCancelSemanticAction;
 
   /// The card's primary button (sheet footer). The wording follows whichever
   /// face it lives on; the action is the same `ChatController.sendBuffer`.
@@ -352,6 +592,13 @@ mixin ComposeStrings on AppStringsLeaves {
   /// destructive action happens** — so it is a persistent hint, not a toast
   /// shown after the switch, and its render assertion is on didExceedMaxLines
   /// (the 0.2.53 rule), not on Text.data.
+  ///
+  /// 🔴 NR-4-P1 (f) — the second clause ("the draft is kept as a record-only
+  /// entry") was added in all nine locales when the switch stopped destroying
+  /// the draft (`foldDraftToNotedOnModeSwitch`). It is a statement of fact
+  /// about a mechanism, not reassurance: if that fold is ever removed, this
+  /// sentence becomes the kind of promise nothing behind it can keep, which is
+  /// the 「待投递」 red line (15 §2.0) one control over.
   String get composeModeSwitchClearsHint => _lfComposeModeSwitchClearsHint;
 
   // ── translate target chip (GA-01 / D4; V2-07.7 absorbed mode_chip._labels) ─
@@ -513,6 +760,16 @@ mixin ComposeStrings on AppStringsLeaves {
       // a bare token for the length of one window.
       case 'COMPOSE_OUTPUT_REJECTED':
         return _lfAiErrorCode__9;
+      // 🔴 The verification grace ran out (server-core auth/verification-grace.ts
+      // `EMAIL_VERIFY_GRACE_EXPIRED`). It is an ACK-LOCAL name rather than a
+      // protocol ErrorCode — which is precisely how it reached users as a bare
+      // token through the `default:` arm below, on the one refusal in this list
+      // the user can clear entirely by themselves. Owner ruling 2026-08-27 §R1
+      // 追加: a relay refusal must arrive as a sentence, not an identifier.
+      // ⚠️ Its sibling on the recording surface is `sttStallVerifyEmail`; the two
+      // are separate strings because they interrupt different actions.
+      case 'EMAIL_VERIFY_GRACE_EXPIRED':
+        return _lfAiErrorCode__11;
       case null:
         return _lfAiErrorCode__10;
       default:

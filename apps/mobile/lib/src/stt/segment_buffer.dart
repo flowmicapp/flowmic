@@ -48,6 +48,21 @@ class SegmentBuffer {
   /// remembered.
   int _settledThrough = -1;
 
+  /// Card CR-9 — how many segments the SERVER has finalised in this sitting.
+  ///
+  /// 🔴 IT COUNTS FINALISED SLOTS, NOT SLOTS. An interim arrives for a segment
+  /// that is still being spoken, and 「已成 N 段」 ("N segments done") is a claim
+  /// about ones that are finished — so a count of `_texts` would be one too many
+  /// for most of every sitting, and would tick up and back down as the engine
+  /// retracted an interim.
+  ///
+  /// ⚠️ Boundaries come from the server's own judgement (engine-confirmed
+  /// sentence punctuation / a ≥600 ms real pause / the close), which is what
+  /// lets the in-progress face call them 「natural」 segments without inventing
+  /// anything. The 30-second rollover swaps engine legs and does NOT cut a
+  /// sentence — that was fixed on 2026-08-15.
+  int get finalizedCount => _finalized.length;
+
   void clear() {
     _texts.clear();
     _finalized.clear();

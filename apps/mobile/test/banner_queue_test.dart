@@ -511,6 +511,87 @@ void main() {
           contains('nothing on this phone'));
     });
 
+    // ── owner ruling 2026-08-27 §R1 追加: two ACCOUNT verdicts ───────────────
+    //
+    // 🔴 WHY THESE TWO ARE NEW AND WHY NOW. Signing in no longer expires on a
+    // clock (§R1), so the relay's per-call verdict is the ONLY thing left that
+    // can tell a user their account stopped being served — nothing times out to
+    // reveal it any more. Both of these arrive as `stt:error` codes and both
+    // used to fall to `sttStallEngineErrorCoded`, i.e. a raw identifier inside a
+    // sentence blaming an engine that was never asked. Same family as the two
+    // tests above; the difference is that these are about the ACCOUNT, so no
+    // engine setting and no retry can help.
+    //
+    // AUTH_TOKEN_INVALID additionally could not be seen AT ALL before this
+    // round: `audio:start` is emitted without an ack callback, and the server's
+    // auth arm filled only the ack. It now goes through `refuseStart`
+    // (audio.handler.ts), which is what makes this test reachable.
+    test('AUTH_TOKEN_INVALID says the phone is signed out — never an engine '
+        'fault, never a bare identifier', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'AUTH_TOKEN_INVALID',
+            message: 'audio:start from a socket with no mobile identity',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallNotSignedIn, reason: '$locale');
+        expect(q.top!.message, isNot(s.sttStallEngineErrorCoded('AUTH_TOKEN_INVALID')),
+            reason: '$locale');
+        // 0.2.53: the identifier itself must not be on screen.
+        expect(q.top!.message, isNot(contains('AUTH_TOKEN_INVALID')), reason: '$locale');
+      }
+      // It must not read like the quota wall either: one is 「wait for next
+      // month」, this one is 「reconnect this phone」.
+      expect(zh.sttStallNotSignedIn, isNot(zh.sttStallQuotaExceeded));
+    });
+
+    test('EMAIL_VERIFY_GRACE_EXPIRED names the one refusal the user can clear '
+        'themselves', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(
+            SttStallReason.engineError,
+            code: 'EMAIL_VERIFY_GRACE_EXPIRED',
+            message: 'verification grace expired',
+          ),
+        );
+        expect(q.top?.id, BannerIds.sttStall, reason: '$locale');
+        expect(q.top!.message, s.sttStallVerifyEmail, reason: '$locale');
+        expect(q.top!.message, isNot(s.sttStallEngineErrorCoded('EMAIL_VERIFY_GRACE_EXPIRED')),
+            reason: '$locale');
+        // 🔴 The worst version of this defect: a 32-character protocol-internal
+        // token printed at the one person who could have fixed it in a minute.
+        expect(q.top!.message, isNot(contains('EMAIL_VERIFY_GRACE_EXPIRED')), reason: '$locale');
+      }
+      expect(zh.sttStallVerifyEmail, isNot(zh.sttStallNotSignedIn));
+    });
+
+    test('POSITIVE CONTROL: a code with no sentence still falls back to the '
+        'labelled identifier — the fallback was not deleted', () {
+      final AppStrings s = AppStrings.of(AppLocale.en);
+      final BannerQueue q = buildChatBanners(
+        connection: ConnectionState.connected,
+        autoStopped: false,
+        strings: s,
+        sttStalled: const SttStall(SttStallReason.engineError, code: 'STT_SOMETHING_NOBODY_NAMED'),
+      );
+      // Without this, the two tests above would also pass against a
+      // `sttStallBannerMessage` that had stopped distinguishing anything.
+      expect(q.top!.message, s.sttStallEngineErrorCoded('STT_SOMETHING_NOBODY_NAMED'));
+      expect(q.top!.message, contains('STT_SOMETHING_NOBODY_NAMED'));
+    });
+
     // ── card C1 (2026-08-17): the PLATFORM's pool had no route ─────────────
     //
     // Server side: `apps/server-core/src/stt/engine-factory.ts` now names this
@@ -716,6 +797,35 @@ void main() {
         ),
       );
       expect(q.top!.message, contains('SOME_NEW_CODE'));
+    });
+
+    // 🔴 …and EMAIL_VERIFY_GRACE_EXPIRED was reaching users through THAT arm.
+    // It is an ack-local name rather than a protocol ErrorCode (server-core
+    // auth/verification-grace.ts states why), so nothing bound it to this table
+    // and a 26-character internal token was printed at the one person who could
+    // have cleared the refusal in a minute. Owner ruling 2026-08-27 §R1 追加.
+    test('EMAIL_VERIFY_GRACE_EXPIRED is a sentence, not the raw identifier', () {
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          aiFailure: const AiComposeOutcome(
+            reason: AiComposeFailure.serverError,
+            code: 'EMAIL_VERIFY_GRACE_EXPIRED',
+          ),
+        );
+        expect(q.top!.message, isNot(contains('EMAIL_VERIFY_GRACE_EXPIRED')), reason: '$locale');
+        expect(q.top!.message, contains(s.aiErrorCode('EMAIL_VERIFY_GRACE_EXPIRED')), reason: '$locale');
+      }
+      // Every locale wrote its own — a row copy-pasted from another would make
+      // the two assertions above pass while shipping the wrong language.
+      final Set<String> rendered = <String>{
+        for (final AppLocale l in AppLocale.values)
+          AppStrings.of(l).aiErrorCode('EMAIL_VERIFY_GRACE_EXPIRED'),
+      };
+      expect(rendered.length, AppLocale.values.length);
     });
 
     test('a user-caused abort is a DEGRADED notice, not a fault to act on', () {

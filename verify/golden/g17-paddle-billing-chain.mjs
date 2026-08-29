@@ -89,9 +89,11 @@ import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, PASS, FAIL }
 const FREE_STT_MIN = 20;
 const FREE_LLM = 1_000_000;
 const PRO_STT_MIN = 900;
-const PRO_LLM = 20_000_000;
+// 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+const PRO_LLM = 5_000_000;
 const MAX_STT_MIN = 3_000;
-const MAX_LLM = 100_000_000;
+// 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+const MAX_LLM = 15_000_000;
 
 /** config.ts's DEFAULT_PADDLE_TOLERANCE_SEC (the Paddle SDK default). Deliberately
  *  NOT set in this instance's env: the expired control below has to be refused by
@@ -273,7 +275,22 @@ export const G17 = {
        *  attempts each (register + login), which would draw a 429 on the third
        *  account and report a rate limit as a billing failure. The 201 already
        *  carries both things needed here — the Bearer AND the user id that goes
-       *  into `custom_data.flowmic_user_id`. */
+       *  into `custom_data.flowmic_user_id`.
+       *
+       *  🔴 2026-08-27 — THE PARAGRAPH ABOVE IS NO LONGER THE WHOLE STORY, and
+       *  it is kept because it was true when written and its economy still is.
+       *  A SECOND, independent budget now also governs this: the per-IP DAILY
+       *  ACCOUNT CAP, owner-ruled at 2 (`REGISTER_MAX_PER_DAY`). Halving the
+       *  POSTs does not help against that one — it counts MINTS, not attempts,
+       *  and this case mints three by design. It is answered in the harness,
+       *  once for every saas fixture, with `FLOWMIC_REGISTER_DAILY_CAP`
+       *  (harness.mjs `startSaasServer` carries the full argument for why that
+       *  is a fixture seam and not a product carve-out).
+       *
+       *  ⚠️ THE FAILURE THIS PRODUCED IS WORTH REMEMBERING: `429
+       *  REGISTER_RATE_LIMITED, retry_after_ms 86399843` — a "come back
+       *  tomorrow" inside a suite that runs on every delivery, reported (as the
+       *  note above predicted, for the other limiter) as a billing failure. */
       const signup = async (email, name) => {
         const res = await fetch(`${url}/api/register`, {
           method: 'POST',

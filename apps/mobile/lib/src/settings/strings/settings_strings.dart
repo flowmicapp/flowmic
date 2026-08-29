@@ -258,29 +258,48 @@ mixin SettingsStrings on AppStringsLeaves {
   // false promise — that number is multiplied **on top of** the system
   // scale, so 「85%」 does not mean 85% at all for someone who has turned on
   // the system's large-text setting.
+  //
+  // 🔴🔴 IN-PLACE CORRECTION (owner ruling 2026-08-27,
+  // `docs/decisions/2026-08-27-owner-text-scale-slider.md`). The paragraph
+  // above is kept verbatim — it was written for a row of five chips, and for
+  // that row its argument held. **Its own recommendation is what failed on
+  // glass**: with five rungs the adjectives ran out. owner, on an English
+  // device, read `Large` / `Larger` / `Largest` as the same word three times
+  // and reported 「two Large entries」. Adjectives are not a scale; five of
+  // them do not order themselves in the reader's head.
+  //
+  // ⇒ The row is now ONE SLIDER, and the current rung reads as a
+  // **percentage** (`AppTextScale.percent`, medium = 100%, derived from the
+  // real `factor`). The five name strings
+  // (`textScaleSmall`/`Medium`/`Large`/`Xlarge`/`Xxlarge`) had this row as
+  // their only consumer, so they are **DELETED through the i18n pipeline**
+  // (leaves.json + nine locale files + a regen) rather than left behind for
+  // someone to hang a second meaning on — the slider's accessibility label is
+  // `textScaleTitle` and its announced value is that same percentage, so
+  // nothing is left needing them.
+  //
+  // ⚠️ **The old paragraph's warning survives the ruling and is now carried
+  // by [textScaleNote] instead**: the percentage is a percentage of OUR rung,
+  // NOT of the glyphs on the glass — it multiplies on top of the system
+  // curve. That is why the note takes the number as an argument (below)
+  // rather than the row printing a bare figure with no sentence beside it.
   String get textScaleTitle =>
       _lfTextScaleTitle;
-  String get textScaleLarge => _lfTextScaleLarge;
-  String get textScaleMedium => _lfTextScaleMedium;
-  String get textScaleSmall => _lfTextScaleSmall;
-
-  // ── 0.3.28 —— the two rungs above the old ceiling ─────────────────────────
-  //
-  // The same "no number in the label" rule as the three above, for the same
-  // reason. ⚠️ And a second one that only applies to these two: they are the
-  // only tiers that make the app **bigger than it has ever been**, so the words
-  // must not promise a fixed size either — `AppTextScale.xxlarge` is 1.30 times
-  // whatever the system curve already produced, which on a phone with the OS
-  // large-text setting on is a great deal more than "largest" suggests.
-  String get textScaleXlarge => _lfTextScaleXlarge;
-  String get textScaleXxlarge => _lfTextScaleXxlarge;
 
   /// 🔴 This sentence is this row's **duty to be honest**: the tier
   /// multiplies on top of the system setting, it does not replace it.
   /// Without it, a user who has enlarged the system font would think
-  /// 「picking 'small' here can override the system」 — and mechanically it
-  /// cannot (and should not: that is an accessibility setting).
-  String get textScaleNote => _lfTextScaleNote;
+  /// 「picking the smallest rung here can override the system」 — and
+  /// mechanically it cannot (and should not: that is an accessibility
+  /// setting).
+  ///
+  /// 🔴 [pct] is **passed in, not written into the nine translations**: it is
+  /// 「which rung matches how the app looked before 0.3.28」, i.e.
+  /// `AppTextScale.large.percent`, and the day a factor moves, a number typed
+  /// into nine JSON files would go on claiming the old one in nine languages
+  /// at once. Same rule as `AppTextScale.percent` itself: derive it, never
+  /// copy it.
+  String textScaleNote(String pct) => _lfTextScaleNote(pct);
 
   String get logout => _lfLogout;
 
@@ -298,6 +317,23 @@ mixin SettingsStrings on AppStringsLeaves {
   String get accountManageLink => _lfAccountManageLink;
 
   String get accountManageNote => _lfAccountManageNote;
+
+  /// 「Signed in as `<masked address>`」 — the SCREEN-READER half of the identity
+  /// line the cloud card now always shows (owner 2026-08-27 UAT ②).
+  ///
+  /// 🔴 IT IS A SEMANTICS LABEL AND NOT THE PAINTED TEXT, ON PURPOSE, AND THE
+  /// REASON IS MEASURED. The visible face is the masked address alone
+  /// (`bit***a@gmail.com`) because the whole defect being fixed is a line that
+  /// did not fit: at 360dp the card's inner column is ~250dp, the masked
+  /// address needs ~195dp in the test font, and prefixing it with 「Signed in
+  /// as 」 pushes it past the width and back into the ellipsis it came from.
+  /// Sighted users get the context from the card the line sits in; a screen
+  /// reader, which has no card, gets it from here.
+  ///
+  /// ⚠️ [account] is ALWAYS the masked form (`maskAccountEmail`). Reading the
+  /// full address aloud would defeat the ruling in the one channel nobody
+  /// thinks to check.
+  String accountSignedInAs(String account) => _lfAccountSignedInAs(account);
 
   // ── L3 account card (0.2.48, owner's 2026-08-02 shape ruling) ───────────
   //

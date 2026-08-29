@@ -104,7 +104,13 @@ void main() {
       // that don't override AppSettings language.
       expect(find.text('轻记录'), findsOneWidget);
       expect(find.text('登出'), findsOneWidget);
-      expect(find.text('a2@flowmic.test'), findsOneWidget);
+      // 0.3.37 (owner 2026-08-27 UAT ②): the identity is its own always-on line
+      // below the links, and it is MASKED. `a2` is under the five-character
+      // boundary, so it degrades to first character + the fixed star run.
+      // What this case owns is unchanged: the signed-in identity is on the saas
+      // row at all, which is the regression GA-33 created.
+      expect(find.text('a***@flowmic.test'), findsOneWidget);
+      expect(find.text('a2@flowmic.test'), findsNothing);
     },
   );
 

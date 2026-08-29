@@ -43,6 +43,7 @@ import {
   writeSetupCardDismissed,
 } from '../lib/llm-setup-card';
 import { SETTINGS_SECTION_DOM, jumpToSettingsSection, sectionFromEvent } from '../lib/settings-section-jump';
+import { guideUrl } from '../lib/site-guide';
 
 /** owner 2026-08-25, verbatim, for the mode note on the PHONE; the desktop's
  *  sentence is its own, but the zh-CN one must still be the D1 ruling's claim
@@ -204,9 +205,51 @@ describe('the first-run card (owner D2)', () => {
       expect(html).toContain(esc(s.llm_setup_dismiss));
       expect(html).toContain('data-jump="stt"');
       expect(html).toContain('data-jump="llm"');
-      // The excluded link: no anchor, no guide URL, no `href` at all.
+      // 🔴 THE GUIDE LINK, AND WHY THIS ASSERTION CHANGED SHAPE (2026-08-28).
+      // It used to read 「no anchor, no guide URL, no href at all」, which was
+      // the right assertion while the web chapter did not exist. Left as it
+      // was, it would have gone on passing for the WRONG reason: the address is
+      // not in the DOM either way, because the door is a BUTTON — so the old
+      // line could never have told a live link from a missing one. It now pins
+      // the affordance, and the anchor ban stays as the thing it always really
+      // meant: an anchor asking for a new window opens nothing in this WebView
+      // (the literal attribute is not spelled here — verify:lint
+      // external-link-door reads source text and cannot tell a citation from a
+      // use, and it flagged this very line when it was).
+      expect(html, `${loc}: the guide affordance is missing`).toContain('data-testid="llm-setup-guide"');
+      expect(html).toContain(esc(s.llm_setup_guide));
       expect(html).not.toMatch(/<a[\s>]/);
-      expect(html).not.toContain('flowmic.app/guide');
+    }
+  });
+
+  it('🔴 the guide link goes through the ONE external door, at the address the site actually serves', () => {
+    // `openExternalUrl` is the app's only working route to a browser
+    // (verify:lint external-link-door). A refusal must leave the address on
+    // screen — a button that opened nothing and said nothing is the defect
+    // 0.3.24 was about.
+    // Comments stripped first, same reason as the case above: the card's own
+    // notes NAME the broken mechanisms in order to forbid them, and a guard
+    // that cannot tell a rule from its violation reads its own explanation as
+    // a defect (this assertion was seen failing on the card's comment before
+    // the strip was added).
+    const card = readFileSync(fileURLToPath(new URL('./components/LlmSetupCard.vue', import.meta.url)), 'utf8')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
+    expect(card).toContain('openExternalUrl');
+    expect(card).not.toContain('window.open');
+    expect(card).toContain('openFailed');
+    expect(card).toContain('S.ext_open_failed');
+    // en has NO locale prefix on the site (its default locale), every other
+    // language has a lowercase one. Getting that wrong 404s in nine languages.
+    expect(guideUrl('model', 'en')).toBe('https://flowmic.app/guide/model');
+    expect(guideUrl('model', 'zh-CN')).toBe('https://flowmic.app/zh-cn/guide/model');
+    expect(guideUrl('model', 'zh-TW')).toBe('https://flowmic.app/zh-tw/guide/model');
+    for (const loc of UI_LOCALES) {
+      const url = guideUrl('model', loc);
+      expect(url.startsWith('https://flowmic.app/'), `${loc}: ${url}`).toBe(true);
+      expect(url.endsWith('/guide/model'), `${loc}: ${url}`).toBe(true);
+      expect(url, `${loc} invented an /en prefix`).not.toContain('/en/guide');
     }
   });
 

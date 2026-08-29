@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/portable_fakes.dart';
@@ -80,6 +81,7 @@ class _Rig {
           timeline: newTestStore(),
           version: const FixedAppVersion('0.0.0-test'),
           update: newTestUpdateController(),
+          cloudSummary: newTestCloudSummary(login: login),
         ),
       );
 
@@ -151,7 +153,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('a.very.long.subscriber.address@example.com'), findsOneWidget);
+    // 0.3.37 (owner 2026-08-27 UAT ②:「所有显示账号的地方都要用星号遮盖」): the
+    // pill paints the MASKED address now. The case is unchanged in what it
+    // measures — a long account still must not blow the 320dp row up — and the
+    // input is deliberately still the long one: masking bounds the local part,
+    // not the domain, so「long address」 is still a real width case.
+    // That the address itself is painted nowhere is asserted next door, in
+    // account_identity_masked_render_test.dart.
+    expect(find.text('a.v***s@example.com'), findsOneWidget);
+    expect(find.text('a.very.long.subscriber.address@example.com'), findsNothing);
     expect(find.text('Free'), findsOneWidget);
 
     final RenderBox sub = tester.renderObject(

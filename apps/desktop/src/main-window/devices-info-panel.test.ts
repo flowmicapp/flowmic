@@ -252,8 +252,49 @@ describe('the channel headings carry the channel icon (owner 2026-08-01, C-8)', 
 });
 
 describe('the cloud card shows the relay and the login state (owner ②)', () => {
-  it('the domain is always on the card', () => {
-    expect(SRC).toContain('{{ cloudEndpointLabel }}');
+  // 🔴 REVERSED ON PURPOSE (owner 2026-08-27,
+  // docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md ③:「PC 端云卡不再
+  // 显示 flowmic.app 域名，直接显示套餐额度图形」). This `it` used to read「the domain
+  // is always on the card」and assert `SRC` contains `{{ cloudEndpointLabel }}` — a
+  // faithful pin of the owner ② layout as it stood, and now a pin of a rule that has
+  // been overturned. It is REWRITTEN rather than deleted: an assertion that merely
+  // disappears leaves nobody guarding the new rule, and the next person to re-add the
+  // domain line「for symmetry with the LAN card」would find every gate green.
+  //
+  // ⚠️ The criterion is the RENDER SITE, not the computed's name: the requirement is
+  // that the domain does not reach the card, so both the interpolation and the
+  // recessed `.addr` pill it lived in are pinned absent. (The LAN card's own `.addr`
+  // pill is a different line and is still asserted alive above — which is also this
+  // negative's positive control: `.addr` is still a live selector in this file.)
+  it('the relay domain is NOT on the cloud card any more (owner 2026-08-27 ③)', () => {
+    expect(SRC).not.toContain('{{ cloudEndpointLabel }}');
+    expect(SRC).not.toContain('const cloudEndpointLabel');
+    // The `.addr` pill itself survives — on the LAN card, where the address IS the
+    // answer the phone needs. So the criterion is that there is exactly ONE of them
+    // left and it is the LAN one; asserting `.addr` absent outright would be a
+    // negative about the wrong card and would go green for the wrong reason.
+    expect(SRC.match(/class="addr mono"/g)).toHaveLength(1);
+    expect(SRC).toContain('class="addr mono">{{ lanEndpointLabel }}');
+    // The endpoint is still readable and editable where someone actually acts on it —
+    // deleting the line must not be read as "the endpoint became unknowable".
+    const FORM = readFileSync(
+      fileURLToPath(new URL('./components/CloudSignInGuide.vue', import.meta.url)),
+      'utf8',
+    );
+    expect(FORM).toContain('DEFAULT_CLOUD_ENDPOINT');
+  });
+
+  it('the space it freed carries the plan-quota gauge (the card did not just lose a line)', () => {
+    // 🔴 The ruling swapped one for the other:「直接显示套餐额度图形」. Asserting only
+    // the deletion would stay green if the gauge never landed, and the card would
+    // simply have less on it than before.
+    expect(SRC).toContain('<CloudAccountLines');
+    const LINES = readFileSync(
+      fileURLToPath(new URL('./components/CloudAccountLines.vue', import.meta.url)),
+      'utf8',
+    );
+    expect(LINES).toContain('card.gauge');
+    expect(LINES).toContain('qg-track');
   });
 
   it('signed in ⇒ the account details are FOLDED by default', () => {
@@ -266,9 +307,21 @@ describe('the cloud card shows the relay and the login state (owner ②)', () =>
     // line comes from deriveCloudCard (`dev_chan_cloud_no_key` /
     // `dev_chan_cloud_signed_out` + cloudLoudReason), and the form appears on the one
     // condition that means "no key."
+    //
+    // ⚠️ Card NR-2b moved the form itself into components/CloudSignInGuide.vue
+    // (this file hit the 800-line cap when the guided browser sign-in was added
+    // above it). The CONDITION is still this page's — it owns `cloud` — so it is
+    // still asserted here; the two labels are asserted where they now render.
+    // Following them rather than deleting them is the point: an anchor test that
+    // is trimmed when its target moves stops guarding anything and nothing says so.
     expect(SRC).toContain('v-if="!cloud.key_set"');
-    expect(SRC).toContain('S.cloud_key_label');
-    expect(SRC).toContain('S.cloud_endpoint_label');
+    expect(SRC).toContain('<CloudSignInGuide');
+    const FORM = readFileSync(
+      fileURLToPath(new URL('./components/CloudSignInGuide.vue', import.meta.url)),
+      'utf8',
+    );
+    expect(FORM).toContain('S.cloud_key_label');
+    expect(FORM).toContain('S.cloud_endpoint_label');
     expect(Object.keys(S)).toContain('dev_chan_cloud_no_key');
   });
 });

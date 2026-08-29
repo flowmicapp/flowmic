@@ -11,6 +11,13 @@
 /// and macOS got `$TMPDIR` from all three (which the OS prunes).
 pub mod app_dirs;
 pub mod caret;
+/// Browser sign-in with a loopback callback (owner 2026-08-27, the UAT
+/// correction block). DELIBERATELY OUTSIDE `shell` and therefore outside the
+/// `app` feature: every decision this flow makes — state binding, single use,
+/// the window, the https-only exchange URL — is judged here, so `cargo test
+/// --lib` covers it without dragging in the WebView2 toolchain. The Tauri
+/// commands that drive it live in `shell/cloud_signin.rs`.
+pub mod cloud_signin;
 pub mod error_codes;
 pub mod events;
 /// HOW this process ended — the classification, the declaration latch, and the
@@ -425,6 +432,13 @@ pub fn run() {
             // used to render the JWT's own frozen claims — see the long note above
             // `cloud_account_fetch`.
             shell::cloud::cloud_account_fetch,
+            // Browser sign-in (owner 2026-08-27, the UAT correction block).
+            // THREE commands rather than one, and the split is forced: a single
+            // blocking「sign in」would need an async runtime this crate does not
+            // have, and would leave nowhere to put「the person navigated away」.
+            shell::cloud_signin::cloud_browser_signin_begin,
+            shell::cloud_signin::cloud_browser_signin_poll,
+            shell::cloud_signin::cloud_browser_signin_cancel,
             // `channel_switch` is GONE (owner's 2026-07-30 ruling ②): the device page's
             // 「set as primary channel」 select was the only caller, and 「which channel
             // carries runtime traffic」 is
@@ -577,6 +591,7 @@ pub fn run() {
             //     rest). Managed BEFORE the bring-up because `sidecar_ctl::start`
             //     reads it to decide whether to spawn a local server at all.
             app.manage(shell::cloud::CloudState::load());
+            app.manage(shell::cloud_signin::SignInState::new());
             //   • UpdateState — UP-3b. 🔴 Constructing it READS AND CLEARS the
             //     `update-pending.json` breadcrumb, which is the only channel
             //     carrying「what happened after we exited last time」. It is

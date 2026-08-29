@@ -30,6 +30,7 @@ import {
   type AccountVerifier,
 } from '../src/http/account-auth';
 import { log } from '../src/log';
+import { DEFAULT_TTL_MS } from '../src/auth/jwt';
 
 const SECRET = 'user-identity-secret-32-bytes-min-xxx';
 /** Every billing route the gateway owns — the refusal must cover ALL of them,
@@ -177,7 +178,11 @@ describe('saas: an unidentified caller is refused — never served as somebody',
     // it PASSED gate 2 (M5: 200 is no longer stageable here, the gateway cannot
     // exist in saas; the 404 sits strictly behind a passing verdict).
     expect((await call(url, 'GET', '/api/billing/quota', undefined, bearer(a.token))).status).toBe(404);
-    nowMs += 8 * 24 * 60 * 60 * 1000; // past the 7-day JWT TTL
+    // Past the token's OWN TTL, read from the constant. This was a hand-written
+    // 8 days「past the 7-day JWT TTL」until owner ruling 2026-08-27 §R1 made
+    // DEFAULT_TTL_MS 100 years — at which point the line advanced past nothing
+    // and the case quietly asserted a 200.
+    nowMs += DEFAULT_TTL_MS + 1000;
     const r = await call(url, 'GET', '/api/billing/quota', undefined, bearer(a.token));
     expect(r.status).toBe(401);
     expect(r.json.error).toBe('AUTH_TOKEN_EXPIRED');

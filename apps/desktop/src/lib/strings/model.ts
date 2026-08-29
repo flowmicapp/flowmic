@@ -177,6 +177,32 @@ export const MODEL_KEYS = [
   // A pressed button that did nothing must say so — 「没有静默失败」 in its
   // smallest form.
   'model_action_failed',
+  // ── card STT-SETUP (owner 2026-08-28) — the first-run download offer ───────
+  // 🔴 TWO LIMITATION SENTENCES, AND THEY MAY NEVER BE MERGED (owner, verbatim:
+  // 「局域网模式下本地转录不可用——云端中继不受影响——两句不许混」). One names what
+  // stops working without a model; the other names what does not. A single
+  // hedged sentence carrying both is how a first-run reader concludes the whole
+  // product is broken, and it is the same 「两段术语不许混用」 discipline the
+  // delivery/injection vocabulary lives under.
+  // ⚠️ Neither may name a size, a language or a model id: those are DATA the
+  // card renders beside them (rule ② at the top of this shard), and the whole
+  // point of this card is that it says the ONE pack the catalog picked for the
+  // language THIS machine detected.
+  'stt_setup_title',
+  'stt_setup_limit_local',
+  'stt_setup_limit_cloud',
+  // Labels for the two fact rows. 「Detected」 is load-bearing in every
+  // language: the speaking language is GUESSED from the machine (see
+  // lib/machine-spoken-lang.ts), and a label that asserted it would be a claim
+  // we cannot make about a person.
+  'stt_setup_lang',
+  'stt_setup_pack',
+  'stt_setup_download',
+  // 🔴 「不再提醒」 and NOT 「暂时不用」: unlike `model_notice_dismiss` next door
+  // this dismissal is PERSISTED (lib/stt-setup-card.ts), and a button must not
+  // promise a duration different from the one the mechanism keeps — the note on
+  // that sibling key is the same rule read the other way round.
+  'stt_setup_dismiss',
   // ── LM-CAT (2026-08-22): the per-language pack picker ─────────────────────
   // One sentence of what the picker is and the promise it keeps (「只有你点了
   // 才联网」 must stay true with more buttons on the card).
@@ -216,6 +242,31 @@ export const MODEL_KEYS = [
   'model_root_cancel',
   'model_root_reset',
   'model_root_note',
+  // ── owner ruling 2026-08-27 §2-4: the card gets LAYERS ────────────────────
+  // 「Currently in use」 — the one strip that answers 「can this machine
+  // transcribe this language right now」 without the reader assembling it from
+  // five chips. Two keys, because 「a pack is ready」 and 「none is」 are two
+  // facts and the second one has a call to action inside it.
+  //
+  // 🔴 `model_in_use_none` is deliberately the SAME wording family as
+  // `stt_model_missing` in the settings shard. The owner meets both sentences
+  // in one sitting — the routing table sends them here — and two different
+  // phrasings of one fact read as two different problems.
+  //
+  // ⚠️ It does NOT name a size, a model or a duration: at the moment it renders,
+  // which pack the reader will choose is not known. The list underneath answers
+  // that, each row with its own figure (shard note ② above).
+  'model_in_use_title',
+  'model_in_use_none',
+  // A language the catalog lists no downloadable pack for. NOT the same
+  // sentence as 「nothing is ready」 — nothing can be made ready here, so the
+  // only honest next moves are the other engine or the folder, and the copy
+  // says both rather than leaving a reader pressing a button that is not there.
+  'model_no_packs',
+  // The heading of the collapsed storage section. Separate from
+  // `model_root_title` (「Download folder」, the label ON the path row): the
+  // fold answers 「where do files live」 and the row inside it answers 「here」.
+  'model_storage_title',
 ] as const;
 
 export const MODEL_STRINGS = shardCatalogue(MODEL_KEYS);

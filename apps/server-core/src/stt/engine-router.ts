@@ -26,6 +26,21 @@
 import type { SttEngineId } from '@flowmic/protocol';
 import { isSeedMarked } from '../settings/provenance';
 import type { SttEngineConfig, SttEngine } from './engines/base';
+// The region-strip THIS repo already had, reused rather than re-derived. It is
+// the same function the batch HTTP engines hand to their vendors, so a tag that
+// routes to an engine and the tag that engine is asked to transcribe cannot
+// disagree about what 「zh-CN」 means. `sherpa/model-catalog.ts baseLang()` is a
+// third spelling of the same idea and is deliberately NOT imported here: it
+// drags the whole model catalog into the router, and a router has no business
+// knowing what packs exist.
+import { toShortLang } from './engines/wav';
+
+/** The catch-all routing language. Named because the normalisation rung below
+ *  has to EXCLUDE it explicitly: `'*'.split('-')[0]` is `'*'`, so a wildcard row
+ *  would otherwise match at the normalised rung and be promoted above the
+ *  managed default — pinned by a control case in
+ *  test/stt-routing-region-normalisation.test.ts. */
+const WILDCARD_LANGUAGE = '*';
 
 /** Routing entry as read from settings `stt.routings` (untyped JSON at rest).
  *  engine_id is the protocol `SttEngineId` union — since WP-R23-0 that includes
@@ -207,6 +222,28 @@ export interface SelectedRouting {
  * markers anywhere (an un-backfilled database, or any caller passing a hand-built
  * array, which is what every unit test does) this function behaves EXACTLY as it
  * did before.
+ *
+ * 🔴 2026-08-27 (owner ruling section 2-2): each tier's rungs are now
+ * EXACT → REGION-NORMALISED → `'*'`, where the normalisation strips the region
+ * from BOTH the requested tag and the row's. Before this, the comparison was raw
+ * string equality, and the desktop's own placeholder row was authored as `zh-CN`
+ * while the phone announces `zh` and the seeder writes `zh` — so a row the user
+ * could see on their settings page could not be selected by anything they said.
+ * It fell through to their `'*'`, or threw. One question ("what language is
+ * this") answered in two vocabularies by a layer that held both.
+ *
+ * ⚠️ THE RUNG IS INSIDE A TIER, NOT ACROSS TIERS, and that placement is the whole
+ * of the compatibility argument: a user's normalised row still beats a seeded
+ * exact row, exactly as a user's exact row did. Hoisting normalisation above the
+ * authorship split would have quietly reversed the 2026-08-06 provenance ruling
+ * as a side effect of a language-matching fix.
+ *
+ * ⚠️ AND IT IS DELIBERATELY NOT FUZZIER THAN THIS. `ja` does not reach a `zh`
+ * row; the only tags that meet are ones sharing a base subtag. Over-eager
+ * normalisation is a worse defect than the one it fixes — the user gets fluent,
+ * confident, wrong text from an engine that cannot hear their language, instead
+ * of an error that names the problem. `zh-TW` meeting `zh-CN` is the owner's
+ * explicit intent (簡體/繁體 is one SPOKEN language), not a side effect.
  */
 export function selectRoutingWithSource(
   language: string,
@@ -214,12 +251,15 @@ export function selectRoutingWithSource(
   managedDefault?: (language: string) => Routing | null,
   engineHealthy: (id: SttEngineId) => boolean = () => true,
 ): SelectedRouting | null {
+  const wanted = toShortLang(language.trim());
   const pick = (rows: readonly Routing[]): Routing | undefined => {
-    const exact = rows.find((c) => c.language === language);
-    if (exact && engineHealthy(exact.engine_id)) return exact;
-    const universal = rows.find((c) => c.language === '*');
-    if (universal && engineHealthy(universal.engine_id)) return universal;
-    return undefined;
+    const healthy = (c: Routing | undefined): Routing | undefined =>
+      c && engineHealthy(c.engine_id) ? c : undefined;
+    return (
+      healthy(rows.find((c) => c.language === language)) ??
+      healthy(rows.find((c) => c.language !== WILDCARD_LANGUAGE && toShortLang(c.language.trim()) === wanted)) ??
+      healthy(rows.find((c) => c.language === WILDCARD_LANGUAGE))
+    );
   };
   const authored = pick(userConfig.filter((c) => !isSeedMarked(c)));
   if (authored) return { routing: authored, source: 'user' };

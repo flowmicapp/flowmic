@@ -22,6 +22,44 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<!-- Card NR-2b (owner 2026-08-27, docs/decisions/2026-08-27-owner-no-
+	     password-login-on-clients.md): the iOS half of the browser sign-in
+	     hand-back. The console redirects to
+	     `flowmic://login?endpoint=…&t=…&state=…`; without this block iOS has no
+	     idea the URL belongs to us and Safari shows an error page instead.
+
+	     🔴 THE SCHEME IS ALSO WRITTEN IN DART (lib/src/auth/browser_login.dart,
+	     kBrowserLoginScheme) AND IN THE ANDROID MANIFEST. Nothing compares the
+	     three; `test/browser_login_test.dart` reads THIS FILE off disk and
+	     asserts it carries exactly the Dart constant, which is the only gate
+	     there is against a rename that silently kills the callback.
+
+	     ⚠️ REAL-DEVICE UNPROVEN — MAC-LINE VERIFICATION REQUIRED. This card was
+	     implemented on Windows, where neither an iOS build nor an iOS test can
+	     run, and repo law is that a Windows gate has zero proving power over a
+	     non-Windows surface. Two things need a device: that this registration
+	     takes effect, and that app_links receives the URL through this target's
+	     SceneDelegate (ios/Runner/SceneDelegate.swift) — UIKit routes an opened
+	     URL to `scene(_:openURLContexts:)`, not to the AppDelegate hook most
+	     sample code writes, so "the plugin handles it" is a claim only a real
+	     iPad/iPhone can settle.
+
+	     CFBundleURLName is the reverse-DNS owner of the declaration, kept
+	     distinct from the bundle id so a second scheme could be added later
+	     without either entry claiming to be the other. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>app.flowmic.browserlogin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flowmic</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>

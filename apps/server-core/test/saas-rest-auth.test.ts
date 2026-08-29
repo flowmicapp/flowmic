@@ -6,6 +6,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { startServer, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
+// The owner's number, imported rather than typed: a literal `2` here would be a
+// copy that keeps passing after the constant moves (0.2.53's law, applied to a
+// budget instead of a string).
+import { REGISTER_MAX_PER_DAY } from '../src/auth/register-rate-limit';
+import { DEFAULT_TTL_MS } from '../src/auth/jwt';
 
 const SECRET = 'rest-auth-secret-32-bytes-minimum-xxx';
 let server: BootstrapHandle | null = null;
@@ -52,7 +57,7 @@ describe('saas REST auth', () => {
     expect(typeof json.token).toBe('string');
     // A2-3 — `restricted` joins the register response's user object (it is the
     // same `publicUser` projection). A brand-new account is never restricted.
-    expect(json.user).toEqual({ id: expect.any(String), email: 'a@b.co', display_name: 'Ann', plan: 'free', email_verified: false, restricted: false });
+    expect(json.user).toEqual({ id: expect.any(String), email: 'a@b.co', display_name: 'Ann', plan: 'free', email_verified: false, restricted: false, verify_grace_days_left: expect.any(Number) });
     expect('password_hash' in json.user).toBe(false);
   });
 
@@ -71,13 +76,47 @@ describe('saas REST auth', () => {
     expect(json.error).toBe('SETTINGS_SCHEMA_INVALID');
   });
 
-  it('6th register from one IP inside the window → 429 REGISTER_RATE_LIMITED', async () => {
+  // 🔴 2026-08-27 (owner batch-2 item 4) — THIS TEST USED TO READ 「6th register
+  // from one IP inside the window → 429」, i.e. it drove the 5/10-min BURST
+  // brake through /api/register. That is no longer observable there, and the
+  // reason is a real product consequence of the owner's ruling rather than a
+  // test-maintenance chore: the per-IP DAILY account cap moved from 10 to 2, so
+  // on /api/register the daily counter now refuses the THIRD attempt and the
+  // burst brake's own boundary is never reached.
+  //
+  // ⚠️ The burst brake is NOT dead — it is shared with /api/login and
+  // /api/auth/google, and it still governs both. It is simply no longer the
+  // thing that answers first on this route. Splitting the old assertion in two
+  // keeps both facts proven and records which one bites where; collapsing them
+  // into one would leave a suite that goes green whichever limiter fired.
+  it('the DAILY account cap (owner: 2/IP/day) refuses the 3rd mint, and carries retry_after_ms', async () => {
     const url = await saasServer();
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < REGISTER_MAX_PER_DAY; i++) {
       const r = await post(`${url}/api/register`, { email: `u${i}@b.co`, password: 'longenough1' });
-      expect(r.status).toBe(201);
+      expect(r.status, `mint ${i + 1} of the day`).toBe(201);
     }
     const blocked = await post(`${url}/api/register`, { email: 'u5@b.co', password: 'longenough1' });
+    expect(blocked.status).toBe(429);
+    expect(blocked.json.error).toBe('REGISTER_RATE_LIMITED');
+    // The one field that tells the two 429s apart on the wire (auth-routes.ts
+    // states why they deliberately share a code): the daily branch carries a
+    // budget, the burst branch does not. Without this assertion the test would
+    // pass just as well if the BURST brake had fired, which is the thing this
+    // split exists to distinguish.
+    expect(typeof blocked.json.retry_after_ms, 'the daily refusal must say when a slot frees').toBe('number');
+  });
+
+  it('the 5/10-min BURST brake is still real — /api/login is where it is now observable', async () => {
+    const url = await saasServer();
+    // Wrong password on purpose: what is being measured is the ATTEMPT budget,
+    // and a successful login would prove nothing about it. Five land as 401s…
+    for (let i = 0; i < 5; i++) {
+      const r = await post(`${url}/api/login`, { email: 'nobody@b.co', password: 'longenough1' });
+      expect(r.status, `attempt ${i + 1}`).toBe(401);
+    }
+    // …and the sixth meets the brake. No retry_after_ms here — that absence is
+    // the burst branch's signature.
+    const blocked = await post(`${url}/api/login`, { email: 'nobody@b.co', password: 'longenough1' });
     expect(blocked.status).toBe(429);
     expect(blocked.json.error).toBe('REGISTER_RATE_LIMITED');
   });
@@ -104,7 +143,7 @@ describe('saas REST auth', () => {
     // (design §2.2: it re-reads the row on every Bearer call, which is why the
     // state is not in the JWT). This shape assertion is where that field's
     // presence on the wire is pinned.
-    expect(me.json.user).toEqual({ id: reg.json.user.id, email: 'me@b.co', display_name: 'User', plan: 'free', email_verified: false, restricted: false });
+    expect(me.json.user).toEqual({ id: reg.json.user.id, email: 'me@b.co', display_name: 'User', plan: 'free', email_verified: false, restricted: false, verify_grace_days_left: expect.any(Number) });
     expect((await get(`${url}/api/me`)).status).toBe(401);
     expect((await get(`${url}/api/me`, { authorization: 'Bearer not.a.jwt' })).json.error).toBe('AUTH_TOKEN_INVALID');
   });
@@ -114,8 +153,12 @@ describe('saas REST auth', () => {
     const url = await saasServer(() => simNow);
     const reg = await post(`${url}/api/register`, { email: 'exp@b.co', password: 'longenough1' });
     const token = reg.json.token as string;
-    // Fast-forward the server clock past the 7-day token TTL.
-    simNow += 8 * 24 * 60 * 60 * 1000;
+    // Fast-forward the server clock past the token's OWN TTL, read from the
+    // constant rather than re-typed as "8 days". Owner ruling 2026-08-27 §R1
+    // moved that constant from 7 days to 100 years; a hand-written number here
+    // silently stopped testing expiry at all (it went green as a 200), which is
+    // exactly the shape this repo calls "a test that pins yesterday's fact".
+    simNow += DEFAULT_TTL_MS + 1000;
     const me = await get(`${url}/api/me`, { authorization: `Bearer ${token}` });
     expect(me.status).toBe(401);
     expect(me.json.error).toBe('AUTH_TOKEN_EXPIRED');

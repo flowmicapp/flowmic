@@ -12,8 +12,17 @@
 //      last describe block.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { deriveAccountCard, parseLiveAccount, type CloudAccountRaw } from './cloud-account';
+import {
+  deriveAccountCard,
+  formatTokensM,
+  gaugePct,
+  LONG_LIVED_KEY_THRESHOLD_MS,
+  parseLiveAccount,
+  quotaGauge,
+  type CloudAccountRaw,
+} from './cloud-account';
 import { EMPTY_CLOUD_STATUS, type CloudStatus } from './channel';
+import { RESTRICTION_REASONS } from '@flowmic/protocol';
 import { UI_LOCALES, setLocale, type UiLocale } from './strings/locale';
 
 beforeEach(() => {
@@ -44,6 +53,11 @@ function okRaw(over: {
   expires_at?: string | null;
   used_min?: number;
   limit_min?: number | null;
+  // owner 2026-08-27: the token meter is the gauge's right-hand end. The defaults
+  // are the FREE tier's real pair (1M ceiling), so a fixture that says nothing about
+  // tokens still describes an account the server could actually return.
+  used_tokens?: number;
+  limit_tokens?: number | null;
 }): CloudAccountRaw {
   return {
     outcome: 'ok',
@@ -62,7 +76,15 @@ function okRaw(over: {
       },
       quota: {
         stt: { used_min: over.used_min ?? 3, limit_min: over.limit_min === undefined ? 20 : over.limit_min },
-        llm: { used: 0, limit: 1_000_000 },
+        llm: {
+          used: over.used_tokens ?? 0,
+          // `used_in` is on the wire too and is the REFERENCE meter — the desktop
+          // must keep ignoring it (billing-service.ts split the two on 2026-08-14
+          // so that one number stopped answering two questions). It is in the
+          // fixture precisely so a parser that grabbed the wrong field would show up.
+          used_in: 999_999_999,
+          limit: over.limit_tokens === undefined ? 1_000_000 : over.limit_tokens,
+        },
         month: '2026-08',
       },
       devices: { pc_count: 1, mobile_count: 1 },
@@ -81,7 +103,7 @@ describe('① unreachable → neutral state (unknown ≠ error ≠ stale value �
     expect(c.phase).toBe('unknown');
     // 🔴 anti-façade's negative assertion + its own built-in positive control (the 'live' case below proves these fields would otherwise have values).
     expect(c.planBadge).toBeNull();
-    expect(c.usageText).toBeNull();
+    expect(c.gauge).toBeNull();
     expect(c.subExpiresText).toBeNull();
     expect(c.account).toBeNull();
     // Neutral, not an error: no loud red-line, but there is a "temporarily unreachable" sentence and a retry.
@@ -136,8 +158,17 @@ describe('① unreachable → neutral state (unknown ≠ error ≠ stale value �
 });
 
 describe('①-bis the account row (M3-8): email / unbound / the row does not exist at all — three facts, three answers', () => {
-  it('a live answer exists ⇒ the email', () => {
-    expect(card(okRaw({})).identityText).toBe('owner@example.com');
+  it('a live answer exists ⇒ the email, MASKED', () => {
+    // owner 2026-08-27:「所有显示账号的地方都要用星号遮盖」. This assertion read
+    // `'owner@example.com'` until that ruling; it is the value that changed, not
+    // the claim — the row still answers「which account am I signed in with」, and
+    // `own***r` still tells `owner@` from `ownership@`, which is the whole
+    // reason the rule keeps three characters instead of one.
+    expect(card(okRaw({})).identityText).toBe('own***r@example.com');
+    // 🔴 The property, stated separately from the vector: the raw address does
+    // not leave this module. A future change that formats the line differently
+    // has to keep passing this.
+    expect(card(okRaw({})).identityText).not.toContain('owner@');
   });
 
   it('the server answered, but this account has no email ⇒ "no email bound" (`users.email` can be null — that is a real answer, not a read failure)', () => {
@@ -169,7 +200,7 @@ describe('①-bis the account row (M3-8): email / unbound / the row does not exi
       okRaw({}),
     );
     expect(c.phase).toBe('stale');
-    expect(c.identityText).toBe('owner@example.com');
+    expect(c.identityText).toBe('own***r@example.com');
     expect(c.statusText).toBe('暂时问不到，下面是 16:02 问到的');
   });
 
@@ -240,17 +271,128 @@ describe('③ subscription validity and Cloud Key validity are two values', () =
   });
 });
 
+// ── ④-bis the gauge's arithmetic, on its own ────────────────────────────────
+//
+// owner 2026-08-27. These are the two pure functions the component pastes into a
+// `style` and a `<span>`; they are tested WITHOUT a DOM on purpose, the same split
+// the whole module is built on. A number that is wrong here is wrong on all three
+// surfaces at once (phone / PC / web console draw the same gauge).
+describe('④-bis gaugePct: each side\'s 100% is the CENTRE, so two meters share one rail', () => {
+  it('half a meter fills a quarter of the rail (its own 50%, i.e. 25% of the whole)', () => {
+    expect(gaugePct(10, 20)).toBe(25);
+    expect(gaugePct(0, 20)).toBe(0);
+  });
+
+  it('🔴 a full meter stops exactly at the centre — never past it, so the two sides cannot collide', () => {
+    expect(gaugePct(20, 20)).toBe(50);
+    // Over quota: the bar is CLAMPED. Without this, 3x usage would draw 150% of the
+    // rail and paint straight through the other meter's numbers.
+    expect(gaugePct(60, 20)).toBe(50);
+    expect(gaugePct(20_000_000, 1_000_000)).toBe(50);
+  });
+
+  it('a non-positive limit produces a width, never NaN%', () => {
+    // `NaN%` is not an error anywhere — CSS drops the declaration and the bar
+    // silently renders at zero, i.e. "you have used none of it".
+    expect(gaugePct(0, 0)).toBe(0);
+    expect(gaugePct(5, 0)).toBe(50);
+    expect(Number.isNaN(gaugePct(0, 0))).toBe(false);
+  });
+});
+
+describe('④-bis formatTokensM: millions, at most one decimal', () => {
+  it('a whole number of millions carries no decimal point', () => {
+    expect(formatTokensM(1_000_000)).toBe('1');
+    expect(formatTokensM(5_000_000)).toBe('5');
+    expect(formatTokensM(15_000_000)).toBe('15');
+    expect(formatTokensM(0)).toBe('0');
+  });
+
+  it('a partial million keeps exactly one decimal', () => {
+    expect(formatTokensM(450_000)).toBe('0.5');
+    expect(formatTokensM(1_240_000)).toBe('1.2');
+    expect(formatTokensM(12_345_678)).toBe('12.3');
+  });
+
+  it('🔴 it never emits the raw seven-digit count (the reason the unit exists)', () => {
+    expect(formatTokensM(12_345_678)).not.toContain('345');
+  });
+});
+
 describe('④ the name and "the actual number in effect" are asserted separately (D1: a test that asserts only the label stays green)', () => {
   it('pro: assert both the name PRO and the number 900 that is actually in effect', () => {
     const c = card(okRaw({ plan: 'pro', source: 'paddle', used_min: 128, limit_min: 900 }));
     expect(c.planBadge).toBe('PRO');
-    expect(c.usageText).toBe('128 / 900 分钟');
+    expect(c.gauge?.minutes?.label).toBe('128 / 900 分钟');
+    // The width is asserted next to the sentence, not instead of it: D1's law is
+    // that the name and the number in effect are two claims, and on a gauge the
+    // BAR is a third one — a label reading 128/900 above a full bar is the same
+    // defect wearing a different shape.
+    expect(c.gauge?.minutes?.pct).toBeCloseTo((128 / 900) * 50, 1);
+    expect(c.gauge?.minutes?.over).toBe(false);
   });
 
   it("free: 20 minutes (B12's adjusted live criterion), the name and the number each asserted once", () => {
     const c = card(okRaw({ plan: 'free', source: 'none', used_min: 3, limit_min: 20 }));
     expect(c.planBadge).toBe('FREE');
-    expect(c.usageText).toBe('3 / 20 分钟');
+    expect(c.gauge?.minutes?.label).toBe('3 / 20 分钟');
+  });
+
+  it('🔴 the token meter is the OTHER end of the same rail, and it is the ENFORCED number', () => {
+    const c = card(
+      okRaw({ plan: 'pro', source: 'paddle', used_min: 128, limit_min: 900, used_tokens: 1_240_000, limit_tokens: 5_000_000 }),
+    );
+    expect(c.gauge?.context?.label).toBe('上下文 1.2 / 5M');
+    expect(c.gauge?.context?.pct).toBeCloseTo((1_240_000 / 5_000_000) * 50, 1);
+    // 🔴 `used_in` (999,999,999 in the fixture) is the reference meter and is NOT
+    // what is charged. If a future edit parsed `used + used_in`, this bar would be
+    // full and this assertion is the only thing that would say so.
+    expect(c.gauge?.context?.over).toBe(false);
+    expect(c.gauge?.context?.label).not.toContain('999');
+  });
+
+  it('🔴 used ≥ limit ⇒ the bar reaches the centre and flags WARNING, and the numbers stay truthful', () => {
+    const c = card(
+      okRaw({ plan: 'free', source: 'none', used_min: 33, limit_min: 20, used_tokens: 2_000_000, limit_tokens: 1_000_000 }),
+    );
+    expect(c.gauge?.minutes?.over).toBe(true);
+    expect(c.gauge?.minutes?.pct).toBe(50);
+    // 🔴 R11: the warning colour does not get to round the number down to the
+    // ceiling. What was used is what is printed — 33, not 20.
+    expect(c.gauge?.minutes?.label).toBe('33 / 20 分钟');
+    expect(c.gauge?.context?.over).toBe(true);
+    expect(c.gauge?.context?.label).toBe('上下文 2 / 1M');
+  });
+
+  it('🔴 one meter unreadable ⇒ that END of the gauge is absent, the other one still draws', () => {
+    // A zero-length bar would read as 「you have used none of it」, which is an
+    // answer we do not have. Two questions, two answers — and one of them is
+    // 「we could not read this」.
+    const noTokens = card(okRaw({ plan: 'pro', source: 'paddle', used_min: 128, limit_min: 900, limit_tokens: null }));
+    expect(noTokens.gauge?.context).toBeNull();
+    expect(noTokens.gauge?.minutes?.label).toBe('128 / 900 分钟'); // positive control
+  });
+
+  it('🔴 a null limit is NOT rendered as "unlimited" — the premise for that reading died on 2026-08-07', () => {
+    // The 2026-08-27 ruling's wording is 「limit 为 null（豁免/∞）⇒ 该侧文字「不限」」,
+    // and its parenthesis names the premise: Infinity crossing the wire as null.
+    // billing-service.ts's `QuotaView` retired that verbatim — every account,
+    // exempt included, now gets a finite number, so a null can ONLY mean "we failed
+    // to compute it". Calling that "unlimited" would print a boundless claim under
+    // a live gate (R11), which is the very defect the 08-07 ruling removed.
+    const g = quotaGauge({
+      email: null,
+      plan: 'free',
+      source: 'permanent_free',
+      quota_exempt: true,
+      sub_state: 'none',
+      sub_expires_at: null,
+      used_min: 128,
+      limit_min: null,
+      used_tokens: 12,
+      limit_tokens: null,
+    });
+    expect(g).toBeNull();
   });
 
   // 🔴 Rewritten 2026-08-07 (owner ruling ①: permanent_free capped at the
@@ -267,30 +409,34 @@ describe('④ the name and "the actual number in effect" are asserted separately
     expect(exempt.sourceBadge).toBe('长期免费');
     // ② The number in effect: the server's 3,000 appears verbatim, together
     // with "not billed" — each of the three sentences is true on its own.
-    expect(exempt.usageText).toBe('128 / 3000 分钟 · 不计费');
+    expect(exempt.gauge?.minutes?.label).toBe('128 / 3000 分钟 · 不计费');
     // ③ 🔴 that sentence is no longer true, and this pins it down so it never
     //    comes back. Asserting ② alone is not enough: someone could paste
     //    "· unlimited" back in while {used}/{limit} stays as-is, and ② could
     //    still be turned green again.
-    expect(exempt.usageText).not.toContain('不限额');
+    expect(exempt.gauge?.minutes?.label).not.toContain('不限额');
   });
 
   it('🔴 positive control: the same numbers, no exemption ⇒ it is a different sentence (quota_exempt really is selecting the sentence)', () => {
     // Without this case, the assertion above could go green just because "both branches rendered the same sentence".
     const paid = card(okRaw({ plan: 'max', source: 'paddle', quota_exempt: false, used_min: 128, limit_min: 3000 }));
-    expect(paid.usageText).toBe('128 / 3000 分钟');
-    expect(paid.usageText).not.toContain('不计费');
+    expect(paid.gauge?.minutes?.label).toBe('128 / 3000 分钟');
+    expect(paid.gauge?.minutes?.label).not.toContain('不计费');
   });
 
-  it('🔴 limit is empty ⇒ the whole row does not render, exempt or not, the same either way (null now has only one meaning)', () => {
+  it('🔴 limit is empty ⇒ that side does not render, exempt or not, the same either way (null now has only one meaning)', () => {
     // Since 2026-08-07, an exempt account also gets a finite number, so
-    // limit=null can only mean "we couldn't compute it". A missing row is
+    // limit=null can only mean "we couldn't compute it". A missing bar is
     // better than a fabricated number — both branches must do this.
-    const unknownPaid = card(okRaw({ plan: 'pro', source: 'paddle', quota_exempt: false, used_min: 12, limit_min: null }));
-    expect(unknownPaid.usageText).toBeNull();
+    const unknownPaid = card(
+      okRaw({ plan: 'pro', source: 'paddle', quota_exempt: false, used_min: 12, limit_min: null, limit_tokens: null }),
+    );
+    expect(unknownPaid.gauge).toBeNull();
     expect(unknownPaid.planBadge).toBe('PRO'); // the name is still there, the number is not —— two questions, two answers
-    const unknownExempt = card(okRaw({ source: 'permanent_free', quota_exempt: true, used_min: 128, limit_min: null }));
-    expect(unknownExempt.usageText).toBeNull();
+    const unknownExempt = card(
+      okRaw({ source: 'permanent_free', quota_exempt: true, used_min: 128, limit_min: null, limit_tokens: null }),
+    );
+    expect(unknownExempt.gauge).toBeNull();
     expect(unknownExempt.sourceBadge).toBe('长期免费'); // same as above: what justifies still being able to answer
   });
 });
@@ -372,19 +518,25 @@ describe('⑤ BILL-1: the exemption sentence never claims boundlessness, in any 
 
       // ① "the actual number in effect": the server's ceiling reaches the screen in this locale.
       //    This is also what catches a template that lost its `{limit}` placeholder.
-      expect(exempt.usageText).toContain('3000');
+      expect(exempt.gauge?.minutes?.label).toContain('3000');
       // ② the wording: no locale is allowed to answer "unlimited" any more.
-      expect(exempt.usageText).not.toMatch(UNBOUNDED[loc]);
+      expect(exempt.gauge?.minutes?.label).not.toMatch(UNBOUNDED[loc]);
+      // ②-bis owner 2026-08-27 put a SECOND label on this rail, and it is the one
+      //    with no history of this defect — which is exactly why it is checked:
+      //    「unlimited」 has been deleted from the minutes end, and re-introducing it
+      //    at the token end would be the same lie in a place no assertion watched.
+      expect(exempt.gauge?.context?.label).not.toMatch(UNBOUNDED[loc]);
+      expect(exempt.gauge?.context?.label).toContain('1'); // the 1M ceiling really reached this locale
       // ③ POSITIVE CONTROL #1 — this locale really did render a usage line, so ②
-      //    passing cannot mean 「usageText was null/empty and matched nothing」.
-      expect(exempt.usageText).not.toBeNull();
-      expect(String(exempt.usageText).length).toBeGreaterThan(0);
+      //    passing cannot mean 「the label was null/empty and matched nothing」.
+      expect(exempt.gauge?.minutes?.label).not.toBeUndefined();
+      expect(String(exempt.gauge?.minutes?.label).length).toBeGreaterThan(0);
       // ④ POSITIVE CONTROL #2 — `quota_exempt` still SELECTS a different sentence
       //    here. Without it, collapsing both branches into the paid string would
       //    satisfy ①②③ while quietly deleting the one thing that is still uniquely
       //    true of an exempt account (nothing is billed).
-      expect(exempt.usageText).not.toBe(paid.usageText);
-      expect(paid.usageText).toContain('3000');
+      expect(exempt.gauge?.minutes?.label).not.toBe(paid.gauge?.minutes?.label);
+      expect(paid.gauge?.minutes?.label).toContain('3000');
     });
   }
 
@@ -396,8 +548,146 @@ describe('⑤ BILL-1: the exemption sentence never claims boundlessness, in any 
       setLocale(loc);
       return card(
         okRaw({ plan: 'free', source: 'permanent_free', quota_exempt: true, used_min: 128, limit_min: 3000 }),
-      ).usageText;
+      ).gauge?.minutes?.label;
     });
+    expect(new Set(rendered).size).toBe(UI_LOCALES.length);
+    // ⚠️ Deliberately NOT extended to the context label. 「上下文」 is the same word
+    // in Simplified and Traditional Chinese, so zh-CN and zh-TW share that string
+    // legitimately — a uniqueness check there would demand a difference that does
+    // not exist and would be satisfied only by making one of them wrong.
+  });
+});
+
+// ── ⑥ the Cloud Key row, after persistent login ──────────────────────────────
+//
+// Owner ruling 2026-08-27 §R1 (docs/decisions/2026-08-27-owner-persistent-login-
+// and-routing-order.md) made the account JWT's default TTL 100 years. This row
+// used to have exactly one shape — a date — and a date in the year 2126 is a
+// TRUE number that answers a question nobody asked (「when do I have to sign in
+// again?」 — never). So the row now has two arms, and BOTH are asserted here:
+// dropping either one is how a fix in one direction becomes a lie in the other.
+describe('⑥ Cloud Key validity: a far-out exp is a sentence, a near one is still a date', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const NOW = new Date(2026, 7, 27, 12, 0, 0).getTime();
+
+  function keyRow(expiresAt: number | null, nowMs = NOW): string | null {
+    return deriveAccountCard({
+      cloud: { ...SIGNED_IN, expires_at: expiresAt },
+      raw: null,
+      lastLive: null,
+      loading: false,
+      nowMs,
+    }).keyExpiresText;
+  }
+
+  it('a 100-year key ⇒ the long-lived sentence, and NOT a date', () => {
+    const row = keyRow(Math.floor((NOW + 100 * 365 * day) / 1000));
+    expect(row).toBe('长期有效——本机退出登录前一直有效');
+    // 🔴 The real failure mode is not「wrong words」, it is「a date leaked
+    // through」. Asserted on the rendered value's SHAPE so a future rewording
+    // cannot quietly restore one.
+    expect(row).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('a 7-day legacy key ⇒ STILL a date (it really does lapse — same lie, other direction)', () => {
+    const row = keyRow(Math.floor((NOW + 7 * day) / 1000));
+    expect(row).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(row).not.toBe('长期有效——本机退出登录前一直有效');
+  });
+
+  it('the threshold is one year, and it is exercised from BOTH sides', () => {
+    expect(LONG_LIVED_KEY_THRESHOLD_MS).toBe(365 * day);
+    // one hour under ⇒ date; one hour over ⇒ sentence. A single-sided assertion
+    // is satisfied by a constant that is merely「large」.
+    expect(keyRow(Math.floor((NOW + 365 * day - 3600_000) / 1000))).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    expect(keyRow(Math.floor((NOW + 365 * day + 3600_000) / 1000))).toBe('长期有效——本机退出登录前一直有效');
+  });
+
+  it('an expired / absent exp is unchanged: a past date renders, no key renders nothing', () => {
+    expect(keyRow(Math.floor((NOW - 3 * day) / 1000))).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    expect(keyRow(null)).toBeNull();
+    expect(keyRow(0)).toBeNull();
+  });
+
+  it('every locale has its OWN long-lived sentence — none fell back to another', () => {
+    const far = Math.floor((NOW + 100 * 365 * day) / 1000);
+    const rendered = (UI_LOCALES as readonly UiLocale[]).map((loc) => {
+      setLocale(loc);
+      return keyRow(far);
+    });
+    // Positive control first: every locale rendered SOMETHING for this arm, so
+    // the uniqueness check below cannot be satisfied by a pile of nulls.
+    for (const r of rendered) expect(String(r).length).toBeGreaterThan(0);
+    expect(new Set(rendered).size).toBe(UI_LOCALES.length);
+  });
+});
+
+// ── a RESTRICTION is not an EXPIRY (owner ruling 2026-08-27 §R1 追加) ─────────
+//
+// Persistent login means the credential no longer expires on a clock, so the
+// relay's per-call verdict is now the ONLY thing that can tell a user their
+// account stopped being served. `403 ACCOUNT_RESTRICTED` used to arrive as
+// outcome `unauthorized` and render as 「your login has expired, please sign in
+// again」 — an instruction that succeeds and changes nothing, while the
+// enumerated reason the Terms promise was thrown away one layer below.
+describe('④ ACCOUNT_RESTRICTED: its own phase, its own sentence, and no button', () => {
+  const restricted = (detail: string | null): CloudAccountRaw =>
+    ({ outcome: 'restricted', fetched_at: null, detail, me: null, summary: null });
+
+  it('phase is `restricted`, NOT `expired` — the two differ in what the user should do', () => {
+    const c = card(restricted('terms_violation'));
+    expect(c.phase).toBe('restricted');
+    expect(c.phase).not.toBe('expired');
+  });
+
+  it('the red line says restricted and never tells the user to sign in again', () => {
+    const c = card(restricted(null));
+    expect(c.loud).toBe('这个账号已被限制使用，暂时无法使用云端中继。');
+    // 🔴 The defect was not「wrong words」, it was「a dead-end action」. Asserted
+    // on the rendered line so a rewording cannot quietly reintroduce one.
+    expect(c.loud).not.toContain('重新登录');
+    expect(c.loud).not.toBe(card({ outcome: 'unauthorized', fetched_at: null, detail: 'http 401', me: null, summary: null }).loud);
+  });
+
+  it('positive control: `unauthorized` still says "sign in again" — that arm is untouched', () => {
+    const c = card({ outcome: 'unauthorized', fetched_at: null, detail: 'http 401', me: null, summary: null });
+    expect(c.phase).toBe('expired');
+    expect(c.loud).toBe('登录已过期，请重新登录。');
+  });
+
+  it('an enumerated reason is APPENDED from the protocol registry, not invented here', () => {
+    const c = card(restricted('automated_or_bulk_use'));
+    expect(c.loud).toContain('这个账号已被限制使用');
+    // Read from RESTRICTION_REASONS, the same table the phone renders — so one
+    // person cannot be told two different things by two of our screens.
+    expect(c.loud).toContain(RESTRICTION_REASONS.automated_or_bulk_use.zh_CN);
+  });
+
+  it('a reason key this build does not know is KEPT and labelled, never dropped and never guessed', () => {
+    const c = card(restricted('some_future_reason'));
+    expect(c.loud).toContain('这个账号已被限制使用');
+    // It is the one artefact the user could quote to us; inventing a sentence
+    // would tell a real person something nobody decided about them.
+    expect(c.loud).toContain('some_future_reason');
+  });
+
+  it('nothing else on the card is rendered, and there is no retry', () => {
+    const c = card(restricted('terms_violation'));
+    // Same stance as `expired`: no tier, no gauge, no stale numbers dressed as live.
+    expect(c.account).toBeNull();
+    expect(c.planBadge).toBeNull();
+    expect(c.gauge).toBeNull();
+    // 🔴 Re-asking returns the same 403. A button that must fail is the one this
+    // repo has ruled against twice.
+    expect(c.canRetry).toBe(false);
+  });
+
+  it('every locale has its OWN restricted sentence — none fell back to another', () => {
+    const rendered = (UI_LOCALES as readonly UiLocale[]).map((loc) => {
+      setLocale(loc);
+      return card(restricted(null)).loud;
+    });
+    for (const r of rendered) expect(String(r).length).toBeGreaterThan(0);
     expect(new Set(rendered).size).toBe(UI_LOCALES.length);
   });
 });

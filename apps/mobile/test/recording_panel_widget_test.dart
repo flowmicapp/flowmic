@@ -545,13 +545,22 @@ void main() {
       expect(find.text('未连接 · 暂时不能说话'), findsOneWidget);
     });
 
-    testWidgets('processing / justDone refuse a PTT-down (the FSM is busy)', (
+    // 🔴 NR-4-P1 (a), 2026-08-27 — `PttVisual.justDone` was REMOVED from this
+    // list, and the case renamed from 「processing / justDone refuse a
+    // PTT-down」. It is not a weakened assertion: the done face is a 1500 ms
+    // green ✓ over an utterance that has already produced its final and its
+    // row, so refusing a press there bought nothing and cost every continuous
+    // dictation a pause (NR-4 ledger §4 row a). The positive assertion that
+    // replaces it — a press on the done face DOES reach `onDown` — lives in
+    // ptt_justdone_unlocks_test.dart, together with the boundary this list
+    // still guards: PROCESSING stays shut, because opening it means two
+    // utterances in flight and 08 §2 forbids that coexistence.
+    testWidgets('processing / disabled refuse a PTT-down (the FSM is busy)', (
       WidgetTester tester,
     ) async {
       int downs = 0;
       for (final PttVisual busy in <PttVisual>[
         PttVisual.processing,
-        PttVisual.justDone,
         PttVisual.disabled,
       ]) {
         await tester.pumpWidget(

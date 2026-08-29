@@ -206,6 +206,7 @@ import {
   normalizeForEcho,
   properNounShape,
   scriptClassFor,
+  dominantScript,
 } from './output-guard-text';
 import {
   COMPRESSION_FLOOR_CHARS,
@@ -243,7 +244,8 @@ export type ComposeGuardRule =
   | 'invented_numerals'
   | 'invented_latin_tokens'
   | 'volume_runaway'
-  | 'over_compressed';
+  | 'over_compressed'
+  | 'script_changed';
 
 /** A repair changed the text but did NOT reject it. Reported so a caller can
  *  log that the model needed cleaning up without failing the user's turn. */
@@ -422,11 +424,34 @@ const reject = (
 ): ComposeGuardVerdict => ({ ok: false, rule, detail, repairs });
 
 /**
- * Decide whether a completed translate/organize output may be delivered.
+ * Decide whether a completed translate / organize / draft_polish output may be
+ * delivered.
  *
- * `draft_polish` is deliberately out of scope: that path already carries three
- * gates (stripWrapping, protected-term drift, checkMeaningPreserved) and adding
- * a fourth opinion would give one question two answers.
+ * 🔴 THE PARAGRAPH THAT USED TO SIT HERE WAS FALSE, AND IT WAS THE REASON THE
+ * GUARD WAS SWITCHED OFF FOR A WHOLE TASK. Verbatim, so it can be recognised if
+ * it reappears: "`draft_polish` is deliberately out of scope: that path already
+ * carries three gates (stripWrapping, protected-term drift,
+ * checkMeaningPreserved) and adding a fourth opinion would give one question two
+ * answers."
+ *
+ * All three named gates live in `stt/stt-polish.ts`, which is the REALTIME STT
+ * correction pass. `draft_polish` is a compose task: it arrives on
+ * `compose:start`, runs through this module's orchestrator, and touches none of
+ * them. Measured 2026-08-28:
+ *   grep -rn "draft_polish" apps/server-core/src/stt/ | wc -l   ->   0
+ * So the task had NO output validation of any kind, and the sentence explaining
+ * why it did not need any was describing a different code path that happens to
+ * share the word "polish" — this repo's own #1 defect shape (one symbol
+ * answering two questions), committed in a comment rather than in code.
+ *
+ * ⚠️ WHAT IS DELIBERATELY *NOT* APPLIED TO draft_polish, so the next reader knows
+ * it was decided rather than missed: the translate-only script rules (there is
+ * no target language to check against), `invented_numerals` /
+ * `invented_latin_tokens` (organize-shaped, and both would need a corpus this
+ * task does not have before they could be trusted not to false-reject), and
+ * `over_compressed` (its floor is calibrated on organize's retention, not on a
+ * polish's). Those are candidates for after P1-1 supplies a corpus, not before.
+ * Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
  */
 export function guardComposeOutput(input: ComposeGuardInput): ComposeGuardVerdict {
   const repairs: ComposeGuardRepair[] = [];
@@ -479,6 +504,36 @@ export function guardComposeOutput(input: ComposeGuardInput): ComposeGuardVerdic
   }
 
   const srcLetters = letterCount(source);
+
+  // ── rule 11: the polish came back in a different writing system ──
+  //
+  // draft_polish rewrites the user's own draft. Coming back in another script is
+  // never a polish, and until 2026-08-28 nothing on this task looked: the
+  // template did not even say "keep the language" and the guard was skipped
+  // outright (see this function's header).
+  //
+  // 🔴 THE HONEST LIMIT, STATED HERE RATHER THAN DISCOVERED LATER: this catches
+  // a CROSS-SCRIPT swap (de -> zh, zh -> en, ru -> en). It does NOT catch
+  // German in / English out, because both are Latin — and that is the single
+  // likeliest form of the failure. A script test is what can be measured
+  // deterministically today; catching same-script drift needs language ID, and
+  // the corpus to calibrate it against does not exist yet (P1-1). Do not cite
+  // this rule as "draft_polish is guarded against language changes"; it is
+  // guarded against the half that leaves evidence in the characters.
+  //
+  // Both sides must classify: `dominantScript` returns null on genuinely mixed
+  // text, and a guard that guesses on mixed input rejects correct work.
+  if (input.task === 'draft_polish') {
+    const from = dominantScript(source);
+    const to = dominantScript(text);
+    if (from !== null && to !== null && from !== to) {
+      return reject(
+        'script_changed',
+        `the draft is written in ${from} and the output is in ${to} — a polish does not change writing system`,
+        repairs,
+      );
+    }
+  }
 
   const target = scriptClassFor(input.target_lang);
 

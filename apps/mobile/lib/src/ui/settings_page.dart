@@ -18,6 +18,8 @@
 import 'package:flutter/material.dart';
 
 import '../../generated/flowmic_settings.g.dart';
+import '../auth/account_mask.dart';
+import '../auth/cloud_summary_controller.dart';
 import '../auth/login_controller.dart';
 import '../destination/destination_controller.dart';
 import '../portable/asset_inventory.dart';
@@ -35,6 +37,7 @@ import '../settings/scenario_card_controller.dart';
 import '../support/help_link.dart' show kHelpUrl;
 import '../update/update_controller.dart' show UpdateController;
 import 'onboarding/first_run_onboarding_page.dart' show OnboardingReviewPage;
+import 'quota_gauge.dart' show CloudQuotaGaugeSection;
 import 'settings_update_card.dart';
 import 'settings_widgets.dart';
 import 'tokens.dart';
@@ -57,6 +60,7 @@ class SettingsPage extends StatelessWidget {
     required this.timeline,
     required this.version,
     required this.update,
+    required this.cloudSummary,
   });
 
   final ScenarioCardController scenario;
@@ -104,6 +108,14 @@ class SettingsPage extends StatelessWidget {
   /// That is exactly what the anti-façade discipline exists to prevent — make
   /// it unable to say anything at compile time.
   final UpdateController update;
+
+  /// The cloud quota read-out (owner 2026-08-27 — tier AND gauge on this card).
+  /// REQUIRED, no default, for the same reason as [update] one line above, and
+  /// here the failure would be quieter still: this gauge is ABSENT by design
+  /// whenever the read has not landed, so a forgotten optional argument would
+  /// look exactly like 「the phone has not been signed in long enough」 — on
+  /// every account, forever, with nothing anywhere saying so.
+  final CloudSummaryController cloudSummary;
 
   @override
   Widget build(BuildContext context) {
@@ -288,10 +300,25 @@ class SettingsPage extends StatelessWidget {
                               ),
                             ),
                             if (loggedIn) ...<Widget>[
+                              // MASKED (owner 2026-08-27:「所有显示账号的地方都要
+                              // 用星号遮盖」— every place that shows the account
+                              // uses the mask). This pill is the WIDE face of
+                              // the same fact the cloud card shows, and it is
+                              // the site that proves why the rule had to be
+                              // general rather than 「fix the narrow card」: the
+                              // full address was painted here on every width,
+                              // so masking only the other site would have left
+                              // it in plain sight one screen away.
+                              //
+                              // ⚠️ The ConstrainedBox + the pill's own
+                              // maxLines/ellipsis STAY. The mask bounds the
+                              // width but does not guarantee it: a 40-character
+                              // domain is copied through in full by rule, and
+                              // this pill shares a Wrap with the plan tier.
                               ConstrainedBox(
                                 constraints: BoxConstraints(maxWidth: c.maxWidth),
                                 child: settingsPill(
-                                  login.email ?? '',
+                                  maskAccountEmail(login.email),
                                   FlowMicColors.brand,
                                   FlowMicColors.brandSoft,
                                 ),
@@ -334,6 +361,23 @@ class SettingsPage extends StatelessWidget {
               ),
             ],
           ),
+          // 🔴 UNDER the pills, not instead of them (owner 2026-08-27: the tier
+          // AND the gauge, together). The two answer different questions —
+          // 「which plan am I on」 and 「how much of this month is left」 — and
+          // the ruling that produced the gauge is the same one that kept the
+          // tier visible on both clients.
+          //
+          // 🔴 FULL CARD WIDTH, so it sits in the OUTER column rather than in
+          // the copy column beside the cloud icon: a two-way bar is read by
+          // comparing its two halves, and 32dp of icon gutter shifts the centre
+          // tick away from the optical middle of the card. The labels above it
+          // are also the widest strings on this row in de/ru.
+          //
+          // Signed out ⇒ not built at all: there is no account to have a quota,
+          // and a gauge that could only ever be empty is a control that answers
+          // nothing.
+          if (loggedIn)
+            CloudQuotaGaugeSection(controller: cloudSummary, strings: s),
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,

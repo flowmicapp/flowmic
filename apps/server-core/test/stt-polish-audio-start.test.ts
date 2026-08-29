@@ -570,3 +570,51 @@ describe('RT-1 — resolveLlmConfigWithSource is called once per session, from o
     mobile.fire('audio:stop', {}, () => {});
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-28 — the polish pass had no language, and the hop above it had one.
+//
+// `stt-session.ts` receives the engine's reported language and `polishFinalText`
+// took no language at all, so a user reporting "I dictated German and got English
+// back" left a log that could not say what the session believed it was hearing.
+// The field is DIAGNOSTIC ONLY: it reaches the trace and the skip warnings and
+// nothing else -- not the prompt, not the guard, not the cache key.
+//
+// 🔴 THE SECOND TEST IS THE ANTI-FACADE ONE. A dep nobody fills is this repo's
+// #1 historical bug class, and it is invisible to any test that constructs
+// PolishDeps by hand. Refs docs/strategy/2026-08-28-multilingual-chain-audit.md
+// §2 hop 7.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('polish diagnostics carry the session language', () => {
+  const PLAIN_LLM = { protocol: 'openai-compatible', endpoint: 'http://x/v1', api_key: 'EMPTY', model: 'm' } as const;
+
+  it('resolvePolishDep puts the spoken language on the dep', () => {
+    const db = freshDb();
+    db.settings.write('u1', 'stt.polish', { enabled: true });
+    db.settings.write('u1', 'llm.config', PLAIN_LLM);
+
+    const armed = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', [], 'de');
+    expect(armed.armed).toBe(true);
+    if (!armed.armed) throw new Error('unreachable: asserted armed above');
+    expect(armed.deps.language).toBe('de');
+
+    // Absent stays absent rather than becoming a guess: an invented language on a
+    // diagnostic field would be worse than a blank one, because a reader would
+    // believe it.
+    const noLang = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', []);
+    expect(noLang.armed && noLang.deps.language).toBeUndefined();
+  });
+
+  it('the field has a real production writer — not a dep nobody fills', () => {
+    // The value is threaded from audio:start's source_lang at exactly one site.
+    // If this count is not 1, the wiring moved and this test is stale.
+    const src = readFileSync(
+      new URL('../src/engine/stt-factory.ts', import.meta.url),
+      'utf8',
+    );
+    const wired = src
+      .split('\n')
+      .filter((l) => l.includes('resolvePolishDep(') && l.includes('args.sourceLang'));
+    expect(wired.length).toBe(1);
+  });
+});

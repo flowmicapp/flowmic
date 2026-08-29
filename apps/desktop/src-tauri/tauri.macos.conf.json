@@ -3,7 +3,12 @@
   "identifier": "app.flowmic.mac",
   "bundle": {
     "targets": ["app"],
-    "resources": ["resources/server.js", "resources/package.json", "resources/node"],
+    "resources": [
+      "resources/server.js",
+      "resources/package.json",
+      "resources/node",
+      "resources/node_modules"
+    ],
     "macOS": {
       "minimumSystemVersion": "11.0"
     }

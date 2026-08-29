@@ -82,10 +82,32 @@ const PRO_DTO: Record<string, any> = {
       expires_at: '2026-09-01T08:00:00.000Z',
       paddle_subscription_id: 'sub_123',
     },
-    quota: { stt: { used_min: 128, limit_min: 900 }, llm: { used: 12, limit: 20_000_000 }, month: '2026-08' },
+    // 🔴 The token pair is the gauge's right-hand end (owner 2026-08-27). The
+    // numbers are the PRO tier's own — `plans.ts` moved pro to 5M the same day, and
+    // a fixture still saying 20M would be testing a ceiling the server no longer
+    // hands out. `used_in` is on the wire and is the REFERENCE meter: it is a
+    // deliberately absurd figure here so that a parser reading the wrong field
+    // paints a full bar instead of quietly agreeing.
+    quota: {
+      stt: { used_min: 128, limit_min: 900 },
+      llm: { used: 1_240_000, used_in: 999_999_999, limit: 5_000_000 },
+      month: '2026-08',
+    },
     devices: { pc_count: 1, mobile_count: 2 },
   },
 };
+
+/** The class list actually rendered on one end of the quota gauge.
+ *
+ *  ⚠️ Read as a SET, not as a substring. Vue emits the dynamic class before the
+ *  static ones (`class="over qg-fill min"`), so `toContain('qg-fill min over')`
+ *  measures Vue's concatenation order rather than the product — this file's own
+ *  first draft failed exactly that way, which is this repo's「先核你的尺子」
+ *  ("check your ruler first") in miniature. */
+function fillClasses(html: string, which: 'min' | 'ctx'): string[] {
+  const m = new RegExp(`<div class="([^"]*\\bqg-fill ${which}\\b[^"]*)"`).exec(html);
+  return m?.[1] === undefined ? [] : m[1].split(/\s+/);
+}
 
 function render(card: AccountCard): Promise<string> {
   return renderToString(createSSRApp(CloudAccountLines, { card }));
@@ -117,7 +139,13 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
     // value that happened to line up).
     expect(invoke).toHaveBeenCalledWith('cloud_account_fetch', undefined);
 
-    expect(html).toContain('owner@example.com');
+    // 🔴 THE RENDERED-RESULT ASSERTION FOR THE MASK (owner 2026-08-27). Asserted
+    // on the HTML the component really produces, not on `identityText` — 0.2.53's
+    // law is that「can the user read this」is answered where the pixels are. The
+    // negative comes first because it is the one that matters: the raw address
+    // must not be in the document at all, in any attribute, anywhere.
+    expect(html).not.toContain('owner@example.com');
+    expect(html).toContain('own***r@example.com');
     // 🔴 M3-8's positive control, paired with the two negative assertions below in
     // the "unreachable" case: the account row (`ca-v mono`) **really does render**
     // when there is a live answer, and what it prints is the email, not that id
@@ -126,7 +154,25 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
     expect(html).toContain('ca-v mono');
     expect(html).not.toMatch(UUID_RE);
     expect(html).toContain('PRO');
+    // 🔴 THE GAUGE, ON THE RENDERED RESULT (owner 2026-08-27). Both ends of the one
+    // rail, each with its own sentence, plus the widths that were really pasted into
+    // the style attributes — the 0.2.53 law is that「can the user read this」is
+    // answered where the pixels are, and a bar is a claim as much as a sentence is.
     expect(html).toContain('128 / 900 分钟');
+    expect(html).toContain('上下文 1.2 / 5M');
+    expect(html).toContain('qg-track');
+    // 128/900 → 7.11% of the whole rail; 1.24M/5M → 12.4%. Both under the centre,
+    // which is what "each side's 100% is 50% of the rail" means in practice.
+    expect(html).toContain('width:7.11%');
+    expect(html).toContain('width:12.4%');
+    // The reference meter must not be what got charged.
+    expect(html).not.toContain('999');
+    // Nothing is over quota here, so the warning class must be absent — the positive
+    // control for it is the over-quota case below. The bars themselves ARE present,
+    // which is what stops this negative from passing because nothing rendered.
+    expect(fillClasses(html, 'min')).toContain('qg-fill');
+    expect(fillClasses(html, 'min')).not.toContain('over');
+    expect(fillClasses(html, 'ctx')).not.toContain('over');
     expect(html).toContain('已订阅');
     // 🔴 Two expiry dates, two labels, two sentences.
     expect(html).toContain('订阅有效期至');
@@ -156,10 +202,12 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
       paddle_subscription_id: null,
     };
     free.summary.quota.stt = { used_min: 3, limit_min: 20 };
+    free.summary.quota.llm = { used: 100_000, used_in: 400_000, limit: 1_000_000 };
     const html = await renderThroughBridge(free);
 
     expect(html).toContain('FREE');
     expect(html).toContain('3 / 20 分钟');
+    expect(html).toContain('上下文 0.1 / 1M');
     // 🔴 The one owner called out on 2026-08-02: the whole line is absent on the free tier.
     expect(html).not.toContain('订阅有效期至');
     expect(html).not.toContain('2026-09-01');
@@ -190,6 +238,9 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
     expect(html).toContain('FREE'); // the name: owner bought nothing
     expect(html).toContain('长期免费'); // the reason why
     expect(html).toContain('128 / 3000 分钟 · 不计费'); // the number that actually applies
+    // The exempt sentence is spelled ONCE, at the minutes end. The other end of the
+    // same rail must not repeat it — one gauge, one answer to "is this billed".
+    expect(html).not.toContain('上下文 1.2 / 5M · 不计费');
     // 🔴 A sentence that is no longer true must not be printed on the card: the
     // server really does gate the user at 3,000 minutes right now.
     // This is an assertion on the **rendered result**, not on the S catalogue (the
@@ -197,6 +248,28 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
     expect(html).not.toContain('不限额');
     expect(html).not.toContain('PRO');
     expect(html).not.toContain('订阅有效期至');
+  });
+
+  it('用超了: 填充到中点并换警示色，而数字照实说 (owner 2026-08-27)', async () => {
+    // 🔴 THE POSITIVE CONTROL for the `not.toContain('qg-fill min over')` in the pro
+    // case above: the warning class really is reachable, so its absence there means
+    // "this account is under quota", not "the class no longer exists".
+    const over = structuredClone(PRO_DTO);
+    over.summary.quota.stt = { used_min: 1200, limit_min: 900 };
+    over.summary.quota.llm = { used: 6_000_000, used_in: 999_999_999, limit: 5_000_000 };
+    const html = await renderThroughBridge(over);
+    expect(fillClasses(html, 'min')).toContain('over');
+    expect(fillClasses(html, 'ctx')).toContain('over');
+    // 🔴 R11: the colour changed, the numbers did not get rounded down to the
+    // ceiling. 1200 minutes were used and the card says 1200.
+    expect(html).toContain('1200 / 900 分钟');
+    expect(html).toContain('上下文 6 / 5M');
+    // Both bars stop AT the centre — clamped, so neither one paints across the
+    // other's numbers.
+    expect(html).toContain('width:50%');
+    expect(html).not.toContain('width:66');
+    // eslint-disable-next-line no-console
+    console.log('\n[L3 打桩渲染 · 用超]\n' + html + '\n');
   });
 
   it('问不到: 中性态 —— HTML 里 grep 不到任何套餐/用量，也没有红色 loud 块', async () => {
@@ -281,7 +354,8 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
       loading: false,
     });
     const html = await render(card);
-    expect(html).toContain('owner@example.com');
+    expect(html).not.toContain('owner@example.com');
+    expect(html).toContain('own***r@example.com');
     expect(html).toContain('暂时问不到，下面是 16:02 问到的'); // "what's this claim based on" (R11)
     expect(html).not.toMatch(UUID_RE);
   });

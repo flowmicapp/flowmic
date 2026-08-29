@@ -1,9 +1,12 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY = account JWT: HS256, claims
-//     {sub, plan}, 7-day TTL; minted by REST /api/login|register, verified on
-//     the relay handshake + Console/web socket)
+//     {sub, plan}; minted by REST /api/login|register, verified on
+//     the relay handshake + Console/web socket. ⚠️ Both SPEC-REF lines below
+//     say "7-day TTL"; that was true until owner ruling 2026-08-27 §R1 made the
+//     default 100 years — see DEFAULT_TTL_MS. The books are not rewritten,
+//     they are cited as what they said.)
 //   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (JWT sign/verify HS256
-//     {sub, plan} TTL 7d, secret = the saas explicit secret from config)
+//     {sub, plan}, secret = the saas explicit secret from config)
 //   Ported verbatim-mechanism from legacy apps/server/src/auth/jwt.ts
 //   (@flowmic/shared Plan → @flowmic/protocol Plan; behavior unchanged).
 //   *** HUMAN-AUDIT SENSITIVE (auth/crypto) — reviewable in isolation ***
@@ -14,7 +17,8 @@
 //       + base64url(HMAC-SHA256(secret, "<header>.<payload>"))
 // Header is fixed {"alg":"HS256","typ":"JWT"} — no algorithm negotiation.
 // Payload claims are exactly { sub: string, plan: Plan, iat, exp }
-// (iat/exp seconds-since-epoch, RFC 7519 §4.1.4/§4.1.6). Default TTL 7 days.
+// (iat/exp seconds-since-epoch, RFC 7519 §4.1.4/§4.1.6). Default TTL: see
+// DEFAULT_TTL_MS — 100 years since owner ruling 2026-08-27 §R1.
 //
 // 0.2.38 — the two plan guards below used to spell out `'free' | 'pro'` by hand,
 // which is why adding a third tier had to touch this crypto file at all. They
@@ -40,7 +44,7 @@ export interface JwtClaims {
 
 export interface SignOpts {
   secret: Buffer;
-  /** Token time-to-live in milliseconds. Defaults to 7 days. */
+  /** Token time-to-live in milliseconds. Defaults to [DEFAULT_TTL_MS]. */
   ttlMs?: number;
   /** Injectable clock for tests. Returns ms-since-epoch. */
   now?: () => number;
@@ -52,8 +56,36 @@ export interface VerifyOpts {
   now?: () => number;
 }
 
-/** 7 days, per 05 §7: "Cloud KEY JWT 7-day expiry". */
-export const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * 🔴 100 YEARS — owner ruling 2026-08-27, §R1 of
+ * docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md:
+ * 「登录后不用有自动失效时间——只要不删除本地的凭证就一直处于登录状态」
+ * ("signing in has no automatic expiry — as long as the local credential is not
+ * deleted, you stay signed in").
+ *
+ * Written as years × days × hours × … rather than a magic number so the value
+ * states its own unit. It is NOT `Infinity` and NOT an absent `exp`: every
+ * mechanism stays exactly where it was — `exp` is still in the claims, the
+ * verifier still refuses a token past it, and every client's expiry handling
+ * still works. The only thing that changed is the number, so a future ruling
+ * that wants expiry back changes one constant and nothing else.
+ *
+ * ⚠️ TWO CONSEQUENCES THAT ARE NOT OPTIONAL READING:
+ *  ① `socket/handlers/auth-expiry.ts` MUST clamp — Node fires a `setTimeout`
+ *     beyond 2^31-1 ms IMMEDIATELY, so an unclamped watchdog would kick every
+ *     signed-in socket on connect. See MAX_TIMEOUT_MS there.
+ *  ② Tokens already minted with the old 7-day TTL are unaffected and simply
+ *     ride out their last cycle; those users sign in once more and land on a
+ *     long-lived credential. Nothing migrates, nothing is re-issued.
+ *
+ * 🔴 THE COST, RECORDED RATHER THAN IMPLIED: a leaked token used to self-heal
+ * within a week. It no longer does. Changing a password still does not
+ * invalidate an issued token (there is no jti denylist — W4-4), so the only
+ * stopping mechanisms left are deleting the account, restricting it, or
+ * rotating FLOWMIC_JWT_SECRET. That is why the same ruling promotes W4-4 to a
+ * hard prerequisite for the paid launch / public release gates.
+ */
+export const DEFAULT_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 const HEADER_JSON = JSON.stringify({ alg: 'HS256', typ: 'JWT' });
 
@@ -91,7 +123,7 @@ function hmacSha256(secret: Buffer, signingInput: string): Buffer {
 }
 
 /** Sign a fresh JWT. Caller supplies sub + plan; iat/exp are computed from
- *  `now` (default Date.now) and `ttlMs` (default 7 days). */
+ *  `now` (default Date.now) and `ttlMs` (default [DEFAULT_TTL_MS]). */
 export function signJwt(claims: Omit<JwtClaims, 'iat' | 'exp'>, opts: SignOpts): string {
   assertSecret(opts.secret);
   if (typeof claims.sub !== 'string' || claims.sub.length === 0) {

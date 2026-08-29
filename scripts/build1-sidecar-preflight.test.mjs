@@ -51,7 +51,11 @@ const REAL_TAURI_DIR = join(ROOT, 'apps', 'desktop', 'src-tauri');
 
 let failures = 0;
 let sectionsRun = 0;
-const TOTAL_SECTIONS = 7;
+// 8 since 2026-08-27: §3b (every real overlay carries every base payload) was
+// added after the macOS bundle shipped for five releases without the sherpa
+// addon. The count is a guard against a section dying silently mid-file, so it
+// moves whenever a section does.
+const TOTAL_SECTIONS = 8;
 const section = (title) => {
   sectionsRun += 1;
   console.log(`\n=== ${title} ===`);
@@ -81,7 +85,23 @@ function makeTauriFixture({ base, macos, present = [] }) {
 }
 
 const WIN_BASE = { bundle: { resources: ['resources/server.js', 'resources/package.json', 'resources/node.exe', 'resources/node_modules'] } };
-const MAC_OVERLAY = { bundle: { resources: ['resources/server.js', 'resources/package.json', 'resources/node'] } };
+/** 🔴 SYNTHETIC, and the name says so because the previous name did not.
+ *
+ *  This literal used to be a copy of the real `tauri.macos.conf.json` — three
+ *  entries, no `node_modules` — and §3 below asserted 「darwin does NOT require
+ *  node_modules」 as though that were the product's design. It was not: it was a
+ *  frozen 2026-08-12 list that never picked up the 08-13 Windows addition, and
+ *  that omission is why no macOS build ever shipped the sherpa native engine
+ *  (owner ruling 2026-08-27 ①). So a test written to pin the REPLACEMENT
+ *  MECHANISM had, as a side effect, written the defect down as expected
+ *  behaviour — the 0.2.52 shape ('反向对照选错了方向，比没有反向对照更坏'),
+ *  third occurrence.
+ *
+ *  It stays synthetic on purpose: §3 is about 「an overlay REPLACES, it does not
+ *  merge」, which needs an overlay that differs from the base and must not
+ *  change every time the real config does. What the real configs say is now
+ *  §3b's question, asked of the real files. */
+const SYNTHETIC_OVERLAY = { bundle: { resources: ['resources/server.js', 'resources/package.json', 'resources/node'] } };
 
 const tempDirs = [];
 function fixture(opts) {
@@ -117,14 +137,39 @@ try {
 
   // ── §3 ────────────────────────────────────────────────────────────────────
   section('§3 the macOS branch is exercisable from a non-macOS box');
-  // The overlay REPLACES the array (Tauri does not concatenate), so `node` is
-  // in and `node_modules` / `node.exe` are out. Asserting that here is what
-  // makes the darwin path measured rather than assumed on this machine.
-  const macList = declaredResources('darwin', fixture({ base: WIN_BASE, macos: MAC_OVERLAY }));
-  assertEqual(macList, MAC_OVERLAY.bundle.resources, 'darwin takes the overlay list wholesale');
-  assertTrue(!macList.includes('resources/node_modules'), 'darwin does NOT require node_modules');
-  const winList = declaredResources('win32', fixture({ base: WIN_BASE, macos: MAC_OVERLAY }));
+  // The overlay REPLACES the array (Tauri does not concatenate). Asserted
+  // against a SYNTHETIC overlay so this section keeps measuring the mechanism
+  // no matter what the real configs come to hold — see the constant's note for
+  // what happened when it mirrored them instead.
+  const macList = declaredResources('darwin', fixture({ base: WIN_BASE, macos: SYNTHETIC_OVERLAY }));
+  assertEqual(macList, SYNTHETIC_OVERLAY.bundle.resources, 'darwin takes the overlay list wholesale');
+  assertTrue(
+    !macList.includes('resources/node_modules'),
+    'an overlay that omits an entry the base declares really does lose it (replace, not merge)',
+  );
+  const winList = declaredResources('win32', fixture({ base: WIN_BASE, macos: SYNTHETIC_OVERLAY }));
   assertEqual(winList, WIN_BASE.bundle.resources, 'win32 ignores the macOS overlay');
+
+  // ── §3b ───────────────────────────────────────────────────────────────────
+  section('§3b every REAL overlay carries every payload the base declares');
+  // 🔴 The gate §3's mechanism implies and nobody had written. The replacement
+  // semantics are not a bug; what shipped a broken macOS build for five
+  // releases was a HUMAN one — an entry added to the base and not to the
+  // overlay, with no mechanism anywhere that could notice.
+  //
+  // The runtime name is the one legitimate divergence (`node.exe` vs `node`), so
+  // it is compared by its basename minus extension. Everything else must be
+  // present verbatim in every overlay, and a new divergence has to be argued for
+  // by editing this list rather than by being silently absent.
+  const RUNTIME_ALIASES = new Set(['resources/node', 'resources/node.exe']);
+  const baseList = declaredResources('win32', REAL_TAURI_DIR);
+  for (const platform of ['darwin']) {
+    const overlayList = declaredResources(platform, REAL_TAURI_DIR);
+    const lost = baseList.filter((r) => !RUNTIME_ALIASES.has(r) && !overlayList.includes(r));
+    assertEqual(lost, [], `${platform} overlay loses nothing the base declares`);
+    const runtimes = overlayList.filter((r) => RUNTIME_ALIASES.has(r));
+    assertTrue(runtimes.length === 1, `${platform} overlay names exactly one runtime (got ${JSON.stringify(runtimes)})`);
+  }
 
   // ── §4 ────────────────────────────────────────────────────────────────────
   section('§4 missingResources reports exactly what is absent');

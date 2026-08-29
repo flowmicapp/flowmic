@@ -26,11 +26,16 @@
 // this repo's #1 shape — a stale, forgeable, ignorable value deciding access.
 //
 // 🔴 WHY THE STATE IS NOT IN THE JWT. `issueToken` bakes `{sub, plan, iat, exp}`
-// at signing time, the TTL is 7 days, and there is no jti denylist, no session
-// table and no refresh store (auth/jwt.ts, http/console-routes.ts §logout). A
-// restriction written into claims would therefore take up to SEVEN DAYS to bite
-// on somebody who already holds a token — and, worse, would keep asserting a
-// restriction that had already been LIFTED. Both directions wrong. The row is
+// at signing time, and there is no jti denylist, no session table and no refresh
+// store (auth/jwt.ts, http/console-routes.ts §logout). A restriction written
+// into claims would therefore not bite on somebody who already holds a token
+// until that token expired — and, worse, would keep asserting a restriction that
+// had already been LIFTED. Both directions wrong.
+// 🔴 AND THAT ARGUMENT GOT STRONGER, NOT WEAKER, ON 2026-08-27. This paragraph
+// used to bound the damage at "up to SEVEN DAYS", because the TTL was 7 days.
+// Owner ruling §R1 of docs/decisions/2026-08-27-owner-persistent-login-and-
+// routing-order.md made the default TTL 100 years ⇒ a claims-baked restriction
+// would now be wrong FOREVER in both directions. The row is
 // re-read per request instead (http/account-auth.ts `accountUserFromBearer`
 // does a real `getUser` on every Bearer call), which is what makes "the very
 // next request recovers once the restriction is lifted" true rather than hoped

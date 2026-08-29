@@ -33,6 +33,15 @@ import type { ChannelTag } from './types';
  *  branch here that can never be true — a façade that compiles. This annotation
  *  turns that drift into a build failure instead of a quiet lie on screen. */
 const PC_LIMIT_EXCEEDED: ErrorCode = 'PCS_LIMIT_EXCEEDED';
+/** Same annotation, same reason (owner ruling 2026-08-27 §R1 追加): this branch
+ *  only became reachable when `outbound.rs` started routing account verdicts, so
+ *  a rename on the protocol side must break the build rather than quietly return
+ *  the generic "refused" sentence again. */
+const ACCOUNT_RESTRICTED: ErrorCode = 'ACCOUNT_RESTRICTED';
+/** Same annotation, same reason: a rename on the protocol side must break the
+ *  build rather than silently drop this branch back onto the generic "refused,
+ *  see the diagnostic log" sentence. */
+const NODE_IS_REPLICA: ErrorCode = 'NODE_IS_REPLICA';
 
 /** RV-01: ONE declaration of the two tags, in lib/types.ts — a timeline row now
  *  carries one, so the type had to live where the row's type lives (types.ts imports
@@ -279,6 +288,16 @@ export function cloudLoudReason(status: CloudStatus): string | null {
         return S.cloud_err_expired;
       }
       if (status.auth_error === 'auth:expired') return S.cloud_err_expired;
+      // 🔴 owner ruling 2026-08-27 §R1 追加 — a RESTRICTION arriving on the socket
+      // path. Reached because the five device-page verbs in
+      // `src-tauri/src/socket/outbound.rs` now hand an account verdict to
+      // `report_refusal` instead of collapsing it into their own `false`; the
+      // hook's non-account-level branch writes it to `auth_error` (a restricted
+      // account's key is VALID, so it is deliberately not one of the two codes
+      // that clear the key — `pairing::is_account_validity_refusal`).
+      // Before this line it fell onto the generic "refused, see the diagnostic
+      // log" string below: the code exposed, the cause unstated.
+      if (status.auth_error === ACCOUNT_RESTRICTED) return S.cloud_err_restricted;
       // 🔴 M4-5 —— fills in the half that was "visible before you buy, invisible
       // the moment you hit the wall" (买之前看得到、撞墙那一刻看不到).
       //
@@ -297,6 +316,21 @@ export function cloudLoudReason(status: CloudStatus): string | null {
       // mobile.handler's ack), and it never reaches the PC's auth_error —
       // adding it here would create a branch that is forever false.
       if (status.auth_error === PC_LIMIT_EXCEEDED) return S.cloud_err_pc_limit;
+      // 2026-08-29 multi-node — the relay that answered is a read-only replica
+      // and cannot register a PC. Before this line it fell onto the generic
+      // string below ("refused, see the diagnostic log"), which is TRUE and
+      // useless: the app knows exactly what happened and which server can do it,
+      // and was sending the user to read a log to find out.
+      //
+      // 🔴 The copy names a reconnect and promises nothing else. The register
+      // watchdog re-emits on the SAME socket (socket/register_watchdog.rs), so
+      // this does NOT recover on its own — writing "FlowMic will switch servers"
+      // would be a promise with no mechanism behind it, which is the thing this
+      // repo's status red line exists to forbid. A NEW dial does re-run node
+      // selection, and an unregistered PC then prefers the writer
+      // (socket/node_select.rs `must_register`), so "reconnect" is the one word
+      // here that is both true and actionable.
+      if (status.auth_error === NODE_IS_REPLICA) return S.cloud_err_wrong_node;
       return S.cloud_err_refused;
     case 'key_expired':
       return S.cloud_err_expired;

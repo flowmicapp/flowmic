@@ -51,6 +51,10 @@ import '../signaling/wire_payloads.dart' show ControlKeyKind, SendPolicy;
 // strip and the live draft row cannot answer 「how many characters this passage has」 differently.
 import '../timeline/entry_metrics.dart' show textWordCount;
 import 'haptics.dart';
+// NR-4 (e): the collapsed preview's voice-origin glyph is the SAME mic the dock
+// and the sheet draw — a second hand-drawn microphone anywhere is a bug
+// (mic_glyph.dart's own header).
+import 'mic_glyph.dart';
 // The band asks ONE question of the session — which face the dock wears — and
 // the answer arrives as the [PttVisual] the composer already computed for PttBar.
 import 'ptt_bar.dart' show PttVisual;
@@ -59,6 +63,9 @@ import 'tokens.dart';
 // Row 2's ordinary form + the parts shared across files (preview strip /
 // buffer box / policy chip + flash strip / buffer hint strip).
 part 'compose_buffer_row.dart';
+// NR-4 (e) grew the preview strip past this library's 800-line cap; the strip is
+// its own part now. Nothing else moved with it.
+part 'compose_preview_strip.dart';
 
 /// 🔴 SUP-4 (Plan A′ contract §2) — the ONE predicate for 「the idle rows and
 /// the PC key group are on the tree」. Row 1 (chat_flow_composer.dart) and this
@@ -200,12 +207,25 @@ class ComposeBand extends StatefulWidget {
     required this.onControlKey,
     required this.onExpand,
     required this.visual,
+    this.origin,
     this.leading = const <Widget>[],
     this.part = ComposeBandPart.stacked,
   });
 
   /// The authoritative buffer text (ChatController.buffer).
   final String buffer;
+
+  /// NR-4 (e) — where this draft came from: `true` spoken, `false` typed,
+  /// `null` no draft (or nothing to say about it).
+  ///
+  /// 🔴 THREADED IN, LIKE [visual], AND FOR THE SAME REASON. The one author of
+  /// this fact is `_ChatFlowPageState._sheetSrcVoice`, which the edit sheet's
+  /// header already reads to choose between 「转录自语音」 and 「手动输入」. This
+  /// adds a READ-ONLY consumer one level down; it does not add a second writer,
+  /// and the band must never derive it for itself — that would be the same
+  /// question with two answers, which is what the sheet header and the preview
+  /// strip disagreeing would look like on screen.
+  final bool? origin;
 
   final AppStrings strings;
 

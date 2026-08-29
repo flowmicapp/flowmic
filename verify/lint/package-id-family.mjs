@@ -190,14 +190,28 @@ function requiredSurfaces() {
     // to project.pbxproj builds green, ships, and the handler is simply absent
     // — which is byte-for-byte the state this card was written to end. The two
     // ids below are the file reference and its Sources build-phase entry.
+    // 🔴 THE TRAILING COMMA IS THE ASSERTION, and it was missing until
+    // 2026-08-29 (card CR-2), which meant this entry did not check the thing it
+    // is named after. `/* DeviceInfo.swift in Sources */` occurs TWICE in a
+    // pbxproj: once declaring the PBXBuildFile, once referencing it from the
+    // PBXSourcesBuildPhase list. Only the second is membership in the phase,
+    // and only the second ends in a comma. A substring check without it is
+    // satisfied by the declaration — so deleting the file from the build phase
+    // (an orphaned PBXBuildFile compiles nothing) left this gate GREEN.
+    //
+    // Found by running the reverse control on the CR-2 sibling entry below
+    // rather than by reading: the removal was made, the gate passed, and that
+    // is the only reason anybody looked. A gate whose comment names a failure
+    // it does not detect is worse than no gate — it is the reason nobody checks.
     {
       file: 'apps/mobile/ios/Runner.xcodeproj/project.pbxproj',
       must: [
         'path = DeviceInfo.swift',
-        '/* DeviceInfo.swift in Sources */',
+        '/* DeviceInfo.swift in Sources */,',
       ],
       why: 'DeviceInfo.swift must be in the Runner target\'s Sources phase, not '
-        + 'merely on disk',
+        + 'merely on disk (the comma pins phase MEMBERSHIP, not the build-file '
+        + 'declaration — see the note above)',
     },
     {
       file: 'apps/mobile/lib/src/session/image_clipboard.dart',
@@ -218,6 +232,44 @@ function requiredSurfaces() {
       file: kotlin('UpdateInstaller.kt'),
       must: [`CHANNEL = "${METHOD_CHANNELS.updateInstaller}"`],
       why: 'Kotlin side of the update-installer channel',
+    },
+    // ── card CR-2 (2026-08-29) — the screen-wake channel, all three sides ────
+    //
+    // 🔴 REGISTERED BECAUSE THE COMMENTS IN THOSE FILES CLAIM IT IS. Each of
+    // the three carries a line saying this gate reads its literal and compares.
+    // Until this block existed those lines were assertions about another file's
+    // behaviour with nothing holding them — anti-façade ④, written by someone
+    // who had just read the same sentence in the sibling file and believed it.
+    // A gate that covers three of four channels and a comment that says it
+    // covers yours is worse than no comment.
+    {
+      file: 'apps/mobile/lib/src/audio/screen_wake.dart',
+      must: [`MethodChannel('${METHOD_CHANNELS.screenWake}')`],
+      why: 'Dart side of the screen-wake channel',
+    },
+    {
+      file: kotlin('ScreenWake.kt'),
+      must: [`CHANNEL = "${METHOD_CHANNELS.screenWake}"`],
+      why: 'Kotlin side of the screen-wake channel',
+    },
+    {
+      file: 'apps/mobile/ios/Runner/ScreenWake.swift',
+      must: [`channel = "${METHOD_CHANNELS.screenWake}"`],
+      why: 'Swift side of the screen-wake channel',
+    },
+    {
+      file: 'apps/mobile/ios/Runner.xcodeproj/project.pbxproj',
+      must: [
+        'path = ScreenWake.swift',
+        // Trailing comma = membership in the Sources phase, not the mere
+        // existence of a build-file declaration. See the note on the DeviceInfo
+        // entry above for what that distinction cost.
+        '/* ScreenWake.swift in Sources */,',
+      ],
+      why: 'ScreenWake.swift must be in the Runner target\'s Sources phase, not '
+        + 'merely on disk — the same trap the DeviceInfo entry above exists for, '
+        + 'and the reason continuous recording would have shipped with a screen '
+        + 'that dims on iPhone and no error anywhere',
     },
   ];
 }

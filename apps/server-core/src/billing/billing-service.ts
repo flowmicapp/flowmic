@@ -269,10 +269,25 @@ const CYCLE_MS: Record<Cycle, number> = { monthly: 30 * DAY_MS, yearly: 365 * DA
  */
 const EXEMPT_LIMITS: Readonly<PlanLimits> = {
   stt_minutes: 3_000,
-  llm_tokens: 100_000_000,
+  // owner 2026-08-27: mirrors MAX's re-cut 100M → 15M
+  // (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md). Still a
+  // deliberate copy, not an independent number — see the comment above this
+  // constant.
+  llm_tokens: 15_000_000,
   pcs: 10,
   mobiles: Number.POSITIVE_INFINITY,
   history_days: 365,
+  // owner 2026-08-29 — mirrors MAX's 30. Still a deliberate copy, not an alias
+  // (see the comment above this constant), and the plan-view-resolution pin
+  // walks PLAN_LIMIT_KEYS, so this cell cannot silently fall behind max.
+  //
+  // 🔴 THIS CELL IS THE WHOLE REASON `continuous_minutes` IS A LIMIT KEY. The
+  // owner's own account is the `permanent_free` one: its `plan` reads 'free'
+  // while its numbers come from here. A tier-name lookup would hand the person
+  // who has to test a 30-minute recording a 10-minute ceiling — the D1-window
+  // defect ("permanent_free must never map onto a sellable tier") in a new
+  // dimension. Being a key makes the exemption automatic instead of remembered.
+  continuous_minutes: 30,
 };
 
 function emptySub(): Subscription {

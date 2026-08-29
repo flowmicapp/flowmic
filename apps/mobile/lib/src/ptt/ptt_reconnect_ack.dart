@@ -217,6 +217,10 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
           s._reconnectAckAudioSeq =
               (audioSeq is int && audioSeq >= -1) ? audioSeq : null;
         }
+        // 🔴 Phone-follows-PC — THE PRODUCTION CALLER of [planNodeHop].
+        // Deliberately last, and deliberately not awaited: everything above is
+        // this ack's own business and must not wait on a network question.
+        unawaited(_followNodeIfMisplaced(s, token, ack));
       },
       onRejected: (surface, invalid, error, retryAfterMs) {
         if (invalid) {
@@ -270,3 +274,86 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         });
       },
     );
+
+
+/// 🔴 PHONE-FOLLOWS-PC — move to the node the paired PC is actually on.
+///
+/// Rooms are per-process, so being on the wrong node is not a slow room, it is
+/// a different one. [planNodeHop] answers from the ack alone on every
+/// single-node deployment — which is every installation today — so this costs
+/// one null check and no request in the overwhelmingly common case.
+///
+/// ── 🔴 WHY IMMEDIATELY, RATHER THAN WAITING FOR AN IDLE MOMENT ──────────────
+///
+/// The tempting alternative is 「do not interrupt a session」. It does not
+/// preserve a working session, and the measurement that decides it is in
+/// `audio.handler.ts`: `mirrorToPc` is `const pc = store.getPc(roomUuid); if
+/// (pc) send(pc);` — **no PC in this node's room means the frame is dropped
+/// with no error, no refusal and no log.** The inject leg is loud
+/// (INJECT_NOT_IN_ROOM); the audio leg is silent. That file's own comment
+/// describes the shape from the last time it bit us: 「the frame died here: the
+/// phone emitted it and the PC had nowhere to receive it, so both halves could
+/// look correct forever」.
+///
+/// ⇒ staying put does not trade 「one lost utterance」 against 「a delay」. It
+/// trades 「the user watches their words appear on the phone while the PC
+/// receives nothing and reports itself perfectly connected」 against one
+/// reconnect. That is the red line, not a cost.
+///
+/// ── AND THE ORDER IS ALREADY IN OUR FAVOUR, BY SOMEBODY ELSE'S FIX ──────────
+///
+/// The only way to be mid-utterance at this instant is card CR-3 (mic kept
+/// through a link death, socket returns, ack says wrong node) — and there the
+/// socket was already down, so a hop costs nothing extra. Better: GA-04M
+/// ordered the ring replay to run AFTER the rejoin ack
+/// (`ReconnectCoordinator._fireRejoin`: `rejoin().then((_) => _replayBuffered())`)
+/// because replaying into a room-less socket dropped every frame. So the hop
+/// decision is made before the replay, for a reason that had nothing to do
+/// with nodes.
+///
+/// ⚠️ The replay may still go out on the OLD socket first, since this awaits a
+/// fetch. That is not a loss: `_replayBuffered` does not drain the ring, so the
+/// next reconnect replays the same chunks to the right node and the server
+/// dedupes by seq. It is wasted bytes, not lost speech.
+///
+/// ⚠️ 🔴 AND IT DOES NOT RESCUE THE RETAINED AUDIO. A long outage under CR-3
+/// spills to `RetainedAudioStore`, and those bytes have no path back at all
+/// until the re-transcription channel exists (card CR-5). Hopping helps the
+/// 30 s ring; nobody should read it as saving the outage.
+///
+/// ── NO USER-FACING SURFACE, DELIBERATELY ────────────────────────────────────
+///
+/// The window is one reconnect, the existing link banner is true for exactly
+/// that moment, and it clears itself. A 「switching servers」 notice would be a
+/// second thing saying the link is not ready — the same reason the offline
+/// banner reuses the link slot rather than stacking beside it.
+Future<void> _followNodeIfMisplaced(
+  PttSession s,
+  String token,
+  Object? ack,
+) async {
+  // The address actually dialled, which `_resolveThenDial` keeps current — not
+  // the stored one, which may be a candidate we are not on.
+  final String? here = s.reconnect.url;
+  if (here == null || here.isEmpty) return;
+  final String? move = await planNodeHop(
+    ack: ack,
+    currentEndpoint: here,
+    fetch: httpNodeListFetch,
+  );
+  if (move == null) return;
+  // Persist BEFORE dialling: a cold start must go straight to the right node,
+  // and the persisted endpoint is the whole of 「remember the last known node」.
+  await persistDialedEndpoint(
+    storage: s.tokenStorage,
+    token: token,
+    url: move,
+  );
+  // `_scheduleReconnect` re-reads `_url` rather than closing over it (B4-15),
+  // so reconfiguring mid-flight is supported by design.
+  s.reconnect.configure(url: move);
+  // A real drop, NOT `superseded` — the ladder must treat this as a
+  // disconnection and dial the new address. `superseded` publishes
+  // `connecting`, on which the ladder deliberately schedules nothing (F-5).
+  await s.transport.disconnect();
+}

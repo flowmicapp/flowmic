@@ -217,6 +217,41 @@ export const MobileReconnectAckAudioFieldsSchema = z.object({
   audio_last_contiguous_seq: z.number().int().min(-1).optional(),
 });
 export type MobileReconnectAckAudioFields = z.infer<typeof MobileReconnectAckAudioFieldsSchema>;
+
+// ── 2026-08-29 · the multi-node half of the `mobile:reconnect` ACK ───────────
+// (docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §4-2)
+//
+// The phone follows its PC. Rooms are per-process (server-core room/store.ts:
+// 「Live socket presence ONLY」), so a phone connected to a different node from
+// its PC is not in a slow room — it is in a DIFFERENT room, and would sit there
+// reporting the PC offline while the PC reports itself perfectly connected.
+//
+//   · `home_node` — the node the paired PC is registered on right now
+//     (`pc_devices.home_node`, stamped on every PC admission).
+//   · `node`      — the node that ANSWERED this ack.
+//
+// 🔴 BOTH, NOT JUST THE FIRST, AND THAT IS THE POINT. The phone's question is
+// 「am I in the same place as my PC」, which is a COMPARISON. It could learn its
+// own side from GET /api/node/ping instead — and then it would be comparing two
+// answers taken at two different instants, with a reconnect possible in between.
+// One ack, one instant, one comparison.
+//
+// ABSENCE MEANS 「single-node deployment」 and must keep meaning that: a phone
+// that sees neither field behaves exactly as it does today, which is what every
+// installation does until the day it does not. Never emit an empty string or a
+// placeholder here — 「I do not know which node」 and 「there are no nodes」 are
+// different facts and only one of them is worth acting on.
+//
+// FAILURE DIRECTION, same construction as the audio field above and as
+// `inject_origin`: an old relay that strips these, or an old phone that ignores
+// them, produces exactly the current product — the phone dials the endpoint and
+// finds its PC there, because until multi-node is offered the PC is there. The
+// event whitelist is untouched: these are payload fields on an ack, not events.
+export const MobileReconnectAckNodeFieldsSchema = z.object({
+  home_node: z.string().min(1).optional(),
+  node: z.string().min(1).optional(),
+});
+export type MobileReconnectAckNodeFields = z.infer<typeof MobileReconnectAckNodeFieldsSchema>;
 /** v0.2.3 — the phone RETIRES its own pairing (owner 2026-07-29).
  *
  *  Deleting an entry on the phone used to drop the local token and nothing else,

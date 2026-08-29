@@ -35,6 +35,7 @@
 // two retained tables are the positive control for the whole set: the SAME query
 // shape, against the SAME user id, finds rows after the delete.
 
+import { RoomStore } from '../src/room/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -84,6 +85,10 @@ function makeDeps(): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    // 2026-08-28: the console's device surface now takes live room membership.
+    // An EMPTY store is the honest fixture for these suites — none of them has a
+    // socket, so every PC reads absent, which is what "no relay session here" means.
+    store: new RoomStore(),
     settings: db.settings,
     // The two deps this card adds. Real repos off the same connection — a stub
     // here would let every cascade assertion below pass against a fake delete.

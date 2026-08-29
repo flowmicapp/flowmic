@@ -85,7 +85,10 @@ import '../portable/portable_import.dart' show ImportReport;
 // on the shared constant instead of a re-typed literal is what stops the
 // reason having two spellings.
 import '../audio/local_stop_reasons.dart'
-    show kLocalStopReasonLinkLoss, kLocalStopReasonLinkLossKept;
+    show
+        kLocalStopReasonContinuousCap,
+        kLocalStopReasonLinkLoss,
+        kLocalStopReasonLinkLossKept;
 import '../signaling/state_machine.dart' show SttStall, SttStallReason;
 import '../signaling/wire_payloads.dart' show ComposeTask, FlowMode;
 import 'app_settings.dart';

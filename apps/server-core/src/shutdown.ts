@@ -154,11 +154,22 @@ export interface ShutdownSteps {
   audioRegistry: { stopAll(): void };
   httpServer: HttpServer;
   db: { close(): void };
+  /** 2026-08-29 multi-node — the replica outbox delivery timer. OPTIONAL
+   *  because a single-node or writer process has none; absent means「there is
+   *  no such timer」, never「skip stopping it」. */
+  outboxDrainer?: { stop(): void };
+  /** 2026-08-29 multi-node — the replica's replication pull timer. Same shape
+   *  and same argument as `outboxDrainer`: optional because only a replica has
+   *  one, and「absent」means there is none, never「skip it」. */
+  replicaPuller?: { stop(): void };
 }
 
 /** THE ordered stop sequence. One list, one order, one owner. */
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
-  const { retention, statusProbes, closeSocket, audioRegistry, httpServer, db } = steps;
+  const {
+    retention, statusProbes, closeSocket, audioRegistry, httpServer, db,
+    outboxDrainer, replicaPuller,
+  } = steps;
   return async (): Promise<void> => {
     // GA-06: disarm the sweep FIRST — a tick that fired after db.close() would
     // hit dead statements, and a live 24h timer would keep the process alive.
@@ -167,6 +178,25 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.
     await announceShutdownStep('statusProbes.stop', () => statusProbes.stop());
+    // 2026-08-29 multi-node — the replica delivery timer, disarmed with the
+    // other two and for the same reason.
+    //
+    // 🔴 STOPPED, NOT FLUSHED. A last-gasp delivery attempt would add a network
+    // round trip to every shutdown, and this service already fails to exit
+    // inside its 20 s TimeoutStopSec (RV-65) — buying nothing, because the
+    // queue is durable by construction: whatever is still owed is on disk and
+    // the next boot offers it again. Durability is what makes not flushing the
+    // correct answer rather than the lazy one.
+    if (outboxDrainer) {
+      await announceShutdownStep('outboxDrainer.stop', () => outboxDrainer.stop());
+    }
+    // The pull timer, disarmed for a sharper reason than the others: a tick that
+    // fired after db.close() would ATTACH to a closed handle, and one that fired
+    // mid-teardown would open a write transaction over the whole database while
+    // sockets are draining.
+    if (replicaPuller) {
+      await announceShutdownStep('replicaPuller.stop', () => replicaPuller.stop());
+    }
     // socket.io is mounted on this SAME httpServer (createSocketServer) —
     // its close() (io.disconnectSockets(true) + engine.close()) is a
     // SEPARATE drain from the httpServer step below, not a subset of it.

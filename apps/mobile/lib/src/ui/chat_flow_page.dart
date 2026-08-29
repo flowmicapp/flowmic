@@ -18,14 +18,16 @@
 //         bottom so offset==0 is pinned without animateTo on new rows.
 
 import 'dart:async';
-// PA-5: the append button's dashed outline painter (chat_flow_edit_sheet.dart)
-// walks the path — PathMetric is dart:ui-only, not re-exported by material.
-import 'dart:ui' show PathMetric;
-
+// NR-4 (d): `dart:ui show PathMetric` left with `_DashedRRectPainter`.
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/foundation.dart' show ValueListenable, setEquals;
+// NR-4 (g): `material.dart` does not re-export the semantics library.
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'dart:typed_data' show Uint8List;
 
+import '../audio/continuous_offer.dart';
+import '../auth/cloud_summary_controller.dart' show CloudSummaryController;
+import '../ptt/ptt_session.dart' show PttSession, PttSessionContinuous;
 import '../session/chat_controller.dart';
 import '../session/compose_gate.dart';
 import '../session/image_clipboard.dart';
@@ -64,6 +66,9 @@ import 'chat_retry_targets.dart';
 import 'chat_timeline_faces.dart';
 import 'compose_band.dart';
 import 'confirm_dialog.dart';
+import 'continuous_entry_row.dart';
+import 'continuous_live_bar.dart';
+import 'continuous_start_sheet.dart';
 import 'edit_entry_page.dart';
 import 'entry_context_menu.dart';
 import 'haptics.dart';
@@ -91,6 +96,7 @@ import 'tokens.dart';
 // button + panel, mode-chip tap confirm) moved out verbatim — see that
 // file's header for the exact diff-discipline contract.
 part 'chat_flow_composer.dart';
+part 'chat_flow_continuous.dart'; // Card CR-9 — the cap again (798/800).
 // P3 0.3.1 (800-line cap again — the tablet press-stability skeleton pushed
 // the composer file over): the PTT caption family moved out of it verbatim.
 // Same contract as above; see that file's header.
@@ -111,8 +117,10 @@ part 'chat_flow_edit_sheet.dart';
 // PA-5's append machinery — split from the sheet file at the 800-line cap
 // (verbatim move; the sheet file's header points here).
 part 'chat_flow_edit_sheet_append.dart';
+part 'chat_flow_edit_sheet_sync.dart'; // NR-4-P1 (c) — the cap again (800/800).
 // fix-001 (the cap again, this file stood at 855): the two ways this page leaves
 // itself. Same verbatim-move contract as above.
+part 'chat_flow_back_disposition.dart'; // 0.3.43 Q6 — the cap again (798/800).
 part 'chat_flow_exits.dart';
 part 'chat_flow_pager_sync.dart'; // REQ-12-02 — split at the 800-line cap.
 // 800-line cap again (this file stood at 796/800): the timeline scroll
@@ -135,8 +143,15 @@ class ChatFlowPage extends StatefulWidget {
     this.historySource,
     this.isSignedIn,
     this.onSignIn,
+    this.cloudSummary,
   });
   final ChatController controller;
+
+  /// Card CR-9 — the live account the continuous-recording entry reads.
+  /// 🔴 NULL MEANS 「THIS BUILD DOES NOT OFFER IT」: the entry is then ABSENT,
+  /// not present-and-broken (same shape as [isSignedIn]). Full argument, and
+  /// the third case it must not collapse into: `_continuousOfferRouted`.
+  final CloudSummaryController? cloudSummary;
 
   /// REQ-12-09 09-B — the account state the 「+」 panel's Light-record
   /// (轻记录) tab asks.
@@ -239,6 +254,30 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   );
 
   bool get _hasUnsentBuffer => controller.buffer.trim().isNotEmpty;
+
+  // ── 0.3.43 Q6 · the back-disposition family ─────────────────────────────
+  // Bodies + reasoning in chat_flow_back_disposition.dart (structural split at
+  // the 800-line cap; that file argues why these four move together and why
+  // they are NOT the same question as chat_flow_exits.dart).
+  bool get _backLeavesPage => _backLeavesPageRouted(this);
+  void _onBackDispositionChanged() => _onBackDispositionChangedRouted(this);
+  bool get _leavingByAutomaticExit => _leavingByAutomaticExitRouted(this);
+  void _runLeaveCleanupAfterPop() => _runLeaveCleanupAfterPopRouted(this);
+
+  /// The change-detector behind [_onBackDispositionChanged]; never read for
+  /// rendering (build asks [_backLeavesPage] itself, which cannot go stale).
+  /// A FIELD, so it stays here: a `part` cannot add one.
+  bool _lastBackLeaves = false;
+
+  /// The ONE frame-scheduler for [_lastBackLeaves]. A method on the STATE
+  /// because `setState` is `@protected` and the family's bodies are top-level
+  /// functions in a part file — the same split, for the same reason, as
+  /// [_setSheetOpen] and chat_ptt_lifecycle.dart's `notifyUi`.
+  void _setBackLeaves(bool v) {
+    if (_lastBackLeaves == v) return;
+    setState(() => _lastBackLeaves = v);
+  }
+
 
   /// owner 2026-07-26 ②: one-shot guard so the pop fires exactly once even
   /// though the controller keeps notifying.
@@ -359,6 +398,11 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   void initState() {
     super.initState();
     _scrollCtl = ScrollController()..addListener(_onScrollOffset);
+    // Card CR-9 — ask once on entry (the 「pushed state has no pull path」 rule
+    // a few lines down). Otherwise the entry's numbers arrive only if the user
+    // happens to open Settings, where the quota gauge asks; one who never does
+    // reads 「could not read your limit」 forever. Idempotent by construction.
+    widget.cloudSummary?.refresh();
     _pager = OwnerTimelinePager(persistence: widget.historySource);
     _lastStoreCount = controller.store.entries.length;
     controller.store.addListener(_onStoreChanged);
@@ -385,6 +429,10 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     controller.session.scope.addListener(_syncPagerOwners);
     _syncPagerOwners();
     _selection.addListener(_onSelectionChanged);
+    // 0.3.43 Q6 — see [_onBackDispositionChanged]. Seeded first so the very
+    // first notification is compared against the truth and not against `false`.
+    _lastBackLeaves = _backLeavesPage;
+    controller.addListener(_onBackDispositionChanged);
   }
 
   /// Card FB-7 — a `setState`, not a merge into `build`'s `Listenable.merge`:
@@ -404,6 +452,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   @override
   void dispose() {
     controller.removeListener(_syncComposeText);
+    controller.removeListener(_onBackDispositionChanged);
     controller.removeListener(_syncSheetOnController);
     controller.removeListener(_maybeLeaveOnSessionLost);
     controller.removeListener(_maybeLeaveOnCapsuleTaken);
@@ -504,72 +553,9 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   }
 
   /// Shared exit path for header ← and system back (PopScope).
-  /// Uses [Navigator.pop] (not maybePop) so canPop:false does not re-enter.
-  Future<void> _attemptBack() async {
-    final AppStrings strings = _strings;
-    // 🔴 Card FB-7 — in selection mode back leaves the MODE, not the page, and
-    // is checked FIRST: the two forks below ask 「really leave this screen」,
-    // which is not what a back press inside a selection is asking.
-    if (_selection.active) {
-      _selection.exit();
-      return;
-    }
-    // 🔴 PA-4 / §5-2 close gesture: 「系统返回键 ⇒ 先收编辑面，再走既有序列」
-    // ("system back key ⇒ collapse the edit face first, THEN walk the
-    // existing sequence").
-    // REDESIGN-PLAN §6.4's sequence is collapse panel/overlay (收面板/弹层) →
-    // leave instance list (退实例列表) → root-level exit (根级退出), and
-    // the sheet is an 「overlay」 (弹层) — so it goes in FRONT, exactly like the selection
-    // mode above. Collapse preserves the draft (SUP-5); the confirm-discard
-    // fork below still guards the NEXT back press if the draft is unsent.
-    if (_sheetOpen) {
-      _collapseSheetRouted(this);
-      return;
-    }
-    final ChatBackKind kind = chatBackKind(
-      isRecording: controller.isRecording,
-      hasUnsentBuffer: _hasUnsentBuffer,
-    );
+  /// Body: chat_flow_back_disposition.dart (0.3.43 Q6 structural split).
+  Future<void> _attemptBack() => _attemptBackRouted(this);
 
-    if (kind == ChatBackKind.stopRecording) {
-      // pttUp = stop + keep path. Never pttCancel (silent drop). Stay here.
-      await controller.pttUp();
-      if (!mounted) return;
-      _toast(context, strings.recordingStoppedKept);
-      return;
-    }
-
-    if (kind == ChatBackKind.confirmDiscard) {
-      final bool? discard = await showDialog<bool>(
-        context: context,
-        builder: (BuildContext ctx) => AlertDialog(
-          backgroundColor: FlowMicColors.surface,
-          content: Text(
-            strings.discardUnsentConfirm,
-            style: TextStyle(color: FlowMicColors.t1, fontSize: 14),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(strings.cancel),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(
-                strings.discardUnsentAction,
-                style: TextStyle(color: FlowMicColors.red),
-              ),
-            ),
-          ],
-        ),
-      );
-      if (discard != true || !mounted) return;
-    }
-
-    onBack?.call();
-    if (!mounted) return;
-    Navigator.of(context).pop();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -593,23 +579,39 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
       // dialog resolves off the banner's own action button) — without this, a
       // grant/deny would not repaint until the next controller notification.
       controller.session.micPermission.face,
+      // Card CR-9: the entry's numbers land asynchronously and nothing else
+      // here changes when they do.
+      ?widget.cloudSummary,
       ?widget.appSettings,
     ];
-    // When onBack is null this page is the root — system back should leave the
-    // app / prior route without our intercept. When onBack is set, we own the
-    // exit (same as header ←).
-    // 🔴 Card FB-7 adds the second term: on the home-rooted variant (`onBack ==
-    // null`) back was never intercepted, so entering selection mode there and
-    // pressing back would have left the APP with a selection bar on screen.
-    // 🔴 PA-4 keeps the third for the identical reason: on that same variant,
-    // a back press with the sheet up would have left the APP instead of
-    // collapsing the overlay in front of the user.
-    final bool interceptBack =
-        onBack != null || _selection.active || _sheetOpen;
+    // 🔴 0.3.43 Q6 — `interceptBack` STOOD HERE as
+    // `onBack != null || _selection.active || _sheetOpen`, and the whole content
+    // of this change is that its first term is gone and the recording/draft
+    // policy took its place. [_backLeavesPage] carries the argument, including
+    // why the two surviving terms (card FB-7's selection mode, PA-4's overlay)
+    // are still blockers and what dropping `onBack != null` tightened on the
+    // home-rooted variant.
+    //
+    // ⚠️ This value is now READ BY THE GESTURE, not only by the button: the
+    // Cupertino back-swipe will not arm on a route reporting `doNotPop`. Its
+    // inputs must therefore schedule a frame at STATE level — see
+    // [_onBackDispositionChanged], which is card FB-7's own rule owed by two
+    // more terms.
+    final bool backLeaves = _backLeavesPage;
     return PopScope(
-      canPop: !interceptBack,
+      canPop: backLeaves,
       onPopInvokedWithResult: (bool didPop, Object? result) async {
-        if (didPop || !interceptBack) return;
+        // didPop == true — the route is already gone (swipe, system back,
+        // header ←, or the pop after a confirmed discard). All that is left is
+        // the leave cleanup, and [_runLeaveCleanupAfterPop] decides whether this
+        // departure is ours to clean up at all.
+        if (didPop) {
+          _runLeaveCleanupAfterPop();
+          return;
+        }
+        // didPop == false — we refused the pop, so this is one of the three
+        // dispositions: leave the selection mode, collapse the sheet, or stop
+        // and keep the recording / confirm the discard. Unchanged.
         await _attemptBack();
       },
       child: Scaffold(

@@ -120,6 +120,14 @@ mixin OnboardingStrings on AppStringsLeaves {
   // ⚠️ owner ruling 7-3: **no download URL, no QR code** here until the
   // 0.3.0 external-distribution surface is finalized. A URL that will go
   // stale is worse than no URL.
+  //
+  // 🔴 **RULING 7-3 IS DISCHARGED, NOT OVERRULED (NR-6, 2026-08-27).** The
+  // paragraph above is kept because it is still the reason: the ruling was
+  // conditional on the distribution surface, and flowmic.app is now live and
+  // serving. The download row landed as `onboarding_download_block.dart` (see
+  // the three getters below), with the address DERIVED from
+  // `kDefaultSaasEndpoint` rather than spelled — which is the same anti-drift
+  // move §6-1 makes for button names, applied to a URL.
   String get onboardingInstallTitle => _lfOnboardingInstallTitle;
   String get onboardingInstallBody => _lfOnboardingInstallBody;
 
@@ -128,6 +136,35 @@ mixin OnboardingStrings on AppStringsLeaves {
   /// hardcoding a number would inevitably drift, while all the user needs to
   /// know is "if it expires, a new one appears — just scan the latest one".
   String get onboardingCodeExpiryNote => _lfOnboardingCodeExpiryNote;
+
+  // ── NR-6 §9 · the download row on page 2 ───────────────────────────────
+  //
+  // 🔴 THE ADDRESS ITSELF IS NOT IN THIS CATALOGUE, and that is on purpose:
+  // `flowmic.app` is not copy, it is a fact about where the product lives, and
+  // it has exactly one home (`kDefaultSaasEndpoint`). A translated line
+  // containing the host would be nine copies of that fact, eight of which
+  // nobody would remember to update. The two sentences below sit ABOVE and
+  // BELOW the derived host, so each language can order its own words around a
+  // token it never spells.
+
+  /// Line 1 — what to do with the address that follows: open it on the
+  /// COMPUTER. The whole page is about the other machine, so this is the half
+  /// of the instruction people get wrong.
+  String get onboardingDownloadOpenOnPc => _lfOnboardingDownloadOpenOnPc;
+
+  /// Line 3 — what they will find there. Deliberately 「the desktop app」 and
+  /// not 「download」: the site decides whether the visitor is offered an
+  /// installer, a portable build or a store link, and the guide must not
+  /// promise a specific one of the three.
+  String get onboardingDownloadInstall => _lfOnboardingDownloadInstall;
+
+  /// The QR code's screen-reader description. Without it the block is, to a
+  /// user who cannot see it, a piece of blank space beside three lines of text
+  /// — the same reason the three illustrations carry `onboardingArt*`.
+  ///
+  /// ⚠️ It describes what the code is FOR, not what it looks like. 「A QR
+  /// code」 would be the visual fact and the useless half.
+  String get onboardingDownloadQrLabel => _lfOnboardingDownloadQrLabel;
 
   // ── W-3 Page 3: pair, then start speaking ──────────────────────────────
   String get onboardingPairTitle => _lfOnboardingPairTitle;

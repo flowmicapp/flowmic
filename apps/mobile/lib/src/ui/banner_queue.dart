@@ -34,6 +34,7 @@
 
 import 'package:meta/meta.dart';
 
+import '../audio/continuous_cap_timer.dart' show kContinuousCapWarningLead;
 import '../session/compose_gate.dart'
     show AiComposeFailure, AiComposeOutcome, ComposeSendFailure;
 import '../session/image_send_controller.dart' show ImageSendOutcome;
@@ -136,6 +137,15 @@ class BannerIds {
 
   /// audio:auto-stopped — the server hit the 5-min hard cap (R6 P0-R3).
   static const String autoStop = 'auto_stop';
+
+  /// Card CR-9 / owner §5-4 — a continuous recording is one minute from its
+  /// per-sitting ceiling.
+  ///
+  /// 🔴 ITS OWN ID, NOT [autoStop]. That one reports a recording that has
+  /// ALREADY ended; this one reports one that is still running and gives the
+  /// user a minute to finish the sentence. Sharing an id would let either
+  /// overwrite the other, and the two lead to opposite actions.
+  static const String continuousCapWarning = 'continuous_cap_warning';
 
   /// PROCESSING closed with no transcript — the 15 s local safety net fired or
   /// the engine reported a terminal stt:error (GA-03).
@@ -351,6 +361,10 @@ BannerQueue buildChatBanners({
   OutboxTerminal? outboxTerminal,
   void Function()? onDismissOutboxTerminal,
   void Function()? onDismissAutoStop,
+  /// Card CR-9 — clears the one-minute reminder. The auto-hide reconciler fires
+  /// the SAME callback the ✕ does, so a timed hide and a manual one are
+  /// indistinguishable downstream.
+  void Function()? onDismissContinuousCapWarning,
   void Function()? onDismissSttStalled,
   void Function()? onDismissUtteranceFailure,
   void Function()? onDismissSendFailure,
@@ -359,6 +373,21 @@ BannerQueue buildChatBanners({
   void Function()? onRetrySendFailure,
   /// B4 — see [_linkBanner]. Null when the ladder is not running.
   void Function()? onReconnectNow,
+  /// Card CR-3 — a continuous recording is still capturing, with its audio
+  /// being retained on this phone, while the link is down. Source:
+  /// `PttSession.continuousCapturingOffline`, whose doc explains why every
+  /// conjunct of it is load-bearing.
+  ///
+  /// Default false ⇒ ordinary push-to-talk renders exactly what it did before.
+  bool continuousOffline = false,
+  /// Card CR-9 — the ceiling is one minute away. Source:
+  /// `ContinuousCapTimer.warningTicket`, a ticket rather than a flag so a fresh
+  /// raise restarts the auto-hide window.
+  ///
+  /// ⚠️ EVENT-type: it is registered with the auto-hide reconciler, which is
+  /// what keeps owner §5-4 (「a few seconds, never a standing bar」) true in the
+  /// code rather than only in a comment.
+  bool continuousCapWarning = false,
 }) {
   final BannerQueue queue = BannerQueue();
   final BannerItem? link = _linkBanner(
@@ -367,6 +396,7 @@ BannerQueue buildChatBanners({
     ladderReconnecting: ladderReconnecting,
     strings: strings,
     onReconnectNow: onReconnectNow,
+    continuousOffline: continuousOffline,
   );
   if (link != null) queue.push(link);
   if (autoStopped) {
@@ -383,6 +413,23 @@ BannerQueue buildChatBanners({
         message: strings.recordingAutoStoppedMessage(autoStopReason ?? ''),
         dismissible: true,
         onAction: onDismissAutoStop,
+      ),
+    );
+  }
+  if (continuousCapWarning) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.continuousCapWarning,
+        // DEGRADED, not blocking: nothing is broken and nothing is being asked
+        // of the user. It is a heads-up on a recording that is working.
+        severity: BannerSeverity.degraded,
+        // The lead is interpolated from the constant that schedules it, so the
+        // sentence cannot drift from the timer that produces it.
+        message: strings.continuousCapWarning(
+          kContinuousCapWarningLead.inMinutes,
+        ),
+        dismissible: true,
+        onAction: onDismissContinuousCapWarning,
       ),
     );
   }
@@ -554,8 +601,42 @@ BannerItem? _linkBanner({
   /// cannot succeed. Same rule [onRetrySendFailure] already states — never a
   /// button that guesses.
   void Function()? onReconnectNow,
+  bool continuousOffline = false,
 }) {
   if (connection == ConnectionState.connected) return null;
+  // ── Card CR-3 — a continuous recording that is still capturing ─────────────
+  //
+  // 🔴 SEVERITY IS `degraded`, NOT `blocking`, AND THAT IS THE POINT. Blocking
+  // means 「the user cannot proceed」. Here they are proceeding — a 30-minute
+  // recording is running and being kept — so the ONE thing this banner must not
+  // do is look like the thing that stops them. Degraded is literally true:
+  // still working, but degraded.
+  //
+  // It is checked before the album and ladder postures because it is the fact
+  // with the highest cost of being wrong about. 「Picking a photo · will
+  // reconnect when you return」 and 「Reconnecting」 are both true and both
+  // answer a question the user did not ask: mid-meeting, what they need to know
+  // is that their words are still being captured. The link's own posture is
+  // recoverable information; a user who believes their recording died is not.
+  //
+  // 🔴 THE COPY MAY NOT PROMISE TRANSCRIPTION. 15 册 §2.0-b bans 「待转录」and
+  // every synonym until the re-transcription channel exists (card CR-5). This
+  // sentence states the two facts the phone can prove right now — it is still
+  // recording, and the audio is on this device — and stops there. The guard
+  // that outlives this comment is `link_loss_copy_guard_test.dart`, whose
+  // table this string was added to.
+  //
+  // No action button: `onReconnectNow` is deliberately dropped. The ladder is
+  // already dialling, the recording does not need the link to continue, and a
+  // button here would invite a tap whose only effect is to make the user feel
+  // responsible for a link that is healing itself.
+  if (continuousOffline) {
+    return BannerItem(
+      id: BannerIds.link,
+      severity: BannerSeverity.degraded,
+      message: strings.bannerContinuousOffline,
+    );
+  }
   // Album window wins: the phone itself opened the picker — that is a
   // different fact from a random drop the ladder is healing.
   //

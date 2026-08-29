@@ -38,6 +38,7 @@ use crate::sidecar::io::{self, BringUpOptions};
 use crate::sidecar::{self, Phase};
 use crate::socket::channel::{self as chan, Channel, CloudReadiness};
 use crate::socket::bridge;
+use crate::socket::node_select;
 
 use super::channel_session::{connect_on_main, has_socket, set_socket};
 use super::cloud;
@@ -291,6 +292,56 @@ pub fn start(app: &AppHandle) {
     start_cloud(app);
 }
 
+
+/// The node this process is currently dialing, if any. Process-global because
+/// the choice has to survive a reconnect — without it every reconnect would be a
+/// first choice, the stickiness margin would never apply, and two nodes a few
+/// milliseconds apart would trade the socket back and forth forever.
+static CURRENT_NODE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn remember_node(node: Option<String>) {
+    if let Ok(mut g) = CURRENT_NODE.lock() {
+        *g = node;
+    }
+}
+
+/// 「这条连接会不会发 pc:register」("will this connection emit pc:register").
+///
+/// Read from the CLOUD credential file, which is the same thing socket/client.rs
+/// consults to decide between `pc:register` and `pc:reconnect{token}` — see
+/// [`Credentials::is_registered`], whose doc comment is explicit that this is the
+/// right question in exactly one place. This is the second place, and it is the
+/// SAME question: a connection that is about to register must land on the writer,
+/// because registration writes seven rows including the pairing code and a
+/// replica loses all of them at its next replication pull.
+///
+/// ⚠️ Absent or unreadable credentials mean 「no token」 ⇒ registration is due.
+/// The safe failure: dialing the writer when we did not have to costs one round
+/// trip, while dialing a replica when we had to costs the user's pairing code.
+fn cloud_registration_due() -> bool {
+    !crate::socket::credentials::Credentials::load(&chan::credentials_path(Channel::Cloud))
+        .map(|c| c.is_registered())
+        .unwrap_or(false)
+}
+
+/// Pick a relay node for `endpoint`, or fall back to the endpoint itself.
+///
+/// ⚠️ EVERY FAILURE HERE FALLS BACK TO THE ENDPOINT, deliberately. Node selection
+/// is an optimisation; a PC that cannot build an HTTP client, or reach the node
+/// list, must still connect exactly the way it did before this feature existed.
+/// The one thing it must never do is fail to dial at all.
+fn select_relay_node(endpoint: &str, must_register: bool) -> node_select::Choice {
+    let Some(probe) = node_select::HttpProbe::new() else {
+        return node_select::Choice {
+            url: endpoint.to_string(),
+            node: None,
+            reason: node_select::Reason::NoneReachable,
+        };
+    };
+    let current = CURRENT_NODE.lock().ok().and_then(|g| g.clone());
+    node_select::choose(endpoint, current.as_deref(), must_register, &probe)
+}
+
 /// Bring the CLOUD channel up alongside the LAN one. A relay that cannot be dialed
 /// stays loudly disconnected (T-2 ⑤) — it never degrades the LAN channel, and
 /// since GA-28 it never REPLACES it either.
@@ -308,11 +359,23 @@ fn connect_cloud(app: &AppHandle) {
     match cfg.readiness(chan::now_secs()) {
         CloudReadiness::Ready => {
             let head = cfg.key_head().unwrap_or_default();
+            // 2026-08-29 multi-node — WHICH DOOR of this endpoint to use. This
+            // never rewrites `cfg.endpoint`: that field answers「which service
+            // am I on」and is the one a self-hosted operator sets, while a node
+            // answers「which door is nearest me」. Candidates come only from what
+            // that endpoint itself publishes, so a self-hosted install cannot be
+            // moved onto our infrastructure here (socket/node_select.rs).
+            //
+            // On every non-choosing path `dial` IS the endpoint, so this line
+            // is unconditional and there is no「no node」branch to forget.
+            let choice = select_relay_node(&cfg.endpoint, cloud_registration_due());
+            forensic::record("cloud", &format!("relay node: {}", choice.reason.describe()));
             forensic::record(
                 "cloud",
-                &format!("dialing relay {} with Cloud Key (head={head})", cfg.endpoint),
+                &format!("dialing relay {} with Cloud Key (head={head})", choice.url),
             );
-            connect_on_main(app, &cfg.endpoint, Channel::Cloud, cfg.jwt.clone());
+            remember_node(choice.node.clone());
+            connect_on_main(app, &choice.url, Channel::Cloud, cfg.jwt.clone());
         }
         not_ready => {
             // Fail-loud, and scoped to the CLOUD slot only: emptying it must not

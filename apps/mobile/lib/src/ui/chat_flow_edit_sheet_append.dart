@@ -69,8 +69,35 @@ Widget _sheetAppendLiveView(_ChatFlowPageState s) {
   );
 }
 
-/// PA-5: the in-sheet hold-to-append button — 46dp, dashed brand outline at
-/// rest, solid red while the hold is live (mock ⑥/⑦).
+/// PA-5: the in-sheet hold-to-append button — solid brand fill at rest, red
+/// outline while the hold is live (mock ⑥/⑦).
+///
+/// 🔴 NR-4 (d) OPTION B (2026-08-27, owner ruling ③ of
+/// docs/decisions/2026-08-27-owner-web-rulings-batch-2.md; design
+/// docs/ui-design/2026-08-27-nr4p3-edit-sheet-and-at-cancel-design.md §2.2).
+/// The complaint on the ledger was 「the talk button is gone」 when the sheet is
+/// up. The sheet's covering geometry is NOT what answered it — that geometry is
+/// SEG-2's deliberate design (`chat_flow_edit_sheet.dart:119-124`, and a
+/// half-height sheet would put a second, live recording entry point on screen,
+/// which this file's own header forbids). What answers it is that THIS button
+/// now wears the PTT bar's resting face: the same [kSpeakControlHeight], the
+/// same solid [FlowMicDockColors.pri] fill, the same [kSpeakControlRadius], the
+/// same [kSpeakControlGlyphSize] mic. The user's question is 「can I still
+/// speak」, not 「where did that 46dp rectangle go」, and one glance at a
+/// familiar face answers it.
+///
+/// ⚠️ THE DASHED OUTLINE IS GONE, not kept as a variant. A dashed hairline is
+/// this app's 「secondary control」 vocabulary, and the reasoning is the same
+/// one owner used on P5→P5b for the bar itself (「土黄色有边框的按钮看起来与整个
+/// APP 的设计语言不一致」 — an outlined face read as a label strip rather than
+/// the screen's primary action). Keeping both would be keeping the thing that
+/// caused the complaint.
+///
+/// ⚠️ ONLY THE RESTING FACE MOVED. The recording and cancel-armed faces are
+/// byte-identical: red/grey outlines are already the loudest thing on the
+/// sheet, and re-skinning an alarm to match an idle control would be a
+/// regression dressed as consistency. The font size stayed 13.5 too — the
+/// bar's 17 is sized for a full sentence across a full-width bar.
 ///
 /// 🔴 SAME GESTURE CHAIN as the PTT bar: hold-to-record, slide-up (60px) to
 /// cancel, release to finish — driven through the SAME
@@ -79,6 +106,19 @@ Widget _sheetAppendLiveView(_ChatFlowPageState s) {
 /// drive the PRODUCTION-wired `onDown` directly, because a real accepted
 /// long-press drags the async PTT chain into testWidgets' FakeAsync zone
 /// (the documented deadlock).
+///
+/// 🔴 NR-4 / 0.3.43 Q5-③ (2026-08-28, owner ruling Q5-③ of
+/// docs/decisions/2026-08-28-owner-settings-catalogue-shortpress-ios-swipe-rulings.md):
+/// THIS BUTTON HAS A DISABLED FACE NOW. It never had one. The gate it presses
+/// (`ChatController.canPtt`) can be false for three reasons — link down, a
+/// previous utterance still in PROCESSING, an AI compose run in flight — and in
+/// every one of them the button kept its full live face, accepted the hold,
+/// swallowed the refusal `pttDown` returned, and did nothing. That is the fake
+/// affordance this repo's oldest red line names: 「一个改变不了任何东西的控件比
+/// 没有控件更坏」 — a control that can change nothing is worse than no control.
+/// The PTT bar has had [PttVisual.disabled] since it was written; this button
+/// ran the SAME GESTURE CHAIN and was missing the same half, exactly like the
+/// accessible-cancel hole NR-4 (g) found here for the same reason.
 class SheetAppendButton extends StatefulWidget {
   const SheetAppendButton({
     super.key,
@@ -87,9 +127,25 @@ class SheetAppendButton extends StatefulWidget {
     required this.onDown,
     required this.onUp,
     required this.onCancel,
+    this.enabled = true,
+    this.onDisabledTap,
     this.onHoldPointerDown,
     this.onHoldPointerSettled,
   });
+
+  /// Whether the gate behind [onDown] would accept a press right now
+  /// (`ChatController.canPtt`). False ⇒ the disabled face, no hold recognizer,
+  /// and [onDisabledTap] on tap.
+  ///
+  /// ⚠️ READ ONLY AT REST. A live hold owns this control until it settles — see
+  /// [_SheetAppendButtonState._disabled] for why re-reading it mid-hold would
+  /// break the very gesture it is meant to protect.
+  final bool enabled;
+
+  /// Called when a press lands on the disabled face. The sheet renders the
+  /// reason; this widget deliberately does not choose the sentence, because the
+  /// three reasons behind `canPtt` do not share one.
+  final VoidCallback? onDisabledTap;
 
   /// A7 face: true while the append hold is live (red, release wording).
   final bool appending;
@@ -119,25 +175,64 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
   bool _cancelled = false;
   bool _cancelArmed = false;
 
+  /// 0.3.43 Q5-③ — an accepted hold is waiting on [SheetAppendButton.onDown].
+  ///
+  /// The gate goes false the instant the FSM enters RECORDING, i.e. roughly two
+  /// seconds BEFORE `onDown` returns and `widget.appending` is set. Reading
+  /// `widget.enabled` naively would therefore repaint this control as DISABLED
+  /// in the middle of the user's own hold and hand the pointer to a tap handler
+  /// instead of the release. This flag is what makes 「read only at rest」 true.
+  bool _activating = false;
+
+  /// The disabled face — asked at REST only. A hold in flight (`_activating`),
+  /// a live hold ([_active]) and the recording face
+  /// ([SheetAppendButton.appending]) each keep the control alive regardless of
+  /// the gate, because all three mean this button is already mid-gesture.
+  bool get _disabled =>
+      !widget.enabled && !widget.appending && !_active && !_activating;
+
   void _onCancelZoneChanged(bool inZone) {
     if (!mounted) return;
     if (_cancelArmed == inZone) return;
     setState(() => _cancelArmed = inZone);
   }
 
+  /// 🔴 NR-4 (g): `_active` is a RENDERED fact now — the accessible cancel
+  /// action below is registered off it — so every write schedules a frame.
+  /// Before this, none of the three writes did, and the face did not need one
+  /// (it is driven by `widget.appending`, which the sheet sets). The action
+  /// would therefore have appeared and disappeared only when the PARENT
+  /// happened to rebuild. Same setter, same reason, as `PttBar._setActive`.
+  void _setActive(bool v) {
+    if (_active == v) return;
+    if (mounted) {
+      setState(() => _active = v);
+    } else {
+      _active = v;
+    }
+  }
+
   Future<void> _handleDown() async {
     _cancelled = false;
     _cancelArmed = false;
-    final bool ok = await widget.onDown();
-    if (_cancelled) {
-      if (ok) unawaited(widget.onCancel());
-      _active = false;
-      return;
-    }
-    _active = ok;
-    if (ok && mounted) {
-      countUsage(UsageEvent.pttHold);
-      unawaited(FlowMicHaptics.pttDown());
+    // 0.3.43 Q5-③ — hold the face alive across the await. Set BEFORE it and
+    // cleared in a `finally`, so a throw out of the gate cannot leave this
+    // button permanently claiming a hold it does not have.
+    _activating = true;
+    try {
+      final bool ok = await widget.onDown();
+      if (_cancelled) {
+        if (ok) unawaited(widget.onCancel());
+        _setActive(false);
+        return;
+      }
+      _setActive(ok);
+      if (ok && mounted) {
+        countUsage(UsageEvent.pttHold);
+        unawaited(FlowMicHaptics.pttDown());
+      }
+    } finally {
+      _activating = false;
     }
   }
 
@@ -145,6 +240,10 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
     if (_cancelled) return;
     _cancelled = true;
     if (!_active) return;
+    // NR-4 (g) — same one-line change and same reasoning as
+    // `PttBar._handleSwipeCancel`: an accessible cancel has no release behind
+    // it, so this is where the hold actually closes.
+    _setActive(false);
     countUsage(UsageEvent.pttCancel);
     unawaited(FlowMicHaptics.pttCancel());
     await widget.onCancel();
@@ -152,7 +251,7 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
 
   Future<void> _handleUp() async {
     if (!_active) return;
-    _active = false;
+    _setActive(false);
     if (_cancelled) return; // swipe-up already cancelled → no fold.
     countUsage(UsageEvent.pttSend);
     unawaited(FlowMicHaptics.pttSend());
@@ -172,6 +271,7 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
   @override
   Widget build(BuildContext context) {
     final bool rec = widget.appending;
+    final bool disabled = _disabled;
     // WP8 VF-4 — mock `.apnd{height:46;border-radius:13;border:1.5px dashed
     // var(--pri);color:var(--pri);font-size:13.5px;font-weight:600;gap:8}`, and
     // A-07's live face `border-style:solid;border-color:#DC2626;color:#DC2626`.
@@ -190,15 +290,38 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
         : rec
         ? widget.strings.appendRelease
         : widget.strings.appendHold;
+    // NR-4 (d) option B: at rest this is the PTT bar's face, filled and solid.
+    // A solid fill carries its own edge, which is why there is no border on it
+    // (the same sentence ptt_bar.dart's P5b note makes).
+    final bool resting = !rec && !_cancelArmed;
+    // 🔴 0.3.43 Q5-③ — the disabled face is the PTT BAR's disabled face, token
+    // for token: `.ptt.dis{background:var(--chipbg);color:var(--sub)}`. It is
+    // the app's one 「off」 vocabulary and this control must not invent a second.
+    // The mic glyph is dropped for the same reason the bar drops it there — the
+    // bar's disabled frame is LABEL ONLY — and dropping it is most of what makes
+    // 「this cannot be pressed」 readable at a glance rather than a subtle tint.
+    final Color labelInk = disabled
+        ? FlowMicDockColors.sub
+        : resting
+        ? FlowMicDockColors.onPri
+        : ink;
     final Widget face = Container(
-      height: 46,
+      height: kSpeakControlHeight,
       alignment: Alignment.center,
-      decoration: rec || _cancelArmed
+      decoration: disabled
           ? BoxDecoration(
+              color: FlowMicDockColors.chipbg,
+              borderRadius: BorderRadius.circular(kSpeakControlRadius),
+            )
+          : resting
+          ? BoxDecoration(
+              color: FlowMicDockColors.pri,
+              borderRadius: BorderRadius.circular(kSpeakControlRadius),
+            )
+          : BoxDecoration(
               border: Border.all(color: ink, width: 1.5),
               borderRadius: BorderRadius.circular(13),
-            )
-          : null,
+            ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
@@ -209,8 +332,8 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
           // ⚠️ The recording face draws NO glyph, and that is the mock: A-07's
           // `.apnd` is the bare sentence `● 松开 结束追加`("release to finish
           // appending").
-          if (!rec && !_cancelArmed) ...<Widget>[
-            MicGlyph(size: 15, color: ink),
+          if (resting && !disabled) ...<Widget>[
+            MicGlyph(size: kSpeakControlGlyphSize, color: labelInk),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -220,7 +343,7 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: ink,
+                color: labelInk,
                 fontSize: 13.5,
                 fontWeight: FontWeight.w600,
               ),
@@ -232,79 +355,60 @@ class _SheetAppendButtonState extends State<SheetAppendButton> {
     return Semantics(
       container: true,
       button: true,
+      // 0.3.43 Q5-③ — the a11y half of the disabled face. An AT user must not
+      // be told this is an enabled button and then get nothing on activation;
+      // the activation still fires so the reason is spoken (a silent refusal
+      // reads as a broken control, which is the same complaint one layer down).
+      enabled: !disabled,
       label: faceLabel,
       liveRegion: true,
       excludeSemantics: true,
-      onTap: _handleSemanticActivate,
-      child: HoldToTalkSurface(
-        key: const ValueKey<String>('compose.sheet.append'),
-        enabled: true,
-        onAccepted: _handleDown,
-        onRelease: _handleUp,
-        onSwipeCancel: _handleSwipeCancel,
-        onCancelZoneChanged: _onCancelZoneChanged,
-        onPointerDown: widget.onHoldPointerDown,
-        onPointerSettled: widget.onHoldPointerSettled,
-        child: rec
-            ? face
-            : CustomPaint(
-                painter: _DashedRRectPainter(
-                  color: ink,
-                  strokeWidth: 1.5,
-                  radius: 13,
-                ),
-                child: face,
-              ),
-      ),
+      onTap: disabled ? widget.onDisabledTap : _handleSemanticActivate,
+      // NR-4 (g) — the accessible discard, same shape and same reasoning as
+      // `PttBar`'s (see `AppStrings.pttCancelSemanticAction`'s doc): registered
+      // only while `_active`, wired to the very function the swipe gesture
+      // calls. The ledger named only the bar; this button had the identical
+      // hole, which is unsurprising — its header says it runs the SAME GESTURE
+      // CHAIN, and that turned out to include the missing half.
+      customSemanticsActions: _active
+          ? <CustomSemanticsAction, VoidCallback>{
+              CustomSemanticsAction(
+                    label: widget.strings.appendCancelSemanticAction,
+                  ):
+                  () => unawaited(_handleSwipeCancel()),
+            }
+          : null,
+      // 🔴 0.3.43 Q5-③ — a DIFFERENT recognizer, not `HoldToTalkSurface(enabled:
+      // false)`. That surface ignores the pointer entirely when disabled, so a
+      // tap would produce silence: the control would go from 「looks alive, does
+      // nothing」 to 「looks dead, does nothing」, which fixes half the complaint
+      // and leaves the user with no way to find out why. A tap has to have an
+      // answer, so the disabled face gets its own tap target.
+      child: disabled
+          ? GestureDetector(
+              key: const ValueKey<String>('compose.sheet.append.disabled'),
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onDisabledTap,
+              child: face,
+            )
+          : HoldToTalkSurface(
+              key: const ValueKey<String>('compose.sheet.append'),
+              enabled: true,
+              onAccepted: _handleDown,
+              onRelease: _handleUp,
+              onSwipeCancel: _handleSwipeCancel,
+              onCancelZoneChanged: _onCancelZoneChanged,
+              onPointerDown: widget.onHoldPointerDown,
+              onPointerSettled: widget.onHoldPointerSettled,
+              // 🔴 NR-4 (d): the `CustomPaint` + `_DashedRRectPainter` wrapper
+              // that stood here is GONE together with the painter class — the
+              // resting face paints its own solid fill now. The class had
+              // exactly one user, so keeping it would have left a
+              // dashed-outline construction lying around for the next control
+              // to reach for.
+              child: face,
+            ),
     );
   }
-}
-
-/// A dashed rounded-rect outline (6px dash / 4px gap). Only the append button
-/// uses it — Flutter's Border has no dash style.
-class _DashedRRectPainter extends CustomPainter {
-  const _DashedRRectPainter({
-    required this.color,
-    required this.strokeWidth,
-    required this.radius,
-  });
-
-  final Color color;
-  final double strokeWidth;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth;
-    final Path source = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Offset.zero & size,
-          Radius.circular(radius),
-        ),
-      );
-    const double dash = 6;
-    const double gap = 4;
-    for (final PathMetric metric in source.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
-        final double next = distance + dash;
-        canvas.drawPath(
-          metric.extractPath(distance, next.clamp(0, metric.length)),
-          paint,
-        );
-        distance = next + gap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedRRectPainter oldDelegate) =>
-      color != oldDelegate.color ||
-      strokeWidth != oldDelegate.strokeWidth ||
-      radius != oldDelegate.radius;
 }
 

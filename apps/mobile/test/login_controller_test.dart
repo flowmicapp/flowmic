@@ -291,6 +291,19 @@ void main() {
           reason: '$locale logout copy claims "$claim", which the server does not do',
         );
       }
+      // 🔴 owner ruling 2026-08-27 §R1 — AND IT MAY NOT PROMISE A SELF-EXPIRY
+      // EITHER. This copy used to end with「the cloud session expires by itself
+      // within 7 days」, which was true while jwt.ts DEFAULT_TTL_MS was 7 days
+      // and became a promise with nothing behind it the moment that constant
+      // became 100 years. A NUMBER in this sentence can now only be a lapse
+      // window, so any digit here is the defect itself.
+      expect(
+        RegExp(r'[0-9]').hasMatch(unconfirmed),
+        isFalse,
+        reason: '$locale logout copy still names a period after which the cloud '
+            'session lapses; nothing lapses on its own any more '
+            '(docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md §R1)',
+      );
     }
   });
 }

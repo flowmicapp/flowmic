@@ -1,7 +1,9 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §6 (connect layer — both channels resident)
 //   docs/decisions/2026-07-26-dual-channel-spec-misref.md (GA-28 misref fix)
-//   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY = account JWT, 7-day TTL)
+//   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY = account JWT. ⚠️ 05 §7 says
+//     "7-day TTL" — true until owner ruling 2026-08-27 §R1 made the default 100
+//     years: docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md)
 //   docs/ui-design/REDESIGN-PLAN.md §5.2 (device page dual channel cards: local LAN / cloud relay)
 //   docs/strategy/R6-BACKLOG-AND-PLAN.md T-2
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth) ***
@@ -177,7 +179,10 @@ pub fn emit_state(app: &AppHandle) {
 /// malformed payload or a registry error is not the user's key going bad). The
 /// cloud PAIRING credential is deliberately left alone in both cases — it belongs
 /// to the relay's room, and wiping it would force every paired phone to re-pair
-/// just because a 7-day key lapsed.
+/// just because the account key lapsed. (That used to read "a 7-day key" — since
+/// owner ruling 2026-08-27 §R1 a freshly minted key does not lapse on a
+/// schedule at all; the ONE thing that still produces this refusal is a key that
+/// really was rejected, which makes keeping the pairing MORE right, not less.)
 pub fn auth_failure_hook(app: &AppHandle) -> AuthFailureHook {
     let app = app.clone();
     Arc::new(move |code: &str| {
@@ -264,31 +269,56 @@ pub fn cloud_status(
 pub fn cloud_save_key(app: AppHandle, key: String, endpoint: String) -> CloudStatusDto {
     let key = key.trim().to_string();
     let endpoint = endpoint.trim().to_string();
-    let state: State<CloudState> = app.state();
-    let cfg = if !channel::is_jwt_shaped(&key) || endpoint.is_empty() {
+    if !channel::is_jwt_shaped(&key) || endpoint.is_empty() {
+        let state: State<CloudState> = app.state();
         forensic::record("cloud", "Cloud Key rejected locally (not JWT-shaped / no endpoint)");
-        state.update(|c| {
+        let cfg = state.update(|c| {
             if !endpoint.is_empty() {
                 c.endpoint = endpoint.clone();
             }
             c.auth_error = Some(KEY_MALFORMED.to_string());
-        })
-    } else {
-        let head: String = key.chars().take(6).collect();
-        forensic::record("cloud", &format!("Cloud Key saved (head={head}) endpoint={endpoint}"));
-        state.update(|c| c.set_key(&key, &endpoint))
-    };
-    // owner 2026-07-30 ②: the dial no longer waits for `cfg.active`. That flag was
-    // moved by the device page's channel select, and with the select gone a key
-    // pasted while the flag said 'lan' would have been stored and never dialed until
-    // the next restart — a silent nothing-happened on the one button whose entire
-    // purpose is to bring the relay up. Both channels are resident (GA-28), so the
-    // honest rule is the one that has no third input: a usable key ⇒ dial it.
+        });
+        return publish_config_change(&app, cfg);
+    }
+    store_verified_key(&app, &key, &endpoint)
+}
+
+/// Store a key we have ALREADY decided is good, the way the paste form stores
+/// one — and it is the same code, not the same shape.
+///
+/// 🔴 THIS EXISTS SO THE BROWSER SIGN-IN CANNOT DRIFT FROM THE PASTE. Everything
+/// downstream of a signed-in PC hangs off this one transition: the DPAPI wrap,
+/// the `key_set` flip that `use-cloud-account.ts` watches to fetch `/api/me`,
+/// the account card, the relay dial. A second 「now store the token」 path that
+/// merely LOOKED like this one would work on the day it was written and would
+/// then be the place a later fix gets applied to only once.
+///
+/// Callers: `cloud_save_key` (paste) and `shell/cloud_signin.rs` (browser).
+pub fn store_verified_key(app: &AppHandle, key: &str, endpoint: &str) -> CloudStatusDto {
+    let state: State<CloudState> = app.state();
+    // The HEAD ONLY, six characters — enough to tell two keys apart in a support
+    // log, useless to anyone who reads the file. The rule the whole auth surface
+    // follows: a credential never appears in a line that outlives it.
+    let head: String = key.chars().take(6).collect();
+    forensic::record("cloud", &format!("Cloud Key saved (head={head}) endpoint={endpoint}"));
+    publish_config_change(app, state.update(|c| c.set_key(key, endpoint)))
+}
+
+/// The tail every cloud-config change shares: tell both windows, and dial if the
+/// config can now dial.
+///
+/// owner 2026-07-30 ②: the dial no longer waits for `cfg.active`. That flag was
+/// moved by the device page's channel select, and with the select gone a key
+/// pasted while the flag said 'lan' would have been stored and never dialed until
+/// the next restart — a silent nothing-happened on the one button whose entire
+/// purpose is to bring the relay up. Both channels are resident (GA-28), so the
+/// honest rule is the one that has no third input: a usable key ⇒ dial it.
+fn publish_config_change(app: &AppHandle, cfg: CloudConfig) -> CloudStatusDto {
     let redial = cfg.readiness(channel::now_secs()).is_ready();
     let out = dto(&cfg);
-    emit_state(&app);
+    emit_state(app);
     if redial {
-        sidecar_ctl::ensure_dialed(&app, Channel::Cloud);
+        sidecar_ctl::ensure_dialed(app, Channel::Cloud);
     }
     out
 }
@@ -333,6 +363,13 @@ const ACCOUNT_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
 ///   `no_key`        — signed out. Nothing to ask with. Not a failure.
 ///   `no_endpoint`   — no relay address saved. Also not a failure.
 ///   `unauthorized`  — the server said 401. **Actionable**: sign in again.
+///   `restricted`    — the server said `403 ACCOUNT_RESTRICTED`. The credential
+///                     is FINE; the account is not being served. There is
+///                     nothing to press, so it must never share a face with
+///                     `unauthorized` — 「sign in again」 there would be a button
+///                     that succeeds and changes nothing. `detail` carries the
+///                     enumerated reason KEY, or `None` when the server sent
+///                     none (owner ruling 2026-08-27 §R1 追加).
 ///   `unreachable`   — the network/relay did not answer. **Wait and retry**.
 ///   `bad_response`  — it answered, and we could not read what it said. That is
 ///                     OUR bug surface, not the user's, and folding it into
@@ -402,7 +439,34 @@ fn get_json(
         .map_err(|e| ("unreachable".to_string(), Some(transport_detail(&e))))?;
     let status = resp.status();
     if status.as_u16() == 401 || status.as_u16() == 403 {
-        return Err(("unauthorized".to_string(), Some(format!("http {}", status.as_u16()))));
+        // 🔴 THE BODY IS READ BEFORE THE STATUS IS BELIEVED (owner ruling
+        // 2026-08-27 §R1 追加). `/api/cloud/summary` and `/api/me` are
+        // restriction-gated: a RESTRICTED account is refused with
+        // `403 {error:'ACCOUNT_RESTRICTED', reason}`. This branch used to throw
+        // the body away and answer `unauthorized` for both statuses, so the card
+        // told a restricted user 「session expired — please sign in again」 —
+        // an action that succeeds and changes nothing (a dead-end button), while
+        // the enumerated `reason` the Terms promise them was discarded one line
+        // before it would have been shown.
+        //
+        // Two verdicts, two outcomes: `unauthorized` is 「your credential is no
+        // good」 (sign in again), `restricted` is 「your credential is fine and
+        // your account is not being served」 (nothing to press). `detail` carries
+        // the reason KEY verbatim so the frontend can render the enumerated
+        // sentence — never a sentence invented here.
+        let restricted = resp
+            .json::<serde_json::Value>()
+            .ok()
+            .filter(|b| b.get("error").and_then(serde_json::Value::as_str) == Some("ACCOUNT_RESTRICTED"))
+            .map(|b| {
+                b.get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+        return match restricted {
+            Some(reason) => Err(("restricted".to_string(), reason)),
+            None => Err(("unauthorized".to_string(), Some(format!("http {}", status.as_u16())))),
+        };
     }
     if !status.is_success() {
         return Err(("bad_response".to_string(), Some(format!("http {}", status.as_u16()))));

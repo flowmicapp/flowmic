@@ -15,6 +15,7 @@
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.7;
 //           docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerSettingsHandlers, parsePcName, PC_NAME_KEY, PC_NAME_MAX } from '../src/socket/handlers/settings.handler';
@@ -56,7 +57,7 @@ let store: RoomStore<Socket>;
 const io = { sockets: { sockets: new Map<string, unknown>() } } as unknown as Server;
 
 function wire(socket: FakeSocket): FakeSocket {
-  registerSettingsHandlers(socket as unknown as Socket, { io, repo: db.settings, registry, store });
+  registerSettingsHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE, io, repo: db.settings, registry, store });
   return socket;
 }
 

@@ -180,8 +180,9 @@ void main() {
     expect(find.byKey(const ValueKey<String>('plus.notes.tick.cloud-1')), findsNothing);
   });
 
-  testWidgets('🔴 09-F: ticks across BOTH tabs compose ONE string in tick '
-      'order, handed over in ONE call', (WidgetTester tester) async {
+  testWidgets('🔴 09-F (owner 2026-08-27 reversal): ticks across BOTH tabs '
+      'compose ONE string CHRONOLOGICALLY, handed over in ONE call',
+      (WidgetTester tester) async {
     final TimelinePersistence p = InMemoryTimelinePersistence();
     await p.upsert(_entry('cloud-a', text: '周三还书', at: DateTime.utc(2026, 8, 1)));
     await p.upsert(_entry('cloud-b', text: '牛奶和鸡蛋', at: DateTime.utc(2026, 8, 2)));
@@ -191,7 +192,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // Tick the FAVOURITE first, then the OLDER note, then the NEWER one — an
-    // order no sort would reproduce (the list is newest-first).
+    // order that disagrees with both tick order AND the notes list's
+    // newest-first screen order, so the chronological assertion below proves
+    // something under either implementation.
     await tester.tap(find.byKey(const ValueKey<String>('plus.fav.tick.收到，我稍后回复你')));
     await tester.pump();
     expect(find.byKey(const ValueKey<String>('plus.selection.bar')), findsOneWidget);
@@ -217,7 +220,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(rig.sends, hasLength(1), reason: 'ONE handover, not one per item');
-    expect(rig.sends.single.text, '收到，我稍后回复你\n周三还书\n牛奶和鸡蛋');
+    // Tick order was 收到，我稍后回复你 → 周三还书 → 牛奶和鸡蛋 (favourite first).
+    // Chronological delivery: the two timestamped notes sort oldest-first
+    // (周三还书 08-01, 牛奶和鸡蛋 08-02); the favourite has no createdAt, so it
+    // lands last, not first.
+    expect(rig.sends.single.text, '周三还书\n牛奶和鸡蛋\n收到，我稍后回复你');
     expect(rig.sends.single.images, isEmpty);
   });
 

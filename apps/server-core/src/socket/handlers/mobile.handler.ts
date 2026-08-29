@@ -24,13 +24,19 @@
 // whitelisted code.
 
 import type { Server, Socket } from 'socket.io';
-import { safeParseEvent, type MobileReconnectAckAudioFields, type ServerMode } from '@flowmic/protocol';
+import {
+  safeParseEvent,
+  type MobileReconnectAckAudioFields,
+  type MobileReconnectAckNodeFields,
+  type ServerMode,
+} from '@flowmic/protocol';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
 import type { PairRateLimiter } from '../../room/pair-rate-limit';
 import type { ReleaseSuppression } from '../../room/release-suppression';
 import { errorPayload } from '../../errors';
 import { restrictionRefusalBody, restrictionVerdict, type RestrictionReader } from '../../auth/account-restriction';
+import type { WriterOnlyGuard } from '../../node/writer-only';
 import { getAuth, safeAck, setAuth, setCloudSession, setRoomUuid, type ActingIdentity } from '../wire';
 import { adoptAudioSession, peekAudioLastContiguousSeq } from '../../engine/audio-registry';
 import { clientIpFromHandshake } from '../../http/trusted-proxy';
@@ -44,6 +50,15 @@ export interface MobileHandlerDeps {
   /** GA-08: the reconnect-suppression window that "disconnect" (pc:release-mobile)
    *  writes. The SAME instance the PC handler holds — that sharing is the whole
    *  mechanism. Omitted → no suppression (pre-GA-08 behaviour). */
+  /** 2026-08-29 multi-node — this node's own id, echoed on the reconnect ack so
+   *  the phone can compare where it is against where its PC is IN ONE ANSWER.
+   *  Absent on a single-node deployment, and absent must keep meaning「there are
+   *  no nodes」rather than「I do not know which node」— see the schema. */
+  nodeId?: string;
+  /** 2026-08-29 multi-node — see PcHandlerDeps.writerOnly. REQUIRED for the same
+   *  reason `restriction` below is: an optional gate is a gate that can be
+   *  switched off by forgetting, with nothing red to show for it. */
+  writerOnly: WriterOnlyGuard;
   suppression?: ReleaseSuppression;
   /** Deployment mode — the cloud-instance admission variant is saas-only. */
   mode: ServerMode;
@@ -289,6 +304,14 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
   socket.on('mobile:pair', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:pair', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // 🔴 BEFORE all three admission variants, and before resolvePcForPair — that
+    // resolve is not a read: it calls `codes.recordFailedGuess`, which IS the
+    // 4-digit brute-force budget (IT-39). On a replica the ledger of failed
+    // guesses is erased every thirty seconds, so the limiter that makes a 10^4
+    // code space defensible would be present and void. The pairing itself is
+    // erased too; this refusal covers both.
+    const replica = deps.writerOnly();
+    if (replica) return safeAck(ack, replica);
     if ('cloud_instance' in parsed.data) {
       // F-3140 "cloud-instance" solo session. saas-only; standalone fails loud (there
       // is no cloud account layer to admit against — never a silent standalone
@@ -479,6 +502,14 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
       const audioSeq = peekAudioLastContiguousSeq(socket, pc.room_uuid, mobile.id);
       const audioAckFields: MobileReconnectAckAudioFields =
         audioSeq === null ? {} : { audio_last_contiguous_seq: audioSeq };
+      // 2026-08-29 multi-node — where this PC is, and where this ack came from.
+      // The phone's question is a COMPARISON, so both halves ride one ack at one
+      // instant; see protocol-schemas-auth.ts on these fields. Both omitted on a
+      // single-node deployment, which is every deployment until it is not.
+      const nodeAckFields: MobileReconnectAckNodeFields = {
+        ...(pc.home_node ? { home_node: pc.home_node } : {}),
+        ...(deps.nodeId ? { node: deps.nodeId } : {}),
+      };
       safeAck(ack, {
         pairing_id: mobile.id,
         pc_id: pc.id,
@@ -488,6 +519,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         room_uuid: pc.room_uuid,
         pc_online: store.getPc(pc.room_uuid) !== null,
         ...audioAckFields,
+        ...nodeAckFields,
       });
     } catch (err) {
       safeAck(ack, errorPayload(err));
@@ -511,6 +543,10 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
   socket.on('mobile:unpair', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:unpair', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // The phone's half of「a revoke that comes back」— same fact, same refusal as
+    // pc:release-mobile.
+    const replicaUnpair = deps.writerOnly();
+    if (replicaUnpair) return safeAck(ack, replicaUnpair);
     const auth = getAuth(socket);
     if (!auth || auth.kind !== 'mobile' || !auth.pairingId) {
       return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });

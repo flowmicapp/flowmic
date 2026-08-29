@@ -49,6 +49,12 @@ export type SessionState =
  */
 export type HardLimitOrigin = 'engine_session' | 'quota_budget';
 
+/** Card CR-Q — the minimum spacing between mid-recording budget re-reads.
+ *  60 s is chosen against the thing that varies: engine legs are born on speech
+ *  boundaries, so their rate is a property of how the user talks, and the floor
+ *  is what makes the cost a property of wall time instead. */
+export const DEFAULT_QUOTA_REFRESH_FLOOR_MS = 60_000;
+
 export interface AudioSessionOptions {
   /**
    * The ENGINE-SESSION ceiling in ms — 「one vendor session may not run forever」
@@ -100,6 +106,13 @@ export class AudioSession extends EventEmitter {
    *  {@link AudioSession.setQuotaBudgetMs}. */
   private quotaBudgetMs: number | null = null;
   private _limitOrigin: HardLimitOrigin = 'engine_session';
+  /** Card CR-Q — supplies the fresh monthly remainder, or null when nobody
+   *  installed one (tests, standalone). */
+  private quotaRefresh: (() => number) | null = null;
+  private quotaRefreshFloorMs = DEFAULT_QUOTA_REFRESH_FLOOR_MS;
+  /** Seeded at start(), so the first re-read happens one floor in rather than
+   *  immediately after the declaration it would only re-confirm. */
+  private lastQuotaRefreshAt = 0;
   private readonly now: () => number;
   private readonly _setTimeout: (fn: () => void, ms: number) => unknown;
   private readonly _clearTimeout: (handle: unknown) => void;
@@ -177,6 +190,107 @@ export class AudioSession extends EventEmitter {
   }
 
   /**
+   * Card CR-Q (owner 2026-08-29) — install the mid-recording budget re-read.
+   *
+   * ── WHY THIS EXISTS AT ALL ──────────────────────────────────────────────
+   * {@link AudioSession.setQuotaBudgetMs} takes a SNAPSHOT at audio:start and
+   * usage is only written at settle, so for the whole length of a recording the
+   * declared budget is a number that stopped being checked. That was harmless
+   * while an utterance lasted seconds. Continuous transcription (owner
+   * 2026-08-29: up to 30 minutes per session) turns it into a half-hour window
+   * in which the same account, on a second device, reads and spends the same
+   * remaining minutes — each believing it has all of them.
+   *
+   * ── THE ARITHMETIC, AND WHY IT IS JUST THE FRESH READ ───────────────────
+   * The deadline is `sessionStartedAt + quotaBudgetMs`, and `sessionStartedAt`
+   * is never re-anchored (fix-025). The monthly read EXCLUDES this session,
+   * because this session has not settled. Therefore any DROP between the
+   * opening read and a later one is exactly what OTHER sessions settled — which
+   * is exactly the amount by which this session's deadline should move in.
+   * ⇒ the refreshed budget is the fresh remaining, unchanged in form from the
+   * declaration. Nothing is subtracted, and nothing may be: subtracting this
+   * session's own elapsed time would count it twice, once here and once when
+   * it settles.
+   *
+   * 🔴 WHAT THIS DOES NOT FIX, said plainly rather than discovered later. Two
+   * recordings running AT THE SAME TIME both read the same remaining budget and
+   * neither has settled, so together they can still overspend. This narrows the
+   * exposure from "the entire length of a session" to "until the other session
+   * settles" — it does not close it. Closing it needs in-flight reservation
+   * accounting, which is a different card and a different conversation about
+   * what a reservation means when a process dies holding one.
+   *
+   * @param read  supplies remaining monthly budget in ms; `Infinity` for
+   *              "no ceiling". MAY THROW — the caller decides what a failed
+   *              read means (see {@link AudioSession.refreshQuotaBudget}).
+   * @param opts.floorMs  minimum spacing between reads. Defaults to
+   *              {@link DEFAULT_QUOTA_REFRESH_FLOOR_MS}.
+   */
+  setQuotaRefresher(read: () => number, opts: { floorMs?: number } = {}): void {
+    if (this._state !== 'idle') {
+      throw new Error(`AudioSession.setQuotaRefresher: illegal call from ${this._state} (call before start)`);
+    }
+    this.quotaRefresh = read;
+    this.quotaRefreshFloorMs = opts.floorMs ?? DEFAULT_QUOTA_REFRESH_FLOOR_MS;
+  }
+
+  /**
+   * Card CR-Q — re-read the budget if it is time to, and re-arm the ceiling.
+   *
+   * Called from the ONE place an engine leg is born (orchestrator-core's
+   * `spawnEngine` tail). owner asked for the check to ride the moment we
+   * connect to the vendor and to be "very short"; three things keep it that
+   * way, and all three are load-bearing:
+   *
+   *   ① **the floor**. A leg is born on every soft-segment rollover, which
+   *      follows SPEECH — sentence ends and pauses — so on a talkative
+   *      recording legs can be born every few seconds. Without a floor this
+   *      would be a database read per sentence. With it the cost is bounded by
+   *      wall time and is decoupled from how the user talks.
+   *   ② **no ceiling ⇒ no read**. A standalone / unmetered session never had a
+   *      budget, so there is nothing to refresh and nothing to pay for.
+   *   ③ the read itself is one indexed row.
+   *
+   * ✅ And a correctness property that falls out of the placement rather than
+   * being arranged: no leg ⇒ no audio reaching a vendor ⇒ nothing being spent
+   * ⇒ nothing to re-check. A silence hang-up (RT-2) therefore stops paying for
+   * these reads on its own.
+   *
+   * 🔴 DOES NOT CATCH. A failed read must not become a stopped recording — but
+   * it must not be swallowed either, and this class has no honest place to put
+   * a log line. The caller wraps it, keeps the previous budget, and records the
+   * failure; see the call site.
+   */
+  refreshQuotaBudget(): void {
+    const read = this.quotaRefresh;
+    if (read === null) return;
+    // ② — nothing was ever declared, so there is no ceiling to move.
+    if (this.quotaBudgetMs === null) return;
+    if (this._state !== 'recording' && this._state !== 'paused') return;
+    const t = this.now();
+    // ① — the floor. First call after start always reads (lastQuotaRefreshAt is
+    // seeded at start()), so a short session is not charged for a read it
+    // cannot use, and a long one gets its first re-read one floor in.
+    if (t - this.lastQuotaRefreshAt < this.quotaRefreshFloorMs) return;
+    const fresh = read();
+    this.lastQuotaRefreshAt = t;
+    // Same two guards as the declaration, for the same reasons: NaN is a broken
+    // meter and must never read as "no ceiling", and a non-finite answer means
+    // this account stopped being metered — leave the existing ceiling alone
+    // rather than inventing an unbounded one mid-recording.
+    if (Number.isNaN(fresh)) {
+      throw new TypeError('AudioSession.refreshQuotaBudget: NaN is not a budget');
+    }
+    if (!Number.isFinite(fresh)) return;
+    const next = Math.max(0, fresh);
+    if (next === this.quotaBudgetMs) return; // nothing moved — do not re-arm
+    this.quotaBudgetMs = next;
+    // Re-arm through the SAME act that sets the origin, so the number and
+    // "which ceiling is governing" cannot disagree (see armHardLimit's doc).
+    this.armHardLimit(t);
+  }
+
+  /**
    * 🔴 RETAINED NAME ONLY — it no longer clamps. Delegates verbatim to
    * {@link AudioSession.setQuotaBudgetMs}, whose doc explains why the clamping
    * guard had to go.
@@ -203,6 +317,10 @@ export class AudioSession extends EventEmitter {
     const t = this.now();
     this.sessionStartedAt = t;
     this.legStartedAt = t;
+    // Card CR-Q — the declaration that just happened IS the first read, so the
+    // floor starts here. Without this seed the cold-open leg would immediately
+    // re-read a number nobody could have changed yet.
+    this.lastQuotaRefreshAt = t;
     this.transition('recording');
     this.armHardLimit(t);
   }

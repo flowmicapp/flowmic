@@ -23,11 +23,12 @@ import { PairRateLimiter } from './room/pair-rate-limit';
 import { ReleaseSuppression } from './room/release-suppression';
 import { authMiddleware, type JwtHandshakeConfig, type TokenLookup } from './auth/middleware';
 import { makeAuthService } from './auth/auth-service';
-import { RegisterRateLimiter } from './auth/register-rate-limit';
+import { makeAuthRateLimiters } from './auth/register-rate-limit';
 import { QrGrantStore } from './auth/qr-grant';
 import { VerificationSendLimiter } from './auth/email-verification';
+import { wireVerificationGrace } from './auth/verification-grace';
 import { createSocketServer } from './socket/server';
-import { makeUsageTracker } from './billing/usage-tracker';
+import { wireNodeRuntime } from './node/node-runtime';
 import { makeQuotaGuard } from './billing/quota-guard';
 import { BillingService } from './billing/billing-service';
 import { makeHttpHandler } from './http/router';
@@ -69,11 +70,16 @@ import {
   type PasswordResetMailer,
   type SubscriptionMailer,
 } from './mail';
+import {
+  resolveGoogleIdTokenVerifier,
+  unconfiguredGoogleIdTokenVerifier,
+  type GoogleIdTokenVerifier,
+} from './auth/google-id-token';
 import type { PaddleClient } from './billing/paddle/client';
 import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.36';
+export const SERVER_VERSION = '0.3.46';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -128,6 +134,19 @@ export interface BootstrapOverrides {
    *  a fake provider through this seam exactly the way mail-password-reset's
    *  do through `mail`. */
   verificationMail?: EmailVerificationMailer;
+  /** NR-1: the Google ID-token verifier. Absent → resolved from
+   *  FLOWMIC_GOOGLE_CLIENT_ID, which is what production does; unset there yields
+   *  the LOUD unconfigured verifier, never a permissive one.
+   *
+   *  🔴 TESTS SHOULD USUALLY NOT USE THIS SEAM. Injecting a whole verifier
+   *  replaces every check the real one performs (algorithm, issuer, audience,
+   *  expiry) with an assumption — the 0.2.48 L9 shape, where fifteen green
+   *  adapter tests all drove a fake that answered the way we assumed.
+   *  test/google-login.test.ts instead builds the REAL verifier over a fake KEY
+   *  FETCH and mints tokens with a locally generated RSA key, so the four checks
+   *  are the thing under test. This field exists for the cases where the
+   *  verifier itself is not what is being examined. */
+  googleVerifier?: GoogleIdTokenVerifier;
   /** 0.3.25 B2: the subscription-confirmation channel — same contract as its two
    *  siblings above (optional here, required downstream). */
   subscriptionMail?: SubscriptionMailer;
@@ -249,22 +268,17 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     loginRecordEnabled: config.loginRecordEnabled,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
-  const registerLimiter = new RegisterRateLimiter(overrides.now ? { now: overrides.now } : {});
-  // First-party site collect — SEPARATE bucket from register/login so a scrape
-  // of the landing page cannot lock out registration (and vice versa).
-  const siteAnalyticsLimiter = new RegisterRateLimiter(
-    overrides.now
-      ? { now: overrides.now, maxAttempts: 120, windowMs: 60_000 }
-      : { maxAttempts: 120, windowMs: 60_000 },
-  );
+  // NR-2a — the five per-IP budgets of the account layer, built together and kept
+  // apart; each separation's own argument lives with the counter it separates
+  // (auth/register-rate-limit.ts `makeAuthRateLimiters`).
+  const {
+    register: registerLimiter, siteAnalytics: siteAnalyticsLimiter, password: passwordLimiter,
+    accountMint: accountMintLimiter, verificationLink: verificationLinkLimiter,
+  } = makeAuthRateLimiters(overrides.now);
   // GA-31 QR-code login — one-time, 60 s account grants the console draws as a QR.
   // In-memory by design (a restart invalidating every pending QR is the correct
   // disposition for a 60-second credential); see auth/qr-grant.ts.
   const qrGrants = new QrGrantStore(overrides.now);
-  // R5-WEB WP-W1: a SEPARATE per-IP bucket for the console password-reset surface
-  // (same 5/10-min discipline as register/login) so a reset flood never starves a
-  // user's login budget and vice-versa. saas-only (built cheaply either way).
-  const passwordLimiter = new RegisterRateLimiter(overrides.now ? { now: overrides.now } : {});
   // 🔴 MAIL-1 — the mail channel, resolved once per process. The whole argument
   // (why the unconfigured case shouts here instead of returning a quiet no-op)
   // is in src/mail/index.ts `resolvePasswordResetMailer`; only the two choices
@@ -311,6 +325,20 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // `mail` above refuses to make. Building it costs nothing: every method
   // refuses by name while the switch is off, which is what standalone would want
   // anyway if something ever did reach it.
+  // NR-1 — the Google ID-token verifier, resolved beside the three mail channels
+  // and under the same two rules: saas-only resolution (standalone mounts no
+  // account surface, so its arm is the loudly-refusing verifier and never null),
+  // and `??` short-circuits so an injected test double never triggers an env
+  // resolution or its boot log line.
+  //
+  // ⚠️ THE STANDALONE ARM IS THE UNCONFIGURED VERIFIER AND NOT A NULL, for the
+  // reason `mail` states one screen up: a nullable would force a `!` at the deps
+  // literal, and "it cannot be null there, trust me" is the kind of claim that
+  // outlives its truth. Standalone never mounts the route, so it is never read.
+  const googleVerifier: GoogleIdTokenVerifier =
+    config.mode === 'saas'
+      ? (overrides.googleVerifier ?? resolveGoogleIdTokenVerifier())
+      : (overrides.googleVerifier ?? unconfiguredGoogleIdTokenVerifier());
   const paddleClient: PaddleClient = overrides.paddleClient ?? resolvePaddleClient(config, db.billing);
   // VERIFY-1 — the per-account send budget (≤3 codes / 15 min). ONE instance per
   // server, same argument as every limiter above it: a per-request instance
@@ -338,18 +366,15 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // A2-5 / REQ-12-08 — the meter now also appends to `usage_events`, AFTER the
   // month-bucket increment and only when the switch is on.
   //
-  // 🔴 `events` is passed UNCONDITIONALLY while `usageEventsEnabled` carries the
-  // decision, and the split is deliberate: wiring the sink behind the same `if`
-  // would mean flipping the env var on a machine whose build forgot the wiring
-  // produces a server that reports "enabled" and records nothing. With them
-  // separated, that combination THROWS at construction (usage-tracker.ts) —
-  // boot-time, loud, before a single utterance.
-  const usageTracker = makeUsageTracker(db.usage, {
-    mode: config.mode,
-    usageEventsEnabled: config.usageEventsEnabled,
-    events: db.usageEvents,
+  // 2026-08-29 multi-node: the node role, the metering seam that role implies,
+  // and both replication timers. ONE call — see node/node-runtime.ts.
+  const nodeRuntime = wireNodeRuntime({
+    db, config, log,
     ...(overrides.now ? { now: overrides.now } : {}),
+    ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
+    ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
   });
+  const { usageTracker, outboxDrainer, replicaPuller } = nodeRuntime;
   // First-party site analytics — announced in BOTH directions, same standing as
   // the usage-events switch log (an absence that could mean "off" or "this build
   // has no switch" is worse than a line that says DISABLED).
@@ -362,11 +387,17 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // `Plan` that expresses its exemption, so a guard re-deriving limits from
   // `effectivePlan` would enforce free's 20 minutes on the one account the flag
   // exists to leave alone.
-  const quotaGuard = makeQuotaGuard(
+  const quotaGuard = nodeRuntime.wrapQuota(makeQuotaGuard(
     db.usage,
     { effectiveLimits: (userId) => billing.effectiveLimits(userId) },
     { mode: config.mode, ...(overrides.now ? { now: overrides.now } : {}) },
-  );
+  ));
+
+  // NR-2a — the 3-day unverified grace, on the SAME two session-start sites the
+  // quota guard sits on. Reader + guard + boot line are ONE call (see there).
+  const verificationGraceGuard = wireVerificationGrace({
+    users: db.users, mode: config.mode, ...(overrides.now ? { now: overrides.now } : {}),
+  });
 
   // GA-06: the daily retention sweep (05 §4). Runs in BOTH modes — a standalone
   // local DB grows exactly the same way. Nothing sweeps at boot: the first pass
@@ -460,6 +491,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     version: SERVER_VERSION,
     standaloneUserId: STANDALONE_USER_ID,
     db,
+    nodeRuntime, quota: quotaGuard,
     authService,
     registerLimiter,
     siteAnalyticsLimiter,
@@ -473,7 +505,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     verificationMail,
     subscriptionMail,
     paddleClient,
-    verificationSendLimiter,
+    verificationSendLimiter, verificationLinkLimiter, accountMintLimiter,
+    googleVerifier,
     // D2LAN-B2b — the same late-binding thunk as before the split: the http
     // handler is built before the TLS front exists, so the route reads the
     // local below through this closure per request (HttpDeps.lanTlsFingerprint
@@ -584,7 +617,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // GA-07: the application-layer liveness consumer — `heartbeat` moves
     // last_seen_at so "recent activity" stops being frozen at pairing time.
     registerHeartbeatHandler(socket, { pcs: db.pcs, mobiles: db.mobiles });
-    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression });
+    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.stampHomeNode ? { stampHomeNode: nodeRuntime.stampHomeNode } : {}) });
     // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
     // the SAME instance `console-routes.refuseRestricted` reads through and the
     // same one Bearers are verified with, so the HTTP gate and the two socket
@@ -594,8 +627,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // the JWT could not carry this). Passed in BOTH modes — standalone's single
     // 'default' row is never restricted, so the gate is inert by fact rather
     // than by being unwired.
-    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, restriction: authService });
-    registerSettingsHandlers(socket, { io, repo: db.settings, registry, store });
+    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, ...(nodeRuntime.nodeConfig.nodeId ? { nodeId: nodeRuntime.nodeConfig.nodeId } : {}) });
+    registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly });
     // (0.2.27) still registered, and now ONLY to refuse out loud: the five
     // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is
     // silently discarded by socket.io, and a 0.2.26 client is still in the field —
@@ -614,8 +647,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       // card QTA-2 — the PC owner's account, so the quota gate can ask BOTH
       // sides when the phone and the desktop are signed into different ones.
       pcOwnerUserId: (pcId) => registry.findPc(pcId)?.user_id ?? null,
+      verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
     });
-    registerComposeHandlers(socket, { io, guard: quotaGuard, usageTracker, store, composeFactory });
+    registerComposeHandlers(socket, { io, guard: quotaGuard, usageTracker, store, composeFactory, verificationGrace: verificationGraceGuard });
     registerRelayHandlers(socket, { store, pending: injectPending, cloudImages });
     socket.on('disconnect', (reason: string) => {
       const roomUuid = (socket.data as { roomUuid?: string }).roomUuid;
@@ -738,7 +772,10 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // process starting and the process being able to answer.
   statusProbes.start();
 
-  const stop = makeShutdownSequence({ retention, statusProbes, closeSocket, audioRegistry, httpServer, db });
+  const stop = makeShutdownSequence({
+    retention, statusProbes, closeSocket, audioRegistry, httpServer, db,
+    ...(outboxDrainer ? { outboxDrainer } : {}),
+    ...(replicaPuller ? { replicaPuller } : {}) });
   return {
     httpServer,
     io,

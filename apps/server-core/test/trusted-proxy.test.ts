@@ -23,6 +23,9 @@ import {
   parseTrustedProxies,
   trustedProxiesFromEnv,
 } from '../src/http/trusted-proxy';
+// Imported, never re-typed: a literal here would keep passing after the
+// owner-ruled number moves again.
+import { REGISTER_MAX_PER_DAY } from '../src/auth/register-rate-limit';
 import { isLocalRequest, LOCAL_ONLY_ERROR } from '../src/http/local-only';
 
 const SECRET = 'trusted-proxy-secret-32-bytes-min-xxxx';
@@ -225,16 +228,36 @@ describe('per-IP limiters behind nginx (the M3 DoS: one 5/10-min bucket for the 
     expect((await post(`${url}/api/password/forgot`, { email: 'nobody@b.co' })).status).toBe(200);
   });
 
-  it('trusted proxy: register/login limiter (auth-routes) separates XFF clients the same way', async () => {
+  // 🔴 2026-08-27 (owner batch-2 item 4) — this used to spend FIVE registrations
+  // from one XFF client to reach the 5/10-min burst brake. With the per-IP DAILY
+  // account cap at 2, the daily counter answers first on /api/register, so the
+  // loop's own premise («five 201s») stopped being true. What is under test here
+  // is the XFF DERIVATION, not which limiter fires — so both limiters are driven
+  // explicitly, through the route each is now observable on. Collapsing back to
+  // one route would leave a green test that no longer says which bucket it
+  // separated.
+  it('trusted proxy: register/login limiters (auth-routes) separate XFF clients the same way', async () => {
     process.env.FLOWMIC_TRUSTED_PROXIES = '127.0.0.1,::1';
     const { url } = await saasServer();
     const xffA = { 'x-forwarded-for': '198.51.100.1' };
     const xffB = { 'x-forwarded-for': '198.51.100.2' };
-    for (let i = 0; i < 5; i++) {
+    // ── the DAILY account-mint bucket, through /api/register ────────────────
+    for (let i = 0; i < REGISTER_MAX_PER_DAY; i++) {
       expect((await post(`${url}/api/register`, { email: `a${i}@b.co`, password: 'longenough1' }, xffA)).status).toBe(201);
     }
     expect((await post(`${url}/api/register`, { email: 'a5@b.co', password: 'longenough1' }, xffA)).status).toBe(429);
+    // Client B — SAME direct peer — has its own day budget.
     expect((await post(`${url}/api/register`, { email: 'b0@b.co', password: 'longenough1' }, xffB)).status).toBe(201);
+    // ── the shared 5/10-min BURST bucket, through /api/login ────────────────
+    // A has already spent 3 slots of its burst budget above (every register
+    // attempt records one, refused or not), so two more failed logins exhaust
+    // it and the sixth request from A is braked…
+    for (let i = 0; i < 2; i++) {
+      expect((await post(`${url}/api/login`, { email: 'nobody@b.co', password: 'longenough1' }, xffA)).status).toBe(401);
+    }
+    expect((await post(`${url}/api/login`, { email: 'nobody@b.co', password: 'longenough1' }, xffA)).status).toBe(429);
+    // …while B, which has spent one, is not.
+    expect((await post(`${url}/api/login`, { email: 'nobody@b.co', password: 'longenough1' }, xffB)).status).toBe(401);
   });
 
   it('🔴 (b) config UNSET: forged XFF cannot escape the shared bucket (reverse control)', async () => {

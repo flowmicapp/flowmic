@@ -120,12 +120,45 @@ class RetainedAudioStore {
   static const String _filePrefix = 'seg-';
   static const String _fileSuffix = '.pcm';
 
-  /// Total retained bytes across all segments. 16 kHz mono PCM16 is ~32 KB/s
-  /// (~1.9 MB/min), so this is ~34 minutes of fully-offline capture. It is a
-  /// bound on a pathological case, not a budget anyone is expected to reach:
-  /// the ordinary lifetime of a file here is seconds, because [settle] deletes
-  /// it the moment the segment is transcribed.
-  static const int kDefaultCapBytes = 64 * 1024 * 1024;
+  /// Total retained bytes across all segments — the budget for the WHOLE
+  /// directory, shared with orphans from a previous run and with residue whose
+  /// TTL has not expired. 16 kHz mono PCM16 is 32,000 B/s (~1.9 MB/min).
+  ///
+  /// 🔴 THIS NUMBER IS DERIVED, AND HERE IS THE DERIVATION — because the thing
+  /// it is derived FROM lives on the server and cannot reach into this file.
+  ///
+  ///   the longest single continuous recording any tier allows is 30 minutes
+  ///   (`PLAN_LIMITS.continuous_minutes`, owner 2026-08-29, max tier)
+  ///   ⇒ worst case, entirely offline: 30 × 60 × 32,000 = 57.6 MB
+  ///   ⇒ this cap is 128 MiB = 134.2 MB ≈ 2.3× that, i.e. the pathological
+  ///     session fits in 43% and the rest is headroom for orphans and TTL
+  ///     residue.
+  ///
+  /// ⚠️ IT WAS 64 MiB AND THAT HAD STOPPED BEING ENOUGH. Under the old 15-minute
+  /// ceiling the worst case was 28.8 MB against 67.1 MB — comfortable. Ruling ⑬
+  /// doubled the ceiling to 30 minutes and the same number became 86% of the
+  /// budget, leaving ~9 MiB of margin: one directory of orphans the sweep had
+  /// not reached yet could evict a live recording's audio.
+  ///
+  /// 🔴 SO: IF THE TIER CEILING EVER RISES AGAIN, COME BACK HERE. Nothing will
+  /// make you — the ceiling is a server-side plan limit and this is a
+  /// compile-time constant on a phone that learns its own ceiling at runtime,
+  /// so no gate can bind them. `retained_audio_cap_test.dart` pins the
+  /// arithmetic against a 30-minute worst case and will go red if this constant
+  /// SHRINKS, but it cannot know that 30 became 60. That half is this sentence.
+  ///
+  /// ⚠️ The behaviour on hitting the cap is unchanged and must stay unchanged:
+  /// drop the OLDEST and say so (`codeCapReached`). Never silently.
+  ///
+  /// It remains a bound on a pathological case rather than a budget anyone is
+  /// expected to reach: the ordinary lifetime of a file here is seconds,
+  /// because [settle] deletes it the moment the segment is transcribed.
+  ///
+  /// ⚠️ The rejected alternative was computing this from the user's own tier.
+  /// That would make the retention layer depend on billing, and it has no
+  /// business knowing what the user pays — it would also mean a phone that has
+  /// not reached the server yet has no cap at all.
+  static const int kDefaultCapBytes = 128 * 1024 * 1024;
 
   /// Backstop only. The real expiry is settle⇒delete; this catches audio that
   /// can never be claimed because the session that owned it no longer exists

@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { ErrorCode, Plan } from '@flowmic/protocol';
 import { isAccountRestricted } from './account-restriction';
 import { isEmailVerified } from './email-verification';
+import { verificationGrace } from './verification-grace';
 import { hashPassword, verifyPassword } from './password';
 import { checkPasswordPolicy, passwordPolicyMessage } from './password-policy';
 import { signJwt, verifyJwt, JwtError, DEFAULT_TTL_MS } from './jwt';
@@ -43,6 +44,29 @@ export interface PublicUser {
    *  user object; no protocol schema names this shape, so the owner-gated
    *  tables do not move. */
   email_verified: boolean;
+  /**
+   * NR-2a — whole days left in the 3-day unverified grace, or `null` when there
+   * is no countdown (verified, or no address on file). `0` means the grace has
+   * ENDED and managed cloud session starts are being refused.
+   *
+   * 🔴 IT IS A PAINTBRUSH, NOT A GATE — the same standing this field's two
+   * neighbours have. The server refuses at `audio:start` / `compose:start`
+   * (auth/verification-grace.ts); a client that ignores this number is not
+   * granted anything, it merely surprises its user.
+   *
+   * 🔴 WHY IT EXISTS AT ALL, given that a refusal already carries its own name:
+   * the STT refusal is unreadable in practice. `billing/quota-guard.ts`'s
+   * 2026-08-07 correction block measured it — the phone emits `audio:start`
+   * fire-and-forget, so nobody reads that ack. This field is how a client can
+   * warn a user BEFORE the wall instead of decoding it afterwards. Fixing the
+   * ack visibility itself is NOT this card (it lives in the window that owns
+   * apps/mobile, and it is registered as open in that correction block).
+   *
+   * ⚠️ `null` and `0` are different answers; a client that treats null as 0
+   * paints 「0 days left」 at a verified account. The conversion that produces
+   * both is single-sited on purpose (verification-grace.ts).
+   */
+  verify_grace_days_left: number | null;
   /** A2-3 "restricted use" (owner: "the user can still log in, but only sees the restricted-use notice") — the flag
    *  the console/desktop shells paint the restriction notice from. On the
    *  PROJECTION, beside `email_verified`, so register/login/me/socket-login all
@@ -159,8 +183,8 @@ export interface AuthService {
    * 「上次登录时间 / 登录流水」→「要记，并同步改隐私政策」(`approve_with_policy`).
    *
    * ── 🔴 WHICH MOMENTS COUNT AS "A LOGIN", AND WHY — THE ENUMERATION ─────────
-   * There are FOUR places in this repo that mint a session (`issueToken` call
-   * sites; `grep -rn "issueToken" src/`). THREE of them call this and one
+   * There are FIVE places in this repo that mint a session (`issueToken` call
+   * sites; `grep -rn "issueToken" src/`). FOUR of them call this and one
    * deliberately does not:
    *
    *   ✅ `POST /api/login` (http/auth-routes.ts) — an email and a password were
@@ -176,6 +200,15 @@ export interface AuthService {
    *      password only because the console vouched for them. Excluding it would
    *      make「signed in by QR」indistinguishable from「never signed in」, and QR
    *      is a first-class path (GA-31), not a shortcut.
+   *   ✅ `POST /api/auth/google` (http/google-auth-routes.ts, NR-1) — a
+   *      credential was presented and verified; that it was Google's signature
+   *      rather than our password hash changes who did the checking, not what
+   *      happened. 🔴 IT RECORDS EVEN ON THE REQUEST THAT MINTS THE ACCOUNT,
+   *      which looks like it contradicts the ❌ below and does not: there,
+   *      registering and signing in are two acts and there WILL be a later
+   *      moment to record; here they are one act and there will not be. A
+   *      Google-only account that never recorded its first sign-in would read
+   *      "never signed in" for as long as the person kept using it.
    *   ❌ `POST /api/register` (http/auth-routes.ts) — DOES NOT COUNT, and this
    *      is the one judgement call in the list. Registration already has a
    *      column that answers it exactly: `users.created_at`. Stamping here would
@@ -197,8 +230,9 @@ export interface AuthService {
    * time under the label "last login" is one value answering two questions on
    * the screen where an operator decides whether to restrict somebody.
    * ⇒ CHOSEN: this column moves only when a CREDENTIAL was presented. A user who
-   * signs in once and then uses a 7-day token for a week has ONE login, not a
-   * week of them — which is exactly what the words say.
+   * signs in once and then goes on using that token has ONE login, not one per
+   * day — which is exactly what the words say. (Since owner ruling 2026-08-27
+   * §R1 the token is long-lived, so "once" can now mean literally once.)
    *
    * ── THE SWITCH ────────────────────────────────────────────────────────────
    * Writes NOTHING unless `FLOWMIC_LOGIN_RECORD_ENABLED=1` (config.ts
@@ -226,7 +260,10 @@ export interface AuthServiceDeps {
   jwtSecret: Buffer;
   /** ms-since-epoch clock; defaults to Date.now. Injectable for tests. */
   now?: () => number;
-  /** JWT TTL in ms; defaults to 7 days. */
+  /** JWT TTL in ms; defaults to `jwt.ts` DEFAULT_TTL_MS (100 years since owner
+   *  ruling 2026-08-27 §R1). ⚠️ No production bootstrap passes this — the
+   *  default IS the shipped value, so changing the TTL means changing that
+   *  constant, not this seam. */
   ttlMs?: number;
   /**
    * LOGIN-1 — may `recordSignIn` actually write. Absent ⇒ **false** ⇒ not one
@@ -281,6 +318,16 @@ export function makeAuthService(deps: AuthServiceDeps): AuthService {
       // The ONE conversion site (auth/email-verification.ts) — never a second
       // `!== null` here that could drift from the gates' reading.
       email_verified: isEmailVerified(user.email_verified_at),
+      // NR-2a — same rule again: `verificationGrace` is the ONE place those
+      // three columns become a countdown, and the socket gates call the very
+      // same function. A second `now() - created_at` here is how the banner and
+      // the wall start disagreeing about which day it is.
+      verify_grace_days_left: verificationGrace({
+        emailVerifiedAt: user.email_verified_at,
+        createdAtMs: Date.parse(user.created_at),
+        hasEmail: user.email !== null,
+        nowMs: now(),
+      }).daysLeft,
       // A2-3 — same rule, same reason: the conversion lives in
       // auth/account-restriction.ts and the gates call the SAME function, so
       // the notice the client paints and the refusal the server issues cannot

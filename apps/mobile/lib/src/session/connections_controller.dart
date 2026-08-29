@@ -451,7 +451,7 @@ class ConnectionsController extends ChangeNotifier
   /// ⚠️ DELIBERATELY NOT called from [LoginController.handleAuthExpired]: an
   /// EXPIRED credential is not a sign-out decision, and the desktop applies the
   /// same split (socket/pairing.rs — only a deliberate action or a dead token
-  /// clears a pairing credential; a lapsed 7-day key keeps it).
+  /// clears a pairing credential; a lapsed account key keeps it).
   Future<void> signOutCloud() async {
     if (activePairing?.channel == 'saas') {
       await leaveRoom();

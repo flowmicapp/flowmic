@@ -101,7 +101,7 @@ describe('mobile:login matrix', () => {
     // ack too. Listed here rather than relaxed to `toMatchObject`: this is the
     // one assertion that proves the phone's account-login path carries the flag,
     // and it went red when the field landed.
-    expect(login.user).toEqual({ id, email: 'ok@b.co', display_name: 'User', plan: 'free', email_verified: false, restricted: false });
+    expect(login.user).toEqual({ id, email: 'ok@b.co', display_name: 'User', plan: 'free', email_verified: false, restricted: false, verify_grace_days_left: expect.any(Number) });
     expect(verifyJwt(login.token, { secret: SECRET_BUF }).sub).toBe(id);
   });
 
@@ -221,7 +221,17 @@ describe('auth:expired watchdog (F-2093)', () => {
     const fakeSetTimeout = ((cb: () => void) => { timers.push(cb); return timers.length as unknown as NodeJS.Timeout; }) as unknown as typeof setTimeout;
     const fakeClearTimeout = (() => {}) as unknown as typeof clearTimeout;
     const url = await saas({ setTimeoutFn: fakeSetTimeout, clearTimeoutFn: fakeClearTimeout });
-    const { token } = await registerUser(url, 'watchdog@b.co');
+    const reg = await registerUser(url, 'watchdog@b.co');
+    // 🔴 A HAND-SIGNED SHORT-LIVED TOKEN, NOT THE MINTED ONE — and that swap is
+    // the point, not a convenience. Since owner ruling 2026-08-27 §R1 the
+    // default TTL is 100 years, and `armAuthExpiry` deliberately arms NOTHING
+    // beyond MAX_TIMEOUT_MS (Node fires an over-2^31-1 ms timer immediately, so
+    // an unclamped watchdog would kick every signed-in socket on connect). A
+    // registered account's token therefore no longer produces a watchdog at
+    // all — that case is pinned in test/auth-expiry-clamp.test.ts. What THIS
+    // case still has to prove is the wiring for the tokens where a watchdog is
+    // right: the 7-day ones already in the wild.
+    const token = signJwt({ sub: reg.id, plan: 'free' }, { secret: SECRET_BUF, ttlMs: 7 * 24 * 60 * 60 * 1000 });
     const c = await connect(url, { jwt: token });
     // Let the connection handler arm the watchdog for this account socket.
     await new Promise((r) => setTimeout(r, 60));

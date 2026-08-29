@@ -69,11 +69,55 @@
 // (i.e. "persisted but not live"), groups ②③ go red immediately, while
 // group ① stays fully green — which is exactly the shape the warning
 // above describes. Restored, re-greened, leftover-string grep = 0.
+//
+// ── 🔴🔴 2026-08-27: THE PICKER BECAME A SLIDER, AND ONE ASSERTION IS
+//    DELIBERATELY RETIRED ────────────────────────────────────────────────────
+//
+// owner ruling `docs/decisions/2026-08-27-owner-text-scale-slider.md`. On an
+// English device the five chips read Small / Medium / Large / Larger /
+// Largest, and owner reported 「two 'large' entries」. They were five distinct
+// strings, so ⑥'s "pairwise distinct within a language" assertion was **green
+// on the exact defect it exists to catch** — distinct is not the same
+// property as *tellable apart*, and no set-based assertion can tell them
+// apart because the confusion lives in the reader, not in the data.
+//
+// ⇒ The chips are one Slider, the current rung reads as a **percentage**
+// (`AppTextScale.percent`, medium = 100%, derived from the real factor), and
+// the five adjective strings are DELETED from the catalogue.
+//
+// 🔴 **The retired assertion, named rather than quietly dropped (0.2.52 §3:
+// a wrong reverse control does not merely miss a defect, it writes the defect
+// into the acceptance criteria).** ⑥ used to assert
+// `stepNames.toSet()` has five members, with the comment "names colliding =
+// the user sees two identical chips". That sentence is still true; it simply
+// **was not the failure**. It is not weakened and re-kept — the strings it
+// read no longer exist. What replaces it in ⑥ is the property adjectives
+// never had and a percentage cannot lose: the five read-outs are **distinct
+// AND strictly increasing in the tier order, in every language, because they
+// are the same five numbers in every language**. ⑥ additionally asserts the
+// five old keys are **gone from all nine catalogue files** — 「no adjective
+// tier name is visible anywhere」 is the ruling's actual requirement, and a
+// test that only stopped reading them would stay green while they still
+// shipped.
+//
+// ⚠️ Everything ②③④⑤ measure is UNCHANGED and none of it was allowed to
+// soften: the five factors, the five rungs reaching `MediaQuery.textScaler`,
+// the multiplication with the system curve, the per-script overflow budgets,
+// the pill's monotonicity. The ruling scoped itself to the **picker**, not to
+// the rungs, and so does this file.
+//
+// 🔴 **②b LIVES IN ANOTHER FILE NOW**: `text_scale_picker_test.dart` (the
+// wiring group, plus the row's own 320dp layout). This file went to 1,414
+// lines against the 1,200 test cap, and the split is structural, not a
+// deletion — `support/text_scale_rig.dart`'s header records the move and its
+// diff discipline. Where the two files divide is where the ruling divided:
+// **the rungs** here, **the control the user touches** there. If you are
+// asking 「is the row wired at all」, that question is not answered in this
+// file.
 
 import 'dart:io';
 
 import 'package:flowmic/src/audio/audio_capture.dart';
-import 'package:flowmic/src/auth/login_controller.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
@@ -81,15 +125,11 @@ import 'package:flowmic/src/session/instance_probe.dart' show ServerChannel;
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
-import 'package:flowmic/src/settings/scenario_card_controller.dart';
-import 'package:flowmic/src/settings/settings_client.dart';
 import 'package:flowmic/src/signaling/socket_core.dart' show SocketStatus;
 import 'package:flowmic/src/signaling/wire_payloads.dart' show SendPolicy;
-import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/ui/ptt_bar.dart';
-import 'package:flowmic/src/ui/settings_page.dart';
 import 'package:flowmic/src/ui/status_badge.dart';
 import 'package:flowmic/src/ui/text_scale_scope.dart';
 import 'package:flutter/material.dart';
@@ -100,19 +140,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/fakes.dart';
 import 'support/di.dart';
 import 'support/legibility.dart';
-import 'support/portable_fakes.dart';
-import 'support/update_fakes.dart';
+import 'support/text_scale_rig.dart';
 
 const String kTextScaleKey = 'flowmic.pref.textScale';
 
-Future<AppSettingsController> _boot(Map<String, Object> initial) async {
-  SharedPreferences.setMockInitialValues(initial);
-  final AppSettingsController c = AppSettingsController(
-    prefs: await SharedPreferences.getInstance(),
-  );
-  await c.load();
-  return c;
-}
+// Two shims so that every case below is **character-for-character** what it was
+// before the 2026-08-27 split (`support/text_scale_rig.dart`'s header carries
+// the why). One line each, and the diff of that move shows no case body.
+Future<AppSettingsController> _boot(Map<String, Object> initial) =>
+    bootTextScale(initial);
+String _pct(AppTextScale step) => textScalePct(step);
 
 /// Pull the scaler that is **actually in effect** out of the render tree.
 ///
@@ -145,90 +182,6 @@ Future<TextScaler> _effectiveScaler(
     ),
   );
   return seen;
-}
-
-/// A REAL [SettingsPage] under a REAL [TextScaleScope], with the nine
-/// controllers the page demands, all faked. Same shape as `main.dart`: the scope
-/// lives in `MaterialApp.builder`, so everything the page pushes is under it.
-///
-/// 🔴 WHY THIS EXISTS. Before this window's fix lane, the three production chips
-/// `settings.textScale.{large,medium,small}` had ZERO references anywhere under
-/// `test/`. The "wiring" test in group ② below calls `c.setTextScale(...)`
-/// directly with a comment saying that is "what that row on the settings page
-/// does" — an assertion about behaviour elsewhere with nothing pinning it
-/// (anti-façade ④).
-/// Measured consequence: **delete the whole type-size row from
-/// `settings_preferences.dart` and the entire suite stays green**, exactly the
-/// shape 13 册 §7 F1 ① names (a lost call site leaves no new symbol to grep).
-/// `page_guides_test.dart` in this same window taps two real production keys on
-/// a real page; this rig makes that possible here.
-class _SettingsRig {
-  late final FakeSocketTransport settingsTransport;
-  late final SettingsClient settingsClient;
-  late final ScenarioCardController scenario;
-  late final PttSession session;
-  late final LoginController login;
-  late final DestinationController destination;
-  late final AppSettingsController appSettings;
-
-  /// [c] is owned by the caller (it is the controller under test).
-  static Future<_SettingsRig> create(AppSettingsController c) async {
-    final _SettingsRig r = _SettingsRig();
-    r.appSettings = c;
-    r.settingsTransport = FakeSocketTransport();
-    r.settingsClient = SettingsClient(
-        transport: r.settingsTransport, roomJoins: ValueNotifier<int>(0));
-    r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
-      cache: InMemoryScenarioCardCache(),
-    );
-    await r.scenario.load();
-    r.session = newTestSession(
-      transport: FakeSocketTransport(),
-      audio: AudioCapture(recorder: FakeAudioRecorder()),
-    );
-    r.login = newTestLogin(transport: r.session.transport);
-    r.destination = DestinationController();
-    return r;
-  }
-
-  Widget widget() => MaterialApp(
-    builder: (BuildContext context, Widget? page) =>
-        TextScaleScope(appSettings: appSettings, child: page!),
-    home: SettingsPage(
-      scenario: scenario,
-      appSettings: appSettings,
-      login: login,
-      destination: destination,
-      session: session,
-      portable: newTestPortableController(),
-      inventory: newTestInventory(
-        rows: const <TimelineEntry>[],
-        images: newTestOutboxBlobs(),
-      ),
-      timeline: newTestStore(),
-      version: const FixedAppVersion('0.0.0-test'),
-      update: newTestUpdateController(),
-    ),
-  );
-
-  Future<void> dispose() async {
-    await settingsClient.dispose();
-    login.dispose();
-    scenario.dispose();
-    destination.dispose();
-    await session.dispose();
-    await settingsTransport.close();
-  }
-}
-
-/// A viewport tall enough that the whole settings `ListView` is laid out, so the
-/// preferences card is really built. Same trick and same reason as
-/// `about_version_widget_test.dart`'s `tallViewport`.
-void _tallViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1200, 4200);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.reset);
 }
 
 ChatController _chatController(FakeSocketTransport transport) {
@@ -358,94 +311,6 @@ void main() {
         closeTo(8.5, 1e-9),
         reason: 'this frame did not switch after the tap ⇒ "save-on-change" only did the "save"',
       );
-    });
-  });
-
-  // ── ②b 🔴 wiring: the three chips really exist on the real settings page, tapping them really switches the step ──
-  group('②b wiring (real page · real keys · real render tree)', () {
-    testWidgets('all three chips are on a real SettingsPage; tapping each one switches the whole page to that step',
-        (WidgetTester tester) async {
-      // 🔴 This case's criterion is **those three production keys**:
-      // `settings.textScale.{large,medium,small}` from
-      // `settings_preferences.dart`, tapped by `tester.tap` on a real
-      // `SettingsPage`, reading from `MediaQuery.textScalerOf` **at the
-      // chip's own location** — the one every `Text` in the same tree
-      // actually asks at layout. Three facts asserted at once: the row is
-      // there (otherwise findsOneWidget goes red), it is tappable, and the
-      // tap reaches the render tree.
-      //
-      // 🔴 **Why walk every step instead of tapping one chip**: hanging
-      // all three chips on the same step (the most common copy-paste slip)
-      // stays fully green under a "tap one chip" test.
-      //
-      // 🔴 Reverse control [measured 2026-08-07]: lift the three
-      // `(AppTextScale.*, s.textScale*)` tuples out of that list in
-      // `settings_preferences.dart` (no chip drawn, title and note
-      // unchanged), this case went red immediately, verbatim:
-      //   Expected: exactly one matching candidate
-      //     Actual: _KeyWidgetFinder:<Found 0 widgets with key
-      //             [<'settings.textScale.large'>]: []>
-      //      Which: means none were found but one was expected
-      //   设置页上没有 `settings.textScale.large` 这枚 chip —— FB-4 的那一行
-      //   不在产品里了
-      // ⚠️ The same measured run also confirmed why this card must exist:
-      // **every other case in this file stayed green** (②③④⑤⑥⑦ not one
-      // red) — before the three chips were lifted, the reference count of
-      // `settings.textScale.*` under all of `test/` was **0**.
-      // Restored, re-greened, `REVERSE-CONTROL-LANEB` leftover-string
-      // grep = 0.
-      _tallViewport(tester);
-      final AppSettingsController c = await _boot(<String, Object>{});
-      addTearDown(c.dispose);
-      final _SettingsRig rig = await _SettingsRig.create(c);
-      addTearDown(rig.dispose);
-
-      await tester.pumpWidget(rig.widget());
-      await tester.pumpAndSettle();
-
-      Finder chip(AppTextScale step) =>
-          find.byKey(ValueKey<String>('settings.textScale.${step.name}'));
-
-      // Named up front so「the row was deleted」reports itself as that, instead
-      // of as a bare `Bad state: No element` out of `tap` (page_guides_test.dart
-      // wrote that lesson down after its own reverse control).
-      for (final AppTextScale step in AppTextScale.values) {
-        expect(
-          chip(step),
-          findsOneWidget,
-          reason: 'the settings page has no `settings.textScale.${step.name}` chip — '
-              'FB-4\'s row is no longer in the product',
-        );
-      }
-      // The row's title and note must also be there (a chip row with no title cannot answer "what is this").
-      final AppStrings s = AppStrings.of(c.locale);
-      expect(find.text(s.textScaleTitle), findsOneWidget);
-      expect(find.text(s.textScaleNote), findsOneWidget);
-
-      // Reading is taken at the chip's own location — it sits under TextScaleScope.
-      double scalerAtChip(AppTextScale step) =>
-          MediaQuery.textScalerOf(tester.element(chip(step))).scale(10);
-
-      expect(scalerAtChip(AppTextScale.large), closeTo(10.0, 1e-9),
-          reason: 'the default is no longer 「大」');
-
-      // 0.3.28: was a hand-written list of the three tiers, which would have
-      // stayed green while the two new chips went unwired. Driven off the enum
-      // now, so a rung that exists but is not tappable goes red here.
-      for (final AppTextScale step in <AppTextScale>[
-        ...AppTextScale.values.where((AppTextScale s) => s != AppTextScale.large),
-        AppTextScale.large, // land back on the default so later reads are unsurprising
-      ]) {
-        await tester.tap(chip(step));
-        await tester.pumpAndSettle();
-        expect(c.textScale, step, reason: 'tapping ${step.name} did not land on the controller');
-        expect(
-          scalerAtChip(step),
-          closeTo(10 * step.factor, 1e-9),
-          reason: 'after tapping ${step.name} the whole page did not switch to this step — '
-              'this chip either is not wired to setTextScale, or is wired to a different step',
-        );
-      }
     });
   });
 
@@ -880,31 +745,100 @@ void main() {
 
   // ── ⑥ all languages ────────────────────────────────────────────────────
   group('⑥ all languages present and pairwise distinct', () {
-    test('every copy string on the type-size row is non-empty in every language; the step names are pairwise distinct within a language', () {
+    test('every copy string on the type-size row is non-empty in every language; the five read-outs are distinct and in size order', () {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);
-        // 0.3.28: the two new rungs join the same two checks. A locale that
-        // has not been translated falls back to English structurally
-        // (gen-mobile-dart's `extends AppStringsEn`), so "non-empty" cannot be
-        // satisfied by a bare key — but two rungs sharing ONE word can still
-        // happen, and that is what the set below is for.
-        final List<String> stepNames = <String>[
-          s.textScaleXxlarge,
-          s.textScaleXlarge,
-          s.textScaleLarge,
-          s.textScaleMedium,
-          s.textScaleSmall,
-        ];
-        for (final String v in <String>[s.textScaleTitle, s.textScaleNote, ...stepNames]) {
+        // A locale that has not been translated falls back to English
+        // structurally (gen-mobile-dart's `extends AppStringsEn`), so
+        // "non-empty" cannot be satisfied by a bare key.
+        for (final String v in <String>[
+          s.textScaleTitle,
+          s.textScaleNote(_pct(AppTextScale.large)),
+        ]) {
           expect(v, isNotEmpty, reason: locale.name);
         }
-        // Names colliding = the user sees two identical chips and cannot tell
-        // which rung they are on.
+        // The note must really carry the number — a translation that dropped
+        // the `$pct` hole would read 「 matches how the app looked before」 and
+        // nothing else in the suite would notice.
         expect(
-          stepNames.toSet(),
-          hasLength(AppTextScale.values.length),
-          reason: '${locale.name}: $stepNames',
+          s.textScaleNote(_pct(AppTextScale.large)),
+          contains(_pct(AppTextScale.large)),
+          reason: '${locale.name}: the note lost the percentage it was handed',
         );
+      }
+
+      // 🔴 REPLACES 「the step names are pairwise distinct within a language」
+      // (retired 2026-08-27; the full reasoning is in this file's header). The
+      // old assertion was GREEN on the very defect it existed to catch: Large
+      // / Larger / Largest are three distinct strings that owner read as one
+      // word repeated. Distinctness of *names* was never the property; being
+      // *tellable apart, in order* is — and that is what a number is for.
+      //
+      // Language-free on purpose: there is exactly one set of read-outs now,
+      // shared by all nine locales, which is itself half the fix.
+      final List<String> readOuts =
+          AppTextScale.ladder.map(_pct).toList();
+      expect(readOuts.toSet(), hasLength(AppTextScale.values.length),
+          reason: 'two rungs read the same on screen: $readOuts');
+      for (int i = 1; i < AppTextScale.ladder.length; i++) {
+        expect(
+          AppTextScale.ladder[i].percent,
+          greaterThan(AppTextScale.ladder[i - 1].percent),
+          reason: 'the read-outs do not increase with the rung: $readOuts',
+        );
+      }
+      // The baseline the ruling named, pinned: medium is 100%.
+      expect(AppTextScale.medium.percent, 100);
+    });
+
+    test('🔴 the five adjective names are gone from all nine catalogue files, not merely unread', () {
+      // 🔴 「No adjective tier name is visible anywhere」 is the ruling's
+      // requirement, and a test that only stopped CALLING those getters would
+      // stay green while the strings still shipped in nine files, waiting for
+      // the next person to hang a second meaning on them (the anti-façade
+      // rule works in this direction too: a string with no consumer is not
+      // evidence of anything except that nobody has found it yet).
+      //
+      // Reads the catalogue rather than the generated Dart on purpose: the
+      // JSON is the source, and `leaves.json` is what would resurrect a key.
+      const List<String> retired = <String>[
+        'textScaleSmall',
+        'textScaleMedium',
+        'textScaleLarge',
+        'textScaleXlarge',
+        'textScaleXxlarge',
+      ];
+      // 🔴 The directory is ENUMERATED, not listed. The first version of this
+      // case wrote out `['en', 'zh-CN', 'zh-TW', …]` and `verify:lint`'s
+      // `i18n-add-locale-cost` caught it on the spot ("1 file(s) gained a
+      // hand-rolled locale list — adding a language must not mean editing
+      // these"). The gate is right and the enumerated form is also the
+      // stronger test: a tenth language arrives already covered.
+      final Directory dir = Directory('../../i18n/mobile');
+      expect(dir.existsSync(), isTrue,
+          reason: '${dir.path} is not where this case looked — from apps/mobile');
+      final List<File> catalogues = dir
+          .listSync()
+          .whereType<File>()
+          .where((File f) => f.path.endsWith('.json'))
+          // `coverage.json` is a generated report, not a catalogue; this is
+          // what tells the two apart without naming either.
+          .where((File f) => f.readAsStringSync().contains('textScaleNote'))
+          .toList();
+      // Positive control: without it, a wrong path or a changed key name makes
+      // every assertion below vacuous — zero files, zero failures, green.
+      expect(
+        catalogues.length,
+        greaterThanOrEqualTo(AppLocale.values.length + 1),
+        reason: 'found only ${catalogues.length} catalogue file(s); expected one per UI '
+            'language (${AppLocale.values.length}) plus leaves.json ⇒ this case read almost nothing',
+      );
+      for (final File f in catalogues) {
+        final String src = f.readAsStringSync();
+        for (final String key in retired) {
+          expect(src, isNot(contains('"$key"')),
+              reason: '${f.path} still ships "$key" — the adjective the slider was ruled in to remove');
+        }
       }
     });
 
@@ -932,14 +866,18 @@ void main() {
               body: SizedBox(
                 width: 332, // 360dp minus 14dp padding on each side of the settings card
                 child: Text(
-                  s.textScaleNote,
+                  s.textScaleNote(_pct(AppTextScale.large)),
                   style: const TextStyle(fontSize: 11, height: 1.4),
                 ),
               ),
             ),
           ),
         );
-        expectLegible(tester, find.text(s.textScaleNote), reason: locale.name);
+        expectLegible(
+          tester,
+          find.text(s.textScaleNote(_pct(AppTextScale.large))),
+          reason: locale.name,
+        );
       }
     });
   });

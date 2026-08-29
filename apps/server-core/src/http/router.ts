@@ -34,7 +34,9 @@ import { tryHandleInjectRoutes } from './inject-routes';
 import { tryHandleTimelineKeymetaRoutes } from './timeline-keymeta-routes';
 import { tryHandleTimelineGrantsRoutes } from './timeline-grants-routes';
 import { tryHandleEmailVerificationRoutes } from './email-verification-routes';
+import { tryHandleGoogleAuthRoutes } from './google-auth-routes';
 import { makeUpdateRoutes } from './update-routes';
+import { makeNodeRoutes } from './node-routes';
 import { tryHandleStatusRoutes } from './status-routes';
 import { tryHandleSiteCollectRoutes } from './site-collect-routes';
 import { tryHandleOpsSiteRoutes } from './ops-site-routes';
@@ -42,6 +44,7 @@ import { tryHandlePaddleRoutes } from './paddle-routes';
 import { isLocalRequest, refuseNonLocal } from './local-only';
 import { refuseUnidentified } from './account-auth';
 import { isWellFormedFingerprint } from '../lan-tls/fingerprint';
+import { makeWriterOnlyGuard } from '../node/writer-only';
 // 🔴 THE DEPS INTERFACE MOVED, THE IMPORT PATH DID NOT. `HttpDeps` now lives in
 // `./router-deps` (the 800-line cap forced the split — that file's header says
 // so) and is RE-EXPORTED from here so every existing importer keeps working:
@@ -247,12 +250,60 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
   // throttle above: it owns a mtime-keyed cache, and a fresh instance per request
   // would be a cache that never caches.
   const updateRoutes = deps.updates ? makeUpdateRoutes(deps.updates) : null;
+  // Same one-per-server reason as updateRoutes above: it holds an mtime-keyed
+  // cache of the node list, and a fresh instance per request would be a cache
+  // that never caches.
+  const nodeRoutes = deps.nodes ? makeNodeRoutes(deps.nodes) : null;
 
   return (req, res): boolean => {
     const url = req.url ?? '/';
     const method = req.method ?? 'GET';
     // Let socket.io own its own path.
     if (url.startsWith('/socket.io')) return false;
+
+    // ── 2026-08-29 multi-node: a REPLICA DOES NOT ACCEPT HTTP WRITES ─────────
+    //
+    // 🔴 A RULE ABOUT MUTATION, NOT A LIST OF ROUTES, and that is the whole
+    // point. A replica's database is a snapshot the next replication pull
+    // REPLACES. A POST that lands here succeeds, returns 200, logs nothing, and
+    // is gone within a minute — a registration that never happened, a password
+    // change the user watched succeed. Not a failure: a success that was not
+    // true, on the surface where that is worst.
+    //
+    // A route allowlist would have been the obvious guard and would have rotted
+    // on the first new route somebody added without reading this comment. The
+    // property that makes a request dangerous here is that it MUTATES, and the
+    // method already says so, so the guard is written against the method and
+    // cannot drift as the router grows.
+    //
+    // ⚠️ Reads are deliberately still served. They are the reason this node
+    // exists, and their staleness is bounded by the pull interval — a bounded
+    // wrong answer, not a vanished write. The one read where that is not good
+    // enough (the remaining quota) goes to the writer instead; see
+    // node/authoritative-quota.ts.
+    //
+    // ⚠️ /api/node/forward is a POST and is WRITER-ONLY, so it is never mounted
+    // on a replica and needs no exception here. If a future node-channel route
+    // ever needs to POST to a replica, it gets an explicit exception WITH a
+    // reason, not a widening of this rule.
+    if (deps.nodes?.writerUrl && method !== 'GET' && method !== 'HEAD' && url.startsWith('/api/')) {
+      // 🔴 BUILT BY THE SAME FUNCTION THE SOCKET REFUSAL USES, and that is the
+      // whole reason it is a call and not a literal. This route answered with a
+      // hand-spelled `'NODE_IS_REPLICA'` and a hand-written sentence before the
+      // socket side existed; the moment a second surface said the same thing,
+      // two hand-written copies of one fact would have been two answers waiting
+      // to drift — the shape this repo pays down constantly (CLAUDE.md, on the
+      // version faces:「两者用不同手段回答同一个问题」). One constructor, one
+      // sentence, and it comes from the protocol registry.
+      const body = JSON.stringify({ ok: false, ...makeWriterOnlyGuard(deps.nodes.writerUrl)() });
+      res.writeHead(421, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-length': Buffer.byteLength(body),
+        'cache-control': 'no-store',
+      });
+      res.end(body);
+      return true;
+    }
 
     if (url === '/api/health' && method === 'GET') {
       // PUBLIC BY NECESSITY, and the ONE route that must stay that way: a phone
@@ -406,6 +457,13 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // operator put a manifest file somewhere — no mode gate, because this route
     // holds no secret and no per-deployment truth (update-routes.ts §mounting condition).
     if (updateRoutes && updateRoutes(req, res)) return true;
+
+    // 2026-08-29 multi-node — GET /api/node/{ping,list,locate}. PUBLIC and
+    // UNAUTHENTICATED for the same reason as the two routes above, and one more
+    // that is specific to it: a client must choose a node BEFORE it has anywhere
+    // to authenticate against. Mounted purely on whether an operator gave this
+    // process a node id.
+    if (nodeRoutes && nodeRoutes(req, res)) return true;
 
     // W-5a (REQ-13-03) — GET /api/status. PUBLIC and UNAUTHENTICATED, on the
     // SAME argument as the two routes above: a status page that requires a
@@ -577,6 +635,18 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // so a verification surface there would mint codes for a person that does
     // not exist).
     if (config.mode === 'saas' && deps.emailVerification && tryHandleEmailVerificationRoutes(req, res, deps.emailVerification)) return true;
+
+    // NR-1 — POST /api/auth/google. Same TWO conditions as the mounts above, and
+    // the mode test earns its keep here more than anywhere: this route MINTS
+    // ACCOUNTS AND SESSIONS from an anonymous caller's input. A bootstrap that
+    // passed the dep in standalone would open account creation on somebody's LAN
+    // box, which has no account layer to create anything in.
+    //
+    // ⚠️ Mounted for every saas deployment, INCLUDING one with no
+    // FLOWMIC_GOOGLE_CLIENT_ID — that one answers a named 503, never a 404.
+    // google-auth-routes.ts's header argues why the honest answer to "we cannot
+    // do that right now" is not "there is no such feature".
+    if (config.mode === 'saas' && deps.googleAuth && tryHandleGoogleAuthRoutes(req, res, deps.googleAuth)) return true;
 
     // D1 §5.1 — Paddle's webhook ingress, mounted ABOVE the `/api/billing/`
     // block on purpose: that block's two gates (isLocalRequest + the Bearer

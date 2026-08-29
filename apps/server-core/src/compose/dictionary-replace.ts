@@ -19,16 +19,35 @@
 // stage sees it, so the model is anchored on the exact preferred spellings.
 //
 // Matching rules (master-plan §4.1 + card WP-R4-4 ②):
-//   • Latin/ASCII surfaces: CASE-INSENSITIVE, word-boundary matched (so "api"
-//     fixes to "API" but "RAPID" is never touched); the canonical is included as
-//     a surface so a case variant of the term itself is normalised.
-//   • CJK / non-ASCII surfaces (homophone aliases like 飞麦克→FlowMic, i.e. a Chinese
-//     homophone spelling of "FlowMic"): EXACT substring (CJK has no spaces / no
-//     case), canonical-identity skipped (no-op).
+//   • WORDED surfaces — every script that has word boundaries and case, which is
+//     ASCII Latin, accented Latin, Cyrillic and Greek alike: CASE-INSENSITIVE,
+//     word-boundary matched (so "api" fixes to "API" but "RAPID" is never
+//     touched); the canonical is included as a surface so a case variant of the
+//     term itself is normalised.
+//   • BOUNDARYLESS surfaces — Han / kana / Hangul (homophone aliases like
+//     飞麦克→FlowMic, i.e. a Chinese homophone spelling of "FlowMic"): EXACT
+//     substring, canonical-identity skipped (no-op).
+//
 //   • Every surface is regex-ESCAPED before it enters a pattern — a term can never
 //     inject regex metacharacters. Longer surfaces are tried first so a short
 //     alias never bites inside a longer one, and each pass is SINGLE-scan (a
 //     replacement is never re-scanned → no cascade).
+//
+// 🔴 THE SPLIT USED TO BE `hasNonAscii`, AND THAT IS NOT THE SAME QUESTION.
+// "Not ASCII" was read as "CJK", so accented Latin and Cyrillic were routed down
+// the path built for scripts that have no spaces and no case. Measured
+// (2026-08-28, dev-pc-a, against this very function):
+//   · "das apiö" → "das APIö"   — the ASCII boundary class [A-Za-z0-9_] treats
+//     every non-ASCII LETTER as a boundary, so the header's own promise ("api
+//     fixes to API but RAPID is never touched") failed for de/fr/es/ru.
+//   · dictionary "Größe" vs spoken "größe der datei" → NO match. German
+//     capitalises every noun, so a German user's dictionary was case-SENSITIVE
+//     while an English user's was not — the same feature, two products.
+//   · dictionary "код" vs "кодировка UTF-8" → "КОДировка UTF-8". Russian is
+//     inflected, so a short term bites inside longer words constantly.
+// The rule is now the script's own property — does it have word boundaries and
+// case — which is the question the two strategies were always answering.
+// Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F2.
 //
 // Pure: no I/O, no clock. The settings-reading resolver is resolveReplacementRules
 // (scenario-context.ts); the TWO live call sites are createComposeFactory
@@ -78,32 +97,51 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** True when the surface carries a non-ASCII (CJK / full-width / homophone)
- *  character — such surfaces match as exact substrings, not Latin words. */
-function hasNonAscii(s: string): boolean {
-  return /[^\x00-\x7f]/.test(s);
+/** The scripts written WITHOUT word boundaries and WITHOUT case. A surface
+ *  carrying any of them can only be matched as an exact substring; everything
+ *  else — ASCII Latin, accented Latin, Cyrillic, Greek — is a word and gets the
+ *  word-boundary + case-insensitive treatment.
+ *
+ *  ⚠️ Han is listed once and covers zh AND the kanji half of ja; kana and Hangul
+ *  are listed because a surface may be written entirely in either. A MIXED
+ *  surface (飞麦克FlowMic) lands here too, which is right: the CJK half has no
+ *  boundary to anchor to. */
+const BOUNDARYLESS_SCRIPT_RE =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+function isBoundaryless(s: string): boolean {
+  return BOUNDARYLESS_SCRIPT_RE.test(s);
 }
 
 /** Build a deterministic replacer from preferred-terminology rules. Ordering is
  *  first-write-wins on a surface collision (deterministic). An empty rule set
  *  yields an identity replacer (apply returns its input unchanged). */
 export function buildDictionaryReplacer(rules: readonly TermRule[]): DictionaryReplacer {
-  // surface(lowercased) → canonical, for the Latin case-insensitive pass.
-  const latin = new Map<string, string>();
-  // surface(exact) → canonical, for the CJK/non-ASCII exact-substring pass.
-  const cjk = new Map<string, string>();
+  // surface(lowercased) → canonical, for the worded case-insensitive pass.
+  const worded = new Map<string, string>();
+  // surface(exact) → canonical, for the boundaryless exact-substring pass.
+  const boundaryless = new Map<string, string>();
   let surfaces = 0;
 
   const addSurface = (raw: string, canonical: string): void => {
     if (surfaces >= MAX_SURFACES) return;
     const surface = raw.trim();
     if (surface.length === 0 || surface.length > MAX_SURFACE_LEN) return;
-    if (hasNonAscii(surface)) {
-      if (surface === canonical) return; // CJK identity → pure no-op, skip
-      if (!cjk.has(surface)) { cjk.set(surface, canonical); surfaces += 1; }
+    if (isBoundaryless(surface)) {
+      if (surface === canonical) return; // boundaryless identity → pure no-op, skip
+      if (!boundaryless.has(surface)) { boundaryless.set(surface, canonical); surfaces += 1; }
     } else {
+      // 🔴 `toLowerCase`, NOT `toLocaleLowerCase`: the key written here and the
+      // key read back in `apply` must agree, and a locale-sensitive fold makes
+      // that agreement depend on the server process's locale (Turkish dotted-I
+      // is the classic divergence). Consistency beats linguistic accuracy here
+      // because a disagreement is a SILENT miss.
+      // ⚠️ Known limit, pinned by a test rather than left to be discovered:
+      // German ß does not fold to SS in either JS regex or `toLowerCase`, so a
+      // dictionary "Größe" does not match a shouted "GRÖSSE". That is a miss (no
+      // replacement), never a corruption.
       const key = surface.toLowerCase();
-      if (!latin.has(key)) { latin.set(key, canonical); surfaces += 1; }
+      if (!worded.has(key)) { worded.set(key, canonical); surfaces += 1; }
     }
   };
 
@@ -118,14 +156,22 @@ export function buildDictionaryReplacer(rules: readonly TermRule[]): DictionaryR
   // is leftmost-listed-wins; sorting by length desc makes "javascript" beat "java").
   const byLenDesc = (a: string, b: string): number => b.length - a.length || (a < b ? -1 : 1);
 
-  const latinKeys = [...latin.keys()].sort(byLenDesc);
-  const cjkKeys = [...cjk.keys()].sort(byLenDesc);
+  const wordedKeys = [...worded.keys()].sort(byLenDesc);
+  const boundarylessKeys = [...boundaryless.keys()].sort(byLenDesc);
 
-  const latinRe = latinKeys.length > 0
-    ? new RegExp(`(?<![A-Za-z0-9_])(?:${latinKeys.map(escapeRegex).join('|')})(?![A-Za-z0-9_])`, 'gi')
+  // 🔴 The boundary class is `[\p{L}\p{N}_]` under the `u` flag, NOT `[A-Za-z0-9_]`.
+  // The ASCII class calls every accented letter a boundary, which is what let
+  // "api" bite inside "apiö". Behaviour on purely ASCII neighbours is unchanged
+  // (measured: "RAPID api test" → "RAPID API test", "serverwartung" untouched) —
+  // what changed is that a non-ASCII LETTER now correctly counts as part of a word.
+  const wordedRe = wordedKeys.length > 0
+    ? new RegExp(
+        `(?<![\\p{L}\\p{N}_])(?:${wordedKeys.map(escapeRegex).join('|')})(?![\\p{L}\\p{N}_])`,
+        'giu',
+      )
     : null;
-  const cjkRe = cjkKeys.length > 0
-    ? new RegExp(`(?:${cjkKeys.map(escapeRegex).join('|')})`, 'g')
+  const boundarylessRe = boundarylessKeys.length > 0
+    ? new RegExp(`(?:${boundarylessKeys.map(escapeRegex).join('|')})`, 'gu')
     : null;
 
   const ruleCount = surfaces;
@@ -135,10 +181,11 @@ export function buildDictionaryReplacer(rules: readonly TermRule[]): DictionaryR
     apply(text: string): string {
       if (ruleCount === 0 || text.length === 0) return text;
       let out = text;
-      // Latin first: a later CJK→Latin canonical output is never re-scanned by the
-      // Latin pass (single-pass per regex), so no cascade across the two passes.
-      if (latinRe) out = out.replace(latinRe, (m) => latin.get(m.toLowerCase()) ?? m);
-      if (cjkRe) out = out.replace(cjkRe, (m) => cjk.get(m) ?? m);
+      // Worded first: a later boundaryless→Latin canonical output is never
+      // re-scanned by the worded pass (single-pass per regex), so no cascade
+      // across the two passes.
+      if (wordedRe) out = out.replace(wordedRe, (m) => worded.get(m.toLowerCase()) ?? m);
+      if (boundarylessRe) out = out.replace(boundarylessRe, (m) => boundaryless.get(m) ?? m);
       return out;
     },
   };

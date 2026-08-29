@@ -4,6 +4,7 @@ import Icon from './components/Icon.vue';
 import WindowTitlebar from './components/WindowTitlebar.vue';
 import FirstRunLocale from './components/FirstRunLocale.vue';
 import LlmSetupCard from './components/LlmSetupCard.vue';
+import SttSetupCard from './components/SttSetupCard.vue';
 import AccessibilityNotice from './components/AccessibilityNotice.vue';
 // 2026-08-19 §5-B — the built-in speech model, said BEFORE the user holds the
 // button and speaks. Mounted unconditionally (its own v-if is inside), because
@@ -31,6 +32,7 @@ import { deriveFooterConnDot } from '../lib/conn-dot';
 import { S } from '../lib/strings';
 import { localKv } from '../lib/storage';
 import { profileKeys, resolveFirstRunPrompt } from '../lib/strings/first-run-locale';
+import { sttSetupCardView } from '../lib/stt-setup-card';
 
 type Page = MainPage;
 const PAGES: readonly Page[] = ['devices', 'timeline', 'settings', 'diag'];
@@ -61,6 +63,23 @@ const contentEl = ref<HTMLElement | null>(null);
 watch(page, () => {
   if (contentEl.value) contentEl.value.scrollTop = 0;
 });
+
+/** 🔴 WHILE THE STT SETUP CARD IS UP, THE AMBER MODEL STRIP IS SUPPRESSED.
+ *
+ *  On a fresh install both predicates are true at once and they are about the
+ *  same missing file, so the reader would meet two banners saying one thing —
+ *  and only one of them can act on it. The setup card is the richer answer: it
+ *  names the pack, its size, and starts the download. LocalModelNotice keeps
+ *  every other case it was built for (a machine that dismissed the setup card,
+ *  a language whose pack is ready while the routed one is not, a download that
+ *  failed and left the strip's own sentence true).
+ *
+ *  ⚠️ SUPPRESSED, NOT UNMOUNTED, and that distinction is load-bearing:
+ *  LocalModelNotice owns this window's ONE model-status poller (its header says
+ *  so). A `v-if` here would stop the polling that this very card depends on to
+ *  notice the download finishing — the card would then never disappear on its
+ *  own, which is exactly the behaviour the ruling asks for. */
+const sttSetupShown = computed(() => sttSetupCardView().show);
 
 // Real inputs for the four-state footer dot (same deriveConnDot as DevicesPage /
 // capsule — never a parallel binary connected?g:o).
@@ -217,11 +236,16 @@ onUnmounted(() => {
            Unlike that one it can be put away for the session — the fact it
            reports does not go away on its own, it goes away when the reader
            decides to spend the bandwidth (§5-B). -->
-      <LocalModelNotice />
-      <!-- Card LLM-NOTICE (owner D2): the dismissible first-run door to the two
-           model configurations. Same slot and the same argument as the strip
-           above: true on whichever page a first-run user happens to open. -->
-      <LlmSetupCard />
+      <LocalModelNotice :suppressed="sttSetupShown" />
+      <!-- The two first-run cards, 并列 by the owner's word (2026-08-28): STT on
+           the left, LLM on the right, wrapping to a stack on a narrow window.
+           Each one hides itself; the row simply collapses to whichever is left.
+           Card LLM-NOTICE (owner D2) is the dismissible door to the two model
+           configurations, true on whichever page a first-run user opens. -->
+      <div class="setup-cards">
+        <SttSetupCard />
+        <LlmSetupCard />
+      </div>
       <DevicesPage v-show="page === 'devices'" />
       <ConnDiagPage v-if="page === 'diag'" />
       <TimelinePage v-show="page === 'timeline'" />
@@ -230,3 +254,13 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The two first-run cards, side by side on a wide window and stacked on a
+   narrow one. `1 1 320px` rather than a media query: the breakpoint that
+   matters is the one where a card's own sentences start wrapping badly, and
+   that follows the window, not a device class. `min-width: 0` is what lets a
+   long model id inside a card shrink instead of forcing the row wide. */
+.setup-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+.setup-cards > * { flex: 1 1 320px; min-width: 0; }
+</style>

@@ -19,7 +19,7 @@
 //   • `pc:reconnect` ack error `AUTH_TOKEN_EXPIRED` → the ACCOUNT credential this
 //     socket presented at handshake has lapsed (#6 zombie-room gate, server
 //     pc.handler). The hook fires (the shell clears the Cloud Key and drops the
-//     socket); the PAIRING credential is deliberately left alone — a 7-day key
+//     socket); the PAIRING credential is deliberately left alone — an account-key
 //     lapse must not force every phone to re-pair (same ruling shell/cloud.rs
 //     already applies on live-socket auth:expired). ONLY EXPIRED routes this
 //     way: the server answers AUTH_TOKEN_INVALID for BOTH a dead device token
@@ -112,6 +112,9 @@ pub type AuthFailureHook = Arc<dyn Fn(&str) + Send + Sync>;
 pub fn is_account_auth_failure(code: &str) -> bool {
     matches!(code, "AUTH_TOKEN_EXPIRED" | "AUTH_TOKEN_INVALID")
 }
+// The WIDER question —「is this a verdict about the ACCOUNT or about the one verb
+// that asked」— is `outbound::is_account_validity_refusal`, deliberately a
+// separate predicate and (this file being at its 800-line cap) a separate home.
 
 /// Everything the register/reconnect emits share. Bundled so each socket handler
 /// clones ONE Arc instead of four, and so the auth surface has a single owner.
@@ -509,7 +512,7 @@ pub(super) fn on_reconnect_ack(obj: &Value, p: &Pairing, rec: &Reconciler) -> Re
             // lapsed (server pc.handler refuses the reconnect so an expired
             // login can no longer sit in its room). This is an ACCOUNT refusal,
             // not a dead device token — clearing the token here would wipe the
-            // cloud pairing and force every phone to re-pair over a 7-day key
+            // cloud pairing and force every phone to re-pair over an account-key
             // lapse. Only EXPIRED is safely routable (module-note collision).
             eprintln!("[flowmic] pc:reconnect REFUSED: AUTH_TOKEN_EXPIRED — account credential lapsed, pairing kept");
             p.clear_handshake_ack("pc:reconnect refused — account credential lapsed");

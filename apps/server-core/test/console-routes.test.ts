@@ -378,14 +378,14 @@ describe('console: device + pairing management (④)', () => {
     // Revoke → revoked:true; the row + token are gone.
     const r1 = await post(`${url}/api/cloud/devices/revoke`, { pairing_id: pairingId }, bearer(token));
     expect(r1.status).toBe(200);
-    expect(r1.json).toEqual({ ok: true, revoked: true });
+    expect(r1.json).toEqual({ ok: true, revoked: true, evicted: false });
     expect(handle.db.mobiles.findByToken(mobileToken)).toBeNull(); // DB revoke truth
     // reconnect-invalid fail-loud: reconnecting with the dead token is REJECTED.
     expect(await connectExpectFail(url, { token: mobileToken })).toBe('rejected');
     // Idempotent: a second revoke of the same (now-missing) pairing → revoked:false.
     const r2 = await post(`${url}/api/cloud/devices/revoke`, { pairing_id: pairingId }, bearer(token));
     expect(r2.status).toBe(200);
-    expect(r2.json).toEqual({ ok: true, revoked: false });
+    expect(r2.json).toEqual({ ok: true, revoked: false, evicted: false });
   });
 
   it('cannot revoke ANOTHER user\'s pairing (revoked:false, row survives — no cross-tenant)', async () => {
@@ -396,7 +396,7 @@ describe('console: device + pairing management (④)', () => {
     // User A tries to revoke B's pairing → truthful no-op, B's pairing survives.
     const r = await post(`${url}/api/cloud/devices/revoke`, { pairing_id: bPair.pairingId }, bearer(a.token));
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ ok: true, revoked: false });
+    expect(r.json).toEqual({ ok: true, revoked: false, evicted: false });
     expect(handle.db.mobiles.findByToken(bPair.mobileToken)).not.toBeNull(); // still there
   });
 

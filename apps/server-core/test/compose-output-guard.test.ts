@@ -554,3 +554,127 @@ describe('compose output guard — the interim wire code', () => {
     expect(COMPOSE_OUTPUT_REJECTED_CODE).toBe('COMPOSE_OUTPUT_REJECTED');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-28 — draft_polish had NO output validation, and the comment saying it
+// did not need any was describing a different code path.
+// Refs docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('guardComposeOutput — draft_polish must not change writing system', () => {
+  const polish = (source: string, output: string) =>
+    guardComposeOutput({ task: 'draft_polish', source, output });
+
+  it('refuses a polish that came back in another script', () => {
+    const v = polish('This is my rough draft about the meeting tomorrow.', '这是我关于明天会议的草稿。');
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.rule).toBe('script_changed');
+  });
+
+  it('allows an ordinary same-script polish', () => {
+    const v = polish('This is my rough draft, um, about the meeting.', 'This is my rough draft about the meeting.');
+    expect(v.ok).toBe(true);
+  });
+
+  it('allows a German polish — accents and case do not make it a different script', () => {
+    const v = polish('das ist mein entwurf über die größe der datei', 'Das ist mein Entwurf über die Größe der Datei.');
+    expect(v.ok).toBe(true);
+  });
+
+  it('THE HONEST LIMIT — a same-script language swap is NOT caught', () => {
+    // German in, English out. Both Latin, so nothing in the characters betrays
+    // it. This is the LIKELIEST form of the failure and this rule does not see
+    // it; catching it needs language ID and a corpus to calibrate against
+    // (P1-1). Pinned as a test so the gap is a recorded fact rather than an
+    // assumption someone makes later about what "guarded" means here.
+    const v = polish('Das ist mein Entwurf über die Besprechung morgen.', 'This is my draft about the meeting tomorrow.');
+    expect(v.ok).toBe(true);
+  });
+
+  it('declines to judge genuinely mixed text rather than guessing', () => {
+    // No script holds a majority, so dominantScript returns null on one side and
+    // the rule stands down. A guard that guesses on mixed input rejects correct
+    // work, and a guard that rejects correct work gets loosened until it never
+    // fires at all.
+    const v = polish('把 API endpoint 换成 staging', 'Change the API endpoint to staging');
+    expect(v.ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The `null` stand-down, made visible (2026-08-29).
+//
+// WHY THIS EXISTS, AND WHY IT IS EMBARRASSING THAT IT DID NOT. `script_changed`
+// stands down whenever `dominantScript` cannot classify a side, and
+// `dominantScript` knows five script families: han, japanese, hangul, latin,
+// cyrillic. Greek, Thai, Arabic, Devanagari, Hebrew and the rest resolve to
+// null, so a drift out of any of them is not refused.
+//
+// That was TRUE THE DAY THE RULE SHIPPED and no test said so. It surfaced only
+// because a neighbouring session ran four non-Chinese probes for an unrelated
+// reason (choosing an OpenRouter model) and measured this function against the
+// drifts they found: of 8 measured drifts, this gate refuses 2.
+// 🔴 That is luck, not method. A test with an unclassified script on either side
+// would have shown the stand-down on day one, needs no corpus, and costs
+// nothing — which is exactly why its absence is the finding.
+//
+// ⚠️ THIS TEST ASSERTS TODAY'S BEHAVIOUR; IT DOES NOT ARGUE FOR IT. Widening the
+// classifier widens what a REFUSAL path can refuse, and there is no measurement
+// of how often that would refuse correct work — the guard's own comment warns
+// that a guard which guesses on mixed input rejects correct work, and gets
+// loosened until it never fires. So the gap stays named and measured rather than
+// quietly closed. Evidence table:
+// docs/decisions/2026-08-29-owner-english-as-auxiliary-language.md §边界.
+//
+// 🔴 WIDENING THE CLASSIFIER TAKES TWO EDITS, AND DOING ONE OF THEM CHANGES
+// NOTHING AT ALL. Measured while building this file, by actually making the
+// change and running it:
+//   · add the script to `ScriptClass` + `dominantScript`'s ranked list  → these
+//     tests still PASS (50/50). `dominantScript` returns null on its FIRST line
+//     when `letterCount` is 0, and `letterCount` has its own hard-coded script
+//     set that does not include the new one. The widening is inert.
+//   · ALSO add it to `letterCount`                                     → the two
+//     Greek assertions below go red, which is the tripwire working.
+// So a half-done extension leaves a classifier that looks widened, reads as
+// widened in review, and refuses exactly as much as before — with every test
+// green. Whoever takes this on: change both, and confirm you saw these two
+// assertions fail before you rewrite them.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('guardComposeOutput — where script_changed deliberately stands down', () => {
+  const polish = (source: string, output: string) =>
+    guardComposeOutput({ task: 'draft_polish', source, output });
+
+  it('CONTROL — a classified pair really is refused, so the cases below are not passing blindly', () => {
+    const v = polish('Das ist mein Entwurf über die Besprechung.', '这是我关于会议的草稿。');
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.rule).toBe('script_changed');
+  });
+
+  it('an UNCLASSIFIED source script stands the rule down — Greek in, Chinese out is NOT refused', () => {
+    // Measured drift, verbatim shape: a Greek utterance came back in Chinese
+    // with fabricated content. The gate does not see it, because Greek is null.
+    expect(polish('Η συνάντηση είναι στις τέσσερις.', '会议在四点，在十楼。').ok).toBe(true);
+  });
+
+  it('the same holds for Thai, Arabic and Devanagari — the list is five families, not "all scripts"', () => {
+    for (const [name, src] of [
+      ['Thai', 'การประชุมเวลาสี่โมง'],
+      ['Arabic', 'الاجتماع في الساعة الرابعة'],
+      ['Devanagari', 'बैठक चार बजे है'],
+    ] as const) {
+      expect(polish(src, '会议在四点。').ok, `${name} source is unclassified`).toBe(true);
+    }
+  });
+
+  it('an UNCLASSIFIED output script stands it down too — the gap is symmetric', () => {
+    expect(polish('The meeting is at four.', 'Η συνάντηση είναι στις τέσσερις.').ok).toBe(true);
+  });
+
+  it('🔴 the widest gap is same-script, and English is Latin — so drift TOWARD English is invisible', () => {
+    // Every European language pair is latin -> latin. The drift this product is
+    // most likely to meet is precisely the one the gate cannot see, which is why
+    // the ruling's rule ("never any other language") is deliberately wider than
+    // the implementation ("never any other CLASSIFIED script").
+    expect(polish('Das ist mein Entwurf über die Besprechung morgen.', 'This is my draft about tomorrow.').ok).toBe(true);
+    expect(polish('A megbeszélés négy órakor kezdődik.', 'The meeting starts at four.').ok).toBe(true);
+  });
+});

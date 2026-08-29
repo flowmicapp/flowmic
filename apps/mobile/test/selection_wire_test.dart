@@ -415,7 +415,20 @@ void main() {
 
       await tester.longPress(find.text('第一句'));
       await tester.pumpAndSettle();
-      expect(find.text(_zh.confirmDelete), findsNothing, reason: 'the menu must not appear');
+      // 🔴 Card NR-3 corrected this line's FINDER, not its claim. It used to be
+      // `find.text(_zh.confirmDelete) → findsNothing`, on the reasoning that
+      // 「删除」 appears only in the long-press sheet. That stopped being true
+      // the moment the toolbar grew its own delete button — which prints the
+      // SAME string, deliberately (one action, one word; see
+      // `selection_strings.dart`'s NR-3 note). So the old assertion went red
+      // while the behaviour it guards was untouched: the sheet really does not
+      // open. It now names what it always meant — the sheet's own entry, which
+      // the toolbar has no counterpart for.
+      expect(
+        find.text(_zh.selectionEnter),
+        findsNothing,
+        reason: 'the long-press sheet must not appear inside multi-select',
+      );
     });
 
     testWidgets('✕ leaves multi-select, and long-press returns to the original menu', (WidgetTester tester) async {
@@ -902,6 +915,102 @@ void main() {
           expect(v.trim(), isNotEmpty);
         }
       }
+    });
+  });
+  // ── Card NR-3: batch delete on the chat page ────────────────────────────
+  //
+  // 🔴 The MECHANISM (does it reach TimelineReaper) is pinned by
+  // `selection_batch_delete_test.dart`, with its own reverse control. What
+  // this group adds is the half that file cannot see: is the button on the real
+  // page wired to it, does the confirm dialog really stand between the press
+  // and the delete, and does the page leave the mode afterwards.
+  group('⑤ batch delete is hung up, and it asks first', () {
+    testWidgets('🔴 the confirm names the count, and NOTHING is deleted until it is accepted',
+        (WidgetTester tester) async {
+      final _Harness h = await _pump(tester, rows: <TimelineEntry>[
+        _row('a', '第一句', minute: 1),
+        _row('b', '第二句', minute: 2),
+      ]);
+      await _enterSelection(tester, '第一句');
+      await tester.tap(find.text('第二句'));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey<String>('selection.delete')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_zh.selectionDeleteConfirmTitle(2)), findsOneWidget);
+      expect(find.text(_zh.selectionDeleteConfirmBody(2)), findsOneWidget);
+      // 🔴 The positive control that makes the confirm mean something.
+      expect(h.store.entries, hasLength(2),
+          reason: 'a destructive action ran before its confirmation was accepted');
+
+      await tester.tap(find.text(_zh.cancel));
+      await tester.pumpAndSettle();
+      expect(h.store.entries, hasLength(2));
+      expect(find.byKey(const ValueKey<String>('selection.bar')), findsOneWidget,
+          reason: 'cancelling must not throw away the batch the user ticked');
+    });
+
+    testWidgets('accepting it deletes the ticked rows and leaves the mode',
+        (WidgetTester tester) async {
+      final _Harness h = await _pump(tester, rows: <TimelineEntry>[
+        _row('a', '第一句', minute: 1),
+        _row('b', '第二句', minute: 2),
+        _row('c', '第三句', minute: 3),
+      ]);
+      await _enterSelection(tester, '第一句');
+      await tester.tap(find.text('第二句'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('selection.delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_zh.confirmDelete).last);
+      await tester.pumpAndSettle();
+
+      expect(h.store.entries.map((TimelineEntry e) => e.id), <String>['c']);
+      expect(find.text('第一句'), findsNothing);
+      expect(find.text('第二句'), findsNothing);
+      expect(find.text('第三句'), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('selection.bar')), findsNothing);
+      expect(_lastToast(tester), _zh.selectionDeleted(2));
+    });
+
+    testWidgets('🔴 an image row makes the confirm say so BEFORE the press',
+        (WidgetTester tester) async {
+      // The picture file leaves the phone with the row. Said before, because
+      // after there is nothing left to disclose.
+      final _Harness h = await _pump(tester, rows: <TimelineEntry>[
+        _row('a', '第一句', minute: 1),
+        _row('p', '🖼 PNG · 12 KB', minute: 2, image: true),
+      ]);
+      await _enterSelection(tester, '第一句');
+      await tester.tap(find.text('🖼 PNG · 12 KB'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('selection.delete')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(_zh.selectionDeleteConfirmBodyWithImages(2, 1)),
+        findsOneWidget,
+        reason: 'the picture count is the fact this dialog exists to disclose',
+      );
+      await tester.tap(find.text(_zh.confirmDelete).last);
+      await tester.pumpAndSettle();
+      expect(h.store.entries, isEmpty);
+    });
+
+    testWidgets('🔴 0 ticked: pressable, and it answers out loud',
+        (WidgetTester tester) async {
+      await _pump(tester, rows: <TimelineEntry>[_row('a', '第一句', minute: 1)]);
+      await _enterSelection(tester, '第一句');
+      await tester.tap(find.text('第一句'));
+      await tester.pump();
+      expect(find.text(_zh.selectionCount(0)), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey<String>('selection.delete')));
+      await tester.pumpAndSettle();
+
+      expect(_lastToast(tester), _zh.selectionDeleteNoSelection);
+      expect(find.byKey(const ValueKey<String>('selection.bar')), findsOneWidget);
     });
   });
 }

@@ -68,6 +68,10 @@ extension PttSessionCapturePump on PttSession {
   void _onCaptureFault(String code) {
     if (fsm.session != SessionState.recording) return;
     debugPrint('[flowmic.audio] capture fault: $code — aborting the utterance');
+    // CR-9 (C8, exit 3 of 5): the recorder died under a continuous recording.
+    // Without this the screen stays lit and the ceiling still fires later, for
+    // a capture that is already gone.
+    endContinuous();
     audio.fenceAndStop();
     _stopHeartbeat();
     segments.clear();

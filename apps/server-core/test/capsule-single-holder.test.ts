@@ -46,6 +46,7 @@
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1; GA-26 / GA-28 / GA-29;
 //           docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §R11
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerPcHandlers } from '../src/socket/handlers/pc.handler';
@@ -106,7 +107,7 @@ let suppression: ReleaseSuppression;
 let clock = 1_700_000_000_000;
 
 function wirePc(socket: FakeSocket): FakeSocket {
-  registerPcHandlers(socket as unknown as Socket, {
+  registerPcHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,
@@ -117,7 +118,7 @@ function wirePc(socket: FakeSocket): FakeSocket {
 }
 
 function wireMobile(socket: FakeSocket): FakeSocket {
-  registerMobileHandlers(socket as unknown as Socket, {
+  registerMobileHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

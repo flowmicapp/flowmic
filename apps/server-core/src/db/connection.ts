@@ -290,6 +290,51 @@ export function reconcileSchema(db: DatabaseSync): void {
       db.exec('ALTER TABLE users ADD COLUMN last_login_at INTEGER');
     }
   }
+  // ── NR-1 (2026-08-27): users.google_sub + its partial UNIQUE index ─────────
+  //
+  // The FOURTH hand-written `users` column step. Unlike the three above it is
+  // TEXT — the shape `ADDITIVE_TEXT_COLUMNS` emits — so the obvious question is
+  // why it is not in that loop. Because the column is only half of the step: the
+  // UNIQUE index is the other half, and an index cannot be created before the
+  // column exists. Putting the ALTER a hundred lines above the CREATE INDEX
+  // would split one migration across two places with an ordering dependency
+  // nothing states; keeping both here makes the dependency impossible to break
+  // by editing one of them.
+  //
+  // 🔴 THERE IS NO `UPDATE` LINE HERE, AND ITS ABSENCE IS THE WHOLE STEP — the
+  // FOURTH time this file says that, and the FOURTH different reason:
+  //   · `email_verified_at` HAD to backfill (else the gate locks everyone out);
+  //   · `restricted_at` MUST NOT (any non-NULL value restricts the platform);
+  //   · `last_login_at` MUST NOT (the answer is not knowable);
+  //   · this one must not because ANY value would be an assertion that a
+  //     particular GOOGLE account belongs to a particular person — the strongest
+  //     claim on this table, invented for rows that have never been near Google.
+  //     NULL says 「this account has never signed in with Google」, which is true
+  //     of every row on every deployment the day this ships.
+  //
+  // 🔴 THE INDEX IS UNIQUE AND PARTIAL, and both halves are load-bearing (the
+  // same pair of reasons `idx_pc_devices_pcid` below states):
+  //   · UNIQUE, because 「which FlowMic account is this Google identity」 must have
+  //     exactly one answer, and the enforcement belongs in the database: the
+  //     route's alternative (SELECT-then-bind) is check-then-act with nothing
+  //     holding a lock. It is the constraint, not the route, that makes a second
+  //     row carrying the same `sub` impossible;
+  //   · PARTIAL on `google_sub IS NOT NULL`, so it never covers the rows that
+  //     have no Google identity — which is every row that exists today, and the
+  //     migration therefore cannot fail on a populated production database.
+  //
+  // Idempotent by the same guard as its three neighbours plus `IF NOT EXISTS` on
+  // the index: on a fresh DB the CREATE already made the column, so no ALTER
+  // runs; on a re-run both statements are no-ops.
+  // test/migration-idempotency.test.ts drives both shapes and asserts they
+  // converge on the same PRAGMA table_info AND the same index set.
+  {
+    const usersGoogleCols = tableColumns(db, 'users');
+    if (!usersGoogleCols.has('google_sub')) {
+      db.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
+    }
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+  }
   // ── A2-5 (2026-08-12): usage_events.{transcript_chars,delivered_chars} ─────
   //
   // The THIRD hand-written step, and it is here rather than in

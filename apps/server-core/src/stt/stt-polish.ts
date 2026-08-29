@@ -214,9 +214,23 @@ export function polishSystemPromptWithScenario(strength: PolishStrength, scenari
 // 4B at any sane batch size, without being a blank cheque. MAX bounds the worst
 // case: past 6 s the user is better served by the un-polished text they can
 // already read than by a spinner.
+//
+// MEASURED AGAIN, cloud leg (production LA relay → api.deepseek.com,
+// deepseek-v4-flash, thinking disabled via FLOWMIC_LLM_VENDOR_BODY,
+// 2026-08-28): a realistic CJK polish round-trip is 0.9–1.6 s, while a short
+// utterance's budget under the 800 ms floor was only 1.0–1.2 s — journalctl
+// shows three LLM_TIMEOUTs whose elapsedMs beat budgetMs by 1–3 ms. The floor
+// was calibrated for a LAN model and put the managed-cloud leg permanently on
+// the line. Raised to 2 s per the owner's 2026-08-07 ruling (「LLM 返回超过
+// 2S 基本就算不合格了应抛弃」, docs/decisions/2026-08-07-owner-segment-
+// polish-2s-budget-and-no-legacy-fleet.md): the polish attempt now GETS the
+// full 2 s the ruling allows before the honest skip; beyond it the discard
+// stands. LAN models answering in <1 s are unaffected — a floor only matters
+// when the model is slower than it.
 
-/** Floor — the 06 §5 in-place-correction budget, unchanged. */
-export const POLISH_BUDGET_MS = 800;
+/** Floor — owner's 2-second disqualification line (2026-08-07 ruling); the
+ *  original 06 §5 800 ms figure is kept alive in the per-char term's base. */
+export const POLISH_BUDGET_MS = 2_000;
 /** Per-input-character allowance on top of the floor. */
 export const POLISH_BUDGET_PER_CHAR_MS = 20;
 /** Hard ceiling: a stalled model must still fail loud. */
@@ -384,6 +398,30 @@ export interface PolishDeps {
    *  header. Absent ⇒ the records still emit, unjoined. Purely diagnostic: it
    *  never reaches the vendor and never enters the cache key. */
   traceId?: string;
+  /** The session's spoken language (`audio:start.source_lang`, or the engine's
+   *  own observation when it reported one).
+   *
+   *  🔴 DIAGNOSTIC ONLY, AND THAT IS THE WHOLE OF IT TODAY. It is written to the
+   *  trace and to the skip warnings and reaches nothing else: not the prompt, not
+   *  the guard, not the cache key. Rule 2 of both templates already says "preserve
+   *  the original meaning, language, and spoken style exactly", so the language
+   *  contract is stated; what was missing was any way to ANSWER「which language
+   *  did this session think it was in」when that contract is broken.
+   *
+   *  ⚠️ Measured 2026-08-28: this function had no language parameter at all, while
+   *  the hop directly above it (`stt-session.ts`) had just received the engine's
+   *  own reported language and dropped it. So a user reporting「I dictated German
+   *  and got English back」left a log that could not say what the session believed
+   *  it was hearing — the honest failure of a diagnostic surface, and the reason
+   *  this field is a field rather than an inference.
+   *
+   *  🔴 IT MUST NOT QUIETLY BECOME AN INPUT. Feeding it to the prompt would turn a
+   *  caller's DECLARATION into an instruction, which is the failure
+   *  compose/prompt.ts's `sourceLanguageNote` had to write four sentences to
+   *  avoid; feeding it to the guard needs a per-language corpus that does not
+   *  exist yet (P1-2). Both are deliberate non-goals of this change, not oversights.
+   *  Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §2 hop 7. */
+  language?: string;
 }
 
 /** Exact-substring occurrence count (same counting the closed-class gate uses
@@ -488,6 +526,7 @@ export async function polishFinalText(
         model: cfg.model,
         protocol: cfg.protocol,
         strength,
+        language: deps.language,
         budget_ms: budgetMs,
         ...tracedList(protectedTerms),
         system: tracedText(system),
@@ -535,6 +574,7 @@ export async function polishFinalText(
         request: randomUUID(),
         code: errored,
         wire: skipReason,
+        language: deps.language,
         chars: trimmed.length,
         budgetMs,
         elapsedMs: Date.now() - startedAt,
@@ -567,7 +607,7 @@ export async function polishFinalText(
     // the cardinality budget that an output which INTRODUCED one is not drift.
     const guard = checkMeaningPreserved(trimmed, cleaned, { strength, declaredTerms: protectedTerms });
     if (!guard.ok) {
-      log.warn('stt.polish guard rejected — pure two-stage text kept', { reason: guard.reason, wire: 'guard_reject' });
+      log.warn('stt.polish guard rejected — pure two-stage text kept', { reason: guard.reason, language: deps.language, wire: 'guard_reject' });
       return { text, applied: false, reason: guard.reason, skipReason: 'guard_reject', ...(usage ? { usage } : {}) };
     }
 

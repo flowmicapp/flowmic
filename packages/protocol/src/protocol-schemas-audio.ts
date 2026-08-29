@@ -58,7 +58,31 @@ export const AudioStartSchema       = z.object({
 export const AudioChunkSchema       = z.object({ seq: z.number().int().nonnegative(), data_b64: NonEmpty, ts_ms: z.number().int() });
 export const AudioPauseSchema       = z.object({ reason: NonEmpty });
 export const AudioResumeSchema      = z.object({});
-export const AudioStopSchema        = z.object({});
+/**
+ * 🔴 `discard` — "this recording was ABANDONED, do not finalise it"
+ * (owner report 2026-08-28: swipe up to cancel, and the words arrived on the PC
+ * anyway).
+ *
+ * Until this field, `audio:stop` was `z.object({})` and therefore answered TWO
+ * questions with one frame — "I am done, transcribe it" and "throw it away" were
+ * byte-identical on the wire. The server did the only thing it could: `finish()`
+ * on both, which flushes a terminal `stt:final` and bills the utterance. That is
+ * this repo's headline defect shape (one value, two questions) sitting on the
+ * cancel path.
+ *
+ * OPTIONAL, and the default is the safe half: absent ⇒ `false` ⇒ finalise, which
+ * is exactly what every already-shipped phone means when it sends this frame.
+ * A required field would make every older client's release a schema violation.
+ *
+ * ⚠️ THE PHONE DOES NOT DEPEND ON THIS. zod strips unknown keys, so a phone that
+ * sends `discard` to a relay predating it is silently read as a normal release —
+ * which is why the phone ALSO drops the late transcript frames locally
+ * (apps/mobile/lib/src/ptt/ptt_inbound.dart). This field saves the wasted STT
+ * minutes and the pointless final; the client-side latch is what makes cancel
+ * actually cancel. Failure direction, stated so it is not rediscovered: an out
+ * of date relay costs minutes, it never leaks the cancelled words.
+ */
+export const AudioStopSchema        = z.object({ discard: z.boolean().optional() });
 // ── 🔴 `quota_exhausted` — the fifth `reason` (owner 2026-08-10 批准) ──────────
 //
 // Ruling group #5-a, docs/decisions/2026-08-10-owner-ruling-requests-from-lan-

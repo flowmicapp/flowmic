@@ -25,6 +25,7 @@ import { llmCapabilityUsable, sttPolishDefaultFrom } from '../../stt/stt-polish-
 import type { AuthContext } from '../../auth/middleware';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
+import type { WriterOnlyGuard } from '../../node/writer-only';
 import { getAuth, safeAck } from '../wire';
 
 export interface SettingsHandlerDeps {
@@ -39,6 +40,13 @@ export interface SettingsHandlerDeps {
   /** The live room membership, so the rename reaches THIS PC's phones only. */
   store?: RoomStore<Socket>;
   now?: () => string;
+  /** 2026-08-29 multi-node — see PcHandlerDeps.writerOnly. `settings:update`
+   *  writes TWICE (the KV row, and `pc_devices.device_name` through the reserved
+   *  `device.pc_name` key), and on a replica both are erased by the next pull:
+   *  the user watches a setting they just changed revert itself with no error
+   *  anywhere. Required, not optional — an optional gate is one that can be
+   *  disabled by forgetting. */
+  writerOnly: WriterOnlyGuard;
 }
 
 /** 04 §3.7 F-3101 — the reserved key. Not in the KV namespace and never stored
@@ -288,6 +296,12 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     if (!auth) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
     const parsed = safeParseEvent('settings:update', payload);
     if (!parsed.success) return safeAck(ack, { error: 'SETTINGS_SCHEMA_INVALID' });
+    // A replica's write is erased by the next pull, so the user would see the
+    // value they just set revert itself and no layer would report anything.
+    // Refused before either branch — the KV write and the reserved-key rename
+    // are both lost, so guarding one of them would fix half a defect.
+    const replica = deps.writerOnly();
+    if (replica) return safeAck(ack, replica);
     const { key, value } = parsed.data;
 
     // ── GA-10 reserved key: device.pc_name (04 §3.7 F-3101) ──────────────────

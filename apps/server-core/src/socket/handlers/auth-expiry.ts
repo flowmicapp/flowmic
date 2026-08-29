@@ -37,12 +37,46 @@ export interface AuthExpiryClock {
   clearTimeoutFn?: typeof clearTimeout;
 }
 
+/**
+ * Node's timer delay is stored in a SIGNED 32-BIT INT. A delay above this
+ * overflows: Node emits `TimeoutOverflowWarning` and re-schedules the timer
+ * with a delay of **1 ms** — i.e. it fires AT ONCE, which is the exact opposite
+ * of what the caller asked for.
+ *
+ * 🔴 This is not a theoretical limit here. Since the 2026-08-27 owner ruling
+ * (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md §R1)
+ * `DEFAULT_TTL_MS` is 100 YEARS, so EVERY freshly minted token's `exp` is far
+ * past this line. Without the guard below, arming the watchdog for a normally
+ * signed-in socket would kick it inside the same tick — persistent login would
+ * have shipped as "you can never stay connected". Reverse control:
+ * `test/auth-expiry-clamp.test.ts` (run against the unguarded version it fails
+ * with `expected true to be false` on `socket.disconnected`).
+ */
+export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
 /** Arm the auth:expired disconnect at `expEpochSec`. Idempotent-per-fire (fires
- *  at most once). An `exp` already in the past schedules a 0ms fire. */
+ *  at most once). An `exp` already in the past schedules a 0ms fire.
+ *
+ *  An `exp` further out than [MAX_TIMEOUT_MS] arms NOTHING — no timer, and no
+ *  `disconnect` cleanup listener for a timer that does not exist.
+ *
+ *  🔴 WHY NOT A RE-ARMING CHAIN (the obvious alternative: sleep 24 days, wake,
+ *  sleep again). Two reasons, and the second is the real one:
+ *   · a chain is a long-lived object holding a socket reference across dozens of
+ *     wake-ups, i.e. more machinery than the thing it guards;
+ *   · a 100-year expiry is not an event. This watchdog exists so a session
+ *     cannot sit there silently dead after its credential lapses — a credential
+ *     that lapses after the user's lifetime never produces that situation. The
+ *     honest statement is "there is nothing to watch for", and arming nothing is
+ *     how you say that.
+ *  Legacy 7-day tokens still in the wild are far inside the limit, so their
+ *  behaviour here is byte-identical to before. */
 export function armAuthExpiry(socket: Socket, expEpochSec: number, clock: AuthExpiryClock = {}): void {
   const nowMs = clock.nowMs ?? Date.now;
   const setT = clock.setTimeoutFn ?? setTimeout;
   const clearT = clock.clearTimeoutFn ?? clearTimeout;
+  const delayMs = expEpochSec * 1000 - nowMs();
+  if (!Number.isFinite(delayMs) || delayMs > MAX_TIMEOUT_MS) return;
   let fired = false;
   const handle = setT(() => {
     if (fired) return;
@@ -64,6 +98,6 @@ export function armAuthExpiry(socket: Socket, expEpochSec: number, clock: AuthEx
     }
     setAccount(socket, null);
     socket.disconnect(true);
-  }, Math.max(0, expEpochSec * 1000 - nowMs()));
+  }, Math.max(0, delayMs));
   socket.on('disconnect', () => clearT(handle));
 }

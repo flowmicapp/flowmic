@@ -124,6 +124,40 @@ export const SETTINGS_KEYS = [
   'stt_preset',
   'stt_routings',
   'stt_add_lang',
+  // ── owner ruling 2026-08-27 §2-1: the language cell is a fixed list ────────
+  // The catch-all row's label. 🔴 THE ASTERISK IS NEVER SHOWN. It is our
+  // storage format, and a settings screen that prints it has handed the reader
+  // a wire value where an answer belongs — the same class of defect as the
+  // bare error identifier the phone printed at a user in 0.2.53.
+  'stt_lang_fallback',
+  // A stored language code nothing can match — the badge, and the sentence.
+  // 🔴 Two keys because the badge has to be short enough to sit in a pill and
+  // the instruction has to be long enough to be an instruction; one key would
+  // have been ellipsised into uselessness in the pill or turned the pill into a
+  // paragraph. And the row is NOT rewritten to something valid: the owner ruled
+  // that stored values are shown, badged, and replaced by the user.
+  'stt_lang_unsupported',
+  'stt_lang_unsupported_note',
+  // 🔴 owner ruling 2026-08-27 §R2-2. It states what a duplicate DOES, not that
+  // it is untidy: two rows with the same language key collide at the same rung
+  // of the routing ladder and `find` settles it, so the second row is not
+  // 「lower priority」 — it is unreachable. A vaguer word ("conflict",
+  // "ignored") would leave the user unable to predict which one wins.
+  // ⚠️ The stored array is NOT rewritten to remove it (owner ruled that
+  // explicitly); the select simply refuses to CREATE another one.
+  'stt_lang_duplicate',
+  // ── §2-3: what the built-in engine can actually do for this row ───────────
+  // 🔴 THE OWNER'S EMPTY-STATE RULING. A fresh install routes Chinese and the
+  // catch-all to the built-in engine and has downloaded nothing; the table said
+  // 「built-in engine」 and stopped, so two rows looked configured and could not
+  // transcribe a word. This is the red half — the green half names the model
+  // and is `settingsMsg.sttModelReady`, a function because it carries an id.
+  //
+  // ⚠️ It says 「no local model YET」 and points at the card below rather than
+  // naming a file, a size or a URL: which pack the reader should take is the
+  // card's question and it answers it per pack, with figures.
+  'stt_model_missing',
+  'stt_model_missing_action',
   'col_language',
   'col_engine',
   'col_endpoint',
@@ -176,6 +210,32 @@ export const SETTINGS_KEYS = [
   'polish_strength_strict',
   'polish_strength_smooth',
   'polish_strength_hint',
+  // ─── R-2乙 (owner 2026-08-29): smooth's supervision is not the same in every
+  //     language, and the user picking smooth is the one who should know it ────
+  //
+  // The meaning-preservation guard behind polish has TWO parts. The cardinality
+  // bound (§3.1) is language-independent. The closed-class check (§3.2) — the
+  // one that catches a dropped negation, the edit that reverses meaning while
+  // barely moving the edit distance — is built from Chinese and English term
+  // sets only, so in every other language it degrades to a digit check.
+  // `CLOSED_CLASS_GUARDED_LANGS` in stt-polish-guard.ts is that fact as data,
+  // and `stt-polish-guard-coverage.test.ts` keeps it true.
+  //
+  // 🔴 SHOWN ONLY WHEN `smooth` IS SELECTED, because that is when it matters:
+  // at strict the §3.1 bound is tight and is doing real work, while smooth
+  // widens it by design — so for the six unguarded languages smooth is the mode
+  // where §3.1 is nearly all that is left.
+  //
+  // ⚠️ Statement of fact, no imperative, and NO claim about the default — same
+  // discipline as `polish_strength_hint` above (data-flow-disclosure.test.ts's
+  // DEFAULT_VALUE_CLAIMS exists to catch the latter). It does not say which
+  // strength to choose; it says what the check can and cannot see.
+  //
+  // ⚠️ Deliberately NOT conditioned on the user's own routing rows. The desktop
+  // can hold several language rows at once, so 「your language is covered」 would
+  // be a claim about a set, not about this utterance. Naming the covered pair is
+  // true regardless of what happens to be configured.
+  'polish_strength_smooth_coverage',
   // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on both
   // model sections because the alternative is a user tuning a dictionary here
   // and wondering why the phone-on-relay ignores it.
@@ -222,15 +282,45 @@ export const SETTINGS_KEYS = [
   // The dismissible first-run card (owner D2): a title, a body that names what
   // works without a model and what does not, two buttons that JUMP to the speech
   // model and language model configurations, and a remembered dismissal.
-  // No "read the guide" link: that web section does not exist yet, and a link
-  // that opens nothing is the dead-link defect 0.3.24 fixed.
+  // 🔴 CORRECTED 2026-08-28: this note used to end 「no 'read the guide' link:
+  // that web section does not exist yet」. The chapter shipped in the
+  // 2026-08-27 web round (`/guide/model`) and the owner asked for the link the
+  // next day, so `llm_setup_guide` exists and opens through the one external
+  // door (`openExternalUrl`). The reasoning that kept it out was right until
+  // the page was there.
   'llm_setup_title',
   'llm_setup_body',
   'llm_setup_go_stt',
   'llm_setup_go_llm',
+  // The label of that link. Deliberately says WHERE it goes rather than 「learn
+  // more」: this button leaves the app for a browser, and a reader is entitled
+  // to know that before pressing it.
+  'llm_setup_guide',
   'llm_setup_dismiss',
   'llm_preset',
   'llm_protocol',
+  // ── 0.3.43 vendor catalogue (owner 2026-08-28; contract 06 §7.1) ───────────
+  //
+  // The `<optgroup>` headings, the empty-state row, and human names for the two
+  // protocol values. Shared by BOTH engine pages, which is why they are not
+  // `llm_`-prefixed: one menu vocabulary, stated once. Vendor names themselves
+  // (OpenAI, Groq, Ollama…) are NOT strings — they are proper nouns carried by
+  // the catalogue, and translating them would invent products.
+  //
+  // 🔴 `preset_choose` IS THE DEFECT-① FIX AND IT IS NOT DECORATION. A `<select>`
+  // whose value matches no option renders THE FIRST OPTION, so an unconfigured PC
+  // sat there naming a vendor nobody had chosen. This is the row that says so.
+  'preset_choose',
+  'preset_group_builtin',
+  'preset_group_cloud',
+  'preset_group_local',
+  'preset_group_custom',
+  // 🔴 The protocol select used to print its raw wire values
+  // (`openai-compatible` / `anthropic`) at the user — defect ③. The VALUE is
+  // still the enum; only the label is human. Renaming the value would be a wire
+  // change wearing a copy change's clothes.
+  'llm_protocol_openai',
+  'llm_protocol_anthropic',
   'llm_endpoint',
   'llm_model',
   'llm_apikey',
@@ -332,6 +422,7 @@ export const SETTINGS_MSG: SettingsMsg = {
   modelFiles: (done, total) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelFiles(done, total),
   modelEtaMinutes: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelEtaMinutes(n),
   modelResumedFrom: (size) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelResumedFrom(size),
+  sttModelReady: (model) => SETTINGS_MSG_BY_LOCALE[getLocale()].sttModelReady(model),
 };
 
 /** Test/guard surface (locale-parity.test.ts): raw per-locale function tables. */

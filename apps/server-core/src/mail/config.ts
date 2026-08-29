@@ -45,6 +45,28 @@ export interface MailConfig {
    *  The token and the email ride as query parameters appended by
    *  mail/password-reset-mailer.ts. */
   resetBaseUrl: string;
+  /**
+   * NR-2a — where the one-click VERIFICATION link points, e.g.
+   * `https://flowmic.app/verify`. The token rides as a query parameter appended
+   * by mail/email-verification-mailer.ts.
+   *
+   * 🔴 IT IS DERIVED, NOT REQUIRED, and that is a deliberate departure from the
+   * every-field-is-required rule this file's header argues for. The reason the
+   * others are required is that a missing one produces a DELIVERED-BUT-USELESS
+   * mail with nothing to notice. That failure is not available here: the console
+   * that serves `/reset-password` is the same origin that serves `/verify`, so
+   * the honest default is computable from a value the operator already had to
+   * set correctly — and a value computed from a known-good one cannot be wrong
+   * in a way an extra env var would have caught.
+   *
+   * `FLOWMIC_MAIL_VERIFY_BASE_URL` overrides it, for the one shape the
+   * derivation cannot know about: a console served from a different host than
+   * the reset page. Set explicitly, it is validated exactly like the reset base
+   * (parsed with `URL`, http(s) only) — a bad override is a NAMED boot failure,
+   * never a quiet fallback to the derived value, because "I configured it wrong"
+   * and "I did not configure it" must not produce the same running server.
+   */
+  verifyBaseUrl: string;
   /** The transport endpoint. Defaults to the vendor's; overridable so a test or
    *  a staging box can point at a local server WITHOUT anyone having to reach
    *  for a network stub. Mirrors FLOWMIC_MANAGED_STT_ENDPOINT. */
@@ -89,17 +111,16 @@ export function mailConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MailCon
   // link later, so a value that survives here cannot fail there. http is allowed
   // for a LAN/staging console; anything that is not http(s) (mailto:, file:, a
   // bare hostname) would produce a link no mail client will open.
-  let parsed: URL;
-  try {
-    parsed = new URL(resetBaseUrl);
-  } catch {
-    throw new Error(`config: FLOWMIC_MAIL_RESET_BASE_URL is not a URL: ${JSON.stringify(resetBaseUrl)}`);
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error(
-      `config: FLOWMIC_MAIL_RESET_BASE_URL must be http(s) (got ${JSON.stringify(parsed.protocol)})`,
-    );
-  }
+  const parsed = requireHttpUrl(resetBaseUrl, 'FLOWMIC_MAIL_RESET_BASE_URL');
+
+  // NR-2a. Explicit override wins and is validated identically; otherwise the
+  // verification page is the console's `/verify` on the SAME ORIGIN as the reset
+  // page — the one thing this deployment has already told us about its console.
+  const verifyOverride = env.FLOWMIC_MAIL_VERIFY_BASE_URL;
+  const verifyBaseUrl =
+    verifyOverride !== undefined && verifyOverride.trim() !== ''
+      ? requireHttpUrl(verifyOverride.trim(), 'FLOWMIC_MAIL_VERIFY_BASE_URL').toString()
+      : new URL(VERIFY_PATH, parsed.origin).toString();
 
   const endpointRaw = env.FLOWMIC_MAIL_ENDPOINT;
   return {
@@ -107,6 +128,28 @@ export function mailConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MailCon
     apiKey: requireNonEmpty(env, 'FLOWMIC_MAIL_API_KEY'),
     from: requireNonEmpty(env, 'FLOWMIC_MAIL_FROM'),
     resetBaseUrl,
+    verifyBaseUrl,
     endpoint: endpointRaw && endpointRaw.trim() !== '' ? endpointRaw.trim() : DEFAULT_RESEND_ENDPOINT,
   };
+}
+
+/** The console route that consumes a verification link. A constant rather than
+ *  a literal in the derivation, so the one place that has to match the web
+ *  console's router (its `/verify` route) is greppable from both sides. */
+export const VERIFY_PATH = '/verify';
+
+/** Parse + protocol-check one base URL, or throw naming the env var it came
+ *  from. Shared by the reset base and the NR-2a verify override so the two
+ *  cannot drift into two different definitions of「a usable link base」. */
+function requireHttpUrl(value: string, envName: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`config: ${envName} is not a URL: ${JSON.stringify(value)}`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`config: ${envName} must be http(s) (got ${JSON.stringify(parsed.protocol)})`);
+  }
+  return parsed;
 }

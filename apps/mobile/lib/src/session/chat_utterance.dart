@@ -146,10 +146,21 @@ void _handleTerminalFinal(ChatController c, SttFinal f) {
   _settleSpan(c, f, fromIdx: fromIdx, text: text, clientId: clientId);
 }
 
-/// 08 §5 landing rule (F-2): if manually typed → the final is APPENDED after the
-/// typed text with a single space; if not manually typed → it REPLACES the
-/// buffer. Accumulating finals therefore chain naturally across a
+/// 08 §5 landing rule (F-2): a final ALWAYS appends — it never replaces.
+/// An empty buffer takes the text as-is; a non-empty one gets `「buffer」 +
+/// ' ' + 「text」`. Accumulating finals therefore chain naturally across a
 /// multi-utterance manual send.
+///
+/// 🔴 NR-4-P1 (h) — anti-façade ④. This comment used to read 「if manually
+/// typed → APPENDED …; if not manually typed → it REPLACES the buffer」,
+/// describing a fork on 「did the user type this」 that has no counterpart in
+/// the body below and no caller that could supply the distinction: there is
+/// ONE expression here and it branches only on `_buffer.isEmpty`. The empty
+/// case is what made the false half look true — assigning `text` into an
+/// empty buffer is byte-identical to 「replacing」 it, so nobody reading a
+/// trace could tell the two stories apart. What actually keeps a typed draft
+/// safe is the append itself, not a branch: type into the box, speak, and the
+/// spoken final lands AFTER what was typed.
 void _foldIntoBuffer(ChatController c, String text) {
   c._buffer = c._buffer.isEmpty ? text : '${c._buffer} $text';
 }

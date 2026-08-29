@@ -23,6 +23,8 @@ import {
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
 import { seamText, SoftSegmentCadence } from './segment-boundary';
+import { recheckQuotaOnLegBirth } from './quota-recheck';
+import { replayStillOwed } from './replay-debt';
 import { EngineSessionReconnectLadder, DEFAULT_BACKOFF_MS, type EngineSessionHooks } from './engine-session';
 import { EngineIdleHangup, type IdleHangupHooks } from './engine-idle-hangup';
 import { raceSpawnTimeout } from './spawn-timeout';
@@ -240,7 +242,9 @@ export class SttEngineOrchestrator extends EventEmitter {
     // engine has been given. Released once nothing will ever replay again, so a
     // ladder that has given up cannot pin the ring for the rest of the session.
     this.session.setRetentionPin(
-      this.replayStillOwed() ? this.lastEngineFedSeq : Number.POSITIVE_INFINITY,
+      replayStillOwed({ hasEngine: this.engine !== null, rolloverInFlight: this.rolloverWork !== null,
+        redialInFlight: this.idle.isDialing, reconnectPending: this.ladder.hasPendingReconnect() })
+        ? this.lastEngineFedSeq : Number.POSITIVE_INFINITY,
       this.unfedGraceMs,
     );
     this.session.pushChunk(c);
@@ -735,6 +739,10 @@ export class SttEngineOrchestrator extends EventEmitter {
     // a reconnected session unable to ever hang up again — a hole with no symptom
     // except a bill. The rule is "a leg exists ⇒ the countdown runs".
     this.idle.arm();
+    // 🔴 card CR-Q — here for the same reason `idle.arm()` is: a leg is being
+    // born, so we are about to spend money again. Cheap on every path, and the
+    // whole account (floor, failure direction, log line) is in quota-recheck.ts.
+    recheckQuotaOnLegBirth(this.session);
   }
 
   private async closeEngine(): Promise<void> {
@@ -767,15 +775,6 @@ export class SttEngineOrchestrator extends EventEmitter {
   /** card RT-3 — is any engine still expected to be handed audio? Live, mid-rollover,
    *  or a reconnect rung armed. Once all three are false the ladder has given up
    *  and no replay will ever happen, so holding unheard audio would only leak. */
-  private replayStillOwed(): boolean {
-    // card RT-2: `idle.isDialing` — and NOT `idle.isHungUp` — is the fourth term.
-    // While the leg is hung up and the user is quiet nothing is owed a replay,
-    // so the ring must be free to prune the silence; the debt begins the instant
-    // a chunk the gate accepts starts a redial, and lasts until it is fed.
-    return this.engine !== null || this.rolloverWork !== null
-      || this.idle.isDialing || this.ladder.hasPendingReconnect();
-  }
-
   /// Re-feed buffered tail: RECONNECT (gateUnfed=false) full 5s; ROLLOVER (true) seq>lastFed.
   private replayBufferTail(gateUnfed = false): void {
     if (!this.engine || this.terminated || this.terminalizing) return;

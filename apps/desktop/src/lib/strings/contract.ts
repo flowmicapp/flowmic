@@ -115,6 +115,23 @@ export interface SettingsMsg {
    *  their earlier attempt was not wasted; without it, a download that starts at
    *  21 % reads as a progress bar that is broken. */
   modelResumedFrom(size: string): string;
+
+  /** en `Local model ready: sherpa-onnx-sense-voice-…`. The green half of the
+   *  routing table's per-row verdict (owner 2026-08-27 §2-3); the red half is
+   *  the plain key `stt_model_missing`.
+   *
+   *  🔴 IT NAMES THE PACK, and that is the whole reason it is a function rather
+   *  than a fixed sentence. 「A local model is ready」 is true of a machine with
+   *  eight packs downloaded and says nothing about WHICH ONE this language will
+   *  actually open — and the resolution ladder (selected pack, else best tier)
+   *  is not something a reader can run in their head. A row that named no model
+   *  would be a reassurance; one that names it is a fact they can check against
+   *  the card below.
+   *
+   *  ⚠️ The id is passed in already resolved (lib/model-status.ts
+   *  `readyPackForLang` mirrors the server's ladder). This catalogue only
+   *  decides where it sits in the sentence. */
+  sttModelReady(model: string): string;
 }
 
 /** The per-locale shape of the V2-18 batch messages. Both locales implement

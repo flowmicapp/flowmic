@@ -20,6 +20,7 @@
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:list-mobiles);
 //           docs/rebuild/05-DATA-MODEL.md §1/§7; R6-BACKLOG-AND-PLAN.md T-8
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerPcHandlers } from '../src/socket/handlers/pc.handler';
@@ -76,7 +77,7 @@ let registry: Registry;
 let store: RoomStore;
 
 function wire(socket: FakeSocket): FakeSocket {
-  registerPcHandlers(socket as unknown as Socket, {
+  registerPcHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store: store as RoomStore<Socket>,

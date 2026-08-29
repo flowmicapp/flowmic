@@ -158,9 +158,35 @@ async function call(
 function bearer(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
 }
-async function registerUser(url: string, email: string): Promise<{ id: string; token: string }> {
+/**
+ * 🔴 NR-2a CHANGED WHAT REGISTRATION DOES, and this helper absorbs it.
+ *
+ * `POST /api/register` now mails a verification by itself
+ * (http/auth-routes.ts `dispatchRegistrationVerification`). That first mail is
+ * real: it lands in the recorder AND it legitimately starts the 60-second
+ * resend cooldown. Without this helper every `send()` below would answer
+ * VERIFY_COOLDOWN and every `sent[0]` would be the auto-mail rather than the
+ * one the test asked for — four tests in this file went red exactly that way.
+ *
+ * So: wait for the un-awaited dispatch to settle, drop the recorded message,
+ * and step the clock past the cooldown. Everything below the helper then
+ * measures what it measured before the auto-send existed.
+ *
+ * ⚠️ This is NOT the auto-send being hidden. It is measured on its own terms in
+ * test/verification-autosend.test.ts, which is where a change to it should turn
+ * something red.
+ */
+async function registerUser(url: string, email: string, sent?: MailMessage[]): Promise<{ id: string; token: string }> {
   const r = await call('POST', `${url}/api/register`, { email, password: 'longenough1', display_name: 'V' });
   expect(r.status, `register ${email}`).toBe(201);
+  // Two macrotask turns: the route writes the response and THEN starts the
+  // dispatch, so one turn is already enough for an in-memory transport; the
+  // second is slack, not superstition — it costs nothing and removes the only
+  // ordering assumption in the helper.
+  await new Promise((res) => setTimeout(res, 0));
+  await new Promise((res) => setTimeout(res, 0));
+  if (sent) sent.length = 0;
+  NOW += EMAIL_VERIFICATION_RESEND_COOLDOWN_MS + 1;
   return { id: r.json.user.id as string, token: r.json.token as string };
 }
 
@@ -211,7 +237,7 @@ describe('happy path: send → mail carries the code → confirm → the product
   it('the whole chain, driven by the bytes the fake transport received', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'happy@v.co');
+    const { token } = await registerUser(url, 'happy@v.co', sent);
 
     // Before: /api/me says unverified, and a feature route refuses BY NAME.
     expect((await me(url, token)).email_verified).toBe(false);
@@ -257,7 +283,7 @@ describe('confirm: wrong guesses count down to the code\'s death', () => {
   it('🔴 the 5th wrong guess kills the code (VERIFY_TOO_MANY_ATTEMPTS), and even the RIGHT code is dead after', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'attempts@v.co');
+    const { token } = await registerUser(url, 'attempts@v.co', sent);
     await send(url, token);
     const code = codeFromMail(sent[0] as MailMessage);
     const wrong = wrongCodeFrom(code);
@@ -296,7 +322,7 @@ describe('confirm: expiry', () => {
   it('a code past its 15-minute TTL is refused by name and burned', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'expiry@v.co');
+    const { token } = await registerUser(url, 'expiry@v.co', sent);
     await send(url, token);
     const code = codeFromMail(sent[0] as MailMessage);
 
@@ -316,7 +342,7 @@ describe('send: cooldown and budget', () => {
   it('a resend inside 60 s → VERIFY_COOLDOWN with the exact remaining wait; after it, a resend REPLACES the code', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'cooldown@v.co');
+    const { token } = await registerUser(url, 'cooldown@v.co', sent);
     await send(url, token);
     const first = codeFromMail(sent[0] as MailMessage);
 
@@ -344,7 +370,12 @@ describe('send: cooldown and budget', () => {
   it('the 4th send inside 15 min → VERIFY_RATE_LIMITED; the window really slides', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'budget@v.co');
+    const { token } = await registerUser(url, 'budget@v.co', sent);
+    // NR-2a — the helper stepped the clock past the auto-send's cooldown, so
+    // 「t=0」 for THIS test is here, not at T0. The slide below is measured from
+    // this instant; hard-coding T0 would have slid the window from a moment the
+    // first send no longer happens at.
+    const firstSendAt = NOW;
 
     expect((await send(url, token)).status).toBe(200); // t=0
     NOW += 61_000;
@@ -358,7 +389,7 @@ describe('send: cooldown and budget', () => {
     expect(sent).toHaveLength(3);
 
     // Slide: once the FIRST send leaves the 15-minute window, one slot opens.
-    NOW = T0 + 15 * 60 * 1000 + 1;
+    NOW = firstSendAt + 15 * 60 * 1000 + 1;
     expect((await send(url, token)).status).toBe(200);
     expect(sent).toHaveLength(4);
   });
@@ -434,7 +465,7 @@ describe('enforcement matrix — gated refuses unverified, admits verified; exem
   it('🔴 unverified → 403 EMAIL_NOT_VERIFIED on every gated route; the SAME account verified → never that refusal', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { token } = await registerUser(url, 'matrix@v.co');
+    const { token } = await registerUser(url, 'matrix@v.co', sent);
 
     for (const [method, path, body] of GATED) {
       const r = await call(method, `${url}${path}`, body, bearer(token));
@@ -570,7 +601,7 @@ describe('web socket gates — an unverified web session can neither mint a gran
   it('🔴 grant-request and pull answer EMAIL_NOT_VERIFIED; after a real confirm the SAME socket proceeds', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saas(provider);
-    const { id, token } = await registerUser(url, 'websock@v.co');
+    const { id, token } = await registerUser(url, 'websock@v.co', sent);
 
     const web = await connect(url, { jwt: token, client: 'web' });
     const refusedReq = await ack(web, 'timeline:grant-request', {
@@ -740,6 +771,18 @@ describe('pins: the owner-gated tables do not move, and the gate lives in exactl
       // cap). Same VERIFY-1 gate, not a new exemption. Census going red is
       // what forced this entry — same shape as usage-events-routes below.
       'http/byok-routes.ts',
+      // 2026-08-28: the device-management writes (revoke + remove-pc) split out
+      // of console-routes.ts. Same VERIFY-1 gate, not a new exemption — the same
+      // sentence the byok-routes and usage-events entries carry, and the census
+      // going red is again what forced the entry.
+      //
+      // ⚠️ Worth being explicit, because this file's name invites the opposite
+      // reading of the title above: 「device surface」 there means the PHONE/PC
+      // socket surfaces (mobile.handler.ts and friends), where naming this string
+      // would demand a protocol code and an owner conversation. This is console
+      // REST — a browser, a console Bearer, the same D3 family as the route it
+      // was cut from — so it gates exactly as its neighbour did before the split.
+      'http/console-device-routes.ts',
       'http/console-routes.ts', // D3: console feature family
       'http/timeline-grants-routes.ts', // D3: grants REST
       // A2-5 / REQ-12-08 (2026-08-12): GET /api/cloud/usage/events. A file

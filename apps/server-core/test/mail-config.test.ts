@@ -69,8 +69,40 @@ describe('mail config: ON and complete', () => {
       apiKey: FAKE_KEY,
       from: 'FlowMic <noreply@flowmic.app>',
       resetBaseUrl: 'https://flowmic.app/reset-password',
+      // NR-2a — DERIVED, not required: same origin as the reset page, `/verify`.
+      verifyBaseUrl: 'https://flowmic.app/verify',
       endpoint: DEFAULT_RESEND_ENDPOINT,
     });
+  });
+
+  // ── NR-2a — the verification link base ──────────────────────────────────────
+  it('derives the verify base from the reset base ORIGIN, not from its path', () => {
+    // A reset base on a deep path must not produce `/console/deep/verify`. The
+    // derivation is origin + '/verify', and this is the assertion that says so
+    // rather than trusting that the production value happens to be flat.
+    const c = mailConfigFromEnv({
+      ...goodEnv(),
+      FLOWMIC_MAIL_RESET_BASE_URL: 'https://flowmic.app/console/deep/reset-password',
+    });
+    expect(c?.verifyBaseUrl).toBe('https://flowmic.app/verify');
+  });
+
+  it('FLOWMIC_MAIL_VERIFY_BASE_URL overrides the derivation (a console on another host)', () => {
+    const c = mailConfigFromEnv({ ...goodEnv(), FLOWMIC_MAIL_VERIFY_BASE_URL: 'https://console.example.com/v' });
+    expect(c?.verifyBaseUrl).toBe('https://console.example.com/v');
+    // …and the reset base is untouched by the override: two links, two answers.
+    expect(c?.resetBaseUrl).toBe('https://flowmic.app/reset-password');
+  });
+
+  it('🔴 a BAD verify override is a NAMED boot failure, never a quiet fall back to the derived value', () => {
+    // The whole reason mail/config.ts refuses to boot on a bad value: "I did not
+    // configure it" and "I configured it wrong" must not produce the same server.
+    expect(() => mailConfigFromEnv({ ...goodEnv(), FLOWMIC_MAIL_VERIFY_BASE_URL: 'not a url' })).toThrow(
+      /FLOWMIC_MAIL_VERIFY_BASE_URL/,
+    );
+    expect(() => mailConfigFromEnv({ ...goodEnv(), FLOWMIC_MAIL_VERIFY_BASE_URL: 'mailto:a@b.co' })).toThrow(
+      /FLOWMIC_MAIL_VERIFY_BASE_URL must be http/,
+    );
   });
 
   it('FLOWMIC_MAIL_ENDPOINT overrides the vendor endpoint (staging / a local sink)', () => {

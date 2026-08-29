@@ -177,9 +177,18 @@ class ComposeRunImpl implements ComposeRun {
   /**
    * Run the W2-2 output guard, or throw.
    *
-   * `draft_polish` is deliberately skipped: that path already carries three
-   * gates of its own (stt-polish-guard.ts), and a fourth opinion would give one
-   * question two answers.
+   * 🔴 `draft_polish` USED TO BE SKIPPED HERE, on this reasoning, kept verbatim
+   * because the sentence is the defect: "that path already carries three gates
+   * of its own (stt-polish-guard.ts), and a fourth opinion would give one
+   * question two answers."
+   *
+   * Those gates belong to the REALTIME STT polish (`stt/stt-polish.ts`), a
+   * different path that shares only the word "polish". Measured 2026-08-28:
+   * `grep -rn "draft_polish" apps/server-core/src/stt/` returns 0. So this
+   * `return` was not choosing between two opinions — it was the only thing
+   * standing where the single opinion should have been, and the task shipped
+   * with no output validation at all. See guardComposeOutput's header for what
+   * the task is and is not checked for now.
    *
    * ⚠️ Called UNCONDITIONALLY — deliberately not behind an injectable seam. A
    * defaulted-off guard is this repo's #1 façade class (a dial that cannot
@@ -213,7 +222,6 @@ class ComposeRunImpl implements ComposeRun {
     complete: string,
     sentToModel: string,
   ): void {
-    if (input.task === 'draft_polish') return;
     const verdict = guardComposeOutput({
       task: input.task,
       source: sentToModel,

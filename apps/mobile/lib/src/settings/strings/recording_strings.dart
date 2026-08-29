@@ -75,6 +75,31 @@ mixin RecordingStrings on AppStringsLeaves {
   /// proves: the link died and the recording stopped.
   String get recordingStoppedLinkLoss => _lfRecordingStoppedLinkLoss;
 
+  /// `kLocalStopReasonContinuousCap` — a continuous recording reached this
+  /// account's per-session ceiling and the phone ended it normally.
+  ///
+  /// 🔴 IT SAYS THE RECORDING IS SAFE AND THAT ANOTHER ONE CAN START. Both
+  /// halves are provable at the moment it is drawn: the stop went through the
+  /// ordinary `stop()` path (`audio:stop` → terminal final), NOT
+  /// `fenceAndStop()`, whose meaning is 「this utterance never happened」 and
+  /// which would discard the last segment. A sentence claiming the recording
+  /// was kept on top of a fence would be exactly the unbacked promise 15 册
+  /// §2.0-b bans.
+  ///
+  /// ⚠️ NOT ONE DIGIT, on purpose, and the same reason
+  /// [recordingAutoStoppedQuota] carries none: the ceiling lives in
+  /// `billing/plans.ts`, reaches this phone at runtime, and differs per tier.
+  /// Nine translations quoting 「30 分钟」 become nine lies the day a tier is
+  /// re-cut, and free would be wrong on the day it shipped. The number belongs
+  /// on the start button (card CR-9), read from the same value that enforced
+  /// this stop.
+  ///
+  /// ⚠️ It must not be reworded toward 「额度用完了」("out of quota"). That is
+  /// [recordingAutoStoppedQuota]'s sentence and pressing again does not help
+  /// there — see `kLocalStopReasonContinuousCap`'s own doc for the W8-4
+  /// account this repeats.
+  String get recordingStoppedContinuousCap => _lfRecordingStoppedContinuousCap;
+
   /// A `reason` this build has no sentence for.
   ///
   /// It states only what the event itself proves — the recording stopped by
@@ -133,6 +158,11 @@ mixin RecordingStrings on AppStringsLeaves {
         return recordingStoppedLinkLossKept;
       case kLocalStopReasonLinkLoss:
         return recordingStoppedLinkLoss;
+      // Card CR-6 — the per-session ceiling. Its own sentence rather than a
+      // reworded quota one: this ceiling resets with the next press and that
+      // one does not, so the two lead the user somewhere opposite.
+      case kLocalStopReasonContinuousCap:
+        return recordingStoppedContinuousCap;
       // `mobile_disconnect` / `engine_failed` / `auth_expired` are in the schema
       // and have ZERO emitters anywhere in the server (measured 2026-08-10), so
       // they land here rather than getting invented copy — a sentence written
@@ -339,6 +369,30 @@ mixin RecordingStrings on AppStringsLeaves {
   /// build that has fallen behind the protocol should LOOK like it has.
   String sttStallEngineErrorCoded(String code) => _lfSttStallEngineErrorCoded(code);
 
+  /// 🔴 `AUTH_TOKEN_INVALID` on `audio:start` — 「this phone is not signed in to
+  /// the relay」, which since owner ruling 2026-08-27 §R1 is a thing that can now
+  /// only be learned from a server refusal (the credential no longer expires on
+  /// a clock, so nothing else times out to reveal it).
+  ///
+  /// Until the same ruling, the phone heard NOTHING here: `audio:start` is
+  /// emitted without an ack callback, and the server's auth arm filled only that
+  /// ack — so a phone whose account had been deleted held the mic, recorded, and
+  /// was told nothing. The server now routes it through `refuseStart`, and this
+  /// sentence is why that is not 「dressing an auth failure as an engine fault」:
+  /// it names the real cause and the one action that helps.
+  String get sttStallNotSignedIn => _lfSttStallNotSignedIn;
+
+  /// 🔴 `EMAIL_VERIFY_GRACE_EXPIRED` — the verification grace ran out and the
+  /// cloud stopped accepting recordings.
+  ///
+  /// It is an ACK-LOCAL name, not a protocol `ErrorCode`
+  /// (server-core auth/verification-grace.ts states why), which is exactly how it
+  /// went unnamed here: nothing binds that registry to this table, so the code
+  /// fell to [sttStallEngineErrorCoded] and the user read the raw identifier
+  /// `EMAIL_VERIFY_GRACE_EXPIRED` in an engine-fault frame — 0.2.53's defect on
+  /// the one refusal the user can actually clear themselves.
+  String get sttStallVerifyEmail => _lfSttStallVerifyEmail;
+
   /// The stall banner's text for a full [SttStall] event.
   ///
   /// Keyed on the WIRE code string, not a mirrored Dart enum — a second enum
@@ -359,6 +413,30 @@ mixin RecordingStrings on AppStringsLeaves {
       // did the platform give us a line, can what we got do the job.
       if (code == 'STT_LANGUAGE_UNSUPPORTED') return sttStallLanguageUnsupported;
       if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
+      // Two ACCOUNT verdicts, ordered before the engine-flavoured arms below
+      // because neither is an engine speaking and neither has an engine remedy.
+      // Owner ruling 2026-08-27 §R1 追加: the relay's per-call verdict is now the
+      // only thing that can say「your account stopped being served」, so it may
+      // not arrive as a raw identifier in a generic frame.
+      //
+      // REVERSE CONTROL (executed 2026-08-27). Break: delete these two lines.
+      // OBSERVED `+39 -2: Some tests failed.` — exactly the two new cases in
+      // banner_queue_test.dart, each failing on the FIRST locale of its loop:
+      //   Expected: 'Your email address is still unverified, so the cloud
+      //             service stopped accepting recordings. Verify it in the web
+      //             console to carry on'
+      //     Actual: 'Speech engine reported an error (EMAIL_VERIFY_GRACE_EXPIRED)'
+      // — the false sentence with the raw identifier in it, verbatim, which is
+      // the defect. CONTROL-ON-CONTROL: the POSITIVE CONTROL case (an unnamed
+      // code still falling back to the labelled identifier) stayed GREEN, so the
+      // break is two arms wide and the fallback still works.
+      if (code == 'AUTH_TOKEN_INVALID') return sttStallNotSignedIn;
+      if (code == 'EMAIL_VERIFY_GRACE_EXPIRED') return sttStallVerifyEmail;
+      // Two ACCOUNT verdicts, ordered before the engine-flavoured arms below
+      // because neither is an engine speaking and neither has an engine remedy.
+      // Owner ruling 2026-08-27 §R1 追加: the relay's per-call verdict is now the
+      // only thing that can say「your account stopped being served」, so it may
+      // not arrive as a raw identifier in a generic frame.
       // Neither of these two is an engine speaking — see their own docs above.
       if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;
       if (code == 'SETTINGS_SYNC_FAIL') return sttStallServerFault;
@@ -452,6 +530,32 @@ mixin RecordingStrings on AppStringsLeaves {
   /// recording face, not a sixth FSM state — the session stays RECORDING
   /// until the finger releases in the zone.
   String get pttCancelArmed => _lfPttCancelArmed;
+
+  /// NR-4 (g), 2026-08-27 — THE NAME OF AN ACTION, not the description of a
+  /// state, and the difference is why this is not [pttCancelArmed] reused.
+  ///
+  /// SPEC-REF: docs/ui-design/2026-08-27-nr4p3-edit-sheet-and-at-cancel-design.md §4
+  ///
+  /// `ptt_bar.dart`'s own header booked the gap for a year: an
+  /// assistive-technology user who starts a hold through
+  /// `Semantics.onTap` could only END it, never DISCARD it — the swipe-up
+  /// cancel had no accessible equivalent. This is that equivalent's label, and
+  /// it is registered on the bar as a `CustomSemanticsAction` only while a hold
+  /// is actually live (an always-present 「cancel the recording」 action with
+  /// nothing to cancel is this repo's 「a control that changes nothing」 red
+  /// line, wearing an accessibility costume).
+  ///
+  /// ⚠️ NOT a copy of 「松开 取消」. That sentence answers 「what happens if I
+  /// let go NOW」 and only makes sense with a finger on the glass; a custom
+  /// action is read out of a list, so it has to be a verb phrase that stands on
+  /// its own.
+  ///
+  /// ⚠️ Deliberately NOT shared with [ComposeStrings.appendCancelSemanticAction].
+  /// The mechanism underneath is literally the same function, but the two
+  /// controls are two places in the product — an AT user hearing 「cancel」
+  /// twice cannot tell which one they are on, and 「cancel this append」 is the
+  /// answer they need in the sheet.
+  String get pttCancelSemanticAction => _lfPttCancelSemanticAction;
   /// 🔴 T-0 (volume 15 §2.0-a law 2, contract predates this fix by five days —
   /// 2026-08-08): NOT 「识别中」/"Transcribing". This face covers segment
   /// polish (⓪ segment), where STT has already finished; "识别中" ("Transcribing")

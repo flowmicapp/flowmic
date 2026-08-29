@@ -116,3 +116,43 @@ rewrites `adb shell input text` (typing `https://…` produced 「还天天平�
 — switch to `com.android.inputmethod.latin/.LatinIME` for the duration and set
 it back; and screencap sampling at ~1s intervals is too coarse to catch a
 transient confirmation banner.
+
+---
+
+## `soniox-latency-probe.mjs` — how far is the vendor, really, from region X
+
+**What it answers:** "should the managed STT leg be served from HK / SG / EU?"
+
+**Why `ping` cannot answer it:** `stt-rt.soniox.com` lives in a Cloudflare
+anycast range. From Tokyo, ICMP to it is **1.7 ms**
+(`docs/strategy/2026-08-17-cloudflare-and-production-origin-plan.md` §1-3) —
+that is the distance to the local CF edge, not to Soniox. Every region will look
+excellent on ping, TCP connect and TLS handshake. The probe therefore reports
+two layers side by side and only the second one decides anything:
+
+| layer | columns | costs | what it means |
+|---|---|---|---|
+| 1 edge | `dns` `tcp` `tls` | free | distance to whichever CF colo answered |
+| 2 origin | `ack` `ttft` `lag50/95` `final` `tail` | audio-seconds | the path behind the edge |
+
+`lag` is the load-bearing one: the vendor states `total_audio_proc_ms` on every
+frame, so wall-clock-elapsed minus that is how far its processing pointer trails
+real time — reported continuously through the utterance instead of once.
+
+### Run it
+
+```bash
+node scripts/drills/soniox-latency-probe.mjs --mode=net --runs=20 --label=HK   # free, no key
+node scripts/drills/soniox-latency-probe.mjs --runs=10 --label=HK --out=hk.jsonl
+```
+
+Zero dependencies (Node >= 22 global `WebSocket`). Key comes from `--key=`,
+`$FLOWMIC_MANAGED_STT_API_KEY` or `--env=<file>`; it is never printed or written
+into the JSONL.
+
+⚠️ **The end-of-stream frame is an empty TEXT frame, not an empty binary one**
+(the `SONIOX_END_OF_STREAM` constant in `packages/stt-cloud/src/engines/soniox.ts`
+— named rather than cited by line, because nothing gates coordinates written in
+Markdown). Any rewrite of this probe that
+sends `Buffer.alloc(0)` re-creates the M3-1 bug and will silently measure our own
+3 s fallback timer in every region — identically, and plausibly.

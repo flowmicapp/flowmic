@@ -76,6 +76,14 @@ const Duration kBannerAutoHideAfter = Duration(seconds: 4);
 /// this file by construction, not just by omission from this list.
 const List<String> _autoHideBannerKeys = <String>[
   BannerIds.autoStop,
+  // Card CR-9 / owner §5-4. 🔴 THE ONE ENTRY HERE THAT DESCRIBES A LIVE
+  // RECORDING, and it belongs anyway: the FACT it states is not the recording
+  // but the reminder — 「you were told」 is over the moment it is read. A
+  // standing 「1:00 left」 bar is exactly what owner ruled against, and this list
+  // is what makes that ruling a mechanism instead of a comment.
+  // ⚠️ It self-clears too, through `ContinuousCapTimer.disarm()`, so a
+  // recording that ends inside the window takes its reminder with it.
+  BannerIds.continuousCapWarning,
   BannerIds.sttStall,
   BannerIds.utteranceCompose,
   BannerIds.composeSend,
@@ -105,6 +113,15 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.autoStop => (
     value: c._autoStopped ? true : null,
     dismiss: c.dismissAutoStopped,
+  ),
+  // Card CR-9: the ticket IS the face value — a new raise is a new number, so
+  // a second reminder (a second sitting) gets its own window rather than
+  // inheriting a stale one. Zero means 「not standing」.
+  BannerIds.continuousCapWarning => (
+    value: c.session.capTimer.warningTicket == 0
+        ? null
+        : c.session.capTimer.warningTicket,
+    dismiss: c.session.capTimer.dismissWarning,
   ),
   BannerIds.sttStall => (value: c._sttStalled, dismiss: c.dismissSttStalled),
   BannerIds.utteranceCompose => (

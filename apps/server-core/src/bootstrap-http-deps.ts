@@ -37,12 +37,17 @@ import type { AuthService } from './auth/auth-service';
 import type { RegisterRateLimiter } from './auth/register-rate-limit';
 import type { QrGrantStore } from './auth/qr-grant';
 import type { VerificationSendLimiter } from './auth/email-verification';
+import type { GoogleIdTokenVerifier } from './auth/google-id-token';
+import { resolveRegistrationSurgeGate } from './auth/registration-surge';
 import type { Registry } from './room/registry';
 import type { RoomStore } from './room/store';
 import type { ReleaseSuppression } from './room/release-suppression';
 import type { InjectPendingRegistry } from './socket/inject-pending';
 import type { HttpDeps } from './http/router';
 import { makeResolveUserId } from './http/account-auth';
+import type { NodeRuntime } from './node/node-runtime';
+import { makeForwardReceiver } from './node/forward-receiver';
+import { makeForwardLedger } from './node/forward-ledger';
 import { diagLogPathBeside } from './http/diag-routes';
 import { seedDefaultSettings } from './settings/defaults';
 import { seedSaasByokEmpty } from './settings/byok';
@@ -65,6 +70,20 @@ export interface HttpDepsWiring {
   /** bootstrap's STANDALONE_USER_ID (same cycle argument as `version`). */
   standaloneUserId: string;
   db: DbConnection;
+  /** 2026-08-29 multi-node: which node this is, the metering seam that implies,
+   *  and the snapshot producer if this one is the writer (node/node-runtime.ts).
+   *
+   *  Passed in whole rather than rebuilt here for the same reason `paddleClient`
+   *  is: a second instance is a second place the same rules can be wrong. Passed
+   *  as ONE object rather than three fields because they are one decision — the
+   *  role determines the other two, and three fields is three chances to wire a
+   *  writer's snapshot into a replica. */
+  nodeRuntime: NodeRuntime;
+  /** The SAME quota guard the STT path uses — passed rather than rebuilt so the
+   *  number a replica asks this writer for is produced by the one authority on
+   *  what a remaining budget is. On a replica this guard is itself the wrapped
+   *  one, which is harmless: a replica never mounts the route that reads it. */
+  quota: { remainingSttMs(userId: string): number };
   authService: AuthService;
   registerLimiter: RegisterRateLimiter;
   /** Separate per-IP limiter for POST /api/site/collect. */
@@ -98,6 +117,20 @@ export interface HttpDepsWiring {
    *  instance here would be a limiter that never limits (the ReleaseSuppression
    *  trap). */
   verificationSendLimiter: VerificationSendLimiter;
+  /** NR-2a — per-IP bucket for the anonymous `confirm-link` route. */
+  verificationLinkLimiter: RegisterRateLimiter;
+  /** NR-2a item 3 (i) — per-IP DAILY cap on real account mints (24 h /
+   *  REGISTER_MAX_PER_DAY; the number is owner-ruled and lives with the
+   *  constant, never copied into a second place that can drift). */
+  accountMintLimiter: RegisterRateLimiter;
+  /** NR-1 — the ONE Google ID-token verifier this process has, constructed in
+   *  bootstrap beside the mail channels. Required, and never nullable: an
+   *  unconfigured deployment gets the LOUD unconfigured implementation, because
+   *  on this surface a permissive DI default is an authentication bypass
+   *  (auth/google-id-token.ts's header). A SINGLE instance for the same reason
+   *  the limiters are single instances — it owns the JWKS cache, and a
+   *  per-request one would re-fetch Google's keys on every sign-in. */
+  googleVerifier: GoogleIdTokenVerifier;
   /** The late-binding thunk over bootstrap's `lanTlsFingerprint` let — see the
    *  original comment at the field below. */
   lanTlsFingerprint: () => string | null;
@@ -124,6 +157,26 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     passwordLimiter, qrGrants, registry, store, injectPending, releaseSuppression,
     mail, lanTlsFingerprint, broadcastSettingsUpdated, statusSnapshot, now,
   } = w;
+  // ── 2026-08-27 batch-2 item 4 — the GLOBAL daily registration surge gate ───
+  //
+  // 🔴 ONE INSTANCE PER PROCESS, and it is built HERE rather than in
+  // bootstrap.ts for one measured reason: that function is at 799 of its
+  // 800-line cap, and this file exists precisely to hold what does not fit
+  // (see the header's move record). `composeHttpDeps` is called exactly once
+  // per server, immediately before `makeHttpHandler`, so a construction here
+  // has the same lifetime a construction there would — which is the property
+  // that matters. A per-request counter would count to one and gate nothing.
+  //
+  // 🔴 SAAS ONLY. Standalone is a LAN sidecar with no accounts and no
+  // registration route, so a gate there would be a mechanism nobody can reach;
+  // more importantly, `resolveCaptchaVerifier` WARNS about a missing secret,
+  // and firing that on every desktop launch would train the one reader of that
+  // log to ignore it. Both dep literals below are already saas-gated, so an
+  // `undefined` here reaches nothing.
+  //
+  // Env: FLOWMIC_TURNSTILE_SECRET, FLOWMIC_REGISTER_SURGE_THRESHOLD (both
+  // documented at their readers — auth/captcha.ts and auth/registration-surge.ts).
+  const surgeGate = config.mode === 'saas' ? resolveRegistrationSurgeGate(process.env, now) : undefined;
   return {
     config,
     billing,
@@ -199,6 +252,79 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     // release updates the manifest WITHOUT redeploying the relay.
     ...(process.env.FLOWMIC_UPDATE_MANIFEST_PATH
       ? { updates: { manifestPath: process.env.FLOWMIC_UPDATE_MANIFEST_PATH } }
+      : {}),
+    // 2026-08-29 multi-node (design: 2026-08-29-multi-node-relay-design-srvny-srvjp.md).
+    // Gated on FLOWMIC_NODE_ID and on nothing else, so a single-node deployment —
+    // every deployment that exists today — keeps behaving exactly as it does now.
+    // That is the compatibility guarantee the design rests on: the node list is an
+    // ADDITION. Installed clients dial flowmic.app and must keep working, and we
+    // have no channel to tell them otherwise.
+    //
+    // FLOWMIC_NODE_WRITER_URL present = THIS NODE IS A REPLICA. Its absence is not
+    // a default, it is the writer saying so: a replica must never answer a locate
+    // miss as authoritative, because replication makes rows arrive late and a miss
+    // here is a maybe, not a no.
+    ...(process.env.FLOWMIC_NODE_ID
+      ? {
+          nodes: {
+            nodeId: process.env.FLOWMIC_NODE_ID,
+            version,
+            ...(process.env.FLOWMIC_NODE_LIST_PATH
+              ? { nodeListPath: process.env.FLOWMIC_NODE_LIST_PATH }
+              : {}),
+            ...(process.env.FLOWMIC_NODE_WRITER_URL
+              ? { writerUrl: process.env.FLOWMIC_NODE_WRITER_URL }
+              : {}),
+            // The directory read itself. findByPcid is already user-unscoped by
+            // design (pc.repo.ts says why: a phone pairing by PCID has no account
+            // of its own yet), which is exactly the shape this needs.
+            locatePc: (pcid: string) => {
+              const row = db.pcs.findByPcid(pcid);
+              // known:false is 「not in THIS copy of the database」 — the route
+              // turns that into 「ask the writer」 on a replica. Do not collapse it
+              // into node:null; they are different facts and the client acts
+              // differently on each.
+              return row ? { node: row.home_node, known: true } : { node: null, known: false };
+            },
+            // ── the writer's receive side ──────────────────────────────────
+            //
+            // Mounted ONLY on the writer, and the guard is the role rather than
+            // 「is a secret configured」. A replica that also accepted forwarded
+            // writes would perform them into a snapshot the next replication
+            // pull overwrites — a success that was not true, silently, and on
+            // billing data. The role is the only thing that answers 「may this
+            // process write」, so it is the only thing allowed to gate this.
+            ...(w.nodeRuntime.nodeConfig.role === 'writer' && w.nodeRuntime.nodeConfig.sharedSecret
+              ? {
+                  sharedSecret: w.nodeRuntime.nodeConfig.sharedSecret,
+                  ...(w.nodeRuntime.snapshot ? { snapshot: w.nodeRuntime.snapshot } : {}),
+                  remainingSttMs: (userId: string) => w.quota.remainingSttMs(userId),
+                  receiveForward: makeForwardReceiver({
+                    ledger: makeForwardLedger(db.raw),
+                    targets: {
+                      // The REPLAY tracker, not the ordinary one: same rules,
+                      // clock pinned to the record's own timestamp. See
+                      // node-runtime.ts `replayUsage` for why that matters at a
+                      // month boundary.
+                      usage: w.nodeRuntime.replayUsage?.tracker ?? w.nodeRuntime.usageTracker,
+                      setHomeNode: (pc_id, home_node) => db.pcs.setHomeNode(pc_id, home_node),
+                      setPresence: (pc_id, is_online, last_seen_at) => {
+                        db.pcs.setOnline(pc_id, is_online);
+                        db.pcs.touchLastSeen(pc_id, new Date(last_seen_at).toISOString());
+                      },
+                    },
+                    ...(w.nodeRuntime.replayUsage
+                      ? { pinClock: w.nodeRuntime.replayUsage.pinClock }
+                      : {}),
+                    onRejected: (id, reason, from) =>
+                      log.warn('node.forward rejected', { id, reason, from }),
+                    onFailed: (id, reason, from) =>
+                      log.error('node.forward FAILED — the replica still owes it', { id, reason, from }),
+                  }),
+                }
+              : {}),
+          },
+        }
       : {}),
     // W-5a (REQ-13-03): GET /api/status. UNCONDITIONAL, unlike the two
     // env-gated mounts above — and the difference is the point. `updates` and
@@ -287,6 +413,15 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
           auth: {
             service: authService,
             limiter: registerLimiter,
+            // NR-2a item 3 (i) — the daily account-mint cap. A SEPARATE instance
+            // from `limiter`: that one is shared with /api/login and is a burst
+            // brake; this one is spent only when an account really exists.
+            mintLimiter: w.accountMintLimiter,
+            // 2026-08-27 batch-2 item 4 — the GLOBAL daily surge gate. THE SAME
+            // object the Google route below receives: two counters would each
+            // see half the day's mints, so 80 accounts would read as two calm
+            // days of 40 and the gate would never arm.
+            ...(surgeGate ? { surgeGate } : {}),
             qrGrants,
             // owner 2026-07-27: a brand-new account gets its default STT/LLM
             // routings immediately, not at the next restart. Without this the
@@ -305,6 +440,18 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             siteCounts: {
               counts: db.siteCounts,
               enabled: config.siteAnalyticsEnabled,
+              ...(now ? { now } : {}),
+            },
+            // NR-2a — registration mails its own verification. The SAME three
+            // instances the send/confirm routes use, so a link minted here and
+            // a link spent there cannot be looking at different stores. Wired
+            // unconditionally within saas: when no mail channel is configured
+            // `w.verificationMail` is the loudly-failing one, and the dispatch
+            // logs a named failure instead of silently not existing.
+            verificationMail: {
+              mailer: w.verificationMail,
+              repo: db.emailVerification,
+              settings: db.settings,
               ...(now ? { now } : {}),
             },
           },
@@ -349,6 +496,18 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             opsAudit: db.opsAudit,
             pcs: db.pcs,
             mobiles: db.mobiles,
+            // 2026-08-28 (owner §5-1/§5-2) — the console's device surface needs
+            // LIVE room membership for two things it could not do before: answer
+            // "is this computer here right now" without consulting the persisted
+            // `is_online` flag (which a relay restart leaves lying), and evict a
+            // phone the moment its pairing is revoked instead of leaving it a
+            // working session until it happens to reconnect.
+            //
+            // The SAME instance the socket handlers and /api/pc/presence use.
+            // That is the requirement, not a convenience: presence must have one
+            // definition, and a console holding its own store would be a second
+            // one that drifts the day rooms are sharded.
+            store,
             settings: db.settings,
             // 0.3.0 P4 — account deletion + data export (GDPR). `users` is the
             // ONE writer that destroys the account row (the FK cascade in
@@ -443,6 +602,54 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             repo: db.emailVerification,
             mailer: w.verificationMail,
             sendLimiter: w.verificationSendLimiter,
+            // NR-2a — the LINK arm's store and its own per-IP bucket. `settings`
+            // is the same repo every other `account.*` row goes through, so the
+            // send that writes the token and the confirm-link that spends it
+            // cannot be looking at two different stores.
+            settings: db.settings,
+            linkLimiter: w.verificationLinkLimiter,
+            ...(now ? { now } : {}),
+          },
+        }
+      : {}),
+    // NR-1 — POST /api/auth/google. SAAS ONLY, the same double-gated mounting as
+    // its neighbours above (the router re-checks the mode, so a mis-wired dep
+    // cannot open account creation on a standalone LAN box).
+    //
+    // 🔴 BUILT FOR EVERY SAAS DEPLOYMENT, CONFIGURED OR NOT. When
+    // FLOWMIC_GOOGLE_CLIENT_ID is unset, `w.googleVerifier` is the loud
+    // unconfigured one and the route answers a named 503 — never a 404, and never
+    // a quiet acceptance. Gating the MOUNT on configuration instead would make
+    // "we do not offer this" and "we are misconfigured" the same answer.
+    //
+    // `limiter` is the SAME RegisterRateLimiter instance /api/register and
+    // /api/login share: one per-IP budget for the whole account layer, not a
+    // third door with a fresh allowance. `verifiedEmail` is the SAME repo the
+    // verification routes write through and every D3 gate reads, so a gate
+    // opened by Google's `email_verified` and one opened by a 6-digit code are
+    // the same fact in the same column. `onUserCreated` is the register route's
+    // seeding hook, duplicated here deliberately rather than shared through a
+    // local: both literals hand over the SAME closure body, and an account minted
+    // by either door must be able to transcribe on its first session.
+    ...(config.mode === 'saas'
+      ? {
+          googleAuth: {
+            service: authService,
+            users: db.users,
+            verifiedEmail: db.emailVerification,
+            limiter: registerLimiter,
+            // 2026-08-27 batch-2 item 4 — the SAME gate object `auth:` above
+            // holds. This route is a mint path; before this card it counted
+            // nowhere, which made it the surge gate's own bypass
+            // (google-auth-routes.ts `surgeGate` carries the argument).
+            ...(surgeGate ? { surgeGate } : {}),
+            verifier: w.googleVerifier,
+            onUserCreated: (userId): void => {
+              const byok = seedSaasByokEmpty(db.settings, userId);
+              const keys = seedDefaultSettings(db.settings, userId);
+              const written = [...byok, ...keys];
+              if (written.length > 0) log.info('seeded default settings', { userId, keys: written });
+            },
             ...(now ? { now } : {}),
           },
         }

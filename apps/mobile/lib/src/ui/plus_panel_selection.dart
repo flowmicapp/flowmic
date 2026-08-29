@@ -1,22 +1,35 @@
-// REQ-12-09 09-D/09-F — what the "+" panel has ticked, in the order it was
-// ticked, and the ONE function that turns that into a message.
+// REQ-12-09 09-D/09-F — what the "+" panel has ticked, and the ONE function
+// that turns that into a message.
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-req1209-multiselect-and-image-rulings.md
-//     §1 (rulings 3 and 4), §2-1 (text composes into one message; each picture
-//     is its own delivery), §3 criteria 1/2/3
+//     §1 (rulings 3 and 4 — ruling 4 is SUPERSEDED, see below), §2-1 (text
+//     composes into one message; each picture is its own delivery), §3 criteria 1/2/3
 //   docs/strategy/2026-08-12-req1209-plus-panel-design.md §4-1 (read-only
 //     projection + kind prefix + the selection set is never persisted), §6 tables 1/2/3
 //
+// 🔴🔴 SUPERSEDED (owner report, 2026-08-27, verbatim intent): picking several
+// notes from the 轻记录 tab and sending them produced a scrambled message —
+// "从上到下…顺序是乱的". Root cause was ruling 4 itself: the notes LIST renders
+// newest-first, so tapping top-to-bottom ticks newest-to-oldest, and tick
+// order then delivered exactly that reversed sequence. **Owner ruling reversed
+// on the spot: delivery order must be CHRONOLOGICAL (oldest first), not tick
+// order.** The paragraph below is kept for its history — the mechanism it
+// describes ([inTickOrder]) is still real and still used to break ties (see
+// [inChronologicalOrder]) — but the RULE it states is no longer the rule.
+//
 // ── 🔴 THREE RULED PROPERTIES LIVE HERE, AND NOWHERE ELSE ────────────────────
 //
-//   1. ORDER IS TICK ORDER, NOT TIME ORDER (owner ruling 4). [inTickOrder] is a
-//      `List` appended to on tick and removed from on untick — there is no sort
-//      anywhere in this file, and that absence is the feature. Ticking 3→1→2
-//      sends 3→1→2, because a panel that reorders what the user assembled is a
-//      panel that does not listen. Pinned by
-//      `plus_panel_selection_test.dart`'s "tick order survives", whose reverse
-//      control is a `createdAt` sort.
+//   1. ~~ORDER IS TICK ORDER, NOT TIME ORDER (owner ruling 4)~~ — superseded
+//      2026-08-27, see the block above. Delivery now reads
+//      [inChronologicalOrder], which sorts by [PlusPick.entry]'s `createdAt`
+//      ascending. [inTickOrder] itself is unchanged (still append-on-tick,
+//      remove-on-untick, no sort) and still exists — it is the tie-break
+//      order among picks that share a kind and have no independent clock
+//      (favourites; see [inChronologicalOrder]'s doc), and it is what the
+//      "un-ticking removes it; re-ticking puts it last" test still reads.
+//      Pinned by `plus_panel_selection_test.dart`'s "scrambled ticks deliver
+//      oldest-first", whose reverse control is delivering in tick order.
 //   2. ONE '\n', AND NOTHING ELSE (owner ruling 3). See [joinSelectedTexts].
 //   3. NOTHING HERE PERSISTS. This object is created by `_PlusPanelState` and
 //      dies with the sheet — the same reason `_ImageTile._original` is local
@@ -133,9 +146,42 @@ class PlusPick {
 class PlusPanelSelection extends ChangeNotifier {
   final List<PlusPick> _ticks = <PlusPick>[];
 
-  /// Everything ticked, oldest tick first. 🔴 See property 1 in the header: no
-  /// sort, ever.
+  /// Everything ticked, oldest TICK first (insertion order; no sort). Kept for
+  /// introspection and as the tie-break order [inChronologicalOrder] falls
+  /// back to — it is no longer what delivery reads.
   List<PlusPick> get inTickOrder => List<PlusPick>.unmodifiable(_ticks);
+
+  /// Everything ticked, oldest RECORD first — the order [texts] and [images]
+  /// actually deliver in (owner report, 2026-08-27; supersedes ruling 4, see
+  /// header). Sorted by [PlusPick.entry]'s `createdAt` ascending.
+  ///
+  /// 🔴 THE FALLBACK, DOCUMENTED (not silent): a favourite has no `entry` and
+  /// therefore no clock — it did not come off a row with a creation time, it
+  /// IS a string. Every timestamped pick (note / image) sorts before every
+  /// untimestamped one, and untimestamped picks keep their TICK order among
+  /// themselves — the only deterministic order they have. Ties between two
+  /// timestamped picks (identical `createdAt`, e.g. two rows minted in the
+  /// same millisecond) also fall back to tick order: `List.sort` is not
+  /// stable in Dart, so the tie-break is explicit rather than "whatever the
+  /// sort algorithm happens to leave behind".
+  List<PlusPick> get inChronologicalOrder {
+    final List<MapEntry<int, PlusPick>> indexed = <MapEntry<int, PlusPick>>[
+      for (int i = 0; i < _ticks.length; i++)
+        MapEntry<int, PlusPick>(i, _ticks[i]),
+    ];
+    indexed.sort((MapEntry<int, PlusPick> a, MapEntry<int, PlusPick> b) {
+      final DateTime? atA = a.value.entry?.createdAt;
+      final DateTime? atB = b.value.entry?.createdAt;
+      if (atA != null && atB != null) {
+        final int byTime = atA.compareTo(atB);
+        return byTime != 0 ? byTime : a.key.compareTo(b.key);
+      }
+      if (atA != null) return -1; // timestamped sorts before untimestamped.
+      if (atB != null) return 1;
+      return a.key.compareTo(b.key); // both untimestamped: tick order.
+    });
+    return <PlusPick>[for (final MapEntry<int, PlusPick> e in indexed) e.value];
+  }
 
   int get length => _ticks.length;
   bool get isEmpty => _ticks.isEmpty;
@@ -162,23 +208,24 @@ class PlusPanelSelection extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The ticked TEXT, in tick order. Pictures are absent by construction —
-  /// [PlusPick.text] is null for them.
+  /// The ticked TEXT, oldest record first. Pictures are absent by
+  /// construction — [PlusPick.text] is null for them.
   ///
-  /// 🔴 Reads [inTickOrder], not `_ticks`. Both halves of what gets sent must
-  /// come through the SAME ordering, or "in tick order" would be two answers
-  /// that only happen to agree — and the reverse control that proves the
-  /// ordering is real would only bite one of them.
+  /// 🔴 Reads [inChronologicalOrder], not `_ticks` or [inTickOrder]. Both
+  /// halves of what gets sent must come through the SAME ordering, or
+  /// "chronological" would be two answers that only happen to agree — and the
+  /// reverse control that proves the ordering is real would only bite one of
+  /// them.
   List<String> get texts => <String>[
-    for (final PlusPick p in inTickOrder)
+    for (final PlusPick p in inChronologicalOrder)
       if (p.text != null) p.text!,
   ];
 
-  /// The ticked PICTURES, in tick order. Each of these becomes its own
+  /// The ticked PICTURES, oldest record first. Each of these becomes its own
   /// delivery and its own timeline row (owner 2026-08-12: "in new line, not
   /// merging to text line").
   List<TimelineEntry> get images => <TimelineEntry>[
-    for (final PlusPick p in inTickOrder)
+    for (final PlusPick p in inChronologicalOrder)
       if (p.kind == PlusPickKind.image) p.entry!,
   ];
 

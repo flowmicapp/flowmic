@@ -44,6 +44,26 @@ mixin ChatStrings on AppStringsLeaves {
   /// real drop」.
   String get bannerAlbumAway => _lfBannerAlbumAway;
 
+  /// Card CR-3 — degraded: the link is down and a CONTINUOUS recording is
+  /// still capturing, with its audio being retained on this phone.
+  ///
+  /// 🔴 EXACT HONESTY BOUND (15 册 §2.0-b, the same one
+  /// [recordingStoppedLinkLossKept] carries). It states the two facts the phone
+  /// can prove at the instant it is drawn — the recording is still running, and
+  /// the audio is kept on this device — and NOTHING about transcription. The
+  /// re-transcription channel does not exist yet (card CR-5), so 「待转录」
+  /// ("awaiting transcription") / 「稍后会补上」 ("will be caught up later") and
+  /// every synonym are banned words here. A guard test greps this copy in all
+  /// nine languages (`link_loss_copy_guard_test.dart`, which this string was
+  /// ADDED TO rather than given a guard of its own — one ban, one table) so it
+  /// outlives this comment and survives a translation pass.
+  ///
+  /// ⚠️ NOT DRAWN from the connection state — see
+  /// `PttSession.continuousCapturingOffline`, which is true only while the
+  /// retention layer is actually writing evictions to disk. Wording it off the
+  /// socket would put this sentence on a build whose spill never opened.
+  String get bannerContinuousOffline => _lfBannerContinuousOffline;
+
   /// The 「N more」affordance on the single slot (P-3: at most one banner on
   /// screen, the rest stay ONE tap away — never dropped).
   String bannerMore(int n) =>

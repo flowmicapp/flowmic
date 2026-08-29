@@ -146,9 +146,12 @@ export function registerAuthHandlers(socket: Socket, deps: AuthHandlerDeps): voi
   //                              phone must NOT count it as a cloud sign-out.
   // What it does NOT do: revoke the JWT. setAccount(socket, null) clears an
   // in-memory marker that dies with the socket anyway; the minted token stays
-  // valid until its exp (7 days — auth/jwt.ts DEFAULT_TTL_MS) because there is
-  // no jti denylist. Real revocation is W4-4, deferred until the H5 security
-  // assessment reports. Nothing here may be worded as revoke/invalidate.
+  // valid until its exp because there is no jti denylist. ⚠️ That exp is now
+  // ~100 years out (auth/jwt.ts DEFAULT_TTL_MS, owner ruling 2026-08-27 §R1);
+  // this comment used to say "7 days", which made the leak sound self-limiting.
+  // Real revocation is W4-4 — no longer merely deferred, it is a hard
+  // prerequisite for the paid-launch / public-release gates. Nothing here may be
+  // worded as revoke/invalidate.
   socket.on('mobile:logout', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:logout', payload);
     if (!parsed.success) return safeAck(ack, { error: 'SETTINGS_SCHEMA_INVALID' });

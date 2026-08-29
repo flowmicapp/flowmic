@@ -382,7 +382,7 @@ fn an_expired_account_reconnect_ack_keeps_the_pairing_and_fires_the_hook() {
     // #6 zombie-room gate: the server now refuses pc:reconnect with
     // AUTH_TOKEN_EXPIRED when the handshake jwt lapsed. That refusal is about
     // the ACCOUNT — wiping the device token here would force every paired
-    // phone to re-pair over a 7-day key lapse, the exact cost shell/cloud.rs
+    // phone to re-pair over an account-key lapse, the exact cost shell/cloud.rs
     // deliberately avoids on live-socket auth:expired.
     let hits = Arc::new(AtomicUsize::new(0));
     let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));

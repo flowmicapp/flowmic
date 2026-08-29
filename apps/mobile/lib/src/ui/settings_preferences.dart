@@ -21,6 +21,29 @@
 
 part of 'settings_page.dart';
 
+// ── the text-size slider's two pure functions (owner ruling 2026-08-27) ──────
+//
+// Top-level rather than extension members so that neither of them can reach
+// `appSettings` — a slider position must be a function of the position ALONE.
+// The chip row they replace could not get this wrong (each chip named its own
+// rung); a slider can, and the way it goes wrong is 「reads the current rung to
+// decide what the user just asked for」.
+
+/// Which rung the thumb is sitting on. [v] is an INDEX into
+/// [AppTextScale.ladder] — the slider's `divisions` already snapped it, and
+/// `round()` is the second lock on the same door: a position that is not one
+/// of the five has no rung to map to, and inventing one is the only way an
+/// in-between size could ever reach the pref.
+AppTextScale _textScaleAt(double v) => AppTextScale
+    .ladder[v.round().clamp(0, AppTextScale.ladder.length - 1)];
+
+/// The one place this row turns a rung into the words on screen.
+/// `AppTextScale.percent` does the arithmetic (medium = 100%, derived from the
+/// real factor); this only adds the sign, and it is shared by the read-out,
+/// the drag bubble, the screen-reader value and the note — four surfaces that
+/// must never be able to disagree about what rung the user is on.
+String _textScalePercentLabel(AppTextScale step) => '${step.percent}%';
+
 extension SettingsPagePreferences on SettingsPage {
   // ── preferences (WP-R4-3 + V2-07.4) ─────────────────────────────────────────────
   // UI language = an explicit choice (the UI never follows the OS locale —
@@ -166,6 +189,45 @@ extension SettingsPagePreferences on SettingsPage {
         // (four chips) already used Wrap for the same reason, and this one
         // follows that precedent rather than betting that all four locales
         // will fit exactly.
+        //
+        // 🔴🔴 IN-PLACE CORRECTION (owner ruling 2026-08-27,
+        // `docs/decisions/2026-08-27-owner-text-scale-slider.md`). The
+        // paragraph above is kept verbatim because it is the record of how
+        // this row got here — and **the chips it describes are gone**.
+        //
+        // WHAT FAILED, in owner's own words from an English device: 「there
+        // are two 'large' entries; tapping them really does give different
+        // sizes」. There were five: Small / Medium / Large / Larger /
+        // Largest. Three of them are the same adjective inflected, and on
+        // glass, side by side, they do not sort themselves in the reader's
+        // head. (zh/ja/ko never had this — 小/中/大/更大/最大 is a scale.
+        // The defect existed in exactly the language the tests are written
+        // in, and every one of those tests was green.)
+        //
+        // ⇒ ONE SLIDER, five stops, and the current rung reads as a
+        // **percentage** — a scale that already sorts itself, in every
+        // language, with no word to confuse. What did NOT change: the enum,
+        // the pref key, and the five factors (owner's ruling scoped this to
+        // the *picker*, not to the rungs).
+        //
+        // ⚠️ Three things this row still owes, each pinned by a case in
+        // `test/text_scale_test.dart` ②b:
+        //   ① **apply-and-save in the same gesture** (settings red line —
+        //      no save button anywhere in this page). Hence BOTH callbacks:
+        //      `onChanged` for the live drag and for a tap on the track,
+        //      `onChangeEnd` so the rung the finger was let go on is the
+        //      rung that lands even if a rebuild raced the last frame.
+        //      `setTextScale` returns early when nothing changed, so the
+        //      pair costs one write per rung crossed, not one per frame.
+        //   ② **it may only ever stop on the five rungs** — `divisions`
+        //      makes the thumb snap, and the value is an INDEX into
+        //      `AppTextScale.ladder`, so there is no representation for an
+        //      in-between value to be persisted as.
+        //   ③ **accessibility**: a bare slider announces 「50%」 of its own
+        //      range, which here would be a number that means nothing.
+        //      MergeSemantics + the row title give the merged node this
+        //      row's name, and `semanticFormatterCallback` makes it
+        //      announce the same percentage the sighted user reads.
         settingsRow(
           last: true,
           child: Column(
@@ -173,52 +235,58 @@ extension SettingsPagePreferences on SettingsPage {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Text(s.textScaleTitle, style: kRowTitle),
+                  // Expanded on the TITLE, not on the read-out: on a 320dp
+                  // screen at the top rung it is the title that must be
+                  // allowed to wrap, while the percentage — four glyphs that
+                  // ARE the current value — must never be the thing that
+                  // gets squeezed.
+                  Expanded(child: Text(s.textScaleTitle, style: kRowTitle)),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: <Widget>[
-                        for (final (AppTextScale step, String label)
-                            in <(AppTextScale, String)>[
-                          // 0.3.28 — five rungs, ordered LARGEST FIRST, which
-                          // is the order the three already had (large → small)
-                          // and therefore the order returning users read this
-                          // row in. Sorting it small→large would move every
-                          // existing chip under the same finger.
-                          (AppTextScale.xxlarge, s.textScaleXxlarge),
-                          (AppTextScale.xlarge, s.textScaleXlarge),
-                          (AppTextScale.large, s.textScaleLarge),
-                          (AppTextScale.medium, s.textScaleMedium),
-                          (AppTextScale.small, s.textScaleSmall),
-                        ])
-                          // KeyedSubtree rather than adding a `key`
-                          // parameter to `settingsChip`: that primitive lives
-                          // in `settings_widgets.dart`, a file shared across
-                          // this window's five lanes — changing a shared
-                          // primitive for the sake of one test hook would
-                          // needlessly widen the conflict surface. Wrapping
-                          // it in an outer layer is zero-cost, same semantics.
-                          KeyedSubtree(
-                            key: ValueKey<String>(
-                              'settings.textScale.${step.name}',
-                            ),
-                            child: settingsChip(
-                              label,
-                              on: appSettings.textScale == step,
-                              onTap: () => appSettings.setTextScale(step),
-                            ),
-                          ),
-                      ],
+                  Text(
+                    _textScalePercentLabel(appSettings.textScale),
+                    key: const ValueKey<String>('settings.textScale.percent'),
+                    style: kRowTitle.copyWith(
+                      color: FlowMicColors.brand,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
+              MergeSemantics(
+                child: Semantics(
+                  label: s.textScaleTitle,
+                  child: Slider(
+                    key: const ValueKey<String>('settings.textScale.slider'),
+                    min: 0,
+                    max: (AppTextScale.ladder.length - 1).toDouble(),
+                    // Five stops ⇒ four intervals. Written from the ladder's
+                    // own length so appending a sixth rung one day cannot
+                    // leave a slider that silently refuses to reach it.
+                    divisions: AppTextScale.ladder.length - 1,
+                    value: AppTextScale.ladder
+                        .indexOf(appSettings.textScale)
+                        .toDouble(),
+                    // The bubble above the thumb while dragging.
+                    label: _textScalePercentLabel(appSettings.textScale),
+                    semanticFormatterCallback: (double v) =>
+                        _textScalePercentLabel(_textScaleAt(v)),
+                    activeColor: FlowMicColors.brand,
+                    onChanged: (double v) =>
+                        appSettings.setTextScale(_textScaleAt(v)),
+                    onChangeEnd: (double v) =>
+                        appSettings.setTextScale(_textScaleAt(v)),
+                  ),
+                ),
+              ),
               const SizedBox(height: 6),
               Text(
-                s.textScaleNote,
+                // 🔴 The number in this sentence is `large.percent`, computed,
+                // not typed into nine translation files: it answers 「which
+                // rung is how the app looked before」, and `large` is that rung
+                // BY DEFINITION (`app_settings.dart`: factor 1.00, the default
+                // arm of `load()`). Typing 「109%」 into the catalogue would go
+                // on saying 109 in nine languages the day a factor moves.
+                s.textScaleNote(_textScalePercentLabel(AppTextScale.large)),
                 style: TextStyle(color: FlowMicColors.t3, fontSize: 11, height: 1.4),
               ),
             ],

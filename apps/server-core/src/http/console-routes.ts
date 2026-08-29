@@ -48,6 +48,7 @@
 
 import { isRealPc } from '../room/registry';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { pcPresence, tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
 import type { AuthService } from '../auth/auth-service';
 import type { RegisterRateLimiter } from '../auth/register-rate-limit';
 import type { BillingService } from '../billing/billing-service';
@@ -108,6 +109,19 @@ export interface ConsoleRoutesDeps {
   opsAudit: OpsAuditSink;
   pcs: PcRepo;
   mobiles: MobileRepo;
+  /**
+   * 2026-08-28 (owner §5-1) — live room membership, for the ONE question
+   * `pc_devices.is_online` must not be asked: "is this computer here right now".
+   * The SAME store the socket handlers hold, so the console cannot grow a second
+   * definition of presence; the judgement itself is `pcPresence()` in
+   * http/console-device-routes.ts and this file only calls it.
+   *
+   * REQUIRED (book 13 §7 F1 ②): optional would mean a bootstrap missing one line
+   * still serves the device list, just with every row silently reading absent —
+   * and "absent" is the state that ENABLES removal, so the failure would hand
+   * users a working remove button for computers that are running.
+   */
+  store: RoomLookup;
   settings: SettingsRepo;
   /**
    * 0.3.0 P4 — the account row itself, for the ONE route that destroys it
@@ -328,11 +342,16 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
   // RECEIVED the sign-out. That is the whole of it, and `{ok:true}` may only
   // ever be read as "received".
   // What it does NOT do, and must never be worded as: invalidate anything. The
-  // account JWT is stateless (HS256, 7-day TTL — auth/jwt.ts DEFAULT_TTL_MS; no
-  // session table, no jti denylist), so the very token the caller just "logged out"
-  // KEEPS WORKING until its own exp; the only thing that ends is the client's
-  // copy of it. console-routes.test.ts proves that survival against a live
-  // token rather than leaving it as prose.
+  // account JWT is stateless (HS256; no session table, no jti denylist), so the
+  // very token the caller just "logged out" KEEPS WORKING until its own exp; the
+  // only thing that ends is the client's copy of it. console-routes.test.ts
+  // proves that survival against a live token rather than leaving it as prose.
+  // 🔴 AND "UNTIL ITS OWN EXP" NOW MEANS EFFECTIVELY NEVER. This line used to
+  // quantify the damage as "7-day TTL"; owner ruling 2026-08-27 §R1
+  // (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md) made
+  // auth/jwt.ts DEFAULT_TTL_MS 100 years. The route's honesty is unchanged —
+  // it never claimed to revoke — but the window it leaves open no longer closes
+  // by itself, which is why W4-4 stopped being deferrable.
   // Real revocation is W4-4 (jti denylist + short-lived tokens), deferred by
   // owner ruling A5-4 (docs/decisions/2026-07-30-a5-owner-rulings.md ④: fix the
   // honesty now, decide revocation after the H5 security assessment). Nothing
@@ -409,6 +428,26 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
         pc_limit: finiteOrNull(limits.pcs),
         mobile_limit: finiteOrNull(limits.mobiles),
       },
+      // owner 2026-08-29 — the longest SINGLE continuous transcription this
+      // account may run, in minutes. Additive; a client that does not know the
+      // field behaves exactly as it does today.
+      //
+      // 🔴 It rides here for the SAME reason `pc_limit` does, and the paragraph
+      // above states it in full: the tier NAME does not determine the number for
+      // an exempt account, so a client deriving 「free ⇒ 10」 would print a
+      // ceiling the owner is not subject to. Read from `effectiveLimits` — the
+      // one solver — never from `getPlan()`.
+      //
+      // ⚠️ Sits beside `quota` and answers a DIFFERENT question: `quota.stt` is
+      // 「how much of this month is left」, this is 「how long one sitting may
+      // be」. The phone shows both, separately, before the recording starts
+      // (owner: 「最多 X 分钟，还剩 X 分钟」). Collapsing them into one number is
+      // the one thing this pair must never do.
+      //
+      // ⚠️ finiteOrNull for shape consistency with the device limits only. No
+      // tier is infinite here and `continuous_minutes` is deliberately outside
+      // INFINITY_ALLOWED, so in practice this is always a number.
+      continuous_minutes: finiteOrNull(limits.continuous_minutes),
     });
     return true;
   }
@@ -562,15 +601,37 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
     if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
     if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3 (feature gate)
     const pcs = deps.pcs.listByUser(who.userId);
+    const nowMs = now();
     const pc_devices = pcs.map((pc) => ({
       pc_id: pc.id,
       device_name: pc.device_name,
+      // 0.2.66 PCID, surfaced 2026-08-28 (owner §5-3). This is the number the
+      // user typed on the phone to reach this computer, and it is STABLE for the
+      // life of the row (registry.ts refuses to rotate it). It is the only value
+      // in this projection that a person can match against something they have
+      // seen elsewhere — two rows called dev-pc-a are otherwise
+      // indistinguishable in a browser. Shown in FULL, not masked: owner
+      // 2026-08-14 defined a PCID as PUBLIC ADDRESSING and explicitly not a
+      // secret (the secret is the 4-digit code), so masking it would buy no
+      // safety while teaching the next reader that it is confidential.
+      // Null on a row that predates the column and has not reconnected since.
+      pcid: pc.pcid,
       client_instance_id: pc.client_instance_id,
       // v0.2.4 — the machine, not the connection slot. The console lists rows
       // from every channel side by side, so it is the one surface where "these two
       // rows are the same machine" is otherwise impossible to see.
       machine_uid: pc.machine_uid,
       is_online: pc.is_online === 1,
+      // 🔴 2026-08-28 (owner §5-1) — the PRESENT TENSE, and a different question
+      // from `is_online` one line up. That column is a persisted flag which
+      // outlives the fact it describes (a relay restart leaves a fleet of rows
+      // claiming to be online); this is live room membership plus heartbeat
+      // freshness. Both are shipped because they answer different questions and
+      // the console shows only this one — `is_online` stays for the readers that
+      // already have it, and MUST NOT be used to decide whether a computer can
+      // be removed. The judgement lives in ONE function, shared verbatim with the
+      // remove route that enforces it (console-device-routes.ts `pcPresence`).
+      is_present: pcPresence(deps.store, pc, nowMs),
       last_seen_at: pc.last_seen_at,
       created_at: pc.created_at,
     }));
@@ -608,35 +669,26 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
   // it reads the lightweight-record e2e store with an explicit grant; it does not resurrect
   // this route.
 
-  // ── ④ POST /api/cloud/devices/revoke — revoke a single mobile pairing ─────
-  // IDEMPOTENT: revoking a missing pairing (already gone / never existed / not
-  // owned by the caller) returns ok:true, revoked:false — a truthful "nothing of
-  // yours was revoked", NOT a silent failure, and NOT an existence oracle (a
-  // pairing you don't own is indistinguishable from one that doesn't exist).
-  // After a real revoke the mobile_pairings row is deleted, so that mobile_token
-  // fails the middleware lookup on its next connect and every mobile:reconnect →
-  // AUTH_TOKEN_INVALID (fail-loud). Revoking the cloud-instance pairing is safe:
-  // the next admitCloudInstance find-or-creates it again — admission is intact.
-  if (url === '/api/cloud/devices/revoke' && method === 'POST') {
-    const who = authUser(req, deps);
-    if (!who.ok) {
-      sendJson(res, 401, { error: who.error });
-      return true;
-    }
-    if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
-    if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3 (feature gate)
-    void (async (): Promise<void> => {
-      const body = await readJsonBody(req);
-      const pairingId = str(body.pairing_id);
-      if (pairingId === '') return sendJson(res, 400, { error: 'SETTINGS_SCHEMA_INVALID', message: 'pairing_id required' });
-      const mobile = deps.mobiles.findById(pairingId);
-      const pc = mobile ? deps.pcs.findById(mobile.pc_device_id) : null;
-      const owned = !!mobile && !!pc && pc.user_id === who.userId;
-      if (owned) deps.mobiles.remove(pairingId);
-      sendJson(res, 200, { ok: true, revoked: owned });
-    })();
-    return true;
-  }
+  // ── ④ Device-management WRITES — DELEGATED (2026-08-28) ──────────────────
+  //
+  // `POST /api/cloud/devices/revoke` moved to http/console-device-routes.ts and
+  // `POST /api/cloud/devices/remove-pc` was born there; this line is what keeps
+  // them mounted, on the same saas-only path and in the same order as before.
+  //
+  // 🔴 THE MOVE IS NOT COSMETIC AND NOT ABOUT THIS FILE'S LENGTH. Those two are
+  // the only console routes that can reach past the database and close a live
+  // socket, and the 2026-08-12 substitute for the old pre-merge human gate asks
+  // that such a surface be separately grep-able and separately revertible. A
+  // reader asking "what can a browser do to a running session" must find one
+  // file rather than a paragraph in the middle of a router.
+  //
+  // `deps` is passed WHOLE rather than re-projected, for the reason the other
+  // delegations here give: `ConsoleDeviceRoutesDeps` is a structural subset of
+  // this file's own deps, so there is exactly one dependency list and no second
+  // copy that could start disagreeing about which store or which clock the
+  // device surface uses — which for `store` is the whole ballgame, since a
+  // second store instance would be a second answer to "is that PC here".
+  if (tryHandleConsoleDeviceRoutes(req, res, deps)) return true;
 
   // ── 0.3.0 P4 GET /api/account/export + POST /api/account/delete — DELEGATED ─
   //

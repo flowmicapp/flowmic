@@ -254,7 +254,18 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // ⚠️ Name is 17 characters, inside the phone's 28-char raw-code slot.
 // ZERO wire-shape change (`SttErrorSchema.code` is `NonEmpty`, not a closed enum)
 // and `whitelist=54` is untouched.
-const EXPECTED_ERROR_CODE_COUNT = 73;
+// 🔴 73 → 74 on 2026-08-29: `NODE_IS_REPLICA`. Owner approved minting it. A relay
+// replica serves reads from a copy that the next pull REPLACES, so an identity
+// write accepted there is gone within 30 seconds with both ends reporting
+// success — and no existing code could say so. The full 「why not a neighbour」
+// argument is at the entry in src/error-codes.ts; the short form is that every
+// candidate names an actor who does not exist (PC_BUSY, PAIR_RELEASED) or hands
+// out the one piece of advice guaranteed not to work (PAIR_RATE_LIMITED's
+// 「later」 — waiting does not change which node answered).
+// ⚠️ Name is 15 characters, inside the phone's 28-char raw-code slot, and it is
+// the SAME word http/router.ts already answers 421 with — one fact, one name, now
+// imported rather than spelled twice.
+const EXPECTED_ERROR_CODE_COUNT = 74;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {

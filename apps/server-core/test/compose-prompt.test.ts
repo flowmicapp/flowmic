@@ -170,3 +170,52 @@ describe('system prompt = stable scenario prefix + task template', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-28 — organize had `source_lang` in hand and never used it.
+//
+// The factory has filled PromptContext.source_lang since it was written
+// (compose/index.ts), and this arm returned a constant, so the only thing
+// telling the model which language to write in was "in the same language" plus
+// its own inference from the text. Fine for a paragraph; a coin-flip for a short
+// or code-mixed utterance, which is most of this product's traffic.
+//
+// 🔴 THE NOTE IS SUBORDINATE TO THE TRANSCRIPT ON PURPOSE — see the third test.
+// A bare "write in German" would convert a caller's HINT into a silent
+// translation, and no organize rule would catch it (the guard's script rules run
+// on translate only). Refs docs/strategy/2026-08-28-multilingual-chain-audit.md F4.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('renderTaskTemplate — organize carries a known source language', () => {
+  it('names the language when the tag is known', () => {
+    const s = renderTaskTemplate({ task: 'organize', source_lang: 'de' });
+    expect(s).toContain('expected to be in German');
+    expect(s).toContain('clear written prose in the same language');
+  });
+
+  it('uses the same name table as translate — one table, not two', () => {
+    for (const [tag, name] of [['ru', 'Russian'], ['ja', 'Japanese'], ['zh-TW', 'Traditional Chinese']] as const) {
+      expect(renderTaskTemplate({ task: 'organize', source_lang: tag })).toContain(`expected to be in ${name}`);
+      // the identical name reaches translate's own slot
+      expect(renderTaskTemplate({ task: 'translate', target_lang: tag })).toContain(`to ${name}`);
+    }
+  });
+
+  it('the language note declares itself subordinate to the transcript', () => {
+    const s = renderTaskTemplate({ task: 'organize', source_lang: 'de' });
+    // Without this clause a mis-declared source_lang becomes an instruction to
+    // translate — the one failure this task must never commit.
+    expect(s).toContain('follow the transcript and not this note');
+    expect(s).toContain('never an instruction to translate');
+  });
+
+  it('says nothing about language when there is no usable tag — and stays byte-identical', () => {
+    const bare = renderTaskTemplate({ task: 'organize' });
+    expect(bare).not.toContain('expected to be in');
+    // 'auto' is the absent-source placeholder, not a language: it must not put
+    // the literal phrase "the source language" where a name belongs.
+    expect(renderTaskTemplate({ task: 'organize', source_lang: 'auto' })).toBe(bare);
+    // an unknown tag is not a word — naming it would be worse than silence
+    expect(renderTaskTemplate({ task: 'organize', source_lang: 'xh' })).toBe(bare);
+    expect(renderTaskTemplate({ task: 'organize', source_lang: '  ' })).toBe(bare);
+  });
+});

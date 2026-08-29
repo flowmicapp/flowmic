@@ -98,7 +98,76 @@ Widget _selectionBarRouted(
     ),
     onCopy: () => unawaited(_onBatchCopyRouted(s, context, strings, selected)),
     onOrganize: () => _onBatchOrganizeRouted(s, context, strings, selected),
+    onDelete: () =>
+        unawaited(_onBatchDeleteRouted(s, context, strings, selected)),
   );
+}
+
+/// Batch delete (card NR-3).
+///
+/// 🔴 **Every row goes through the ONE deleter**: `TimelineStore.deleteMany` →
+/// `TimelineReaper.reap`, the same terminus as the long-press menu's
+/// single-row delete. There is no batch delete implementation — the batch is
+/// the argument list. `timeline_reaper.dart`'s header is the rule ("many
+/// triggers, one deleter"), and G-21 is what happens when a second path is
+/// opened: the row leaves the screen and its picture file stays on disk
+/// forever.
+///
+/// ⚠️ It calls the STORE, not the controller, and the reason is in
+/// `chat_row_uplink.dart`'s NR-3 note: the all-history page has no
+/// ChatController, and 「the same batch delete on both pages」 has to mean the
+/// same code.
+Future<void> _onBatchDeleteRouted(
+  _ChatFlowPageState s,
+  BuildContext context,
+  AppStrings strings,
+  List<TimelineEntry> selected,
+) async {
+  if (selected.isEmpty) {
+    // A refusal is spoken, never a silent no-op — the same posture as the six
+    // organize refusals (0.2.27: a control that changes nothing is worse than
+    // no control). Stays in selection mode: the fix is to tick something.
+    s._toast(context, strings.selectionDeleteNoSelection);
+    return;
+  }
+  // 🔴 The inline second confirmation destructive actions owe (owner
+  // 2026-07-27). It states the two facts the user cannot recover afterwards:
+  // how many rows, and how many of them take an image file with them.
+  final bool sure = await confirmDestructive(
+    context,
+    title: strings.selectionDeleteConfirmTitle(selected.length),
+    message: batchDeleteConfirmBody(
+      selected.length,
+      imageRowsIn(selected),
+      strings,
+    ),
+    confirmLabel: strings.confirmDelete,
+    cancelLabel: strings.cancel,
+  );
+  if (!sure || !context.mounted) return;
+  final String note;
+  try {
+    note = batchDeleteResultText(
+      await s.controller.store.deleteMany(selected),
+      strings,
+    );
+  } catch (_) {
+    // The store already wrote the forensic trail and deliberately left the
+    // rows ON SCREEN (under-claim rather than over-claim). What it cannot do
+    // is tell the user, so this does — swallowing it here would be the exact
+    // silent failure the store's rethrow exists to prevent.
+    if (context.mounted) s._toast(context, strings.selectionDeleteFailed);
+    return;
+  }
+  // Card F10, same reason the single-row delete does it: the pager may hold
+  // its own copy of a row that came from a page the store never loaded, and
+  // it would repaint the instant the store notifies — which reads as 「the
+  // delete didn't take effect」.
+  for (final TimelineEntry e in selected) {
+    s._pager.forget(e.id);
+  }
+  s._selection.exit();
+  if (context.mounted) s._toast(context, note);
 }
 
 /// Batch copy.

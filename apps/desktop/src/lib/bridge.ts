@@ -451,6 +451,35 @@ export async function invokeVerbose(
   }
 }
 
+/** `invokeVerbose`, but it keeps the VALUE.
+ *
+ * ⚠️ WHY A THIRD DOOR AND NOT A FOURTH `invoke` CALL SITE. `invokeSafe` answers
+ * `undefined` for every failure and `invokeVerbose` throws the value away, so a
+ * command that must return DATA on success and a NAMED reason on failure fits
+ * neither. `bridge-signin.ts` is exactly that: its whole contract is that a
+ * failed sign-in arrives as a reason the user can read.
+ *
+ * Adding it here rather than importing `invoke` over there is what keeps
+ * `invoke-funnel-door.test.ts` true — that gate's own words are that a sibling
+ * which needs the boundary 「takes a door from bridge.ts, not the module」, and
+ * it caught this file's first draft doing the other thing.
+ *
+ * The `reason` is the raw rejection. Rust `Result<_, String>` arrives as that
+ * string, so a command whose Err carries a name delivers the name intact; the
+ * caller decides whether it recognises it, and never renders it raw.
+ */
+export async function invokeResult<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<{ ok: true; data: T } | { ok: false; reason: string }> {
+  if (!hasTauri()) return { ok: false, reason: 'bridge unavailable (not running under Tauri)' };
+  try {
+    return { ok: true, data: await invoke<T>(cmd, args) };
+  } catch (e) {
+    return { ok: false, reason: typeof e === 'string' ? e : e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // `openLogDirectory` MOVED to ./bridge-os.ts (0.3.8, the 800-line cap) with the
 // two Accessibility doors — that file's header has the cut and the one caller.
 

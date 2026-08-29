@@ -19,10 +19,15 @@
 // per-session one, because owner asked for a first-run card, i.e. one that
 // stays gone once acknowledged.
 //
-// 🔴 The 「read the guide」 link is deliberately ABSENT: the web section it
-// would point at does not exist yet (execution plan §3-3 chose `/guide#model`,
-// still unbuilt), and a link that opens nothing is the dead-link defect 0.3.24
-// fixed. Add it only after the page is live, through `openExternalUrl`.
+// 🔴 CORRECTED 2026-08-28 — the 「read the guide」 link is PRESENT. This block
+// used to say it was deliberately absent because the web section it would point
+// at did not exist (execution plan §3-3 chose `/guide#model`, still unbuilt at
+// the time) and a link that opens nothing is the dead-link defect 0.3.24 fixed.
+// That reasoning held until the 2026-08-27 web round shipped the chapter: it is
+// `/guide/model`, a member of `GUIDE_DOC_IDS`, localized by lowercase prefix.
+// The owner asked for the link the next day. It was added the way that block
+// required — through `openExternalUrl`, with the address left on screen when the
+// open is refused. Address construction lives in ./site-guide.ts.
 
 /** The remembered dismissal. `'1'` = put away. Never travels the wire. */
 export const K_LLM_SETUP_CARD_DISMISSED = 'flowmic.ui.llm.setupCard.dismissed';

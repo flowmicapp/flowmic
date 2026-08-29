@@ -351,6 +351,13 @@ Widget _dockBandRouted(
   part: part,
   buffer: s.controller.buffer,
   strings: strings,
+  // 🔴 NR-4 (e): 「was this draft spoken or typed」 — READ from the one author
+  // (`_sheetSrcVoice`, which the sheet header already reads) and handed down.
+  // `null` when there is no draft, so the strip has nothing to claim. Deriving
+  // it inside the band would be a second author for the same fact; the strip's
+  // glyph and the sheet header's word would then be free to disagree about the
+  // same sentence.
+  origin: s.controller.buffer.trim().isEmpty ? null : s._sheetSrcVoice,
   // 🔴 The SAME `visual` the composer computed and hands to PttBar — the
   // answer to 「现在是哪张脸」("which face is it right now") must have ONE
   // author. Passing it down rather than
@@ -457,6 +464,34 @@ bool _dockTwoColumnRouted(_ChatFlowPageState s, BoxConstraints constraints) =>
     !s.controller.destination.isRecordOnly &&
     constraints.maxWidth >= kDockTabletMinWidth;
 
+/// The dock's ONE face predicate.
+///
+/// 🔴 EXTRACTED (card CR-9) SO IT CANNOT ACQUIRE A SECOND AUTHOR: the continuous
+/// entry needs to know whether the link is up, and a second derivation could
+/// disagree with the bar two rows under it. Body is the previous inline switch,
+/// character for character; `connected` is derived here because
+/// `_startContinuousRouted` has no parameter to receive it from, and it is the
+/// same comparison the page's own `build` makes.
+///
+/// R6 T-5d: the four FSM faces win over the link face. A sub-30 s blip does NOT
+/// stop the capture (§6.3 — chunks keep buffering), so flipping the bar to
+/// 「等待网络恢复」 mid-utterance would be a lie; the panel's 📡 row reports the
+/// degraded link.
+PttVisual _pttVisualRouted(_ChatFlowPageState s) {
+  final bool connected =
+      s.controller.connection == ConnectionState.connected;
+  return switch (s.controller.sessionState) {
+    SessionState.recording => PttVisual.recording,
+    SessionState.processing => PttVisual.processing,
+    SessionState.justDone => PttVisual.justDone,
+    SessionState.idle || SessionState.disconnected => !connected
+        ? PttVisual.disabled
+        : s.controller.destination.isRecordOnly
+        ? PttVisual.noted
+        : PttVisual.idle,
+  };
+}
+
 // ── composer ─────────────────────────────────────────────────────────────
 Widget _composerRouted(
   _ChatFlowPageState s,
@@ -469,16 +504,7 @@ Widget _composerRouted(
   // to 「等待网络恢复」("waiting for the network to recover") mid-utterance
   // would be a lie; the panel's 📡 row is what
   // reports the degraded link.
-  final PttVisual visual = switch (s.controller.sessionState) {
-    SessionState.recording => PttVisual.recording,
-    SessionState.processing => PttVisual.processing,
-    SessionState.justDone => PttVisual.justDone,
-    SessionState.idle || SessionState.disconnected => !connected
-        ? PttVisual.disabled
-        : s.controller.destination.isRecordOnly
-        ? PttVisual.noted
-        : PttVisual.idle,
-  };
+  final PttVisual visual = _pttVisualRouted(s);
 
   // 🔴 PA-1 / SUP-4: ONE predicate decides whether the idle rows (row 1, row 2,
   // the PC key group) are on the tree at all — [composeIdleRowsVisible],
@@ -685,6 +711,11 @@ Widget _dockPhoneRouted(
   required bool idleRows,
 }) {
   final Widget? caption = _dockCaptionRouted(s, strings, visual);
+  // Built once and reused below: two calls would be two decisions, and this one
+  // reads live account state.
+  final Widget? continuousEntry =
+      _continuousEntryRouted(s, context, strings, visual);
+  final Widget? continuousLive = _continuousLiveRouted(s, strings, visual);
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: <Widget>[
@@ -721,14 +752,40 @@ Widget _dockPhoneRouted(
       // [composeIdleRowsVisible] predicate row 1 reads above.
       _dockBandRouted(s, context, strings, visual, ComposeBandPart.stacked),
       const SizedBox(height: kDockRowGap),
-      // PA-3 / §4 A3: while recording the idle rows are gone (the band above
-      // is zero-height) and the strip takes the slot right above the PTT.
-      if (visual == PttVisual.recording) ...<Widget>[
-        _recordingStripRouted(s, strings),
+      // ── Card CR-9 · the continuous-recording entry ────────────────────
+      // It stands where the PC key group would be on an inject destination — in
+      // the one dock with no PC focus to act on, so REQ-14-01 already took that
+      // slot away and left it empty.
+      // ⚠️ ONLY IN THIS BRANCH, and not by oversight: the offer needs a
+      // record-only destination and `_dockTwoColumnRouted` refuses to
+      // two-column for exactly that one, so the tablet arrangement is
+      // unreachable while the entry is visible. Two predicates agreeing is a
+      // fact, so a test pins it rather than luck.
+      // The gap belongs to the row, so a dock without the entry keeps its
+      // spacing byte-for-byte — an inject destination must not be able to tell
+      // that this card shipped.
+      if (idleRows && continuousEntry != null) ...<Widget>[
+        continuousEntry,
         const SizedBox(height: kDockRowGap),
       ],
-      _dockPttRouted(s, strings, visual),
-      if (caption != null) ...<Widget>[
+      // 🔴 Card CR-9 · §5-8 mutual exclusion, in its plainest form: a continuous
+      // recording REPLACES the push-to-talk bar and the ordinary strip, so there
+      // is no hold surface, no mode row and no cancel gesture on screen at all.
+      // Nothing has to be disabled, because nothing is drawn.
+      // ⚠️ The two faces answer different questions: the strip shows ELAPSED for
+      // a press somebody is holding, this shows REMAINING for one nobody is.
+      if (continuousLive != null)
+        continuousLive
+      else ...<Widget>[
+        // PA-3 / §4 A3: while recording the idle rows are gone (the band above
+        // is zero-height) and the strip takes the slot right above the PTT.
+        if (visual == PttVisual.recording) ...<Widget>[
+          _recordingStripRouted(s, strings),
+          const SizedBox(height: kDockRowGap),
+        ],
+        _dockPttRouted(s, strings, visual),
+      ],
+      if (continuousLive == null && caption != null) ...<Widget>[
         // `.psub{font-size:10.5px;color:var(--sub);text-align:center;
         //        margin-top:-3px}` — the caption is the one dock child that
         // does NOT take the uniform 9dp gap: the mock pulls it 3 back up so

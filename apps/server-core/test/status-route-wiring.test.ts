@@ -7,12 +7,12 @@
 //     §9-2.1 (the page only reads the most recent result + timestamp), §9-2.2 (anti-cache ⇒ unknown),
 //     §9-2.5 (no SLA, no percentage anywhere on the page), §9-2.6 (W-5a acceptance)
 //   apps/server-core/src/http/status-routes.ts   (the handler)
-//   apps/server-core/src/http/router.ts:413 (`tryHandleStatusRoutes` — the MOUNT
+//   apps/server-core/src/http/router.ts (`tryHandleStatusRoutes` — the MOUNT
 //     under test)
-//   apps/server-core/src/bootstrap-http-deps.ts:209 (`statusSnapshot` — the DEPS
+//   apps/server-core/src/bootstrap-http-deps.ts (`status: { snapshot: statusSnapshot` — the DEPS
 //     wiring under test)
-//   apps/server-core/src/bootstrap.ts:412 (`makeStatusProbes` — the ONE runner)
-//   apps/server-core/src/bootstrap.ts:739 (`statusProbes.start()` — armed after
+//   apps/server-core/src/bootstrap.ts:446 (`makeStatusProbes` — the ONE runner)
+//   apps/server-core/src/bootstrap.ts:775 (`statusProbes.start()` — armed after
 //     listen, which is why the boot round is already landing)
 //   apps/server-core/test/health-db-probe-wiring.test.ts (the precedent this mirrors)
 //   CLAUDE.md anti-façade ③: "unit tests all green prove nothing about wiring; every real path needs one real-end run"

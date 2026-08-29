@@ -73,6 +73,18 @@ export interface UserRecord {
    *  value has to carry the switch state beside it, which is why
    *  {@link OpsUserView} has two fields where the record has one. */
   last_login_at: number | null;
+  /** NR-1 — Google's `sub` for the Google account bound to this row; null =
+   *  this account has never signed in with Google.
+   *
+   *  🔴 IT IS THE IDENTITY AND THE EMAIL IS NOT. The email finds an existing row
+   *  ONCE, the first time somebody signs in with Google; every sign-in after
+   *  that resolves through `findByGoogleSub`. db/schema.ts owns the argument
+   *  (an address can move between Google accounts; `sub` cannot).
+   *
+   *  Carried RAW, like its four nullable neighbours, and for a reason of its
+   *  own: there is no verdict to derive. "Has this account got Google sign-in"
+   *  is `!== null` at exactly one place — the route — and no gate reads it. */
+  google_sub: string | null;
   created_at: string;
 }
 
@@ -84,10 +96,15 @@ export interface UserInsertInput {
   plan?: Plan;
   locale?: Locale;
   is_admin?: boolean;
+  /** NR-1 — set ONLY by the Google sign-in route, when it mints a row for a
+   *  Google identity that matched no existing account. Every other caller omits
+   *  it and gets NULL, which is the honest value for an account that has never
+   *  been near Google. */
+  google_sub?: string | null;
 }
 
 export class UserConstraintError extends Error {
-  constructor(public readonly field: 'email' | 'id', message: string) {
+  constructor(public readonly field: 'email' | 'id' | 'google_sub', message: string) {
     super(message);
     this.name = 'UserConstraintError';
   }
@@ -156,12 +173,50 @@ export interface UserRepo {
   insert(input: UserInsertInput): UserRecord;
   findByEmail(email: string): UserRecord | null;
   findById(id: string): UserRecord | null;
+  /** NR-1 — the account bound to a Google identity, or null.
+   *
+   *  EXACT MATCH, no normalisation of any kind: `sub` is an opaque identifier
+   *  Google issued, not a human-typed value, and the NOCASE/trim treatment
+   *  `findByEmail` gives an address would here be a rule invented for bytes we
+   *  do not author. Two subs that differ only in case are two different
+   *  identities as far as Google is concerned, and so they are here. */
+  findByGoogleSub(sub: string): UserRecord | null;
+  /**
+   * NR-1 — bind a Google identity to an EXISTING account.
+   *
+   * A PLAIN SETTER, on the `setRestricted` precedent: it does not decide whether
+   * the binding should happen. That decision belongs to the route, which is the
+   * only layer that knows it just failed to find the sub and then found the row
+   * by email — and it makes that lookup-and-bind pair synchronous on purpose, so
+   * nothing can interleave between the two.
+   *
+   * 🔴 IT TOUCHES ONE COLUMN, and `email` is not in the statement and must never
+   * join it. Google's address is not authority over ours: a person who changes
+   * the address on their Google account has not asked us to change the address
+   * on their FlowMic account, and rewriting it here would silently move where
+   * password resets and receipts are delivered.
+   *
+   * ⚠️ THROWS `UserConstraintError('google_sub')` if another row already carries
+   * this sub — the partial UNIQUE index (db/connection.ts) is what makes "which
+   * account is this Google identity" have exactly one answer, and this method
+   * surfaces its refusal typed rather than as a raw sqlite string.
+   */
+  bindGoogleSub(userId: string, sub: string): void;
   setPlan(id: string, plan: Plan): UserRecord | null;
   /** Overwrite the password hash (R5-WEB WP-W1 console reset). Additive method,
    *  writes the EXISTING password_hash column only — no schema migration. The
    *  new hash takes effect on the very next verifyCredentials read, so the old
-   *  password is dead immediately (already-issued stateless JWTs still ride out
-   *  their 7-day TTL — 0.1.0 internal ruling: no jti denylist). */
+   *  password is dead immediately.
+   *  🔴 ALREADY-ISSUED STATELESS JWTs ARE NOT AFFECTED — no jti denylist (0.1.0
+   *  internal ruling). That was always true; what changed on 2026-08-27 is how
+   *  long it stays true. This line used to say those tokens "ride out their
+   *  7-day TTL", i.e. a stolen token self-healed within a week. Owner ruling
+   *  §R1 (docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md)
+   *  made the default TTL 100 years ⇒ **changing a password no longer ends a
+   *  compromised session at all**. The remaining stopping mechanisms are
+   *  deleting the account, restricting it, or rotating FLOWMIC_JWT_SECRET; real
+   *  revocation (W4-4) is a hard prerequisite for the paid-launch / public-
+   *  release gates because of exactly this. */
   setPassword(id: string, password_hash: string): UserRecord | null;
   /**
    * Window D1 §3.4 — mark/unmark the permanent-free exemption (owner's private-domain account).
@@ -496,6 +551,13 @@ function toRecord(r: Record<string, unknown>): UserRecord {
     // fail-closed direction to pick, because the honest answer and the safe
     // answer are the same one: we did not record it.
     last_login_at: typeof r.last_login_at === 'number' ? r.last_login_at : null,
+    // NR-1 — raw column, same discipline as the four above. `typeof === 'string'`
+    // rather than `?? null` so a row from a database that predates the column
+    // reads as "no Google identity" instead of coercing some other value into
+    // one — and here the direction matters more than it does for its
+    // neighbours: this value is what a later sign-in is MATCHED against, so a
+    // coerced non-string could only ever match wrongly or not at all.
+    google_sub: typeof r.google_sub === 'string' ? r.google_sub : null,
     created_at: r.created_at as string,
   };
 }
@@ -517,10 +579,14 @@ function likeContains(q: string): string {
 
 export function makeUserRepo(db: DatabaseSync): UserRepo {
   const ins = db.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name, plan, locale, is_admin)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO users (id, email, password_hash, display_name, plan, locale, is_admin, google_sub)
+     VALUES (?,?,?,?,?,?,?,?)`,
   );
   const byEmail = db.prepare('SELECT * FROM users WHERE email=? COLLATE NOCASE');
+  // NR-1. 🔴 NO `COLLATE NOCASE`, and its absence is the decision — see
+  // `findByGoogleSub`'s contract. `sub` is an opaque Google identifier, and
+  // folding case on it would be a rule we invented for bytes we do not author.
+  const byGoogleSub = db.prepare('SELECT * FROM users WHERE google_sub=?');
   const byId = db.prepare('SELECT * FROM users WHERE id=?');
   const updPlan = db.prepare('UPDATE users SET plan=? WHERE id=?');
   const updPassword = db.prepare('UPDATE users SET password_hash=? WHERE id=?');
@@ -542,6 +608,13 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
   // an admin bit or a restriction. `test/last-login-record.test.ts` asserts the
   // other columns are byte-identical after a sign-in runs.
   const updLastLogin = db.prepare('UPDATE users SET last_login_at=? WHERE id=?');
+  // NR-1. ONE column in the SET list, same load-bearing reason as the two
+  // statements above: this is the entire write face of "bind a Google identity",
+  // and a reviewer reading it can see that signing in with Google cannot move
+  // this account's EMAIL, tier, exemption, admin bit or restriction.
+  // `test/google-login.test.ts` asserts the other columns are byte-identical
+  // after a bind.
+  const updGoogleSub = db.prepare('UPDATE users SET google_sub=? WHERE id=?');
   // 0.3.0 P4. The ONE statement that destroys an account. It touches exactly one
   // table; the FK cascade does the rest (see UserRepo.remove above for why there
   // are deliberately no sibling DELETEs here).
@@ -587,11 +660,19 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
           input.plan ?? 'free',
           input.locale ?? 'zh-CN',
           input.is_admin ? 1 : 0,
+          input.google_sub ?? null,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/users\.email/i.test(msg)) throw new UserConstraintError('email', `email already exists: ${email ?? ''}`);
         if (/users\.id/i.test(msg)) throw new UserConstraintError('id', `id already exists: ${input.id}`);
+        // NR-1 — the partial UNIQUE index, surfaced typed like its two
+        // neighbours. Reachable only through a race (the route looks the sub up
+        // first, synchronously), which is precisely why it is the database and
+        // not the route that guarantees the answer is unique.
+        if (/users\.google_sub/i.test(msg)) {
+          throw new UserConstraintError('google_sub', `google_sub already bound: ${input.google_sub ?? ''}`);
+        }
         throw err;
       }
       return toRecord(byId.get(input.id) as Record<string, unknown>);
@@ -599,6 +680,22 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
     findByEmail(email): UserRecord | null {
       const r = byEmail.get(normalizeEmail(email)) as Record<string, unknown> | undefined;
       return r ? toRecord(r) : null;
+    },
+    findByGoogleSub(sub): UserRecord | null {
+      if (typeof sub !== 'string' || sub === '') return null;
+      const r = byGoogleSub.get(sub) as Record<string, unknown> | undefined;
+      return r ? toRecord(r) : null;
+    },
+    bindGoogleSub(userId, sub): void {
+      try {
+        updGoogleSub.run(sub, userId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/users\.google_sub/i.test(msg)) {
+          throw new UserConstraintError('google_sub', `google_sub already bound: ${sub}`);
+        }
+        throw err;
+      }
     },
     findById(id): UserRecord | null {
       const r = byId.get(id) as Record<string, unknown> | undefined;

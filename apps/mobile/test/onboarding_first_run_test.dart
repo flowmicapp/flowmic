@@ -128,6 +128,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/legibility.dart';
@@ -216,6 +217,7 @@ class _SettingsRig {
       timeline: newTestStore(),
       version: const FixedAppVersion('0.0.0-test'),
       update: newTestUpdateController(),
+      cloudSummary: newTestCloudSummary(login: login),
     ),
   );
 
@@ -615,6 +617,12 @@ void main() {
           s.onboardingInstallTitle,
           s.onboardingInstallBody,
           s.onboardingCodeExpiryNote,
+          // NR-6 §9 — the download row's two sentences. The URL itself is NOT
+          // in this list and must never be: it is derived from
+          // `kDefaultSaasEndpoint`, not translated.
+          s.onboardingDownloadOpenOnPc,
+          s.onboardingDownloadInstall,
+          s.onboardingDownloadQrLabel,
           s.onboardingPairTitle,
           s.onboardingPairBody,
           s.onboardingSpeakBody,
@@ -752,6 +760,12 @@ void main() {
             s.onboardingInstallTitle,
             s.onboardingInstallBody,
             s.onboardingCodeExpiryNote,
+            // NR-6 §9 — the download row joins the same sweep. It is the
+            // narrowest text block on the page (the QR takes 72dp + 12dp of
+            // the 360dp width before a word is laid out), so it is the line
+            // most likely to be the one that clips.
+            s.onboardingDownloadOpenOnPc,
+            s.onboardingDownloadInstall,
           ],
           <String>[
             s.onboardingPairTitle,

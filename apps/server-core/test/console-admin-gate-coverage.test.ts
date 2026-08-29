@@ -106,6 +106,21 @@ const ROUTE_SOURCES = [
   // 2026-08-14 — BYOK editor + TEST moved out of console-routes.ts. Same
   // MAIL-1 shape: a route in a file the scanner is not reading is invisible.
   join(SRC, 'http', 'byok-routes.ts'),
+  // 🔴 2026-08-28 — `console-device-routes.ts`, and this entry is the MAIL-1
+  // shape a THIRD time, caught the same way. `POST /api/cloud/devices/revoke`
+  // MOVED out of console-routes.ts and the coverage assertion went red with
+  // 「REGISTRY declares routes no route source serves any more」, naming it —
+  // exactly the sentence the MAIL-1 note above predicted. What that red line was
+  // really reporting is worse than a stale registry entry: the file also holds a
+  // NEW route (`remove-pc`), so BOTH had drifted outside the scan, and nothing
+  // was checking that the new one had any gate at all.
+  //
+  // It matters more here than at most entries above, for the reason the file was
+  // split out in the first place: these are the only console routes that reach
+  // past the database and close somebody's live socket. An unclassified route is
+  // an unclassified route anywhere; an unclassified one that can evict a paired
+  // phone is the kind this suite was built for.
+  join(SRC, 'http', 'console-device-routes.ts'),
   // A2-5 / REQ-12-08 (2026-08-12) — `ops-usage-events-routes.ts`, added in the
   // same commit that created it. 🔴 THIS SUITE IS WHY THE ROUTE EXISTS AT ALL:
   // the handoff card said 「add the missing ADMIN_GATED_ROUTES literal」, and the
@@ -209,6 +224,13 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   'POST /api/cloud/stt-routings': 'account',
   'POST /api/cloud/stt-routings/test': 'account',
   'POST /api/cloud/devices/revoke': 'account',
+  // 2026-08-28 — the device-management writes moved to console-device-routes.ts
+  // (see the ROUTE_SOURCES entry for why that file is scanned). 'account', and
+  // the reason is the same one the GDPR pair below gives: both act on rows the
+  // Bearer PROVED it owns and neither takes a cross-account target — a `pc_id`
+  // that is not yours answers `not_found`, byte-identically to one that does not
+  // exist, so there is nothing here for an admin gate to protect.
+  'POST /api/cloud/devices/remove-pc': 'account',
   // 0.3.0 P4 — the GDPR pair (docs/legal/privacy-policy.md 「Your rights」).
   // 🔴 'account', emphatically NOT 'admin' and NOT 'public': both act on the
   // account the Bearer PROVED and neither takes a target parameter, so there is

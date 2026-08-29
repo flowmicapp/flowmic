@@ -46,6 +46,10 @@
 // file's behaviour is an assertion whose truth changes when that file does
 // (anti-façade ④), and this is what that looks like when it expires.
 // STILL FOURTEEN after LOGIN-1 (2026-08-19): one column + one guarded step, no table.
+// STILL FOURTEEN after NR-1 (2026-08-27, Google sign-in): `users.google_sub` —
+// one column, one guarded step and one PARTIAL UNIQUE INDEX, no table. The index
+// is the part that is easy to miss when counting 「what did this migration add」:
+// it is a schema object like any other and `schemaSnapshot` compares it.
 // The de-facto registry is the `TABLES` array in test/migration-idempotency.test.ts
 // — a new table that is not appended there is a table nothing checks.
 //
@@ -177,6 +181,43 @@ CREATE TABLE IF NOT EXISTS users (
   -- 🔴 COLLECTION IS BEHIND 「FLOWMIC_LOGIN_RECORD_ENABLED」, DEFAULT OFF; config.ts
   -- 「loginRecordEnabled」 holds the four preconditions for opening it.
   last_login_at   INTEGER,
+  -- NR-1 (docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md
+  -- §1; activation docs/decisions/2026-08-27-owner-web-rulings-nr-ledger.md item 2;
+  -- the original 「record only」 entry is
+  -- docs/decisions/2026-08-11-owner-email-verification-gate-and-gmail-login.md ④):
+  -- Google's 「sub」 claim for the Google account bound to this row; NULL = this
+  -- account has never signed in with Google.
+  --
+  -- 🔴 IT IS THE IDENTITY, AND THE EMAIL IS NOT. Google's own guidance and this
+  -- card's design both say 「sub」 is the only stable identifier: a person can
+  -- change the address on a Google account, and two different Google accounts can
+  -- present the same address over time. 「email」 is used ONCE, to find an EXISTING
+  -- FlowMic row the first time (so signing in with Google does not silently mint a
+  -- second account beside the password one); every sign-in after that resolves by
+  -- this column. Matching on email forever would make 「which FlowMic account is
+  -- this」 answerable two ways, and the day they disagree is the day someone lands
+  -- in a stranger's console.
+  --
+  -- TEXT and NULLABLE, and it rides ADDITIVE_TEXT_COLUMNS' SHAPE but NOT that
+  -- loop — because it also needs a UNIQUE index, and that index cannot be created
+  -- before the ALTER has run. Its guarded step (ALTER + partial unique index) is
+  -- in connection.ts reconcileSchema, next to the three nullable-INTEGER ones.
+  --
+  -- 🔴 THAT STEP BACKFILLS NOTHING, the FOURTH distinct reason on this table:
+  -- 「email_verified_at」 must backfill, 「restricted_at」 must not (any value
+  -- restricts the platform), 「last_login_at」 must not (the answer is not
+  -- knowable) — and this one must not because ANY value would be a claim that a
+  -- specific Google account belongs to this person. There is nothing to invent
+  -- from: no row on this platform has ever been through Google.
+  --
+  -- ⚠️ NO 「UNIQUE」 KEYWORD HERE, deliberately: the constraint is a PARTIAL unique
+  -- index (WHERE google_sub IS NOT NULL) in reconcileSchema, so that the fresh
+  -- CREATE and the forward-ported ALTER converge on the SAME schema objects. A
+  -- column-level UNIQUE would exist only on fresh databases and 「schemaSnapshot」
+  -- would see two different shapes. SQLite treats NULLs as distinct in a unique
+  -- index either way; the predicate states the intent and keeps the index off the
+  -- (many) rows that will never have one.
+  google_sub      TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -191,6 +232,10 @@ CREATE TABLE IF NOT EXISTS pc_devices (
   -- server-side in SAAS mode only, public (printed on the PC). NULL on every
   -- standalone row and on the virtual cloud-instance row — see registry.ts.
   pcid               TEXT,
+  -- 2026-08-29 multi-node: which relay node this PC is on (「srvny」/「srvjp」).
+  -- NULL ⇒ 「dial the host you already have」. Also in the additive loop below,
+  -- so fresh and migrated databases match. Design §4-2.
+  home_node          TEXT,
   device_token       TEXT NOT NULL UNIQUE,
   room_uuid          TEXT NOT NULL UNIQUE,
   short_code         TEXT NOT NULL,
@@ -694,7 +739,12 @@ export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> 
   // machine_uid's comment above is about). Uniqueness must be the DATABASE's
   // answer and not an application-level 「check then write」, which is a race with
   // no lock behind it.
-  pc_devices: ['machine_uid', 'pcid'],
+  // 2026-08-29 `home_node` (design §4-2) — 🔴 THE WHOLE OF THE CROSS-NODE DIRECTORY.
+  // Rooms live in a per-process Map (room/store.ts 「Live socket presence ONLY」), so
+  // the design does not synchronise them: the phone FOLLOWS the PC onto the same
+  // node, and this column is what it follows. NULL must read as 「dial the host you
+  // already have」 — a default would assert where a PC is with nothing having looked.
+  pc_devices: ['machine_uid', 'pcid', 'home_node'],
   mobile_pairings: ['device_uid'],
   // Q2 (2026-08-12) — `users.restriction_reason`, the enumerated reason shown to
   // a restricted account holder. 🔴 IT RIDES THIS LOOP AND ITS SIBLING

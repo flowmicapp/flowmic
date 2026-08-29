@@ -33,9 +33,10 @@ const SETTINGS_MSG_EN: SettingsMsg = {
   modelFiles: (done, total) => `File ${done} of ${total}`,
   modelEtaMinutes: (n) => `about ${n} min left`,
   modelResumedFrom: (size) => `resumed — ${size} was already on disk`,
+  sttModelReady: (model) => `Local model ready: ${model}`,
 };
 
-// zh-CN (中文) — 10/10 translated;
+// zh-CN (中文) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -49,9 +50,10 @@ const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   modelFiles: (done, total) => `第 ${done} / ${total} 个文件`,
   modelEtaMinutes: (n) => `剩余约 ${n} 分钟`,
   modelResumedFrom: (size) => `续传——磁盘上已有 ${size}`,
+  sttModelReady: (model) => `本地模型已就绪：${model}`,
 };
 
-// zh-TW (繁體中文) — 10/10 translated;
+// zh-TW (繁體中文) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -65,9 +67,10 @@ const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   modelFiles: (done, total) => `第 ${done} / ${total} 個檔案`,
   modelEtaMinutes: (n) => `剩餘約 ${n} 分鐘`,
   modelResumedFrom: (size) => `續傳——磁碟上已有 ${size}`,
+  sttModelReady: (model) => `本機模型已就緒：${model}`,
 };
 
-// fr (Français) — 10/10 translated;
+// fr (Français) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_FR: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -81,9 +84,10 @@ const SETTINGS_MSG_FR: SettingsMsg = {
   modelFiles: (done, total) => `Fichier ${done} sur ${total}`,
   modelEtaMinutes: (n) => `environ ${n} min restantes`,
   modelResumedFrom: (size) => `reprise — ${size} déjà sur le disque`,
+  sttModelReady: (model) => `Modèle local prêt : ${model}`,
 };
 
-// es (Español) — 10/10 translated;
+// es (Español) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ES: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -97,9 +101,10 @@ const SETTINGS_MSG_ES: SettingsMsg = {
   modelFiles: (done, total) => `Archivo ${done} de ${total}`,
   modelEtaMinutes: (n) => `quedan unos ${n} min`,
   modelResumedFrom: (size) => `reanudado: ya había ${size} en el disco`,
+  sttModelReady: (model) => `Modelo local listo: ${model}`,
 };
 
-// de (Deutsch) — 10/10 translated;
+// de (Deutsch) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_DE: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -113,9 +118,10 @@ const SETTINGS_MSG_DE: SettingsMsg = {
   modelFiles: (done, total) => `Datei ${done} von ${total}`,
   modelEtaMinutes: (n) => `noch etwa ${n} Min.`,
   modelResumedFrom: (size) => `fortgesetzt – ${size} lagen bereits auf der Festplatte`,
+  sttModelReady: (model) => `Lokales Modell bereit: ${model}`,
 };
 
-// ja (日本語) — 10/10 translated;
+// ja (日本語) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_JA: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -129,9 +135,10 @@ const SETTINGS_MSG_JA: SettingsMsg = {
   modelFiles: (done, total) => `ファイル ${done} / ${total}`,
   modelEtaMinutes: (n) => `残り約 ${n} 分`,
   modelResumedFrom: (size) => `再開 — ${size} はすでにディスクにありました`,
+  sttModelReady: (model) => `ローカルモデルの準備完了：${model}`,
 };
 
-// ko (한국어) — 10/10 translated;
+// ko (한국어) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_KO: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -145,9 +152,10 @@ const SETTINGS_MSG_KO: SettingsMsg = {
   modelFiles: (done, total) => `파일 ${done} / ${total}`,
   modelEtaMinutes: (n) => `약 ${n}분 남음`,
   modelResumedFrom: (size) => `이어받기 — 디스크에 이미 ${size} 있었습니다`,
+  sttModelReady: (model) => `로컬 모델 준비됨: ${model}`,
 };
 
-// ru (Русский) — 10/10 translated;
+// ru (Русский) — 11/11 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_RU: SettingsMsg = {
   ...SETTINGS_MSG_EN,
@@ -161,6 +169,7 @@ const SETTINGS_MSG_RU: SettingsMsg = {
   modelFiles: (done, total) => `Файл ${done} из ${total}`,
   modelEtaMinutes: (n) => `осталось около ${n} мин`,
   modelResumedFrom: (size) => `продолжено — ${size} уже было на диске`,
+  sttModelReady: (model) => `Локальная модель готова: ${model}`,
 };
 
 export const SETTINGS_MSG_BY_LOCALE: Record<UiLocale, SettingsMsg> = {

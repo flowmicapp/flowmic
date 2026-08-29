@@ -103,6 +103,47 @@ export const CLOSED_CLASS_TERMS: readonly string[] = [
 
 const EN_WORD_TERMS = new Set([...EN_NEGATION, ...EN_QUANTIFIER, ...EN_MODAL].filter((t) => t !== "n't"));
 
+/**
+ * The spoken languages whose NEGATION, QUANTIFICATION and MODALITY this gate
+ * actually checks — as data, because the 40-line block above was the only place
+ * that fact lived, and a fact that lives only in prose cannot be consulted and
+ * cannot be kept honest.
+ *
+ * 🔴 THIS IS A COVERAGE STATEMENT, NOT A LANGUAGE WHITELIST. Every language
+ * still gets polished and still gets the §3.1 cardinality bound; what the ones
+ * outside this set do NOT get is the §3.2 closed-class check, which degrades to
+ * a digit check for them (digits are script-independent and are counted in every
+ * language). Nothing is refused on the strength of this set.
+ *
+ * ⚠️ `es` IS NOT IN HERE, and the reason is the sharpest thing in this file:
+ * `EN_NEGATION` contains `no`, and the English word-boundary branch will match
+ * Spanish `no` by coincidence. Coincidence is not coverage. Listing `es` because
+ * one word happens to line up is exactly how a coverage claim becomes a lie.
+ *
+ * Kept in sync with reality by `stt-polish-guard-coverage.test.ts`, which drives
+ * `closedClassMultiset` with real negations in each language and asserts that
+ * membership here predicts whether they are seen. Adding a row without adding
+ * the terms reddens that test — which is the whole point, since the previous
+ * form of this fact (a comment) could not go red at all.
+ *
+ * owner ruling R-2乙 (2026-08-29) consumes this: a user who explicitly turns on
+ * `smooth` while speaking a language outside this set is told the supervision is
+ * weaker there. ⚠️ It is NOT consumed to change the default — measured, the
+ * default is already `strict` (DEFAULT_POLISH_STRENGTH), so there was never
+ * anything to downgrade; see the decision doc's R-2 note.
+ */
+export const CLOSED_CLASS_GUARDED_LANGS: readonly string[] = ['zh', 'en'];
+
+/** True when [CLOSED_CLASS_GUARDED_LANGS] covers this spoken tag. Base-language
+ *  match, so `zh-CN` / `zh-TW` / `en-US` all resolve to their base. An absent or
+ *  unrecognised tag answers `false`: the honest reading of 「we do not know what
+ *  language this is」 is 「we cannot claim to be checking it」. */
+export function isClosedClassGuarded(lang: string | undefined): boolean {
+  if (lang === undefined) return false;
+  const base = lang.trim().toLowerCase().replace(/_/g, '-').split('-')[0] ?? '';
+  return CLOSED_CLASS_GUARDED_LANGS.includes(base);
+}
+
 /** Count occurrences of every closed-class term in `text`. zh terms +
  *  digits are counted as plain substrings (CJK has no word boundaries);
  *  en terms use a case-insensitive word-boundary regex; `n't` is a

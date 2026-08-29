@@ -563,6 +563,18 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   TIMELINE_RATE_LIMITED: 'none',
   HISTORY_SYNC_RETIRED: 'none',
   PASSWORD_RESET_INVALID: 'none',
+  // 2026-08-29 multi-node. `'none'` because it is not an inject verdict at all:
+  // it is refused at the ADMISSION events (pc:register, mobile:pair, and their
+  // four siblings — see server-core node/writer-only.ts), long before any
+  // utterance exists to have a verdict about. Nothing on the phone should read a
+  // delivery outcome out of it.
+  //
+  // ⚠️ This line is here because the compiler demanded it, and that is the point
+  // worth recording: deferring a code out of the registry (「mint it later」) is
+  // what switches this exhaustiveness check off, which is why W3's two macOS
+  // codes could sit in the tree as bare identifiers for a whole window. Minting
+  // the code first made the omission a build error within seconds.
+  NODE_IS_REPLICA: 'none',
 } as const satisfies Record<ErrorCode, InjectVerdictAuthor>;
 
 /** Authorship lookup. An unknown code (a new code this end doesn't recognise / a

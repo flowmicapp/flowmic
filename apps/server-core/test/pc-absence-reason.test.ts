@@ -25,6 +25,7 @@
 //
 // *** HUMAN-AUDIT SENSITIVE (auth) — reviewable in isolation ***
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
@@ -182,7 +183,7 @@ function askPresence(mobileToken: string): { status: number; body: Record<string
 }
 
 function wirePc(socket: FakeSocket): FakeSocket {
-  registerPcHandlers(socket as unknown as Socket, {
+  registerPcHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

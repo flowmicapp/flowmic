@@ -63,6 +63,12 @@ pub use capsule_style::configure_capsule_window;
 /// the relay refuses the key. *** HUMAN-AUDIT SENSITIVE (pairing/auth) ***
 pub mod cloud;
 
+/// Browser sign-in with a loopback callback: the accept loop, the nonce
+/// exchange, and the phase the device page polls. The DECISIONS it makes live in
+/// `crate::cloud_signin`, which has no Tauri in it and is unit-tested in the
+/// lean pass. *** HUMAN-AUDIT SENSITIVE (auth) ***
+pub mod cloud_signin;
+
 /// Managed state: the TWO resident socket sessions (07 §6 both channels resident) plus the
 /// shared capsule-ownership latch that decides which of them is primary.
 ///

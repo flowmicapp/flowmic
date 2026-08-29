@@ -583,6 +583,12 @@
       "name": "cloud_key_expires"
     },
     {
+      "key": "cloud_key_expires_long_lived",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_key_expires_long_lived"
+    },
+    {
       "key": "cloud_key_expires_tip",
       "shard": "cloud",
       "kind": "string",
@@ -605,6 +611,12 @@
       "shard": "cloud",
       "kind": "string",
       "name": "cloud_usage_minutes_exempt"
+    },
+    {
+      "key": "cloud_usage_context",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_context"
     },
     {
       "key": "cloud_src_permanent_free",
@@ -697,6 +709,12 @@
       "name": "cloud_err_expired"
     },
     {
+      "key": "cloud_err_restricted",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_restricted"
+    },
+    {
       "key": "cloud_err_malformed",
       "shard": "cloud",
       "kind": "string",
@@ -719,6 +737,96 @@
       "shard": "cloud",
       "kind": "string",
       "name": "cloud_err_no_endpoint"
+    },
+    {
+      "key": "cloud_signin_browser",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_browser"
+    },
+    {
+      "key": "cloud_signin_browser_hint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_browser_hint"
+    },
+    {
+      "key": "cloud_signin_browser_failed",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_browser_failed"
+    },
+    {
+      "key": "cloud_signin_waiting",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_waiting"
+    },
+    {
+      "key": "cloud_signin_cancel",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_cancel"
+    },
+    {
+      "key": "cloud_signin_page_ok_title",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_ok_title"
+    },
+    {
+      "key": "cloud_signin_page_ok_body",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_ok_body"
+    },
+    {
+      "key": "cloud_signin_page_fail_title",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_fail_title"
+    },
+    {
+      "key": "cloud_signin_page_fail_body",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_fail_body"
+    },
+    {
+      "key": "cloud_signin_err_timeout",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_timeout"
+    },
+    {
+      "key": "cloud_signin_err_state",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_state"
+    },
+    {
+      "key": "cloud_signin_err_refused",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_refused"
+    },
+    {
+      "key": "cloud_signin_err_unreachable",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_unreachable"
+    },
+    {
+      "key": "cloud_signin_err_listen",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_listen"
+    },
+    {
+      "key": "cloud_signin_err_endpoint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_err_endpoint"
     },
     {
       "key": "pair_title",
@@ -1171,6 +1279,42 @@
       "name": "stt_add_lang"
     },
     {
+      "key": "stt_lang_fallback",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_lang_fallback"
+    },
+    {
+      "key": "stt_lang_duplicate",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_lang_duplicate"
+    },
+    {
+      "key": "stt_lang_unsupported",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_lang_unsupported"
+    },
+    {
+      "key": "stt_lang_unsupported_note",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_lang_unsupported_note"
+    },
+    {
+      "key": "stt_model_missing",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_model_missing"
+    },
+    {
+      "key": "stt_model_missing_action",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_model_missing_action"
+    },
+    {
       "key": "col_language",
       "shard": "settings",
       "kind": "string",
@@ -1247,6 +1391,12 @@
       "shard": "settings",
       "kind": "string",
       "name": "polish_strength_hint"
+    },
+    {
+      "key": "polish_strength_smooth_coverage",
+      "shard": "settings",
+      "kind": "string",
+      "name": "polish_strength_smooth_coverage"
     },
     {
       "key": "settings_scope_lan",
@@ -1327,6 +1477,12 @@
       "name": "llm_setup_go_llm"
     },
     {
+      "key": "llm_setup_guide",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_setup_guide"
+    },
+    {
       "key": "llm_setup_dismiss",
       "shard": "settings",
       "kind": "string",
@@ -1343,6 +1499,48 @@
       "shard": "settings",
       "kind": "string",
       "name": "llm_protocol"
+    },
+    {
+      "key": "preset_choose",
+      "shard": "settings",
+      "kind": "string",
+      "name": "preset_choose"
+    },
+    {
+      "key": "preset_group_builtin",
+      "shard": "settings",
+      "kind": "string",
+      "name": "preset_group_builtin"
+    },
+    {
+      "key": "preset_group_cloud",
+      "shard": "settings",
+      "kind": "string",
+      "name": "preset_group_cloud"
+    },
+    {
+      "key": "preset_group_local",
+      "shard": "settings",
+      "kind": "string",
+      "name": "preset_group_local"
+    },
+    {
+      "key": "preset_group_custom",
+      "shard": "settings",
+      "kind": "string",
+      "name": "preset_group_custom"
+    },
+    {
+      "key": "llm_protocol_openai",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_protocol_openai"
+    },
+    {
+      "key": "llm_protocol_anthropic",
+      "shard": "settings",
+      "kind": "string",
+      "name": "llm_protocol_anthropic"
     },
     {
       "key": "llm_endpoint",
@@ -4015,6 +4213,48 @@
       "name": "model_action_failed"
     },
     {
+      "key": "stt_setup_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_title"
+    },
+    {
+      "key": "stt_setup_limit_local",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_limit_local"
+    },
+    {
+      "key": "stt_setup_limit_cloud",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_limit_cloud"
+    },
+    {
+      "key": "stt_setup_lang",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_lang"
+    },
+    {
+      "key": "stt_setup_pack",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_pack"
+    },
+    {
+      "key": "stt_setup_download",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_download"
+    },
+    {
+      "key": "stt_setup_dismiss",
+      "shard": "model",
+      "kind": "string",
+      "name": "stt_setup_dismiss"
+    },
+    {
       "key": "model_pick_note",
       "shard": "model",
       "kind": "string",
@@ -4141,6 +4381,30 @@
       "name": "model_root_note"
     },
     {
+      "key": "model_in_use_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_in_use_title"
+    },
+    {
+      "key": "model_in_use_none",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_in_use_none"
+    },
+    {
+      "key": "model_no_packs",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_no_packs"
+    },
+    {
+      "key": "model_storage_title",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_storage_title"
+    },
+    {
       "key": "settingsMsg.modelDownloadSize",
       "shard": "settings",
       "kind": "fn",
@@ -4187,6 +4451,15 @@
       ]
     },
     {
+      "key": "settingsMsg.sttModelReady",
+      "shard": "settings",
+      "kind": "fn",
+      "name": "sttModelReady",
+      "params": [
+        "model"
+      ]
+    },
+    {
       "key": "op_reinject_nothing",
       "shard": "timeline",
       "kind": "string",
@@ -4197,6 +4470,12 @@
       "shard": "timeline",
       "kind": "string",
       "name": "op_reinject_failed"
+    },
+    {
+      "key": "cloud_err_wrong_node",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_err_wrong_node"
     }
   ]
 }

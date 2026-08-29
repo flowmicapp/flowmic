@@ -83,11 +83,22 @@ export const IOS_TEST_BUNDLE_ID = `${PACKAGE_IDS.ios}.RunnerTests`;
  */
 export const METHOD_CHANNEL_NAMESPACE = 'app.flowmic';
 
-/** The three channels this app defines, as full wire names. */
+/** The channels this app defines, as full wire names. */
 export const METHOD_CHANNELS = Object.freeze({
   deviceInfo: `${METHOD_CHANNEL_NAMESPACE}/device_info`,
   imageClipboard: `${METHOD_CHANNEL_NAMESPACE}/image_clipboard`,
   updateInstaller: `${METHOD_CHANNEL_NAMESPACE}/update_installer`,
+  // Card CR-2 (owner 2026-08-29, continuous transcription): keep the screen
+  // awake for the length of a long recording. Same reason as the three above —
+  // there is no Flutter API for it, and the alternative was a dependency for
+  // two one-line platform calls (`FLAG_KEEP_SCREEN_ON` / `isIdleTimerDisabled`).
+  //
+  // 🔴 It keeps the SCREEN on. It does not keep the APP alive: both platform
+  // calls only apply while our window is visible, which is the whole reason the
+  // owner's ruling could avoid an Android foreground service and an iOS
+  // background-audio entitlement. Naming that here because "wake" invites the
+  // other reading, and the other reading is a store-review conversation.
+  screenWake: `${METHOD_CHANNEL_NAMESPACE}/screen_wake`,
 });
 
 /**

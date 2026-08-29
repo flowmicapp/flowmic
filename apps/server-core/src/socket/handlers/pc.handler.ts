@@ -34,6 +34,7 @@ import { probeMobileLiveness, type LivenessDeps } from '../../room/liveness';
 import { pcAbsenceReasons } from '../../room/pc-absence';
 import type { ReleaseSuppression } from '../../room/release-suppression';
 import { log } from '../../log';
+import type { WriterOnlyGuard } from '../../node/writer-only';
 import { getAccount, getAccountAuthError, getAuth, safeAck, setAuth, setRoomUuid, type ActingIdentity } from '../wire';
 
 export interface PcHandlerDeps {
@@ -47,12 +48,38 @@ export interface PcHandlerDeps {
   /** GA-07: the pc:reconnect liveness-probe seam (budget + timer + nonce).
    *  Omitted in production → 04 §3.2 defaults (1.5 s, real timers). Injected by
    *  tests so the zombie path runs with no real sleep. */
+  /**
+   * 2026-08-29 multi-node — record that this PC is now reachable through THIS
+   * node (`pc_devices.home_node`). Called on BOTH admission legs, register and
+   * reconnect, because a PC that only ever reconnects would otherwise never be
+   * located and its phone would be sent to the wrong node forever.
+   *
+   * 🔴 UNCONDITIONAL, not `if (changed)`. A PC that moves from srvny to srvjp
+   * has a home_node that is stale rather than absent, and「only write when it is
+   * empty」 is how a phone ends up dialling the node its PC left. See
+   * pc.repo.ts setHomeNode.
+   *
+   * Optional because a single-node deployment has no node to name — absent means
+   * 「there is no such fact here」, never 「skip recording it」.
+   */
+  stampHomeNode?: (pcId: string) => void;
   liveness?: LivenessDeps;
   /** GA-08: the shared reconnect-suppression window "disconnect" writes and
    *  `mobile:reconnect` reads. Omitted → a release still disconnects, but the
    *  phone may return immediately (the pre-GA-08 behaviour). Production wires the
    *  ONE instance bootstrap creates; tests inject a fake-clock instance. */
   suppression?: ReleaseSuppression;
+  /**
+   * 2026-08-29 multi-node — 「must this node refuse a writer-only event?」
+   *
+   * 🔴 REQUIRED, NEVER OPTIONAL, and for the reason `restriction` in
+   * MobileHandlerDeps spells out: an `?` here makes a forgotten wiring into a
+   * silently disabled gate with a green test suite, and the gate this one
+   * disables is the one standing between a user and a registration that is
+   * accepted and then erased. A node that can write passes `NODE_CAN_WRITE`,
+   * which is a decision anyone reading bootstrap can see was made.
+   */
+  writerOnly: WriterOnlyGuard;
 }
 
 export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
@@ -167,6 +194,13 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
   socket.on('pc:register', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('pc:register', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // 🔴 BEFORE registerPc, which is EIGHT writes — including the short code this
+    // PC is about to print on screen. On a replica all eight are erased by the
+    // next pull and both ends report success; refusing by name is the difference
+    // between a user who knows and a user who reads a pairing code that has
+    // already stopped existing. node/writer-only.ts carries the measurement.
+    const replica = deps.writerOnly();
+    if (replica) return safeAck(ack, replica);
     // saas: an unauthenticated socket must NOT provision under the shared
     // 'default' user (F-2094 red line) — fail loud with the truthful code.
     const acting = deps.resolveActingUser(socket);
@@ -180,6 +214,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
         ...(parsed.data.machine_uid !== undefined ? { machine_uid: parsed.data.machine_uid } : {}),
       });
       setAuth(socket, { userId, deviceId: pc.id, kind: 'pc' });
+      deps.stampHomeNode?.(pc.id);
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
       // card ACC-1 — this machine now serves THIS account, so its rows under
@@ -334,6 +369,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       if (!result) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
       const { pc } = result;
       setAuth(socket, { userId: pc.user_id, deviceId: pc.id, kind: 'pc' });
+      deps.stampHomeNode?.(pc.id);
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
       // book 18 §7.3 — back in the room ⇒ any recorded reason for its absence is
@@ -366,6 +402,10 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
   socket.on('pc:refresh-code', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('pc:refresh-code', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // Mints a code and stamps its TTL — both erased by the next pull, while the
+    // PC displays the dead code to the user. See pc:register above.
+    const replicaCode = deps.writerOnly();
+    if (replicaCode) return safeAck(ack, replicaCode);
     const auth = getAuth(socket);
     if (!auth || auth.kind !== 'pc' || !auth.deviceId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
     try {
@@ -414,6 +454,12 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
   socket.on('pc:release-mobile', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('pc:release-mobile', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // 🔴 A REVOKE THAT COMES BACK is the worst member of this family: the row is
+    // deleted, both ends say OK, and the next pull restores the pairing the user
+    // just removed. A security control that silently fails to apply is worse
+    // than one that visibly refuses — so it refuses.
+    const replicaRelease = deps.writerOnly();
+    if (replicaRelease) return safeAck(ack, replicaRelease);
     const auth = getAuth(socket);
     const roomUuid = (socket.data as { roomUuid?: string }).roomUuid;
     if (!auth || auth.kind !== 'pc' || !auth.deviceId || !roomUuid) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });

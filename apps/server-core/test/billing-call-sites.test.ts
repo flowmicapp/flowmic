@@ -45,6 +45,14 @@ function walk(dir: string): string[] {
 function callSites(fn: string): string[] {
   return walk(SRC)
     .filter((f) => !f.endsWith(join('billing', 'usage-tracker.ts')))
+    // 2026-08-29 multi-node — node/forwarded-write.ts REPLAYS a call that was
+    // already originated somewhere in this census, on a different machine. It
+    // decides nothing: it validates a record a replica forwarded and re-performs
+    // the same seam call with the same arguments. Counting it as an originating
+    // site would be counting one user's minutes twice in a file whose whole job
+    // is to stop exactly that. It gets its own assertion below instead, so a
+    // SECOND replay site is still a deliberate act rather than a silent one.
+    .filter((f) => !f.endsWith(join('node', 'forwarded-write.ts')))
     .filter((f) => {
       const body = readFileSync(f, 'utf8');
       // Strip line comments so the many PROSE mentions of these names (this
@@ -87,6 +95,25 @@ describe('billing call sites — a census, not a convention', () => {
       'socket/handlers/audio.handler.ts',
       'socket/handlers/compose.handler.ts',
     ]);
+  });
+
+  it('🔴 the ONE replay site is node/forwarded-write.ts, and nothing else', () => {
+    // The multi-node exception, asserted rather than trusted. A replica cannot
+    // write to the shared database, so its metering travels to the writer as a
+    // record and the writer replays the seam. That replay is excluded from the
+    // census above — which means the exclusion itself needs a guard, or a second
+    // file could quietly acquire the same licence to bill.
+    //
+    // Note this uses the UNFILTERED walk: it is asking 「which files replay」, the
+    // opposite question from the census, and answering it with the census's own
+    // filter would be a tautology.
+    const replaySites = walk(SRC)
+      .filter((f) => {
+        const code = readFileSync(f, 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+        return /applyForwardedWrite/.test(code) && /\.recordSttUsage\s*\(/.test(code);
+      })
+      .map((f) => f.slice(SRC.length + 1).replace(/\\/g, '/'));
+    expect(replaySites).toEqual(['node/forwarded-write.ts']);
   });
 
   it('the census can actually fail (it is not matching nothing)', () => {

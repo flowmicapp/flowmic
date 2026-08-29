@@ -90,6 +90,7 @@
 // remember to flip is a gate that is off.
 
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { promises as fsp } from 'node:fs';
 import { ROOT, walk, readText, readJson, lineOf, DEFAULT_SKIP_DIRS } from './_util.mjs';
 
@@ -199,16 +200,52 @@ async function findWebRepo() {
     };
   }
 
-  const parent = path.dirname(ROOT);
-  let entries;
+  // 🔴 SEARCH THE MAIN WORKTREE'S NEIGHBOURHOOD TOO, NOT JUST THIS ONE'S.
+  //
+  // Measured 2026-08-29: run from a linked worktree — which is how both active
+  // windows work — this scan looked at `<repo>-worktrees/` and found only other
+  // worktrees, so it reported 「no sibling declares itself」 and SKIPPED. A skip
+  // prints in the summary line beside the passes ("30 pass / 3 skip / 0 fail"),
+  // so every gate run from a worktree had this check silently disarmed while
+  // reading green. Pointing FLOWMIC_WEB_REPO at the repo by hand made the same
+  // check run and PASS, which is what proved the skip was an artefact of where
+  // it was run rather than a fact about the tree.
+  //
+  // That is this repo's favourite shape: a check answering 「I could not look」
+  // in a way that reads like 「I looked and it is fine」. The fix is to look
+  // where the answer actually is — a linked worktree knows its main worktree
+  // through git, and the sibling we want is beside THAT.
+  const searchRoots = [path.dirname(ROOT)];
   try {
-    entries = await fsp.readdir(parent, { withFileTypes: true });
+    const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // <main-worktree>/.git → the main worktree is its parent, and the repos we
+    // mirror sit beside that.
+    if (commonDir) {
+      const mainParent = path.dirname(path.dirname(commonDir));
+      if (mainParent && !searchRoots.includes(mainParent)) searchRoots.push(mainParent);
+    }
   } catch {
-    return { reason: 'cannot read the directory containing this repo' };
+    // Not a git checkout, or no git on PATH. The sibling scan below still runs;
+    // this only ever ADDS a place to look.
   }
 
+  const entriesByRoot = [];
+  for (const parent of searchRoots) {
+    try {
+      entriesByRoot.push([parent, await fsp.readdir(parent, { withFileTypes: true })]);
+    } catch {
+      /* unreadable root — the others may still answer */
+    }
+  }
+  if (entriesByRoot.length === 0) {
+    return { reason: 'cannot read the directory containing this repo' };
+  }
+  const entries = entriesByRoot.flatMap(([, e]) => e);
+
   const hits = [];
-  for (const e of entries) {
+  for (const [parent, list] of entriesByRoot) for (const e of list) {
     if (!e.isDirectory() || e.name.startsWith('.')) continue;
     const dir = path.join(parent, e.name);
     const pkg = await readJson(path.join(dir, 'package.json'));
@@ -218,6 +255,9 @@ async function findWebRepo() {
   if (hits.length === 0) {
     return { reason: `no sibling directory declares itself ${WEB_PKG_NAME} (${entries.length} checked)` };
   }
+  const unique = [...new Map(hits.map((h) => [path.resolve(h.dir), h])).values()];
+  hits.length = 0;
+  hits.push(...unique);
   if (hits.length > 1) {
     // More than one sibling declares the same package name (e.g. an extra
     // worktree beside the checkout) — ambiguous by design, not guessed at.

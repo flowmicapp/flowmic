@@ -160,6 +160,45 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Card NR-2b (owner 2026-08-27, docs/decisions/2026-08-27-owner-
+                 no-password-login-on-clients.md): the phone signs in THROUGH THE
+                 BROWSER, so the console has to be able to hand a one-time code
+                 back to this app. This filter is that hand-back — the console
+                 redirects to `flowmic://login?endpoint=…&t=…&state=…` and the
+                 OS routes it here.
+
+                 🔴 THE SCHEME AND HOST ARE ALSO WRITTEN IN DART
+                 (lib/src/auth/browser_login.dart: kBrowserLoginScheme /
+                 kBrowserLoginHost) AND IN ios/Runner/Info.plist. Three copies
+                 of one fact, and no compiler compares any two of them: a
+                 renamed constant here does not fail a build, it makes the OS
+                 drop the callback and the sign-in simply never completes.
+                 `test/browser_login_test.dart` reads THIS FILE off disk and
+                 asserts the two values match the Dart constants — that gate is
+                 the only thing holding the three together.
+
+                 WHY `main` AND NOT A FLAVOUR MANIFEST. All four flavour source
+                 sets were checked (direct / store / debug / profile): the split
+                 exists for ONE permission — REQUEST_INSTALL_PACKAGES, which
+                 Play forbids and which therefore lives in `direct` only. Browser
+                 sign-in is not channel-specific: a Play install needs it exactly
+                 as much as a sideloaded one, so putting it in a flavour would
+                 ship a store build whose sign-in button opens a browser that can
+                 never come back.
+
+                 BROWSABLE + DEFAULT are both required — without BROWSABLE a
+                 redirect initiated by a web page is not allowed to reach us at
+                 all. There is no `autoVerify` here on purpose: this is a custom
+                 scheme, not an Android App Link, so there is no domain to
+                 verify. `android:launchMode="singleTop"` above is what makes a
+                 WARM delivery arrive as onNewIntent on the existing task
+                 instead of stacking a second copy of the app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="flowmic" android:host="login"/>
+            </intent-filter>
         </activity>
         <!-- owner 2026-07-27 image copy: ClipData.newUri needs a content:// URI, so
              the single clipboard preview file in the private cache is exposed

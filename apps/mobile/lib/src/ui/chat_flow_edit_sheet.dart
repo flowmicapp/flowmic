@@ -82,97 +82,14 @@ bool _composeFieldEnabled(_ChatFlowPageState s) =>
     (s.controller.noPcTarget || s.controller.canCompose) &&
     !s.controller.isAiComposing;
 
-/// Adopt an EXTERNAL buffer move into the page-owned edit controller — at
-/// CONTROLLER-NOTIFICATION time (an event handler), never during build: the
-/// sheet's field listens to this controller, and a write mid-build is a
-/// markNeedsBuild-during-build crash on an element the writer is no ancestor
-/// of (measured — the first cut of ruling #4 took 16 tests down that way).
-/// When the user is typing, ChatController echoes the same string straight
-/// back, so the comparison keeps the caret still.
-void _syncComposeTextRouted(_ChatFlowPageState s) {
-  final String buffer = s.controller.buffer;
-  if (s._composeText.text == buffer) return;
-  s._composeText.value = TextEditingValue(
-    text: buffer,
-    selection: TextSelection.collapsed(offset: buffer.length),
-  );
-}
-
-/// SUP-5 open/close triggers that arrive as controller notifications:
-/// (a) manual voice finalize ⇒ auto-open, no focus (D4);
-/// mode switch ⇒ close (the red line already cleared the buffer; a sheet
-/// left open over a foreign mode would be editing nothing).
-void _syncSheetOnControllerRouted(_ChatFlowPageState s) {
-  final String buffer = s.controller.buffer;
-  final FlowMode mode = s.controller.mode;
-  final bool modeChanged = s._lastModeSeen != null && mode != s._lastModeSeen;
-  // 「是不是有一句话正在进行中」 — ONE author, both consumers below. SEG-2 needed
-  // the predicate PA-5 already spelled out inline; two copies become two answers.
-  final bool utteranceInFlight =
-      s.controller.sessionState == SessionState.recording ||
-      s.controller.sessionState == SessionState.processing;
-  // PA-5: the append face ends when the utterance does — the fold (release)
-  // or the discard (swipe-up cancel) has settled once the FSM is out of
-  // recording/processing. A LISTENER edge, not a callback from the gesture:
-  // the finalize arrives async and the button's up-handler cannot know when.
-  if (s._sheetAppending && !utteranceInFlight) s._setSheetAppending(false);
-  // 🔴 SEG-2 (owner, 2026-08-15) — 「说话的按钮也没了」. Trigger (a) says 「manual
-  // voice FINALIZE ⇒ auto-open」 and never asked whether the finger is still
-  // DOWN — correct while a manual utterance grew the buffer once, at release;
-  // wrong once the server began settling SOFT SEGMENTS, which fold in MID-HOLD,
-  // sliding the sheet over the dock (it COVERS the PTT bar by design). ⇒ anti-
-  // façade ④. Account + reverse controls: edit_sheet_not_during_hold_test.dart.
-  if (s._sheetOpen && modeChanged) {
-    _collapseSheetRouted(s);
-    s._sheetSrcVoice = false;
-  } else if (!s._sheetOpen &&
-      !utteranceInFlight &&
-      s.controller.sendPolicy == SendPolicy.manual &&
-      buffer.trim().isNotEmpty &&
-      buffer != s._lastBufferSeen) {
-    // Trigger (a). 🔴 NO focus request anywhere on this path — D4: a surface
-    // that appears by itself must not raise the keyboard; only the explicit
-    // preview tap focuses.
-    s._sheetSrcVoice = true;
-    s._setSheetOpen(true);
-  }
-  // 🔴 SEG-2 — the watermark advances only once the change has been JUDGED.
-  // Unconditional (as it was) makes the guard above a WORSE bug: the mid-hold
-  // fold records as "seen", so at settle the sheet never opens at all — the
-  // manual flow's whole point, deleted, with every "no sheet during a hold"
-  // test still green. Freezing it is what makes this a DEFERRAL, not a drop.
-  if (!utteranceInFlight) s._lastBufferSeen = buffer;
-  s._lastModeSeen = mode;
-  _syncSheetAiAppliedRouted(s);
-}
-
-/// The applied-✓ mark used to live on `_SheetAiRowState`. Collapsing the
-/// sheet unmounted that State, so reopening showed plain pills over a draft
-/// that was still an AI product. The restore strip survived (controller-
-/// derived); the ✓ did not. The listener is the SAME controller listener
-/// the sheet already uses, so the mark survives collapse.
-void _syncSheetAiAppliedRouted(_ChatFlowPageState s) {
-  final ChatController c = s.controller;
-  final ComposeTask? running = c.aiTask;
-  if (running != null) {
-    s._sheetAiPending = running;
-    if (s._sheetApplied != null) s._sheetApplied = null;
-    return;
-  }
-  final ComposeTask? finished = s._sheetAiPending;
-  if (finished != null) {
-    s._sheetAiPending = null;
-    if (c.aiFailure == null) {
-      s._sheetApplied = finished;
-      s._sheetAppliedText = c.buffer;
-      return;
-    }
-  }
-  if (s._sheetApplied != null &&
-      (c.buffer != s._sheetAppliedText || c.restorableOriginal == null)) {
-    s._sheetApplied = null;
-  }
-}
+// 🔴 NR-4-P1 (c) — the controller-notification family that stood HERE
+// (`_syncComposeTextRouted` / `_syncSheetOnControllerRouted` /
+// `_syncSheetAiAppliedRouted`) moved VERBATIM to
+// chat_flow_edit_sheet_sync.dart. This file was at EXACTLY 800/800 against
+// verify/lint/file-size.mjs and (c) had to grow the caret logic inside the
+// first of them; the repo rule for that situation is a structural split of a
+// coherent family, never a comment cull. The three names are unchanged, so
+// every call site and every test reads exactly as before.
 
 /// Trigger (b)/(c): the preview strip's tap — open AND focus, one step
 /// (owner Q3㋐, carried over from T-3 verbatim).
@@ -378,6 +295,25 @@ Widget _sheetBody(
           key: const ValueKey<String>('compose.sheet.appendBtn'),
           appending: appending,
           strings: strings,
+          // 🔴 0.3.43 Q5-③ — the SAME predicate `onDown` will consult
+          // (`ChatController.pttDown` opens with `if (!canPtt) return false;`).
+          // Reading it here is what turns a swallowed refusal into a face: the
+          // button used to render fully live while this was false, accept the
+          // hold, and do nothing at all.
+          enabled: s.controller.canPtt,
+          // The reason is chosen HERE, not in the widget, because `canPtt` is a
+          // conjunction whose terms call for different actions and must not
+          // share one sentence (this repo's #1 bug shape).
+          //   · link down  → owner-frozen copy that already exists and is used
+          //     verbatim on the PTT bar's own disabled face;
+          //   · otherwise  → the previous utterance has not finished (PROCESSING
+          //     or an AI compose run), one fact and one remedy: wait.
+          onDisabledTap: () => showChatToast(
+            context,
+            s.controller.connection == ConnectionState.connected
+                ? strings.appendUnavailableBusy
+                : strings.pttDisabled,
+          ),
           // 🔴 The SAME acceptance edge as the main PTT bar — no second
           // recording entry point. `foldIntoBuffer` pins the utterance's
           // policy snapshot to manual so release folds into THIS draft. The

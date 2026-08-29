@@ -125,8 +125,14 @@ function isLegalRegion(v: string): boolean {
  * `engine-presets.ts` uses for `language_hint`", i.e. `'zh-CN'`. But the value
  * `selectRoute` matches against is `audio:start.source_lang`, whose vocabulary is
  * BARE ISO 639-1:
- *   · `apps/mobile/lib/src/settings/app_settings.dart`
- *     `kSpokenLangs = ['zh','en','ja','ko']` — the only values a phone sends;
+ *   · `apps/mobile/lib/src/settings/app_settings.dart` `kSpokenLangs` — the only
+ *     values a phone sends. ⚠️ DELIBERATELY NOT ENUMERATED HERE: this comment
+ *     used to spell the list out as `['zh','en','ja','ko']` and it went stale at
+ *     four while the array grew to eight (fr/es/de/ru landed in between), so a
+ *     reader auditing multilingual coverage against this line would have
+ *     concluded the vocabulary was half its real size. Go read the array
+ *     [measured 2026-08-28: eight]; a copy of a list that grows is a copy that
+ *     rots, and the only honest form of it here is the pointer;
  *   · `apps/server-core/src/settings/defaults.ts` — the `routingFromPreset('zh', …)`
  *     / `routingFromPreset('*', …)` call pair — bare, too;
  *   · `language_hint` has ZERO runtime consumers [measured via grep: the only reads are
@@ -219,9 +225,15 @@ function parseRow(raw: unknown, index: number, defaultGroup: string): { route: P
   for (const tag of languages) {
     if (!isLegalLanguage(tag)) {
       throw new Error(
+        // ⚠️ This message is READ BY AN OPERATOR fixing a pool row, so it names the
+        // rule that actually decides (the regex below) and POINTS AT the spoken-
+        // language list rather than reprinting it. It used to reprint it as
+        // `['zh','en','ja','ko']`, which had gone stale at four while the array grew
+        // to eight — an operator reading that would have concluded a legal German
+        // row was illegal. A rule can be stated; a growing list can only be pointed at.
         `${at}.languages contains ${JSON.stringify(tag)}, which can never match. The lookup key is `
-        + `\`audio:start.source_lang\`, and its vocabulary is BARE ISO 639-1 — `
-        + `apps/mobile/lib/src/settings/app_settings.dart \`kSpokenLangs = ['zh','en','ja','ko']\` — `
+        + `\`audio:start.source_lang\`, and its vocabulary is BARE ISO 639-1 — the values a phone `
+        + `sends are \`kSpokenLangs\` in apps/mobile/lib/src/settings/app_settings.dart — `
         + `matched by exact string equality. Legal here: '${LANGUAGE_ANY}' or a lowercase 2–3 letter code.`,
       );
     }

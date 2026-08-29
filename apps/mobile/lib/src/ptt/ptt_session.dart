@@ -19,6 +19,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../generated/flowmic_events.g.dart';
 import '../audio/audio_capture.dart';
+import '../audio/continuous_cap_timer.dart';
+import '../audio/continuous_recording.dart';
+import '../audio/screen_wake.dart';
 import '../audio/local_stop_reasons.dart';
 import '../audio/real_audio_recorder.dart';
 import '../audio/retained_audio_spill.dart';
@@ -40,6 +43,7 @@ import '../signaling/http_endpoint.dart';
 import '../signaling/lan_pinning.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/mobile_reconnect_flow.dart';
+import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
 import '../signaling/wire_payloads.dart';
@@ -84,6 +88,13 @@ part 'ptt_channel_probe.dart';
 
 // 800-line cap (IT-10): dispose() moved so scope.dispose + ordering comments fit.
 part 'ptt_session_dispose.dart';
+
+// 800-line cap: the three PTT edges (down / up / cancel) moved VERBATIM —
+// see that file's header.
+part 'ptt_edges.dart';
+// Cards CR-2/CR-6/CR-9 — the continuous-recording lifecycle: what makes a
+// capture continuous, and every path that ends one.
+part 'ptt_continuous.dart';
 
 class PttSession {
   PttSession({
@@ -200,13 +211,29 @@ class PttSession {
     // SEG-2 — the local dead-recording edge (3 s grace expiry while the mic is
     // live). Edge doc + why the FSM stays microphone-blind: ptt_link_loss.dart.
     _linkLossSub = fsm.changes.listen(_onLinkLossEdge);
+    // Card CR-3 — the 「is this capture a continuous one?」 fact. Bound to the
+    // recorder's own transition stream so it clears itself on every ending
+    // path rather than having to be remembered; the asymmetry of the two
+    // failure directions is written out in continuous_recording.dart.
+    continuous = ContinuousRecording(recorderState: this.audio.state);
   }
+
+  /// Card CR-6 — the per-sitting ceiling, armed with the number the SERVER
+  /// issued. Card CR-2 — the screen hold. Both belong to one lifecycle, and it
+  /// is written in ptt_continuous.dart: [beginContinuous] / [endContinuous].
+  final ContinuousCapTimer capTimer = ContinuousCapTimer();
+  final ScreenWakeHold screenWake = ScreenWakeHold();
 
   final SocketTransport transport;
   final FlowmicStateMachine fsm;
   final AudioCapture audio;
   final TokenStorage tokenStorage;
   final SttStream stt;
+
+  /// Card CR-3 — set by the continuous-recording entry, read by the link-loss
+  /// edge. Ordinary push-to-talk never touches it, which is what keeps its
+  /// behaviour unchanged.
+  late final ContinuousRecording continuous;
   final Duration heartbeatInterval;
 
   /// card U2 — the mic-permission flow this session gates PTT on. Its
@@ -737,80 +764,15 @@ class PttSession {
 
   // ─────────────────────────────────────────── PTT gestures
 
-  /// PTT down: gate on CONNECTED+IDLE via the FSM, then on the mic permission
-  /// (card U2 — [micPermission], which renders its own refusal), then start
-  /// capture and emit audio:start with the fixed [delivery] (§4.0 B). Returns
-  /// false if any gate refused (not connected / already recording / mic
-  /// permission missing / capture failed to start).
-  Future<bool> pttDown({
-    FlowMode mode = FlowMode.realtime,
-    String sourceLang = 'zh',
-    String? targetLang,
-    Delivery delivery = Delivery.inject,
-    SendPolicy sendPolicy = SendPolicy.direct,
-  }) async {
-    if (fsm.connection != ConnectionState.connected) return false;
-    if (fsm.session != SessionState.idle) return false;
-    // card U2 ① — the permission gate runs BEFORE capture, so the FIRST OS dialog
-    // is never cold-fired in mid-gesture (the audit's finding): the request is
-    // born on the rendered rationale surface, not under the user's thumb. A
-    // false return has already written the face the banner renders, so the
-    // refusal is on screen — and the FSM never left IDLE, so the next hold
-    // starts clean (no stuck RECORDING, nothing to unwind).
-    if (!await micPermission.gateForPtt()) return false;
-    segments.clear();
-    try {
-      await audio.start(permissionPreflighted: micPermission.lastGateSawGranted);
-    } on Object {
-      // U2 ④ — this branch used to `return false` behind a comment claiming
-      // 「fail-loud」 while surfacing nothing (anti-façade ④: the comment was an
-      // expired truth). Now it IS loud: the flow re-probes the OS and renders
-      // the honest face — denied / permanently-denied / 「recording could not
-      // start」 when the permission is actually green. PTT still never entered
-      // RECORDING.
-      await micPermission.noteCaptureStartRefused();
-      return false;
-    }
-    fsm.onPttDown();
-    transport.emit(
-      FlowMicEvents.audioStart,
-      AudioStartPayload(
-        mode: mode,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
-        sendPolicy: sendPolicy,
-        delivery: delivery,
-      ).toJson(),
-    );
-    _startHeartbeat();
-    return true;
-  }
+  /// PTT down: gate on CONNECTED + [sessionAcceptsPttDown] (NR-4-P1 (a): IDLE
+  /// or the cosmetic JUST_DONE window — that predicate owns the rationale and
+  /// the PROCESSING boundary), then the mic permission (card U2 —
+  /// [micPermission], which renders its own refusal), then start capture and
+  /// emit audio:start with the fixed [delivery] (§4.0 B).
+  // ── PTT edges —— `pttDown` / `pttUp` / `pttCancel` moved VERBATIM to
+  //    ptt_edges.dart (800-line cap, the tenth split on this file). See that
+  //    file's header for the diff discipline.
 
-  /// PTT up: flush the < 200 ms residual tail AHEAD of audio:stop (F-2223), then
-  /// stop capture and move the FSM to PROCESSING (awaits stt:final).
-  Future<void> pttUp() async {
-    if (fsm.session != SessionState.recording) return;
-    final CapturedChunk? residual = audio.takeResidualChunk();
-    if (residual != null) {
-      _emitChunk(residual);
-    }
-    _stopHeartbeat();
-    _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});
-    await audio.stop();
-    fsm.onPttUp();
-  }
-
-  /// PTT swipe-up cancel: abort mid-utterance. The utterance never completed, so
-  /// NO timeline entry is built (§4.0 A). Fences audio immediately, tells the
-  /// server to discard (audio:stop), and returns the FSM to IDLE.
-  Future<void> pttCancel() async {
-    if (fsm.session != SessionState.recording) return;
-    audio.fenceAndStop();
-    _stopHeartbeat();
-    segments.clear();
-    _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});
-    fsm.onPttCancel();
-  }
 
   // ── capture pump —— `pauseCapture` / `resumeCapture` / `_onCaptureFault` /
   //    `_onCapturedChunk` / `_emitChunk` moved VERBATIM to

@@ -322,6 +322,59 @@ describe('deriveCloudCard', () => {
     }
   });
 
+  it('owner 2026-08-28 ruling 8: the wall offers the FREE way out BEFORE the paid ones', () => {
+    // 🔴 THE ORDER IS THE RULING, not layout. Until 0.3.44 this sentence knew
+    // only two answers — upgrade, or buy a second subscription — because there
+    // was no third one to give: nothing in the product could free a slot. The
+    // console can now remove a computer, so leading with "pay us" would be
+    // selling a solution to a problem the user can already solve for free.
+    //
+    // Anchors per language rather than one clever regex, because the thing being
+    // asserted is a claim about MEANING and only a native reading of each string
+    // can supply it. A table is honest about that; a regex would look general
+    // and be wrong somewhere nobody checks.
+    //
+    // ⚠️ Both halves are asserted. Checking only that the removal clause exists
+    // would stay green if someone appended it AFTER the upsell — which is the
+    // exact arrangement this ruling replaced.
+    const anchors: Record<string, { free: string; paid: string }> = {
+      en: { free: 'remove a computer', paid: 'higher plan' },
+      'zh-CN': { free: '移除一台不再使用的电脑', paid: '升级套餐' },
+      'zh-TW': { free: '移除一台不再使用的電腦', paid: '升級方案' },
+      fr: { free: 'retirer un ordinateur', paid: 'forfait supérieur' },
+      es: { free: 'quitar un ordenador', paid: 'plan superior' },
+      de: { free: 'Computer entfernen', paid: 'höherer Tarif' },
+      ja: { free: '削除すると枠が空きます', paid: '上位プラン' },
+      ko: { free: '컴퓨터를 제거하면', paid: '상위 요금제' },
+      ru: { free: 'удалить компьютер', paid: 'более высокий тариф' },
+    };
+    for (const [locale, table] of Object.entries(CLOUD_STRINGS)) {
+      const a = anchors[locale];
+      // A new UI language must extend this table. Failing loudly beats silently
+      // checking eight of nine.
+      //
+      // A `throw`, not `expect(a).toBeTruthy()` — that form asserts at runtime
+      // but narrows nothing, so every use of `a` below stayed `T | undefined`
+      // and vue-tsc said so. The alternative was `anchors[locale]!`, i.e. a
+      // hand-written claim the compiler does not check, which is the shape this
+      // repo has been bitten by before (a type predicate that tested the wrong
+      // thing left an array empty on every machine for weeks).
+      if (a === undefined) throw new Error(`${locale} has no ordering anchors in this test — add them`);
+      // Same reason as the anchors above: an index into a Record is
+      // `string | undefined` here, and the neighbouring digits test only gets
+      // away with `.cloud_err_pc_limit` because matchers accept undefined —
+      // calling a method on it does not.
+      const raw = (table as Record<string, string | undefined>).cloud_err_pc_limit;
+      if (raw === undefined) throw new Error(`${locale} is missing cloud_err_pc_limit`);
+      const line = raw.toLowerCase();
+      const free = line.indexOf(a.free.toLowerCase());
+      const paid = line.indexOf(a.paid.toLowerCase());
+      expect(free, `${locale} no longer offers removing a computer`).toBeGreaterThanOrEqual(0);
+      expect(paid, `${locale} anchor for the paid route is stale`).toBeGreaterThanOrEqual(0);
+      expect(free, `${locale} puts the paid route before the free one`).toBeLessThan(paid);
+    }
+  });
+
   it('is quiet (not loud) when simply not logged in yet', () => {
     const c = deriveCloudCard({ status: cloud({ readiness: 'no_key' }), connected: false });
     expect(c.loud).toBeNull();

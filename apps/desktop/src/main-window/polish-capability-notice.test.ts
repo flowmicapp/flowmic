@@ -234,6 +234,32 @@ describe('capability.llm is READ-ONLY on this side', () => {
   });
 });
 
+/**
+ * The SFC's whole `<template>`, root tag to root tag.
+ *
+ * 🔴 KNOW YOUR RULER. This used to be
+ * `src.match(/<template>([\s\S]*?)<\/template>/)` inline, twice — LAZY, so it
+ * stopped at the FIRST `</template>`. That is the root's own closing tag only
+ * while the component contains no `<template v-for>` / `<template v-if>`
+ * wrapper. The 2026-08-27 routing table added one (a `<template v-for>` is the
+ * only way to emit two `<tr>` per row without a wrapper element), and both
+ * assertions below silently began measuring the first ~40 lines of the file.
+ *
+ * ⚠️ The failure direction is the bad one: a truncated haystack makes a
+ * `toContain` RED (loud, which is how this was caught) but makes every
+ * `not.toContain` in the same file GREEN for free — and there is one on line
+ * ~300. A negative assertion against a haystack that stops before the code it
+ * is policing is the shape 0.2.52's law is about: it does not miss a defect,
+ * it certifies one.
+ *
+ * Greedy, and it takes the LAST closing tag on purpose. `<script>` blocks
+ * cannot contain `</template>`, and nested `<template …>` wrappers always close
+ * before the root does, so the last one is the root's.
+ */
+function wholeTemplate(src: string): string {
+  return src.match(/<template>([\s\S]*)<\/template>/)?.[1] ?? '';
+}
+
 describe('anti-façade: the notice is mounted where owner put it', () => {
   const src = readFileSync(fileURLToPath(new URL('./components/SttSettings.vue', import.meta.url)), 'utf8');
 
@@ -241,7 +267,7 @@ describe('anti-façade: the notice is mounted where owner put it', () => {
     // owner's landing spot: the "speech recognition" (语音识别) section, next to
     // the AI-polish toggle — not the "language model" (语言模型) section, where a
     // user who never opens it would never see why the switch above did nothing.
-    const tpl = src.match(/<template>([\s\S]*?)<\/template>/)?.[1] ?? '';
+    const tpl = wholeTemplate(src);
     expect(tpl).toContain('S.polish_no_llm');
     expect(tpl).toContain('v-if="!model.llmCapabilityUsable"');
     const polishCard = tpl.slice(tpl.indexOf('S.polish_title'), tpl.indexOf('S.refine_title'));
@@ -299,7 +325,7 @@ describe('anti-façade: the notice is mounted where owner put it', () => {
     // The tempting shortcut, named so it is not re-invented: an empty endpoint
     // means 「this PC stores no row」, which is a different question from 「is a
     // model reachable」 — the platform's managed default is not a row at all.
-    const tpl = src.match(/<template>([\s\S]*?)<\/template>/)?.[1] ?? '';
+    const tpl = wholeTemplate(src);
     expect(tpl).not.toContain('model.llm.endpoint');
     model.llm = { preset_id: '', protocol: 'openai-compatible', endpoint: '', api_key: '', model: '' };
     model.llmCapabilityUsable = true;

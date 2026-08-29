@@ -16,14 +16,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'src/audio/retained_audio_dir.dart';
+import 'src/audio/retained_audio_boot.dart';
 import 'src/audio/retained_audio_spill.dart';
-import 'src/audio/retained_audio_store.dart';
 import 'src/auth/account_store.dart';
+import 'src/auth/cloud_summary_controller.dart';
 import 'src/auth/login_controller.dart';
 import 'src/auth/saas_endpoint.dart';
 import 'src/auth/token_storage.dart';
-import 'src/diag/diag_log.dart';
 import 'src/crypto/blind_store_keyring.dart';
 import 'src/destination/destination_controller.dart';
 import 'src/ptt/ptt_session.dart';
@@ -152,41 +151,12 @@ Future<void> main() async {
     map: storage.machineMap,
     storage: SecureTokenStorage(),
   );
-  // SEG-2 (design 2026-08-11 §2-R3) — THE PRODUCTION CONSTRUCTION OF THE
-  // RETAINED-AUDIO LAYER. The layer shipped complete (N1-B3) and constructed
-  // by nothing: Book 15 §2.0-b's correction block measured this exact absence,
-  // so production wrote zero bytes while every retention test was green.
-  // Opened here — the directory comes from path_provider, which is async, and
-  // PttSession's construction (initState) is not — and handed down as the
-  // DEFAULT capture's spill.
-  //
-  // ⚠️ Failure direction: an open failure must not take the app down over its
-  // own safety net. null degrades to the pre-SEG-2 product (no retention),
-  // LOUDLY — and ptt_link_loss.dart then refuses to claim retention in the
-  // user-facing notice, so the degradation never becomes an unbacked promise.
-  RetainedAudioSpill? retainedAudio;
-  try {
-    final RetainedAudioStore retainedStore = await openRetainedAudioStore();
-    // Retention events must be heard (store contract: 「no silent failures」 runs in
-    // both directions). The diagnostics log is the minimum surface the store's
-    // own doc names; listener attached BEFORE the sweep so expiry notices from
-    // a previous run's orphans are not announced into the void.
-    retainedStore.notices.listen(
-      (RetainedAudioNotice n) =>
-          diag('audio.retained.notice', <String, Object?>{
-        'code': n.code,
-        'segment': n.segmentIdx,
-        'bytes': n.bytes,
-      }),
-    );
-    // The orphan backstop retained_audio_dir.dart asks every opener to run:
-    // audio no session can ever claim again ages out, announced on the way.
-    unawaited(retainedStore.sweep());
-    retainedAudio = RetainedAudioSpill(store: retainedStore);
-  } on Object catch (e) {
-    debugPrint('[flowmic.audio] retained-audio store failed to open: $e — '
-        'link-loss retention is DISABLED for this run');
-  }
+  // SEG-2 — the retained-audio layer, opened before the first frame because the
+  // directory comes from path_provider (async) and PttSession's construction is
+  // not. The whole block moved to `audio/retained_audio_boot.dart` VERBATIM on
+  // 2026-08-27 when this file crossed the 800-line source cap; its failure
+  // direction (null ⇒ the pre-SEG-2 product, loudly) is stated there.
+  final RetainedAudioSpill? retainedAudio = await openRetainedAudioSpill();
   runApp(
     FlowMicApp(
       prefs: prefs,
@@ -260,6 +230,11 @@ class _FlowMicAppState extends State<FlowMicApp> {
   late final LlmCapability _llmCapability; // card LLM-NOTICE: the capability.llm reader
   late final ScenarioCardController _scenario;
   late final LoginController _login;
+
+  /// The settings cloud card's quota read-out (owner 2026-08-27). Built here so
+  /// it can watch [_login] for the sign-in transition — that is one of its two
+  /// triggers, and the one no screen can supply.
+  late final CloudSummaryController _cloudSummary;
   late final ChatController _controller;
   late final ConnectionsController _connections;
   late final PortableController _portable;
@@ -352,6 +327,10 @@ class _FlowMicAppState extends State<FlowMicApp> {
       transport: _session.transport,
       accountStore: SecureAccountStore(),
     );
+    // No `fetcher:` ⇒ the REAL http read (`httpCloudSummaryFetch`). The
+    // production default is deliberately not a friendly empty implementation
+    // (13 册 §7 F1 ②); tests hand it `newTestCloudSummary()`'s double.
+    _cloudSummary = CloudSummaryController(login: _login);
     _controller = ChatController(
       session: _session,
       store: _store,
@@ -558,6 +537,10 @@ class _FlowMicAppState extends State<FlowMicApp> {
     _portable.dispose();
     _connections.dispose();
     _controller.dispose();
+    // Before [_login]: it holds a listener on that controller, and a notifier
+    // disposed while something is still subscribed is the leak this repo has
+    // already paid for once (`_pcBusy`, 0.2.51).
+    _cloudSummary.dispose();
     _login.dispose();
     _scenario.dispose();
     _llmCapability.dispose();
@@ -587,18 +570,17 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // read path.
     version: const PackageAppVersion(),
     update: _update,
+    cloudSummary: _cloudSummary,
   );
 
   /// Chat page + live alias label. Listens to [_connections] so a rename
   /// (setAlias → load → notify) refreshes the header without writing the
   /// alias into [PttSession.connectedDeviceName].
   Widget _buildChat() => ListenableBuilder(
-    // UP-2 — the badge on the gear icon is `_update`'s state, so it must also be
-    // in this merge:
-    // listening only to `_connections`, **nothing would rebuild this tree** when
-    // a check result comes back,
-    // and the badge would only appear by coincidence on the next connection-state
-    // change (anti-façade: a capability wired up but never triggered).
+    // UP-2 — the gear badge is `_update`'s state, so it must be in this merge:
+    // on `_connections` alone **nothing rebuilds this tree** when a check comes
+    // back, and the badge would appear only by coincidence on the next
+    // connection-state change (anti-façade: wired up but never triggered).
     listenable: Listenable.merge(<Listenable>[_connections, _update]),
     builder: (BuildContext context, _) => ChatFlowPage(
       controller: _controller,
@@ -611,6 +593,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
       historySource: widget.storage.persistence,
       deviceNameOverride: _connections.activePairingDisplayName,
       isCloudInstance: _connections.activePairingIsCloudInstance,
+      // 🔴 Card CR-9 — the continuous entry's numbers, and whether it appears.
+      cloudSummary: _cloudSummary,
       onOpenSettings: () => Navigator.of(
         _navKey.currentContext!,
       ).push<void>(MaterialPageRoute<void>(builder: (_) => _buildSettings())),
@@ -704,6 +688,23 @@ class _FlowMicAppState extends State<FlowMicApp> {
             scaffoldBackgroundColor: FlowMicColors.canvas,
             colorSchemeSeed: FlowMicColors.brandDeep,
             useMaterial3: true,
+            // 🔴 0.3.43 Q6 — 「全 App 启用 iOS 标准边缘左滑返回」. The back
+            // GESTURE belongs to the page TRANSITION, so one entry reaches every
+            // pushed route. It PINS the gesture rather than switching it on (iOS
+            // already defaults to Cupertino), and ANDROID IS RESTATED, NOT
+            // CHANGED — this map REPLACES the defaults, so an iOS-only one would
+            // silently demote Android off predictive back. The chat page refuses
+            // the gesture by design (its PopScope reports `doNotPop`) — the
+            // 防误操作 half of the ruling. ⚠️ 真机未证: the drag FEEL needs a
+            // TestFlight round. Measurements, pins and the ruling reference:
+            // ios_edge_swipe_back_test.dart + chat_back_policy_test.dart.
+            pageTransitionsTheme: const PageTransitionsTheme(
+              builders: <TargetPlatform, PageTransitionsBuilder>{
+                TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+              },
+            ),
           ),
           // 🔴 FB-4 — the ONE place in the whole App where the three-tier global
           // text-scale setting takes effect.

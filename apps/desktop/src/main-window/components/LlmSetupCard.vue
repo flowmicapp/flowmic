@@ -20,17 +20,39 @@
      first-run DOOR to the two configurations — its body says what works
      without a model and what does not, and asserts no switch's default value.
 
-     🔴 NO 「read the guide」 LINK — the web section does not exist yet (0.3.24's
-     dead-link defect would return). See lib/llm-setup-card.ts. -->
+     🔴 THE 「read the guide」 LINK IS BACK, AND THE COMMENT THAT FORBADE IT WAS
+     RIGHT WHEN IT WAS WRITTEN. It said: no guide link, because the web section
+     did not exist and a link that opens nothing is the 0.3.24 dead-link defect.
+     The page shipped in the 2026-08-27 web round (`/guide/model`, one of
+     `GUIDE_DOC_IDS`), and the owner asked for the link on 2026-08-28. It goes
+     through `openExternalUrl` — the app's ONLY working door to a browser — and
+     a refusal leaves the address on screen instead of nothing. -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { S } from '../../lib/strings';
 import { localKv } from '../../lib/storage';
 import { model } from '../settings-model';
 import { jumpToSettingsSection } from '../../lib/settings-section-jump';
+import { openExternalUrl } from '../../lib/bridge-os';
+import { guideUrl } from '../../lib/site-guide';
 import { readSetupCardDismissed, shouldShowLlmSetupCard, writeSetupCardDismissed } from '../../lib/llm-setup-card';
 
 const dismissed = ref(readSetupCardDismissed(localKv));
+
+/** Computed, not a constant: the manual follows the UI language, and the reader
+ *  can change that while this card is on screen. */
+const manualUrl = computed(() => guideUrl('model'));
+
+/** The address, kept on screen after a refused open. `ok:true` only means the
+ *  OS accepted the request (bridge-os says so), so this reports the one failure
+ *  we can actually observe and never claims a browser appeared. */
+const openFailed = ref<string | null>(null);
+
+async function openManual(): Promise<void> {
+  openFailed.value = null;
+  const r = await openExternalUrl(manualUrl.value);
+  if (!r.ok) openFailed.value = manualUrl.value;
+}
 
 const show = computed(() =>
   shouldShowLlmSetupCard({ usable: model.llmCapabilityUsable, dismissed: dismissed.value }),
@@ -55,8 +77,17 @@ function dismiss(): void {
       <button class="btn pri" type="button" data-jump="llm" @click="jumpToSettingsSection('llm')">
         {{ S.llm_setup_go_llm }}
       </button>
+      <!-- A BUTTON, not an anchor: the two ways an ordinary page asks for a new
+           window both open nothing in this WebView, which is why
+           verify:lint external-link-door forbids them here. -->
+      <button class="btn ghost sm" type="button" data-testid="llm-setup-guide" @click="openManual">
+        {{ S.llm_setup_guide }}
+      </button>
       <button class="btn ghost sm" type="button" @click="dismiss">{{ S.llm_setup_dismiss }}</button>
     </div>
+    <p v-if="openFailed" class="ls-fail" role="alert">
+      {{ S.ext_open_failed }} <span class="mono">{{ openFailed }}</span>
+    </p>
   </section>
 </template>
 
@@ -73,4 +104,5 @@ function dismiss(): void {
 .ls-head { font-size: 13px; font-weight: 700; color: var(--t1); }
 .ls-body { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--t2); }
 .ls-acts { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ls-fail { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--red-ink); word-break: break-all; }
 </style>

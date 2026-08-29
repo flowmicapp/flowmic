@@ -10,54 +10,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, reconcileSchema } from '../src/db/connection';
 import { INIT_SQL } from '../src/db/schema';
-
-// SIX tables since 0.2.27: `transcript_history` was DROPPED (owner architecture ruling
-// docs/decisions/2026-07-31-no-cloud-sync-for-phone-pc.md — the server does not
-// store transcripts). (05-DATA-MODEL §1 used to still list seven; it was rewritten
-// 2026-08-02 and its §1.1 now lists all nine, so the doc and this array agree.)
-// EIGHT since Window D1 (docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2/§3.3):
-// `paddle_subscriptions` (subscription truth) + `billing_events` (idempotency ledger). Both are ADDITIVE —
-// nothing was dropped for them.
-// NINE since 0.2.47: `ops_audit_log` (ops-action trail, schema.ts `-- 10.`). Also purely
-// additive — one CREATE TABLE IF NOT EXISTS, no ALTER, no new reconcileSchema step.
-// TEN since card SALT-1 (2026-08-11): `timeline_keymeta` (per-account blind-store
-// key metadata, schema.ts `-- 11.`). Purely additive, same shape as ops_audit_log.
-// ELEVEN since card GRANT-1 (same batch): `timeline_grants` (web-preview grant
-// authorization rows + one index, schema.ts `-- 12.`). Purely additive too.
-// TWELVE since card VERIFY-1 (same batch): `email_verifications` (the one active
-// verification code per account, schema.ts `-- 13.`) — plus the guarded
-// `users.email_verified_at` ADD COLUMN in reconcileSchema, the one ALTER in this
-// repo that also BACKFILLS (the grandfather stamp; its own tests below).
-// THIRTEEN since card A2-5 / REQ-12-08 (2026-08-12): `usage_events` (one row per
-// metered event, schema.ts `-- 14.`) — purely additive, one CREATE plus one
-// index, no ALTER and no new reconcileSchema step.
-//
-// 🔴 THIS ARRAY IS THE DE-FACTO TABLE REGISTRY. 'has exactly the N tables it
-// should' below compares it against `sqlite_master`, so a table added to
-// INIT_SQL without being appended here turns that test RED — which is the point:
-// a new table nobody registered is a new table nobody proves converges.
-const TABLES = [
-  'users',
-  'pc_devices',
-  'mobile_pairings',
-  'user_settings',
-  'usage_records',
-  'usage_events',
-  'timeline_blobs',
-  'timeline_keymeta',
-  'timeline_grants',
-  'email_verifications',
-  'paddle_subscriptions',
-  // 0.3.25 B1 (card D-2) — the tombstone table. NO foreign key by design: it
-  // records subscriptions whose owning users row is already gone.
-  'paddle_subscription_tombstones',
-  // 0.3.25 B3 — refund records. HAS a foreign key (cascades with the account),
-  // unlike the tombstone above; the two sit together so the contrast is visible.
-  'refund_requests',
-  'billing_events',
-  'ops_audit_log',
-  'site_daily_counts',
-];
+// The registry + the legacy `users` DDL + the four schema-reading helpers, moved
+// verbatim to test/fixtures/migration-schema.ts on 2026-08-27 when NR-1's
+// google_sub test had to become its own file (this one stood at the size cap).
+// ONE `TABLES` array, deliberately — see that file's header for why a second
+// copy would defeat the registry's whole purpose.
+import {
+  columnInfo,
+  LEGACY_USERS_PRE_D1,
+  masterNames,
+  schemaSnapshot,
+  TABLES,
+} from './fixtures/migration-schema';
 
 /** The 0.2.26 `transcript_history` DDL, verbatim, so the drop can be tested
  *  against a database that really predates the retirement. Kept ONLY as this
@@ -94,24 +58,6 @@ CREATE INDEX IF NOT EXISTS idx_transcript_user_time ON transcript_history(user_i
 CREATE INDEX IF NOT EXISTS idx_transcript_pc_time ON transcript_history(pc_device_id, created_at DESC);
 `;
 
-/** The `users` DDL exactly as it stood BEFORE Window D1 (0.2.36) — no
- *  `permanent_free`, and no billing tables anywhere in the file. Kept as a
- *  fixture so the guarded ADD COLUMN can be tested against a database that
- *  really predates the column, which is the only kind of database it ever runs
- *  against in production. */
-const LEGACY_USERS_PRE_D1 = /* sql */ `
-CREATE TABLE IF NOT EXISTS users (
-  id              TEXT PRIMARY KEY,
-  email           TEXT UNIQUE,
-  password_hash   TEXT,
-  display_name    TEXT NOT NULL DEFAULT 'User',
-  plan            TEXT NOT NULL DEFAULT 'free',
-  locale          TEXT NOT NULL DEFAULT 'zh-CN',
-  is_admin        INTEGER NOT NULL DEFAULT 0,
-  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-`;
-
 /** `billing_events` as it stood in D1's FIRST draft — before §3.3-bis added the
  *  redelivery tally. Kept as a fixture because the guarded ADD COLUMN for those
  *  two columns has to be provable against a table that really lacks them, and a
@@ -129,38 +75,6 @@ CREATE TABLE IF NOT EXISTS billing_events (
   detail          TEXT
 );
 `;
-
-interface ColumnInfo {
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-}
-
-function columnInfo(db: DatabaseSync, table: string, column: string): ColumnInfo | undefined {
-  return (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as ColumnInfo[]).find((c) => c.name === column);
-}
-
-/** Names of every table AND index currently in the DB. */
-function masterNames(db: DatabaseSync, type: 'table' | 'index'): string[] {
-  return (
-    db.prepare(`SELECT name FROM sqlite_master WHERE type='${type}' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as {
-      name: string;
-    }[]
-  ).map((r) => r.name);
-}
-
-function schemaSnapshot(db: DatabaseSync): Record<string, unknown> {
-  const snap: Record<string, unknown> = {};
-  for (const t of TABLES) {
-    snap[`table:${t}`] = db.prepare(`PRAGMA table_info(${t})`).all();
-    snap[`index:${t}`] = db.prepare(`PRAGMA index_list(${t})`).all();
-  }
-  snap.master = db
-    .prepare("SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")
-    .all();
-  return snap;
-}
 
 const tmp = mkdtempSync(join(tmpdir(), 'flowmic-mig-'));
 

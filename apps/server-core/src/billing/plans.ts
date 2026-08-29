@@ -29,15 +29,24 @@
 //  2. TOKENS 100K/2M/10M → 1M/20M/100M ("All tiers can remove the TOKEN limit;
 //     for safety, a maximum TOKEN count can be set").
 //
-// 🔴 What changed about llm_tokens is its JOB, not just its value. It is no
-// longer a product gate — it is a RUNAWAY CEILING. Each tier's ceiling now sits
-// roughly 30-40x above what that tier's STT minutes can physically generate
-// (900 min of speech ≈ 180K tokens of transcript; ~720K once organize-mode
-// prompt+output is counted, against a 20M ceiling), so in normal use the
-// minutes bind first and the token meter never speaks. It exists to stop one
-// looping client from spending the month's LLM budget in an afternoon.
-// ⇒ If you ever see a real user hit llm_tokens, that is a BUG REPORT, not a
-// successful upsell. Do not quietly raise it — find out what looped.
+// 🔴 What changed about llm_tokens on 2026-08-02 was its JOB, not just its
+// value. Until 2026-08-27 it was a pure RUNAWAY CEILING: each tier's ceiling
+// sat roughly 30-40x above what that tier's STT minutes could physically
+// generate (900 min of speech ≈ 180K tokens of transcript; ~720K once
+// organize-mode prompt+output is counted, against a then-20M pro ceiling), so
+// in normal use the minutes bound first and the token meter never spoke.
+//
+// 🔴 owner's 2026-08-27 re-cut (pro 20M→5M, max 100M→15M; free unchanged at
+// 1M — docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md) shrank
+// that headroom on purpose: pro now sits roughly 25x above its
+// minutes-implied floor, max roughly 5x. At MAX's ratio the cap is closer to
+// a PRODUCT GATE than a pure safety valve — a heavy organize-mode account on
+// max could plausibly reach it through ordinary use, not only through a
+// looping client.
+// ⇒ If you see a real user hit llm_tokens on FREE, or a light-usage PRO
+// account hit it, that is still a BUG REPORT — find out what looped. On MAX
+// it may legitimately mean "used the product a lot"; do not assume either
+// without checking which.
 //
 // "Only rises, never falls" permits both moves unconditionally: raising is
 // always allowed.
@@ -124,12 +133,81 @@ export interface PlanLimits {
   mobiles: number;
   /** Cloud retention in days (free 30 / pro 365 / max 365). */
   history_days: number;
+  /**
+   * Longest SINGLE continuous ("long-range") transcription, in minutes — free
+   * 10 / pro 30 / max 30 (owner 2026-08-29, registered as a subscription item;
+   * task unit docs/strategy/2026-08-29-continuous-recording-and-resumable-
+   * transcription-task-unit.md).
+   *
+   * 🔴 WHY THIS IS A LIMIT KEY AND NOT `if (plan === 'free') 10 else 30`, which
+   * is the shorter thing to write and is WRONG IN A WAY THAT BITES THE OWNER
+   * FIRST. A `permanent_free` account resolves to plan `'free'` while its
+   * NUMBERS come from BillingService.EXEMPT_LIMITS (max's tier, owner
+   * 2026-08-07) — so a tier-name lookup hands the one account that exists to
+   * test a 30-minute recording a 10-minute ceiling. Every other cell in this
+   * interface already flows through the exempt solver; this one has to as well,
+   * and being a key is what makes that automatic rather than remembered.
+   * The same shape is spelled out one file over in console-routes.ts (the
+   * summary route's 「why the console must be TOLD rather than look it up」).
+   *
+   * ⚠️ DELIBERATELY NOT IN {@link INFINITY_ALLOWED}: an unbounded continuous
+   * recording is not a tier we would sell, it is a retained-audio budget nobody
+   * bounded (15 册 §2.0-b caps the retained store at 128 MiB precisely because
+   * this number is finite). `'unlimited'` here would make that cap unreachable
+   * arithmetic instead of a ceiling.
+   *
+   * ⚠️ It is a SINGLE-SESSION ceiling and answers a different question from
+   * {@link PlanLimits.stt_minutes}, which is the monthly budget. Free is
+   * 20 min/month against a 10 min cap — i.e. two sessions — and the product
+   * copy must state both numbers separately (owner 2026-08-29: 「最多 X 分钟，
+   * 还剩 X 分钟」). Merging them into one figure is this repo's #1 defect shape.
+   */
+  continuous_minutes: number;
 }
 
 /** The limit keys, as data — so override validation can reject an unknown key
  *  instead of ignoring it (an ignored key IS "configured but had no effect"). */
-export const PLAN_LIMIT_KEYS = ['stt_minutes', 'llm_tokens', 'pcs', 'mobiles', 'history_days'] as const;
+export const PLAN_LIMIT_KEYS = ['stt_minutes', 'llm_tokens', 'pcs', 'mobiles', 'history_days', 'continuous_minutes'] as const;
 export type PlanLimitKey = (typeof PLAN_LIMIT_KEYS)[number];
+
+/** 🔴 THE CENSUS BIND — this array and {@link PlanLimits} are two hand-maintained
+ *  answers to ONE question ("what are the limit dimensions"), which is a shape
+ *  this repo has been bitten by before: `bump-version.mjs`'s hand-kept FACES
+ *  table against the version lint's directory walk, where a new package is
+ *  green the day it lands and red on the next bump.
+ *
+ *  Both directions are checked, and they cost different things:
+ *
+ *  ← a key here that is not on the interface: dead weight, caught cheaply.
+ *  → an interface field that never reaches the array: THE EXPENSIVE ONE, and
+ *    nothing at runtime would say so. `plan-view-resolution.test.ts`'s drift
+ *    guard walks THIS ARRAY to prove every exempt cell still equals max's, so
+ *    an unlisted dimension is one where `EXEMPT_LIMITS` may quietly fall behind
+ *    max and hand the `permanent_free` account — the owner's own — the wrong
+ *    number, which is precisely the defect `continuous_minutes` exists to
+ *    avoid. Override validation would also reject the new key as "unknown",
+ *    i.e. an operator configuring a real dimension is told it does not exist.
+ *
+ *  Zero runtime cost and zero emit: when either direction fails, the condition
+ *  resolves to `false`, `false` does not satisfy `extends true`, and
+ *  `pnpm verify:types` fails right here naming this alias.
+ *
+ *  🔴 REVERSE CONTROL, and it is worth stating which one, because the obvious
+ *  one proves less than it looks like it does [both run 2026-08-29, measured]:
+ *    · add a field to PlanLimits and NOTHING else → 5 errors, of which four are
+ *      TS2741 on the tables. This bind is not load-bearing here; the compiler
+ *      was already shouting.
+ *    · add the field AND fill in every table, i.e. do exactly what those four
+ *      TS2741s instruct you to do, leaving only this array behind →
+ *      ONE error, TS2344 at this line. Nothing else in the codebase notices.
+ *  That second case is the realistic one — the compiler marches you through
+ *  every table by name, and this array is the one place it never points at. */
+type _Assert<T extends true> = T;
+export type _PlanLimitKeyCensus = _Assert<
+  [keyof PlanLimits] extends [PlanLimitKey]
+    ? ([PlanLimitKey] extends [keyof PlanLimits] ? true : false)
+    : false
+>;
 
 /** The ONE dimension where ∞ is a legitimate value in a TIER.
  *
@@ -178,6 +256,9 @@ export const PLAN_LIMITS: Readonly<Record<Plan, Readonly<PlanLimits>>> = {
     pcs: 2,
     mobiles: 2,
     history_days: 30,
+    // owner 2026-08-29: the free taste. 10 min against a 20 min monthly budget is
+    // exactly two sessions, which is the shape owner chose knowingly.
+    continuous_minutes: 10,
   },
   pro: {
     // Fair line: finite and fail-loud — NO Infinity escape (mock-billing
@@ -185,16 +266,24 @@ export const PLAN_LIMITS: Readonly<Record<Plan, Readonly<PlanLimits>>> = {
     // 900→60 re-cut of 2026-08-01 was the one allowed CUT (zero paying users),
     // and 60→900 on 2026-08-02 restores it in the always-permitted direction.
     stt_minutes: 900,
-    llm_tokens: 20_000_000,
+    // owner 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-
+    // gauge-and-token-caps.md). See the header for what this ratio now means.
+    llm_tokens: 5_000_000,
     // owner 2026-08-02: 2/3/10. NOT identical to max — the ONE dimension where
     // paid tiers may differ beyond metered spend (header: 「THE ONE EXCEPTION」).
     pcs: 3,
     mobiles: Number.POSITIVE_INFINITY,
     history_days: 365,
+    // owner 2026-08-29. Identical to max on purpose: this dimension is a session
+    // ceiling, not metered spend, so the pro/max difference lives in
+    // stt_minutes (900 vs 3000), not here.
+    continuous_minutes: 30,
   },
   max: {
     stt_minutes: 3_000,
-    llm_tokens: 100_000_000,
+    // owner 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-
+    // gauge-and-token-caps.md). See the header for what this ratio now means.
+    llm_tokens: 15_000_000,
     // owner 2026-08-02: "an individual generally won't need 10 machine instances;
     // if they do, it's basically certainly an enterprise use case" ⇒ past
     // this, the answer is MORE SUBSCRIPTIONS, not a bigger number here. That is
@@ -203,6 +292,8 @@ export const PLAN_LIMITS: Readonly<Record<Plan, Readonly<PlanLimits>>> = {
     // 🔴 identical to pro on purpose — see the red line at the top of this file.
     mobiles: Number.POSITIVE_INFINITY,
     history_days: 365,
+    // owner 2026-08-29 — see pro.
+    continuous_minutes: 30,
   },
 } as const;
 

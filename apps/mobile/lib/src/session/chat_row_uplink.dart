@@ -60,3 +60,21 @@ void _editEntry(ChatController c, TimelineEntry entry, String newText) {
 void _deleteEntry(ChatController c, TimelineEntry entry) {
   c.store.delete(entry.id);
 }
+
+// ── Card NR-3: there is deliberately NO `deleteEntries` on this controller ──
+//
+// The multi-select batch delete calls `TimelineStore.deleteMany` directly, and
+// that is a design choice rather than a shortcut. Two reasons, both
+// grep-checkable:
+//   ① The all-history page (`ui/history_page.dart`) has no ChatController at
+//      all — it is constructed with a TimelineStore and a storage kind
+//      (`main.dart` `_buildHistory`). NR-3 gives that page the same batch
+//      delete as the chat page, and 「the same」 has to mean the same code. A
+//      controller-level entry point could only ever serve one of the two
+//      callers, which is how a second delete path gets born.
+//   ② This layer would add nothing to forward: [_deleteEntry] above is
+//      literally `c.store.delete(entry.id)`. A delegate that adds no behaviour
+//      but does add a second name for one action is exactly the kind of
+//      surface this repo keeps deleting.
+// The chain is unchanged where it matters: store → `TimelineReaper`, the one
+// deleter (timeline_reaper.dart's header states the rule).

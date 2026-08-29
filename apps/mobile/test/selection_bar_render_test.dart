@@ -86,6 +86,7 @@ Future<void> _pumpBar(
             onSelectAll: () {},
             onCopy: () {},
             onOrganize: () {},
+            onDelete: () {},
           ),
         ),
       ),
@@ -101,11 +102,15 @@ void main() {
     'selection.copy.sub',
     'selection.organize.label',
     'selection.organize.sub',
+    // Card NR-3 — the batch-delete cell is held to the same rule as the other
+    // five: nine locales, narrowest band, nothing eaten by an ellipsis.
+    'selection.delete.label',
+    'selection.delete.sub',
   ];
 
   group('① four locales × 360dp: every character on the toolbar is readable', () {
     for (final AppLocale locale in AppLocale.values) {
-      testWidgets('$locale — none of the six cells is eaten by an ellipsis', (WidgetTester tester) async {
+      testWidgets('$locale — none of the eight cells is eaten by an ellipsis', (WidgetTester tester) async {
         await _pumpBar(tester, locale);
         for (final String k in keys) {
           final Finder f = find.byKey(ValueKey<String>(k));
@@ -185,7 +190,7 @@ void main() {
   });
 
   group('④ every control is really tappable (no dead cells that swallow taps)', () {
-    testWidgets('the four entries each fire once', (WidgetTester tester) async {
+    testWidgets('the five entries each fire once', (WidgetTester tester) async {
       final List<String> fired = <String>[];
       tester.view.physicalSize = const Size(kNarrow, 720);
       tester.view.devicePixelRatio = 1.0;
@@ -207,6 +212,7 @@ void main() {
                 // receiver".
                 onCopy: () => fired.add('copy'),
                 onOrganize: () => fired.add('organize'),
+                onDelete: () => fired.add('delete'),
               ),
             ),
           ),
@@ -217,10 +223,14 @@ void main() {
         'selection.selectAll',
         'selection.copy',
         'selection.organize',
+        // Card NR-3: delete is pressable at 0 selected too. The confirm dialog
+        // is the guard against an accidental delete — an inert button is not,
+        // it just leaves the user pressing a control that says nothing back.
+        'selection.delete',
       ]) {
         await tester.tap(find.byKey(ValueKey<String>(k)));
       }
-      expect(fired, <String>['cancel', 'all', 'copy', 'organize']);
+      expect(fired, <String>['cancel', 'all', 'copy', 'organize', 'delete']);
     });
   });
 }

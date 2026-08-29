@@ -25,7 +25,11 @@ export { MailNotConfiguredError } from './provider';
 export type { PasswordResetMailer, PasswordResetMailInput } from './password-reset-mailer';
 export { buildPasswordResetEmail, buildPasswordResetLink, makePasswordResetMailer } from './password-reset-mailer';
 export type { EmailVerificationMailer, EmailVerificationMailInput } from './email-verification-mailer';
-export { buildEmailVerificationEmail, makeEmailVerificationMailer } from './email-verification-mailer';
+export {
+  buildEmailVerificationEmail,
+  buildEmailVerificationLink,
+  makeEmailVerificationMailer,
+} from './email-verification-mailer';
 export { mailConfigFromEnv } from './config';
 export { unconfiguredEmailVerificationMailer, unconfiguredPasswordResetMailer, unconfiguredSubscriptionMailer } from './unconfigured';
 export type { SubscriptionMailer, CancellationMailInput } from './subscription-mailer';
@@ -136,6 +140,16 @@ export function resolveEmailVerificationMailer(env: NodeJS.ProcessEnv = process.
     );
     return unconfiguredEmailVerificationMailer();
   }
-  log.info('mail: email-verification channel ready', { provider: config.provider });
-  return makeEmailVerificationMailer({ provider: createResendMailProvider(config) });
+  // NR-2a — the verify base is printed because it is DERIVED by default
+  // (mail/config.ts): an operator who never set FLOWMIC_MAIL_VERIFY_BASE_URL
+  // still has to be able to read, from one boot line, where the one-click links
+  // this deployment mails will actually land.
+  log.info('mail: email-verification channel ready', {
+    provider: config.provider,
+    verify_base_url: config.verifyBaseUrl,
+  });
+  return makeEmailVerificationMailer({
+    provider: createResendMailProvider(config),
+    verifyBaseUrl: config.verifyBaseUrl,
+  });
 }

@@ -224,7 +224,7 @@ void main() {
       final int rowsBefore = h.store.entries.length;
 
       await h.controller.sendPlusSelection(
-        // Already composed by the panel: tick order, one '\n', no decoration.
+        // Already composed by the panel: chronological order, one '\n', no decoration.
         text: '第一句\n常用一句\n第三句',
         images: <TimelineEntry>[p1, p2],
       );

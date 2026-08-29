@@ -49,11 +49,29 @@
 // 「a control that changes nothing is worse than no control at all」). The
 // only things tappable on screen are page-flip / skip / finish.
 
+// ── NR-6 (2026-08-27) ───────────────────────────────────────────────────────
+// SPEC-REF: docs/ui-design/2026-08-27-nr6-onboarding-visual-upgrade-design.md
+//   §5 (page transition) / §6 (dots) / §7 (type tokens) / §8 (wide-screen
+//   centring) / §9 (the download row, which closes owner ruling 7-3).
+//
+// Four things moved and NONE of them is the page flow: `_next`/`_back` decide
+// exactly what they decided before, the three buttons keep their keys and their
+// visibility rules, and the guide is still three pages, still skippable, still
+// asks for no permission and still stands in for nothing.
+//
+// 🔴 EVERY ANIMATION ON THIS PAGE READS ONE FLAG. `MediaQuery
+// .disableAnimationsOf(context)` is the OS 「reduce motion」 setting, and this
+// file plus onboarding_art.dart are its FIRST consumers in the whole app. The
+// rule is uniform and it is a DURATION rule, not a feature rule: with the flag
+// on, every duration collapses to zero, so the end state is identical and only
+// the travel disappears.
+
 import 'package:flutter/material.dart';
 
 import '../../settings/app_strings.dart';
 import '../tokens.dart';
 import 'onboarding_art.dart';
+import 'onboarding_download_block.dart';
 
 /// Three pages, fixed order. The value order **IS** the page order (`index`
 /// is used directly as progress).
@@ -91,6 +109,11 @@ class OnboardingView extends StatefulWidget {
 class _OnboardingViewState extends State<OnboardingView> {
   OnboardingStep _step = OnboardingStep.what;
 
+  /// NR-6 §5: which way the last navigation went, so the incoming page slides
+  /// in from the side it came from. Pure presentation — nothing about WHICH
+  /// page is shown reads it.
+  bool _forward = true;
+
   bool get _isLast => _step == OnboardingStep.values.last;
 
   void _next() {
@@ -98,13 +121,23 @@ class _OnboardingViewState extends State<OnboardingView> {
       widget.onFinish();
       return;
     }
-    setState(() => _step = OnboardingStep.values[_step.index + 1]);
+    setState(() {
+      _forward = true;
+      _step = OnboardingStep.values[_step.index + 1];
+    });
   }
 
   void _back() {
     if (_step.index == 0) return;
-    setState(() => _step = OnboardingStep.values[_step.index - 1]);
+    setState(() {
+      _forward = false;
+      _step = OnboardingStep.values[_step.index - 1];
+    });
   }
+
+  /// [d], or nothing at all when the OS asks for reduced motion.
+  Duration _motion(BuildContext context, Duration d) =>
+      MediaQuery.disableAnimationsOf(context) ? Duration.zero : d;
 
   @override
   Widget build(BuildContext context) {
@@ -126,7 +159,10 @@ class _OnboardingViewState extends State<OnboardingView> {
               onPressed: widget.onFinish,
               child: Text(
                 s.onboardingSkip,
-                style: TextStyle(color: FlowMicColors.t3, fontSize: 13),
+                style: TextStyle(
+                  color: FlowMicColors.t3,
+                  fontSize: kOnboardingSkipSize,
+                ),
               ),
             ),
           ),
@@ -134,35 +170,79 @@ class _OnboardingViewState extends State<OnboardingView> {
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // collection-if over the enum: each page is written on its
-                  // own, sharing no single 「title/body/art」 ternary — that
-                  // shape would turn 「why does page 2 have an extra
-                  // sentence」 into a branch inside a conditional expression,
-                  // illegible.
-                  if (_step == OnboardingStep.what) ...<Widget>[
-                    _art(const OnboardingArtWhat(), s.onboardingArtWhat),
-                    _title(s.onboardingWhatTitle),
-                    _body(s.onboardingWhatBody),
-                  ],
-                  if (_step == OnboardingStep.installPc) ...<Widget>[
-                    _art(const OnboardingArtInstall(), s.onboardingArtInstall),
-                    _title(s.onboardingInstallTitle),
-                    _body(s.onboardingInstallBody),
-                    _body(s.onboardingCodeExpiryNote, muted: true),
-                  ],
-                  if (_step == OnboardingStep.pairAndSpeak) ...<Widget>[
-                    _art(const OnboardingArtPair(), s.onboardingArtPair),
-                    _title(s.onboardingPairTitle),
-                    _body(s.onboardingPairBody),
-                    _body(s.onboardingSpeakBody),
-                    _body(s.onboardingSameNetworkNote, muted: true),
-                  ],
-                ],
+            // NR-6 §8: the 420dp column used to hug the left edge on anything
+            // wider than that. `Align(topCenter)` and NOT a bare `Center`: the
+            // vertical axis must keep starting at the top, which is what a
+            // `Center` would take away.
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: AnimatedSwitcher(
+                  duration: _motion(context, const Duration(milliseconds: 220)),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  // A fade ALONE would not say which way the flow went, and
+                  // 「上一步」/「下一步」 are directional. 8dp is deliberately
+                  // small: it is a hint of direction, not a carousel.
+                  transitionBuilder:
+                      (Widget child, Animation<double> animation) =>
+                          FadeTransition(
+                            opacity: animation,
+                            child: AnimatedBuilder(
+                              animation: animation,
+                              builder:
+                                  (BuildContext context, Widget? inner) =>
+                                      Transform.translate(
+                                        offset: Offset(
+                                          (_forward ? 8 : -8) *
+                                              (1 - animation.value),
+                                          0,
+                                        ),
+                                        child: inner,
+                                      ),
+                              child: child,
+                            ),
+                          ),
+                  child: Column(
+                    // The key is what makes the switcher see a NEW child; the
+                    // page identity is the step, so that is the key.
+                    key: ValueKey<OnboardingStep>(_step),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      // collection-if over the enum: each page is written on
+                      // its own, sharing no single 「title/body/art」 ternary —
+                      // that shape would turn 「why does page 2 have an extra
+                      // sentence」 into a branch inside a conditional
+                      // expression, illegible.
+                      if (_step == OnboardingStep.what) ...<Widget>[
+                        _art(const OnboardingArtWhat(), s.onboardingArtWhat),
+                        _title(s.onboardingWhatTitle),
+                        _body(s.onboardingWhatBody),
+                      ],
+                      if (_step == OnboardingStep.installPc) ...<Widget>[
+                        _art(
+                          const OnboardingArtInstall(),
+                          s.onboardingArtInstall,
+                        ),
+                        _title(s.onboardingInstallTitle),
+                        _body(s.onboardingInstallBody),
+                        _body(s.onboardingCodeExpiryNote, muted: true),
+                        // NR-6 §9 — the download row, after the expiry note
+                        // because it answers the NEXT question ("fine, where do
+                        // I get it") rather than qualifying the previous one.
+                        OnboardingDownloadBlock(strings: s),
+                      ],
+                      if (_step == OnboardingStep.pairAndSpeak) ...<Widget>[
+                        _art(const OnboardingArtPair(), s.onboardingArtPair),
+                        _title(s.onboardingPairTitle),
+                        _body(s.onboardingPairBody),
+                        _body(s.onboardingSpeakBody),
+                        _body(s.onboardingSameNetworkNote, muted: true),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -225,7 +305,9 @@ class _OnboardingViewState extends State<OnboardingView> {
       key: const ValueKey<String>('onboarding.title'),
       textAlign: TextAlign.center,
       style: TextStyle(
-        fontSize: 19,
+        // NR-6 §7 — the five sizes on this page are named constants now. Same
+        // numbers, and `onboarding_typography_test.dart` pins that.
+        fontSize: kOnboardingTitleSize,
         fontWeight: FontWeight.w700,
         color: FlowMicColors.t1,
         height: 1.35,
@@ -273,7 +355,7 @@ class _OnboardingViewState extends State<OnboardingView> {
       text,
       textAlign: TextAlign.center,
       style: TextStyle(
-        fontSize: muted ? 12.5 : 14,
+        fontSize: muted ? kOnboardingBodyMutedSize : kOnboardingBodySize,
         color: muted ? FlowMicColors.t3 : FlowMicColors.t2,
         height: 1.55,
       ),
@@ -286,8 +368,16 @@ class _OnboardingViewState extends State<OnboardingView> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
+          // NR-6 §6: the active dot GROWS into place instead of teleporting.
+          // Deliberately its own duration rather than one shared controller
+          // with the page transition — 200 and 220 are close enough that the
+          // eye reads them as one movement, and syncing them would buy nothing
+          // for the cost of wiring a controller through two widgets.
           for (final OnboardingStep step in OnboardingStep.values)
-            Container(
+            AnimatedContainer(
+              key: ValueKey<String>('onboarding.dot.${step.name}'),
+              duration: _motion(context, const Duration(milliseconds: 200)),
+              curve: Curves.easeOut,
               width: step == _step ? 18 : 7,
               height: 7,
               margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -325,7 +415,7 @@ class _OnboardingViewState extends State<OnboardingView> {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 14.5,
+            fontSize: kOnboardingButtonLabelSize,
             fontWeight: FontWeight.w600,
             color: primary ? FlowMicColors.onBrandInk : FlowMicColors.t2,
           ),

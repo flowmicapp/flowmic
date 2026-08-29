@@ -36,33 +36,41 @@ afterEach(() => {
 });
 
 describe('default plan limits = owner 2026-08-02 table', () => {
-  it('free: 20 min / 1M token / 2 PC / 2 phone / 30 days', () => {
+  it('free: 20 min / 1M token / 2 PC / 2 phone / 30 days / 10 min per session', () => {
     expect(PLAN_LIMITS.free).toEqual({
       stt_minutes: 20,
       llm_tokens: 1_000_000,
       pcs: 2,
       mobiles: 2,
       history_days: 30,
+      // owner 2026-08-29 — the longest SINGLE continuous recording. A different
+      // question from stt_minutes above (that one is the MONTHLY budget), and
+      // free is where the two are closest: 10 against 20, i.e. two sessions.
+      continuous_minutes: 10,
     });
   });
 
-  it('pro: 900 min / 20M token / 3 PC / ∞ phone / 365 days', () => {
+  // 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+  it('pro: 900 min / 5M token / 3 PC / ∞ phone / 365 days', () => {
     expect(PLAN_LIMITS.pro).toEqual({
       stt_minutes: 900,
-      llm_tokens: 20_000_000,
+      llm_tokens: 5_000_000,
       pcs: 3,
       mobiles: Number.POSITIVE_INFINITY,
       history_days: 365,
+      continuous_minutes: 30, // owner 2026-08-29
     });
   });
 
-  it('max: 3,000 min / 100M token / 10 PC / ∞ phone / 365 days', () => {
+  // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+  it('max: 3,000 min / 15M token / 10 PC / ∞ phone / 365 days', () => {
     expect(PLAN_LIMITS.max).toEqual({
       stt_minutes: 3_000,
-      llm_tokens: 100_000_000,
+      llm_tokens: 15_000_000,
       pcs: 10,
       mobiles: Number.POSITIVE_INFINITY,
       history_days: 365,
+      continuous_minutes: 30, // owner 2026-08-29 — same as pro, see the red line below
     });
   });
 
@@ -110,8 +118,12 @@ describe('default plan limits = owner 2026-08-02 table', () => {
     expect(planLimits('max').pcs).toBe(10);
   });
 
-  it('🔴 pro and max stay identical on phones + retention — the cloud sells convenience, never capability', () => {
-    for (const key of ['mobiles', 'history_days'] as const) {
+  // 2026-08-29: `continuous_minutes` JOINED this line. owner priced it 10/30/30
+  // — free is held back, but paying more than pro buys no additional recording
+  // length. It is a convenience dimension in exactly the sense this test names,
+  // and a later "max should get 60" would be a pricing ruling, not a refactor.
+  it('🔴 pro and max stay identical on phones + retention + session length — the cloud sells convenience, never capability', () => {
+    for (const key of ['mobiles', 'history_days', 'continuous_minutes'] as const) {
       expect(PLAN_LIMITS.max[key]).toBe(PLAN_LIMITS.pro[key]);
     }
     // Positive control: the two tiers ARE different — otherwise the assertion
@@ -141,6 +153,11 @@ describe('default plan limits = owner 2026-08-02 table', () => {
       expect(Number.isFinite(PLAN_LIMITS[p].stt_minutes)).toBe(true);
       expect(Number.isFinite(PLAN_LIMITS[p].llm_tokens)).toBe(true);
       expect(Number.isFinite(PLAN_LIMITS[p].history_days)).toBe(true);
+      // 🔴 `continuous_minutes` is deliberately absent from INFINITY_ALLOWED
+      // (see its doc in plans.ts). An ∞ session ceiling would not be a generous
+      // tier — it would make the 128 MiB retained-audio cap the real limit,
+      // reached by arithmetic nobody chose, with no number to show the user.
+      expect(Number.isFinite(PLAN_LIMITS[p].continuous_minutes)).toBe(true);
     }
   });
 });

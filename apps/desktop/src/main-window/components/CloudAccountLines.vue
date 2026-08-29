@@ -43,6 +43,13 @@ const emit = defineEmits<{ (e: 'retry'): void }>();
 //      be reached right now";
 //   ② Account — **the whole line is absent when there is no live answer** (not
 //      "—", and definitely not the internal id);
+//   ④ This month — the two-ended quota gauge (owner 2026-08-27). One rail, one
+//      centre tick: minutes grow inward from the left, LLM context grows inward
+//      from the right. An END whose meter could not be read is ABSENT (no bar, no
+//      label) rather than drawn at zero — a zero-length bar reads as "you have used
+//      none of it", which is not an answer we have. Every width and every sentence
+//      is decided in lib/cloud-account.ts [quotaGauge]; this file only paints them,
+//      which is why the honesty rules stay testable without a browser;
 //   ⑤ Subscription valid-until — the whole line is absent on the free tier (not "—");
 //   ⑥ Cloud Key valid-until — below the divider, its label already carries the
 //      words "Cloud Key".
@@ -55,7 +62,7 @@ const hasRowsAbove = computed(
   () =>
     props.card.identityText !== null ||
     props.card.planBadge !== null ||
-    props.card.usageText !== null ||
+    props.card.gauge !== null ||
     props.card.subExpiresText !== null ||
     props.card.subStateText !== null,
 );
@@ -76,9 +83,29 @@ const hasRowsAbove = computed(
       <span v-if="card.sourceBadge" class="chip src">{{ card.sourceBadge }}</span>
     </div>
 
-    <div v-if="card.usageText" class="ca-line">
+    <div v-if="card.gauge" class="ca-line ca-gauge-line">
       <span class="ca-k">{{ S.cloud_usage }}</span>
-      <span class="ca-v">{{ card.usageText }}</span>
+      <div class="qg">
+        <div class="qg-track">
+          <div
+            v-if="card.gauge.minutes"
+            class="qg-fill min"
+            :class="{ over: card.gauge.minutes.over }"
+            :style="{ width: card.gauge.minutes.pct + '%' }"
+          ></div>
+          <div
+            v-if="card.gauge.context"
+            class="qg-fill ctx"
+            :class="{ over: card.gauge.context.over }"
+            :style="{ width: card.gauge.context.pct + '%' }"
+          ></div>
+          <div class="qg-tick"></div>
+        </div>
+        <div class="qg-labels">
+          <span v-if="card.gauge.minutes" class="qg-min">{{ card.gauge.minutes.label }}</span>
+          <span v-if="card.gauge.context" class="qg-ctx">{{ card.gauge.context.label }}</span>
+        </div>
+      </div>
     </div>
 
     <div v-if="card.subExpiresText" class="ca-line">
@@ -117,6 +144,33 @@ const hasRowsAbove = computed(
 .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; line-height: 1.6; }
 .chip.plan { background: var(--amber-soft); color: var(--amber-ink); }
 .chip.src { background: var(--teal-soft); color: var(--teal-ink); }
+/* ④ THE QUOTA GAUGE (owner 2026-08-27). One track, one centre tick: speech minutes
+   fill from the left edge inwards, LLM context fills from the right edge inwards,
+   and each meter's 100% IS the centre — so the two can never overlap and no reader
+   can mistake one bar for the other. The widths arrive already clamped from
+   lib/cloud-account.ts [gaugePct]; nothing here does arithmetic.
+   Colours are the two channel/brand inks already in tokens.css — no private hex,
+   and both themes are covered because every value is a token. */
+.ca-gauge-line { align-items: center; }
+.qg { flex: 1 1 220px; min-width: 170px; display: flex; flex-direction: column; gap: 4px; }
+.qg-track {
+  position: relative; height: 6px; border-radius: 999px;
+  background: var(--line); overflow: hidden;
+}
+.qg-fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.qg-fill.min { left: 0; background: var(--brand); }
+.qg-fill.ctx { right: 0; background: var(--teal); }
+/* used ≥ limit: the fill has reached the centre. The COLOUR changes, the numbers
+   below do not — the label keeps saying what was really used. */
+.qg-fill.over { background: var(--amber); }
+/* The midpoint. Drawn over the fills so "this side is full" is visible as the bar
+   arriving AT the mark rather than merely being long. */
+.qg-tick { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--surface); }
+.qg-labels { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--t2); }
+/* Each label sits under its own end, so which number belongs to which bar needs no
+   legend. `margin-left:auto` keeps the right one right-aligned even when the left
+   meter could not be read and its span is absent. */
+.qg-ctx { margin-left: auto; text-align: right; }
 /* The rule that keeps "Subscription" and "Cloud Key" from being read as one block. */
 .ca-sep { height: 1px; background: var(--line); margin: 4px 0 2px; }
 /* Sibling of PairedList's `.pm-seen`: a dotted underline is this app's ONE mark for

@@ -658,3 +658,59 @@ fn reading_the_pcid_does_not_disturb_the_other_ack_fields() {
     assert_eq!(parse_register_ack(&old), (Some("tok".into()), Some("pc-1".into()), Some("room-1".into())));
     assert_eq!(parse_pcid(&old), None);
 }
+
+// ── owner ruling 2026-08-27 §R1 追加: a relay refusal must reach the screen ────
+//
+// The five device-page verbs in outbound.rs each reduce their ack to a
+// `bool`/`Option` — correctly, because that is the answer to 「did MY verb take
+// effect」. What they used to do additionally was DESTROY the ack's `error` on
+// the way, so a relay saying 「this account no longer exists」 came out looking
+// exactly like a dropped packet. The parsers above are unchanged and still
+// answer `false`/`None` for an error ack (that half was always right); what is
+// new is that the code is now also read out intact, by [`ack_error_code`], and
+// judged one layer up by `pairing::is_account_validity_refusal`.
+//
+// ⚠️ Read the two tests below together. Separately, each is satisfiable by a
+// function that always answers 「yes」 or always answers 「no」.
+
+#[test]
+fn ack_error_code_reads_the_refusal_the_parsers_throw_away() {
+    // The exact nesting a socket.io ack arrives in (`[ [obj] ]`).
+    let nested = vec![json!([{ "error": "AUTH_TOKEN_INVALID" }])];
+    assert_eq!(ack_error_code(&nested).as_deref(), Some("AUTH_TOKEN_INVALID"));
+    // …and the flat shape unwrap_ack also accepts.
+    let flat = vec![json!({ "error": "ACCOUNT_RESTRICTED" })];
+    assert_eq!(ack_error_code(&flat).as_deref(), Some("ACCOUNT_RESTRICTED"));
+
+    // 🔴 POSITIVE CONTROL FOR THE OTHER HALF: the very same payloads still make
+    // the parsers answer 「no」. Both facts are true at once, which is the whole
+    // point — the verb failed AND the account was refused, two answers.
+    assert_eq!(parse_list_mobiles_ack(&json!({ "error": "AUTH_TOKEN_INVALID" })), None);
+    assert!(!parse_release_mobile_ack(&json!({ "error": "AUTH_TOKEN_INVALID" }), false));
+
+    // A SUCCESS ack must not produce a phantom refusal — otherwise every
+    // successful device-page read would paint a red line.
+    assert_eq!(ack_error_code(&[json!([{ "ok": true, "mobiles": [] }])]), None);
+    assert_eq!(ack_error_code(&[json!([{ "error": "" }])]), None);
+    assert_eq!(ack_error_code(&[json!([{ "error": 7 }])]), None);
+    assert_eq!(ack_error_code(&[]), None);
+}
+
+#[test]
+fn only_account_verdicts_are_routed_to_the_identity_surface() {
+    use crate::socket::outbound::is_account_validity_refusal;
+    use crate::socket::pairing::is_account_auth_failure;
+    // The three the relay can send about the ACCOUNT.
+    assert!(is_account_validity_refusal("AUTH_TOKEN_INVALID"));
+    assert!(is_account_validity_refusal("AUTH_TOKEN_EXPIRED"));
+    assert!(is_account_validity_refusal("ACCOUNT_RESTRICTED"));
+    // 🔴 …and ACCOUNT_RESTRICTED is deliberately NOT one of the two that drop the
+    // Cloud Key. A restricted account's key is perfectly valid: clearing it would
+    // send the user to sign in again, which succeeds and changes nothing.
+    assert!(!is_account_auth_failure("ACCOUNT_RESTRICTED"));
+    // Everything else stays the VERB's business. Routing these would paint an
+    // identity refusal over a rate limit — the same defect facing the other way.
+    for code in ["PAIR_RATE_LIMITED", "PAIR_INVALID_PAYLOAD", "PCS_LIMIT_EXCEEDED", "SETTINGS_SCHEMA_INVALID", ""] {
+        assert!(!is_account_validity_refusal(code), "{code} must not be routed as an account verdict");
+    }
+}

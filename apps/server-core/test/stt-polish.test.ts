@@ -320,7 +320,7 @@ describe('polish latency budget scales with input length', () => {
     // entry point and fails if `polishFinalText` ever goes back to a constant.
     vi.useFakeTimers();
     try {
-      const long = '字'.repeat(200); // budget = 800 + 200*20 = 4800 ms
+      const long = '字'.repeat(200); // budget = min(2000 + 200*20, 6000) = 6000 ms (cap)
       let aborted = false;
       const streamer: LlmStreamer = async function* (opts) {
         await new Promise<void>((resolve) => {
@@ -333,11 +333,11 @@ describe('polish latency budget scales with input length', () => {
       };
       const pending = polishFinalText(long, CFG, { streamerFor: () => streamer });
 
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(aborted, 'the old flat 800ms floor would already have aborted here').toBe(false);
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(aborted, 'a flat 2000ms floor would already have aborted here').toBe(false);
 
-      await vi.advanceTimersByTimeAsync(4_000);
-      expect(aborted, 'the scaled 4800ms budget must eventually fire').toBe(true);
+      await vi.advanceTimersByTimeAsync(3_600);
+      expect(aborted, 'the capped 6000ms budget must eventually fire').toBe(true);
 
       const r = await pending;
       expect(r.skipReason).toBe('timeout');

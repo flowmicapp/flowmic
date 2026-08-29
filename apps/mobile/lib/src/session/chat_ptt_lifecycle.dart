@@ -70,9 +70,15 @@ extension ChatPttLifecycle on ChatController {
   /// compose:done」 asks for, expressed at the gate instead of as a second FSM
   /// latch (the FSM's 15 s net covers PTT-up→final; the compose watchdog covers
   /// start→terminal; they never overlap, so neither can double-fire).
+  ///
+  /// 🔴 NR-4-P1 (a): the session term is [sessionAcceptsPttDown], not a local
+  /// `== idle` — this is a MIRROR of the FSM's own gate and a mirror that
+  /// spells its own rule is a second author. The JUST_DONE window is now
+  /// pressable; PROCESSING is not, and the reason it stays shut lives on that
+  /// predicate.
   bool get canPtt =>
       _conn == ConnectionState.connected &&
-      _sess == SessionState.idle &&
+      sessionAcceptsPttDown(_sess) &&
       !utteranceCompose.isRunning;
 
   // ── recording panel truth (R6 T-5d) ──────────────────────────────────
@@ -92,6 +98,20 @@ extension ChatPttLifecycle on ChatController {
   /// True while the recording panel should be up (§6.3: it opens on PTT-down
   /// and collapses on release).
   bool get isRecording => _sess == SessionState.recording;
+
+  /// Card CR-9 — the ceiling's one-minute reminder just fired.
+  ///
+  /// 🔴 IT ONLY REPAINTS, AND THAT IS THE WHOLE JOB. The fact itself is already
+  /// recorded, by the clock that produced it (`ContinuousCapTimer.warningTicket`
+  /// — its doc says why it lives there and not on this controller). What was
+  /// missing is a nudge: the reminder is born inside a `Timer`, outside every
+  /// notification this page listens to, so without this call the ticket goes up
+  /// and no frame is ever built to read it.
+  ///
+  /// ⚠️ Deliberately NOT a second copy of the flag here. Two owners for 「is the
+  /// reminder standing」 is this repo's oldest defect shape, and the auto-hide
+  /// reconciler and the banner source both read the clock's.
+  void noteContinuousCapWarning() => notifyUi();
 
   void _onAmplitude(double db) => onAmplitudeRouted(this, db);
 

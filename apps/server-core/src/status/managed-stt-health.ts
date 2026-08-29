@@ -61,9 +61,19 @@ import { probeRouteLiveness, type LivenessOptions, type LivenessVerdict } from '
  * `shortLang`). '*' is not a language any provider knows, so passing it through
  * would probe a config no real session ever uses.
  *
- * `'en'` is one of the four the phone can send
- * (`kSpokenLangs = ['zh','en','ja','ko']`). A green verdict therefore speaks for
- * this hint and not for the other three — stated in the header, not implied.
+ * `'en'` is ONE of the languages the phone can send (`kSpokenLangs` in
+ * apps/mobile/lib/src/settings/app_settings.dart — eight of them as measured
+ * 2026-08-28). A green verdict therefore speaks for this hint and NOT for the
+ * other seven — stated in the header, not implied.
+ *
+ * 🔴 THIS SENTENCE WAS ITSELF UNDER-REPORTING, AND THAT IS WORSE THAN AN
+ * ORDINARY STALE FACT. It used to read "one of the four … not for the other
+ * three", pinned to `kSpokenLangs = ['zh','en','ja','ko']`. The array reached
+ * eight (fr/es/de/ru) and this line did not move, so the disclaimer whose ONLY
+ * JOB is to bound what the probe proves was itself claiming a gap half the real
+ * size. A stale disclaimer is more dangerous than a stale fact: a reader
+ * discounts a fact, but takes a disclaimer as the measured limit and stops
+ * looking. Hence the pointer — the count moves, the sentence should not have to.
  */
 export const STT_PROBE_LANGUAGE = 'en';
 

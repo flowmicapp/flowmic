@@ -30,6 +30,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../../session/image_clipboard.dart' show TextCopy;
 import '../../settings/app_strings.dart';
 import '../../timeline/timeline_entry.dart';
+import '../../timeline/timeline_reaper.dart' show ReapResult;
 
 /// The text the selected records fold down into, and how that folding happened.
 class SelectedRecords {
@@ -265,3 +266,50 @@ String batchOrganizeStartedText(SelectedRecords records, AppStrings strings) =>
         records.imageRows,
       )
     : strings.selectionOrganizeStarted(records.textRows);
+
+// ── batch delete (card NR-3) ────────────────────────────────────────────────
+//
+// 🔴 THIS FAMILY DELIBERATELY DOES NOT REUSE [selectedRecords]. That derivation
+// answers 「what TEXT do these rows fold down to」 — it drops picture rows and
+// it drops rows whose text is empty, and both drops are correct for copy and
+// organize. Delete asks a different question: 「how many ROWS are about to
+// stop existing」. Feeding it `textRows` would under-report every batch that
+// contains a picture or a remote-key row, and under-reporting the size of an
+// irreversible action is the worst direction to be wrong in.
+// ⇒ two questions, two derivations. Sharing one here is precisely this repo's
+//   #1 bug shape, which is also why `selectedRecords`' own header says the two
+//   actions that DO ask the same question must share.
+
+/// How many of these rows are pictures.
+///
+/// 🔴 Told to the user BEFORE the press, because a picture row costs more than
+/// a row: the one deleter takes its image FILE off this phone with it
+/// (`TimelineReaper.reap` ②). After the fact there is nothing left to
+/// disclose.
+int imageRowsIn(Iterable<TimelineEntry> rows) =>
+    rows.where((TimelineEntry e) => e.isImage).length;
+
+/// The confirm dialog's body. Two sentences, chosen by whether pictures are in
+/// the batch — the picture clause is not appended as a second toast because a
+/// destructive confirmation has to be readable in one place, at once.
+String batchDeleteConfirmBody(
+  int selected,
+  int images,
+  AppStrings strings,
+) => images > 0
+    ? strings.selectionDeleteConfirmBodyWithImages(selected, images)
+    : strings.selectionDeleteConfirmBody(selected);
+
+/// The result sentence.
+///
+/// 🔴 Both numbers come off [ReapResult] — what the deleter **measured itself
+/// doing** — never off the selection. They can legitimately differ from what
+/// was ticked: `pictures` counts image FILES actually found and removed, and a
+/// row delivered before RV-93 is a picture row whose file was already gone
+/// (`ReapResult.pictures`' own doc records that history). Reporting the
+/// selection instead would be an unmeasured claim, which doc 16 §6.2-5 forbids
+/// on exactly this surface.
+String batchDeleteResultText(ReapResult out, AppStrings strings) =>
+    out.pictures > 0
+    ? strings.selectionDeletedWithImages(out.rows, out.pictures)
+    : strings.selectionDeleted(out.rows);

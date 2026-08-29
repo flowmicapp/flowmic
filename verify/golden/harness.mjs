@@ -264,6 +264,36 @@ export function startSaasServer(extraEnv = {}) {
         // grep `startSaasServer` and fill in X here.** This is not a reminder — both times it was
         // discovered by an executor running the full suite on a different card, not by the card that added the guard.
         FLOWMIC_TRUSTED_PROXIES: '127.0.0.1,::1',
+        // 🔴 owner batch-2 item 4 (2026-08-27) —— **the third time, the same function.**
+        //
+        // The per-IP DAILY account cap is **2** (`REGISTER_MAX_PER_DAY`, an owner number).
+        // Every golden dials **loopback**, so every account a case creates shares **one**
+        // address bucket, and several cases mint three or more **by design** — a billing
+        // chain has nothing to compare unless it can stand up an exempt account, a mapped
+        // one and an unmapped one. The moment that cap landed, **G17 and G18 went red**
+        // with `429 REGISTER_RATE_LIMITED, retry_after_ms ≈ 86,400,000` — i.e. "come back
+        // tomorrow", inside a suite that runs on every delivery.
+        //
+        // ⇒ **this line is the fixture's answer, and it is NOT a product carve-out.**
+        // The two tempting alternatives were both rejected on the record:
+        //   · exempting loopback **inside product code** would ship a bypass nobody
+        //     exercises and everybody trusts — and behind nginx **every peer IS loopback**,
+        //     which is exactly the shape fix-010 above already cost this repo once;
+        //   · lowering the default would answer a **test** problem by changing what
+        //     **users** get, which is the ruling itself, undone quietly.
+        // What moves instead is one env var read by `resolveRegisterDailyCap`
+        // (apps/server-core/src/auth/register-rate-limit.ts), whose default is — and
+        // stays — the owner's 2. A junk value there falls back to 2 and says so, so this
+        // seam cannot be used to turn the cap OFF, only to raise it for a box like this one.
+        //
+        // 50 rather than "big enough for today": the number has to survive the next case
+        // that needs four accounts without anybody re-reading this comment, and there is
+        // no cost to headroom on an ephemeral in-memory server that lives ~2 seconds.
+        //
+        // ⚠️ It is set BEFORE `...extraEnv` on purpose — a case that genuinely wants to
+        // TEST the cap can still override it downward, which is the whole reason
+        // `extraEnv` merges last.
+        FLOWMIC_REGISTER_DAILY_CAP: '50',
         ...extraEnv,
       },
     });

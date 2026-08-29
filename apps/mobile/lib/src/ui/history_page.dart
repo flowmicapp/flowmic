@@ -37,7 +37,28 @@
 // noted and failed rows show no "→ window" leg. Empty is empty — nothing is
 // back-filled to look respectable.
 
+// ── Card NR-3 (owner ruling 2026-08-27 item 8) ──────────────────────────────
+// This page was READ-ONLY: it handed ChatMessageTile no callbacks at all, so a
+// long press did nothing and there was no way to remove a row from the one
+// screen that shows every row. owner's ruling wires the chat page's existing
+// interactions in here — the SAME long-press menu, the SAME EntrySelection, the
+// SAME SelectionBar. Explicitly not a second menu and not a second delete path.
+//
+// 🔴 WHAT THIS PAGE HAS THAT THE CHAT PAGE DOES NOT, and why it changes two
+// things:
+//   ① It holds a [TimelineStore] and nothing else — no ChatController, no
+//      session, no favourites. Four of the menu's eight actions therefore
+//      cannot run here and are withheld by `sessionActions: false`
+//      (entry_context_menu.dart argues that at the flag).
+//   ② Its list is `_hits ?? store.entries`, and `_hits` is a SNAPSHOT taken
+//      from storage by [TimelineStore.search]. The store's notification
+//      refreshes `store.entries`; it cannot refresh a local snapshot ⇒ a
+//      deleted row would keep rendering in a search result. [_forgetDeleted]
+//      is the fix, and it is why every delete on this page routes through one
+//      place.
+
 import 'dart:async' show unawaited;
+import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/material.dart';
 
@@ -46,7 +67,16 @@ import '../settings/app_strings.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_sqlite.dart' show TimelineStorageKind;
 import '../timeline/timeline_store.dart';
+import '../session/image_clipboard.dart'
+    show ImageCopyOutcome, copyEntrySourceText, copyEntryToClipboard;
+import 'chat_flow_toast.dart' show showChatToast;
 import 'chat_message_tile.dart';
+import 'confirm_dialog.dart';
+import 'entry_context_menu.dart';
+import 'image_preview_page.dart';
+import 'selection/batch_actions.dart';
+import 'selection/entry_selection.dart';
+import 'selection/selection_bar.dart';
 import 'tokens.dart';
 
 class HistoryPage extends StatefulWidget {
@@ -83,6 +113,10 @@ class _HistoryPageState extends State<HistoryPage> {
   /// searched and there was genuinely nothing — two different sentences on screen.
   List<TimelineEntry>? _hits;
 
+  /// Card NR-3 — the SAME multi-select state object the chat page uses, not a
+  /// second one modelled on it. It stores ids only; see its class doc.
+  final EntrySelection _selection = EntrySelection();
+
   @override
   void initState() {
     super.initState();
@@ -94,7 +128,29 @@ class _HistoryPageState extends State<HistoryPage> {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _query.dispose();
+    _selection.dispose();
     super.dispose();
+  }
+
+  void _toast(BuildContext context, String message) =>
+      showChatToast(context, message);
+
+  /// 🔴 The one place a delete's effect reaches this page's own list.
+  ///
+  /// The store notifies and `store.entries` is refreshed for free. `_hits` is
+  /// not: it is a snapshot [TimelineStore.search] took from storage, and
+  /// nothing will ever update it. Skip this and a deleted row keeps rendering
+  /// inside a search result — a ghost row, i.e. the screen saying a record
+  /// exists that does not.
+  void _forgetDeleted(Iterable<String> ids) {
+    final List<TimelineEntry>? hits = _hits;
+    if (hits == null) return;
+    final Set<String> gone = ids.toSet();
+    setState(() {
+      _hits = hits
+          .where((TimelineEntry e) => !gone.contains(e.id))
+          .toList(growable: false);
+    });
   }
 
   /// Rows are newest-first top-to-bottom, so OLDER is downward: the trigger is
@@ -129,8 +185,12 @@ class _HistoryPageState extends State<HistoryPage> {
       backgroundColor: FlowMicColors.canvas,
       body: SafeArea(
         child: ListenableBuilder(
+          // Card NR-3 adds `_selection`: entering/leaving the mode and every
+          // tick has to repaint this page, and merging it here is the same
+          // wiring the chat page uses rather than a `setState` sprinkled
+          // through the handlers.
           listenable: Listenable.merge(
-            <Listenable>[widget.store, ?widget.appSettings],
+            <Listenable>[widget.store, ?widget.appSettings, _selection],
           ),
           builder: (BuildContext context, _) {
             final AppStrings s = AppStrings.of(
@@ -145,6 +205,9 @@ class _HistoryPageState extends State<HistoryPage> {
             return Column(
               children: <Widget>[
                 _header(context, s),
+                // Card NR-3 — directly under the header, exactly where the chat
+                // page docks it, and present only in the mode.
+                if (_selection.active) _selectionBar(context, s, entries),
                 _searchField(s),
                 Expanded(
                   child: entries.isEmpty
@@ -198,6 +261,56 @@ class _HistoryPageState extends State<HistoryPage> {
                               // page, which is a different card.
                               queued: false,
                               canResendImage: false,
+                              // 🔴 Card NR-3 — the three gestures, decided in
+                              // ONE place gated on `_selection.active` a single
+                              // time. The whole argument for each of the three
+                              // (single tap toggles / long-press and zoom go
+                              // null in the mode) is in
+                              // `chat_flow_selection.dart`'s file header; this
+                              // page follows it verbatim rather than restating
+                              // it, because a second copy of that reasoning is
+                              // a second place for it to drift.
+                              // 🔴 Card NR-3 — the three gestures, decided in
+                              // ONE place gated on `_selection.active` a single
+                              // time. The whole argument for each of the three
+                              // (single tap toggles / long-press and zoom go
+                              // null in the mode) is in
+                              // `chat_flow_selection.dart`'s file header; this
+                              // page follows it verbatim rather than restating
+                              // it, because a second copy of that reasoning is
+                              // a second place for it to drift.
+                              selected: _selection.contains(entry.id),
+                              onSelectToggle: _selection.active
+                                  ? () => _selection.toggle(entry.id)
+                                  : null,
+                              onLongPress: _selection.active
+                                  ? null
+                                  : (TimelineEntry e) => unawaited(
+                                      _onLongPress(context, e, s),
+                                    ),
+                              onZoom: _selection.active
+                                  ? null
+                                  : (TimelineEntry e, Uint8List thumb) =>
+                                        Navigator.of(context).push(
+                                          ImagePreviewPage.route(
+                                            png: thumb,
+                                            caption: e.displayText,
+                                            closeHint: s.imageZoomClose,
+                                            previewOnlyNote: s.imagePreviewNote,
+                                            // 🔴 No `full:`, and that is a fact
+                                            // rather than an omission. The
+                                            // delivered bytes live in
+                                            // `ChatController.rowImages`, which
+                                            // this page does not have. Null is
+                                            // the documented 「this host offers
+                                            // no big picture」 value and it is
+                                            // what makes `previewOnlyNote`
+                                            // render — so the preview SAYS it
+                                            // is a 256 px preview instead of
+                                            // passing itself off as the
+                                            // original.
+                                          ),
+                                        ),
                             );
                           },
                         ),
@@ -308,7 +421,17 @@ class _HistoryPageState extends State<HistoryPage> {
       children: <Widget>[
         InkWell(
           key: const ValueKey<String>('history.back'),
-          onTap: () => Navigator.of(context).pop(),
+          // Card NR-3: in multi-select the back affordance leaves the MODE,
+          // not the page — the chat page's `_attemptBack` does the same, and
+          // for the same reason: a user who ticked twenty rows and wanted out
+          // of the mode should not lose the page as well.
+          // ⚠️ The system back gesture is deliberately NOT intercepted here.
+          // It pops the page, and the selection dies with it — no state
+          // survives to be wrong about. Claiming otherwise would need a
+          // PopScope this card has no evidence anyone wants.
+          onTap: () => _selection.active
+              ? _selection.exit()
+              : Navigator.of(context).pop(),
           borderRadius: BorderRadius.circular(10),
           // ≥40dp tap target, icon stays 16 (V2-04 contract).
           child: SizedBox(
@@ -365,6 +488,168 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
     ),
   );
+
+  // ── Card NR-3: multi-select + the long-press menu ──────────────────────────
+
+  /// The multi-select toolbar. Same widget, same three actions as the chat
+  /// page's — this page just supplies its own `selected` list and its own
+  /// delete.
+  ///
+  /// ⚠️ 「Select all」 is passed the CURRENT list, which on this page is either
+  /// the loaded pages or the search hits. That is the same promise the chat
+  /// page's toolbar makes (「select everything I can currently see」) and it is
+  /// the honest one here too: this page is paginated, so 「all of history」 is
+  /// not something a toolbar button can deliver.
+  Widget _selectionBar(
+    BuildContext context,
+    AppStrings s,
+    List<TimelineEntry> entries,
+  ) {
+    final List<TimelineEntry> selected = visibleSelected<TimelineEntry>(
+      entries,
+      _selection,
+      (TimelineEntry e) => e.id,
+    );
+    return SelectionBar(
+      strings: s,
+      selectedCount: selected.length,
+      onCancel: _selection.exit,
+      onSelectAll: () =>
+          _selection.selectAll(entries.map((TimelineEntry e) => e.id)),
+      onCopy: () => unawaited(_onBatchCopy(context, s, selected)),
+      // 🔴 No 「organize with AI」 receiver on this page, and the button is
+      // still there. The refusal is the truth: organize runs through
+      // `ChatController.startAiCompose`, and this page has no controller — so
+      // it answers with the same 「not connected」 sentence the chat page uses
+      // when the link is down, rather than a dead cell that swallows the tap
+      // (0.2.27). Withholding the button instead would mean a toolbar whose
+      // shape changes between two screens showing the same rows.
+      onOrganize: () => _toast(context, s.selectionOrganizeOffline),
+      onDelete: () => unawaited(_onBatchDelete(context, s, selected)),
+    );
+  }
+
+  /// Batch copy — the SAME two pure functions the chat page dispatches to, so
+  /// 「what N records amount to」 has one author on both screens.
+  Future<void> _onBatchCopy(
+    BuildContext context,
+    AppStrings s,
+    List<TimelineEntry> selected,
+  ) async {
+    final SelectedRecords records = selectedRecords(selected);
+    final BatchCopyOutcome outcome = await runBatchCopy(records);
+    if (!context.mounted) return;
+    _toast(context, batchCopyResultText(outcome, records, s));
+    if (outcome != BatchCopyOutcome.nothingToCopy) _selection.exit();
+  }
+
+  /// Batch delete — through [TimelineStore.deleteMany], i.e. the one deleter.
+  /// The chat page's `_onBatchDeleteRouted` is the same sequence against the
+  /// same store; the difference is only what each page has to refresh
+  /// afterwards (`_pager.forget` there, [_forgetDeleted] here).
+  Future<void> _onBatchDelete(
+    BuildContext context,
+    AppStrings s,
+    List<TimelineEntry> selected,
+  ) async {
+    if (selected.isEmpty) {
+      _toast(context, s.selectionDeleteNoSelection);
+      return;
+    }
+    final bool sure = await confirmDestructive(
+      context,
+      title: s.selectionDeleteConfirmTitle(selected.length),
+      message: batchDeleteConfirmBody(
+        selected.length,
+        imageRowsIn(selected),
+        s,
+      ),
+      confirmLabel: s.confirmDelete,
+      cancelLabel: s.cancel,
+    );
+    if (!sure || !context.mounted) return;
+    final List<String> ids = selected
+        .map((TimelineEntry e) => e.id)
+        .toList(growable: false);
+    final String note;
+    try {
+      note = batchDeleteResultText(await widget.store.deleteMany(selected), s);
+    } catch (_) {
+      if (context.mounted) _toast(context, s.selectionDeleteFailed);
+      return;
+    }
+    _forgetDeleted(ids);
+    _selection.exit();
+    if (context.mounted) _toast(context, note);
+  }
+
+  /// The long-press menu. **The same sheet the chat page opens** — the ruling
+  /// says not to fork a second menu, so this passes `sessionActions: false`
+  /// and the four controller-bound rows simply do not render.
+  Future<void> _onLongPress(
+    BuildContext context,
+    TimelineEntry entry,
+    AppStrings s,
+  ) async {
+    final EntryAction? action = await showEntryContextMenu(
+      context,
+      entry,
+      strings: s,
+      sessionActions: false,
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case EntryAction.copy:
+        final ImageCopyOutcome copied = await copyEntryToClipboard(entry);
+        final String? note = s.imageCopyResult(copied);
+        if (note == null || !context.mounted) return;
+        _toast(context, note);
+      case EntryAction.copyOriginal:
+        // Copies the immutable `source_text`; silent on success, the same
+        // posture as a plain text copy — identical to the chat page's arm.
+        await copyEntrySourceText(entry);
+      case EntryAction.select:
+        _selection.enter(seed: entry.id);
+      case EntryAction.delete:
+        final bool sure = await confirmDestructive(
+          context,
+          title: s.deleteEntryConfirmTitle,
+          message: s.deleteEntryConfirmBody,
+          confirmLabel: s.confirmDelete,
+          cancelLabel: s.cancel,
+        );
+        if (!sure) return;
+        // 🔴 `deleteMany` with ONE row, deliberately, and NOT
+        // `TimelineStore.delete`. That method resolves the id against the
+        // store's loaded pages and returns silently when it is not there —
+        // correct for the chat page, wrong here: a SEARCH hit comes straight
+        // from storage and need never have been loaded, so the row the user
+        // just long-pressed can be absent from `_entries`. It would have
+        // vanished from the list and kept its bytes on disk, which is G-21
+        // restored.
+        try {
+          await widget.store.deleteMany(<TimelineEntry>[entry]);
+        } catch (_) {
+          if (context.mounted) _toast(context, s.selectionDeleteFailed);
+          return;
+        }
+        _forgetDeleted(<String>[entry.id]);
+      case EntryAction.reInject:
+      case EntryAction.reprocess:
+      case EntryAction.edit:
+      case EntryAction.favorite:
+        // Structurally unreachable: `sessionActions: false` means the sheet
+        // never renders these four rows, so it cannot return them. An assert
+        // rather than a silent `break` — if someone re-enables a row here
+        // without wiring it, this fails loudly in debug instead of becoming a
+        // menu item that does nothing.
+        assert(
+          false,
+          'the all-history page has no ChatController: $action was rendered '
+          'without a receiver',
+        );
+    }
+  }
 
   /// The row's attribution chip (hard requirements ①②③). Precedence is deliberate:
   /// `origin == 'cloud'` is answered FIRST because a pre-V2-06a cloud row can

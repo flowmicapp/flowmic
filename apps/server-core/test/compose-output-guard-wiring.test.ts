@@ -100,9 +100,19 @@ describe('W2-2 — the guard runs on the orchestrator seam', () => {
     expect(error).toBeNull();
   });
 
-  it('leaves draft_polish alone — that path already has three gates of its own', async () => {
-    // A fourth opinion here would give one question two answers. The SAME text
-    // that is rejected as a translation must pass as a polish.
+  // 🔴 THIS TEST USED TO BE CALLED "leaves draft_polish alone — that path already
+  // has three gates of its own", and its body comment read "A fourth opinion here
+  // would give one question two answers."
+  //
+  // It was green, and it was pinning a defect as a specification. Those three
+  // gates live in stt/stt-polish.ts, the REALTIME path; draft_polish never
+  // touched them (`grep -rn draft_polish apps/server-core/src/stt/` -> 0), so the
+  // task had no output validation at all and this test was the thing that made
+  // that look deliberate. Renamed and re-pointed at what is actually worth
+  // asserting — the verdict is TASK-DEPENDENT — rather than deleted, because the
+  // 0.2.52 law says a wrong negative assertion is worse than a missing one: it
+  // reddens on the day the fix arrives and reads as the fix being wrong.
+  it('judges by task — the echo rejected as a translation is a legitimate polish', async () => {
     const run = createComposeRun(CFG, 'sys', false, { streamerFor: () => streamerOf(SOURCE_EN) });
     const { error } = await drain(run, {
       task: 'draft_polish',
@@ -111,6 +121,22 @@ describe('W2-2 — the guard runs on the orchestrator seam', () => {
       target_lang: 'zh-CN',
     });
     expect(error).toBeNull();
+  });
+
+  it('draft_polish IS guarded now — a polish that changes writing system is refused', async () => {
+    // The control the task never had. Restoring `if (task === 'draft_polish')
+    // return;` in assertOutputDeliverable makes this one green again, which is
+    // the whole point of it existing.
+    const run = createComposeRun(CFG, 'sys', false, {
+      streamerFor: () => streamerOf('这是一段完全不同文字系统的中文输出。'),
+    });
+    const { error } = await drain(run, {
+      task: 'draft_polish',
+      source_text: SOURCE_EN,
+      source_lang: 'en',
+    });
+    expect(error).not.toBeNull();
+    expect(String(error)).toContain('script_changed');
   });
 });
 

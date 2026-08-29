@@ -292,6 +292,44 @@ enum AppTextScale {
   /// (not a replacement for it — the multiplication layer lives in
   /// `lib/src/ui/text_scale_scope.dart`'s `FlowMicTextScaler`).
   final double factor;
+
+  // ── 2026-08-27 —— the slider's two derived facts (owner ruling: the five
+  //    adjective chips become ONE slider, and the current rung reads as a
+  //    PERCENTAGE) ───────────────────────────────────────────────────────────
+
+  /// The rungs in **rising size order** — the order the slider lays its five
+  /// stops out in, left to right.
+  ///
+  /// 🔴 Sorted by [factor], never by declaration order. Declaration order is a
+  /// **storage** contract (`AppTextScale.name` is the pref value, which is why
+  /// 0.3.28 appended `xlarge`/`xxlarge` at the end instead of inserting them),
+  /// so a slider driven off `values` would put 「the two biggest rungs」 to the
+  /// right of `small` and the whole track would read backwards. Same sort, same
+  /// reason, as `text_scale_test.dart`'s monotonicity case.
+  static List<AppTextScale> get ladder =>
+      AppTextScale.values.toList()
+        ..sort((AppTextScale a, AppTextScale b) => a.factor.compareTo(b.factor));
+
+  /// What this rung is called **on screen** now that no adjective is shown:
+  /// its size as a percentage, with [medium] as 100%.
+  ///
+  /// 🔴 Derived from [factor], never a second table. The five adjectives that
+  /// used to name these rungs were their own table, and that is precisely how
+  /// this ruling came to exist: owner, on an English device, read
+  /// Large/Larger/Largest as the same word three times. A hand-written
+  /// `{small: 92, …}` map would be the identical mistake one layer down — it
+  /// would keep saying 92 after somebody moved the factor.
+  ///
+  /// ⚠️ **It is a percentage of OUR rung, not of the text on the glass.** The
+  /// factor multiplies on top of the system accessibility curve, so 141% means
+  /// 1.41× whatever the phone's own font-size setting already produced. That
+  /// caveat is not left to this comment: it is the sentence in `textScaleNote`,
+  /// which the row renders under the slider.
+  ///
+  /// (This getter is why `settings_strings.dart`'s 「the tier names deliberately
+  /// carry no number」 paragraph now carries an in-place correction: that
+  /// paragraph was true for a five-chip row and is not true for this one.)
+  int get percent => (factor / AppTextScale.medium.factor * 100).round();
 }
 
 class AppSettingsController extends ChangeNotifier {

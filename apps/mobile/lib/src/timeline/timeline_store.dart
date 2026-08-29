@@ -46,6 +46,10 @@ part 'timeline_store_inject_writeback.dart';
 // rule as the write-back above: same library, delegate left on the class, no
 // caller edited.
 part 'timeline_store_control_rows.dart';
+// Card NR-3 — the DELETE FAMILY (every trigger of the one deleter: one row, a
+// multi-select batch, a range clear). Same 800-line cap, same rule; that file's
+// header argues why the three belong together.
+part 'timeline_store_batch_delete.dart';
 
 /// V2-06a-1 — the seam that answers「这条是对谁说的」("who this entry was
 /// spoken to") at the moment a row is born.
@@ -633,108 +637,37 @@ class TimelineStore extends ChangeNotifier {
   // unreachable code: docs/strategy/2026-07-30-c5-conflict-criteria-design.md,
   // which names the light-note-multi-device case that will reuse it.
 
-  /// Trigger ① —— the user deletes a row on the timeline.
-  ///
-  /// 🔴 G-21: this used to be `_entries.removeAt` + `_persistence.delete`, i.e.
-  /// it dropped the ROW and left the row's picture file (and its carried fields)
-  /// behind forever. It goes through the one deleter now, so 「这一行的字节没了吗」
-  /// ("are this row's bytes gone")
-  /// has one answer whichever way the row leaves.
-  ///
-  /// `advance` is null on purpose: 「我删了这一条」("I deleted this one") says
-  /// nothing about everything
-  /// older than it, and moving the cutoff here would claim it did.
-  void delete(String id) {
-    final int i = _entries.indexWhere((TimelineEntry e) => e.id == id);
-    if (i < 0) return;
-    final TimelineEntry gone = _entries.removeAt(i);
-    // Fire-and-forget like every other persist on this class — order is held by
-    // the single-writer invariant (every mutation goes through this class, on
-    // one isolate) plus sqflite's own serialised write chain.
-    //
-    // D9: fire-and-forget, NOT fail-silent. A reap that throws means the row
-    // (or its bytes) is still on disk while the screen shows it gone — the
-    // mirror image of the persist_failed case below, and it gets the same loud
-    // trail instead of vanishing into an unawaited future.
-    unawaited(
-      _reaper.reap(<TimelineEntry>[gone]).then<void>(
-        (_) {},
-        onError: (Object e) => diag('timeline.reap_failed', <String, Object?>{
-          'entry_id': gone.id,
-          'is_image': gone.isImage,
-          'error': e,
-        }),
-      ),
-    );
+  // ── THE DELETE FAMILY ──────────────────────────────────────────────────────
+  // Three triggers, ONE deleter (timeline_reaper.dart). All three bodies, and
+  // the whole argument for each, moved VERBATIM to
+  // timeline_store_batch_delete.dart at the 800-line cap; the delegates below
+  // keep every caller and every test double untouched.
+
+  /// Trigger ① —— the user deletes one row on the timeline.
+  void delete(String id) => _deleteOne(this, id);
+
+  /// Trigger ①b —— card NR-3's multi-select batch delete. Takes ROWS, not ids,
+  /// and the reason that is not a style choice is in [_deleteMany]'s doc.
+  Future<ReapResult> deleteMany(List<TimelineEntry> doomed) =>
+      _deleteMany(this, doomed);
+
+  /// `notifyListeners` is `@protected`, so a `part`'s top-level function — not
+  /// being an instance of this class — cannot call it. These two are the seam,
+  /// for the same reason `_insertNew` is the seam for the control-row split.
+  void _notify() => notifyListeners();
+
+  void _dropRows(Set<String> ids) {
+    _entries.removeWhere((TimelineEntry e) => ids.contains(e.id));
     notifyListeners();
   }
 
   /// Trigger ② —— owner's RV-96 clear (pick one of two types + a time bracket).
-  ///
-  /// Returns what it ACTUALLY did.
-  ///
-  /// 🔴 D7 — THE DOOMED SET COMES FROM STORAGE, NOT FROM [_entries]. The
-  /// confirmation dialog's 「将删除 N 条」("N entries will be deleted") is
-  /// counted by the inventory layer over
-  /// the WHOLE table (`AssetInventory.walk` → [readAllRowsForInventory] →
-  /// `TimelinePersistence.loadAll`), while [_entries] holds only the pages the
-  /// user has scrolled to ([pageSize] = 60). Selecting the doomed rows from
-  /// [_entries] deleted at most one page's worth, then advanced the cutoff over
-  /// the whole promised range — an irreversible delete that reported more than
-  /// it did, with the survivors' image files still on disk. Selecting from the
-  /// same full-table source with the same [planClear] predicate is what makes
-  /// 「将删除 N 条」("N entries will be deleted") and 「已删除 N 条」("N entries
-  /// have been deleted") agree for real (Book 16 §6.2-5).
-  ///
-  /// The cutoff advance stays inside [TimelineReaper.reap], AFTER every row (and
-  /// its bytes) in the batch is gone — a throw mid-batch aborts before the
-  /// cutoff is written, so the marks never claim a range the delete did not
-  /// finish covering.
-  ///
-  /// Pinned by timeline_clear_boundary_test.dart (>60 rows across the pagination
-  /// boundary; the old in-memory selection goes red there).
+  /// Returns what it ACTUALLY did; the D7 argument is on [_clear].
   Future<ReapResult> clear(
     ClearKind kind,
     ClearWindow window, {
     DateTime? now,
-  }) async {
-    final DateTime? horizon = horizonOf(window, now ?? DateTime.now().toUtc());
-    final List<TimelineEntry> doomed = planClear(
-      await _persistence.loadAll(),
-      kind,
-      horizon,
-    );
-    if (doomed.isEmpty) {
-      return ReapResult(rows: 0, pictures: 0, bytesFreed: 0, cutoffs: _reaper.cutoffs);
-    }
-    final Set<String> ids = doomed.map((TimelineEntry e) => e.id).toSet();
-    final ReapResult out;
-    try {
-      out = await _reaper.reap(doomed, advance: kind);
-    } catch (e) {
-      // 🔴 D7, partial-failure form — a delete that did not finish must not
-      // leave the SCREEN claiming it did, for the same reason the cutoff is
-      // only written after the last row. The rows therefore leave [_entries]
-      // AFTER the reap returns, never before: if the batch dies halfway the
-      // honest direction is to under-claim the deletion (a row still listed
-      // whose bytes may already be gone — the next [load] reconciles it)
-      // rather than over-claim it (rows wiped off the screen while they are
-      // still on disk), which is the very shape this card removed.
-      // No silent failure either: the trail names the batch that did not
-      // complete. A user-visible 「清空没做完」("the clear didn't finish") sentence would need new copy —
-      // reported as a follow-up need, not smuggled in.
-      diag('timeline.clear_failed', <String, Object?>{
-        'kind': kind.name,
-        'window': window.name,
-        'planned_rows': doomed.length,
-        'error': e,
-      });
-      rethrow;
-    }
-    _entries.removeWhere((TimelineEntry e) => ids.contains(e.id));
-    notifyListeners();
-    return out;
-  }
+  }) => _clear(this, kind, window, now: now);
 
   // ⚠️ `previewClear(kind, window)` LIVED HERE AND IS DELETED (D7). Its doc
   // claimed it was 「the same selector the confirmation dialog uses」 — false:

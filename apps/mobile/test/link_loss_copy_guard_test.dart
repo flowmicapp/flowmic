@@ -48,6 +48,17 @@ void main() {
     for (final MapEntry<String, String> entry in <String, String>{
       'kept': s.recordingStoppedLinkLossKept,
       'plain': s.recordingStoppedLinkLoss,
+      // Card CR-3 (2026-08-29) — the OFFLINE-RECORDING banner joins this table
+      // rather than getting a guard file of its own. It is the same ban, on the
+      // same grounds, over the same three constraints; a second table would be
+      // a second answer to 「which words are unbacked here?」 and the two would
+      // drift the first time one of them was updated.
+      //
+      // 🔴 And it is the string this ban is now MOST likely to be broken on:
+      // this one is shown while the recording is still going, which is exactly
+      // the moment a well-meaning edit wants to reassure the user that the
+      // audio will be caught up. It will be — after card CR-5. Not today.
+      'continuousOffline': s.bannerContinuousOffline,
     }.entries.toList()) {
       test(
           '${localeKey[locale]}/${entry.key}: no transcription promise, no '
@@ -76,6 +87,43 @@ void main() {
           isNot(s.recordingStoppedLinkLoss),
           reason: 'the retention claim is the whole difference; collapsing '
               'them would show it unbacked or hide it when true');
+    }
+  });
+
+  test('🔴 card CR-6: the per-session ceiling has its OWN sentence, and it is '
+      'not the monthly quota one', () {
+    // The W8-4 account, in a new dimension. The ceiling means 「press it again
+    // and keep going」 — it resets with the next session. Quota exhaustion means
+    // 「this month is gone」 and pressing again achieves nothing. Showing one
+    // sentence for both is the more expensive direction in exactly one way: a
+    // user told to wait for next month, when they could simply press again,
+    // loses the recording they were about to make.
+    for (final AppLocale locale in AppLocale.values) {
+      final AppStrings s = AppStrings(locale);
+      expect(s.recordingAutoStoppedMessage(kLocalStopReasonContinuousCap),
+          s.recordingStoppedContinuousCap,
+          reason: 'it must not fall through to the unknown branch');
+      expect(s.recordingStoppedContinuousCap,
+          isNot(s.recordingAutoStoppedQuota),
+          reason: 'quota exhaustion and a per-session ceiling lead the user '
+              'somewhere opposite');
+      expect(s.recordingStoppedContinuousCap, isNot(s.recordingAutoStopped),
+          reason: "and it is not the server's hard_limit sentence either");
+    }
+  });
+
+  test('🔴 card CR-6: the ceiling sentence carries no digits in any language',
+      () {
+    // The minutes live in billing/plans.ts and differ per tier. Nine
+    // translations quoting 「30 分钟」 become nine lies the day a tier is re-cut,
+    // and free would have been wrong on the day it shipped. Same rule
+    // recordingAutoStoppedQuota already carries, asserted rather than trusted.
+    for (final AppLocale locale in AppLocale.values) {
+      final String copy = AppStrings(locale).recordingStoppedContinuousCap;
+      expect(RegExp(r'[0-9]').hasMatch(copy), isFalse,
+          reason: 'digit found in ${locale.name}: 「$copy」 — the number '
+              'belongs on the start button, read from the value that '
+              'enforced the stop');
     }
   });
 

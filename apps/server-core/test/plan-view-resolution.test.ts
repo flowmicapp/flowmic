@@ -300,7 +300,8 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
     // expected object passes for the wrong reason the day someone edits both
     // sides together, and it cannot say WHICH cell moved when it fails.
     expect(limits.stt_minutes).toBe(3_000);
-    expect(limits.llm_tokens).toBe(100_000_000);
+    // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+    expect(limits.llm_tokens).toBe(15_000_000);
     expect(limits.pcs).toBe(10);
     // ⚠️ Infinity is max's OWN value here (pro and max are identical on `mobiles`
     // under 「the cloud sells convenience, never capability」). It is not a carve-out for the exemption —
@@ -338,6 +339,57 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
     for (const key of PLAN_LIMIT_KEYS) {
       expect([key, limits[key]]).toEqual([key, PLAN_LIMITS.max[key]]);
     }
+  });
+
+  // ── card CR-P (owner 2026-08-29, continuous transcription as a plan item) ──
+  //
+  // 🔴 THE NAME AND THE NUMBER, ASSERTED SEPARATELY — the D1-window law, which
+  // this repo learned by shipping a green test suite over a gate that had not
+  // moved: "for any tier / permission / quota change, assert the LABEL and the
+  // NUMBER THAT ACTUALLY TAKES EFFECT separately, and prove with a reverse
+  // control that dropping the second one lets it through."
+  //
+  // The trap is specific and it bites the OWNER first: `permanent_free` is the
+  // owner's own account, its `plan` field reads 'free', and the person who has
+  // to sit through a 30-minute recording to accept this feature is exactly the
+  // person a tier-name lookup would hand a 10-minute ceiling to.
+  //
+  // ⚠️ The drift guard above does NOT cover this. It walks PLAN_LIMIT_KEYS
+  // against PLAN_LIMITS.max, so it proves the exempt TABLE is right — it says
+  // nothing about whether a CALLER reads the table or the tier name. That is
+  // what these two assertions are for, and why they name both numbers.
+  it('🔴 exempt account: `plan` says free, `continuous_minutes` says 30', () => {
+    db.users.setPermanentFree(USER, true);
+    const billing = makeBilling();
+
+    // The label. Unchanged, and deliberately NOT a sellable tier.
+    expect(billing.getPlan(USER).plan).toBe('free');
+
+    // The number that actually takes effect. This is the assertion a tier-name
+    // lookup fails.
+    expect(billing.effectiveLimits(USER).continuous_minutes).toBe(30);
+
+    // 🔴 REVERSE CONTROL, spelled out rather than described: this is what the
+    // WRONG implementation would return for this same account. The two values
+    // must differ, or the test above proves nothing — it would pass just as
+    // happily against `if (plan === 'free') 10 else 30`.
+    expect(planLimits('free').continuous_minutes).toBe(10);
+    expect(billing.effectiveLimits(USER).continuous_minutes)
+      .not.toBe(planLimits(billing.getPlan(USER).plan).continuous_minutes);
+  });
+
+  // The ordinary accounts, so "30 for everyone" cannot pass either. A ceiling
+  // that is the same on every tier is not a subscription item, and this feature
+  // was registered as one (owner 2026-08-29).
+  it('non-exempt tiers keep their own continuous ceilings (10 / 30 / 30)', () => {
+    expect(planLimits('free').continuous_minutes).toBe(10);
+    expect(planLimits('pro').continuous_minutes).toBe(30);
+    expect(planLimits('max').continuous_minutes).toBe(30);
+    // A single session may never exceed the monthly budget it spends from —
+    // free is the tier where the two are closest (10 min against 20 min/month),
+    // and it is the one that has to stay true if either number is re-cut.
+    expect(planLimits('free').continuous_minutes)
+      .toBeLessThanOrEqual(planLimits('free').stt_minutes);
   });
 
   // 🔴 The other half of that decision, machine-checked instead of asserted in a
@@ -430,11 +482,13 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     expect(view.quota_exempt).toBe(true);
   });
 
-  it('🔴 an exempt user IS refused once MAX\'s 100M LLM tokens are gone', () => {
+  it('🔴 an exempt user IS refused once MAX\'s 15M LLM tokens are gone', () => {
     // `_out`, not `_in`: since owner 2026-08-14 only OUTPUT tokens accrue against
     // the budget (see the pin test below). These fixtures used `llm_tokens_in`
     // until that ruling — under the old sum either column tripped the meter.
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: 100_000_000 });
+    // 15_000_000, not the pre-2026-08-27 100_000_000 — MAX's ceiling moved
+    // (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: 15_000_000 });
     db.users.setPermanentFree(USER, true);
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).toThrow(ServerError);
     // positive control: one token below the line the SAME account is served, so
@@ -489,7 +543,8 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     db.users.setPermanentFree(USER, true);
     const q = makeBilling().getQuota(USER);
     expect(q.stt.limit_min).toBe(3_000);
-    expect(q.llm.limit).toBe(100_000_000);
+    // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
+    expect(q.llm.limit).toBe(15_000_000);
     // 2026-08-07: this used to assert `null` on the wire (Infinity serializes to
     // null). It must now SURVIVE serialization as a number — a `null` here would
     // mean we failed to compute the limit, and the two are no longer the same

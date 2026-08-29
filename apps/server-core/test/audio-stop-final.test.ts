@@ -94,6 +94,32 @@ describe('audio:stop flushes the terminal final to the mobile', () => {
     expect(finals[0]).toMatchObject({ text: '终态最终结果', is_segment: false });
   });
 
+  // ── owner report 2026-08-28 — SWIPE-UP CANCEL ─────────────────────────────
+  //
+  // The frame above and this one used to be indistinguishable: AudioStopSchema
+  // was z.object({}), so 「I am done」 and 「throw it away」 arrived byte-identical
+  // and the handler finalised both. That flushed the abandoned transcript back
+  // to the phone (which then delivered it to the PC) and billed the account for
+  // audio nobody would ever read.
+  //
+  // ⚠️ THIS BRANCH IS THE SAVING, NOT THE FIX. A relay older than 
+  // strips the unknown key and behaves exactly like the test above, which is
+  // why the phone also drops late transcript frames on its own. Deleting that
+  // latch on the strength of this test would re-open the defect for every user
+  // whose relay is behind.
+  it('audio:stop {discard:true} tears down WITHOUT finalising — no final, no usage', async () => {
+    const { mob } = harness('inject');
+    mob.fire('audio:start', START, () => {});
+    mob.fire('audio:chunk', { seq: 0, data_b64: 'AAAA', ts_ms: 1 });
+    expect(mob.emitted.some((e) => e.event === 'stt:interim')).toBe(true);
+
+    let acked = false;
+    mob.fire('audio:stop', { discard: true }, () => { acked = true; });
+    await new Promise((r) => setImmediate(r));
+
+    expect(acked).toBe(true); // still answered — a discard is not a silent drop
+    expect(mob.finals()).toHaveLength(0);
+  });
   it('a record-only utterance still delivers its final to the phone (never to the PC)', async () => {
     // delivery:'none' gates the PC fan-out, NOT the phone's own final: the
     // utterance is still shown on the phone, it just never went to the PC.

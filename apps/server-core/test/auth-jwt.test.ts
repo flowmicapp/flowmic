@@ -175,7 +175,7 @@ describe('auth/auth-service credentials', () => {
     // `restricted: false` — a freshly registered account is never restricted;
     // NON-OPTIONAL because the server always computes it (auth-service.ts's
     // field doc argues why the CLIENT type is the one that must allow absence).
-    expect(pub).toEqual({ id: user.id, email: 'p@q.co', display_name: 'Pat', plan: 'free', email_verified: false, restricted: false });
+    expect(pub).toEqual({ id: user.id, email: 'p@q.co', display_name: 'Pat', plan: 'free', email_verified: false, restricted: false, verify_grace_days_left: expect.any(Number) });
     expect('password_hash' in pub).toBe(false);
   });
 

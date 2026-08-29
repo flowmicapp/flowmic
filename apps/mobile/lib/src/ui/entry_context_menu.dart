@@ -32,22 +32,52 @@ enum EntryAction { reInject, reprocess, edit, copy, copyOriginal, favorite, sele
 /// [strings] is required, deliberately — the menu's copy is user-visible, and
 /// a zh default would render Chinese to an English user while looking fine
 /// (façade rule ②). Never the OS locale.
+///
+/// 🔴 Card NR-3 added [sessionActions]. The all-history page
+/// (`history_page.dart`) reaches this same menu now — 「do not fork a second
+/// menu」 is the ruling — but it is constructed with a [TimelineStore] and
+/// nothing else (`main.dart` `_buildHistory`): no ChatController, no session,
+/// no favourites store. Four of the eight actions cannot run there for that
+/// structural reason, so they are WITHHELD rather than rendered and then
+/// silently doing nothing — which is what every other `_can…` gate on this
+/// sheet already does, and what 「a control that changes nothing is worse than
+/// no control」 (0.2.27) requires.
 Future<EntryAction?> showEntryContextMenu(
   BuildContext context,
   TimelineEntry entry, {
   required AppStrings strings,
+  bool sessionActions = true,
 }) {
   return showModalBottomSheet<EntryAction>(
     context: context,
     backgroundColor: Colors.transparent,
-    builder: (BuildContext ctx) => _ContextSheet(entry: entry, strings: strings),
+    builder: (BuildContext ctx) => _ContextSheet(
+      entry: entry,
+      strings: strings,
+      sessionActions: sessionActions,
+    ),
   );
 }
 
 class _ContextSheet extends StatelessWidget {
-  const _ContextSheet({required this.entry, required this.strings});
+  const _ContextSheet({
+    required this.entry,
+    required this.strings,
+    required this.sessionActions,
+  });
   final TimelineEntry entry;
   final AppStrings strings;
+
+  /// Whether the HOST can perform the four actions that need a live
+  /// ChatController — deferred re-delivery / re-run / edit / favourite. See
+  /// [showEntryContextMenu].
+  ///
+  /// ⚠️ Deliberately one flag rather than four: they are withheld for ONE
+  /// reason (this host has no controller), and four independent booleans would
+  /// invite a caller to answer that one question four times and get it
+  /// inconsistent — the shape `chat_flow_selection.dart`'s header rejects for
+  /// the three gesture parameters.
+  final bool sessionActions;
 
   /// Deferred re-delivery (补投) is offered only for PC-bound entries. A
   /// cloud-instance record (`origin == 'cloud'`, the R4-2 solo record-only
@@ -92,13 +122,16 @@ class _ContextSheet extends StatelessWidget {
   /// Under the old open test `!isImage`, the menu offered deferred
   /// re-delivery on a keypress row the day the third kind existed.
   bool get _canReInject =>
-      entry.origin != 'cloud' && entry.entryType == TimelineEntry.kTranscript;
+      sessionActions &&
+      entry.origin != 'cloud' &&
+      entry.entryType == TimelineEntry.kTranscript;
 
   /// Editing an image row would rewrite that same descriptor into arbitrary
   /// text — a row claiming to be a picture while saying something else. The
   /// row's face IS its content here, so it is not editable.
   /// REQ-12-13: a keypress row has nothing to edit — see [_canReInject].
-  bool get _canEdit => entry.entryType == TimelineEntry.kTranscript;
+  bool get _canEdit =>
+      sessionActions && entry.entryType == TimelineEntry.kTranscript;
 
   /// GA-13 re-translate/re-organize. Offered only when there is something to re-run: the
   /// ORIGINAL words (source_text is immutable, so a reprocess is never a
@@ -111,6 +144,7 @@ class _ContextSheet extends StatelessWidget {
   /// it isn't a piece of speech") are two different reasons, and only the
   /// second one is guaranteed to keep holding.
   bool get _canReprocess =>
+      sessionActions &&
       entry.entryType == TimelineEntry.kTranscript &&
       (entry.sourceText ?? '').trim().isNotEmpty;
 
@@ -245,14 +279,20 @@ class _ContextSheet extends StatelessWidget {
               // F-5 turning a history row into a favorite. Local-only (no wire, no timeline mutation), so it
               // is offered for cloud records too — unlike deferred re-delivery
               // (补投) there is no PC dependency to lie about.
-                _row(
-                  context,
-                  icon: Icons.star_outline_rounded,
-                  label: strings.favoriteAdd,
-                  color: FlowMicColors.amber,
-                  action: EntryAction.favorite,
-                ),
-                _divider(),
+              // 🔴 Card NR-3: 「local-only」 means no PC, it does not mean no
+              // dependency — the store it writes is `ChatController.favorites`,
+              // which the all-history page does not hold. Hence [sessionActions]
+              // here as well.
+                if (sessionActions) ...<Widget>[
+                  _row(
+                    context,
+                    icon: Icons.star_outline_rounded,
+                    label: strings.favoriteAdd,
+                    color: FlowMicColors.amber,
+                    action: EntryAction.favorite,
+                  ),
+                  _divider(),
+                ],
               ],
               // 🔴 Card FB-7 multi-select (多选). Offered on EVERY row without
               // exception — unlike deferred-re-delivery/edit/reprocess above,

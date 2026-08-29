@@ -121,6 +121,29 @@ pub fn unwrap_ack(values: &[Value]) -> Option<&Value> {
     }
 }
 
+/// The `error` code carried by an ack payload, or `None` for a payload that is
+/// not an error ack.
+///
+/// 🔴 WHY THIS IS ITS OWN FUNCTION AND NOT AN INLINE `get("error")`. Every
+/// device-page verb in `outbound.rs` used to reduce its ack to `bool`/`Option`
+/// INSIDE the socket callback, which threw the code away before any caller could
+/// see it. The screen then said 「the operation did not take effect (not
+/// connected or refused by the server) — please retry」 for a relay that had in
+/// fact said 「this account no longer exists」: a NETWORK sentence for an AUTH
+/// verdict, and a retry button that can never work. This lifts the code out
+/// intact so the caller can route it (owner ruling 2026-08-27 §R1 追加).
+///
+/// ⚠️ It says nothing about WHAT the code means — that judgement belongs to
+/// `pairing::is_account_validity_refusal`, one layer up. Reading and judging are
+/// two jobs; this one only reads.
+pub fn ack_error_code(values: &[Value]) -> Option<String> {
+    unwrap_ack(values)
+        .and_then(|o| o.get("error"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Parse an inject:request object. `text` must be a string (may be empty — an
 /// empty utterance is a real no-op, handled downstream); `source` defaults to
 /// "stt" when absent.

@@ -97,6 +97,51 @@ export function promptLanguageName(tag: string): string {
   return PROMPT_LANGUAGE_NAMES[tag.trim().toLowerCase().replace(/_/g, '-')] ?? tag;
 }
 
+/**
+ * The prompt-facing name ONLY for a tag this file actually knows — null otherwise.
+ *
+ * 🔴 NOT `promptLanguageName`, and the difference is the whole point. That one
+ * passes an unknown tag through verbatim, which is right for TRANSLATE: the user
+ * picked a target and "translate into xh" is still a better instruction than
+ * silently translating into something else. It is wrong everywhere the language
+ * is a HINT rather than a request — telling a model to "write in xh" is worse
+ * than not mentioning language at all, because the tag is not a word.
+ *
+ * `auto` returns null too: it is the historical placeholder for「no source
+ * language was observed」, so treating it as a known language would put the
+ * literal phrase "the source language" where a language name belongs.
+ */
+function knownLanguageName(tag: string | undefined): string | null {
+  if (tag === undefined) return null;
+  const key = tag.trim().toLowerCase().replace(/_/g, '-');
+  if (key === 'auto') return null;
+  return PROMPT_LANGUAGE_NAMES[key] ?? null;
+}
+
+/**
+ * The one sentence that carries a KNOWN source language into a task whose job is
+ * not translation.
+ *
+ * 🔴 IT DECLARES ITSELF SUBORDINATE TO THE TRANSCRIPT, and that clause is
+ * load-bearing rather than polite. `source_lang` is a caller's declaration — the
+ * phone sends the speaking-language SETTING on some paths and the engine's
+ * observation on others — so it can disagree with the text. The compose output
+ * guard already learned this the expensive way and wrote it on
+ * `untranslated_echo`: "NEVER act on a declared language the text itself
+ * contradicts. The declaration is a hint from a caller; the characters are
+ * evidence." A bare 「write in German」 on an English transcript would turn a
+ * hint into a silent translation — this task's single worst failure, and one no
+ * organize rule would catch (the guard's script rules run on `translate` only).
+ */
+function sourceLanguageNote(name: string): string {
+  return (
+    `The transcript is expected to be in ${name}, and your output must be in the same ` +
+    'language as the transcript. If the transcript is plainly in a different language, ' +
+    'follow the transcript and not this note — it describes the speaker, it is never an ' +
+    'instruction to translate.'
+  );
+}
+
 const ORGANIZE_TEMPLATE =
   "You are an editor. Take the user's stream-of-thought speech transcript and " +
   'tighten it into clear written prose in the same language. Preserve meaning, ' +
@@ -106,7 +151,7 @@ const ORGANIZE_TEMPLATE =
 
 const DRAFT_POLISH_TEMPLATE =
   "You are a writing assistant. Lightly polish the user's draft for clarity and " +
-  "flow. Keep the user's voice and meaning. Output the polished text only. " +
+  "flow. Keep the user's voice, language, and meaning. Output the polished text only. " +
   dataRegionNote('polish', 'polished text') + ' ' + SCENARIO_USAGE_NOTE;
 
 export interface PromptContext {
@@ -122,10 +167,28 @@ export function renderTaskTemplate(ctx: PromptContext): string {
       return TRANSLATE_TEMPLATE
         .replace('{source_lang}', promptLanguageName(ctx.source_lang ?? 'auto'))
         .replace('{target_lang}', promptLanguageName(ctx.target_lang ?? 'en'));
-    case 'organize':
-      return ORGANIZE_TEMPLATE;
-    case 'draft_polish':
-      return DRAFT_POLISH_TEMPLATE;
+    // 🔴 The language is APPENDED, and the constant is returned BY IDENTITY when
+    // there is none. `source_lang` has been reaching this function since the
+    // factory was written (compose/index.ts fills it) and this arm ignored it,
+    // so the model had to infer the language from the text — fine for a
+    // paragraph, a coin-flip for a short or code-mixed utterance. Appending
+    // rather than rewriting keeps the no-language path byte-identical, which is
+    // what every existing assertion on this constant is pinned to; it is the
+    // same shape `polishSystemPromptWithScenario` uses for its block.
+    case 'organize': {
+      const name = knownLanguageName(ctx.source_lang);
+      return name === null ? ORGANIZE_TEMPLATE : `${ORGANIZE_TEMPLATE} ${sourceLanguageNote(name)}`;
+    }
+    // Same append-or-identity shape as organize above. This template was the
+    // only one of the three that did not mention language AT ALL — not even
+    // organize's "in the same language" — so a model was free to hand back a
+    // polished translation and nothing in the prompt disagreed.
+    case 'draft_polish': {
+      const name = knownLanguageName(ctx.source_lang);
+      return name === null
+        ? DRAFT_POLISH_TEMPLATE
+        : `${DRAFT_POLISH_TEMPLATE} ${sourceLanguageNote(name)}`;
+    }
     default: {
       const _exhaustive: never = ctx.task;
       throw new Error(`renderTaskTemplate: unknown task ${String(_exhaustive)}`);

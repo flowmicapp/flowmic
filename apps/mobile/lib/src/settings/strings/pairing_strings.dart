@@ -334,6 +334,27 @@ mixin PairingStrings on AppStringsLeaves {
       // inventing a button or page this App does not have.
       case 'MOBILES_LIMIT_EXCEEDED':
         return _lfPairError__13;
+      // 2026-08-29 multi-node. Without this case the `default:` arm renders
+      // 「配对失败，请检查网络后重试 · 诊断码 NODE_IS_REPLICA」, and BOTH halves of
+      // that are wrong: the network is fine, and retrying is exactly what does
+      // not help — the relay node that answered is a read-only replica and will
+      // answer the same way every time. Reconnecting is the one action that can
+      // change the answer, because it re-runs node selection.
+      //
+      // Same defect family as card U5 and as 0.2.53: a code that nobody mirrored
+      // into THIS table reaches the user as a raw identifier inside a sentence
+      // that sends them somewhere useless. Nothing in the build catches it —
+      // there is still no mechanism binding the protocol registry to this file
+      // (W2.5 §7), which is why it is written down here as well as there.
+      //
+      // The first clause matches the registered protocol string
+      // (packages/protocol/src/error-codes.ts NODE_IS_REPLICA) so the pairing
+      // face and the protocol face cannot drift into two answers.
+      // ⚠️ ja/ko/de/fr/es/ru written to the register of the neighbouring
+      // entries, NOT by a native speaker — flagged for owner ratification with
+      // the rest of this code's copy.
+      case 'NODE_IS_REPLICA':
+        return _lfPairError__18;
       // F1 (2026-08-12) — 「限制使用」("usage restricted") reaches the phone as
       // of this round: the
       // socket admission gates (`mobile:pair` in all three shapes, and

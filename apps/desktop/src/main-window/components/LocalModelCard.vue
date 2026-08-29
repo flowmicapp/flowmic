@@ -21,12 +21,13 @@
      already-downloaded files, and the note under the control says so — a
      folder control that silently strands gigabytes would be worse than none. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { S } from '../../lib/strings';
 import { getLocale } from '../../lib/strings/locale';
-import { LOCALE_ENDONYM, UI_LOCALES } from '../../lib/strings/generated/locales.g';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
+import { ENDONYM_LOCALE, modelCardLangOptions } from '../../lib/spoken-langs';
+import { LOCAL_MODEL_CARD_ID, requestedModelLang } from '../../lib/model-card-focus';
 import {
   applyModelsRoot,
   cancelModelDownload,
@@ -47,6 +48,7 @@ import {
   percentDone,
   snapshotForModel,
   sourceLabel,
+  readyPackForLang,
   type CatalogEntry,
   type ModelSnapshot,
 } from '../../lib/model-status';
@@ -64,20 +66,10 @@ const stale = computed(() => modelStore.reach === 'unreachable');
 const answeredBadly = computed(() => modelStore.reach === 'answered_unusable');
 
 // ── which speaking language the picker shows ────────────────────────────────
-
-/** base spoken code → the UI-locale code whose endonym names it — DERIVED
- *  from the generated registry (first registry locale with that base wins,
- *  so zh → zh-CN), never a hand-rolled list: adding a tenth language must
- *  not mean editing this file (locale-expansion architecture §2). Endonyms
- *  are registry DATA, deliberately untranslated. */
-const ENDONYM_LOCALE: Record<string, string> = (() => {
-  const byBase: Record<string, string> = {};
-  for (const code of UI_LOCALES) {
-    const base = code.split('-')[0] ?? code;
-    if (!(base in byBase)) byBase[base] = code;
-  }
-  return byBase;
-})();
+//
+// The endonym derivation moved to lib/spoken-langs.ts VERBATIM on 2026-08-27
+// when the routing table needed the same names: a second copy of it here would
+// have been the second language registry CLAUDE.md forbids by name.
 
 /** Default to the reader's own UI language where it maps onto a spoken key —
  *  zh-TW keeps its OWN entry (a script, not a ninth acoustic key: it shows
@@ -92,17 +84,19 @@ const lang = ref<string>(defaultLang());
 /** The catalog key the visible selection maps to (zh-TW → zh). */
 const langKey = computed(() => (lang.value === 'zh-TW' ? 'zh' : lang.value));
 
-const langOptions = computed(() => {
-  const spoken = status.value?.spoken_langs ?? Object.keys(ENDONYM_LOCALE);
-  const opts = spoken.map((l) => ({
-    value: l,
-    label: (LOCALE_ENDONYM as Record<string, string>)[ENDONYM_LOCALE[l] ?? ''] ?? l,
-  }));
-  // zh-TW rides directly after zh, wearing its own endonym.
-  const zhAt = opts.findIndex((o) => o.value === 'zh');
-  const zhTw = { value: 'zh-TW', label: (LOCALE_ENDONYM as Record<string, string>)['zh-TW'] ?? 'zh-TW' };
-  if (zhAt >= 0) opts.splice(zhAt + 1, 0, zhTw); else opts.push(zhTw);
-  return opts;
+const langOptions = computed(() => modelCardLangOptions(status.value?.spoken_langs));
+
+// 🔴 The routing table's 「go and download one」 lands here (§2-3). It is
+// COPIED into `lang`, not rendered from — a card that rendered straight off the
+// request would refuse to let the reader navigate away from the language they
+// were sent to, and they arrived here precisely to look around.
+watch(requestedModelLang, (req) => {
+  if (req === null) return;
+  const wanted = req.lang;
+  // An empty request (the fallback row, which is about no one language) scrolls
+  // the card into view and leaves the picker alone rather than guessing.
+  if (wanted === '') return;
+  if (langOptions.value.some((o) => o.value === wanted)) lang.value = wanted;
 });
 
 // ── the packs of the chosen language ────────────────────────────────────────
@@ -242,6 +236,17 @@ async function copyDir(): Promise<void> {
   }
 }
 
+/** The 「currently in use」 strip (owner 2026-08-27 §2-4): which pack would
+ *  actually open if this language were spoken right now.
+ *
+ *  🔴 NOT `selected_by_lang` on its own. A selection is a preference; it can
+ *  name a pack that was never downloaded, was cancelled halfway, or failed
+ *  verification. Rendering the preference under the words 「currently in use」
+ *  would put a model name on screen for a language that cannot be transcribed —
+ *  R11 in one line. `readyPackForLang` mirrors the server's resolution ladder,
+ *  so this strip answers the question it asks. */
+const inUse = computed(() => readyPackForLang(status.value, langKey.value));
+
 /** Per-pack errors of the visible language, for the technical fold. */
 const rowErrors = computed(() =>
   rows.value
@@ -250,9 +255,30 @@ const rowErrors = computed(() =>
 );
 </script>
 
+<!--
+  ── THE LAYERS, AND WHY THEY ARE IN THIS ORDER (owner 2026-08-27 §2-4) ───────
+  The owner's words about the previous version were 「全是文字、很乱、不知道点
+  哪」— all prose, no structure, nowhere obvious to click. Every string and every
+  state below is the same one it was; what changed is that the screen now
+  answers questions in the order a person asks them:
+
+    ① which language am I setting up      → the picker, first and prominent
+    ② what is in use for it RIGHT NOW     → one strip, green or red, no prose
+    ③ what else could I use               → pack rows, one primary button each
+    ④ what is happening right now         → progress, in a bounded sub-block
+    ⑤ where do the files live             → collapsed; it is a rare answer
+    ⑥ what exactly went wrong             → the technical fold, unchanged
+
+  🔴 ② IS NEW AND IT IS THE OWNER'S EMPTY-STATE RULING. A fresh machine used to
+  present a list of packs with no statement anywhere about whether the language
+  could be transcribed at all; the answer had to be assembled by the reader from
+  five chips. It is now one sentence, and when the answer is 「nothing」 it is red
+  and says what to do — the same wording family the routing table uses upstairs,
+  so a user who saw it there recognises it here.
+-->
 <template>
   <div class="sub-h">{{ S.model_title }}</div>
-  <div class="card model-card">
+  <div class="card model-card" :id="LOCAL_MODEL_CARD_ID">
     <!-- WHY there is a download at all (shard note ④) + what the picker is. -->
     <p class="sub why">{{ S.model_why }}</p>
     <p class="sub why">{{ S.model_pick_note }}</p>
@@ -264,17 +290,32 @@ const rowErrors = computed(() =>
     <p v-else-if="knowledge === 'unknown'" class="sub warn">{{ S.model_state_unknown }}</p>
 
     <template v-if="status !== null">
-      <!-- which speaking language -->
-      <div class="row langrow">
-        <span class="sub">{{ S.model_lang_label }}</span>
-        <select v-model="lang" class="langsel">
+      <!-- ① which speaking language. Given its own bordered band rather than a
+           line of body text: it is the control everything below depends on, and
+           a reader who misses it reads the whole card for the wrong language. -->
+      <div class="langband">
+        <label class="langlabel" for="fm-model-lang">{{ S.model_lang_label }}</label>
+        <select id="fm-model-lang" v-model="lang" class="langsel">
           <option v-for="o in langOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </div>
-      <p v-if="lang === 'zh-TW'" class="sub">{{ S.model_lang_zhtw_note }}</p>
+      <p v-if="lang === 'zh-TW'" class="sub zhtw">{{ S.model_lang_zhtw_note }}</p>
 
-      <!-- the packs -->
-      <div v-for="row in rows" :key="row.entry.model_id" class="pack">
+      <!-- ② what is in use for this language RIGHT NOW -->
+      <div class="inuse-strip" :class="inUse === null ? 'none' : 'have'">
+        <div class="sub strip-h">{{ S.model_in_use_title }}</div>
+        <div v-if="inUse !== null" class="strip-body">
+          <span class="chip ready">{{ S.model_state_ready }}</span>
+          <span class="mono strip-id">{{ inUse.model_id }}</span>
+        </div>
+        <div v-else class="strip-body">
+          <span class="strip-none">{{ S.model_in_use_none }}</span>
+        </div>
+      </div>
+
+      <!-- ③ the packs. One card row each; one primary action, right-aligned. -->
+      <p v-if="rows.length === 0" class="sub empty-packs">{{ S.model_no_packs }}</p>
+      <div v-for="row in rows" :key="row.entry.model_id" class="pack" :class="{ current: row.selected }">
         <div class="row phead">
           <span class="chip tier">{{ TIER_LABEL[row.entry.tier] }}</span>
           <!-- No state chip on a streaming row: "Not downloaded" would imply
@@ -282,47 +323,57 @@ const rowErrors = computed(() =>
                stream label below carries the truthful sentence. -->
           <span v-if="row.face !== 'streaming'" class="chip state" :class="row.face">{{ STATE_LABEL[row.face] }}</span>
           <span v-if="row.selected" class="chip inuse">{{ S.model_in_use }}</span>
-          <span class="mono mid">{{ row.entry.model_id }}</span>
+          <span class="spacer"></span>
+          <!-- ONE primary action per row, at the right edge where a scanning
+               eye looks for the verb. The five arms are mutually exclusive by
+               `face`, so this is a single button, not a toolbar. -->
+          <template v-if="row.entry.streaming !== 'streaming'">
+            <button v-if="row.face === 'absent'" class="btn pri sm" type="button"
+                    :disabled="rowLocked(row.entry.model_id)"
+                    :title="busyId !== null && busyId !== row.entry.model_id ? S.model_busy_other : ''"
+                    @click="startModelDownload(row.entry.model_id, langKey)">
+              {{ modelStore.busy === 'download' && modelStore.busyActionModelId === row.entry.model_id ? S.model_starting : sizedDownloadLabel(row.entry) }}
+            </button>
+            <button v-else-if="row.face === 'partial'" class="btn pri sm" type="button"
+                    :disabled="rowLocked(row.entry.model_id)"
+                    @click="startModelDownload(row.entry.model_id, langKey)">
+              {{ resumeLabel(row) }}
+            </button>
+            <button v-else-if="row.face === 'failed'" class="btn pri sm" type="button"
+                    :disabled="rowLocked(row.entry.model_id)"
+                    @click="startModelDownload(row.entry.model_id, langKey)">
+              {{ S.model_retry }}
+            </button>
+            <button v-else-if="row.face === 'downloading'" class="btn ghost sm" type="button"
+                    :disabled="actionBusy"
+                    @click="cancelModelDownload(row.entry.model_id)">
+              {{ S.model_cancel }}
+            </button>
+            <button v-else-if="row.face === 'ready' && !row.selected" class="btn ghost sm" type="button"
+                    :disabled="actionBusy"
+                    @click="startModelDownload(row.entry.model_id, langKey)">
+              {{ S.model_use }}
+            </button>
+          </template>
         </div>
+        <!-- The facts, as chips. Licence stays keyed off `license_class` DATA —
+             the funasr row must never wear the OSI words (task §3-6). -->
         <div class="row pmeta">
-          <span class="sub" :class="{ funasr: row.entry.license_class === 'funasr-model' }">
+          <span class="chip meta" :class="{ funasr: row.entry.license_class === 'funasr-model' }">
             {{ LIC_LABEL[row.entry.license_class] }}</span>
-          <span class="sub">· {{ STREAM_LABEL[row.entry.streaming] }}</span>
-          <span class="sub" v-if="row.entry.bytes_total !== null">· {{ formatMbCoarse(row.entry.bytes_total) }}</span>
+          <span class="chip meta">{{ STREAM_LABEL[row.entry.streaming] }}</span>
+          <span class="chip meta" v-if="row.entry.bytes_total !== null">{{ formatMbCoarse(row.entry.bytes_total) }}</span>
         </div>
         <p class="sub attr">{{ row.entry.attribution }}</p>
+        <!-- De-emphasised: the id is what a support conversation needs, not what
+             a choice is made on. It was in the heading and competing with it. -->
+        <p class="mono mid pid">{{ row.entry.model_id }}</p>
 
-        <div class="row pacts" v-if="row.entry.streaming !== 'streaming'">
-          <button v-if="row.face === 'absent'" class="btn pri sm" type="button"
-                  :disabled="rowLocked(row.entry.model_id)"
-                  :title="busyId !== null && busyId !== row.entry.model_id ? S.model_busy_other : ''"
-                  @click="startModelDownload(row.entry.model_id, langKey)">
-            {{ modelStore.busy === 'download' && modelStore.busyActionModelId === row.entry.model_id ? S.model_starting : sizedDownloadLabel(row.entry) }}
-          </button>
-          <button v-if="row.face === 'partial'" class="btn pri sm" type="button"
-                  :disabled="rowLocked(row.entry.model_id)"
-                  @click="startModelDownload(row.entry.model_id, langKey)">
-            {{ resumeLabel(row) }}
-          </button>
-          <button v-if="row.face === 'failed'" class="btn pri sm" type="button"
-                  :disabled="rowLocked(row.entry.model_id)"
-                  @click="startModelDownload(row.entry.model_id, langKey)">
-            {{ S.model_retry }}
-          </button>
-          <button v-if="row.face === 'downloading'" class="btn ghost sm" type="button"
-                  :disabled="actionBusy"
-                  @click="cancelModelDownload(row.entry.model_id)">
-            {{ S.model_cancel }}
-          </button>
-          <button v-if="row.face === 'ready' && !row.selected" class="btn ghost sm" type="button"
-                  :disabled="actionBusy"
-                  @click="startModelDownload(row.entry.model_id, langKey)">
-            {{ S.model_use }}
-          </button>
-        </div>
-
-        <!-- the in-flight quantity, on the row that is downloading -->
-        <template v-if="row.face === 'downloading' && dl && dl.model_id === row.entry.model_id">
+        <!-- ④ the in-flight quantity, as its own bounded block on the row that
+             is downloading — it used to run on as more loose lines under the
+             buttons — most of what 「很乱」 named. -->
+        <div class="dlblock" v-if="row.face === 'downloading' && dl && dl.model_id === row.entry.model_id">
+          <div class="sub strip-h">{{ S.model_state_downloading }}</div>
           <div class="bar" :class="{ indeterminate: pct === null }">
             <div v-if="pct !== null" class="fill" :style="{ width: pct + '%' }"></div>
           </div>
@@ -342,7 +393,7 @@ const rowErrors = computed(() =>
           <p class="sub" v-if="sourceText">{{ S.model_source_note }}</p>
           <p class="sub" v-if="resumedText">{{ resumedText }}</p>
           <p class="sub">{{ S.model_cancel_note }}</p>
-        </template>
+        </div>
         <p v-if="row.face === 'failed'" class="sub">{{ S.model_failed_next }}</p>
       </div>
 
@@ -355,33 +406,44 @@ const rowErrors = computed(() =>
 
       <p v-if="modelStore.actionError" class="sub warn">{{ S.model_action_failed }}</p>
 
-      <!-- the movable download folder -->
-      <div class="row dir" v-if="root">
-        <span class="sub">{{ S.model_root_title }}</span>
-        <code class="mono path">{{ root.dir }}</code>
-        <button class="btn ghost sm" type="button" @click="copyDir()">
-          <Icon name="copy" />{{ copied ? S.model_copied : S.model_copy }}
-        </button>
-        <button v-if="!editingRoot" class="btn ghost sm" type="button"
-                :disabled="actionBusy || busyId !== null"
-                :title="busyId !== null ? S.model_busy_other : ''"
-                @click="startRootEdit()">
-          {{ S.model_root_change }}
-        </button>
-      </div>
-      <div class="row dir" v-if="editingRoot">
-        <input class="rootin" v-model="rootInput" type="text" spellcheck="false" />
-        <button class="btn pri sm" type="button" :disabled="actionBusy" @click="saveRoot()">
-          {{ S.model_root_apply }}
-        </button>
-        <button class="btn ghost sm" type="button" :disabled="actionBusy" @click="editingRoot = false">
-          {{ S.model_root_cancel }}
-        </button>
-        <button class="btn ghost sm" type="button" :disabled="actionBusy || !root?.configured" @click="resetRoot()">
-          {{ S.model_root_reset }}
-        </button>
-      </div>
-      <p class="sub" v-if="root">{{ S.model_root_note }}</p>
+      <!-- ⑤ the movable download folder, demoted into a fold. Every control and
+           every sentence is unchanged; what changed is that a question asked
+           once a year no longer occupies the same rank as the ones asked every
+           time. It is NOT hidden — the fold is closed, not absent, because
+           `model_manual` promises the folder is 「below」 and a promise the
+           screen does not keep is the failure this repo names most often.
+           ⚠️ `open` while the editor is up: a refused folder must leave the
+           editor visible with the reason beside it, and a collapsed fold would
+           swallow the refusal. -->
+      <details class="fold storage" v-if="root" :open="editingRoot">
+        <summary class="sub">{{ S.model_storage_title }}</summary>
+        <div class="row dir">
+          <span class="sub">{{ S.model_root_title }}</span>
+          <code class="mono path">{{ root.dir }}</code>
+          <button class="btn ghost sm" type="button" @click="copyDir()">
+            <Icon name="copy" />{{ copied ? S.model_copied : S.model_copy }}
+          </button>
+          <button v-if="!editingRoot" class="btn ghost sm" type="button"
+                  :disabled="actionBusy || busyId !== null"
+                  :title="busyId !== null ? S.model_busy_other : ''"
+                  @click="startRootEdit()">
+            {{ S.model_root_change }}
+          </button>
+        </div>
+        <div class="row dir" v-if="editingRoot">
+          <input class="rootin" v-model="rootInput" type="text" spellcheck="false" />
+          <button class="btn pri sm" type="button" :disabled="actionBusy" @click="saveRoot()">
+            {{ S.model_root_apply }}
+          </button>
+          <button class="btn ghost sm" type="button" :disabled="actionBusy" @click="editingRoot = false">
+            {{ S.model_root_cancel }}
+          </button>
+          <button class="btn ghost sm" type="button" :disabled="actionBusy || !root?.configured" @click="resetRoot()">
+            {{ S.model_root_reset }}
+          </button>
+        </div>
+        <p class="sub">{{ S.model_root_note }}</p>
+      </details>
       <p v-if="copyFailed" class="sub warn">{{ S.model_copy_failed }}</p>
     </template>
 
@@ -397,7 +459,7 @@ const rowErrors = computed(() =>
       </button>
     </div>
 
-    <!-- The machine truth, kept and folded rather than dropped. -->
+    <!-- ⑥ The machine truth, kept and folded rather than dropped. -->
     <details class="fold" v-if="rowErrors.length > 0 || modelStore.actionError || modelStore.reachReason">
       <summary class="sub">{{ S.model_detail }}</summary>
       <p class="mono detail" v-for="e in rowErrors" :key="e">{{ e }}</p>
@@ -411,17 +473,41 @@ const rowErrors = computed(() =>
 .model-card { padding: 12px 14px; }
 .why { line-height: 1.6; margin: 0 0 8px; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.langrow { margin: 8px 0 6px; }
-.langsel { font-size: 12.5px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--surface-inset); color: var(--t1); }
-.pack { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
-.phead { margin-bottom: 2px; }
+/* ① The picker is a band, not a line of text: everything below is about
+   whatever it says, so it has to read as a heading for the rest. */
+.langband { display: flex; align-items: center; gap: 10px; margin: 10px 0 8px;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-inset); }
+.langlabel { font-size: 12px; font-weight: 600; color: var(--t2); }
+.langsel { font-size: 13px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--t1); flex: 0 1 220px; }
+.zhtw { margin: 0 0 8px; }
+/* ② One strip, one answer. Green when something would open, red when nothing
+   would — the same two colours the routing table uses for the same fact. */
+.inuse-strip { border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 10px; }
+.inuse-strip.have { border-left-color: var(--green); background: var(--green-soft); }
+.inuse-strip.none { border-left-color: var(--red); background: var(--red-soft); }
+.strip-h { font-weight: 600; margin-bottom: 4px; }
+.strip-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.strip-id { font-size: 11.5px; color: var(--t2); word-break: break-all; }
+.strip-none { font-size: 12px; color: var(--red-ink); line-height: 1.6; }
+.empty-packs { margin: 8px 0; line-height: 1.6; }
+.pack { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-top: 8px;
+  background: var(--surface); }
+.pack.current { border-color: var(--green); }
+.phead { margin-bottom: 6px; }
+/* Pushes the row's single primary action to the right edge. */
+.spacer { flex: 1 1 auto; }
 .pmeta { margin-top: 2px; }
-.pacts { margin-top: 8px; }
 .acts { margin-top: 10px; }
 .dir { margin-top: 10px; }
-.attr { margin: 4px 0 0; font-size: 11px; color: var(--t3); }
+.attr { margin: 6px 0 0; font-size: 11px; color: var(--t3); }
 .mid { font-size: 11.5px; color: var(--t3); }
+.pid { margin: 2px 0 0; word-break: break-all; }
+/* ④ The progress readout is a block with edges, not more loose lines. */
+.dlblock { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--brand-line);
+  border-radius: 8px; background: var(--brand-soft); }
+.storage summary { font-weight: 600; }
 /* Same colour vocabulary as the rest of the product: green = done, amber =
    not done but nothing broke, red = failed, slate = we do not know. */
 .chip { font-size: 11.5px; border-radius: 999px; padding: 2px 10px; border: 1px solid var(--line); color: var(--t2); }
@@ -431,6 +517,17 @@ const rowErrors = computed(() =>
 .chip.failed { background: var(--red-soft); border-color: var(--red); color: var(--red-ink); }
 .chip.unknown, .chip.streaming { background: var(--off-chip-bg); color: var(--t3); }
 .chip.tier { background: var(--surface-inset); }
+/* Licence / latency / size, promoted from run-on prose to chips so the row can
+   be compared with its neighbours at a glance. Same neutral colour for all
+   three: they are facts, not verdicts. */
+.chip.meta { background: var(--surface-inset); font-size: 11px; }
+/* 🔴 `.funasr` carried NO rule before this redesign — a class binding with no
+   stylesheet consumer, which is the anti-façade rule's smallest form. It now
+   has one: the not-open-source row is amber, so the licence distinction the
+   `license_class` field exists to preserve is visible and not only readable.
+   The WORDS still come from LIC_LABEL data; this only stops the one row that
+   carries a restriction from looking identical to the two that do not. */
+.chip.meta.funasr { background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber-ink); }
 .chip.inuse { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
 .bar { height: 6px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; margin-top: 8px; }
 .fill { height: 100%; background: var(--brand); border-radius: 999px; }

@@ -16,11 +16,18 @@ part of 'ptt_session.dart';
 extension PttSessionDispose on PttSession {
   Future<void> _disposeRouted() async {
     _stopHeartbeat();
+    // CR-9 (C8, exit 5 of 5): a live ceiling timer would outlive this object
+    // and reach back into a session being torn down; a wake lock would simply
+    // never come off.
+    endContinuous();
     await _statusSub?.cancel();
     await _incomingSub?.cancel();
     await _chunkSub?.cancel();
     await _faultSub?.cancel();
     await _linkLossSub?.cancel(); // SEG-2: the dead-recording edge watcher.
+    // CR-3: before `audio.dispose()` below, because it holds a subscription to
+    // the recorder's state stream.
+    await continuous.dispose();
     await reconnect.stop();
     await audio.dispose();
     await fsm.dispose();

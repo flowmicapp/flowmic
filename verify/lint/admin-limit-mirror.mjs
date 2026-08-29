@@ -121,6 +121,7 @@
 
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { ROOT, walk, readText, readJson, lineOf, DEFAULT_SKIP_DIRS } from './_util.mjs';
 
 import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
@@ -239,21 +240,54 @@ async function findAdminRepo() {
     };
   }
 
-  const parent = path.dirname(ROOT);
-  let entries;
+  // 🔴 SEARCH THE MAIN WORKTREE'S NEIGHBOURHOOD TOO, NOT JUST THIS ONE'S.
+  //
+  // Measured 2026-08-29: run from a linked worktree — which is how both active
+  // windows work — this scan looked at `<repo>-worktrees/` and found only other
+  // worktrees, so it reported 「no sibling declares itself」 and SKIPPED. A skip
+  // prints in the summary line beside the passes, so every gate run from a
+  // worktree had this check silently disarmed while reading green.
+  // The sibling repo was on the disk the whole time.
+  //
+  // That is this repo's favourite shape: a check answering 「I could not look」
+  // in a way that reads like 「I looked and it is fine」. A linked worktree knows
+  // its main worktree through git, and the repos we mirror sit beside THAT.
+  const searchRoots = [path.dirname(ROOT)];
   try {
-    entries = await fsp.readdir(parent, { withFileTypes: true });
+    const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (commonDir) {
+      const mainParent = path.dirname(path.dirname(commonDir));
+      if (mainParent && !searchRoots.includes(mainParent)) searchRoots.push(mainParent);
+    }
   } catch {
-    return { reason: `cannot read the directory containing this repo` };
+    // Not a git checkout, or no git on PATH. This only ever ADDS a place to look.
   }
 
+  const entriesByRoot = [];
+  for (const parent of searchRoots) {
+    try {
+      entriesByRoot.push([parent, await fsp.readdir(parent, { withFileTypes: true })]);
+    } catch {
+      /* unreadable root — the others may still answer */
+    }
+  }
+  if (entriesByRoot.length === 0) {
+    return { reason: `cannot read the directory containing this repo` };
+  }
+  const entries = entriesByRoot.flatMap(([, e]) => e);
+
   const hits = [];
-  for (const e of entries) {
+  for (const [parent, list] of entriesByRoot) for (const e of list) {
     if (!e.isDirectory() || e.name.startsWith('.')) continue;
     const dir = path.join(parent, e.name);
     const pkg = await readJson(path.join(dir, 'package.json'));
     if (pkg?.name === ADMIN_PKG_NAME) hits.push({ dir, base: e.name });
   }
+  const unique = [...new Map(hits.map((h) => [path.resolve(h.dir), h])).values()];
+  hits.length = 0;
+  hits.push(...unique);
 
   if (hits.length === 0) {
     return { reason: `no sibling directory declares itself ${ADMIN_PKG_NAME} (${entries.length} checked)` };

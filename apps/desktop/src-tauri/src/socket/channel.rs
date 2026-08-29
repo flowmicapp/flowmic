@@ -3,8 +3,11 @@
 //     resident;
 //     pairing token goes through DPAPI user-scoped wrapping)
 //   docs/decisions/2026-07-26-dual-channel-spec-misref.md (GA-28 misref fix)
-//   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY = account JWT, HS256 {sub, plan},
-//     7-day TTL; expired → auth:expired watchdog F-2093)
+//   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY = account JWT, HS256 {sub, plan};
+//     expired → auth:expired watchdog F-2093. ⚠️ 05 §7 says "7-day TTL"; owner
+//     ruling 2026-08-27 §R1 made the default 100 years, and the relay-side
+//     watchdog is not armed at all that far out — see server-core
+//     socket/handlers/auth-expiry.ts MAX_TIMEOUT_MS)
 //   docs/rebuild/04-PROTOCOL-SPEC.md §2 (handshake `auth:{jwt}`; the negotiation
 //     result never causes a connection refusal —— so a dead Cloud Key never
 //     fails the handshake, it surfaces on the pc:register ack as

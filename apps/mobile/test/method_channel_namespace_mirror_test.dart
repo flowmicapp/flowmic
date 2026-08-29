@@ -29,6 +29,7 @@
 
 import 'dart:io';
 
+import 'package:flowmic/src/audio/screen_wake.dart';
 import 'package:flowmic/src/session/image_clipboard.dart';
 import 'package:flowmic/src/session/platform_device_info.dart';
 import 'package:flowmic/src/update/update_installer.dart';
@@ -74,8 +75,8 @@ void main() {
       );
       expect(
         _channelEntry.allMatches(src).map((RegExpMatch m) => m.group(1)).toSet(),
-        <String>{'deviceInfo', 'imageClipboard', 'updateInstaller'},
-        reason: 'the SSOT must declare exactly these three channels; a new one '
+        <String>{'deviceInfo', 'imageClipboard', 'updateInstaller', 'screenWake'},
+        reason: 'the SSOT must declare exactly these four channels; a new one '
             'that nothing here knows about is the drift this file exists for',
       );
     });
@@ -92,6 +93,8 @@ void main() {
         'deviceInfo': MethodChannelDeviceInfo.channel.name,
         'imageClipboard': MethodChannelImageClipboard.channel.name,
         'updateInstaller': MethodChannelUpdateInstaller.channel.name,
+        // card CR-2 (2026-08-29) — the screen-wake hold for long recordings.
+        'screenWake': MethodChannelScreenWake.channel.name,
       };
 
       for (final MapEntry<String, String> e in dart.entries) {
@@ -119,6 +122,7 @@ void main() {
         MethodChannelDeviceInfo.channel.name,
         MethodChannelImageClipboard.channel.name,
         MethodChannelUpdateInstaller.channel.name,
+        MethodChannelScreenWake.channel.name,
       ]) {
         expect(
           name.startsWith('$legacy/'),

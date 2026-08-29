@@ -18,7 +18,16 @@
      while the local service has not answered: offering to fetch 228 MB on the
      strength of a failed HTTP GET is the 「不知道 vs 没有」 conflation this repo
      hunts, and it would fire on every launch during the seconds before the
-     sidecar is up. -->
+     sidecar is up.
+
+     🔴 NOT SHOWN WHILE THE STT SETUP CARD IS (owner 2026-08-28). That card is
+     about the same missing file and can act on it; two banners on one subject
+     is how a product teaches people to skip banners. App.vue owns that decision
+     and passes it in — see the long note beside `sttSetupShown` there.
+     ⚠️ It arrives as a PROP rather than as a `v-if` on this component because
+     this file owns the window's only model-status poller (below): unmounting it
+     would stop the polling the setup card needs in order to notice its own
+     download finishing. -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue';
 import { S } from '../../lib/strings';
@@ -38,7 +47,10 @@ let stop: (() => void) | null = null;
 onMounted(() => { stop = startModelPolling(); });
 onUnmounted(() => { stop?.(); stop = null; });
 
+const props = withDefaults(defineProps<{ suppressed?: boolean }>(), { suppressed: false });
+
 const show = computed(() =>
+  !props.suppressed &&
   shouldOfferModelSetup({
     builtinSelected: builtinEngineSelected(model.routings),
     // LM-CAT: ANY ready pack quiets the notice. A machine whose user speaks

@@ -35,3 +35,31 @@ const String kLocalStopReasonLinkLossKept = 'local:link-loss-kept';
 /// audio has been kept on this phone") here would be an unbacked promise
 /// (15 册 §2.0-b constraint 3's shape).
 const String kLocalStopReasonLinkLoss = 'local:link-loss';
+
+/// Card CR-6 — the recording reached this account's PER-SESSION ceiling
+/// (`PLAN_LIMITS.continuous_minutes`: free 10 minutes, pro/max 30, owner
+/// 2026-08-29). The phone enforced it, so the phone says it.
+///
+/// 🔴 IT MUST NOT BORROW THE WIRE'S `hard_limit`, AND THE REASON IS THAT THE
+/// TWO SENTENCES LEAD SOMEWHERE OPPOSITE. This one means 「press it again and
+/// keep going」 — the ceiling is per session and the next session gets a fresh
+/// one. The server's quota exhaustion means 「this month's minutes are gone」,
+/// and pressing again achieves nothing. Showing one sentence for both is the
+/// W8-4 account verbatim, and it is the more expensive direction: a user told
+/// to wait for next month when they could simply press again loses the
+/// recording they were about to make.
+///
+/// ⚠️ ITS SENTENCE CARRIES NO NUMBER, for the same reason
+/// `recordingAutoStoppedQuota` carries none: the minutes live in
+/// `billing/plans.ts` and reach the phone at runtime, so a number written into
+/// nine translations becomes nine lies on the day a tier is re-cut. The figure
+/// belongs on the button that starts a recording (card CR-9), read from the
+/// same value the enforcer used.
+///
+/// ⚠️ It is LOCAL even though the ceiling is the server's number, and that is
+/// not a contradiction: the server supplies the figure, the phone performs the
+/// stop. Nothing on the wire ends this recording, so nothing on the wire can
+/// honestly report why it ended. The threat model is written out in the task
+/// unit §4.B② — a modified client can ignore the ceiling, and what it burns is
+/// its own monthly quota, which the server does enforce.
+const String kLocalStopReasonContinuousCap = 'local:continuous-cap';

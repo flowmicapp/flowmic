@@ -11,6 +11,7 @@
 import { reactive } from 'vue';
 import {
   ADDITIONAL_PRIVATE_CIDRS,
+  CUSTOM_PRESET_ID,
   DICTIONARY_PACKS,
   LLM_PRESETS,
   SCENARIO_MAX_DOMAINS,
@@ -19,16 +20,16 @@ import {
   SCENARIO_MAX_PROFESSIONS,
   SCENARIO_MAX_TERMS,
   DEFAULT_POLISH_STRENGTH,
-  POLISH_STRENGTHS,
   SETTINGS_KEY_CAPABILITY_LLM,
   SETTINGS_KEY_SCENARIO_INFERENCE,
   STT_PRESETS,
-  ScenarioCardSchema,
   classifyDestination,
   findLlmPreset,
   findSttPreset,
   inferenceBlockedReason,
+  llmPresetsByGroup,
   scenarioConsentRow,
+  sttPresetsByGroup,
   type InferenceBlockedReason,
   type ModelDestination,
   type ScenarioCard,
@@ -36,10 +37,33 @@ import {
   type ScenarioInferenceConsent,
   type SttEngineId,
 } from '@flowmic/protocol';
+// The display-cache narrowing layer, moved out whole at the 800-line cap
+// (2026-08-28). That module carries the full argument for every salvage rule;
+// this file is one of its call sites. The two shapes it produces are re-exported
+// below so the existing importers are untouched.
+import {
+  asBoolean,
+  asCard,
+  asConsentRow,
+  asDictionary,
+  asLlmConfig,
+  asPolishStrength,
+  loadWith,
+  type DictEntry,
+  type LlmConfigModel,
+} from './settings-cache-narrow';
+export type { DictEntry, LlmConfigModel };
 import { localKv } from '../lib/storage';
 import { CH, fetchServerSettings, onChannel } from '../lib/bridge';
 import type { ServerSettingItem } from '../lib/types';
 import { SETTINGS_ANCHOR_KEYS } from '../lib/settings-client';
+// The routing ROW — its type, its narrowing, and §R2's one ordering rule. Moved
+// out whole when this file hit the 800-line cap; that module carries the full
+// argument and the reverse control, and this file is one of its call sites
+// rather than a second opinion. `Routing` is re-exported below so the dozen
+// existing importers are untouched.
+import { asOrderedRoutings, orderedRoutings, type Routing } from './stt-routing-order';
+export { orderedRoutings, type Routing };
 import { S } from '../lib/strings';
 import { settings } from './store';
 
@@ -89,145 +113,6 @@ const K_LLM = 'flowmic.ui.llm.config';
 const K_SCENARIO = 'flowmic.ui.scenario.card';
 const K_INFER = 'flowmic.ui.scenario.inference';
 
-export interface Routing {
-  language: string;
-  engine_id: SttEngineId;
-  endpoint?: string;
-  api_key?: string;
-  model?: string;
-}
-export interface DictEntry {
-  term: string;
-  aliases?: string[];
-  weight?: number;
-}
-export interface LlmConfigModel {
-  preset_id: string;
-  protocol: string;
-  endpoint: string;
-  api_key: string;
-  model: string;
-}
-
-/** owner 2026-07-27 — the same class as the "PC timeline page renders entirely
- *  blank" defect, on the page with the most surface.
- *
- *  The old `load<T>` returned `JSON.parse(raw) as T`: only a PARSE failure fell
- *  back, so any value that parsed but had a different shape — including a literal
- *  `null`, which parses fine — was handed to the templates verbatim. These caches
- *  outlive upgrades, so `model.card.professions.includes(…)`,
- *  `model.llm.preset_id`, `model.dictionary.length` and friends were one
- *  older-build cache away from throwing during render and blanking the whole
- *  settings page. Every key now goes through a narrowing function; a value that
- *  cannot be salvaged falls back to the same default a fresh install gets. */
-function loadWith<T>(key: string, fallback: T, narrow: (v: unknown) => T | null): T {
-  const raw = localKv.get(key);
-  if (raw === null) return fallback;
-  try {
-    return narrow(JSON.parse(raw) as unknown) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function isObj(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-function asStr(v: unknown, fb = ''): string {
-  return typeof v === 'string' ? v : fb;
-}
-function asBoolean(v: unknown): boolean | null {
-  return typeof v === 'boolean' ? v : null;
-}
-
-/** Card C8 — the correction strength, narrowed against the protocol's own
- *  enum rather than a string literal copied into this file. An unrecognised
- *  value returns null so [loadWith] falls back to the default, which is the
- *  same stance every other key here takes. */
-function asPolishStrength(v: unknown): PolishStrength | null {
-  return typeof v === 'string' && (POLISH_STRENGTHS as readonly string[]).includes(v)
-    ? (v as PolishStrength)
-    : null;
-}
-
-function asRoutings(v: unknown): Routing[] | null {
-  if (!Array.isArray(v)) return null;
-  return v.filter(isObj).map((r) => {
-    const out: Routing = {
-      language: asStr(r.language, 'zh-CN'),
-      engine_id: asStr(r.engine_id, 'funasr') as SttEngineId,
-    };
-    if (typeof r.endpoint === 'string') out.endpoint = r.endpoint;
-    if (typeof r.api_key === 'string') out.api_key = r.api_key;
-    if (typeof r.model === 'string') out.model = r.model;
-    return out;
-  });
-}
-
-function asDictionary(v: unknown): DictEntry[] | null {
-  if (!Array.isArray(v)) return null;
-  return v.filter(isObj).flatMap((d) => {
-    const term = asStr(d.term);
-    if (term === '') return [];
-    const out: DictEntry = { term };
-    // The template renders `d.aliases.join('、')` behind a truthy `.length` check
-    // — which a STRING also satisfies, so a string here threw `.join is not a
-    // function`. Normalize to a real array of strings either way.
-    if (Array.isArray(d.aliases)) {
-      out.aliases = d.aliases.filter((a): a is string => typeof a === 'string');
-    } else if (typeof d.aliases === 'string' && d.aliases !== '') {
-      out.aliases = [d.aliases];
-    }
-    if (typeof d.weight === 'number' && Number.isFinite(d.weight)) out.weight = d.weight;
-    return [out];
-  });
-}
-
-function asLlmConfig(v: unknown): LlmConfigModel | null {
-  if (!isObj(v)) return null;
-  return {
-    preset_id: asStr(v.preset_id),
-    protocol: asStr(v.protocol, 'openai-compatible'),
-    endpoint: asStr(v.endpoint),
-    api_key: asStr(v.api_key),
-    model: asStr(v.model),
-  };
-}
-
-/** The card has a real schema, so validate against THAT rather than restating it.
- *  A card that fails only on a bound (one over-long term) is salvaged field by
- *  field instead of discarded — these strings are the owner's own content, and
- *  silently emptying their scenario card would be its own kind of lie. */
-function asCard(v: unknown): ScenarioCard | null {
-  const parsed = ScenarioCardSchema.safeParse(v);
-  if (parsed.success) return parsed.data;
-  if (!isObj(v)) return null;
-  const arr = (x: unknown): string[] =>
-    Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string' && s.trim() !== '') : [];
-  return {
-    professions: arr(v.professions),
-    domains: arr(v.domains),
-    packs: arr(v.packs),
-    terms: arr(v.terms),
-  };
-}
-/** The V2-08 consent row, narrowed from EITHER source it can arrive from: the
- *  local display cache and the server snapshot both hold the same stored shape
- *  (`{granted, granted_for}`), so there is one narrowing function rather than two
- *  that could disagree about what counts as a consent.
- *
- *  Anything else — including a row whose `granted_for` is outside the closed
- *  vocabulary — reads as NO CONSENT, which is exactly what server-core's reader
- *  does with it. Salvaging a partial row would be inventing an agreement. */
-function asConsentRow(v: unknown): ScenarioInferenceConsent | null {
-  if (!isObj(v)) return null;
-  const granted = v.granted;
-  const grantedFor = v.granted_for;
-  if (typeof granted !== 'boolean') return null;
-  if (grantedFor !== 'local' && grantedFor !== 'external') return null;
-  return { granted, grantedFor };
-}
-
 function save(key: string, value: unknown): void {
   localKv.set(key, JSON.stringify(value));
 }
@@ -255,6 +140,35 @@ export const PACKS = DICTIONARY_PACKS.map((p) => ({
 
 export const sttPresets = STT_PRESETS;
 export const llmPresets = LLM_PRESETS;
+/** The menu, already sectioned (06 §7.1 ②). Re-exported rather than re-derived
+ *  in the SFCs: the catalogue decides what the sections are, the page renders
+ *  them. */
+export const llmPresetSections = llmPresetsByGroup();
+export const sttPresetSections = sttPresetsByGroup();
+
+/**
+ * Does the stored `llm.preset_id` name a preset that exists?
+ *
+ * 🔴 THE DEFECT THIS ANSWERS (owner 2026-08-28 defect ①; 06 §7.1 ⑤). A fresh
+ * install stores `preset_id: ''` — a deliberate, documented "the user has not
+ * chosen" value (see LLM_UNCONFIGURED). But an HTML `<select>` whose `value`
+ * matches no `<option>` does not render blank: it shows THE FIRST OPTION. So a
+ * PC that had never been configured displayed the first vendor in the catalogue,
+ * as though someone had picked it, while the four fields underneath were empty.
+ * Book 15 R11 in its purest form — a control stating something it has no basis
+ * for.
+ *
+ * ⚠️ TWO CASES, ONE ANSWER, ON PURPOSE. `''` (never chosen) and a preset id from
+ * a build that no longer has it (uninstalled overlay, downgrade, hand-edited
+ * cache) are different histories with the same present tense: the menu cannot
+ * show what is stored. Both get the 「please choose」 row, and NEITHER rewrites
+ * the stored value — the same rule the STT language cell keeps, for the same
+ * reason (a settings screen that silently corrects on render leaves the user
+ * unable to see what their machine is configured with).
+ */
+export function llmPresetUnresolved(): boolean {
+  return findLlmPreset(model.llm.preset_id) === undefined;
+}
 
 // ── default routing derived from a PRESET (no hard-coded IP) ──
 function routingFromPreset(presetId: string, language: string): Routing {
@@ -324,7 +238,12 @@ const LLM_UNCONFIGURED: LlmConfigModel = {
 const EMPTY_CARD: ScenarioCard = { professions: [], domains: [], packs: [], terms: [] };
 
 export const model = reactive({
-  routings: loadWith<Routing[]>(K_ROUTINGS, [routingFromPreset(DEFAULT_STT_PRESET, 'zh-CN')], asRoutings),
+  /** 🔴 `'zh'`, NOT `'zh-CN'` (owner 2026-08-27 §2-2). One hyphen made this row
+   *  unreachable: phone and seeder both say `zh`, routing was string equality,
+   *  so a fresh desktop's only routing matched nothing said. The router now
+   *  region-normalises too — that rescues the `zh-CN` already cached out there,
+   *  this stops new ones being minted; either fix alone leaves half broken. */
+  routings: loadWith<Routing[]>(K_ROUTINGS, [routingFromPreset(DEFAULT_STT_PRESET, 'zh')], asOrderedRoutings),
   dictionary: loadWith<DictEntry[]>(K_DICT, [], asDictionary),
   /**
    * WP-R4-6 AI polish. 🔴 THE SERVER OWNS THIS VALUE — this field is a CACHE of
@@ -400,7 +319,14 @@ export const model = reactive({
 });
 
 // ── STT routings ──
+/**
+ * The single write seam. Every mutator below funnels through it, so「what the
+ * array holds」and「what the screen shows」cannot become two answers (owner
+ * ruling §R2: 持久化数组与展示同序). Order is decided in ONE place —
+ * `./stt-routing-order`, which carries the argument and the reverse control.
+ */
 function pushRoutings(): void {
+  model.routings = orderedRoutings(model.routings);
   save(K_ROUTINGS, model.routings);
   // The wire value is the plain routing array (07 §8 / engine-factory reader).
   settings.setSttRoutings(model.routings.map((r) => ({ ...r })));
@@ -412,8 +338,20 @@ export function setPresetForRouting(index: number, presetId: string): void {
   model.routings[index] = preset;
   pushRoutings();
 }
+/** Append a routing row.
+ *
+ *  🔴 `'en'`, NOT `'*'` (owner 2026-08-27 §2-1: 默认英文). 「Add language」 that
+ *  adds a catch-all answers a different question from the one the button asks,
+ *  and the seed already ships a `'*'` row — so the old default minted a SECOND
+ *  wildcard that shadowed the first by list position, unexplained on screen.
+ *  ⚠️ The fallback stays choosable (an option in the select, with a sentence for
+ *  a label); it is just no longer what 「add」 hands you unasked.
+ *
+ *  🔴 THE BARE `push` IS DELIBERATE under §R2 (「新增行在兜底行之上」): the
+ *  invariant in [pushRoutings] places the row, so this must not grow a second
+ *  placement rule. One question, one answer. */
 export function addRouting(): void {
-  model.routings.push(routingFromPreset('builtin-sherpa-local', '*'));
+  model.routings.push(routingFromPreset('builtin-sherpa-local', 'en'));
   pushRoutings();
 }
 export function removeRouting(index: number): void {
@@ -501,8 +439,37 @@ export function setLlmPreset(presetId: string): void {
   model.llm = llmFromPreset(presetId);
   pushLlm();
 }
-export function updateLlmField(field: keyof LlmConfigModel, value: string): void {
+
+/**
+ * Hand-edit one config field.
+ *
+ * 🔴 THE EDIT MOVES THE DROPDOWN TO `custom`, AND THAT IS THE WHOLE FUNCTION
+ * (owner 2026-08-28 defect ②; 06 §7.1 ⑥). Before this, `preset_id` kept naming
+ * whichever vendor had last been PICKED while the endpoint, model and key
+ * underneath had been edited to something else entirely — so the screen answered
+ * 「which row did I click」 with a control the user reads as 「what is this PC
+ * configured with」. That is this repo's #1 bug shape: one value answering two
+ * questions. There is no third state to invent here; once a field is hand-edited
+ * the configuration is, by definition, the user's own.
+ *
+ * ⚠️ IT IS PERSISTED, not merely displayed — `pushLlm` saves the whole
+ * `model.llm`, `preset_id` included. A jump that lived only in the DOM would come
+ * back naming the old vendor after a restart, which is the same lie with a delay.
+ *
+ * ⚠️ NO 「unless the values still match the preset」 EXEMPTION, deliberately. It
+ * sounds tidier and it reintroduces the defect in miniature: typing a vendor's
+ * exact endpoint back in would silently re-attach a preset the user did not pick,
+ * and the rule would then have to answer 「how equal is equal」 (trailing slash?
+ * key? model?) — four sub-answers where the honest one needs none.
+ *
+ * `preset_id` is excluded from `field` AT THE TYPE LEVEL rather than by a
+ * run-time guard: this function's entire contract is 「a human edited a config
+ * box」, and routing a preset change through it would make the jump below
+ * overwrite the very choice being made. [setLlmPreset] is that door.
+ */
+export function updateLlmField(field: Exclude<keyof LlmConfigModel, 'preset_id'>, value: string): void {
   (model.llm as Record<string, unknown>)[field] = value;
+  model.llm.preset_id = CUSTOM_PRESET_ID;
   pushLlm();
 }
 
@@ -636,7 +603,11 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
     switch (key) {
       case SETTINGS_ANCHOR_KEYS.sttRoutings: // 'stt.routings'
         if (Array.isArray(value)) {
-          model.routings = (value as Routing[]).map((r) => ({ ...r }));
+          // Ordered on the way in (§R2). The relay stores whatever order it was
+          // handed, including arrays written by older builds — adopting them
+          // verbatim would hold the invariant everywhere EXCEPT right after a
+          // sync, i.e. exactly when the user is looking at the page.
+          model.routings = orderedRoutings((value as Routing[]).map((r) => ({ ...r })));
           save(K_ROUTINGS, model.routings);
         }
         break;

@@ -22,6 +22,8 @@ import type { ComposeOrchestrator } from '../../engine/orchestrator';
 import { EngineNotWiredError } from '../../engine/orchestrator';
 import { type ComposeStartArgs, readComposeUsage, readComposeOutput, ComposeOutputRejectedError } from '../../compose';
 import { errorPayload } from '../../errors';
+import type { VerificationGraceGuard } from '../../auth/verification-grace';
+import { log } from '../../log';
 import { getAuth, getRoomUuid, safeAck } from '../wire';
 
 export type { ComposeStartArgs };
@@ -37,6 +39,11 @@ export interface ComposeHandlerDeps {
    *  Wired in bootstrap as createComposeFactory({ settings: db.settings,
    *  usage: usageTracker }). */
   composeFactory?: (args: ComposeStartArgs) => ComposeOrchestrator;
+  /** NR-2a — the 3-day unverified grace. The SECOND (and last) enforcement
+   *  site; audio.handler.ts carries the full argument for the placement.
+   *  Absent ⇒ no gate (pre-NR-2a behaviour); standalone is exempt inside the
+   *  guard, not by being unwired. */
+  verificationGrace?: VerificationGraceGuard;
 }
 
 /** 🔴 Card F3 defect ③ — the echo for a frame we refused BEFORE parsing it.
@@ -119,6 +126,34 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       ...(requestId !== undefined ? { request_id: requestId } : {}),
       ...(entryId !== undefined ? { entry_id: entryId } : {}),
     };
+
+    // *** NR-2a — the 3-day unverified grace, enforcement site 2 of 2 ***
+    //
+    // Before the quota gate, for the reason audio.handler.ts states.
+    //
+    // 🔴 IT EMITS `compose:error` AS WELL AS ACKING, unlike the STT leg. That is
+    // not symmetry for its own sake: `compose:start`'s contract is that a run
+    // ends in `compose:done` or `compose:error`, and a refusal that only acked
+    // would leave the phone waiting out its 45-second watchdog and then naming
+    // the wrong wall (`timeout`).
+    //
+    // ⚠️ AND THE PHONE WILL NOT RENDER THIS NAME. `compose_strings.dart`
+    // `aiErrorCode` maps a closed set of codes; an unregistered one falls to
+    // the generic sentence. So the user is told the request failed — not
+    // silence, and not a bare identifier on screen (the 0.2.53 defect) — but
+    // not told WHY. Making it a real, rendered sentence means minting a
+    // protocol error code, which is owner-gated, and belongs with the client
+    // half of this card. Registered here rather than left to be discovered.
+    const graceRefusal = deps.verificationGrace?.check(auth.userId) ?? null;
+    if (graceRefusal !== null) {
+      log.warn('compose:start refused — the unverified grace period has ended for this account', {
+        user_id: auth.userId,
+        code: graceRefusal.error,
+        gate: 'verify_grace',
+      });
+      socket.emit('compose:error', { code: graceRefusal.error, message: graceRefusal.message, ...echo });
+      return safeAck(ack, graceRefusal);
+    }
 
     // *** billing call site (LLM quota) — the ONE ensureQuota('llm') site ***
     try {

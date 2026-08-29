@@ -18,6 +18,7 @@
 //   · the peek is side-effect free: it must not adopt, rebind, or disturb an
 //     armed grace timer (「do not change grace/rebind semantics」).
 
+import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Server, Socket } from 'socket.io';
@@ -140,7 +141,7 @@ afterEach(() => {
 });
 
 function wireMobile(socket: FakeSocket): FakeSocket {
-  registerMobileHandlers(socket as unknown as Socket, {
+  registerMobileHandlers(socket as unknown as Socket, { writerOnly: NODE_CAN_WRITE,
     io: {} as Server,
     registry,
     store,

@@ -206,8 +206,16 @@ describe('the main-window built-in-model notice', () => {
     // Unconditional: no v-if / v-show on the tag itself. The component decides
     // for itself whether to draw anything, and it also owns this window's
     // poller — a `v-if` here would silence the poll along with the notice.
-    expect(app).toContain('<LocalModelNotice />');
+    //
+    // 🔴 UPDATED 2026-08-28: the tag now carries `:suppressed` (the STT setup
+    // card suppresses this strip while it is up — App.vue explains why). The
+    // assertion is written as two halves rather than one literal precisely so
+    // it keeps testing THE RULE: a prop is fine, `v-if` / `v-show` is not,
+    // because the second one would stop the poll this component owns.
+    const tag = /<LocalModelNotice\b[^>]*\/>/.exec(app);
+    expect(tag, 'App.vue no longer mounts LocalModelNotice').not.toBeNull();
+    expect(tag![0], 'the notice was made conditional — the poller dies with it').not.toMatch(/v-(if|show)=/);
     // Above the pages, beside the accessibility strip, not inside a page.
-    expect(app.indexOf('<LocalModelNotice />')).toBeLessThan(app.indexOf('<DevicesPage'));
+    expect(app.indexOf(tag![0])).toBeLessThan(app.indexOf('<DevicesPage'));
   });
 });

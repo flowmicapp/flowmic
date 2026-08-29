@@ -16,6 +16,11 @@
 // a thing that can go wrong.
 
 import '../session/chat_controller.dart';
+// CR-3: `continuousCapturingOffline` is an EXTENSION member (ptt_link_loss.dart,
+// part of this library), so the library has to be in scope for it to resolve.
+// The dependency itself is not new — two fields below already read off
+// `controller.session`.
+import '../ptt/ptt_session.dart';
 import '../settings/app_strings.dart';
 import '../signaling/album_away.dart';
 import 'banner_queue.dart';
@@ -79,6 +84,22 @@ BannerQueue _liveSources({
       ? () => controller.session.reconnect.kickNow(reason: 'user-banner')
       : null,
   strings: strings,
+  // 🔴 Card CR-3 — THE PRODUCTION READER of `continuousCapturingOffline`.
+  // Without this one line the whole chain (link-loss edge → kept-open mic →
+  // retention layer → getter) still ends at 「Link down · content buffered」,
+  // and a user whose meeting is being recorded offline has no way to know it.
+  // This file is 「where each primitive comes from」, so a primitive nobody
+  // reads from here does not exist as far as the user is concerned — the same
+  // sentence fix-026 earned one field above.
+  continuousOffline: controller.session.continuousCapturingOffline,
+  // 🔴 Card CR-9 — THE PRODUCTION READER of `ContinuousCapTimer.warningTicket`.
+  // Without this line the ceiling still stops the recording on time and the
+  // user gets no warning at all: the timer fires, the ticket goes up, and
+  // nothing on any screen reads it. Same sentence CR-3 earned one field above —
+  // this file is 「where each primitive comes from」, so a primitive nobody reads
+  // from here does not exist as far as the user is concerned.
+  continuousCapWarning: controller.session.capTimer.warningTicket != 0,
+  onDismissContinuousCapWarning: controller.session.capTimer.dismissWarning,
   // GA-03: a PTT press that produced no transcript at all
   // (15 s net / terminal stt:error) — never silent.
   sttStalled: controller.sttStalled,

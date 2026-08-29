@@ -35,6 +35,13 @@
 // happen. The flags form has no such window. Some apps that hand-roll their own
 // key handling read only the physical modifier state; those are the ones this V1
 // may miss, and that is the trade being made here rather than discovered later.
+//
+// ⚠️ IN-PLACE ADDENDUM (2026-08-28): the flags form has no STUCK-KEY window, but
+// it is not free of residue either — the flags ridden on the key-UP event latch
+// into the HID system state, and a later CGEvent created from a HIDSystemState
+// source inherits that latch. See the comment inside `post_chord` for the
+// measured numbers and the rule that neutralises it (write the flags on every
+// event, empty included).
 
 use objc2_core_graphics::{
     CGEvent, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
@@ -98,10 +105,25 @@ pub fn post_chord(virtual_key: u16, flags: CGEventFlags) -> bool {
     ) else {
         return false;
     };
-    if !flags.is_empty() {
-        CGEvent::set_flags(Some(&down), flags);
-        CGEvent::set_flags(Some(&up), flags);
-    }
+    // 🔴 ALWAYS write the flags — the empty case included. This used to be guarded
+    // by `if !flags.is_empty()`, and that guard WAS the bug the owner reported on
+    // 2026-08-28 (「回车不生效 / 清空只全选不删 / 退格把整段删了」): a CGEvent
+    // created from a HIDSystemState source INHERITS the system's current latched
+    // modifier flags, and every chord we post latches its own modifiers into that
+    // state via its key-UP event (the up carries MaskCommand too, and nothing ever
+    // releases it — we never post a physical Command press to match).
+    // MEASURED on flowmic-mac (2026-08-28, TextEdit target, file-save readback):
+    //   · after our ⌘A, a bare ⌦ was created already carrying 0x20900000 —
+    //     MaskCommand (0x100000) included — so the app received ⌘⌦: nothing.
+    //   · same key with flags explicitly set to empty: the selection was deleted,
+    //     and the NEXT event's inherited flags were back to 0x20000000 (the
+    //     explicit-empty post also clears the stale latch).
+    // Every bare key (Return / ⌫ / ⌦ / Tab / Space) is therefore ⌘-poisoned after
+    // any paste or chord unless the flags are written unconditionally. ⌘⌫ is
+    // 「delete to line start」, which is exactly the 「backspace wiped everything I
+    // just dictated」 symptom.
+    CGEvent::set_flags(Some(&down), flags);
+    CGEvent::set_flags(Some(&up), flags);
     CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&down));
     CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&up));
     true

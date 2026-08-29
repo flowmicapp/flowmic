@@ -45,6 +45,13 @@
       "params": []
     },
     {
+      "key": "accountSignedInAs",
+      "leaf": "_lfAccountSignedInAs",
+      "params": [
+        "account"
+      ]
+    },
+    {
       "key": "add",
       "leaf": "_lfAdd",
       "params": []
@@ -109,6 +116,11 @@
     {
       "key": "aiErrorCode__10",
       "leaf": "_lfAiErrorCode__10",
+      "params": []
+    },
+    {
+      "key": "aiErrorCode__11",
+      "leaf": "_lfAiErrorCode__11",
       "params": []
     },
     {
@@ -211,6 +223,11 @@
       "params": []
     },
     {
+      "key": "appendCancelSemanticAction",
+      "leaf": "_lfAppendCancelSemanticAction",
+      "params": []
+    },
+    {
       "key": "appendHold",
       "leaf": "_lfAppendHold",
       "params": []
@@ -218,6 +235,11 @@
     {
       "key": "appendRelease",
       "leaf": "_lfAppendRelease",
+      "params": []
+    },
+    {
+      "key": "appendUnavailableBusy",
+      "leaf": "_lfAppendUnavailableBusy",
       "params": []
     },
     {
@@ -236,6 +258,11 @@
       "params": []
     },
     {
+      "key": "bannerContinuousOffline",
+      "leaf": "_lfBannerContinuousOffline",
+      "params": []
+    },
+    {
       "key": "bannerLinkDown",
       "leaf": "_lfBannerLinkDown",
       "params": []
@@ -250,6 +277,71 @@
     {
       "key": "bannerReconnecting",
       "leaf": "_lfBannerReconnecting",
+      "params": []
+    },
+    {
+      "key": "browserLoginBrowserRefused",
+      "leaf": "_lfBrowserLoginBrowserRefused",
+      "params": []
+    },
+    {
+      "key": "browserLoginCancel",
+      "leaf": "_lfBrowserLoginCancel",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__1",
+      "leaf": "_lfBrowserLoginError__1",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__2",
+      "leaf": "_lfBrowserLoginError__2",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__3",
+      "leaf": "_lfBrowserLoginError__3",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__4",
+      "leaf": "_lfBrowserLoginError__4",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__5",
+      "leaf": "_lfBrowserLoginError__5",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__6",
+      "leaf": "_lfBrowserLoginError__6",
+      "params": []
+    },
+    {
+      "key": "browserLoginError__7",
+      "leaf": "_lfBrowserLoginError__7",
+      "params": []
+    },
+    {
+      "key": "browserLoginHint",
+      "leaf": "_lfBrowserLoginHint",
+      "params": []
+    },
+    {
+      "key": "browserLoginRetry",
+      "leaf": "_lfBrowserLoginRetry",
+      "params": []
+    },
+    {
+      "key": "browserLoginTitle",
+      "leaf": "_lfBrowserLoginTitle",
+      "params": []
+    },
+    {
+      "key": "browserLoginWaiting",
+      "leaf": "_lfBrowserLoginWaiting",
       "params": []
     },
     {
@@ -609,6 +701,123 @@
     {
       "key": "connectingRow",
       "leaf": "_lfConnectingRow",
+      "params": []
+    },
+    {
+      "key": "continuousCapWarning",
+      "leaf": "_lfContinuousCapWarning",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "continuousEntryCap",
+      "leaf": "_lfContinuousEntryCap",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "continuousEntryCapAndLeft",
+      "leaf": "_lfContinuousEntryCapAndLeft",
+      "params": [
+        "minutes",
+        "left"
+      ]
+    },
+    {
+      "key": "continuousEntryModeNote",
+      "leaf": "_lfContinuousEntryModeNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntryNoCeilingNote",
+      "leaf": "_lfContinuousEntryNoCeilingNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntryQuotaSpentNote",
+      "leaf": "_lfContinuousEntryQuotaSpentNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntryTitle",
+      "leaf": "_lfContinuousEntryTitle",
+      "params": []
+    },
+    {
+      "key": "continuousLiveCaption",
+      "leaf": "_lfContinuousLiveCaption",
+      "params": []
+    },
+    {
+      "key": "continuousLiveLabel",
+      "leaf": "_lfContinuousLiveLabel",
+      "params": []
+    },
+    {
+      "key": "continuousRemaining",
+      "leaf": "_lfContinuousRemaining",
+      "params": [
+        "clock"
+      ]
+    },
+    {
+      "key": "continuousScreenOn",
+      "leaf": "_lfContinuousScreenOn",
+      "params": []
+    },
+    {
+      "key": "continuousSegments",
+      "leaf": "_lfContinuousSegments",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "continuousSheetCancel",
+      "leaf": "_lfContinuousSheetCancel",
+      "params": []
+    },
+    {
+      "key": "continuousSheetCap",
+      "leaf": "_lfContinuousSheetCap",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "continuousSheetEarlyStop",
+      "leaf": "_lfContinuousSheetEarlyStop",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "continuousSheetLeft",
+      "leaf": "_lfContinuousSheetLeft",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "continuousSheetNoCancel",
+      "leaf": "_lfContinuousSheetNoCancel",
+      "params": []
+    },
+    {
+      "key": "continuousSheetStart",
+      "leaf": "_lfContinuousSheetStart",
+      "params": []
+    },
+    {
+      "key": "continuousSheetStartAnyway",
+      "leaf": "_lfContinuousSheetStartAnyway",
+      "params": []
+    },
+    {
+      "key": "continuousStop",
+      "leaf": "_lfContinuousStop",
       "params": []
     },
     {
@@ -1017,11 +1226,6 @@
       "params": []
     },
     {
-      "key": "emailHint",
-      "leaf": "_lfEmailHint",
-      "params": []
-    },
-    {
       "key": "enterCloudInstance",
       "leaf": "_lfEnterCloudInstance",
       "params": [
@@ -1226,11 +1430,6 @@
     {
       "key": "favoritesTapToSend",
       "leaf": "_lfFavoritesTapToSend",
-      "params": []
-    },
-    {
-      "key": "forgotPassword",
-      "leaf": "_lfForgotPassword",
       "params": []
     },
     {
@@ -1993,11 +2192,6 @@
       "params": []
     },
     {
-      "key": "loginButton",
-      "leaf": "_lfLoginButton",
-      "params": []
-    },
-    {
       "key": "loginError__1",
       "leaf": "_lfLoginError__1",
       "params": []
@@ -2210,6 +2404,21 @@
     {
       "key": "onboardingCodeExpiryNote",
       "leaf": "_lfOnboardingCodeExpiryNote",
+      "params": []
+    },
+    {
+      "key": "onboardingDownloadInstall",
+      "leaf": "_lfOnboardingDownloadInstall",
+      "params": []
+    },
+    {
+      "key": "onboardingDownloadOpenOnPc",
+      "leaf": "_lfOnboardingDownloadOpenOnPc",
+      "params": []
+    },
+    {
+      "key": "onboardingDownloadQrLabel",
+      "leaf": "_lfOnboardingDownloadQrLabel",
       "params": []
     },
     {
@@ -2528,11 +2737,6 @@
       "params": []
     },
     {
-      "key": "passwordHint",
-      "leaf": "_lfPasswordHint",
-      "params": []
-    },
-    {
       "key": "pcAddressHint",
       "leaf": "_lfPcAddressHint",
       "params": []
@@ -2587,6 +2791,11 @@
     {
       "key": "planLabel_free",
       "leaf": "_lfPlanLabel_free",
+      "params": []
+    },
+    {
+      "key": "planLabel_max",
+      "leaf": "_lfPlanLabel_max",
       "params": []
     },
     {
@@ -2680,6 +2889,11 @@
       "params": []
     },
     {
+      "key": "pttCancelSemanticAction",
+      "leaf": "_lfPttCancelSemanticAction",
+      "params": []
+    },
+    {
       "key": "pttDisabled",
       "leaf": "_lfPttDisabled",
       "params": []
@@ -2749,6 +2963,22 @@
       "params": []
     },
     {
+      "key": "quotaContextUsed",
+      "leaf": "_lfQuotaContextUsed",
+      "params": [
+        "used",
+        "limit"
+      ]
+    },
+    {
+      "key": "quotaVoiceUsed",
+      "leaf": "_lfQuotaVoiceUsed",
+      "params": [
+        "used",
+        "limit"
+      ]
+    },
+    {
       "key": "reachUnanswered",
       "leaf": "_lfReachUnanswered",
       "params": []
@@ -2813,6 +3043,11 @@
       ]
     },
     {
+      "key": "recordingStoppedContinuousCap",
+      "leaf": "_lfRecordingStoppedContinuousCap",
+      "params": []
+    },
+    {
       "key": "recordingStoppedKept",
       "leaf": "_lfRecordingStoppedKept",
       "params": []
@@ -2835,11 +3070,6 @@
     {
       "key": "registerLinkCopied",
       "leaf": "_lfRegisterLinkCopied",
-      "params": []
-    },
-    {
-      "key": "registerOnWebsite",
-      "leaf": "_lfRegisterOnWebsite",
       "params": []
     },
     {
@@ -3051,6 +3281,58 @@
       "leaf": "_lfSelectionCount",
       "params": [
         "n"
+      ]
+    },
+    {
+      "key": "selectionDeleteConfirmBody",
+      "leaf": "_lfSelectionDeleteConfirmBody",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionDeleteConfirmBodyWithImages",
+      "leaf": "_lfSelectionDeleteConfirmBodyWithImages",
+      "params": [
+        "n",
+        "images"
+      ]
+    },
+    {
+      "key": "selectionDeleteConfirmTitle",
+      "leaf": "_lfSelectionDeleteConfirmTitle",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionDeleteFailed",
+      "leaf": "_lfSelectionDeleteFailed",
+      "params": []
+    },
+    {
+      "key": "selectionDeleteNoSelection",
+      "leaf": "_lfSelectionDeleteNoSelection",
+      "params": []
+    },
+    {
+      "key": "selectionDeleteSub",
+      "leaf": "_lfSelectionDeleteSub",
+      "params": []
+    },
+    {
+      "key": "selectionDeleted",
+      "leaf": "_lfSelectionDeleted",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "selectionDeletedWithImages",
+      "leaf": "_lfSelectionDeletedWithImages",
+      "params": [
+        "n",
+        "images"
       ]
     },
     {
@@ -3376,6 +3658,11 @@
       "params": []
     },
     {
+      "key": "sttStallNotSignedIn",
+      "leaf": "_lfSttStallNotSignedIn",
+      "params": []
+    },
+    {
       "key": "sttStallPoolNoRoute",
       "leaf": "_lfSttStallPoolNoRoute",
       "params": []
@@ -3393,6 +3680,11 @@
     {
       "key": "sttStallSettingsInvalid",
       "leaf": "_lfSttStallSettingsInvalid",
+      "params": []
+    },
+    {
+      "key": "sttStallVerifyEmail",
+      "leaf": "_lfSttStallVerifyEmail",
       "params": []
     },
     {
@@ -3441,38 +3733,15 @@
       "params": []
     },
     {
-      "key": "textScaleLarge",
-      "leaf": "_lfTextScaleLarge",
-      "params": []
-    },
-    {
-      "key": "textScaleMedium",
-      "leaf": "_lfTextScaleMedium",
-      "params": []
-    },
-    {
       "key": "textScaleNote",
       "leaf": "_lfTextScaleNote",
-      "params": []
-    },
-    {
-      "key": "textScaleSmall",
-      "leaf": "_lfTextScaleSmall",
-      "params": []
+      "params": [
+        "pct"
+      ]
     },
     {
       "key": "textScaleTitle",
       "leaf": "_lfTextScaleTitle",
-      "params": []
-    },
-    {
-      "key": "textScaleXlarge",
-      "leaf": "_lfTextScaleXlarge",
-      "params": []
-    },
-    {
-      "key": "textScaleXxlarge",
-      "leaf": "_lfTextScaleXxlarge",
       "params": []
     },
     {
@@ -3764,6 +4033,11 @@
       "params": [
         "why"
       ]
+    },
+    {
+      "key": "pairError__18",
+      "leaf": "_lfPairError__18",
+      "params": []
     }
   ]
 }

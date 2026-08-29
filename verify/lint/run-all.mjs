@@ -40,8 +40,10 @@ import passwordPolicyMirror from './password-policy-mirror.mjs';
 import packageIdFamily from './package-id-family.mjs';
 import iosSeedNotPersistent from './ios-seed-not-persistent.mjs';
 import noCjk from './no-cjk.mjs';
+import sceneDemoEnglish from './scene-demo-english.mjs';
 import changelogReleaseSections from './changelog-release-sections.mjs';
 import worktreeLocation from './worktree-location.mjs';
+import planLimitCopy from './plan-limit-copy.mjs';
 import externalLinkDoor from './external-link-door.mjs';
 import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
 
@@ -71,8 +73,10 @@ const LINTS = [
   { name: 'package-id-family', run: packageIdFamily },
   { name: 'ios-seed-not-persistent', run: iosSeedNotPersistent },
   { name: 'no-cjk', run: noCjk },
+  { name: 'scene-demo-english', run: sceneDemoEnglish },
   { name: 'changelog-release-sections', run: changelogReleaseSections },
   { name: 'worktree-location', run: worktreeLocation },
+  { name: 'plan-limit-copy', run: planLimitCopy },
   { name: 'external-link-door', run: externalLinkDoor },
   { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
 ];

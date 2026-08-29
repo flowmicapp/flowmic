@@ -29,5 +29,18 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 UpdateInstaller.handle(applicationContext, call, result)
             }
+        // Card CR-2 continuous transcription: keep the screen awake for the
+        // length of a long recording. Same shape as the three above — no Flutter
+        // API, so a few lines of Kotlin instead of a dependency.
+        //
+        // 🔴 `this` (the Activity), NOT `applicationContext`, and it is the one
+        // difference worth reading twice: window flags belong to a window and
+        // only the Activity has one. An application context would compile and
+        // do nothing, and a wake that silently is not one looks exactly like a
+        // wake that is.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ScreenWake.CHANNEL)
+            .setMethodCallHandler { call, result ->
+                ScreenWake.handle(this, call, result)
+            }
     }
 }

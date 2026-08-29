@@ -20,6 +20,10 @@
 //   ⇒ a single row cannot fit the second action's sub-line, and the sub-line
 //   **is NOT an optional decoration** (see below).
 // ⇒ two rows.
+// 🔴 Card NR-3 made it THREE: the batch-delete action does not share row 2, it
+// gets a row of its own. The measurement that decided it — the three-column
+// draft going red in English at 360dp, verbatim — is at that row's build site,
+// beside the code it governs, rather than up here.
 // ⚠️ This budget **was corrected once by measurement**: the English sub-line's
 //   first draft was 41 characters, `maxLines: 3` went red on the spot
 //   (`selection_bar_render_test.dart` ①). Shortened to 31 characters + 4 lines
@@ -58,6 +62,7 @@ class SelectionBar extends StatelessWidget {
     required this.onSelectAll,
     required this.onCopy,
     required this.onOrganize,
+    required this.onDelete,
   });
 
   final AppStrings strings;
@@ -71,6 +76,11 @@ class SelectionBar extends StatelessWidget {
   final VoidCallback onSelectAll;
   final VoidCallback onCopy;
   final VoidCallback onOrganize;
+
+  /// Card NR-3. Like the other two it is **always** called on a tap — the
+  /// 「nothing is ticked」 case is answered by a spoken refusal at the call
+  /// site, never by an inert button (see the header's last paragraph).
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -176,6 +186,49 @@ class SelectionBar extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          // 🔴 Card NR-3 — the third action gets its OWN row, and that is a
+          // MEASURED outcome, not a taste for symmetry.
+          //
+          // The obvious shape is a third `Expanded` beside the two above. It
+          // was written that way first and `selection_bar_render_test.dart`
+          // went red on the spot, at 360dp in English:
+          //     ② the English organize subtitle must wrap to fit at 360dp
+          //        Expected: false  Actual: <true>     (didExceedMaxLines)
+          //     ② the English organize label is also not a short sentence
+          //        Expected: false  Actual: <true>
+          // i.e. splitting the row three ways does not shrink the NEW cell, it
+          // eats the one whose sub-line the header above argues cannot be
+          // dropped —「AI sent it out」must never be a plausible reading of the
+          // organize button. Arithmetic that agrees with the measurement: 336
+          // available − 2×8 gap = 320 ⇒ ~106 per cell ⇒ ~84px of text ⇒ under
+          // Ahem about 8 characters a line, and "Organize with AI" alone is 16.
+          // ⇒ The two cells whose budget was already counted keep their row
+          //   untouched, and delete takes the full width below them.
+          //
+          // ⚠️ Full width is not a promotion. It is last, it is the only red
+          // control on the bar, and it is the only one that opens a confirm
+          // dialog before anything happens (`confirmDestructive`, the inline
+          // second confirmation every destructive action in this app owes —
+          // owner 2026-07-27).
+          const SizedBox(height: 8),
+          // Row + Expanded rather than a bare `_action`: this Column is
+          // `CrossAxisAlignment.start`, so an unwrapped cell would shrink to
+          // its own text width and the red box would be a stub floating at the
+          // left edge.
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _action(
+                  id: 'delete',
+                  icon: Icons.delete_outline,
+                  label: strings.confirmDelete,
+                  sub: strings.selectionDeleteSub,
+                  tint: FlowMicColors.red,
+                  onTap: onDelete,
+                ),
+              ),
+            ],
           ),
         ],
       ),

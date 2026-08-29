@@ -35,6 +35,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../auth/account_mask.dart';
 import '../auth/login_controller.dart';
 import '../session/connections_controller.dart';
 import '../settings/app_strings.dart';
@@ -167,7 +168,7 @@ class _CloudSignOutRowState extends State<CloudSignOutRow> {
   @override
   Widget build(BuildContext context) {
     if (!widget.login.isLoggedIn) return const SizedBox.shrink();
-    final String email = widget.login.email ?? '';
+    final String masked = maskAccountEmail(widget.login.email);
     // owner 2026-08-21 (0.3.21):「管理和删除账号…以一个更隐蔽的方式…更小的链接，
     // 不要占据这个卡片的大片的内容…整个轻记录这个卡片看起来很高，简化一下」
     // ("make manage/delete-account more discreet — a smaller link that does not
@@ -183,76 +184,114 @@ class _CloudSignOutRowState extends State<CloudSignOutRow> {
     // action gets an undivided target). The compromise that keeps both true:
     // 12dp of dead space between the link and the chip, and the chip keeps its
     // opaque padded hit box — a near-miss on either lands on nothing.
+    //
+    // 🔴 0.3.37 — WHAT THE ROW STOPPED DOING, AND WHY IT WAS A DEFECT.
+    // The address used to sit INSIDE this Row in a [Flexible], first of three
+    // children. On a tablet it fitted; at 360dp the two links beside it take the
+    // whole width, the Flexible collapses, and the address renders as nothing —
+    // so on a narrow phone NO SCREEN IN THIS APP answered 「which account am I
+    // signed in with」 (owner 2026-08-27 UAT ②). A layout that shows an identity
+    // only when there happens to be room is not showing it.
+    //
+    // It is now its own line BELOW the links, where its width does not compete
+    // with anything, and it is [maskAccountEmail]'d — the second half of the
+    // same ruling, applied at every render site on this client.
+    //
+    // ⚠️ ONE identity face, not two. Keeping the in-row address as a
+    // 「wide-layout」 variant was considered and rejected: a tablet would then
+    // paint `bitbalabala@gmail.com` and `bit***a@gmail.com` two lines apart —
+    // one fact with two answers, which is this repo's number-one defect shape,
+    // and it would also make the no-full-address rule false on exactly the
+    // screens where it is easiest to photograph.
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (email.isNotEmpty)
-            Flexible(
-              child: Text(
-                email,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: FlowMicColors.t2, fontSize: 11.5),
-              ),
-            ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            key: const ValueKey<String>('cloud.account.manage'),
-            behavior: HitTestBehavior.opaque,
-            onTap: _openAccountPage,
-            child: Semantics(
-              label: widget.strings.accountManageNote,
-              link: true,
-              child: Padding(
-                // Vertical padding keeps a finger-sized hit box even though the
-                // visible face is one small line.
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  widget.strings.accountManageLink,
-                  style: TextStyle(
-                    color: FlowMicColors.t3,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                    decoration: TextDecoration.underline,
-                    decorationColor: FlowMicColors.t3,
+          Row(
+            children: <Widget>[
+              GestureDetector(
+                key: const ValueKey<String>('cloud.account.manage'),
+                behavior: HitTestBehavior.opaque,
+                onTap: _openAccountPage,
+                child: Semantics(
+                  label: widget.strings.accountManageNote,
+                  link: true,
+                  child: Padding(
+                    // Vertical padding keeps a finger-sized hit box even though
+                    // the visible face is one small line.
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      widget.strings.accountManageLink,
+                      style: TextStyle(
+                        color: FlowMicColors.t3,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                        decoration: TextDecoration.underline,
+                        decorationColor: FlowMicColors.t3,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Its own gesture inside a tappable card: the inner detector wins, so
-          // tapping sign-out never also opens the cloud instance.
-          //
-          // owner 2026-08-21 (0.3.23):「退出登录的按钮改为像管理和注销账号一样的
-          // 小字，不然会容易误点」("make sign-out small text like the
-          // manage-account link — the chip invites accidental taps"). This
-          // REVERSES the REQ-12-01 chip: that round made it a red chip so it
-          // could be hit ON PURPOSE; in practice the loud padded chip beside a
-          // tappable card was the thing getting hit BY ACCIDENT. Small text
-          // shrinks the visible face; the vertical padding below keeps a real
-          // hit box (same idiom as the manage link beside it), and the ONLY
-          // load-bearing gate against accidents stays [_signOut]'s
-          // confirmDestructive dialog — this face never was the safety
-          // mechanism. Red is kept at text level so the destructive verb still
-          // reads apart from the neutral manage link.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _signOut,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                widget.strings.logout,
-                style: TextStyle(
-                  color: FlowMicColors.red,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w500,
-                  decoration: TextDecoration.underline,
-                  decorationColor: FlowMicColors.red,
+              const SizedBox(width: 12),
+              // Its own gesture inside a tappable card: the inner detector wins,
+              // so tapping sign-out never also opens the cloud instance.
+              //
+              // owner 2026-08-21 (0.3.23):「退出登录的按钮改为像管理和注销账号
+              // 一样的小字，不然会容易误点」("make sign-out small text like the
+              // manage-account link — the chip invites accidental taps"). This
+              // REVERSES the REQ-12-01 chip: that round made it a red chip so it
+              // could be hit ON PURPOSE; in practice the loud padded chip beside
+              // a tappable card was the thing getting hit BY ACCIDENT. Small
+              // text shrinks the visible face; the vertical padding below keeps
+              // a real hit box (same idiom as the manage link beside it), and
+              // the ONLY load-bearing gate against accidents stays [_signOut]'s
+              // confirmDestructive dialog — this face never was the safety
+              // mechanism. Red is kept at text level so the destructive verb
+              // still reads apart from the neutral manage link.
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _signOut,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    widget.strings.logout,
+                    style: TextStyle(
+                      color: FlowMicColors.red,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      decoration: TextDecoration.underline,
+                      decorationColor: FlowMicColors.red,
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
+          // 🔴 THE ANSWER TO 「WHICH ACCOUNT AM I SIGNED IN WITH」, ALWAYS ON.
+          // No [Flexible], no ellipsis and no width condition: the whole point
+          // is that this line cannot be squeezed out by whatever sits beside it,
+          // because being squeezed out is the defect. `maxLines: 1` + the fixed
+          // three-star middle keep it to one bounded line at 360dp; that it is
+          // NOT clipped there is measured, not assumed
+          // (test/account_mask_render_test.dart).
+          if (masked.isNotEmpty)
+            Semantics(
+              label: widget.strings.accountSignedInAs(masked),
+              // The visible glyphs are the masked address alone and the label
+              // above carries the sentence — so a screen reader is told what
+              // this line IS instead of reading four characters and a domain
+              // into the void. `excludeSemantics` stops the child's own node
+              // from also announcing the bare string.
+              excludeSemantics: true,
+              child: Text(
+                masked,
+                key: const ValueKey<String>('cloud.account.identity'),
+                maxLines: 1,
+                style: TextStyle(color: FlowMicColors.t2, fontSize: 11.5),
+              ),
+            ),
         ],
       ),
     );

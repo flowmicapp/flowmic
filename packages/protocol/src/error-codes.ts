@@ -911,6 +911,48 @@ export const ERROR_CODES = {
   // table; only when a new code is genuinely needed is one added, additive and
   // bilingual).
   PASSWORD_RESET_INVALID:    { zh_CN: '重置链接无效或已过期，请重新申请。',        en: 'Reset link is invalid or expired, please request a new one.' },
+
+  // ── Multi-node relay (srvny writer / srvjp replica) · 73 → 74 ───────────────
+  // Owner approved 2026-08-29. Design docs/strategy/2026-08-29-multi-node-relay-
+  // design-srvny-srvjp.md §10.
+  //
+  // WHAT IT ANSWERS: 「the node you are talking to cannot mint this, and another
+  // one can」. A replica serves reads from a copy that a pull REPLACES every 30
+  // seconds, so an identity write accepted there is not slow or degraded — it is
+  // gone, with both ends having said OK. That is the silent-failure red line, and
+  // this code is the sentence that breaks the silence.
+  //
+  // ⚠️ THE NAME IS DELIBERATELY THE ONE THE HTTP SIDE ALREADY USED. http/router.ts
+  // has answered 421 with `error: 'NODE_IS_REPLICA'` since this channel was built.
+  // Minting a second name for the same fact is how one fact comes to have two
+  // answers — the shape this repo pays down constantly — so the socket refusal and
+  // the HTTP refusal say the same word, and router.ts now imports it from here
+  // instead of spelling it, which is what makes that a guarantee rather than a
+  // coincidence.
+  //
+  // WHY NOT A NEIGHBOUR — every one of them sends the user somewhere useless:
+  //   · PAIR_INVALID_PAYLOAD — the payload was perfect; nothing about the request
+  //     is wrong, and the user cannot fix a correct request;
+  //   · PAIR_PC_OFFLINE — the PC may be right there, online, on another node;
+  //   · PC_BUSY / PAIR_RELEASED — both assert an ACTOR (another phone is using it /
+  //     someone pressed 断开). Here nobody did anything. Reusing either invents a
+  //     person, and PC_BUSY's copy then sends the user to a phone that does not
+  //     exist — the exact half-false reuse that cost 0.2.18;
+  //   · PAIR_RATE_LIMITED — 「try again later」 is the one piece of advice that is
+  //     guaranteed not to work: waiting does not change which node answered.
+  //
+  // 🔴 THE COPY NAMES THE ONE ACTION THAT CAN ACTUALLY HELP, AND NOTHING ELSE.
+  // Reconnecting re-runs node selection, so it genuinely can land somewhere that
+  // can write — unlike waiting. It does NOT say 「replica」/「writer」: the user
+  // never chose a server and owes us no model of our topology (owner 2026-08-22,
+  // 对外文案从用户视角写). It also promises no automatic recovery, because none is
+  // implemented — see the `writer` field on the refusal ack, which is a DIAGNOSTIC
+  // and not yet a redirect.
+  //
+  // ⚠️ Name is 15 characters, inside the phone's 28-char raw-code slot.
+  // ZERO wire-shape change: this rides the existing `{error}` ack field.
+  // `whitelist=54` is untouched — no event was added, removed, or renamed.
+  NODE_IS_REPLICA:           { zh_CN: '当前服务器不处理注册和配对，请重新连接后再试。', en: 'The current server does not handle registration or pairing — reconnect and try again.' },
 } as const satisfies Record<string, ErrorMessage>;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

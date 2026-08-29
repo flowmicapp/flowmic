@@ -187,3 +187,42 @@ export function properNounShape(s: string): boolean {
   }
   return sawCapital;
 }
+
+// ─── which script is this text actually WRITTEN in? ─────────────────────────
+//
+// `scriptClassFor` answers "which script does this language TAG imply"; this
+// answers "which script do these CHARACTERS belong to". The two are separate on
+// purpose and the guard already knows why — see `untranslated_echo`: a caller's
+// declared language can be wrong, and when it is, the characters win.
+
+/** A script has to hold this share of the letters to be called the dominant one.
+ *  Below it the text is genuinely mixed and this module declines to classify —
+ *  a guard that guesses on mixed input rejects correct work, which is how a
+ *  guard gets loosened until it never fires. */
+const DOMINANT_FRACTION = 0.5;
+
+/**
+ * The script `s` is predominantly written in, or null when no script holds a
+ * majority (mixed text, or no letters at all).
+ *
+ * ⚠️ Kana decides Han-vs-Japanese for the whole CJK mass, because Chinese never
+ * uses kana while Japanese freely writes runs of pure kanji. So the CJK letters
+ * are counted TOGETHER and labelled by whether any kana appeared — classifying
+ * them separately would call an ordinary Japanese sentence 'han' whenever the
+ * kanji happened to outnumber the kana.
+ */
+export function dominantScript(s: string): ScriptClass | null {
+  const letters = letterCount(s);
+  if (letters === 0) return null;
+  const kana = countMatching(s, KANA_RE);
+  const cjk = countMatching(s, HAN_RE) + kana;
+  const ranked: readonly (readonly [ScriptClass, number])[] = [
+    [kana > 0 ? 'japanese' : 'han', cjk],
+    ['hangul', countMatching(s, HANGUL_RE)],
+    ['latin', countMatching(s, LATIN_RE)],
+    ['cyrillic', countMatching(s, CYRILLIC_RE)],
+  ];
+  let best: readonly [ScriptClass, number] = ranked[0]!;
+  for (const row of ranked) if (row[1] > best[1]) best = row;
+  return best[1] / letters >= DOMINANT_FRACTION ? best[0] : null;
+}
