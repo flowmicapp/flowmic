@@ -20,6 +20,8 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'cloud_readmit.dart';
+
 import '../auth/login_controller.dart';
 import '../auth/saas_endpoint.dart';
 import '../auth/token_storage.dart';
@@ -37,6 +39,7 @@ import '../signaling/mobile_reconnect_flow.dart'
 import '../signaling/wire_payloads.dart';
 import 'instance_probe.dart';
 import 'machine_key.dart' show scopeKeyFor;
+import 'liveness_hold.dart';
 import 'pc_presence.dart';
 import 'pc_presence_probe.dart';
 
@@ -358,6 +361,17 @@ class ConnectionsController extends ChangeNotifier
   /// the failure mode of guessing 「仅记录」("record only") is silently not delivering.
   bool get activePairingIsCloudInstance => activePairing?.channel == 'saas';
 
+  /// 🔴 The re-admission guard from [connectTo]'s cloud-row arm, and it is
+  /// STATE rather than a parameter for one reason: the recursion it terminates
+  /// goes `connectTo → enterCloud`, two different methods, so a parameter
+  /// would have to be threaded through a public signature that has no business
+  /// carrying it. See cloud_readmit.dart for why one attempt is the contract.
+  ///
+  /// ⚠️ Cleared in a `finally`, so a throw inside the re-admission cannot leave
+  /// the phone unable to ever heal itself again.
+  @visibleForTesting
+  bool readmitting = false;
+
   /// Local list/header label for [activePairing] via [pairingDisplayName]
   /// (alias → device name → fallback). Null when no active pairing — chat
   /// keeps using the session ack name.
@@ -594,6 +608,25 @@ class ConnectionsController extends ChangeNotifier
           : encodeHoldOut(refusal.code, refusal.retryAfterMs);
       _lastError = (code == null || code.isEmpty) ? null : code;
       await load(); // an AUTH_TOKEN_INVALID purge may have dropped this pairing
+      // 🔴 owner 2026-08-30 — the light-record row's refusal is not the user's
+      // problem to solve. A cloud instance is minted from the account and
+      // nothing else, so a lost device registration can be re-minted here
+      // instead of being reported as a pairing the user must redo. The whole
+      // argument, including why this cannot be a plain `if`, is in
+      // cloud_readmit.dart; ONE attempt, and the second refusal is spoken.
+      if (shouldReadmitCloudRow(
+        channel: pairing.channel,
+        refusalCode: code,
+        loggedIn: login.isLoggedIn,
+        alreadyTried: readmitting,
+      )) {
+        readmitting = true;
+        try {
+          return await enterCloud();
+        } finally {
+          readmitting = false;
+        }
+      }
       return ConnectOutcome.failed(_lastError);
     }
     _rememberActive(pairing);

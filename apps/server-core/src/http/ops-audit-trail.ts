@@ -140,13 +140,28 @@ export const ADMIN_GATED_ROUTES = [
   // serve-but-shout policy: it writes its OWN business row first and refuses to
   // touch the account if that write fails (http/account-restriction-routes.ts).
   'POST /api/ops/users/restrict',
+  // 2026-08-29 — the paid setup service's work queue and its one write. The
+  // list is a GET and keeps this module's serve-but-shout policy; the advance
+  // is THE SECOND MUTATING ENTRY and takes the same fail-closed shape the
+  // restriction route does, for the same reason (http/ops-purchase-routes.ts).
+  'GET /api/ops/purchases',
+  'POST /api/ops/purchases/advance',
+  // 🔴 THE THIRD MUTATOR, and the first that moves MONEY. Same fail-closed
+  // shape as its two neighbours — the business row goes in before the
+  // provider is called — and higher stakes: an unrecorded refund is a
+  // payment nobody authorised on paper.
+  'POST /api/ops/purchases/refund',
 ] as const;
 
 /** The admin-gated routes that CHANGE something. Exported so the failure-policy
  *  assertion in `test/ops-audit-wiring.test.ts` can name them instead of
  *  hard-coding a second copy, and so this module's own policy paragraph has a
  *  greppable referent rather than a claim about another file. */
-export const MUTATING_ADMIN_GATED_ROUTES: readonly AdminGatedRoute[] = ['POST /api/ops/users/restrict'];
+export const MUTATING_ADMIN_GATED_ROUTES: readonly AdminGatedRoute[] = [
+  'POST /api/ops/users/restrict',
+  'POST /api/ops/purchases/advance',
+  'POST /api/ops/purchases/refund',
+];
 
 /** `'<METHOD> <path>'` for one of the routes above. Nothing else is expressible. */
 export type AdminGatedRoute = (typeof ADMIN_GATED_ROUTES)[number];

@@ -148,6 +148,24 @@ export const USER_CASCADING_TABLES = [
  */
 export const USER_RETAINED_TABLES = [
   'billing_events',
+  // 2026-08-29 — paid one-time services (the $200 Guided Setup).
+  //
+  // 🔴 RETAINED BECAUSE MONEY CHANGED HANDS, which is a different reason from
+  // any of the other four. The tombstone is retained so a charge stays
+  // stoppable; the ledger and the audit log are retained because deletion has
+  // no business in them. This one is retained because a purchase is a
+  // COMMERCIAL RECORD: an unrefunded service somebody paid for, or a refund we
+  // still owe, does not stop existing when the account does — and if it were
+  // cascaded away, an EU withdrawal request arriving after the account was
+  // closed would have nothing to answer from.
+  //
+  // ⚠️ ITS `user_id` IS THEREFORE LEFT POINTING AT AN ACCOUNT THAT NO LONGER
+  // EXISTS, exactly as `billing_events.user_id` is, and for the same reason
+  // (there is no FK, so the row survives). The row holds opaque ids and amounts
+  // and NOTHING ELSE — no email, no name, no address — so keeping it does not
+  // undo the erasure it outlives. If that ever stops being true, this entry is
+  // the line that has to change.
+  'one_time_purchases',
   'ops_audit_log',
   'paddle_subscription_tombstones',
   'site_daily_counts',

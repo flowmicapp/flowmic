@@ -50,6 +50,7 @@ import '../signaling/state_machine.dart';
 import 'connection_diagnostics_sheet.dart';
 import 'destination_badge.dart';
 import 'status_badge.dart';
+import 'node_badge.dart';
 import 'tokens.dart';
 
 class ChatHeader extends StatelessWidget {
@@ -246,16 +247,47 @@ class ChatHeader extends StatelessWidget {
                     height: 40, // V2-04's same rule: ≥40dp tap target, font size unchanged.
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(
-                        name,
-                        key: const ValueKey<String>('chat.deviceName'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: FlowMicColors.t1,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          // 🔴 The NAME keeps the Flexible and the badge does
+                          // not, so a long computer name can never push 「which
+                          // machine room」 off the row — and, more importantly,
+                          // the badge can never push the NAME off it. This row
+                          // has been starved twice (0.2.51); the fixed-width
+                          // thing goes second and stays small.
+                          Flexible(
+                            child: Text(
+                              name,
+                              key: const ValueKey<String>('chat.deviceName'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: FlowMicColors.t1,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          // owner 2026-08-30 — which relay node this session is
+                          // on. Absent on LAN and on a single-node deployment,
+                          // where there is no node to name.
+                          ValueListenableBuilder<String?>(
+                            valueListenable:
+                                controller.session.reconnect.node,
+                            builder: (BuildContext context, String? id, Widget? child) {
+                              final String label =
+                                  nodeBadgeLabel(id,
+                                      controller.session.reconnect.nodeLabels
+                                          .shortById);
+                              if (label.isEmpty) return const SizedBox.shrink();
+                              return Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: NodeBadge(label: label, dense: true),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   ),

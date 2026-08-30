@@ -36,8 +36,7 @@ import type { Plan } from '@flowmic/protocol';
 import type { BillingRepo, EventOutcome, PaddleSubRow } from '../../db/repos/billing.repo';
 import type { UserRepo } from '../../db/repos/user.repo';
 import { log } from '../../log';
-import { parsePaddleEnvelope, readSubscriptionFacts, type PaddleEnvelope, type SubscriptionFacts } from './envelope';
-import { verifyPaddleSignature } from './signature';
+import type { BillingProviderAdapter, SubscriptionFacts, WebhookEnvelope } from '../webhook-types';
 
 /** Refusal codes. HTTP-LOCAL strings, deliberately NOT protocol `ErrorCode`s —
  *  the same choice `PRESENCE_AUTH_REQUIRED` and the `DIAG_*` codes made. A
@@ -49,36 +48,6 @@ import { verifyPaddleSignature } from './signature';
 export const PADDLE_SIGNATURE_INVALID = 'PADDLE_SIGNATURE_INVALID';
 export const PADDLE_ENVELOPE_INVALID = 'PADDLE_ENVELOPE_INVALID';
 
-/**
- * Events that describe THE SUBSCRIPTION ITSELF (D1 §5.3 table, all eight).
- *
- * They share ONE code path on purpose. The table's per-event prose —
- * "canceled ⇒ the tier is kept until current_period_end", "past_due ⇒ no
- * downgrade this round", "paused ⇒ the tier expires at current_period_end" —
- * describes CONSEQUENCES, not
- * different algorithms: all three fall out of storing Paddle's `status`
- * verbatim, carrying the tier over from the price mapping, and leaving the
- * expiry decision to the single solver in BillingService (D1 §6.1). Writing a
- * per-event branch that "downgrades" or "keeps" a tier would put a SECOND place
- * in the repo deciding "what tier is this user on", which is this window's headline red
- * line "shows upgraded but the server side never took effect" with the sides swapped.
- */
-const SUBSCRIPTION_EVENTS: ReadonlySet<string> = new Set([
-  'subscription.created',
-  'subscription.activated',
-  'subscription.updated',
-  'subscription.resumed',
-  'subscription.imported',
-  'subscription.canceled',
-  'subscription.past_due',
-  'subscription.paused',
-]);
-
-/** Events we RECOGNISE and deliberately do not act on (D1 §5.3 table:
- *  "record only, do not change the tier"). Recorded as `applied` with a detail that says so — see
- *  the note on `LEDGER_ONLY_DETAIL` for why not `ignored`. */
-const LEDGER_ONLY_EVENTS: ReadonlySet<string> = new Set(['transaction.payment_failed', 'adjustment.created']);
-
 /** 🔴 `applied`, NOT `ignored`, and the distinction is the whole point of the
  *  reconciliation view: `ignored` means 「we do not know this event type」, and
  *  an operator seeing it should ask whether we are missing something. These two
@@ -88,7 +57,18 @@ const LEDGER_ONLY_EVENTS: ReadonlySet<string> = new Set(['transaction.payment_fa
  *  needs a human. */
 const LEDGER_ONLY_DETAIL = 'ledger-only by policy (D1 §5.3): recorded, subscription state deliberately unchanged';
 
-export interface PaddleWebhookDeps {
+export interface BillingWebhookDeps {
+  /**
+   * WHICH PROVIDER SENT THIS. Supplies signature verification and envelope
+   * parsing and nothing else — see BillingProviderAdapter.
+   *
+   * 🔴 IT IS A DEPENDENCY, NOT A LOOKUP FROM THE BODY. Choosing the adapter by
+   * sniffing the payload would let the sender pick which secret its bytes are
+   * checked against, which is the whole ballgame: a Creem-shaped body posted to
+   * the Paddle route would be verified with the Creem secret and accepted. The
+   * route decides, from configuration, before a byte is read.
+   */
+  adapter: BillingProviderAdapter;
   repo: BillingRepo;
   /** ONLY `findById`, and it is not optional: `paddle_subscriptions.user_id` has
    *  `REFERENCES users(id)` and `PRAGMA foreign_keys = ON` is set in schema.ts,
@@ -155,24 +135,21 @@ function merge(stated: string | null | undefined, existing: string | null): stri
 }
 
 export function handlePaddleWebhook(
-  deps: PaddleWebhookDeps,
+  deps: BillingWebhookDeps,
   input: { rawBody: string; signature: string | undefined },
 ): WebhookResponse {
   const nowMs = deps.now?.() ?? Date.now();
   const receivedAt = new Date(nowMs).toISOString();
 
   // ── step 2 · signature ────────────────────────────────────────────────────
-  const verdict = verifyPaddleSignature(input.rawBody, input.signature, deps.secret, {
-    nowMs,
-    toleranceSec: deps.toleranceSec,
-  });
+  const verdict = deps.adapter.verifySignature(input.rawBody, input.signature, deps.secret, deps.toleranceSec, nowMs);
   if (!verdict.ok) {
     // 🔴 D1 §5.2 ⑤ — the skew is logged on EVERY verification, pass or fail.
     // The window is five seconds wide; when someone eventually asks "why do we
     // occasionally refuse" this number is the only instrument that can answer, and a number
     // that is only recorded on the days nothing is wrong is not an instrument.
     // The secret is not here and never will be (signature.ts's own red line).
-    log.warn('paddle webhook: signature refused', {
+    log.warn(`${deps.adapter.id} webhook: signature refused`, {
       reason: verdict.reason,
       ts_skew_sec: verdict.tsSkewSec ?? null,
       tolerance_sec: deps.toleranceSec,
@@ -183,19 +160,19 @@ export function handlePaddleWebhook(
     // is holding a curl the one fact that separates "the clock is wrong" from "the key is wrong".
     return { status: 401, body: { ok: false, error: PADDLE_SIGNATURE_INVALID, reason: verdict.reason } };
   }
-  log.info('paddle webhook: signature ok', { ts_skew_sec: verdict.tsSkewSec, tolerance_sec: deps.toleranceSec });
+  log.info(`${deps.adapter.id} webhook: signature ok`, { ts_skew_sec: verdict.tsSkewSec, tolerance_sec: deps.toleranceSec });
 
   // ── step 3 · envelope ─────────────────────────────────────────────────────
   let raw: unknown;
   try {
     raw = JSON.parse(input.rawBody);
   } catch {
-    log.warn('paddle webhook: body is signed but is not JSON', { body_bytes: input.rawBody.length });
+    log.warn(`${deps.adapter.id} webhook: body is signed but is not JSON`, { body_bytes: input.rawBody.length });
     return { status: 400, body: { ok: false, error: PADDLE_ENVELOPE_INVALID, detail: 'body is not JSON' } };
   }
-  const parsed = parsePaddleEnvelope(raw);
+  const parsed = deps.adapter.parseEnvelope(raw);
   if (!parsed.ok) {
-    log.warn('paddle webhook: envelope rejected', { reason: parsed.reason });
+    log.warn(`${deps.adapter.id} webhook: envelope rejected`, { reason: parsed.reason });
     return { status: 400, body: { ok: false, error: PADDLE_ENVELOPE_INVALID, detail: parsed.reason } };
   }
   const env = parsed.envelope;
@@ -215,7 +192,7 @@ export function handlePaddleWebhook(
     // 🔴 200, or Paddle redelivers forever. Zero side effects: the repo's
     // conflict arm has already bumped `redelivery_count`, so "how many times it's been redelivered"
     // is recorded without touching `outcome` — two questions, two columns.
-    log.info('paddle webhook: redelivery of an event we already own', {
+    log.info(`${deps.adapter.id} webhook: redelivery of an event we already own`, {
       event_id: env.event_id,
       event_type: env.event_type,
       notification_id: env.notification_id,
@@ -229,7 +206,7 @@ export function handlePaddleWebhook(
     ids: { subscription_id?: string | null; user_id?: string | null } = {},
   ): WebhookResponse => {
     deps.repo.finishEvent(env.event_id, { ...ids, outcome, detail });
-    log.info('paddle webhook: concluded', {
+    log.info(`${deps.adapter.id} webhook: concluded`, {
       event_id: env.event_id,
       event_type: env.event_type,
       outcome,
@@ -253,16 +230,123 @@ export function handlePaddleWebhook(
   // would be buried under a permanent stream of the second. That is this repo's
   // #1 bug shape, in the very table built to prevent it. §5.3's own table footer
   // states the rule this ordering implements: "everything else uniformly gets outcome:'ignored' and is logged".
-  const isSubscriptionEvent = SUBSCRIPTION_EVENTS.has(env.event_type);
-  if (!isSubscriptionEvent && !LEDGER_ONLY_EVENTS.has(env.event_type)) {
+  const isSubscriptionEvent = deps.adapter.isSubscriptionEvent(env.event_type);
+  if (!isSubscriptionEvent && !deps.adapter.isLedgerOnlyEvent(env.event_type)) {
     return conclude('ignored', 'event_type is not handled this round (D1 §5.3 table)');
   }
 
-  const facts = readSubscriptionFacts(env.event_type, env.data);
+  const facts = deps.adapter.readSubscriptionFacts(env);
   const existing = facts.subscription_id === null ? null : deps.repo.getSubscription(facts.subscription_id);
 
   // ── step 5 · WHOSE IS IT ──────────────────────────────────────────────────
   const userId = claimOwner(deps, facts, existing);
+
+  // ── step 5b · A ONE-TIME PURCHASE, WHICH IS NOT A SUBSCRIPTION ────────────
+  //
+  // 🔴 THIS SITS ABOVE THE `userId === null` RETURN, DELIBERATELY, AND THAT
+  // ORDER IS THE WHOLE POINT. Money has already moved by the time this event
+  // exists. If an unattributable paid order fell through the `unmapped` return
+  // above, we would have taken $200 and written nothing but a ledger line that
+  // names no product and no order — and the buyer, who is waiting for a service,
+  // would be invisible to every surface we have. `one_time_purchases.user_id` is
+  // nullable for exactly this case: the row is written either way, and the
+  // outcome still says a human is needed.
+  //
+  // ⚠️ Subscriptions are NOT treated this way and must not be: an unattributable
+  // subscription event has a durable handle (the subscription id) that a later
+  // event or a reconciliation pull can still resolve. A checkout that completed
+  // once does not come round again.
+  const oneTime = deps.adapter.readOneTimePurchase(env);
+  if (oneTime !== null) {
+    const written = deps.repo.recordOneTimePurchase({
+      order_id: oneTime.order_id,
+      provider: deps.adapter.id,
+      user_id: userId,
+      product_id: oneTime.product_id,
+      checkout_id: oneTime.checkout_id,
+      transaction_id: oneTime.transaction_id,
+      customer_id: oneTime.customer_id,
+      amount_minor: oneTime.amount_minor,
+      currency: oneTime.currency,
+      // The only state a webhook may write. Everything after 'paid' is something
+      // a person did, and no incoming event is evidence that they did it.
+      state: 'paid',
+      // No refund has been asked for at the moment a purchase is recorded, and
+      // stating that explicitly is cheaper than relying on a default.
+      refund_requested_at: null,
+      refund_provider_id: null,
+      refund_status: null,
+      // What the buyer affirmed at checkout, carried on metadata WE set when we
+      // built that checkout — never a value the buyer supplied and never one
+      // inferred from the event. Null on any purchase whose checkout we did not
+      // build (a payment link shared out of band, a provider-side test order),
+      // and null there is the conservative reading: no consent on record means
+      // the withdrawal right is intact.
+      early_start_consent_at: oneTime.early_start_consent_at,
+      withdrawal_waiver_ack_at: oneTime.withdrawal_waiver_ack_at,
+      consent_terms_version: oneTime.consent_terms_version,
+      scheduled_at: null,
+      started_at: null,
+      delivered_at: null,
+      // Nothing has been delivered, so nobody has been told it was. Stated
+      // rather than defaulted, like the refund fields above.
+      completion_notice_at: null,
+      refunded_at: null,
+      note: null,
+      created_at: receivedAt,
+    });
+    const what = `${oneTime.order_id} (${oneTime.product_id ?? 'unknown product'})`;
+    if (userId === null) {
+      // The row exists AND a human is named as needed. Two facts, both kept.
+      return conclude('unmapped', `one-time purchase ${what} recorded with no account attached — ${unmappedOwnerDetail(facts)}`);
+    }
+    // ⚠️ 'applied' COVERS BOTH ARMS, and the detail is what separates them.
+    // `EventOutcome` has no value for 「we already had this row」 — 'stale' is
+    // about event ordering and 'ignored' is about unknown event types, so
+    // borrowing either would make this the third question that column answers.
+    // The distinction lives in the sentence instead, where it is at least
+    // readable; if a reconciliation view ever needs to COUNT them, that is the
+    // moment to add an outcome value rather than to reinterpret one.
+    return conclude(
+      'applied',
+      written === 'inserted' ? `one-time purchase ${what} recorded` : `one-time purchase ${what} was already recorded — nothing changed`,
+      { user_id: userId },
+    );
+  }
+
+  // ── step 5c · a refund the provider is telling us about ───────────────────
+  //
+  // 🔴 THE ONLY WRITER OF 'refunded'. Not the route the customer presses (it
+  // knows we ASKED, which is a different fact), and not any operator surface,
+  // which has no control for it at all. Money going back is the provider's
+  // statement and this is where we hear it.
+  //
+  // ⚠️ IT DOES NOT REQUIRE OUR OWN 'refund_requested' FIRST. A refund issued
+  // from Creem's dashboard never passes through our route, and insisting on our
+  // prior state would leave that row saying the money was still ours while the
+  // customer's console went on offering to withdraw it.
+  const refund = deps.adapter.readRefund(env);
+  if (refund !== null) {
+    if (refund.order_id === null) {
+      // 🔴 LOUD, NOT SILENT. A refund we cannot attribute is money that moved
+      // and a row we did not update; `unmapped` is what puts it in front of a
+      // person. Guessing an order here would be worse than saying we cannot.
+      return conclude('unmapped', 'refund event carries no readable order id — nothing to key it on');
+    }
+    const at = new Date(nowMs).toISOString();
+    const out = deps.repo.confirmOneTimeRefund(
+      refund.order_id,
+      { refunded_at: at, provider_id: refund.provider_id, provider_status: refund.provider_status },
+      at,
+    );
+    // ⚠️ An order we have never seen is 'unmapped' rather than an error: it may
+    // be a refund for something bought outside this system entirely, and the
+    // ledger row is how anybody finds out.
+    return out === 'confirmed'
+      ? conclude('applied', `one-time purchase ${refund.order_id} marked refunded`, { user_id: userId })
+      : conclude('unmapped', `refund names order ${refund.order_id}, which this system has no record of`);
+  }
+
   if (userId === null) {
     return conclude('unmapped', unmappedOwnerDetail(facts), { subscription_id: facts.subscription_id });
   }
@@ -315,6 +399,7 @@ export function handlePaddleWebhook(
   const row: PaddleSubRow = {
     subscription_id: facts.subscription_id,
     user_id: userId,
+    provider: 'paddle',
     customer_id: merge(facts.customer_id, existing?.customer_id ?? null),
     status,
     tier: tier.tier,
@@ -357,7 +442,12 @@ export function handlePaddleWebhook(
   // the thing the reconciliation surface must show), so it is a recorded trace rather than silence. The most likely
   // cause — an unknown user id hitting the FK — cannot reach here at all,
   // because `claimOwner` has already proven the account exists.
-  deps.repo.upsertSubscription(row);
+  // 🔴 STAMPED FROM THE ADAPTER, not from the payload. Which provider sent this
+  // is a fact about WHICH VERIFIED ENDPOINT the bytes arrived on — the same
+  // fixed-from-configuration value the signature was checked with — and never
+  // something the body gets to claim about itself. A payload-chosen provider is
+  // a payload choosing its own verifier, one step removed.
+  deps.repo.upsertSubscription({ ...row, provider: deps.adapter.id });
   return conclude('applied', `${env.event_type} → status=${status}, tier=${tier.tier}`, {
     subscription_id: row.subscription_id,
     user_id: userId,
@@ -367,12 +457,12 @@ export function handlePaddleWebhook(
 /**
  * D1 §5.3 step 5 — claim the owner, in the order the design gives:
  *   ① `data.custom_data.flowmic_user_id`, the id WE put on the checkout — but
- *      only if it names an account that exists (see PaddleWebhookDeps.users);
+ *      only if it names an account that exists (see BillingWebhookDeps.users);
  *   ② otherwise the user already attached to this subscription id.
  * A claim naming a stranger falls through to ② rather than being fatal: an
  * account deleted after checkout must not make its subscription unrecognisable.
  */
-function claimOwner(deps: PaddleWebhookDeps, facts: SubscriptionFacts, existing: PaddleSubRow | null): string | null {
+function claimOwner(deps: BillingWebhookDeps, facts: SubscriptionFacts, existing: PaddleSubRow | null): string | null {
   const claimed = facts.claimed_user_id;
   if (claimed !== null && deps.users.findById(claimed) !== null) return claimed;
   return existing?.user_id ?? null;
@@ -387,3 +477,14 @@ function unmappedOwnerDetail(facts: SubscriptionFacts): string {
     ? `no custom_data.flowmic_user_id, and subscription ${sub} is not mapped to any account`
     : `custom_data.flowmic_user_id=${facts.claimed_user_id} is not a known account, and subscription ${sub} is not mapped either`;
 }
+
+/**
+ * The name this file was reachable by until 2026-08-29.
+ *
+ * ⚠️ AN ALIAS, NOT A SECOND TYPE. The pipeline became provider-neutral when
+ * Creem arrived; `paddle-routes.ts`, `bootstrap-http-deps.ts` and three test
+ * files spell the old name, and renaming them in the same change would have put
+ * a large mechanical diff in front of the reviewer of a billing change. The
+ * alias costs nothing and can be retired in a rename-only commit.
+ */
+export type PaddleWebhookDeps = BillingWebhookDeps;

@@ -46,7 +46,20 @@ import { readBounded, sendJson } from './body';
  *  it — it delegates the whole match to `tryHandlePaddleRoutes`. */
 export const PADDLE_WEBHOOK_PATH = '/api/paddle/webhook';
 
-/** Node lowercases incoming header names; Paddle sends `Paddle-Signature`. */
+/** Creem's ingress. 🔴 A SEPARATE PATH FROM PADDLE'S, not a `?provider=` query
+ *  and not one endpoint that sniffs the body. The path is what selects which
+ *  SECRET the bytes are verified against; letting the request choose that —
+ *  from a query string it controls, or from a body shape it authors — would let
+ *  a sender pick the key its forgery is checked with. Two paths, two configs,
+ *  decided before a byte is read. */
+export const CREEM_WEBHOOK_PATH = '/api/creem/webhook';
+
+/** Node lowercases incoming header names; Paddle sends `Paddle-Signature`.
+ *
+ *  ⚠️ RETAINED FOR ITS TEST CONSUMERS ONLY. The handler reads the header name
+ *  off the adapter (`deps.webhook.adapter.signatureHeader`) so the provider that
+ *  verifies the bytes and the header those bytes are read from cannot disagree —
+ *  which they could, silently, while both constants looked right. */
 export const PADDLE_SIGNATURE_HEADER = 'paddle-signature';
 
 /** 256 KiB (D1 §5.3 step 1). A Paddle notification is a few KB; the cap exists
@@ -58,13 +71,33 @@ export const PADDLE_BODY_TOO_LARGE = 'PADDLE_BODY_TOO_LARGE';
 export const PADDLE_BODY_UNREADABLE = 'PADDLE_BODY_UNREADABLE';
 
 export interface PaddleRoutesDeps {
-  webhook: PaddleWebhookDeps;
+  /** Paddle's intake. Present whenever `config.paddle.enabled`.
+   *
+   *  🔴 OPTIONAL SINCE 2026-08-29, and the change is not cosmetic: this used to
+   *  be required, so the whole route block was mounted behind
+   *  `config.paddle.enabled`. Creem is now the provider we intend to sell
+   *  through, and Paddle will be OFF in that deployment — under the old shape,
+   *  turning Paddle off would have silently taken Creem's endpoint down with it,
+   *  and the first symptom would have been a customer who paid and was never
+   *  upgraded. Each provider mounts on its own switch. */
+  webhook?: PaddleWebhookDeps;
+  /** Creem's intake. Present whenever `config.creem.enabled`.
+   *
+   *  ⚠️ OPTIONAL, AND ABSENT MEANS THE PATH 404s rather than accepting and
+   *  discarding. A provider we are not configured for must not answer 200 to its
+   *  own webhooks: the sender would stop retrying, and we would have told it we
+   *  had handled events we never saw. */
+  creemWebhook?: PaddleWebhookDeps;
 }
 
 /** Returns true iff it handled the request. */
 export function tryHandlePaddleRoutes(req: IncomingMessage, res: ServerResponse, deps: PaddleRoutesDeps): boolean {
   const url = (req.url ?? '').split('?')[0];
-  if (url !== PADDLE_WEBHOOK_PATH) return false;
+  // WHICH PROVIDER THIS PATH BELONGS TO — decided here, from the URL and the
+  // configuration, and never from anything the sender can vary.
+  const webhook =
+    url === PADDLE_WEBHOOK_PATH ? deps.webhook : url === CREEM_WEBHOOK_PATH ? deps.creemWebhook : undefined;
+  if (webhook === undefined) return false;
   if (req.method !== 'POST') {
     sendJson(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED' });
     return true;
@@ -85,7 +118,7 @@ export function tryHandlePaddleRoutes(req: IncomingMessage, res: ServerResponse,
     if (body === null) {
       // Peer went away mid-body. Nothing was verified and nothing was written;
       // say so rather than leaving the socket to time out (no silent failure).
-      log.warn('paddle webhook: body could not be read');
+      log.warn(`${webhook.adapter.id} webhook: body could not be read`);
       sendJson(res, 400, { ok: false, error: PADDLE_BODY_UNREADABLE });
       return;
     }
@@ -95,12 +128,12 @@ export function tryHandlePaddleRoutes(req: IncomingMessage, res: ServerResponse,
       // and "Paddle says it sent it, we say we never got it" is the single
       // hardest thing to diagnose after the fact, because neither side holds
       // the other's evidence.
-      log.warn('paddle webhook: body over the cap — refused unread', { max_bytes: MAX_PADDLE_WEBHOOK_BYTES });
+      log.warn(`${webhook.adapter.id} webhook: body over the cap — refused unread`, { max_bytes: MAX_PADDLE_WEBHOOK_BYTES });
       sendJson(res, 413, { ok: false, error: PADDLE_BODY_TOO_LARGE, max_bytes: MAX_PADDLE_WEBHOOK_BYTES });
       return;
     }
 
-    const rawHeader = req.headers[PADDLE_SIGNATURE_HEADER];
+    const rawHeader = req.headers[webhook.adapter.signatureHeader];
     // A repeated header arrives from Node as one comma-joined string, which
     // cannot parse as `ts=…;h1=…` and lands in `malformed` — an honest 401.
     // The array form only occurs for set-cookie, which this is not; treating it
@@ -108,7 +141,7 @@ export function tryHandlePaddleRoutes(req: IncomingMessage, res: ServerResponse,
     const signature = typeof rawHeader === 'string' ? rawHeader : undefined;
 
     // ── steps 2-7 live in the handler, in one testable sequence ────────────
-    const out = handlePaddleWebhook(deps.webhook, { rawBody: body, signature });
+    const out = handlePaddleWebhook(webhook, { rawBody: body, signature });
     sendJson(res, out.status, out.body);
   })().catch((e) => {
     // A route that dies mid-flight must still answer. 500 is the CORRECT answer
@@ -117,7 +150,7 @@ export function tryHandlePaddleRoutes(req: IncomingMessage, res: ServerResponse,
     // the event's ledger row is either absent or still 'pending', so the retry
     // either claims it fresh or is told 「already seen」, and neither path
     // applies a state write twice.
-    log.warn('paddle webhook: route failed', { error: String(e) });
+    log.warn(`${webhook.adapter.id} webhook: route failed`, { error: String(e) });
     try {
       sendJson(res, 500, { ok: false, error: 'PADDLE_INTAKE_FAILED' });
     } catch {

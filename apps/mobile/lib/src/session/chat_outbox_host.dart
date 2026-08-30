@@ -342,12 +342,32 @@ void onInjectResultRouted(ChatController c, InjectResult r) {
 /// answers, and one of them would be wrong.
 void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
   final ConnectionState prev = c._conn;
+  final SessionState prevSess = c._sess;
   c._conn = s.connection;
   c._sess = s.session;
   if (c._sess != SessionState.recording) c.recording.stop();
   if (s.connection == ConnectionState.connected &&
       prev != ConnectionState.connected) {
     c.destination.reset();
+    // 🔴 CR-5 EDGE 1 — the link came back, so audio captured while it was
+    // down can now become words. The runner refuses on its own when a
+    // recording is in progress or nothing is owed, so this edge does not
+    // ask; asking here would be a second copy of a judgement that has to
+    // live in one place (two stretches at once is a corruption, not a
+    // slowdown).
+    unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
+  }
+  // 🔴 CR-5 EDGE 2 — a recording just ENDED. Its own outage audio sat on
+  // disk the whole time and could not be fed back while the microphone held
+  // the session; now it can.
+  //
+  // ⚠️ Judged on `prevSess`, captured at the top — NOT on `c._sess`, which
+  // was overwritten three lines in. Testing the overwritten copy would make
+  // this fire on every snapshot instead of on the edge, i.e. a sweep per
+  // frame rather than a sweep per recording.
+  if (prevSess == SessionState.recording &&
+      s.session != SessionState.recording) {
+    unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
   }
   _watchSessionLoss(c, s.connection);
   if (s.connection != ConnectionState.connected) {

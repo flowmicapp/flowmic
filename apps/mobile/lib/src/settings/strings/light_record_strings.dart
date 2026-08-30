@@ -114,3 +114,65 @@ mixin LightRecordStrings on AppStringsLeaves {
   /// 「轻记录图片」 ("light-record pictures") as a whole.
   String get lightRecordImageNoOriginal => _lfLightRecordImageNoOriginal;
 }
+
+/// 🔴 CR-8 — the article face (「一篇」/ a piece).
+///
+/// Filed with the light-record strings because that is the only place an
+/// article can exist: continuous recording only runs where nothing is
+/// delivered (ruling ⑨), so every article is a light record and so is every
+/// row inside it.
+mixin ArticleStrings on AppStringsLeaves {
+  /// The list card's second line: how long, and how many parts.
+  ///
+  /// ⚠️ 「part」 rather than 「segment」: the user did not ask for segments and
+  /// has no way to influence how many there are. What the number tells them is
+  /// how the piece is divided when they open it.
+  String articleCardMeta(String clock, int n) =>
+      _lfArticleCardMeta(clock, n);
+
+  /// owner 2026-08-30 — the settings panel that lists the relay nodes and how
+  /// far away each one is.
+  ///
+  /// 🔴 [nodePanelNote] is not decoration: this panel is INFORMATION, and the
+  /// phone does not choose a node (the desktop does; the phone follows its PC —
+  /// multi-node design §4-1). Without a sentence saying so, a list of latencies
+  /// with one of them highlighted reads as a menu, and there is no menu. A
+  /// control that changed nothing would be worse than none at all (R8).
+  String get nodePanelTitle => _lfNodePanelTitle;
+  String get nodePanelNote => _lfNodePanelNote;
+  String get nodePanelMeasure => _lfNodePanelMeasure;
+
+  /// The three legs of 本机 → 边缘 → 节点. Separate strings rather than one
+  /// interpolated sentence so that a locale can order them however it reads.
+  String get nodeLegEdge => _lfNodeLegEdge;
+  String get nodeLegOrigin => _lfNodeLegOrigin;
+  String get nodeLegTotal => _lfNodeLegTotal;
+
+  /// The chip on the card: 「this is a long recording, not a note」.
+  ///
+  /// 🔴 It exists because the card has to be recognisable BEFORE it is read.
+  /// Owner, 2026-08-30: 「当前的话就是太普通了，不确定是什么东西」 — the card
+  /// looked like every other row, so its job (say what kind of thing this is at
+  /// a glance) was not being done by anything on it.
+  String get articleBadge => _lfArticleBadge;
+
+  /// A recording that has produced no words.
+  ///
+  /// 🔴 NOT 「untitled」. There is no title because nothing was said, and the
+  /// sentence says the true thing rather than the tidy one — 「untitled」 would
+  /// invite the user to look for the words.
+  String get articleNoTitle => _lfArticleNoTitle;
+
+  /// 🔴 Ruling ⑮'s sentence, and the ONLY claim it is allowed to make: how much
+  /// audio is still waiting to become words.
+  ///
+  /// ⚠️ NEVER 「it will take about X」. Nothing on this device knows how fast the
+  /// engine is, and the ruling that permitted a slow catch-up permitted it on
+  /// condition that the screen says how much is LEFT — a quantity we measure,
+  /// not one we estimate.
+  String articleBackfillPending(String clock) =>
+      _lfArticleBackfillPending(clock);
+
+  /// When the recording was made.
+  String articleStartedAt(String when) => _lfArticleStartedAt(when);
+}

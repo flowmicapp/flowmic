@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../generated/flowmic_events.g.dart';
 import '../audio/audio_capture.dart';
+import '../audio/article_scribe.dart';
 import '../audio/continuous_cap_timer.dart';
 import '../audio/continuous_recording.dart';
 import '../audio/screen_wake.dart';
@@ -36,13 +37,16 @@ import '../session/machine_key.dart';
 import '../session/pc_busy.dart';
 import '../session/pc_presence.dart';
 import '../session/pc_presence_probe.dart';
+import '../session/presence_route.dart';
 import '../session/platform_device_info.dart';
+import '../timeline/article.dart' show pcmBytesToMs;
 import '../signaling/auth_expired_handler.dart';
 import '../signaling/health_handler.dart';
 import '../signaling/http_endpoint.dart';
 import '../signaling/lan_pinning.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/mobile_reconnect_flow.dart';
+import '../signaling/node_follow.dart' show answeringNode, pcHomeNodeOf;
 import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
@@ -55,8 +59,8 @@ import 'pair_result.dart';
 import 'pair_retire.dart';
 import 'platform_mic_permission.dart';
 
-// 800-line cap: `PairResult` moved VERBATIM to pair_result.dart when Window
-// B3-2a pushed this file over. Re-exported so existing imports still see it.
+// 800-line cap: `PairResult` moved VERBATIM to pair_result.dart (Window B3-2a),
+// re-exported so existing imports still see it.
 export 'pair_result.dart';
 
 // 800-line cap: the whole inbound dispatch section moved VERBATIM (see its header).
@@ -68,8 +72,7 @@ part 'ptt_pair.dart';
 // 800-line cap: G-15① idle PC-presence poll lives here (see its header).
 part 'ptt_presence_poll.dart';
 
-// 800-line cap (card L7): the mobile:reconnect ack callbacks moved VERBATIM
-// (+ two marked edits) — see that file's diff-discipline note.
+// 800-line cap (card L7): the mobile:reconnect ack callbacks moved VERBATIM (+2 marked edits) — see that file's diff-discipline note.
 part 'ptt_reconnect_ack.dart';
 
 // 800-line cap (F-1/49-3): the keep-alive plumbing moved VERBATIM — see header.
@@ -92,9 +95,8 @@ part 'ptt_session_dispose.dart';
 // 800-line cap: the three PTT edges (down / up / cancel) moved VERBATIM —
 // see that file's header.
 part 'ptt_edges.dart';
-// Cards CR-2/CR-6/CR-9 — the continuous-recording lifecycle: what makes a
-// capture continuous, and every path that ends one.
-part 'ptt_continuous.dart';
+part 'ptt_continuous.dart'; // CR-2/CR-6/CR-9 — the continuous lifecycle.
+part 'ptt_backfill.dart'; // CR-5 — the re-transcription channel's wire half.
 
 class PttSession {
   PttSession({
@@ -219,10 +221,14 @@ class PttSession {
   }
 
   /// Card CR-6 — the per-sitting ceiling, armed with the number the SERVER
-  /// issued. Card CR-2 — the screen hold. Both belong to one lifecycle, and it
-  /// is written in ptt_continuous.dart: [beginContinuous] / [endContinuous].
+  /// issued. Card CR-2 — the screen hold. Cards CR-7/CR-8 — which article a row
+  /// belongs to and where inside it. One lifecycle, written in
+  /// ptt_continuous.dart: [beginContinuous] / [endContinuous] — except that the
+  /// scribe is deliberately NOT closed by the latter (article_scribe.dart says
+  /// why, and it is not the C8 bug it resembles).
   final ContinuousCapTimer capTimer = ContinuousCapTimer();
   final ScreenWakeHold screenWake = ScreenWakeHold();
+  final ArticleScribe articles = ArticleScribe();
 
   final SocketTransport transport;
   final FlowmicStateMachine fsm;
@@ -772,7 +778,6 @@ class PttSession {
   // ── PTT edges —— `pttDown` / `pttUp` / `pttCancel` moved VERBATIM to
   //    ptt_edges.dart (800-line cap, the tenth split on this file). See that
   //    file's header for the diff discipline.
-
 
   // ── capture pump —— `pauseCapture` / `resumeCapture` / `_onCaptureFault` /
   //    `_onCapturedChunk` / `_emitChunk` moved VERBATIM to

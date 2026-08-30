@@ -105,7 +105,7 @@ const String kTimelineDbFile = 'flowmic_timeline.db';
 /// existing row read, rewritten or dropped. It holds this device's belief about
 /// what its account's blind store contains, including the pending-tombstone set
 /// that design §4.1 requires to outlive the rows it is about.
-const int kTimelineDbVersion = 6;
+const int kTimelineDbVersion = 7;
 
 /// D13 ① — 「装了更老的 APK」("an older APK got installed") has an explicit answer instead of an accident.
 ///
@@ -259,6 +259,8 @@ Future<TimelineStorageOpen> openTimelinePersistence({
                 await _upgradeV5CreateInstanceMachineMapAsShipped(d);
               case 6:
                 await _upgradeV6CreateBlindStoreCloudStateAsShipped(d);
+              case 7:
+                await _upgradeV7AddTimelineArticleId(d);
             }
           }
         },
@@ -401,6 +403,10 @@ Map<String, Object?> _row(TimelineEntry e) => <String, Object?>{
   'status': e.status.wire,
   'entry_type': e.entryType,
   'spoken_to_instance_id': e.spokenToInstanceId,
+  // CR-7 — the projected half of the article grouping. The other half rides
+  // inside `payload` (TimelineEntry.toJson), because that is the copy the blind
+  // store carries; both are written from this one value, here, at once.
+  'article_id': e.articleId,
   'deleted': e.deleted ? 1 : 0,
   'search_text': timelineSearchText(e),
   'payload': jsonEncode(e.toJson()),

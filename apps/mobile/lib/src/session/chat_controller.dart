@@ -48,6 +48,7 @@ import '../timeline/timeline_sync.dart';
 // literals.
 import '../ui/banner_queue.dart' show BannerIds;
 import 'ai_compose_controller.dart';
+import 'backfill_runner.dart';
 import 'compose_gate.dart';
 import 'delivery_outbox.dart';
 import 'outbox_blob_store.dart';
@@ -118,6 +119,9 @@ part 'chat_explicit_delivery.dart';
 // The exact complement of the file above: rewriting an EXISTING row without
 // re-delivering it.
 part 'chat_row_rewrite.dart';
+
+// The five inbound routers — one family, one file. See its header.
+part 'chat_inbound_routes.dart';
 
 class ChatController extends ChangeNotifier
     implements
@@ -229,6 +233,15 @@ class ChatController extends ChangeNotifier
   final ValueListenable<bool?>? llmCapability;
   @override
   final TimelineStore store;
+
+  /// 🔴 CR-5 — the re-transcription channel. Built here because this is the
+  /// one place that already holds BOTH halves it needs: the wire (`session`)
+  /// and the rows (`store`). Swept on two edges only — the link coming back,
+  /// and a recording ending — because those are the only two moments at which
+  /// the answer to 「is anything owed」 can have changed.
+  late final BackfillRunner backfill =
+      BackfillRunner(session: session, store: store);
+
   final DestinationController destination;
   @override
   final TimelineSyncGate syncGate;
@@ -764,22 +777,9 @@ class ChatController extends ChangeNotifier
   bool restoreOriginal() => aiCompose.restoreOriginal();
 
 
-  void _onAiCompose(AiComposeEvent e) {
-    aiCompose.onEvent(e);
-    utteranceCompose.onEvent(e);
-  }
-
-  // inject:result → ManualDelivery claim + F3 ack→visible + bar retreat.
-  void _onInjectResult(InjectResult r) => onInjectResultRouted(this, r);
-
-  // ── focus:state → transient header label ─────────────────────────────
-  void _onFocusState(FocusState f) => destination.onFocusApp(f.appLabel);
-
-  // Body: chat_notices.dart (RV-92). Same family as the buffer/notice routes.
-  void _onPcPresenceChanged() => onPcPresenceChangedRouted(this);
-
-  // ── connection edges: destination stickiness reset (§4.0 B) ──────────
-  void _onFsmChange(FlowmicStateSnapshot s) => onFsmChangeRouted(this, s);
+  // ── the five inbound routers ─────────────────────────────────────────
+  // Bodies: chat_inbound_routes.dart (a `part` of this library). See that
+  // file's header for the cut; every call site is byte-for-byte unchanged.
 
   // ── long-press actions ───────────────────────────────────────────────
   // Split by intent, one file each (Lane K): deferred redelivery went to

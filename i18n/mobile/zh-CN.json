@@ -47,6 +47,17 @@
     "appendHold": "'按住 追加'",
     "appendRelease": "'● 松开 结束追加'",
     "appendUnavailableBusy": "'上一句还没处理完，稍等一下再追加'",
+    "articleBackfillPending": "'断网时录下的 $clock 还在转写'",
+    "articleCardMeta": "'$clock · $n 段'",
+    "nodePanelTitle": "'中继节点'",
+    "nodePanelNote": "'由电脑选择节点，这台手机跟随电脑。'",
+    "nodePanelMeasure": "'测量延时'",
+    "nodeLegEdge": "'到边缘'",
+    "nodeLegOrigin": "'到节点'",
+    "nodeLegTotal": "'合计'",
+    "articleBadge": "'长程'",
+    "articleNoTitle": "'还没有说话'",
+    "articleStartedAt": "'录于 $when'",
     "backToBottom": "'回到底部'",
     "bannerAlbumAway": "'选图中 · 返回后将自动重连'",
     "bannerAllTitle": "'全部提示'",
@@ -505,6 +516,7 @@
     "pairError__15": "'无法连接到电脑'",
     "pairError__16": "'配对超时，请检查地址与网络'",
     "pairError__17": "'配对失败，请检查网络后重试$diag'",
+    "pairError__18": "'当前服务器不处理配对，请重新连接后再试'",
     "pairError__2": "'配对码已过期，请在电脑上刷新'",
     "pairError__3": "'云端中继配对需要电脑的 PCID。请扫描电脑上的二维码，或输入电脑上显示的 9 位 PCID。'",
     "pairError__4": "'这个 PCID 找不到对应的电脑，请核对电脑上显示的 PCID。'",
@@ -576,7 +588,7 @@
     "pttSubProcessingManual": "'正在生成终稿'",
     "quotaContextUsed": "'上下文 $used/${limit}M'",
     "quotaVoiceUsed": "'语音 $used/$limit 分钟'",
-    "reachUnanswered": "'暂时问不到'",
+    "reachUnanswered": "'超时重试中'",
     "recLinkDegraded": "'重连中 · 已缓冲'",
     "recLinkDown": "'网络已断开'",
     "recLinkOk": "'网络正常'",
@@ -780,7 +792,6 @@
     "utteranceComposeError__4": "'超时未返回'",
     "utteranceComposeError__5": "'已中止'",
     "utteranceComposeError__6": "'上一次处理还没结束'",
-    "utteranceComposeError__7": "'$why · 这句未发送，也没有发原文 · 可长按补投'",
-    "pairError__18": "'当前服务器不处理配对，请重新连接后再试'"
+    "utteranceComposeError__7": "'$why · 这句未发送，也没有发原文 · 可长按补投'"
   }
 }

@@ -59,6 +59,12 @@ export const TABLES = [
   // 0.3.25 B3 — refund records. HAS a foreign key (cascades with the account),
   // unlike the tombstone above; the two sit together so the contrast is visible.
   'refund_requests',
+  // 2026-08-29 — one-time (non-subscription) purchases, i.e. the paid service.
+  // NO foreign key, like the tombstone above and for a related reason: money
+  // received is a commercial record that must outlive the account it was
+  // received from. Its `user_id` is nullable for the same reason billing_events'
+  // is — a paid order we could not attribute must still be written down.
+  'one_time_purchases',
   'billing_events',
   'ops_audit_log',
   'site_daily_counts',

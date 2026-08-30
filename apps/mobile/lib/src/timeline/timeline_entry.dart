@@ -17,6 +17,10 @@
 
 import '../signaling/wire_payloads.dart' show FlowMode, Delivery;
 
+// The device-local JSON codec. Split out at the 800-line cap; see that file's
+// header for the cut and the one mechanical edit it carries.
+part 'timeline_entry_codec.dart';
+
 /// master-plan §4.0 D: status records DELIVERY TRUTH ONLY. Five badges in the
 /// UI = these four statuses plus the orthogonal [TimelineEntry.edited] overlay.
 ///
@@ -136,6 +140,8 @@ class TimelineEntry {
     this.failureReason,
     this.cachedByVerdict = false,
     this.lastResentAt,
+    this.articleId,
+    this.articleOffsetMs,
   });
 
   /// [entryType] values. The first pair mirrors `TimelineEntry.entry_type` in
@@ -162,6 +168,31 @@ class TimelineEntry {
   /// (重发 / 补投 / 编辑 / 重跑), and deferred delivery (补投) re-delivers a
   /// row's text. See [isControl] for the predicate that closes them.
   static const String kControl = 'control';
+
+  /// 🔴 CR-7 — THE HEAD OF ONE CONTINUOUS RECORDING (「一篇」/ "a piece").
+  ///
+  /// **DEVICE-LOCAL, for the same structural reason as [kControl] and not a
+  /// weaker one.** The protocol's `EntryTypeSchema` still has exactly two
+  /// members; an article head carries no words of its own — its text is a
+  /// TITLE, derived from the first segment — so a frame that could claim
+  /// `entry_type:'article'` would be a frame carrying prose the receiving end
+  /// is told not to read as prose. [toHistoryItem] never emits it.
+  ///
+  /// ⚠️ **IT IS A HEAD, NOT A CONTAINER.** Ruling 4.C 乙 keeps the segment as
+  /// the row: every segment of a continuous recording is an ordinary
+  /// [kTranscript] row that settles, recovers, syncs and exports exactly as it
+  /// always did, and the only new thing on it is [articleId]. The head holds
+  /// what is true of the WHOLE — when it started, how long, how many segments,
+  /// its title — because those are questions no single segment can answer.
+  /// Option 甲 (the whole recording in one row) was refused because it would
+  /// undo 「段＝可独立结算单元」("a segment is an independently settleable
+  /// unit"): one failure would then cost the entire recording.
+  ///
+  /// 🔴 A HEAD IS NEVER THE ANSWER TO 「what did the user say」. It has no
+  /// [sourceText]; nothing may re-deliver, re-inject, edit-as-text or count its
+  /// words as speech. Every predicate that offers a row an action names its
+  /// kind positively for exactly this reason (see [kControl]).
+  static const String kArticle = 'article';
 
   /// The idempotency key. `loc_{deviceId}_{clientId}` for a phone-minted entry
   /// (F-2367 lineage); a server-synced entry keeps the server id verbatim.
@@ -299,6 +330,44 @@ class TimelineEntry {
   /// PC and in the console. Null on every transcript row and on a picture whose
   /// thumbnail could not be produced — a missing preview never blocks the send.
   final String? thumbB64;
+
+  /// 🔴 CR-7 — WHICH continuous recording (「一篇」) this row belongs to, or null
+  /// for every row that belongs to none (which is almost all of them).
+  ///
+  /// It is BOTH a projected sqlite column and a payload key, and that
+  /// duplication is the design (4.C 乙), not an oversight:
+  ///   · the COLUMN is what makes 「list the articles」 and 「the rows of this
+  ///     article」 indexed queries instead of a whole-table decode — the exact
+  ///     cost `LightRecordQuery` documents itself paying for `origin`;
+  ///   · the PAYLOAD key is what makes the grouping survive BLIND-STORE SYNC.
+  ///     The cloud copy is ciphertext (`e2e:v1:`); the server cannot store a
+  ///     column it never receives, and a phone restoring from the blind store
+  ///     gets back exactly the JSON it uploaded. A grouping that lived only in
+  ///     the column would evaporate on restore and the user would find a
+  ///     recording scattered into loose lines.
+  ///
+  /// ⚠️ The two are written from ONE value at ONE moment (the store's builders)
+  /// and never edited afterwards, so they cannot drift. A row does not change
+  /// which recording it came from.
+  final String? articleId;
+
+  /// 🔴 CR-8 — where this row starts INSIDE its article, in milliseconds of
+  /// recorded audio counted from the article's first byte.
+  ///
+  /// **AUDIO TIME, NOT WALL-CLOCK TIME, AND NOT ARRIVAL TIME.** The offset is
+  /// the sum of the durations of everything recorded before it in this article
+  /// — engine-reported `duration_ms` for a live segment, bytes ÷ 32,000 for a
+  /// stretch recorded while the link was down. Both are properties of the audio
+  /// itself.
+  ///
+  /// 🔴 THE BANNED SOURCE IS 「when the final reached this phone」. That value is
+  /// sitting right there, it looks like a timestamp, and it is systematically
+  /// late by the engine's own latency — one value (arrival) answering a
+  /// different question (when it was said). Doc §4.D names it explicitly.
+  ///
+  /// Null on every row outside an article, and null on an article HEAD (a head
+  /// has no position inside itself).
+  final int? articleOffsetMs;
 
   /// 🔴 REQ-12-13 — WHICH remote key this row records (`clear` / `backspace` /
   /// `undo` / `enter`). Non-null **if and only if** [entryType] is [kControl];
@@ -449,6 +518,18 @@ class TimelineEntry {
   /// and its [status] is NOT the delivery truth of anything — see [controlKind].
   bool get isControl => entryType == kControl;
 
+  /// CR-7 — true for an ARTICLE HEAD row. See [kArticle].
+  ///
+  /// 🔴 Read it as 「这一行不是一句话，是一整篇的封面」("this row is not a
+  /// sentence, it is the cover of a whole piece"). Like [isControl] it must be
+  /// asked POSITIVELY: a predicate that offers an action to `!isImage` hands
+  /// resend / deferred delivery / edit / re-run to a head, and a head has
+  /// nothing to deliver.
+  bool get isArticle => entryType == kArticle;
+
+  /// CR-7 — a row that is PART OF an article, never the head itself.
+  bool get isInArticle => articleId != null && !isArticle;
+
   /// §2A.1 display fallback: processed/edited face over the immutable source.
   String get displayText {
     if (outputText.isNotEmpty) return outputText;
@@ -519,6 +600,11 @@ class TimelineEntry {
     // No parameter either, and for the same reason: WHICH key was pressed is the
     // row's identity, not a fact about it that could later be revised.
     controlKind: controlKind,
+    // CR-7/CR-8 — no parameters, same rule again: which recording a row came
+    // from, and where inside it, are facts about the audio that produced the
+    // row. An edit changes the words; it does not move the row in time.
+    articleId: articleId,
+    articleOffsetMs: articleOffsetMs,
     // Null cannot clear — see [failureReason] field comment.
     failureReason: failureReason ?? this.failureReason,
     // `false` DOES clear (only null means 「不变」/ "unchanged") — a row put
@@ -535,132 +621,16 @@ class TimelineEntry {
   final DateTime updatedAt;
 
   // ── local persistence (device-local JSON, never the wire) ──────────────
-  Map<String, Object?> toJson() => <String, Object?>{
-    'id': id,
-    'client_id': clientId,
-    'mode': mode.name,
-    'delivery': delivery.name,
-    'source_text': sourceText,
-    'output_text': outputText,
-    'source_lang': sourceLang,
-    'output_lang': outputLang,
-    'process_mode': processMode,
-    'processed_text': processedText,
-    'refined_at': refinedAt?.toIso8601String(),
-    'inject_target': injectTarget?.toJson(),
-    'pc_name': pcName,
-    // V2-06a-1. Absent on legacy rows -> null on read, which is the honest
-    // answer: those rows genuinely have no recorded owner.
-    'spoken_to_instance_id': spokenToInstanceId,
-    'spoken_to_instance_name': spokenToInstanceName,
-    'edited': edited,
-    'status': status.wire,
-    'duration_ms': durationMs,
-    'segments_count': segmentsCount,
-    'origin': origin,
-    'deleted': deleted,
-    'entry_type': entryType,
-    'thumb_b64': thumbB64,
-    // REQ-12-13 — device-local, rides the one `payload` JSON column (no migration).
-    'control_kind': controlKind,
-    // Device-local payload key; SQLite stores this JSON as-is (no schema migrate).
-    'failure_reason': failureReason,
-    // N2, same deal: the sqlite row is one JSON `payload` column, so a new
-    // device-local key rides along with no migration and no projected column.
-    'cached_by_verdict': cachedByVerdict,
-    // owner 2026-07-31 resend time (重发时间). Same deal again — a device-local key inside the
-    // one `payload` JSON column, so it persists across a relaunch with no
-    // migration and no projected column. Absent (null) on a row never re-sent.
-    'last_resent_at': lastResentAt?.toUtc().toIso8601String(),
-    'created_at': createdAt.toUtc().toIso8601String(),
-    'updated_at': updatedAt.toUtc().toIso8601String(),
-  };
+  //
+  // 🔴 BOTH BODIES MOVED to timeline_entry_codec.dart (a `part` of this
+  // library) when card CR-7 pushed this file past the 800-line cap. The two
+  // NAMES stay here, so every caller and every test double is unchanged —
+  // see that file for the cut, and for the one mechanical edit it carries.
+  Map<String, Object?> toJson() => timelineEntryToJson(this);
 
-  static TimelineEntry? fromJson(Map<String, Object?> j) {
-    final Object? id = j['id'];
-    final Object? clientId = j['client_id'];
-    if (id is! String || id.isEmpty) return null;
-    if (clientId is! String || clientId.isEmpty) return null;
-    return TimelineEntry(
-      id: id,
-      clientId: clientId,
-      mode: _modeFromWire(j['mode']),
-      delivery: j['delivery'] == 'none' ? Delivery.none : Delivery.inject,
-      sourceText: j['source_text'] as String?,
-      outputText: (j['output_text'] as String?) ?? '',
-      sourceLang: j['source_lang'] as String?,
-      outputLang: j['output_lang'] as String?,
-      processMode: j['process_mode'] as String?,
-      processedText: j['processed_text'] as String?,
-      refinedAt: j['refined_at'] is String
-          ? DateTime.tryParse(j['refined_at'] as String)
-          : null,
-      injectTarget: InjectTarget.tryParse(j['inject_target']),
-      pcName: j['pc_name'] is String && (j['pc_name'] as String).isNotEmpty
-          ? j['pc_name'] as String
-          : null,
-      // V2-06a-1: absent on every row written before this field existed, and it
-      // stays null. There is no migration that could invent an owner for them —
-      // guessing 「当前连着谁」("who is currently connected") is the same lie
-      // requirement ③ (需求③) banned when it refused to
-      // back-fill `now` onto old pairings.
-      spokenToInstanceId:
-          j['spoken_to_instance_id'] is String &&
-              (j['spoken_to_instance_id'] as String).isNotEmpty
-          ? j['spoken_to_instance_id'] as String
-          : null,
-      spokenToInstanceName:
-          j['spoken_to_instance_name'] is String &&
-              (j['spoken_to_instance_name'] as String).isNotEmpty
-          ? j['spoken_to_instance_name'] as String
-          : null,
-      edited: j['edited'] == true,
-      status: EntryStatus.fromWire(j['status']),
-      durationMs: (j['duration_ms'] as num?)?.toInt(),
-      segmentsCount: (j['segments_count'] as num?)?.toInt() ?? 0,
-      origin: (j['origin'] as String?) ?? 'paired',
-      deleted: j['deleted'] == true,
-      // A pre-T-4 stored row has no entry_type — it is a transcript by
-      // construction, so the default is the truth rather than a guess.
-      // REQ-12-13: `control` MUST be listed. A two-way ternary rewrites a
-      // keypress row into a transcript on the way back off disk — and then the
-      // next write persists the rewrite, so one relaunch makes it permanent and
-      // hands that row resend/edit/deferred-delivery (重发/编辑/补投) as a bonus. Anything still unrecognised
-      // falls back to transcript exactly as before.
-      entryType: j['entry_type'] == kImage
-          ? kImage
-          : (j['entry_type'] == kControl ? kControl : kTranscript),
-      thumbB64: j['thumb_b64'] is String ? j['thumb_b64'] as String : null,
-      // Absent on every row written before REQ-12-13 → null, which is the truth:
-      // those rows are not keypresses.
-      controlKind:
-          j['control_kind'] is String && (j['control_kind'] as String).isNotEmpty
-          ? j['control_kind'] as String
-          : null,
-      // Absent on legacy rows → null. That is the honest answer, not a guess.
-      failureReason:
-          j['failure_reason'] is String &&
-              (j['failure_reason'] as String).isNotEmpty
-          ? j['failure_reason'] as String
-          : null,
-      // Absent on every row stored before N2 → false, i.e. 「没有判决说过它未投递」
-      // ("no verdict has ever said it was not delivered").
-      // That is the honest default: those rows were written by a build whose only
-      // meaning for cached was 投递中("in delivery").
-      cachedByVerdict: j['cached_by_verdict'] == true,
-      // Absent on every row stored before this field → null = 「没被重发过」
-      // ("never been resent"), which
-      // is the honest answer for a row written by a build that never recorded it.
-      // Deliberately NOT `_date()`: that helper answers with epoch-0 for a
-      // missing value, and an entry claiming it was last re-sent in 1970 would
-      // render a confident lie in the meta row. Null is the only right answer.
-      lastResentAt: j['last_resent_at'] is String
-          ? DateTime.tryParse(j['last_resent_at'] as String)?.toUtc()
-          : null,
-      createdAt: _date(j['created_at']),
-      updatedAt: _date(j['updated_at']),
-    );
-  }
+  static TimelineEntry? fromJson(Map<String, Object?> j) =>
+      timelineEntryFromJson(j);
+
 
   /// HistoryItemSchema wire shape for `history:create` / room sync. `status`
   /// records delivery truth only; `edited` is the additive overlay bit.
@@ -707,18 +677,4 @@ class TimelineEntry {
     'updated_at': updatedAt.toUtc().toIso8601String(),
   };
 
-  static FlowMode _modeFromWire(Object? v) => _modeMap[v] ?? FlowMode.realtime;
-  static const Map<Object?, FlowMode> _modeMap = <Object?, FlowMode>{
-    'realtime': FlowMode.realtime,
-    'translate': FlowMode.translate,
-    'organize': FlowMode.organize,
-  };
-
-  static DateTime _date(Object? v) {
-    if (v is String && v.isNotEmpty) return DateTime.parse(v).toUtc();
-    if (v is num) {
-      return DateTime.fromMillisecondsSinceEpoch(v.toInt(), isUtc: true);
-    }
-    return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
-  }
 }

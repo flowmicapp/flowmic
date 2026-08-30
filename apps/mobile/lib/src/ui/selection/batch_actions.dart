@@ -62,7 +62,7 @@ class SelectedRecords {
 SelectedRecords selectedRecords(Iterable<TimelineEntry> selected) {
   final List<String> lines = <String>[];
   int images = 0;
-  for (final TimelineEntry e in selected) {
+  for (final TimelineEntry e in _oldestFirst(selected)) {
     if (e.isImage) {
       images++;
       continue;
@@ -76,6 +76,34 @@ SelectedRecords selectedRecords(Iterable<TimelineEntry> selected) {
     textRows: lines.length,
     imageRows: images,
   );
+}
+
+/// 🔴 owner 2026-08-30: 「时间早的放上面，时间迟的放下面」.
+///
+/// The caller hands these over in SCREEN order, and on the full-history page
+/// that is newest FIRST — so copying in the order they arrive produced a
+/// document that read backwards. The user's own words name the trap exactly:
+/// 「上面的其实是时间最迟的」.
+///
+/// ⚠️ SORTED HERE, NOT AT THE CALL SITES. Two screens call this function, and
+/// the comment above it already promises that 「what N records amount to」 has
+/// one author on both. Sorting at each caller would be two authors for one
+/// rule, and the second one to be written would be the one nobody checks.
+///
+/// ⚠️ The tie-break is EXPLICIT because `List.sort` is not stable in Dart: two
+/// rows minted in the same millisecond would otherwise land in whatever order
+/// the sort algorithm happened to leave, which is not an order at all. Same
+/// reasoning, same fix, as `PlusPanelSelection.inChronologicalOrder`.
+List<TimelineEntry> _oldestFirst(Iterable<TimelineEntry> selected) {
+  final List<TimelineEntry> rows = selected.toList();
+  final Map<String, int> given = <String, int>{
+    for (int i = 0; i < rows.length; i++) rows[i].id: i,
+  };
+  rows.sort((TimelineEntry a, TimelineEntry b) {
+    final int t = a.createdAt.compareTo(b.createdAt);
+    return t != 0 ? t : (given[a.id] ?? 0).compareTo(given[b.id] ?? 0);
+  });
+  return rows;
 }
 
 // ── batch copy ──────────────────────────────────────────────────────────────

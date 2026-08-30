@@ -64,6 +64,7 @@ describe('F-2 · the write discipline (service level)', () => {
     return {
       subscription_id: 'sub_mirror',
       user_id: 'u1',
+      provider: 'paddle',
       customer_id: 'ctm_1',
       status: 'active',
       tier: 'pro',

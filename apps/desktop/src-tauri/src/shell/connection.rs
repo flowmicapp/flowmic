@@ -216,6 +216,16 @@ pub struct PairingInfo {
     /// `pcid=` and the cloud QR is byte-for-byte the pre-0.2.66 payload — the
     /// failure direction is 「fall back to the status quo」, never a made-up id.
     pcid: Option<String>,
+    /// owner 2026-08-30 — WHICH RELAY NODE this cloud connection goes through
+    /// (`srvny`, `srvjp`). The device page renders the operator's short label
+    /// for it, falling back to this id.
+    ///
+    /// 🔴 `None` on the LAN channel and on a single-node deployment, and the
+    /// card must draw nothing then. There is no node on either path, so a
+    /// label would be a fact about a route this connection never takes — and
+    /// an absence that meant two things ("LAN" and "unknown") would be the
+    /// one-value-two-questions shape this repo keeps paying for.
+    node: Option<String>,
     /// N5 — WHICH channel this whole snapshot describes (`lan` | `cloud`).
     ///
     /// The modal can now switch its pairing target, and the re-read is async, so
@@ -266,6 +276,9 @@ pub fn pairing_code(
         || crate::socket_config_from_env().url,
     );
     let on_cloud = matches!(destination, crate::socket::Channel::Cloud);
+    // Read from the ONE place that chose it (sidecar_ctl::CURRENT_NODE), never
+    // re-derived here: a second derivation is a second answer.
+    let node = if on_cloud { sidecar_ctl::current_node() } else { None };
     // On the cloud channel a local NIC is not a pairing destination at all, so no
     // candidates are offered there — an empty list, not a misleading one.
     let lan_candidates = if on_cloud { Vec::new() } else { sidecar.lan_candidates() };
@@ -324,6 +337,7 @@ pub fn pairing_code(
         lan_endpoint,
         lan_tls_fp,
         pcid: pcid_for_channel(destination, pcid),
+        node,
         channel: destination.tag(),
     }
 }

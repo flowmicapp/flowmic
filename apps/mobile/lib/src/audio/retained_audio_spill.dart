@@ -72,6 +72,23 @@ class RetainedAudioSpill {
   /// See the header: default true ⇒ an unwired build writes nothing.
   bool _uplinkUp = true;
 
+  /// CR-4 — file this capture's bytes under [key] (the article id). Forwarded
+  /// rather than held: the store owns the naming, and a second copy of 「which
+  /// session」 here is a second thing that can be stale.
+  void beginSession(String key) => _store.beginSession(key);
+
+  /// CR-4 — back to a fresh per-run key. See [RetainedAudioStore.endSession]
+  /// for why it is not 「the previous key」.
+  void endSession() => _store.endSession();
+
+  /// The key writes are currently filed under.
+  String get sessionKey => _store.sessionKey;
+
+  /// Bytes retained for the current session — see
+  /// [RetainedAudioStore.sessionRetainedBytes] for why this is counted rather
+  /// than read back off the disk.
+  int get sessionRetainedBytes => _store.sessionRetainedBytes;
+
   /// Last `segment_idx` the SERVER delimited, as observed on inbound stt
   /// frames. Starts at 0: before any frame arrives the utterance is, by the
   /// server's own numbering, segment 0.

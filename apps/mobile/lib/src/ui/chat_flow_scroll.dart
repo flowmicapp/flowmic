@@ -96,7 +96,34 @@ extension _ChatFlowScroll on _ChatFlowPageState {
                 );
               }
               final TimelineEntry entry = entries[i - liveCount];
-              return ChatMessageTile(
+              // 🔴 CR-8 / cell E-1 — an ARTICLE HEAD gets its own tile, and the
+              // fork sits HERE rather than inside ChatMessageTile for the same
+              // reason the control row's fork sits before `deliveryFaceOf`: a
+              // head's status/mode/delivery are structural fillers, and a tile
+              // that reached them would be asking a face function to interpret
+              // a filler (0.2.49 F2b). Without this the head drew as an
+              // ordinary bubble carrying a title — which is what a light-record
+              // recording looked like on device in 0.3.47.
+              if (entry.isArticle) {
+                return ChatArticleTile(
+                  entry: entry,
+                  strings: strings,
+                  // The ONLY way into a finished recording from this screen:
+                  // its segments are not in this list.
+                  onOpen: (TimelineEntry head) =>
+                      _openArticleRouted(head, strings),
+                  onLongPress: _selection.active
+                      ? null
+                      : (TimelineEntry e) => _onLongPress(context, e, strings),
+                );
+              }
+              // 🔴 Cell C-1 — a row that belongs to a recording carries WHERE
+              // IT SITS in it, live. Only member rows reach this: a finished
+              // recording's members are collapsed away, so in practice the
+              // stamp appears exactly while the recording is being made, which
+              // is when the user has no other way to see the piece taking
+              // shape (ArticlePage is unreachable until the card exists).
+              final Widget tile = ChatMessageTile(
                 entry: entry,
                 strings: strings,
                 // window B3-2b: 「这一行的投递还躺在队列里、一个字节都没上过路吗」
@@ -156,6 +183,12 @@ extension _ChatFlowScroll on _ChatFlowPageState {
                         full: rowImageBytes(controller.rowImages, e),
                       ),
                     ),
+              );
+              if (!entry.isInArticle) return tile;
+              return ArticleRowStamp(
+                entry: entry,
+                label: formatArticleRange(entry),
+                child: tile,
               );
             },
           ),

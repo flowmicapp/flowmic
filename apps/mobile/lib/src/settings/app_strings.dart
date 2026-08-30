@@ -157,6 +157,7 @@ abstract class AppStrings extends AppStringsLeaves
         InjectNoteStrings,
         FavoritesStrings,
         LightRecordStrings,
+        ArticleStrings,
         ImageStrings,
         HistoryStrings,
         StatsStrings,

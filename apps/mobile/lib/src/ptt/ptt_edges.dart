@@ -36,6 +36,30 @@ extension PttSessionEdges on PttSession {
     // refusal is on screen — the FSM never left its resting state, so the next hold
     // starts clean (no stuck RECORDING, nothing to unwind).
     if (!await micPermission.gateForPtt()) return false;
+    // 🔴 CR-7 — THE PREVIOUS RECORDING'S SCRIBE CLOSES HERE.
+    //
+    // Not in `endContinuous`: that runs on release, and a recording's last
+    // segment settles after release (see that method for the measurement). So
+    // it closes at the one edge where leaving it open would actually cost
+    // something — a NEW utterance that is not part of any recording is about
+    // to mint rows, and a stale scribe would file them inside somebody's
+    // finished meeting at an offset from a clock that stopped hours ago.
+    // That is the ID-cross-wiring red line in the audio-ownership direction.
+    //
+    // ⚠️ `continuous.isActive` is already true for a continuous press, because
+    // `beginContinuous` runs BEFORE this — so this closes an OLD recording and
+    // never the one that is starting.
+    //
+    // 🔴 THE RETAINED AUDIO ROLLS WITH IT, and for the same reason one level
+    // down: two ordinary presses in ONE run shared a session key, so their
+    // offline tails appended into one file — measured, 300 + 120 = 420 bytes
+    // that nothing downstream could tell apart. A continuous press does NOT
+    // roll here, because `beginContinuous` has already filed it under the
+    // article id and rolling would throw that away.
+    if (!continuous.isActive) {
+      articles.end();
+      audio.retainedAudio?.endSession();
+    }
     segments.clear();
     try {
       await audio.start(permissionPreflighted: micPermission.lastGateSawGranted);

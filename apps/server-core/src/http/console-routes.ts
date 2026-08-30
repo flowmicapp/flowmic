@@ -122,6 +122,8 @@ export interface ConsoleRoutesDeps {
    * users a working remove button for computers that are running.
    */
   store: RoomLookup;
+  /** This node's own id — see ConsoleDeviceRoutesDeps.nodeId. Absent = single node. */
+  nodeId?: string | null;
   settings: SettingsRepo;
   /**
    * 0.3.0 P4 — the account row itself, for the ONE route that destroys it
@@ -631,7 +633,7 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       // already have it, and MUST NOT be used to decide whether a computer can
       // be removed. The judgement lives in ONE function, shared verbatim with the
       // remove route that enforces it (console-device-routes.ts `pcPresence`).
-      is_present: pcPresence(deps.store, pc, nowMs),
+      is_present: pcPresence(deps.store, pc, nowMs, deps.nodeId ?? null),
       last_seen_at: pc.last_seen_at,
       created_at: pc.created_at,
     }));

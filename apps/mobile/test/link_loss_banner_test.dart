@@ -82,15 +82,17 @@ class _MemRetainedStore extends RetainedAudioStore {
   }
 
   @override
-  Future<void> settle(int segmentIdx) async {
+  Future<void> settle(int segmentIdx, {String? session}) async {
     _segs.remove(segmentIdx);
   }
 
   @override
-  Future<List<int>> pendingSegments() async => _segs.keys.toList()..sort();
+  Future<List<int>> pendingSegments({String? session}) async =>
+      _segs.keys.toList()..sort();
 
   @override
-  Future<Uint8List?> read(int segmentIdx) async => _segs[segmentIdx]?.toBytes();
+  Future<Uint8List?> read(int segmentIdx, {String? session}) async =>
+      _segs[segmentIdx]?.toBytes();
 
   @override
   Future<void> sweep() async {}

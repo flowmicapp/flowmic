@@ -383,8 +383,17 @@ function srcFilesMatching(re: RegExp): string[] {
 
 describe('MAIL-1 ⑤: wired, and no error code moved', () => {
   it('the mail channel has a PRODUCTION composition site outside src/mail/', () => {
+    // 🔴 2026-08-30 — IT MOVED, AND THIS TEST IS WHAT NOTICED. The four mail
+    // resolutions left bootstrap.ts for `bootstrap-mail.ts` when that file
+    // crossed the 800-line cap (gs-3 added a fourth channel). Same composition,
+    // new address — and `bootstrap.ts` calling `resolveMailers` is asserted
+    // separately below, so the new file cannot become an orphan with this green.
     const callers = srcFilesMatching(/resolvePasswordResetMailer\s*\(/).filter((f) => !f.startsWith('mail/'));
-    expect(callers).toEqual(['bootstrap.ts']);
+    expect(callers).toEqual(['bootstrap-mail.ts']);
+    // The call between them. Without this, `bootstrap-mail.ts` could stop being
+    // reached at all and the assertion above would still pass — the exact shape
+    // the usage-events census names in its own sibling case.
+    expect(srcFilesMatching(/resolveMailers\s*\(/)).toEqual(['bootstrap-mail.ts', 'bootstrap.ts']);
   });
 
   it('a production route CALLS it — import-reachable is not called', () => {

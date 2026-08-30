@@ -38,6 +38,7 @@ function subRow(over: Partial<PaddleSubRow> = {}): PaddleSubRow {
   return {
     subscription_id: 'sub_A',
     user_id: 'u1',
+    provider: 'paddle',
     customer_id: 'ctm_1',
     status: 'active',
     tier: 'pro',

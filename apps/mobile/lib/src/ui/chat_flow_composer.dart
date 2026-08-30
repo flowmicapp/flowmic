@@ -108,6 +108,7 @@ Future<void> _openPlusPanelRouted(
     lightRecords: s.widget.historySource == null
         ? null
         : LightRecordQuery(persistence: s.widget.historySource!),
+    backfill: s.controller.backfill.progress, // CR-8 — read-only, one owner.
     isSignedIn: s.widget.isSignedIn,
     onSignIn: s.widget.onSignIn,
     // REQ-12-09 09-F/09-J — the ticked things, delivered through the SAME two

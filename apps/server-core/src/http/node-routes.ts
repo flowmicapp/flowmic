@@ -62,6 +62,23 @@ export interface NodeEntry {
   url: string;
   /** Free-text, for humans reading logs. Never parsed. */
   region?: string;
+  /**
+   * 2026-08-30 — the two-to-four character label a CLIENT puts on screen beside
+   * a connection: `us`, `asia`. Owner asked for exactly these two words.
+   *
+   * 🔴 IT LIVES HERE, IN THE OPERATOR'S FILE, FOR ONE REASON: there are two
+   * clients and they share no runtime (Rust and Dart). A map in each of them is
+   * two authors for one fact, and the day a third node is added they disagree
+   * until BOTH ship — which is exactly the property the node directory exists
+   * to avoid ("adding a node here is what makes clients able to choose it").
+   *
+   * ⚠️ ABSENT IS LEGAL, and a client that gets no label must render the `id`
+   * verbatim rather than guess or hide — the same posture the phone takes for
+   * an unregistered error code (0.2.53). A node with no label is still a node
+   * the user is connected to, and refusing to name it is worse than naming it
+   * awkwardly.
+   */
+  short?: string;
   /** Absent or true = offer it. false = published but not selectable, so an
    *  operator can drain a node without deleting it and losing the record of
    *  what its id meant. */
@@ -203,6 +220,15 @@ export function parseNodeList(raw: string): NodeEntry[] {
       id: o.id.trim(),
       url: o.url.replace(/\/+$/, ''),
       ...(typeof o.region === 'string' ? { region: o.region } : {}),
+      // Length-capped at the source: this string goes on a chip beside a
+      // computer's name, and that row has already been starved twice (0.2.51).
+      // A 40-character "label" from a mistyped config must not be able to push
+      // the name off the screen — over-long is dropped, not truncated, because
+      // a truncated label is a label that lies about what it says.
+      ...(typeof o.short === 'string' && o.short.trim().length > 0
+          && o.short.trim().length <= 6
+        ? { short: o.short.trim() }
+        : {}),
       ...(o.selectable === false ? { selectable: false } : {}),
       // Exact match, never 「any non-empty role」: an unrecognised role is
       // dropped rather than carried, so a typo cannot promote a replica to

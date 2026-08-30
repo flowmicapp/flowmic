@@ -92,6 +92,15 @@ pub struct NodeEntry {
     /// the whole point of this feature for an irrelevant property. It is parsed
     /// here so that one reader of `/api/node/list` exists rather than two.
     pub writer: bool,
+    /// owner 2026-08-30 — the 2-4 character label a screen puts beside a
+    /// connection (`us`, `asia`).
+    ///
+    /// 🔴 CARRIED, NOT DECIDED HERE, and never mapped from [id] in this crate.
+    /// The label belongs to the operator's node directory because there are two
+    /// clients sharing no runtime: a map in each is one fact with two authors,
+    /// and the day a third node is added they disagree until BOTH ship. `None`
+    /// ⇒ the caller renders the id verbatim (never a guess, never nothing).
+    pub short: Option<String>,
 }
 
 /// Why we are dialing what we are dialing. Carried rather than logged in place
@@ -125,6 +134,9 @@ pub enum Reason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Choice {
+    /// The operator's label for [Choice::node], when the directory gave one.
+    /// `None` ⇒ render the node id.
+    pub short: Option<String>,
     /// What to dial. ALWAYS a usable URL — on every non-choosing path this is
     /// the endpoint itself, so a caller can dial the result unconditionally and
     /// there is no "no node" branch for anybody to forget.
@@ -166,7 +178,8 @@ pub fn choose(
 ) -> Choice {
     let ep = endpoint.trim_end_matches('/');
     if ep.is_empty() {
-        return Choice { url: endpoint.to_string(), node: None, reason: Reason::NoEndpoint };
+        return Choice { url: endpoint.to_string(), node: None,
+            short: None, reason: Reason::NoEndpoint };
     }
 
     // ── 🔴 REGISTRATION GOES TO THE WRITER, WHATEVER THE DISTANCE ────────────
@@ -191,6 +204,7 @@ pub fn choose(
             Some(w) => Choice {
                 url: w.url.clone(),
                 node: Some(w.id.clone()),
+                short: w.short.clone(),
                 reason: Reason::WriterRequired { node: w.id.clone() },
             },
             // No node claims to be the writer. That is every single-node
@@ -198,6 +212,7 @@ pub fn choose(
             None => Choice {
                 url: endpoint.to_string(),
                 node: None,
+            short: None,
                 reason: Reason::NoWriterPublished,
             },
         };
@@ -216,7 +231,8 @@ pub fn choose(
     if nodes.len() < 2 {
         // One node or none. Note this is NOT an error: it is what every
         // single-node deployment answers, which is every deployment until today.
-        return Choice { url: endpoint.to_string(), node: None, reason: Reason::SingleNode };
+        return Choice { url: endpoint.to_string(), node: None,
+            short: None, reason: Reason::SingleNode };
     }
 
     let mut timed: Vec<(&NodeEntry, u128)> = Vec::new();
@@ -233,13 +249,15 @@ pub fn choose(
         }
     }
     if timed.is_empty() {
-        return Choice { url: endpoint.to_string(), node: None, reason: Reason::NoneReachable };
+        return Choice { url: endpoint.to_string(), node: None,
+            short: None, reason: Reason::NoneReachable };
     }
     if timed.len() == 1 {
         let (n, ms) = timed[0];
         return Choice {
             url: n.url.clone(),
             node: Some(n.id.clone()),
+                short: n.short.clone(),
             reason: Reason::Chose { node: n.id.clone(), rtt_ms: ms, margin_ms: 0 },
         };
     }
@@ -256,6 +274,7 @@ pub fn choose(
         return Choice {
             url: endpoint.to_string(),
             node: None,
+            short: None,
             reason: Reason::BelowNoiseFloor { spread_ms: spread },
         };
     }
@@ -268,6 +287,7 @@ pub fn choose(
                 return Choice {
                     url: n.url.clone(),
                     node: Some(n.id.clone()),
+                short: n.short.clone(),
                     reason: Reason::Kept { node: n.id.clone(), rtt_ms: *ms },
                 };
             }
@@ -278,6 +298,7 @@ pub fn choose(
     Choice {
         url: best.url.clone(),
         node: Some(best.id.clone()),
+                short: best.short.clone(),
         reason: Reason::Chose { node: best.id.clone(), rtt_ms: best_ms, margin_ms: margin },
     }
 }
@@ -360,6 +381,15 @@ impl Probe for HttpProbe {
                 // Absent means selectable — see node-routes.ts NodeEntry.
                 selectable: n.get("selectable").and_then(|v| v.as_bool()).unwrap_or(true),
                 writer: n.get("role").and_then(|v| v.as_str()) == Some("writer"),
+                // Length-checked on the way in: this string goes on a card
+                // beside a machine's name, and a client that trusted a server
+                // field's length would be trusting a file it does not own.
+                short: n
+                    .get("short")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && s.chars().count() <= 6)
+                    .map(str::to_string),
             });
         }
         Some(out)
@@ -396,7 +426,7 @@ mod tests {
         fn new(nodes: &[(&str, &str, u64)]) -> Self {
             Fake {
                 nodes: Some(nodes.iter().map(|(id, url, _)| NodeEntry {
-                        id: (*id).into(), url: (*url).into(), selectable: true, writer: false,
+                        id: (*id).into(), url: (*url).into(), selectable: true, writer: false, short: None,
                     }).collect()),
                 rtt: nodes.iter().map(|(_, url, ms)| ((*url).to_string(), *ms)).collect(),
                 pings: RefCell::new(Vec::new()),
@@ -484,8 +514,8 @@ mod tests {
         impl Probe for Dead {
             fn list(&self, _: &str) -> Option<Vec<NodeEntry>> {
                 Some(vec![
-                    NodeEntry { id: "a".into(), url: "https://a.flowmic.app".into(), selectable: true, writer: false },
-                    NodeEntry { id: "b".into(), url: "https://b.flowmic.app".into(), selectable: true, writer: false },
+                    NodeEntry { id: "a".into(), url: "https://a.flowmic.app".into(), selectable: true, writer: false, short: None },
+                    NodeEntry { id: "b".into(), url: "https://b.flowmic.app".into(), selectable: true, writer: false, short: None },
                 ])
             }
             fn ping(&self, _: &str) -> Option<Duration> { None }

@@ -150,6 +150,15 @@ export interface ShutdownSteps {
    *  tick that fired mid-teardown would open a provider session while we are
    *  closing. Disarmed FIRST, beside retention, for exactly that reason. */
   statusProbes: { stop(): void };
+  /** 2026-08-30 — the deadline refund sweep. OPTIONAL because a deployment that
+   *  cannot refund has no such timer; absent means 「there is no timer」, never
+   *  「skip stopping it」, same contract as the two replica timers below.
+   *
+   *  🔴 STOPPED WITH THE OTHER TIMERS AND FOR A SHARPER REASON THAN EITHER: a
+   *  tick that fired mid-teardown would dial a payment provider and MOVE MONEY
+   *  while the database it has to record that in is closing. The refund would
+   *  really happen and the row saying we asked might not. */
+  serviceRefunds?: { stop(): void };
   closeSocket: () => Promise<void> | void;
   audioRegistry: { stopAll(): void };
   httpServer: HttpServer;
@@ -167,7 +176,7 @@ export interface ShutdownSteps {
 /** THE ordered stop sequence. One list, one order, one owner. */
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
-    retention, statusProbes, closeSocket, audioRegistry, httpServer, db,
+    retention, statusProbes, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
     outboxDrainer, replicaPuller,
   } = steps;
   return async (): Promise<void> => {
@@ -178,6 +187,11 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.
     await announceShutdownStep('statusProbes.stop', () => statusProbes.stop());
+    // 2026-08-30 — the deadline refund sweep, disarmed here rather than later
+    // because it is the only timer in this list that can spend money.
+    if (serviceRefunds) {
+      await announceShutdownStep('serviceRefunds.stop', () => serviceRefunds.stop());
+    }
     // 2026-08-29 multi-node — the replica delivery timer, disarmed with the
     // other two and for the same reason.
     //

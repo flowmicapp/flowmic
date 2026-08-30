@@ -393,6 +393,21 @@ export function reconcileSchema(db: DatabaseSync): void {
       db.exec('ALTER TABLE usage_events ADD COLUMN refused_user_id TEXT');
     }
   }
+  // ── 2026-08-30 (gs-5): one_time_purchases.started_at, guarded ADD COLUMN ────
+  //
+  // The 'in_progress' state's stamp. Nullable TEXT, no default, NO backfill:
+  // a purchase written before the state existed was never marked as begun,
+  // and NULL says exactly that. On a fresh database the CREATE in
+  // schema-billing.ts already made the column and this guard sees it present;
+  // on a database that predates it the ALTER runs once and never again.
+  // Idempotent, non-destructive, re-runnable — the same shape as every guarded
+  // step above it.
+  {
+    const purchaseCols = tableColumns(db, 'one_time_purchases');
+    if (!purchaseCols.has('started_at')) {
+      db.exec('ALTER TABLE one_time_purchases ADD COLUMN started_at TEXT');
+    }
+  }
   // v0.2.4 machine-level identity lookups. Created AFTER the ALTER loop above —
   // on a pre-0.2.4 DB the columns do not exist until that loop has run, and an
   // index on a missing column is a hard error, not a skipped step.

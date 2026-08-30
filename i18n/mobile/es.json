@@ -47,6 +47,17 @@
     "appendHold": "'Mantén para añadir'",
     "appendRelease": "'● Suelta para terminar de añadir'",
     "appendUnavailableBusy": "'La frase anterior aún se está procesando: inténtalo de nuevo en un momento'",
+    "articleBackfillPending": "'$clock grabado sin conexión aún se está transcribiendo'",
+    "articleCardMeta": "'$clock · $n parte(s)'",
+    "nodePanelTitle": "'Nodos de retransmisión'",
+    "nodePanelNote": "'Tu ordenador elige el nodo; este teléfono lo sigue.'",
+    "nodePanelMeasure": "'Medir'",
+    "nodeLegEdge": "'Al borde'",
+    "nodeLegOrigin": "'Al nodo'",
+    "nodeLegTotal": "'Total'",
+    "articleBadge": "'Sesión larga'",
+    "articleNoTitle": "'Todavía no se ha dicho nada'",
+    "articleStartedAt": "'Grabado $when'",
     "backToBottom": "'Volver abajo'",
     "bannerAlbumAway": "'Eligiendo una foto · se reconectará al volver'",
     "bannerAllTitle": "'Todos los avisos'",
@@ -546,6 +557,7 @@
     "pairError__15": "'No se pudo alcanzar el PC'",
     "pairError__16": "'El emparejamiento agotó el tiempo — comprueba la dirección'",
     "pairError__17": "'Falló el emparejamiento — comprueba la red e inténtalo de nuevo$diag'",
+    "pairError__18": "'Este servidor no gestiona el emparejamiento: vuelve a conectarte e inténtalo de nuevo'",
     "pairError__2": "'Código caducado — renuévalo en tu PC'",
     "pairError__3": [
       "'El emparejamiento por el relé en la nube necesita el PCID del PC. Escanea el código QR de tu PC, '",
@@ -620,7 +632,7 @@
     "pttSubProcessingManual": "'Finalizando tus palabras'",
     "quotaContextUsed": "'Contexto $used/${limit} M'",
     "quotaVoiceUsed": "'Voz $used/$limit min'",
-    "reachUnanswered": "'Sin respuesta ahora mismo'",
+    "reachUnanswered": "'Tiempo agotado, reintentando'",
     "recLinkDegraded": "'Reconectando · retenido'",
     "recLinkDown": "'Sin enlace'",
     "recLinkOk": "'Red OK'",
@@ -877,7 +889,6 @@
     "utteranceComposeError__4": "'agotó el tiempo'",
     "utteranceComposeError__5": "'cancelado'",
     "utteranceComposeError__6": "'la pasada anterior aún no ha terminado'",
-    "utteranceComposeError__7": "'$why · no se envió nada, y el original tampoco · mantén pulsado para enviarlo'",
-    "pairError__18": "'Este servidor no gestiona el emparejamiento: vuelve a conectarte e inténtalo de nuevo'"
+    "utteranceComposeError__7": "'$why · no se envió nada, y el original tampoco · mantén pulsado para enviarlo'"
   }
 }

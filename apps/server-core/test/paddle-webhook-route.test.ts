@@ -16,6 +16,7 @@
 // database: the mounting condition lives in router.ts + config.ts, so a fake
 // config would only prove this test agrees with itself.
 
+import { paddleAdapter } from '../src/billing/paddle/adapter';
 import { describe, expect, it } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
@@ -138,6 +139,7 @@ function world(over: { mode?: 'saas' | 'standalone'; enabled?: boolean } = {}) {
       ? {
           paddle: {
             webhook: {
+              adapter: paddleAdapter,
               repo: db.billing,
               users: db.users,
               secret: cfg.paddle.webhookSecret ?? '',
@@ -265,6 +267,7 @@ describe('① 🔴 mounting', () => {
       // The mis-wiring, deliberately, with a perfectly valid secret:
       paddle: {
         webhook: {
+          adapter: paddleAdapter,
           repo: db.billing, users: db.users, secret: SECRET, toleranceSec: 5,
           priceTiers: { [PRICE_PRO]: 'pro' }, now: () => NOW_MS,
         },

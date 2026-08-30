@@ -59,6 +59,17 @@ const SRC = join(HERE, '..', 'src');
  *  than by remembering — and it is worth recording that the instrument worked on
  *  a move, not just on an addition. */
 const ROUTE_SOURCES = [
+  // 2026-08-29 — `service-purchase-routes.ts`, added in the same commit that
+  // created it, for the reason every note below gives: a route added where the
+  // scanner is not looking is invisible to the scan. Both of its routes are
+  // account-scoped (Bearer, no admin gate) and neither may acquire one — 「buy」
+  // and 「see what I bought」 are the account holder's own, and an admin gate on
+  // either would be a gate on somebody spending money with us.
+  join(SRC, 'http', 'service-purchase-routes.ts'),
+  // 2026-08-29 — `ops-purchase-routes.ts`, added in the same commit that created
+  // it. It is a NEW FILE holding a NEW ADMIN ROUTE — both blind spots this suite
+  // exists to close, at once — and one of its two routes MUTATES.
+  join(SRC, 'http', 'ops-purchase-routes.ts'),
   join(SRC, 'http', 'console-routes.ts'),
   join(SRC, 'http', 'password-reset-routes.ts'),
   join(SRC, 'http', 'ops-routes.ts'),
@@ -154,6 +165,19 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   'GET /api/cloud/summary': 'account',
   'GET /api/cloud/subscription': 'account',
   'GET /api/cloud/billing/events': 'account',
+  // 2026-08-29 — the paid one-time service. BOTH are 'account' and neither may
+  // ever become 'admin': 「buy」 and 「see what I bought」 belong to the person
+  // spending the money, and an admin gate on either would be a gate in front of
+  // somebody trying to pay us. Identity IS the authorisation here, exactly as it
+  // is for the subscription controls below.
+  'POST /api/cloud/billing/service-checkout': 'account',
+  // 2026-08-30 — the customer's own withdrawal. 'account' and it may NEVER
+  // become 'admin': it is the exit from a contract they are entitled to leave,
+  // and an admin gate on it would be a gate on somebody getting their money
+  // back. It is deliberately not behind the verified-email or restriction
+  // gates either, the same exemption cancel/resume take.
+  'POST /api/cloud/billing/service-withdraw': 'account',
+  'GET /api/cloud/billing/services': 'account',
   // 🔴 0.3.25 B2 — the subscription controls. `'account'` because identity IS
   // required and the subject is always the account the Bearer proved; there is
   // no `user_id` in either body, so acting on somebody else is unrepresentable
@@ -196,6 +220,17 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   // serve-but-shout audit write) is asserted in test/ops-audit-wiring.test.ts,
   // not here — this table only records that the gate choice was made on purpose.
   'POST /api/ops/users/restrict': 'admin',
+  // 2026-08-29 — the paid setup service's operator surface. 'admin' and
+  // emphatically not 'account': the list is EVERY customer's purchases, and the
+  // advance names an order by id with no relationship to the caller. The
+  // customer's own two routes are the 'account' pair above; these are the other
+  // half of the same feature and take the opposite gate, which is the whole
+  // reason they live in a different file.
+  'GET /api/ops/purchases': 'admin',
+  'POST /api/ops/purchases/advance': 'admin',
+  // 2026-08-30 — the operator's refund. 'admin' for the same reason as its
+  // neighbour, one step stronger: it names an order by id and sends money.
+  'POST /api/ops/purchases/refund': 'admin',
   // A2-4 — the read-only account list and its single-account read. 'admin' for
   // the same reason as every other `/api/ops/` entry: they enumerate and read
   // ACROSS accounts. Note the detail route's shape — `?user_id=` rather than
@@ -352,6 +387,7 @@ describe('admin gate — route coverage is derived from the source, not from a l
     expect(admin).toEqual([
       'GET /api/cloud/billing/orphans',
       'GET /api/ops/audit/recent',
+      'GET /api/ops/purchases', // 2026-08-29 — the setup-service work queue
       'GET /api/ops/site/breakdown',
       'GET /api/ops/site/summary',
       'GET /api/ops/usage/events', // A2-5 — one account's usage DETAIL
@@ -360,7 +396,9 @@ describe('admin gate — route coverage is derived from the source, not from a l
       'GET /api/ops/usage/users',
       'GET /api/ops/users', // A2-4 — the account list
       'GET /api/ops/users/detail', // A2-4 — one account, by id
-      'POST /api/ops/users/restrict', // A2-3 — the one that mutates
+      'POST /api/ops/purchases/advance', // 2026-08-29 — the second mutator
+      'POST /api/ops/purchases/refund', // 2026-08-30 — the third, and it moves money
+      'POST /api/ops/users/restrict', // A2-3 — the first one that mutates
     ]);
   });
 
@@ -406,7 +444,17 @@ describe('admin gate — every declared gate is what the running server actually
     // a different surface from the mock gateway that shares only the word.
     // fix-010: an in-process server has no proxy in front of it — its direct peer
     // IS the client. A declared posture, not an exemption (config.ts §trustedProxies).
-    const config = loadConfig({ mode: 'saas', secret: SECRET, port: 0, dbPath: ':memory:', mockBilling: false, trustedProxies: [] });
+    // 2026-08-29 — Creem is switched ON here, with a service product id, purely
+    // so the two service-purchase routes are MOUNTED. A declared 'account' gate
+    // on a route the test server never mounts is a gate nobody demonstrated:
+    // the anonymous probe would get 404, which is not a refusal, and this suite
+    // would pass while proving nothing about it.
+    // ⚠️ writeEnabled stays OFF: no outbound call is wanted or made here, and
+    // the gate is checked before any of that is reached.
+    const config = loadConfig({
+      mode: 'saas', secret: SECRET, port: 0, dbPath: ':memory:', mockBilling: false, trustedProxies: [],
+      creem: { enabled: true, webhookSecret: 'whsec_gate_test', serviceProductId: 'prod_gate_test' },
+    });
     server = await startServer(config);
     return { url: `http://127.0.0.1:${server.port}`, handle: server };
   }

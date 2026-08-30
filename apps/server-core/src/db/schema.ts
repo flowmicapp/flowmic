@@ -57,7 +57,7 @@
 // (server-decryptable); timeline_blobs.ciphertext is e2e:v1: (server-blind). The
 // two are NEVER interchangeable — enforced at the write path, not in SQL.
 
-import { BILLING_SQL } from './schema-billing';
+import { BILLING_ADDITIVE_TEXT_COLUMNS, BILLING_SQL } from './schema-billing';
 
 export const INIT_SQL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -759,17 +759,10 @@ export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> 
   // column there IS no "most recent redelivery", and NULL is the only honest
   // value for it. Its INTEGER sibling `redelivery_count` rides the other loop.
   billing_events: ['last_notification_id'],
-  // 0.3.25 B1. All four nullable TEXT with no default — exactly what this loop
-  // emits — and NULL on a legacy row is the truth in each case: no scheduled
-  // change was ever recorded, no next-billing date was ever read, and for a
-  // subscription that predates the column we genuinely do not know when its
-  // contract was concluded.
-  // 🔴 That last one has a CONSEQUENCE the withdrawal surface must respect and
-  // must not paper over: a NULL `contract_concluded_at` means 「we cannot compute
-  // your 14-day deadline」, NOT 「your window has closed」. B3 shows no withdrawal
-  // panel rather than a refusal — claiming a right has expired when we simply
-  // never wrote the date down would be the worst possible direction to fail.
-  paddle_subscriptions: ['scheduled_change_action', 'scheduled_change_at', 'next_billed_at', 'contract_concluded_at'],
+  // The billing tables' additive columns live with their DDL, in
+  // ./schema-billing.ts — including the `contract_concluded_at` note, which the
+  // withdrawal surface has to respect and which belongs beside the column.
+  ...BILLING_ADDITIVE_TEXT_COLUMNS,
 };
 
 /** Additive INTEGER columns, reconciled the same way (guarded ADD COLUMN, same

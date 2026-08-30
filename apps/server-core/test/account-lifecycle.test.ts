@@ -211,6 +211,7 @@ async function seedAccount(email: string): Promise<Seeded> {
   db.billing.upsertSubscription({
     subscription_id: `sub_${user.id}`,
     user_id: user.id,
+    provider: 'paddle',
     customer_id: 'ctm_1',
     status: 'active',
     tier: 'pro',
@@ -256,6 +257,35 @@ async function seedAccount(email: string): Promise<Seeded> {
   // control has a row to find. Deliberately carries NOTHING of this account —
   // that is the table's design and exactly why deletion must leave it alone.
   db.siteCounts.bump({ day: '2026-08-15', kind: 'register_ok', dim: '_', dim_value: '_' });
+  // A paid one-time service for THIS account. Unlike site_daily_counts above it
+  // does name the user — which is precisely why its survival is worth asserting:
+  // the row is attributable, it is retained anyway, and the reason is that money
+  // changed hands (see USER_RETAINED_TABLES).
+  db.billing.recordOneTimePurchase({
+    order_id: `ord_${user.id}`,
+    provider: 'creem',
+    user_id: user.id,
+    product_id: 'prod_guided_setup_test',
+    checkout_id: null,
+    transaction_id: null,
+    customer_id: null,
+    amount_minor: 20000,
+    currency: 'USD',
+    state: 'paid',
+    early_start_consent_at: null,
+    withdrawal_waiver_ack_at: null,
+    consent_terms_version: null,
+    scheduled_at: null,
+    started_at: null,
+    delivered_at: null,
+    refund_requested_at: null,
+    refund_provider_id: null,
+    refund_status: null,
+    refunded_at: null,
+    completion_notice_at: null,
+    note: null,
+    created_at: '2026-08-15T00:00:00.000Z',
+  });
   return {
     id: user.id,
     email,
@@ -298,6 +328,10 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     refund_requests: rowsFor('refund_requests', 'user_id', userId),
     email_verifications: rowsFor('email_verifications', 'user_id', userId),
     billing_events: rowsFor('billing_events', 'user_id', userId),
+    // Named per-account on purpose, not table-wide: this row CAN be attributed
+    // to the deleted user, and the assertion that matters is that it survives
+    // anyway.
+    one_time_purchases: rowsFor('one_time_purchases', 'user_id', userId),
     ops_audit_log: rowsFor('ops_audit_log', 'actor_user_id', userId),
     // site_daily_counts carries NO account column at all (that is its privacy
     // design), so its 「retained」 probe is table-wide: the whole point is that
@@ -334,11 +368,13 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // The scanner must actually see the schema — a probe that found no tables
     // would make every assertion below vacuously true.
     expect(tables).toContain('users');
-    // Sixteen since refund_requests (0.3.25 B3 §8c); fifteen since
+    // Seventeen since one_time_purchases (2026-08-29, the paid service — NO user
+    // FK, so it is a RETAINED table); sixteen since refund_requests (0.3.25 B3
+    // §8c); fifteen since
     // paddle_subscription_tombstones (0.3.25 B1, card D-2). The number is pinned
     // rather than derived on purpose — it is what makes ADDING a table a
     // decision that passes through this census instead of past it.
-    expect(tables.length).toBe(16);
+    expect(tables.length).toBe(17);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];

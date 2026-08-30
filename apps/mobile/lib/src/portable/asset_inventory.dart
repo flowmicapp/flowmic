@@ -297,6 +297,22 @@ class TimelineAssetInventory implements AssetInventory {
       // never a piece of content to begin with — an MCP consumer reading it
       // back would get nothing useful.
       if (e.isControl) continue;
+      // 🔴 CR-10 — AN ARTICLE HEAD IS SKIPPED FOR THE SAME REASON AND ONE
+      // WORSE ONE. Like a keypress it is not content: it has no words of its
+      // own (its text is a TITLE derived from the first segment) and its
+      // `entry_type` is not in `kFprEntryTypes`, so an export carrying it
+      // would be dropped on re-import with nothing said about it.
+      //
+      // The worse one is STATS. A head stores the article's TOTAL duration,
+      // derived by summing its members — so counting it here adds the whole
+      // recording a second time, and its title's words on top. A half-hour
+      // meeting would report as an hour, and every number on that screen is
+      // a sum the user has no way to check.
+      //
+      // ⚠️ Its MEMBERS are ordinary transcript rows and are counted normally.
+      // Nothing is lost by skipping the cover: everything a head knows is a
+      // function of the rows that ARE counted.
+      if (e.isArticle) continue;
       yield await _resolve(e);
     }
   }

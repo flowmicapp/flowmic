@@ -24,6 +24,8 @@
 // returns a narrowed type or a miss. The output object is CONSTRUCTED, never
 // asserted.
 
+import type { EnvelopeParse, SubscriptionFacts, WebhookEnvelope } from '../webhook-types';
+
 /** Fixed-width UTC RFC3339, to the millisecond: `2026-08-01T10:00:00.000Z`. */
 const NORMALIZED_LENGTH = 24;
 
@@ -116,23 +118,22 @@ function statedStamp(container: Record<string, unknown>, key: string): string | 
   return normalizeRfc3339(stated) ?? undefined;
 }
 
-/** The webhook envelope every Paddle notification shares. */
-export interface PaddleEnvelope {
-  /** evt_xxx — 🔴 the dedup key (D1 §3.3). */
-  event_id: string;
-  event_type: string;
-  /** ALREADY NORMALIZED by normalizeRfc3339 — the only form that reaches the DB. */
-  occurred_at: string;
-  /** ntf_xxx — this DELIVERY ATTEMPT's id. Never a dedup key. */
-  notification_id: string | null;
-  data: Record<string, unknown>;
-}
+/** The webhook envelope every Paddle notification shares.
+ *
+ *  ⚠️ AN ALIAS SINCE 2026-08-29, not a second shape. The envelope is identical
+ *  at both providers once parsed — that is WHY the seven-step pipeline could be
+ *  shared — and the name is kept because ~20 call sites and two test files spell
+ *  it, and renaming them would put a large mechanical diff in front of the
+ *  reviewer of a billing change. What each field is filled FROM differs per
+ *  provider and is documented at each parser.
+ *
+ *  🔴 `notification_id` IS ALWAYS NULL FOR CREEM. Paddle distinguishes the event
+ *  from this delivery of it; Creem does not, so 「how many times did the provider
+ *  send this」 is a question only one of the two can answer. Anything reading
+ *  that column must not treat null as 「once」. */
+export type PaddleEnvelope = WebhookEnvelope;
 
-export type EnvelopeParse =
-  | { ok: true; envelope: PaddleEnvelope }
-  /** One sentence naming the field, for the 400's log line. Never echoes a
-   *  VALUE from the payload: the body may carry a customer's address. */
-  | { ok: false; reason: string };
+export type { EnvelopeParse, WebhookEnvelope } from '../webhook-types';
 
 export function parsePaddleEnvelope(raw: unknown): EnvelopeParse {
   const root = asObject(raw);
@@ -163,63 +164,34 @@ export function parsePaddleEnvelope(raw: unknown): EnvelopeParse {
  * stated" and "stated as empty" lead to the same place (there is nothing to
  * preserve).
  */
-export interface SubscriptionFacts {
-  /** sub_xxx. Absent for an event that names no subscription at all. */
-  subscription_id: string | null;
-  customer_id: string | null | undefined;
-  /** Paddle's own status word, verbatim (D1 §3.2: translation is `tier`'s job). */
-  status: string | null | undefined;
-  /** Every price id the event mentions, in payload order. The price → tier
-   *  mapping is NOT applied here — that is config, and it lives in the handler
-   *  so there is exactly one place a tier can be decided. */
-  price_ids: string[];
-  cycle: string | null | undefined;
-  current_period_end: string | null | undefined;
-  canceled_at: string | null | undefined;
-  /** `data.custom_data.flowmic_user_id` — what we put on the checkout. A CLAIM,
-   *  not an identity: the handler still has to find that account. */
-  claimed_user_id: string | null;
+export type { SubscriptionFacts } from '../webhook-types';
 
-  // ── 0.3.25 B1 · the three facts the compliance surface needs ──────────────
-  //
-  // 🔴 WHY THESE ARE NOT DERIVABLE FROM WHAT WAS ALREADY HERE, which is the
-  // whole reason they had to be added rather than computed. Before this round a
-  // scheduled cancellation reached us as `status:'active'` — because that is
-  // what it IS at Paddle — so the console had exactly one word for two facts:
-  // 「still active」 and 「still active, and will not renew」. R11's rule is that
-  // the layer making the judgement must HOLD the fact it needs, and it did not.
-
-  /** `data.scheduled_change.action` — `'cancel' | 'pause' | 'resume'`, or the
-   *  three-way absent/null. Stored verbatim (Paddle's word), like `status`.
-   *
-   *  ⚠️ THE `null` CASE IS LOAD-BEARING AND IS NOT A ROUNDING OF `undefined`.
-   *  Paddle sends `scheduled_change: null` when a pending cancellation is
-   *  REVOKED (our /resume, or a change made in Paddle's own portal). Collapsing
-   *  absent-into-null would clear the columns on every unrelated event; the
-   *  reverse collapse would leave 「will not renew」 painted on a subscription
-   *  the user just rescued. Both mistakes are silent and both are visible only
-   *  to the person being billed. */
-  scheduled_change_action: string | null | undefined;
-  /** `data.scheduled_change.effective_at` — the date the console renders as
-   *  「service runs until X」. Read from the SAME object as the action above, so
-   *  the two cannot disagree about which change they describe. */
-  scheduled_change_at: string | null | undefined;
-  /** `data.next_billed_at` — 「you will be charged again on」. Paddle sets it to
-   *  `null` once a cancellation is scheduled, which is why it is a separate
-   *  question from `current_period_end` (that one keeps answering 「how long you
-   *  have paid for」 and does not go away). */
-  next_billed_at: string | null | undefined;
-  /** `data.started_at` — when this subscription began, i.e. our best evidence
-   *  of when the distance contract was concluded.
-   *
-   *  🔴 CAPTURED IN B1 THOUGH ITS ONLY READER ARRIVES IN B3 (the 14-day EU
-   *  withdrawal window). That is deliberate and is the one case where writing a
-   *  column ahead of its consumer is correct rather than façade: this fact is
-   *  only ever present on the events themselves, so a column added later can
-   *  never be backfilled — every subscription created in the gap would have no
-   *  computable withdrawal deadline, forever. */
-  started_at: string | null | undefined;
-}
+/**
+ * WHERE EACH FIELD OF `SubscriptionFacts` COMES FROM IN A PADDLE BODY. The type
+ * itself moved to `billing/webhook-types.ts` on 2026-08-29, when Creem became a
+ * second producer of it; this table is the half that is Paddle-specific and
+ * would have been wrong to move with it.
+ *
+ *   subscription_id ......... `data.id` on `subscription.*`, else `data.subscription_id`
+ *   customer_id ............. `data.customer_id`
+ *   status .................. `data.status`             (Paddle’s word, verbatim)
+ *   price_ids ............... `data.items[].price.id`   (PRICE ids, not product ids)
+ *   cycle ................... `data.billing_cycle.interval`
+ *   current_period_end ...... `data.current_billing_period.ends_at`
+ *   canceled_at ............. `data.canceled_at`
+ *   claimed_user_id ......... `data.custom_data.flowmic_user_id`
+ *   scheduled_change_action . `data.scheduled_change.action`
+ *   scheduled_change_at ..... `data.scheduled_change.effective_at`
+ *   next_billed_at .......... `data.next_billed_at`
+ *   started_at .............. `data.started_at`
+ *
+ * 🔴 `scheduled_change` IS AN OBJECT HERE AND HAS NO COUNTERPART AT CREEM,
+ * which states the same fact as a `status` of its own (`scheduled_cancel`).
+ * Neither vocabulary was made the winner: `status` stores each provider’s word
+ * verbatim, and the two `scheduled_change_*` fields carry the derived answer to
+ * 「when does the service stop」. See billing/creem/envelope.ts for that
+ * projection and for why its `null` arm is what makes a resume work.
+ */
 
 /**
  * 🔴 WHERE THE SUBSCRIPTION ID LIVES DEPENDS ON THE EVENT FAMILY, and D1 §5.3

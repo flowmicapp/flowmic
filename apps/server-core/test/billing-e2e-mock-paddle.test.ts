@@ -103,6 +103,7 @@ beforeEach(async () => {
   handle.db.billing.upsertSubscription({
     subscription_id: 'sub_e2e01',
     user_id: userId,
+    provider: 'paddle',
     customer_id: 'ctm_e2e01',
     status: 'active',
     tier: 'pro',

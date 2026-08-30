@@ -27,11 +27,13 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../favorites/favorites_store.dart';
 import '../session/image_send_controller.dart' show ImageOriginalBlock;
 import '../settings/app_strings.dart';
+import '../session/backfill_runner.dart';
 import '../timeline/cloud/light_record_query.dart';
 import '../timeline/timeline_entry.dart';
 import 'confirm_dialog.dart';
@@ -100,6 +102,10 @@ Future<void> showPlusPanel(
   /// to fill.
   LightRecordQuery? lightRecords,
 
+  /// CR-8 / ruling ⑮ — how much offline audio is still becoming words. Null ⇒
+  /// no recovery channel is wired, and the article page says nothing about it.
+  ValueListenable<BackfillProgress>? backfill,
+
   /// Asked, not snapshotted — see [PlusPanelNotesTab.isSignedIn].
   bool Function()? isSignedIn,
 
@@ -131,6 +137,7 @@ Future<void> showPlusPanel(
       originalBlock: originalBlock,
       aiComposing: aiComposing,
       lightRecords: lightRecords,
+      backfill: backfill,
       isSignedIn: isSignedIn,
       onSignIn: onSignIn,
       onSendSelection: onSendSelection,
@@ -153,6 +160,7 @@ class PlusPanel extends StatefulWidget {
     this.originalBlock,
     this.aiComposing = false,
     this.lightRecords,
+    this.backfill,
     this.isSignedIn,
     this.onSignIn,
     this.onSendSelection,
@@ -190,6 +198,10 @@ class PlusPanel extends StatefulWidget {
 
   /// REQ-12-09 09-A. Null ⇒ no light-record (轻记录) tab (see [showPlusPanel]).
   final LightRecordQuery? lightRecords;
+
+  /// CR-8 / ruling ⑮ — how much offline audio is still becoming words, for the
+  /// article page the notes tab opens. Null ⇒ no recovery channel is wired.
+  final ValueListenable<BackfillProgress>? backfill;
   final bool Function()? isSignedIn;
   final Future<void> Function()? onSignIn;
 
@@ -376,6 +388,7 @@ class _PlusPanelState extends State<PlusPanel> {
                     onSignIn: widget.onSignIn,
                     selection: _selection,
                     imageSendable: widget.imageSendable,
+                    backfill: widget.backfill,
                   ),
                 )
               else ...<Widget>[

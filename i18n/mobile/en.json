@@ -47,6 +47,17 @@
     "appendHold": "'Hold to append'",
     "appendRelease": "'● Release to finish appending'",
     "appendUnavailableBusy": "'The previous sentence is still finishing — try again in a moment'",
+    "articleBackfillPending": "'$clock recorded offline is still being transcribed'",
+    "articleCardMeta": "'$clock · $n part(s)'",
+    "nodePanelTitle": "'Relay nodes'",
+    "nodePanelNote": "'Your computer picks the node; this phone follows it.'",
+    "nodePanelMeasure": "'Measure'",
+    "nodeLegEdge": "'To edge'",
+    "nodeLegOrigin": "'To node'",
+    "nodeLegTotal": "'Total'",
+    "articleBadge": "'Long session'",
+    "articleNoTitle": "'Nothing said yet'",
+    "articleStartedAt": "'Recorded $when'",
     "backToBottom": "'Back to bottom'",
     "bannerAlbumAway": "'Picking a photo · will reconnect when you return'",
     "bannerAllTitle": "'All notices'",
@@ -546,6 +557,7 @@
     "pairError__15": "'Could not reach the PC'",
     "pairError__16": "'Pairing timed out — check the address'",
     "pairError__17": "'Pairing failed — check the network and try again$diag'",
+    "pairError__18": "'This server does not handle pairing — reconnect and try again'",
     "pairError__2": "'Code expired — refresh it on your PC'",
     "pairError__3": [
       "'Pairing over the cloud relay needs the PC\\'s PCID. Scan the QR code on your PC, '",
@@ -620,7 +632,7 @@
     "pttSubProcessingManual": "'Finalizing your words'",
     "quotaContextUsed": "'Context $used/${limit}M'",
     "quotaVoiceUsed": "'Voice $used/$limit min'",
-    "reachUnanswered": "'No answer right now'",
+    "reachUnanswered": "'Timed out, retrying'",
     "recLinkDegraded": "'Reconnecting · buffered'",
     "recLinkDown": "'Link down'",
     "recLinkOk": "'Network OK'",
@@ -877,7 +889,6 @@
     "utteranceComposeError__4": "'timed out'",
     "utteranceComposeError__5": "'cancelled'",
     "utteranceComposeError__6": "'the previous run has not finished'",
-    "utteranceComposeError__7": "'$why · nothing was sent, and the original was not sent either · long-press to send it'",
-    "pairError__18": "'This server does not handle pairing — reconnect and try again'"
+    "utteranceComposeError__7": "'$why · nothing was sent, and the original was not sent either · long-press to send it'"
   }
 }

@@ -168,8 +168,22 @@ extension PttSessionPresencePoll on PttSession {
     if (_presencePollInFlight) return;
     _presencePollInFlight = true;
     PcPresenceReading reading;
+    // 🔴 owner 2026-08-30 — ASK THE NODE THE PC IS ON, not the one we happen to
+    // be dialling. GET /api/pc/presence answers from the RECEIVING PROCESS's
+    // room store, and rooms are per-process, so asking the wrong node returns a
+    // truthful "not in my room" about a computer that is running perfectly.
+    // Latent until 2026-08-30, when srvjp became selectable.
+    //
+    // Falls back to `endpoint` whenever it cannot do better, so the worst case
+    // here is exactly today's behaviour. See presence_route.dart.
+    String askedEndpoint = endpoint;
     try {
-      final Uri url = pcPresenceUri(endpoint);
+      askedEndpoint = presenceEndpointFor(
+        currentEndpoint: endpoint,
+        homeNode: reconnect.pcHomeNode.value,
+        nodes: reconnect.nodeLabels.nodes,
+      );
+      final Uri url = pcPresenceUri(askedEndpoint);
       // D2LAN-B3 — this poll carries the pairing token, so on a PINNED pairing it
       // must verify who it is talking to. `presenceReader` is null in production
       // (see its field doc) precisely so the pin can ride a named argument the
@@ -227,7 +241,21 @@ extension PttSessionPresencePoll on PttSession {
     final String? answered = reading.pcId;
     final bool mismatched =
         expected != null && answered != null && expected != answered;
+    // 🔴 AND: an answer we KNOW came from the wrong node establishes nothing
+    // about the computer — only about that node's room. The routing above is
+    // best-effort (the directory can be unread, the ack can be stale, the PC
+    // can have moved a second ago), so when it did not land, the answer is
+    // downgraded to "didn't find out" rather than reported as 「电脑已离线」.
+    // The hold (liveness_hold.dart) then keeps the last thing that WAS
+    // established, instead of the screen acquiring a new and wrong certainty.
+    final bool wrongNode = presenceAnswerIsAboutAnotherNode(
+      askedEndpoint: askedEndpoint,
+      homeNode: reconnect.pcHomeNode.value,
+      nodes: reconnect.nodeLabels.nodes,
+    );
     // ② Write unconditionally — even when it's unknown, that is not "skip".
-    _pcPresence.notePresencePoll(mismatched ? PcPresence.unknown : reading.presence);
+    _pcPresence.notePresencePoll(
+      (mismatched || wrongNode) ? PcPresence.unknown : reading.presence,
+    );
   }
 }

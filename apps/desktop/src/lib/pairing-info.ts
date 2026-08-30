@@ -94,6 +94,12 @@ export function asPairingInfo(v: unknown): PairingInfo {
     // payload builder's 「no fingerprint」 branch is reached and the QR keeps its
     // pre-D2-LAN bytes.
     ...(typeof o.lan_tls_fp === 'string' && o.lan_tls_fp !== '' ? { lan_tls_fp: o.lan_tls_fp } : {}),
+    // owner 2026-08-30 — the relay NODE. SEVENTH field to be added to this
+    // literal, for the reason the block above already states twice: a field
+    // missing from HERE is a field the caller can never see, and a wired chain
+    // with a hole here fails EXACTLY like an unwired one — no badge, no error,
+    // every test green. Pinned by `pairing-node.test.ts`.
+    ...(typeof o.node === 'string' && o.node !== '' ? { node: o.node } : {}),
     // 0.2.66 — the relay's PCID. SIXTH field to be added to this literal, and the
     // block above says why that keeps happening: everything upstream can be perfect
     // and a field missing from HERE is a field the caller can never see. The proof

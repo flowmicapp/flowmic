@@ -483,7 +483,12 @@ void main() {
       // One **joint** assertion: the number in the sentence is computed from
       // the clipboard contents, not two independently-true assertions.
       final List<String> landed = clipboard.single.split('\n');
-      expect(landed, <String>['第二句', '第一句'], reason: 'the list is reverse-chronological, and copy follows it');
+      // 🔴 RE-JUDGED 2026-08-30 (owner): oldest first. The old expectation —
+      // 「the list is reverse-chronological, and copy follows it」 — described
+      // the code accurately and the product wrongly. Full argument at the twin
+      // re-judgement in history_page_interactions_test.dart.
+      expect(landed, <String>['第一句', '第二句'],
+          reason: 'a clipboard is a document: earliest at the top');
       expect(_lastToast(tester), _zh.selectionCopiedRecords(landed.length));
       // After a successful copy, leave multi-select.
       expect(find.byKey(const ValueKey<String>('selection.bar')), findsNothing);
@@ -573,11 +578,15 @@ void main() {
       expect(h.composeFrames, hasLength(1));
       final Map<String, Object?> frame = h.composeFrames.single;
       expect(frame['task'], 'organize');
-      expect(frame['source_text'], '第二句\n第一句');
+      // 🔴 RE-JUDGED 2026-08-30 (owner): oldest first, here too. The organize
+      // buffer is a DOCUMENT for the same reason the clipboard is, and both are
+      // assembled by the same function — 「what N records amount to」 must not
+      // mean two different things depending on which button was pressed.
+      expect(frame['source_text'], '第一句\n第二句');
       // 🔴 The contract is untouched: this pipeline **does not inject** (draft is always true).
       expect(frame['draft'], isTrue);
       expect(h.controller.isAiComposing, isTrue);
-      expect(h.controller.buffer, '第二句\n第一句');
+      expect(h.controller.buffer, '第一句\n第二句');
       expect(_lastToast(tester), _zh.selectionOrganizeStarted(2));
       expect(find.byKey(const ValueKey<String>('selection.bar')), findsNothing);
       await _endRun(tester, h);
@@ -652,7 +661,8 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey<String>('selection.organize')));
       await _settleShort(tester);
-      expect(h.composeFrames.single['source_text'], '第三句\n第二句\n第一句');
+      // 🔴 RE-JUDGED 2026-08-30 (owner): oldest first — see the twin above.
+      expect(h.composeFrames.single['source_text'], '第一句\n第二句\n第三句');
       expect(_lastToast(tester), _zh.selectionOrganizeStarted(3));
       await _endRun(tester, h);
     });

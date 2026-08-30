@@ -20,6 +20,9 @@ extension PttSessionDispose on PttSession {
     // and reach back into a session being torn down; a wake lock would simply
     // never come off.
     endContinuous();
+    // CR-7 — the scribe is deliberately NOT part of endContinuous (see it), so
+    // the LAST exit closes it by name. Nothing can mint a row after this.
+    articles.end();
     await _statusSub?.cancel();
     await _incomingSub?.cancel();
     await _chunkSub?.cancel();

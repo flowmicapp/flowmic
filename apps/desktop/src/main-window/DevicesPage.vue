@@ -177,15 +177,26 @@ const pairTarget = ref<ChannelId>('lan');
  *  Skipped entirely with no Cloud Key: there is no relay session to ask, and that is
  *  also the state in which the card shows the paste form instead of this line. */
 const cloudPcid = ref<string | null>(null);
+/** owner 2026-08-30 — which relay node the cloud channel goes through, already
+ *  resolved to the operator's label (`us`, `asia`) or the node id.
+ *
+ *  🔴 Null on the LAN channel and on every single-node deployment, and the card
+ *  then draws NOTHING rather than 「unknown」: there is no node on either path,
+ *  so naming one would be a fact about a route this connection never takes. */
+const cloudNode = ref<string | null>(null);
 
 async function loadInfo(): Promise<void> {
   rawInfo.value = await fetchPairingInfo(pairTarget.value);
   if (pairTarget.value === 'cloud') {
     cloudPcid.value = rawInfo.value.pcid ?? null;
+    cloudNode.value = rawInfo.value.node ?? null;
   } else if (cloud.value.key_set) {
-    cloudPcid.value = (await fetchPairingInfo('cloud')).pcid ?? null;
+    const cloudInfo = await fetchPairingInfo('cloud');
+    cloudPcid.value = cloudInfo.pcid ?? null;
+    cloudNode.value = cloudInfo.node ?? null;
   } else {
     cloudPcid.value = null;
+    cloudNode.value = null;
   }
 }
 
@@ -660,7 +671,15 @@ onUnmounted(() => {
 
         <div class="card chan ch-cloud">
           <ChannelCardHead channel="cloud" :dot="cloudCard.dot" />
-          <div class="st">{{ cloudCard.status }}</div>
+          <div class="st">
+            {{ cloudCard.status }}
+            <!-- owner 2026-08-30: which machine room this relay connection goes
+                 through. Beside the status because that is the line about THIS
+                 connection; gated on the socket being up as well as on the
+                 value existing, for the reason the PCID line below gives — a
+                 node named under a dead link reports where we WERE. -->
+            <span v-if="cloudUp && cloudNode" class="node-chip mono">{{ cloudNode }}</span>
+          </div>
           <div v-if="cloudUp" class="st2">{{ cloudAccessLine }}</div>
           <!-- 0.2.66 (owner 2026-08-14): the relay now addresses this PC by a PCID,
                and a phone pairing over the cloud needs it BEFORE any modal is open —

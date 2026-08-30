@@ -77,9 +77,29 @@ describe('A2-5 census — nothing shipped here is a capability with no caller', 
     // bootstrap.ts VERBATIM when multi-node wiring pushed that file over the
     // 800-line cap. It is not a new consumer — it is the SAME consumer at a new
     // address, and it is where the replica/writer tracker choice is made.
-    // bootstrap.ts keeps the retention leg, so it stays in the list too.
-    expect(mentionsLiteral('db.usageEvents', ['billing/usage-tracker.ts']).sort())
-      .toEqual(['bootstrap-http-deps.ts', 'bootstrap.ts', 'node/node-runtime.ts']);
+    // ── 2026-08-30: STILL THREE, and bootstrap.ts is no longer one of them ──
+    // The retention leg moved to `bootstrap-sweeps.ts` for the SAME reason and
+    // in the same shape (bootstrap.ts sat at exactly 800 again when the deadline
+    // refund sweep needed arming). Same consumer, new address — and note that
+    // this test is what NOTICED the move: it went red on a change that was
+    // mechanically correct, which is precisely what a census is for. The count
+    // is unchanged because nothing new consumes the sink.
+    // ── 2026-08-30, second move in one day: the OPERATOR read went to
+    // `bootstrap-ops-deps.ts` when bootstrap-http-deps.ts hit the same cap.
+    //
+    // 🔴 NOW FOUR FILES, AND THE COUNT WENT UP WITHOUT A NEW CONSUMER — which
+    // is worth stating, because a census whose number rises usually means
+    // somebody grew a reader. It did not: bootstrap-http-deps.ts was handing the
+    // sink to TWO routes (the account's own `/api/cloud/usage/events` and the
+    // operator's cross-account twin), and the split separated them. Same four
+    // logical consumers — the retention sweep, the meter, the account read, the
+    // operator read — at four addresses instead of three.
+    expect(mentionsLiteral('db.usageEvents', ['billing/usage-tracker.ts']).sort()).toEqual([
+      'bootstrap-http-deps.ts',
+      'bootstrap-ops-deps.ts',
+      'bootstrap-sweeps.ts',
+      'node/node-runtime.ts',
+    ]);
   });
 
   it('🔴 bootstrap really threads the SWITCH and the SINK into the meter', () => {
@@ -98,11 +118,16 @@ describe('A2-5 census — nothing shipped here is a capability with no caller', 
       readFileSync(join(SRC, f), 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
     const boot = strip('bootstrap.ts');
     const runtime = strip('node/node-runtime.ts');
+    const sweeps = strip('bootstrap-sweeps.ts');
     expect(runtime).toContain('usageEventsEnabled: config.usageEventsEnabled');
     expect(runtime).toContain('events: db.usageEvents');
     expect(boot).toContain('wireNodeRuntime(');
-    // …the retention leg, deliberately NOT behind the switch, and it did NOT move.
-    expect(boot).toContain('usageEvents: db.usageEvents');
+    // …the retention leg, deliberately NOT behind the switch. 🔴 2026-08-30: it
+    // moved to bootstrap-sweeps.ts and the CALL is asserted beside it, for the
+    // reason the paragraph above gives about node-runtime.ts — without the call
+    // assertion the sweeps file could become an orphan with this still green.
+    expect(sweeps).toContain('usageEvents: db.usageEvents');
+    expect(boot).toContain('startBackgroundSweeps(');
   });
 
   it('recordQuotaRefusal is called from EXACTLY the two user-facing admission points', () => {
@@ -157,8 +182,17 @@ describe('A2-5 census — nothing shipped here is a capability with no caller', 
     expect(mentions('tryHandleOpsUsageEventsRoutes', ['http/ops-usage-events-routes.ts'])).toEqual(['http/router.ts']);
     expect(mentions('OpsUsageEventsRoutesDeps', ['http/ops-usage-events-routes.ts']).sort()).toEqual(['http/router-deps.ts']);
     // 🔴 And bootstrap really builds it — the dep field, not just the type.
+    //
+    // 🔴 2026-08-30 — THE OPERATOR SURFACES MOVED to `bootstrap-ops-deps.ts`
+    // when bootstrap-http-deps.ts crossed the 800-line cap (gs-3 wired a refund
+    // action and a mail channel into the purchase queue). Same construction, new
+    // address. The CALL is asserted beside the field for the reason the sibling
+    // case above states: without it the new file could become an orphan and this
+    // would still be green.
+    const ops = readFileSync(join(SRC, 'bootstrap-ops-deps.ts'), 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+    expect(ops).toContain('opsUsageEvents:');
     const boot = readFileSync(join(SRC, 'bootstrap-http-deps.ts'), 'utf8').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
-    expect(boot).toContain('opsUsageEvents:');
+    expect(boot).toContain('opsHttpDeps(');
   });
 
   it('🔴 the quota guard still reads usage_records and has NO path to usage_events', () => {

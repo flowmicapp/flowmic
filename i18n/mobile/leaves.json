@@ -243,6 +243,68 @@
       "params": []
     },
     {
+      "key": "articleBackfillPending",
+      "leaf": "_lfArticleBackfillPending",
+      "params": [
+        "clock"
+      ]
+    },
+    {
+      "key": "articleCardMeta",
+      "leaf": "_lfArticleCardMeta",
+      "params": [
+        "clock",
+        "n"
+      ]
+    },
+    {
+      "key": "nodePanelTitle",
+      "leaf": "_lfNodePanelTitle",
+      "params": []
+    },
+    {
+      "key": "nodePanelNote",
+      "leaf": "_lfNodePanelNote",
+      "params": []
+    },
+    {
+      "key": "nodePanelMeasure",
+      "leaf": "_lfNodePanelMeasure",
+      "params": []
+    },
+    {
+      "key": "nodeLegEdge",
+      "leaf": "_lfNodeLegEdge",
+      "params": []
+    },
+    {
+      "key": "nodeLegOrigin",
+      "leaf": "_lfNodeLegOrigin",
+      "params": []
+    },
+    {
+      "key": "nodeLegTotal",
+      "leaf": "_lfNodeLegTotal",
+      "params": []
+    },
+    {
+      "key": "articleBadge",
+      "leaf": "_lfArticleBadge",
+      "params": []
+    },
+    {
+      "key": "articleNoTitle",
+      "leaf": "_lfArticleNoTitle",
+      "params": []
+    },
+    {
+      "key": "articleStartedAt",
+      "leaf": "_lfArticleStartedAt",
+      "params": [
+        "when"
+      ]
+    },
+    {
       "key": "backToBottom",
       "leaf": "_lfBackToBottom",
       "params": []
@@ -2627,6 +2689,11 @@
       ]
     },
     {
+      "key": "pairError__18",
+      "leaf": "_lfPairError__18",
+      "params": []
+    },
+    {
       "key": "pairError__2",
       "leaf": "_lfPairError__2",
       "params": []
@@ -4033,11 +4100,6 @@
       "params": [
         "why"
       ]
-    },
-    {
-      "key": "pairError__18",
-      "leaf": "_lfPairError__18",
-      "params": []
     }
   ]
 }

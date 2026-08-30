@@ -44,6 +44,7 @@ import '../signaling/inbound_payloads.dart' show InjectResult;
 import '../signaling/state_machine.dart';
 import '../favorites/favorites_store.dart';
 import '../signaling/wire_payloads.dart' show ComposeTask, FlowMode, SendPolicy;
+import '../timeline/article_view.dart';
 import '../timeline/timeline_entry.dart';
 // Card F10: the chat list's own owner-scoped window onto the table. The store's
 // page is GLOBAL (newest 60 rows across every instance); this one is the
@@ -55,12 +56,14 @@ import '../timeline/timeline_persistence.dart' show TimelinePersistence;
 // N2: for TimelineStore.kWireModeCached — the receipt observer below and the row
 // write-back must recognise the SAME wire word, or they will disagree about the
 // same frame (the exact shape of RV-42).
-import '../timeline/timeline_store.dart' show TimelineStore;
+import '../timeline/timeline_store.dart'
+    show TimelineStore, articleMembersOf;
 import 'ai_action_row.dart';
 import 'banner_slot.dart';
 import 'chat_back_policy.dart';
 import 'chat_banner_sources.dart';
 import 'chat_header.dart';
+import 'chat_article_tile.dart';
 import 'chat_message_tile.dart';
 import 'chat_retry_targets.dart';
 import 'chat_timeline_faces.dart';
@@ -77,6 +80,7 @@ import 'image_preview_page.dart';
 import 'image_transfer_bar.dart';
 import 'mic_glyph.dart';
 import 'mode_chip.dart';
+import 'article_page.dart';
 import 'plus_panel.dart';
 import 'chat_flow_toast.dart';
 import 'pairing_success_toast.dart';
@@ -97,6 +101,7 @@ import 'tokens.dart';
 // file's header for the exact diff-discipline contract.
 part 'chat_flow_composer.dart';
 part 'chat_flow_continuous.dart'; // Card CR-9 — the cap again (798/800).
+part 'chat_flow_article.dart'; // CR-8 cell E-2 — the cap again (840/800).
 // P3 0.3.1 (800-line cap again — the tablet press-stability skeleton pushed
 // the composer file over): the PTT caption family moved out of it verbatim.
 // Same contract as above; see that file's header.
@@ -736,21 +741,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   // and the edit sheet reuses the SAME constructor for the in-sheet append
   // strip (PA-5), so 「what feeds the meters」 keeps one author.
 
-  /// Card F10 — the rows this screen shows. See [mergeNarrowedRows] for why it is
-  /// a union of the store's live view and the pager's pages rather than either
-  /// one alone.
-  ///
-  /// Card F2: both halves are scoped by [OwnerTimelinePager.owners], the machine's
-  /// owner set. Reading the set off the pager rather than recomputing it is what
-  /// keeps the two halves from ever answering different questions — the pager IS
-  /// the cache of 「this screen asked storage for THESE owners」, and a store view
-  /// built from a different set would union rows the pages can never reach.
-  List<TimelineEntry> _narrowedEntries(String? iid) => iid == null
-      ? const <TimelineEntry>[]
-      : mergeNarrowedRows(
-          controller.store.entriesForOwners(_pager.owners),
-          _pager.rows,
-        );
+
 
   // ── scroll ─────────────────────────────────────────────────────────────
   // Body moved to chat_flow_scroll.dart (800-line cap), VERBATIM, together with

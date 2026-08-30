@@ -47,6 +47,17 @@
     "appendHold": "'長押しで追加'",
     "appendRelease": "'● 離して追加を終了'",
     "appendUnavailableBusy": "'前の音声がまだ処理中です。少し待ってからもう一度お試しください'",
+    "articleBackfillPending": "'オフラインで録音した $clock を書き起こし中です'",
+    "articleCardMeta": "'$clock · $n 個'",
+    "nodePanelTitle": "'中継ノード'",
+    "nodePanelNote": "'ノードを選ぶのはパソコンで、この端末はそれに従います。'",
+    "nodePanelMeasure": "'計測'",
+    "nodeLegEdge": "'エッジまで'",
+    "nodeLegOrigin": "'ノードまで'",
+    "nodeLegTotal": "'合計'",
+    "articleBadge": "'長時間'",
+    "articleNoTitle": "'まだ何も話していません'",
+    "articleStartedAt": "'$when に録音'",
     "backToBottom": "'一番下へ'",
     "bannerAlbumAway": "'写真選択中 · 戻ると自動で再接続します'",
     "bannerAllTitle": "'すべての通知'",
@@ -530,6 +541,7 @@
     "pairError__15": "'PCに接続できません'",
     "pairError__16": "'ペアリングがタイムアウトしました。アドレスとネットワークを確認してください'",
     "pairError__17": "'ペアリングに失敗しました。ネットワークを確認して再試行してください$diag'",
+    "pairError__18": "'このサーバーはペアリングを扱いません。接続し直してからもう一度お試しください'",
     "pairError__2": "'コードの有効期限が切れました。PCで更新してください'",
     "pairError__3": [
       "'クラウド中継でのペアリングにはPCのPCIDが必要です。PCのQRコードをスキャンするか、'",
@@ -604,7 +616,7 @@
     "pttSubProcessingManual": "'最終テキストを生成しています'",
     "quotaContextUsed": "'コンテキスト $used/${limit}M'",
     "quotaVoiceUsed": "'音声 $used/$limit 分'",
-    "reachUnanswered": "'いま応答がありません'",
+    "reachUnanswered": "'タイムアウト、再試行中'",
     "recLinkDegraded": "'再接続中 · バッファ済み'",
     "recLinkDown": "'ネットワーク切断'",
     "recLinkOk": "'ネットワーク正常'",
@@ -836,7 +848,6 @@
     "utteranceComposeError__4": "'タイムアウト'",
     "utteranceComposeError__5": "'中止されました'",
     "utteranceComposeError__6": "'前回の処理が終わっていません'",
-    "utteranceComposeError__7": "'$why · この文は送信されず、原文も送信されていません · 長押しで再注入できます'",
-    "pairError__18": "'このサーバーはペアリングを扱いません。接続し直してからもう一度お試しください'"
+    "utteranceComposeError__7": "'$why · この文は送信されず、原文も送信されていません · 長押しで再注入できます'"
   }
 }

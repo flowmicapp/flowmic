@@ -20,12 +20,14 @@ import { ServerError } from '../errors';
 import { log } from '../log';
 import { tryHandleAuthRoutes } from './auth-routes';
 import { tryHandleBillingRoutes } from './billing-routes';
+import { tryHandleServicePurchaseRoutes } from './service-purchase-routes';
 import { tryHandleConsoleRoutes } from './console-routes';
 import { tryHandleOpsRoutes } from './ops-routes';
 import { tryHandleAccountRestrictionRoutes } from './account-restriction-routes';
 import { tryHandleUsageEventsRoutes } from './usage-events-routes';
 import { tryHandleOpsUserRoutes } from './ops-user-routes';
 import { tryHandleOpsUsageEventsRoutes } from './ops-usage-events-routes';
+import { tryHandleOpsPurchaseRoutes } from './ops-purchase-routes';
 import { tryHandleProbeRoutes } from './probe-routes';
 import { tryHandleSttModelRoutes } from './stt-model-routes';
 import { tryHandlePresenceRoutes } from './presence-routes';
@@ -563,6 +565,12 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // by name. Two different facts, two different answers, and the one a user
     // can act on is the second.
     if (deps.billingControls && tryHandleBillingRoutes(req, res, deps.billingControls)) return true;
+    // The paid one-time service (owner 2026-08-29: 「控制台独立成区」). A separate
+    // deps object from billingControls, not a field on it: these routes need the
+    // purchase repo and the Creem client and NOT the Paddle client, and widening
+    // billingControls would hand the subscription routes a writer they must not
+    // have — their local row's only author is the webhook.
+    if (deps.servicePurchases && tryHandleServicePurchaseRoutes(req, res, deps.servicePurchases)) return true;
 
     // 0.2.48 — saas-only ops REST (`/api/ops/*`). Same mode gating as `console`
     // above and for a stronger reason: every route in it reads across accounts,
@@ -611,6 +619,13 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     if (config.mode === 'saas' && deps.opsUsageEvents
       && tryHandleOpsUsageEventsRoutes(req, res, deps.opsUsageEvents)) return true;
 
+    // 2026-08-29 — saas-only operator surface for the paid setup service. Two
+    // conditions like its four neighbours: absent deps fall to the router's 404
+    // ("this deployment has no such surface") rather than to a gate that could
+    // never say yes.
+    if (config.mode === 'saas' && deps.opsPurchases
+      && tryHandleOpsPurchaseRoutes(req, res, deps.opsPurchases)) return true;
+
     // SALT-1 — GET/PUT /api/timeline/keymeta. SAAS ONLY, the reverse of the
     // image inject mount above (that door exists only in standalone; this one
     // only in saas — in standalone these paths MUST 404). TWO conditions on the
@@ -656,9 +671,24 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // off, and gives up, and the first symptom is a user who paid and never got
     // upgraded.
     //
+    // 🔴🔴 ORIGINAL-PLACE CORRECTION (2026-08-29). The third condition below was
+    // `config.paddle.enabled` — right while Paddle was the only provider, a LIVE
+    // P0 the moment it was not. This block also mounts `/api/creem/webhook`, so
+    // on the deployment we intend to run (Creem ON, Paddle OFF) that endpoint
+    // did not exist: payments arrive, the webhook 404s, Creem retries five times
+    // over 24h and gives up, nobody is recorded or upgraded. The silent shape
+    // this very paragraph warns about, produced by the line meant to prevent it.
+    // ⚠️ AND IT WAS ALREADY WRITTEN DOWN — bootstrap-billing-deps.ts's header
+    // says each provider must mount on its own flag. That fix landed in the DEPS
+    // BUILDER and not here, one layer up ⇒ 契约写对了不等于实现做到了.
+    // 🔴 NO UNIT TEST COULD SEE IT: every webhook suite calls
+    // `tryHandlePaddleRoutes` directly, so this condition is in none of their
+    // paths. Caught by test/service-e2e.test.ts, which boots the real server
+    // with Creem on and Paddle off — the first thing here to run that pairing.
+    //
     // THREE conditions, and ALL THREE are load-bearing — none is decoration:
-    //  · `deps.paddle` — bootstrap builds it only for saas + enabled, the same
-    //    way it builds `auth` and `console`;
+    //  · `deps.paddle` — bootstrap builds it only for saas + at least one
+    //    provider enabled, the same way it builds `auth` and `console`;
     //  · the two config tests — they are what catches a MIS-WIRED dep. A
     //    bootstrap that passed `paddle` in standalone would otherwise open a
     //    webhook endpoint on someone's LAN box, and config.ts's clamp cannot
@@ -677,7 +707,14 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // request. Short-circuiting on the dep costs nothing and leaves the two
     // config tests exactly as load-bearing: the only way to reach them is to
     // HAVE the dep, which is precisely the mis-wiring case they exist to catch.
-    if (deps.paddle && config.mode === 'saas' && config.paddle.enabled
+    // 🔴 EITHER PROVIDER. The per-provider decision is NOT made here — it is
+    // made in `deps`: `billingWebhookDeps` puts `webhook` in the object only
+    // when Paddle is on and `creemWebhook` only when Creem is, and
+    // paddle-routes.ts then picks by URL and answers 404 for a path whose
+    // provider has no deps. So a provider that is off still 404s, which is the
+    // property this condition used to provide for Paddle — it just no longer
+    // takes the OTHER provider down with it.
+    if (deps.paddle && config.mode === 'saas' && (config.paddle.enabled || config.creem.enabled)
       && tryHandlePaddleRoutes(req, res, deps.paddle)) return true;
 
     if (!url.startsWith('/api/billing/')) return false;

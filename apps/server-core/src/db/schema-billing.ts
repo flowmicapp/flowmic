@@ -20,7 +20,7 @@
 // line so it reads as a broken toolchain. Quote identifiers with 「」 or ** **.
 // (Measured twice now: schema.ts 2026-08-02, and again while writing this file.)
 
-export const BILLING_SQL = /* sql */ `
+const BILLING_TABLES_SQL = /* sql */ `
 -- 8. paddle_subscriptions (Window D1 §3.2 -- subscription truth)
 -- status stores Paddle's raw value, not translated; translation is the tier
 -- column's job. One column, one question.
@@ -32,7 +32,14 @@ CREATE TABLE IF NOT EXISTS paddle_subscriptions (
   subscription_id     TEXT PRIMARY KEY,          -- sub_xxx
   user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   customer_id         TEXT,                      -- ctm_xxx
-  status              TEXT NOT NULL,             -- Paddle's raw value, not translated
+  status              TEXT NOT NULL,             -- the provider's raw value, not translated
+  -- Which merchant of record owns this row.
+  -- 🔴 NULL IS NOT 'unknown' HERE — IT IS 'paddle', and every reader must say so
+  -- rather than default silently, because Paddle was the only writer that
+  -- existed before 2026-08-29. Backfilling would be equally correct and is
+  -- deliberately NOT done: an ALTER that also rewrites every row is a migration
+  -- that can half-succeed, and a read-side default costs one line.
+  provider            TEXT,
   tier                TEXT NOT NULL,             -- free|pro|max, mapped from price_id
   price_id            TEXT,
   cycle               TEXT,                      -- monthly|yearly|null
@@ -196,3 +203,174 @@ CREATE TABLE IF NOT EXISTS billing_events (
 );
 CREATE INDEX IF NOT EXISTS idx_billing_events_user ON billing_events(user_id, received_at);
 `;
+
+/**
+ * One-time (non-subscription) purchases — today, the $200 Guided Setup service.
+ *
+ * 🔴 A SEPARATE TABLE FROM `paddle_subscriptions`, AND THE REASON IS NOT TIDINESS.
+ * A subscription row answers 「what is this account entitled to, and until when」
+ * and is read by the plan solver on every request. This answers 「what did this
+ * person buy, and have we delivered it yet」 and is read by a human. Putting them
+ * together would mean the plan solver has rows in its table that grant nothing,
+ * and the first `WHERE user_id = ?` that forgot to filter would hand somebody a
+ * tier they did not buy.
+ *
+ * 🔴 AND THE WITHDRAWAL LAW IS GENUINELY DIFFERENT, which is the part that would
+ * have bitten later. A subscription's EU 14-day window runs from when the
+ * contract was concluded and is answered by `contract_concluded_at`. A SERVICE
+ * bought once loses that right only when it has been FULLY PERFORMED **and** the
+ * buyer gave prior express consent to start inside the window **and**
+ * acknowledged that performance would end the right (CRD art. 16(a) read with
+ * art. 7(3)). Those are two extra facts that exist for no subscription, they are
+ * captured at purchase, and they cannot be reconstructed afterwards — which is
+ * the same argument `contract_concluded_at` won on its own table.
+ *
+ * ⚠️ `state` IS DELIVERY, NOT PAYMENT. Payment is settled the moment the row
+ * exists (we only write on a paid order). These four values say where the SERVICE
+ * has got to:
+ *   'paid'      -- money in, nothing arranged yet. The only state a webhook writes.
+ *   'scheduled' -- a session time has been agreed with the buyer.
+ *   'delivered' -- the session happened. 🔴 Also the moment the withdrawal right
+ *                  can lapse, but ONLY IF both consent stamps below are present;
+ *                  the code that reads this must check them, not infer from here.
+ *   'refunded'  -- the money went back. Terminal.
+ * There is deliberately no 'pending'/'processing': every value above is something
+ * a person did, and a state nobody can advance is the shape this repo forbids
+ * ("不许给一个没有机制兑现的等待起名叫「待…」").
+ *
+ * ⚠️ NO FOREIGN KEY TO `users`, unlike paddle_subscriptions. A purchase is a
+ * commercial record of money received; if the account is later deleted the
+ * obligation (or the refund) does not disappear with it. Same reasoning as
+ * paddle_subscription_tombstones, and it is why `user_id` is nullable here too:
+ * a paid order whose buyer we could not resolve is a row that must still exist,
+ * loudly, rather than not be written at all.
+ */
+const ONE_TIME_PURCHASE_SQL = /* sql */ `
+CREATE TABLE IF NOT EXISTS one_time_purchases (
+  -- 🔴 THE PROVIDER'S ORDER ID IS THE PRIMARY KEY, not our own mint and not the
+  -- event id. The event id would let a redelivery of the same purchase write a
+  -- second row; our own id would let it write a second row AND make the pair
+  -- impossible to spot. This is the idempotency guarantee, in the schema, where
+  -- no handler can forget it.
+  order_id            TEXT PRIMARY KEY,
+  provider            TEXT NOT NULL,            -- 'creem' | 'paddle', never inferred
+  user_id             TEXT,                     -- nullable ON PURPOSE, see header
+  product_id          TEXT,
+  checkout_id         TEXT,
+  transaction_id      TEXT,                     -- what a refund names; null until resolved
+  customer_id         TEXT,
+  amount_minor        INTEGER,                  -- the provider's own minor units
+  currency            TEXT,
+  state               TEXT NOT NULL,            -- paid | scheduled | in_progress | delivered | refund_requested | refunded
+  -- The two facts that decide whether the 14-day right survives performance.
+  -- WRITE-ONCE in practice: they record what the buyer was shown and agreed to
+  -- at purchase, and a later edit would be a claim about a past conversation.
+  early_start_consent_at   TEXT,                -- RFC3339; buyer asked us to start inside the window
+  withdrawal_waiver_ack_at TEXT,                -- RFC3339; buyer acknowledged full performance ends the right
+  -- 🔴 WHICH WORDING those two stamps are against. A timestamp alone cannot
+  -- answer the only question a dispute asks — WHAT did they agree to — because
+  -- the copy will change and a stamp against words nobody kept is evidence of
+  -- nothing. billing/guided-setup.ts holds each version's immutable text.
+  consent_terms_version    TEXT,
+  scheduled_at        TEXT,
+  -- 2026-08-30 (gs-5) -- when the operator recorded that the session BEGAN.
+  -- Part of the delivery picture with the two beside it. Forward-ported onto
+  -- older databases by a guarded ALTER in connection.ts.
+  started_at          TEXT,
+  delivered_at        TEXT,
+  -- 2026-08-30 -- the withdrawal half. THREE columns and not one, because they
+  -- answer three different questions and only the last is the provider's:
+  --   refund_requested_at -- when WE asked. Ours, and always knowable.
+  --   refund_provider_id  -- the provider's handle, for a human. Creem has no
+  --                          GET /v1/refunds (probed: 404), so nothing polls it.
+  --   refund_status       -- the provider's own word, verbatim. Its 'pending'
+  --                          and 'requiresAction' are documented NON-TERMINAL,
+  --                          so this must never be read as "the money is back".
+  -- 🔴 "the money is back" is state = 'refunded' plus refunded_at, and the
+  -- refund webhook is their only writer.
+  refund_requested_at TEXT,
+  refund_provider_id  TEXT,
+  refund_status       TEXT,
+  refunded_at         TEXT,
+  -- 2026-08-30 -- when we successfully EMAILED the buyer that their setup was
+  -- complete.
+  --
+  -- 🔴 IT IS NOT A COPY OF delivered_at AND MUST NEVER BE DERIVED FROM ONE.
+  -- delivered_at is when an operator asserted it; this is when the customer was
+  -- told. They are two facts and an operator has to be able to see the second
+  -- one missing while the first is set.
+  --
+  -- ⚠️ A RECORD OF THE EMAIL, AND NOTHING MORE (gs-5). It does not affect
+  -- refundability: the no-reason refund closes at delivered_at whether or not
+  -- this column is set, and the claim SQL never reads it. NULL on a delivered
+  -- row means we still owe the buyer that email — a duty the operator queue
+  -- surfaces, not a right the buyer keeps. (Under gs-3/gs-4 this column started
+  -- a post-completion refund window; that window no longer exists.)
+  --
+  -- ⚠️ IT IS PART OF THE DELIVERY PICTURE, so advanceOneTimePurchase ASSIGNS it
+  -- alongside the other stamps: walking a mis-marked delivery back clears it,
+  -- and re-delivering sends a fresh notice.
+  completion_notice_at TEXT,
+  note                TEXT,                     -- operator's own words, never shown to the buyer
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_one_time_purchases_user ON one_time_purchases(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_one_time_purchases_state ON one_time_purchases(state);
+`;
+
+/** Everything the billing domain adds to `INIT_SQL`, in one value.
+ *
+ * ⚠️ CONCATENATED HERE RATHER THAN INTERPOLATED TWICE IN schema.ts, and the
+ * reason is the same one that created this file: schema.ts sits EXACTLY at the
+ * repo's 800-line cap, so every table added there costs a line it does not have.
+ * A reader looking for 「what DDL runs」 still finds one export; a reader looking
+ * for 「which tables」 finds them named above it.
+ */
+/**
+ * Additive TEXT columns for the billing tables, reconciled by connection.ts's
+ * guarded ALTER loop.
+ *
+ * 🔴 IT LIVES HERE, BESIDE THE DDL THAT DECLARES THEM. Two lists in two files
+ * describing one set of columns is how one of them stops being edited.
+ */
+export const BILLING_ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // 0.3.25 B1 + 2026-08-29 provider. All nullable TEXT with no default — what
+  // the guarded loop emits — and NULL on a legacy row is the truth in each
+  // case: no scheduled change was recorded, no next-billing date was read, for
+  // a subscription predating the column we do not know when its contract was
+  // concluded, and a row written before provider existed is Paddle's.
+  // 🔴 That contract date has a CONSEQUENCE the withdrawal surface must respect:
+  // a NULL contract_concluded_at means "we cannot compute your 14-day
+  // deadline", NOT "your window has closed". B3 shows no withdrawal panel
+  // rather than a refusal — claiming a right expired when we simply never
+  // wrote the date down is the worst direction to fail.
+  paddle_subscriptions: [
+    'scheduled_change_action',
+    'scheduled_change_at',
+    'next_billed_at',
+    'contract_concluded_at',
+    'provider',
+  ],
+  // 2026-08-30 — the withdrawal half of the one-time service. The table is
+  // younger than any deployment, but a developer who booted this branch before
+  // these columns existed has the old shape on disk, which is what this is for.
+  one_time_purchases: [
+    'refund_requested_at',
+    'refund_provider_id',
+    'refund_status',
+    // 2026-08-30. ⚠️ NULL ON A LEGACY ROW IS THE TRUTH: a delivered purchase
+    // written before this column existed was never notified through this
+    // mechanism. A migration that back-filled it with `delivered_at` would put
+    // a letter in the record that was never sent. (It affects no refund —
+    // gs-5 closes the refund at delivery regardless — so NULL costs nothing but
+    // honesty.)
+    'completion_notice_at',
+    // ⚠️ `started_at` (gs-5) IS DELIBERATELY NOT IN THIS LIST. A database that
+    // predates it gets it from its own PRAGMA-guarded ALTER in connection.ts
+    // (the shape users.email_verified_at uses). One column, one forward-port:
+    // listing it here as well would give the same ALTER two owners.
+  ],
+};
+
+export const BILLING_SQL = `${BILLING_TABLES_SQL}${ONE_TIME_PURCHASE_SQL}`;

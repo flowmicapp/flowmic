@@ -47,6 +47,17 @@
     "appendHold": "'길게 눌러 추가'",
     "appendRelease": "'● 놓으면 추가 종료'",
     "appendUnavailableBusy": "'이전 문장이 아직 처리 중입니다. 잠시 후 다시 시도하세요'",
+    "articleBackfillPending": "'오프라인으로 녹음한 $clock 을 옮겨 적는 중입니다'",
+    "articleCardMeta": "'$clock · $n개'",
+    "nodePanelTitle": "'릴레이 노드'",
+    "nodePanelNote": "'노드는 컴퓨터가 고르고, 이 휴대폰은 컴퓨터를 따라갑니다.'",
+    "nodePanelMeasure": "'측정'",
+    "nodeLegEdge": "'엣지까지'",
+    "nodeLegOrigin": "'노드까지'",
+    "nodeLegTotal": "'합계'",
+    "articleBadge": "'장시간'",
+    "articleNoTitle": "'아직 말한 내용이 없습니다'",
+    "articleStartedAt": "'$when 에 녹음'",
     "backToBottom": "'맨 아래로'",
     "bannerAlbumAway": "'사진 선택 중 · 돌아오면 자동으로 다시 연결됩니다'",
     "bannerAllTitle": "'모든 알림'",
@@ -533,6 +544,7 @@
     "pairError__15": "'PC에 연결할 수 없습니다'",
     "pairError__16": "'페어링 시간이 초과되었습니다. 주소와 네트워크를 확인하세요'",
     "pairError__17": "'페어링에 실패했습니다. 네트워크를 확인한 뒤 다시 시도하세요$diag'",
+    "pairError__18": "'이 서버는 페어링을 처리하지 않습니다. 다시 연결한 후 시도해 주세요'",
     "pairError__2": "'코드가 만료되었습니다. PC에서 새로 고치세요'",
     "pairError__3": [
       "'클라우드 릴레이로 페어링하려면 PC의 PCID가 필요합니다. PC의 QR 코드를 스캔하거나 '",
@@ -607,7 +619,7 @@
     "pttSubProcessingManual": "'최종 텍스트를 생성하고 있습니다'",
     "quotaContextUsed": "'컨텍스트 $used/${limit}M'",
     "quotaVoiceUsed": "'음성 $used/$limit 분'",
-    "reachUnanswered": "'지금은 응답 없음'",
+    "reachUnanswered": "'시간 초과, 다시 시도 중'",
     "recLinkDegraded": "'재연결 중 · 버퍼에 저장됨'",
     "recLinkDown": "'네트워크 끊김'",
     "recLinkOk": "'네트워크 정상'",
@@ -836,7 +848,6 @@
     "utteranceComposeError__4": "'시간 초과'",
     "utteranceComposeError__5": "'중단됨'",
     "utteranceComposeError__6": "'이전 처리가 끝나지 않았습니다'",
-    "utteranceComposeError__7": "'$why · 이 문장은 전송되지 않았고 원문도 전송되지 않았습니다 · 길게 눌러 재주입할 수 있습니다'",
-    "pairError__18": "'이 서버는 페어링을 처리하지 않습니다. 다시 연결한 후 시도해 주세요'"
+    "utteranceComposeError__7": "'$why · 이 문장은 전송되지 않았고 원문도 전송되지 않았습니다 · 길게 눌러 재주입할 수 있습니다'"
   }
 }

@@ -181,3 +181,22 @@
    has no source for. */
 
 .btn.pri:disabled, .btn.ghost:disabled { opacity: .5; cursor: default; }
+
+/* owner 2026-08-30 — the relay node chip on the cloud channel card.
+   Deliberately quieter than the status text it sits beside: it answers a
+   secondary question ("which door"), and the primary one ("is this up") must
+   keep the eye. Same family as the phone's NodeBadge — a small neutral pill
+   with the label as its whole content, never a flag (a political claim we have
+   no business making about a datacentre) and never a globe (which cannot
+   distinguish two nodes, i.e. the entire job). */
+.ch-cloud .node-chip {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--off-chip-bg);
+  color: var(--t2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+}

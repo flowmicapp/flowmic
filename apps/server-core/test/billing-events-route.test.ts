@@ -349,6 +349,7 @@ describe('D1 §6.1 — GET /api/cloud/subscription carries the widened PlanView'
     db.billing.upsertSubscription({
       subscription_id: 'sub_live01',
       user_id: a.id,
+      provider: 'paddle',
       customer_id: 'ctm_1',
       status: 'active',
       tier: 'max',

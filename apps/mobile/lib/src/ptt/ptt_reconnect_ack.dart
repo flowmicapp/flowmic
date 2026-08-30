@@ -336,6 +336,14 @@ Future<void> _followNodeIfMisplaced(
   // the stored one, which may be a candidate we are not on.
   final String? here = s.reconnect.url;
   if (here == null || here.isEmpty) return;
+  // The badge's fact, recorded BEFORE the hop is even considered: it is true
+  // whether or not we move, and a hop that fails must not leave the screen
+  // unable to say where this phone is.
+  s.reconnect.noteAnsweringNode(
+    answeringNode(ack),
+    endpoint: here,
+    homeNode: pcHomeNodeOf(ack),
+  );
   final String? move = await planNodeHop(
     ack: ack,
     currentEndpoint: here,

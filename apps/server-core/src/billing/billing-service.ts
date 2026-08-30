@@ -148,7 +148,7 @@ export interface PlanView {
    *
    * 🔴 IT IS NOT A DUPLICATE OF THE DEADLINE. The deadline answers 「until when
    * may I withdraw」 and is what both sides branch on; this answers 「which
-   * contract am I withdrawing from」, which CRD art. 11a requires the confirmation
+   * contract am I withdrawing from」, which CRD art. 11(3) requires the confirmation
    * step to state. Deriving one from the other in the browser would put a second
    * computation of a legal date in the UI — the thing `withdrawal_deadline`
    * exists on the wire to prevent.
@@ -157,6 +157,24 @@ export interface PlanView {
   /** sub_xxx when `source === 'paddle'`, else null — the reconciliation handle
    *  that lets a human match this readout against Paddle's own dashboard. */
   paddle_subscription_id: string | null;
+  /**
+   * WHICH merchant of record that subscription lives at.
+   *
+   * 🔴 THE FIELD NAME ABOVE IS NOW A HISTORICAL ONE, AND THIS IS THE
+   * CORRECTION. `paddle_subscription_id` holds a CREEM id for a Creem
+   * subscription — the column is shared, and renaming it would move a wire
+   * format the console and the desktop already read. So the id alone stopped
+   * being enough to say where to send a cancellation, and this answers that
+   * separately rather than letting the old name go on implying an answer it no
+   * longer has.
+   *
+   * ⚠️ `null` WHEN THERE IS NO SUBSCRIPTION, and — importantly — also for rows
+   * written before the `provider` column existed. Those are Paddle's by
+   * construction (it was the only writer), but that is an INFERENCE, and
+   * http/billing-routes.ts is the one place allowed to make it, out loud, once.
+   * Defaulting it here would spread a guess into every reader.
+   */
+  billing_provider: string | null;
 }
 export interface QuotaView {
   /** ⚠️ 2026-08-07 CORRECTION — these used to be `Number.POSITIVE_INFINITY` for a
@@ -515,6 +533,8 @@ export class BillingService {
         withdrawal_deadline: null,
         contract_concluded_at: null,
         paddle_subscription_id: null,
+        billing_provider: null,
+
       };
     }
     // ── ② paddle ──────────────────────────────────────────────────────────────
@@ -540,6 +560,8 @@ export class BillingService {
         withdrawal_deadline: null,
         contract_concluded_at: null,
         paddle_subscription_id: null,
+        billing_provider: null,
+
       };
     }
     const sub = this.evaluate(userId);
@@ -571,6 +593,8 @@ export class BillingService {
         withdrawal_deadline: null,
         contract_concluded_at: null,
         paddle_subscription_id: null,
+        billing_provider: null,
+
       };
     }
     // ── ④ nothing ─────────────────────────────────────────────────────────────
@@ -588,6 +612,8 @@ export class BillingService {
       withdrawal_deadline: null,
       contract_concluded_at: null,
       paddle_subscription_id: null,
+      billing_provider: null,
+
     };
   }
 
@@ -649,6 +675,10 @@ export class BillingService {
       // having a start date because its period ended.
       contract_concluded_at: row.contract_concluded_at,
       paddle_subscription_id: row.subscription_id,
+      // Straight off the row. NOT defaulted to 'paddle' when the column is
+      // empty — see the field's doc: that inference belongs to one stated
+      // caller, made once, not to every reader silently.
+      billing_provider: row.provider,
     };
   }
 

@@ -43,11 +43,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { AuthService } from '../auth/auth-service';
 import type { BillingService, PlanView } from '../billing/billing-service';
-import {
-  PaddleWritesDisabledError,
-  type CancelEffectiveFrom,
-  type PaddleClient,
-} from '../billing/paddle/client';
+import { PaddleWritesDisabledError } from '../billing/paddle/client';
+import { CreemWritesDisabledError } from '../billing/creem/client';
+import type {
+  CancelEffectiveFrom,
+  SubscriptionWriter,
+  SubscriptionWriterFor,
+} from '../billing/subscription-writer';
 import { windowFromDeadline } from '../billing/withdrawal';
 import type { BillingRepo, RefundRequestRow } from '../db/repos/billing.repo';
 import type { SubscriptionMailer } from '../mail/subscription-mailer';
@@ -93,7 +95,18 @@ export interface BillingRoutesDeps {
    * already committed.
    */
   billing: BillingService;
-  paddle: PaddleClient;
+  /**
+   * Which outbound client to use, chosen by the SUBSCRIPTION'S OWN PROVIDER.
+   *
+   * 🔴 IT REPLACED A BARE `paddle: PaddleClient`, and the reason is not
+   * tidiness. Once a second merchant of record exists, a fixed client means
+   * every Creem subscription id gets sent to Paddle, which answers 「entity not
+   * found」 — and this file would then tell a paying customer that the
+   * subscription they are looking at does not exist. Nothing in the route body
+   * below branches on the provider; it asks for the writer once and the rest is
+   * unchanged, which is the whole point of having the interface.
+   */
+  writerFor: SubscriptionWriterFor;
   /** Confirmation mail. REQUIRED, never optional: a cancellation the user is
    *  never told about is the state a chargeback comes from, and a friendly
    *  no-op default is the 13 §7 F1 ② shape on a path that costs money. */
@@ -146,8 +159,16 @@ function accepted(res: ServerResponse, snapshot: { status: string; scheduled_cha
  * expensive one. The honest sentence the console renders is 「we could not
  * confirm it; check back in a minute」.
  */
-function refuseFromPaddle(res: ServerResponse, code: string, detail: string): void {
-  if (code === 'PADDLE_UNREACHABLE') {
+function refuseFromProvider(res: ServerResponse, code: string, detail: string): void {
+  // 🔴 THE NORMALISED CODE, NOT A VENDOR ONE. This used to compare against the
+  // literal 'PADDLE_UNREACHABLE'; with a second provider in the tree that test
+  // would silently never match a Creem failure, and EVERY Creem timeout would
+  // fall through to the 「rejected」 branch below — telling a user their
+  // cancellation definitely did not happen at exactly the moment we do not
+  // know. Nothing would have gone red: a string comparison that never matches
+  // is invisible. The adapters map their own constants at the boundary
+  // (billing/subscription-writer.ts carries the argument).
+  if (code === 'PROVIDER_UNREACHABLE') {
     sendJson(res, 502, { error: BILLING_PADDLE_UNREACHABLE, detail });
     return;
   }
@@ -185,7 +206,7 @@ function refuseFromPaddle(res: ServerResponse, code: string, detail: string): vo
 async function handleWithdraw(
   res: ServerResponse,
   deps: BillingRoutesDeps,
-  ctx: { userId: string; email: string; subId: string; view: PlanView },
+  ctx: { userId: string; email: string; subId: string; view: PlanView; writer: SubscriptionWriter },
 ): Promise<void> {
   const nowMs = deps.now?.() ?? Date.now();
   // 🔴 From the SAME field the console reads to decide whether to show the
@@ -207,17 +228,17 @@ async function handleWithdraw(
   // `immediately`, unlike /cancel. A withdrawal unwinds the contract rather than
   // declining to renew it, so leaving the service running to period end would be
   // the wrong shape — and it is paired with ② below, never alone.
-  const cancelled = await deps.paddle.cancelSubscription(ctx.subId, 'immediately');
+  const cancelled = await ctx.writer.cancelSubscription(ctx.subId, 'immediately');
   if (!cancelled.ok) {
     log.warn('billing: withdrawal could not cancel at paddle', { user_id: ctx.userId, code: cancelled.code });
-    refuseFromPaddle(res, cancelled.code, cancelled.detail);
+    refuseFromProvider(res, cancelled.code, cancelled.detail);
     return;
   }
 
   // ── ② the money goes back ─────────────────────────────────────────────────
   const mint = deps.newId ?? (() => `rfd_${randomUUID()}`);
   const createdAt = new Date(nowMs).toISOString();
-  const found = await deps.paddle.findRefundableTransaction(ctx.subId);
+  const found = await ctx.writer.findRefundableTransaction(ctx.subId);
 
   let record: RefundRequestRow;
   if (!found.ok) {
@@ -249,7 +270,7 @@ async function handleWithdraw(
     // 🔴 `reason` is OURS, a fixed string. Never anything the user typed: this
     // field lands in a vendor's dashboard and a free-text box is how a customer's
     // own words end up somewhere they never agreed to send them.
-    const refund = await deps.paddle.createRefund({ transaction_id: txn.id, reason: 'statutory_withdrawal' });
+    const refund = await ctx.writer.createRefund({ transaction_id: txn.id, reason: 'statutory_withdrawal' });
     record = refund.ok
       ? {
           id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
@@ -271,7 +292,7 @@ async function handleWithdraw(
   }
   deps.refunds.recordRefundRequest(record);
 
-  // ── ③ the acknowledgement (art. 11a: durable medium, without undue delay) ──
+  // ── ③ the acknowledgement (art. 11(3): durable medium, without delay) ──
   // 🔴 THIS ONE IS A LEGAL OBLIGATION, not a courtesy like the cancellation
   // email — and it still must not turn a completed withdrawal into an error
   // response. Failure is logged at ERROR, not warn: an unsent acknowledgement is
@@ -286,7 +307,7 @@ async function handleWithdraw(
       currency: record.currency,
     })
     .catch((e: unknown) => {
-      log.error('billing: WITHDRAWAL ACKNOWLEDGEMENT NOT SENT — art. 11a duty outstanding, send it by hand', {
+      log.error('billing: WITHDRAWAL ACKNOWLEDGEMENT NOT SENT — art. 11(3) duty outstanding, send it by hand', {
         user_id: ctx.userId,
         refund_record_id: record.id,
         error: e instanceof Error ? e.name : String(e),
@@ -368,9 +389,35 @@ export function tryHandleBillingRoutes(req: IncomingMessage, res: ServerResponse
       return;
     }
 
+    // ── which provider holds this subscription ──────────────────────────────
+    //
+    // 🔴 `null` IN THE COLUMN MEANS 'paddle', AND THIS IS THE ONE PLACE THAT
+    // SAYS SO. Every row written before 2026-08-29 predates the column, and
+    // Paddle was the only writer that could have made one. The DDL, the repo and
+    // PlanView all deliberately pass the null through untouched so that this
+    // inference is made ONCE, out loud, by the caller that acts on it — rather
+    // than defaulted in a mapper where every future reader would inherit a guess
+    // without knowing they had.
+    const provider = view.billing_provider ?? 'paddle';
+    const writer = deps.writerFor(provider);
+    if (writer === null) {
+      // A subscription whose provider this process has no client for. NOT a
+      // fallback to whichever client is configured: that would send a Creem id
+      // to Paddle, get 「entity not found」, and tell a paying customer their
+      // subscription does not exist. 503 because it is a deployment problem —
+      // the account and the request are both fine.
+      log.error('billing: no outbound client for this subscription provider', {
+        user_id: user.id,
+        subscription_id: subId,
+        provider,
+      });
+      sendJson(res, 503, { error: BILLING_WRITE_DISABLED });
+      return;
+    }
+
     try {
       if (action === 'withdraw') {
-        await handleWithdraw(res, deps, { userId: user.id, email: user.email ?? '', subId, view });
+        await handleWithdraw(res, deps, { userId: user.id, email: user.email ?? '', subId, view, writer });
         return;
       }
       if (isCancel) {
@@ -382,10 +429,10 @@ export function tryHandleBillingRoutes(req: IncomingMessage, res: ServerResponse
         // path belongs to the statutory withdrawal in B3, where it is paired
         // with a refund adjustment.
         const effectiveFrom: CancelEffectiveFrom = 'next_billing_period';
-        const out = await deps.paddle.cancelSubscription(subId, effectiveFrom);
+        const out = await writer.cancelSubscription(subId, effectiveFrom);
         if (!out.ok) {
           log.warn('billing: cancel refused by paddle', { user_id: user.id, code: out.code });
-          refuseFromPaddle(res, out.code, out.detail);
+          refuseFromProvider(res, out.code, out.detail);
           return;
         }
         // 🔴 THE MAIL IS AWAITED AND ITS FAILURE IS NOT FATAL, in that order and
@@ -440,22 +487,27 @@ export function tryHandleBillingRoutes(req: IncomingMessage, res: ServerResponse
       //   happen」 risk is answered where it actually lives — in what we report:
       //   the response carries Paddle's own post-state, so a console rendering
       //   `scheduled_change: null` is stating a fact rather than a hope.
-      const out = await deps.paddle.clearScheduledChange(subId);
+      const out = await writer.clearScheduledChange(subId);
       if (!out.ok) {
         log.warn('billing: resume refused by paddle', { user_id: user.id, code: out.code });
-        refuseFromPaddle(res, out.code, out.detail);
+        refuseFromProvider(res, out.code, out.detail);
         return;
       }
       log.info('billing: scheduled change cleared', { user_id: user.id, subscription_id: subId });
       accepted(res, out.data);
     } catch (e) {
-      if (e instanceof PaddleWritesDisabledError) {
+      // 🔴 BOTH PROVIDERS' 「writes are off」 ERRORS, and the second one is not
+      // optional politeness: each client throws its OWN type, so catching only
+      // Paddle's would send a switched-off Creem deployment down the generic 500
+      // below — 「something went wrong」 for a setting an operator can fix in one
+      // line, with nothing in the log naming it.
+      if (e instanceof PaddleWritesDisabledError || e instanceof CreemWritesDisabledError) {
         // 🔴 503, and a code of its own. This is a deployment that has not been
         // switched on — an operator's problem, not the user's and not Paddle's.
         // Collapsing it into the Paddle-rejected code would send whoever reads
         // the log to the wrong dashboard, and would let a completely dead
         // outbound path masquerade as a vendor having a bad day.
-        log.error('billing: a subscription control was used while paddle writes are OFF', {
+        log.error('billing: a subscription control was used while provider writes are OFF', {
           user_id: user.id,
           message: e.message,
         });

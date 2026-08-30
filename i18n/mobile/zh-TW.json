@@ -47,6 +47,17 @@
     "appendHold": "'按住 追加'",
     "appendRelease": "'● 放開 結束追加'",
     "appendUnavailableBusy": "'上一句還沒處理完，稍等一下再追加'",
+    "articleBackfillPending": "'斷線時錄下的 $clock 還在轉寫'",
+    "articleCardMeta": "'$clock · $n 段'",
+    "nodePanelTitle": "'中繼節點'",
+    "nodePanelNote": "'由電腦選擇節點，這台手機跟隨電腦。'",
+    "nodePanelMeasure": "'測量延遲'",
+    "nodeLegEdge": "'到邊緣'",
+    "nodeLegOrigin": "'到節點'",
+    "nodeLegTotal": "'合計'",
+    "articleBadge": "'長程'",
+    "articleNoTitle": "'還沒有說話'",
+    "articleStartedAt": "'錄於 $when'",
     "backToBottom": "'回到底部'",
     "bannerAlbumAway": "'選圖中 · 返回後將自動重連'",
     "bannerAllTitle": "'全部提示'",
@@ -505,6 +516,7 @@
     "pairError__15": "'無法連線到電腦'",
     "pairError__16": "'配對逾時，請檢查地址與網路'",
     "pairError__17": "'配對失敗，請檢查網路後重試$diag'",
+    "pairError__18": "'目前伺服器不處理配對，請重新連線後再試'",
     "pairError__2": "'配對碼已過期，請在電腦上重新整理'",
     "pairError__3": "'雲端中繼配對需要電腦的 PCID。請掃描電腦上的 QR 碼，或輸入電腦上顯示的 9 位 PCID。'",
     "pairError__4": "'這個 PCID 找不到對應的電腦，請核對電腦上顯示的 PCID。'",
@@ -576,7 +588,7 @@
     "pttSubProcessingManual": "'正在產生終稿'",
     "quotaContextUsed": "'上下文 $used/${limit}M'",
     "quotaVoiceUsed": "'語音 $used/$limit 分鐘'",
-    "reachUnanswered": "'暫時問不到'",
+    "reachUnanswered": "'逾時重試中'",
     "recLinkDegraded": "'重連中 · 已緩衝'",
     "recLinkDown": "'網路已中斷'",
     "recLinkOk": "'網路正常'",
@@ -780,7 +792,6 @@
     "utteranceComposeError__4": "'逾時未返回'",
     "utteranceComposeError__5": "'已中止'",
     "utteranceComposeError__6": "'上一次處理還沒結束'",
-    "utteranceComposeError__7": "'$why · 這句未傳送，也沒有送出原文 · 可長按補投'",
-    "pairError__18": "'目前伺服器不處理配對，請重新連線後再試'"
+    "utteranceComposeError__7": "'$why · 這句未傳送，也沒有送出原文 · 可長按補投'"
   }
 }

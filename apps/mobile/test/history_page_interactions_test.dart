@@ -310,20 +310,51 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('selection.copy')));
       await tester.pumpAndSettle();
 
-      // The list is newest-first, and copy follows the list.
-      expect(clipboard.single.split('\n'), <String>['第二句', '第一句']);
+      // 🔴 RE-JUDGED 2026-08-30, owner: 「时间早的放上面，时间迟的放下面」.
+      //
+      // What stood here read 「the list is newest-first, and copy follows the
+      // list」 and asserted ['第二句', '第一句']. That sentence was true about the
+      // implementation and wrong about the product: a clipboard is a DOCUMENT,
+      // and a document that reads backwards is wrong in a way nobody can see,
+      // because every line in it is correct.
+      //
+      // This line WAS the specification of the defect — the 0.2.52 shape: a
+      // control pointing the wrong way does not miss a defect, it writes the
+      // defect down as the acceptance criterion, and then goes red on the day
+      // the fix arrives so that the fix looks like the mistake.
+      expect(clipboard.single.split('\n'), <String>['第一句', '第二句']);
       expect(find.text(_zh.selectionCopiedRecords(2)), findsOneWidget);
     });
 
     testWidgets(
-        '🔴 organize refuses out loud here — this page has no ChatController',
+        '🔴 RE-JUDGED: there is NO organize button here at all (owner 2026-08-30)',
         (WidgetTester tester) async {
+      // What stood here asserted that tapping organize produced a 「not here」
+      // toast, and the production comment beside it argued that keeping a
+      // button which can only refuse was the honest choice, because 「with-
+      // holding it would mean a toolbar whose shape changes between two screens
+      // showing the same rows」.
+      //
+      // 🔴 That is R8 with the sign flipped, and this repo has paid for R8
+      // three times: a control that cannot change anything is worse than no
+      // control. The differing shape is not the cost — it IS the signal, and it
+      // is true, because this page has no ChatController and therefore cannot
+      // organize anything.
+      //
+      // ⚠️ The two actions that DO work here are asserted present in the same
+      // breath: without that, this case would also pass on a selection bar that
+      // failed to render at all.
       await _pump(tester);
       await _enterSelection(tester, '第一句');
-      await tester.tap(find.byKey(const ValueKey<String>('selection.organize')));
-      await tester.pumpAndSettle();
 
-      expect(find.text(_zh.selectionOrganizeOffline), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('selection.organize')),
+          findsNothing);
+      expect(find.text(_zh.selectionOrganizeOffline), findsNothing,
+          reason: 'the refusal went with the button that produced it');
+      expect(find.byKey(const ValueKey<String>('selection.copy')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('selection.delete')),
+          findsOneWidget);
     });
 
     testWidgets('the back affordance leaves the MODE before it leaves the page',

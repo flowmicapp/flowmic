@@ -101,6 +101,7 @@ function seedSub(row: Partial<PaddleSubRow> & { subscription_id: string; user_id
   const base: PaddleSubRow = {
     subscription_id: row.subscription_id,
     user_id: row.user_id,
+    provider: 'paddle',
     customer_id: 'ctm_1',
     status: 'canceled',
     tier: 'pro' as Plan,
@@ -230,6 +231,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_old',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: iso(T0 - 500 * DAY_MS),
       last_occurred_at: iso(T0 - 500 * DAY_MS),
       updated_at: iso(T0 - (DEFAULT_REAPER_POLICY.subSupersededDays + 1) * DAY_MS),
@@ -237,6 +239,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_current',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null,
       scheduled_change_action: null,
       scheduled_change_at: null,
@@ -260,6 +263,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_super_uncanceled',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null, // e.g. a plan CHANGE, not a cancellation
       last_occurred_at: iso(T0 - 500 * DAY_MS),
       updated_at: iso(T0 - (DEFAULT_REAPER_POLICY.subSupersededDays + 1) * DAY_MS),
@@ -267,6 +271,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_newer',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null,
       scheduled_change_action: null,
       scheduled_change_at: null,
@@ -286,6 +291,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_recent_cancel',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: iso(T0 - 5 * DAY_MS),
       last_occurred_at: iso(T0 - 5 * DAY_MS),
       updated_at: iso(T0 - 5 * DAY_MS), // well inside subSupersededDays
@@ -293,6 +299,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_newest',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null,
       scheduled_change_action: null,
       scheduled_change_at: null,
@@ -312,6 +319,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'sub_lonely',
       user_id: 'u2',
+      provider: 'paddle',
       canceled_at: iso(T0 - 1000 * DAY_MS),
       last_occurred_at: iso(T0 - 1000 * DAY_MS),
       updated_at: iso(T0 - 1000 * DAY_MS),
@@ -327,6 +335,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'u1_old',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: iso(T0 - 500 * DAY_MS),
       last_occurred_at: iso(T0 - 500 * DAY_MS),
       updated_at: iso(T0 - (DEFAULT_REAPER_POLICY.subSupersededDays + 1) * DAY_MS),
@@ -334,6 +343,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'u1_current',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null,
       scheduled_change_action: null,
       scheduled_change_at: null,
@@ -345,6 +355,7 @@ describe('D11 reaper — paddle_subscriptions', () => {
     seedSub({
       subscription_id: 'u2_lonely_old',
       user_id: 'u2',
+      provider: 'paddle',
       canceled_at: iso(T0 - 1000 * DAY_MS),
       last_occurred_at: iso(T0 - 1000 * DAY_MS),
       updated_at: iso(T0 - 1000 * DAY_MS),
@@ -364,6 +375,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     seedSub({
       subscription_id: 'sub_old',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: iso(T0 - 500 * DAY_MS),
       last_occurred_at: iso(T0 - 500 * DAY_MS),
       updated_at: iso(T0 - (DEFAULT_REAPER_POLICY.subSupersededDays + 1) * DAY_MS),
@@ -371,6 +383,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     seedSub({
       subscription_id: 'sub_current',
       user_id: 'u1',
+      provider: 'paddle',
       canceled_at: null,
       scheduled_change_action: null,
       scheduled_change_at: null,

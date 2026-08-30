@@ -100,6 +100,16 @@ export interface NodeRuntime {
   stampHomeNode: ((pcId: string) => void) | null;
 
   /**
+   * REPLICA ONLY — forward the heartbeat's presence fact to the writer, so the
+   * web console (which always talks to the writer) can tell a working remote PC
+   * from an absent one. `null` on a writer or a single node, where the heartbeat
+   * handler's own `touchLastSeen` already wrote the row and a second write would
+   * be one fact with two authors. See the construction site for why the first
+   * diagnosis of this gap was wrong and what measuring the read path changed.
+   */
+  stampPresence: ((pcId: string, lastSeenAtMs: number) => void) | null;
+
+  /**
    * 2026-08-29 — 「must this node refuse a writer-only socket event?」
    *
    * Constructed HERE and nowhere else, then handed to the socket handlers as a
@@ -273,6 +283,62 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
       }
       : (pcId: string): void => db.pcs.setHomeNode(pcId, nodeConfig.nodeId as string);
 
+  /**
+   * The heartbeat's presence fact, taking the same two routes as `stampHomeNode`.
+   *
+   * 🔴 WHY THIS EXISTS AT ALL, AND WHY THE FIRST ANSWER WAS WRONG. `pc.presence`
+   * has been a member of the ForwardedWrite union since the channel was built,
+   * with an apply arm on the writer (`bootstrap-http-deps.ts` `setPresence`) and
+   * NO PRODUCER anywhere but a test. The first diagnosis of that gap said a
+   * replica's PC would「read offline to its own phone」— that was FALSE, and
+   * measuring the READ path is what showed it: the phone polls `reconnect.url`,
+   * the node it is itself on, and follows its PC there, so presence is answered
+   * from live socket state in one process and is correct.
+   *
+   * The surface that genuinely breaks is the WEB CONSOLE, which always talks to
+   * `flowmic.app` (the writer). `pcPresence()` requires local room membership,
+   * and the writer's RoomStore cannot contain a PC that is on a replica — so a
+   * working computer reads as offline, and (per that function's own
+   * failure-direction note) becomes REMOVABLE.
+   *
+   * ⚠️ Forwarding alone does not fix it either: the console deliberately does not
+   * consult `is_online` (owner ruling 2026-08-28 §5-1 — a persisted flag survives
+   * a relay restart and lies). What forwarding buys is a FRESH `last_seen_at`
+   * from the node that actually holds the socket, which is the only honest
+   * substitute for「is it in my room」 when the room is in another process. The
+   * console-side half is in `pcPresence`.
+   *
+   * ⚠️ EVERY heartbeat, not every other one. The budget is tight and stated
+   * rather than left to be discovered: heartbeat 5 s + drain 5 s + a cross-ocean
+   * RTT ≈ 10.2 s against a 15 s staleness window. Forwarding on a slower cadence
+   * spends margin this path does not have.
+   */
+  const stampPresence = nodeConfig.nodeId === null
+    ? null
+    : replicaOutbox
+      ? (pcId: string, lastSeenAtMs: number): void => {
+        try {
+          replicaOutbox.enqueue({
+            id: randomUUID(),
+            kind: 'presence',
+            node: nodeConfig.nodeId ?? 'unknown',
+            body: { kind: 'pc.presence', pc_id: pcId, is_online: true, last_seen_at: lastSeenAtMs },
+          });
+        } catch (err) {
+          // Not fatal to the session — the PC keeps working and its phone keeps
+          // seeing it. What is lost is the CONSOLE's view, so the message says
+          // that rather than implying the connection is in trouble.
+          log.error('node.outbox could not record presence — this PC will read offline in the console', {
+            pc_id: pcId,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      // Writer / single node: nothing to forward. The heartbeat handler's own
+      // `touchLastSeen` already wrote the row locally, so a second write here
+      // would be one fact with two authors.
+      : null;
+
   // A replica refuses writer-only events by name; everyone else serves them.
   // Keyed off `writerUrl` and not off `role` on purpose: the refusal has to be
   // able to SAY where to go, so a role with no writer URL could not produce an
@@ -284,6 +350,6 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
 
   return {
     nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
-    wrapQuota, stampHomeNode, writerOnly,
+    wrapQuota, stampHomeNode, stampPresence, writerOnly,
   };
 }

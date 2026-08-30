@@ -33,6 +33,7 @@ import {
 } from '../src/billing/paddle/client';
 import type { CancellationMailInput, SubscriptionMailer } from '../src/mail/subscription-mailer';
 import { tryHandleBillingRoutes, type BillingRoutesDeps } from '../src/http/billing-routes';
+import { asPaddleSubscriptionWriter } from '../src/billing/paddle/subscription-writer-adapter';
 
 const SECRET = 'billing-routes-secret-32-bytes-min-xx';
 const NOW = Date.parse('2026-08-01T00:00:00.000Z');
@@ -122,7 +123,10 @@ function makeDeps(behaviour: ClientBehaviour): BillingRoutesDeps {
       unlockAll: false,
       now: () => NOW,
     }),
-    paddle: fakeClient(behaviour),
+    // The fixtures' rows are Paddle's, so the resolver answers for 'paddle'
+    // and refuses anything else — which is what makes the 「no client for this
+    // provider」 branch reachable in a test at all.
+    writerFor: (p: string) => (p === 'paddle' ? asPaddleSubscriptionWriter(fakeClient(behaviour)) : null),
     mailer,
     refunds: db.billing,
   };
@@ -139,6 +143,7 @@ function subscribe(userId: string, over: Record<string, unknown> = {}): void {
   db.billing.upsertSubscription({
     subscription_id: 'sub_test',
     user_id: userId,
+    provider: 'paddle',
     customer_id: 'ctm_test',
     status: 'active',
     tier: 'pro',

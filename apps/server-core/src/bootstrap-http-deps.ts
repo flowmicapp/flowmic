@@ -27,6 +27,9 @@
 // new file, per the card — those blocks are marked VERIFY-1 and are the only
 // non-moved content.
 
+import { billingWebhookDeps, serviceRefunder, servicePurchaseDeps, subscriptionWriterFor } from './bootstrap-billing-deps';
+import type { ServiceMailer } from './mail/service-mailer';
+import { opsHttpDeps } from './bootstrap-ops-deps';
 import { dirname, join } from 'node:path';
 import type { Socket } from 'socket.io';
 import type { ServerConfig } from './config';
@@ -105,6 +108,11 @@ export interface HttpDepsWiring {
    *  optional mailer here would let a bootstrap missing one line mount a cancel
    *  route that cancels a subscription and tells nobody). */
   subscriptionMail: SubscriptionMailer;
+  /** gs-3 — the setup service's channel. REQUIRED, no `?`: bootstrap always
+   *  resolves one (real or loudly failing), and an optional field here would let
+   *  a wiring that forgot the line still compile and quietly never notify a
+   *  buyer that their setup was done. */
+  serviceMail: ServiceMailer;
   /** 0.3.25 B2 — the ONE outbound Paddle writer this process has.
    *
    *  🔴 A SINGLE INSTANCE, built in bootstrap beside the limiters and for the
@@ -157,6 +165,11 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     passwordLimiter, qrGrants, registry, store, injectPending, releaseSuppression,
     mail, lanTlsFingerprint, broadcastSettingsUpdated, statusSnapshot, now,
   } = w;
+  // 🔴 THE ONE REFUND ACTION THIS PROCESS HANDS OUT, built once. It carries an
+  // outbound client, and a second construction is a second place the write
+  // switch and the API key can be read at a different moment — which is exactly
+  // the argument `subscriptionWriterFor` makes for building its clients once.
+  const opsRefund = serviceRefunder({ config, db, billing, ...(now ? { now } : {}) });
   // ── 2026-08-27 batch-2 item 4 — the GLOBAL daily registration surge gate ───
   //
   // 🔴 ONE INSTANCE PER PROCESS, and it is built HERE rather than in
@@ -366,46 +379,17 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     // Paddle's REST API is how a later window RECONCILES (asks Paddle 「what do
     // you think this subscription is?」), and nothing in this window ever calls
     // out to Paddle. Wiring it now would make it look connected.
-    ...(config.mode === 'saas' && config.paddle.enabled
-      ? {
-          paddle: {
-            webhook: {
-              // The SAME repo instances everything else uses — a second
-              // BillingRepo over the same file would be a second answer to
-              // 「have we seen this event_id」, which is the one question the
-              // whole idempotency table exists to have exactly one answer to.
-              //
-              // 🔴 0.2.38 — the ONE call below is the TRIGGER for the `users.plan`
-              // mirror, not a second copy of it: the write itself lives in
-              // BillingService (see mirrorPlanColumn). It is here rather than in
-              // the handler because that handler is a pure decision function
-              // (bytes in, {status,body} out) with no BillingService in reach,
-              // and because "a Paddle event genuinely changed the effective tier" IS this statement —
-              // `upsertSubscription` is the only way a Paddle event can move a
-              // tier. Without it the mirror is only eventually consistent, so a
-              // customer who paid and then logged in before anyone asked a plan
-              // question would still be handed a token claiming 「free」.
-              // ⚠️ It cannot cover the OTHER direction: a subscription lapsing is
-              // driven by the clock, not by an event, so the column can still name
-              // a tier a moment after it stopped applying. That is why nothing may
-              // ENFORCE on it (enforcement reads effectiveLimits) and why the
-              // mirror's own doc says it is eventually consistent by construction.
-              repo: {
-                ...db.billing,
-                upsertSubscription: (row: PaddleSubRow): void => {
-                  db.billing.upsertSubscription(row);
-                  billing.effectivePlan(row.user_id);
-                },
-              },
-              users: db.users,
-              secret: config.paddle.webhookSecret ?? '',
-              toleranceSec: config.paddle.toleranceSec,
-              priceTiers: config.paddle.priceTiers,
-              ...(now ? { now } : {}),
-            },
-          },
-        }
-      : {}),
+    // The billing webhook intake, for whichever providers are switched on.
+    // 🔴 EXTRACTED 2026-08-29 because this file crossed the 800-line cap the
+    // moment Creem was wired beside Paddle. The reasoning did not disappear —
+    // it moved with the code, to bootstrap-billing-deps.ts.
+    ...billingWebhookDeps({ config, db, billing, ...(now ? { now } : {}) }),
+    // The paid one-time service (owner 2026-08-29). Its own deps object, mounted
+    // only when this deployment can actually sell it — see servicePurchaseDeps.
+    ...servicePurchaseDeps({
+      config, db, billing, auth: authService, serviceMailer: w.serviceMail,
+      ...(now ? { now } : {}),
+    }),
     // saas-only: mount the account REST (register/login/me). Absent in standalone
     // → those routes 404 (the REST surface is mounted saas-only, per the card).
     ...(config.mode === 'saas'
@@ -508,6 +492,10 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             // definition, and a console holding its own store would be a second
             // one that drifts the day rooms are sharded.
             store,
+            // The console asks THIS node about a PC that may live on another
+            // one. Without an id here, `pcPresence` cannot tell those apart and
+            // a healthy remote computer reads as offline — and removable.
+            nodeId: w.nodeRuntime.nodeConfig.nodeId,
             settings: db.settings,
             // 0.3.0 P4 — account deletion + data export (GDPR). `users` is the
             // ONE writer that destroys the account row (the FK cascade in
@@ -669,7 +657,9 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
           billingControls: {
             auth: authService,
             billing,
-            paddle: w.paddleClient,
+            // Chosen per subscription, from the provider on its own row — see
+            // bootstrap-billing-deps.ts for why there is no default.
+            writerFor: subscriptionWriterFor({ config, db, billing, ...(now ? { now } : {}), paddleClient: w.paddleClient }),
             mailer: w.subscriptionMail,
             // 0.3.25 B3 — the same repo the webhook writes through. A withdrawal
             // has to leave a row behind, and it is the ONLY write these routes
@@ -679,114 +669,15 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
           },
         }
       : {}),
-    // 0.2.48 — saas-only CROSS-ACCOUNT ops REST (`/api/ops/*`, O-2 platform usage aggregation).
-    //
-    // 🔴 This block is what turns O-2 from [not wired] into a route. The aggregates
-    // (`usage.listMonths/totalForMonth/listUsersForMonth`) shipped in 0.2.47 with
-    // 17 green tests and no HTTP exposure at all — the repo's #1 shape, and the
-    // reason the M2 handoff report refused to call it "implemented".
-    //
-    // Three deps, all required, and each one is the SAME instance the rest of the
-    // process uses: the verifier is the account AuthService (so this ingress can
-    // never admit a Bearer the console rejects), the usage repo is the one billing
-    // writes through (so an ops read cannot show a different number from the one
-    // being enforced), and the audit sink is the one db/connection.ts built.
-    ...(config.mode === 'saas'
-      ? {
-          ops: {
-            auth: authService,
-            usage: db.usage,
-            audit: db.opsAudit,
-            // D11 — the READ slice. Same `OpsAuditRepo` instance as `audit` one
-            // line up, deliberately handed over as a SECOND dep rather than by
-            // widening `OpsAuditSink`: the gate must not gain the ability to read
-            // its own trail as a side effect of being able to write it
-            // (ops-routes.ts §OpsRoutesDeps.auditLog carries the full argument).
-            auditLog: db.opsAudit,
-          },
-        }
-      : {}),
-    // A2-3 (2026-08-12) — saas-only `POST /api/ops/users/restrict`, the
-    // "restrict usage" write. Same saas-only shape as `ops` right above; the router
-    // re-checks the mode so a mis-wired dep cannot open a cross-account WRITE on
-    // a standalone box.
-    //
-    // 🔴 `db.users` is handed over WHOLE and the route only ever sees two
-    // methods of it — `AccountRestrictionRoutesDeps.users` is typed
-    // `Pick<UserRepo,'findById'|'setRestricted'>`, so `remove` (destroys an
-    // account) and `setPlan` (moves a tier, which owner ruled the ops side "won't do for now")
-    // are not reachable from that module even though this object has them. The
-    // slice belongs on the consumer, exactly as `ops.usage` does one block up.
-    //
-    // The audit sink is the SAME `OpsAuditRepo` instance the gate writes
-    // through: this route appends a SECOND, business-level row beside the gate's
-    // route-level one, and two instances would be two answers to "was this action
-    // logged" — the one question the whole table exists to answer once.
-    ...(config.mode === 'saas'
-      ? {
-          restriction: {
-            auth: authService,
-            users: db.users,
-            audit: db.opsAudit,
-            ...(now ? { now } : {}),
-          },
-        }
-      : {}),
-    // A2-4 (2026-08-12) — saas-only `GET /api/ops/users{,/detail}`, the read-only
-    // account list. Same saas-only shape as `ops` and `restriction` above; the
-    // router re-checks the mode so a mis-wired dep cannot publish account rows
-    // from a deployment that has no account layer.
-    //
-    // 🔴 `db.users` is handed over WHOLE and the route only ever sees two READ
-    // methods of it — `OpsUserRoutesDeps.users` is typed
-    // `Pick<UserRepo,'listPage'|'findById'>`, so `remove`, `setPlan`,
-    // `setRestricted`, `setPassword` and `setPermanentFree` are all unreachable
-    // from a list surface even though this object has them. The slice belongs on
-    // the consumer, exactly as `ops.usage` and `restriction.users` do.
-    //
-    // ⚠️ NO `billing` DEP, AND ITS ABSENCE IS THE POINT (M2-8): a list is a loop,
-    // and the only way to answer "which tier" today is `getPlan`, which WRITES the
-    // column it reports. The surface cannot ask because it has nobody to ask.
-    ...(config.mode === 'saas'
-      ? {
-          opsUsers: {
-            auth: authService,
-            users: db.users,
-            audit: db.opsAudit,
-            // LOGIN-1 — the SWITCH STATE, not a permission. The route is mounted
-            // either way and reports `login_recording` honestly; what this
-            // decides is whether the card can say "we are not recording"
-            // (我们没在记) instead of showing a blank that looks like a dormant
-            // account. Same reasoning as `opsUsageEvents` being mounted
-            // regardless of `usageEventsEnabled` just below: the switch gates
-            // COLLECTION, never READING.
-            loginRecording: config.loginRecordEnabled,
-          },
-        }
-      : {}),
-    // A2-5 / REQ-12-08 — saas-only GET /api/ops/usage/events?user_id=, the
-    // operator's view of ONE account's usage detail. The ops-side twin of
-    // `usageEvents` above, and a SEPARATE dep because the two have opposite
-    // trust models (that one is scoped to the Bearer with no target parameter;
-    // this one names another account and is admin-gated).
-    //
-    // 🔴 `db.usageEvents` is handed over whole and the route sees exactly one
-    // method of it — `Pick<UsageEventsRepo,'listForUser'>` — so `append` and
-    // `purgeOlderThan` are unreachable from a read surface. Slice on the
-    // consumer, as everywhere else in this file.
-    //
-    // 🔴 MOUNTED REGARDLESS OF `config.usageEventsEnabled`, same argument as the
-    // account-side twin: the switch gates COLLECTION, not reading, and 404-ing
-    // the route instead would make "this deployment has no such route" and "nothing was recorded during this period"
-    // the same answer to an operator trying to tell them apart.
-    ...(config.mode === 'saas'
-      ? {
-          opsUsageEvents: {
-            auth: authService,
-            events: db.usageEvents,
-            audit: db.opsAudit,
-          },
-        }
-      : {}),
+    // The VPN-only operator surfaces — every /api/ops/* dep plus the account
+    // restriction write. They live in bootstrap-ops-deps.ts (see its header for
+    // why they moved and for the one property they all share: a wide repo in,
+    // sliced by the CONSUMER, so `grep` answers 「what can this route do」 at the
+    // route rather than here).
+    ...opsHttpDeps({
+      config, db, authService, serviceMail: w.serviceMail,
+      ...(now ? { now } : {}),
+      ...(opsRefund === undefined ? {} : { opsRefund }),
+    }),
   };
 }

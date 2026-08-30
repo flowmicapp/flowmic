@@ -161,7 +161,14 @@ void main() {
     spill.onEvicted(BufferedChunk(seq: 0, tsMs: 0, payload: chunkFor(1)));
     await spill.flush();
 
-    final File f = File('${tmp.path}${Platform.pathSeparator}seg-0.pcm');
+    // 🔴 CR-4 — the name now carries the SESSION as well as the segment
+    // (`<session>__seg-<idx>.pcm`), because two runs both writing 「segment 0」
+    // used to append into one file. Derived from the store's own key rather
+    // than spelled out again here: the point of this test is 「the bytes are
+    // really gone from the disk」, and a hand-copied naming scheme is a second
+    // place for that scheme to be wrong.
+    final File f = File('${tmp.path}${Platform.pathSeparator}'
+        '${store.sessionKey}__seg-0.pcm');
     expect(f.existsSync(), isTrue, reason: 'positive control: it was there');
     expect(store.retainedBytes, 6400);
 

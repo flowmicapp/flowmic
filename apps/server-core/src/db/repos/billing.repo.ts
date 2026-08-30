@@ -36,6 +36,7 @@
 // belongs to the caller, and this repo cannot detect the violation.
 
 import type { DatabaseSync } from 'node:sqlite';
+import { makeOneTimePurchaseRepo, type OneTimePurchaseRepo } from './one-time-purchase.repo';
 import type { Plan } from '@flowmic/protocol';
 
 /**
@@ -111,9 +112,21 @@ export interface PaddleSubTombstone {
 
 /** One row of `paddle_subscriptions` (D1 §3.2). Field-for-field with the DDL. */
 export interface PaddleSubRow {
-  /** sub_xxx — Paddle's id, our primary key. */
+  /** sub_xxx — the PROVIDER's id, our primary key. (The name is historical: a
+   *  Creem subscription's id lives in this column too.) */
   subscription_id: string;
   user_id: string;
+  /**
+   * Which merchant of record this subscription lives at.
+   *
+   * 🔴 `null` MEANS 'paddle', NOT 'unknown' — Paddle was the only writer that
+   * existed before 2026-08-29, so every pre-existing row is one of its. The DDL
+   * states the same thing and says why it is not backfilled (an ALTER that also
+   * rewrites every row is a migration that can half-succeed). Readers must SAY
+   * the inference rather than make it silently; billing-service.ts passes the
+   * null straight through for exactly that reason.
+   */
+  provider: string | null;
   /** ctm_xxx */
   customer_id: string | null;
   /** Paddle's OWN status string, stored verbatim, never translated. The product
@@ -244,7 +257,11 @@ export interface RefundRequestRow {
   created_at: string;
 }
 
-export interface BillingRepo {
+
+export type { OneTimePurchaseRow, OneTimePurchaseState, OneTimePurchaseRepo } from './one-time-purchase.repo';
+export { isOneTimePurchaseState } from './one-time-purchase.repo';
+
+export interface BillingRepo extends OneTimePurchaseRepo {
   /** true = this event_id is new (now registered); false = already seen, the
    *  caller must return 200 directly and write no state */
   claimEvent(row: {
@@ -376,6 +393,10 @@ function toSubRow(r: Record<string, unknown>): PaddleSubRow {
   return {
     subscription_id: r.subscription_id as string,
     user_id: r.user_id as string,
+    // Passed through as stored. NOT defaulted to 'paddle' here — see the field's
+    // doc: the inference belongs to one stated caller, not to the mapper every
+    // reader goes through.
+    provider: (r.provider as string | null) ?? null,
     customer_id: (r.customer_id as string | null) ?? null,
     status: r.status as string,
     tier: r.tier as Plan,
@@ -496,13 +517,19 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
   // if the handler stops comparing, an old event WILL overwrite a new state.
   const upsertSub = db.prepare(
     `INSERT INTO paddle_subscriptions
-       (subscription_id, user_id, customer_id, status, tier, price_id, cycle,
+       (subscription_id, user_id, provider, customer_id, status, tier, price_id, cycle,
         current_period_end, canceled_at, scheduled_change_action, scheduled_change_at,
         next_billed_at, contract_concluded_at,
         last_event_id, last_occurred_at, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(subscription_id) DO UPDATE SET
        user_id            = excluded.user_id,
+       -- ⚠️ UPDATED, not written-once. A subscription does not migrate between
+       -- providers today, so in practice this restates what is already there;
+       -- freezing it would instead mean a row whose provider was first written
+       -- null (a pre-2026-08-29 Paddle row) could never learn its own name even
+       -- as later Paddle events arrive carrying it.
+       provider           = excluded.provider,
        customer_id        = excluded.customer_id,
        status             = excluded.status,
        tier               = excluded.tier,
@@ -618,6 +645,7 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
       upsertSub.run(
         row.subscription_id,
         row.user_id,
+        row.provider,
         row.customer_id,
         row.status,
         row.tier,
@@ -698,5 +726,10 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
     removeSubscription(subscription_id): void {
       removeSubStmt.run(subscription_id);
     },
+    // The one-time purchase table's four methods, from the file they live in.
+    // 🔴 SPREAD, NOT A NESTED PROPERTY: callers hold ONE repo, so there is still
+    // exactly one object answering 「what does the database say」 and no call site
+    // has to know which file a method came from.
+    ...makeOneTimePurchaseRepo(db),
   };
 }

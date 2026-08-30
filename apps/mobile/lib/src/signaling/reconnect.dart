@@ -27,6 +27,7 @@ import '../audio/audio_emitter.dart';
 import '../diag/diag_log.dart' show diag;
 import 'http_endpoint.dart' show secureDialUrl;
 import 'network_watch.dart';
+import 'node_labels.dart';
 import 'socket_core.dart';
 
 typedef BufferedChunksProvider = List<Map<String, Object?>> Function();
@@ -157,6 +158,42 @@ class ReconnectCoordinator {
   bool get isRunning => _running;
   String? get token => _token;
   String? get url => _url;
+
+  /// Which relay NODE answered the last ack — `srvny`, `srvjp`.
+  ///
+  /// 🔴 It lives beside [url] because it is the same question at a coarser
+  /// grain — 「where am I dialling」 — and NOT on `PttSession`, which is at the
+  /// 800-line cap and would have had to give something else up to hold two
+  /// display fields.
+  ///
+  /// 🔴 THE NODE THAT ANSWERED, never the PC's `home_node`. Those are two
+  /// questions, and a badge drawn from the second would show where the PC is
+  /// while this phone is somewhere else — which is precisely the state a user
+  /// needs to be able to see. Null on LAN and on a single-node deployment;
+  /// absence is the honest answer and `NodeBadge` refuses to draw it.
+  final ValueNotifier<String?> node = ValueNotifier<String?>(null);
+
+  /// The operator's `id → short` labels (`us` / `asia`); see node_labels.dart.
+  final NodeLabels nodeLabels = NodeLabels();
+
+  /// Which node the PAIRED PC lives on — `pc_devices.home_node`, from the ack.
+  ///
+  /// 🔴 A DIFFERENT QUESTION FROM [node], and the presence probe needs this one:
+  /// [node] is where THIS PHONE is, and asking that node about a PC on another
+  /// one gets a truthful 「not in my room」 about a computer that is running.
+  /// Rooms are per-process (server-core room/store.ts).
+  final ValueNotifier<String?> pcHomeNode = ValueNotifier<String?>(null);
+
+  /// Single writer for all three, called from the reconnect and pair ack legs.
+  void noteAnsweringNode(String? id, {String? endpoint, String? homeNode}) {
+    final String t = (id ?? '').trim();
+    node.value = t.isEmpty ? null : t;
+    final String h = (homeNode ?? '').trim();
+    pcHomeNode.value = h.isEmpty ? null : h;
+    if (t.isNotEmpty && endpoint != null && endpoint.isNotEmpty) {
+      unawaited(nodeLabels.ensureLoaded(endpoint));
+    }
+  }
 
   /// D2LAN-B3 — `replacePin` is the same 「null 是一个答案」("null is itself an
   /// answer") discipline `replaceToken` already carries, and it is load-bearing

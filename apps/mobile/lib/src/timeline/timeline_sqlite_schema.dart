@@ -67,13 +67,24 @@ Future<void> _createBlindStoreCloudStateSchema(Database d) async {
   );
 }
 
-/// The timeline table + its two indexes.
+/// The timeline table + its three indexes — FINAL shape.
 ///
-/// ⚠️ UNCHANGED SINCE v1 — which is why one function can serve both the final
-/// create and the parity test's v1 rebuild ([createTimelineSchemaV1ForTest]).
-/// The day this table changes, this function becomes final-shape-only, the v1
-/// text gets frozen into the test hook, and a new version step carries the
-/// delta (D13 rule 1).
+/// 🔴 **THAT DAY CAME (v7, card CR-7).** What stood here read 「⚠️ UNCHANGED
+/// SINCE v1 — which is why one function can serve both the final create and the
+/// parity test's v1 rebuild … The day this table changes, this function becomes
+/// final-shape-only, the v1 text gets frozen into the test hook, and a new
+/// version step carries the delta (D13 rule 1)」. All three of those things have
+/// now been done, in that order:
+///   · this function is FINAL-SHAPE-ONLY and `onCreate` calls it alone;
+///   · the v1 text is frozen VERBATIM in [_createTimelineSchemaV1AsShipped]
+///     (timeline_sqlite_migrations.dart), which is what
+///     [createTimelineSchemaV1ForTest] now rebuilds — the parity test would be
+///     worthless if its 「old」 database were built from today's DDL;
+///   · the delta rides [_upgradeV7AddTimelineArticleId].
+///
+/// ⚠️ NO `IF NOT EXISTS`, same D13 rule as its neighbours: misuse of a create
+/// as an upgrade step must fail loudly on the first install that already has
+/// the table, not silently do nothing.
 Future<void> _createTimelineSchema(Database d) async {
   // `payload` is the row. The rest are projections of it — see the file header.
   await d.execute('''
@@ -88,6 +99,22 @@ Future<void> _createTimelineSchema(Database d) async {
       spoken_to_instance_id TEXT,
       deleted               INTEGER NOT NULL DEFAULT 0,
       search_text           TEXT    NOT NULL DEFAULT '',
+      -- 🔴 CR-7 — WHICH continuous recording (「一篇」) this row belongs to.
+      -- NULL for every row that belongs to none, which is almost all of them.
+      --
+      -- A PROJECTED COLUMN **and** a payload key, deliberately (design 4.C 乙).
+      -- The column is what makes 「list the articles」 and 「the rows of this
+      -- article」 indexed reads rather than the whole-table decode
+      -- `LightRecordQuery` documents itself paying for `origin`; the payload key
+      -- is what survives blind-store sync, where the server holds ciphertext and
+      -- never sees a column at all. Both are written from one value at one
+      -- moment, so they cannot drift.
+      --
+      -- ⚠️ NOT a foreign key to the head row. The head is an ordinary row in
+      -- this same table and can be deleted (soft or hard) independently; an FK
+      -- would make deleting a head either fail or cascade, and BOTH are wrong —
+      -- the segments are what the user said, and they outlive their cover.
+      article_id            TEXT,
       payload               TEXT    NOT NULL
     )
   ''');
@@ -100,6 +127,13 @@ Future<void> _createTimelineSchema(Database d) async {
   await d.execute(
     'CREATE INDEX idx_timeline_owner ON $kTimelineTable '
     '(spoken_to_instance_id, created_at DESC)',
+  );
+  // CR-7: an article is read OLDEST-FIRST — it is a transcript, and a
+  // transcript read newest-first is not a transcript. Deliberately the opposite
+  // direction from the two indexes above, which serve a feed.
+  await d.execute(
+    'CREATE INDEX idx_timeline_article ON $kTimelineTable '
+    '(article_id, created_at ASC)',
   );
 }
 

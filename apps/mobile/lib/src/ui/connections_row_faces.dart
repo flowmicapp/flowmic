@@ -106,7 +106,7 @@ Widget _statusLabelRouted(
       ],
     );
   }
-  final InstanceLivenessFace face = instanceLivenessFaceOf(
+  final InstanceLivenessFace round = instanceLivenessFaceOf(
     reach: page.widget.connections.reachOf(endpoint),
     // 「what the answering server actually is」 — the `mode` field of that SAME
     // /api/health response, so it
@@ -118,6 +118,24 @@ Widget _statusLabelRouted(
     pcAbsentReason: pcAbsentReason,
     pairingRejected: pairingRejected,
   );
+  // 🔴 owner 2026-08-30 — AND THEN IT IS HELD. `round` above is a pure
+  // projection of the probe round that just finished, which is why this row
+  // used to change words while nothing about the world had changed: on this
+  // product's cloud path 7.5 % of probes run past their budget while the relay
+  // serves every one of them (InstanceReach's own measurement), so roughly one
+  // round in thirteen said 「问不到」 on a perfectly good link.
+  //
+  // The hold shows the last CONCLUSIVE answer, marked as being re-checked,
+  // until it burns out (3 misses, or 45 s with no rounds at all). It is bounded
+  // on purpose — an unbounded hold would be the stale-「online」 bug moved one
+  // layer up, which is worse than the flicker because it looks calm.
+  // liveness_hold.dart carries the argument.
+  final HeldLiveness held = page.widget.connections.livenessHolds.observe(
+    key,
+    round,
+    nowMs: DateTime.now().millisecondsSinceEpoch,
+  );
+  final InstanceLivenessFace face = held.face;
   // `unmeasured` = never probed. It renders as the old neutral hint, never as a
   // colour that would claim knowledge we do not have.
   final (String label, Color color) = switch (face) {
@@ -188,6 +206,26 @@ Widget _statusLabelRouted(
           style: TextStyle(color: color, fontSize: 11.5),
         ),
       ),
+      // 🔴 A MODIFIER, NOT A SEVENTH WORD. What this means to the user is 「go
+      // by what it just said; we are checking again」 — that qualifies the
+      // answer rather than replacing it, and a new word would be a new state
+      // for them to learn. Keyed so a case can assert it without asserting a
+      // colour.
+      if (held.rechecking) ...<Widget>[
+        const SizedBox(width: 5),
+        Opacity(
+          key: ValueKey<String>('conn.rechecking.$key'),
+          opacity: 0.55,
+          child: SizedBox(
+            width: 9,
+            height: 9,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.4,
+              valueColor: AlwaysStoppedAnimation<Color>(FlowMicColors.t3),
+            ),
+          ),
+        ),
+      ],
     ],
   );
 }

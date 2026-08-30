@@ -1,11 +1,18 @@
-// Card CR-4 — MEASURING the retained layer's session handling, before fixing it.
+// Card CR-4 — the retained layer's session handling: the measurement, and the
+// fix that answered it.
+//
+// 🔴 ONE CASE HERE WAS RE-JUDGED, NOT DELETED (2026-08-30). It measured two
+// recordings' offline audio landing in ONE file and asserted 420 bytes; the fix
+// makes that red, which is the correct outcome and the moment such a test is
+// usually quietly removed. It now guards the new contract with its measurement
+// kept beside it. Same rule C11 sets for the copy guard.
 //
 // Companion to `retained_audio_orphan_adoption_test.dart`, which measured what
 // happens ACROSS app runs. This one measures what happens across SESSIONS
 // inside one run, and what happens to the settle path.
 //
-// Same rule as that file: this records what the code does today. It asserts no
-// fix. Nothing here is a bug report until it is a passing measurement.
+// The other cases still record what the code does today and assert no fix —
+// nothing here is a bug report until it is a passing measurement.
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -65,33 +72,50 @@ void main() {
             'that belongs to a session that has ended');
   });
 
-  test('🔴 MEASURED: two sessions\' offline audio lands in ONE file, no crash '
-      'required', () async {
+  test('🔴 CR-4: two recordings in one run no longer share a file', () async {
     // The cross-run version of this needs the app to die. This one does not:
     // it is just two recordings in a row, both with the link down.
     spill.noteUplinkDown();
     spill.noteSegmentObserved(0);
-    spill.onEvicted(_chunk(1, 300)); // session one
+    spill.onEvicted(_chunk(1, 300)); // recording one
     await spill.flush();
+    final String first = spill.sessionKey;
 
-    // Session two. Fresh recording, fresh server-side segment numbering.
+    // Recording two. In production this boundary is drawn by `pttDown`, which
+    // rolls the key on every press that is not continuing a recording; here it
+    // is drawn directly, because this file is about the STORE's behaviour.
+    spill.endSession();
     spill.noteSegmentObserved(0);
-    spill.onEvicted(_chunk(1, 120)); // session two
+    spill.onEvicted(_chunk(1, 120)); // recording two
     await spill.flush();
 
-    final List<int> pending = await spill.pendingSegments();
-    expect(pending, <int>[0], reason: 'one segment file, not two');
-    expect((await spill.readSegment(0))!.length, 420,
-        reason: 'two separate recordings, concatenated, indistinguishable to '
-            'anything downstream');
+    // 🔴 THE FIX, AT THE POINT THE DEFECT USED TO SHOW. Both recordings wrote
+    // 「segment 0」; each reads back only its own. Before CR-4's second half this
+    // was ONE file of 420 bytes — two separate recordings concatenated, and
+    // indistinguishable to anything downstream.
+    expect((await spill.readSegment(0))!.length, 120,
+        reason: 'this recording reads its own 120 bytes');
+    expect((await store.read(0, session: first))!.length, 300,
+        reason: 'positive control: the first recording is still there, whole');
+    expect(await store.pendingSessions(), hasLength(2));
+    // And the segment INDEX is still the server's own, unchanged: identity was
+    // the missing dimension, not a replacement for the one that was there.
+    expect(await spill.pendingSegments(), <int>[0]);
   });
 
   test('MEASURED: `settleSegment` has no production caller — and that is '
       'CORRECT today, which is the opposite of what it looks like', () async {
     //   grep -rn 'settleSegment' apps/mobile --include=*.dart
-    //     → lib/src/audio/retained_audio_spill.dart:157  (the definition)
-    //     → test/retained_audio_test.dart:168, 186        (tests)
-    //     → and nothing else                              [measured 2026-08-29]
+    //     → lib/src/audio/retained_audio_spill.dart   (the definition)
+    //     → test/retained_audio_test.dart                (two tests)
+    //     → and nothing else                             [measured 2026-08-29]
+    //
+    // 🔴 THE LINE NUMBERS WERE DROPPED, DELIBERATELY. They were re-measured once
+    // on 2026-08-30 and were already stale again by the end of the same round —
+    // both files changed twice. The GREP is the evidence; a coordinate is only
+    // a way to find it, and a stale one is worse than none because it reads as
+    // precision. Same rule this repo applies to a number written into a
+    // contract document: go and run it.
     //
     // 🔴 I NEARLY FILED THIS AS A FAÇADE. An unwired mechanism that the store's
     // own header calls 「SETTLE ⇒ DELETE IS THE ENFORCEMENT OF THAT BOUNDARY,

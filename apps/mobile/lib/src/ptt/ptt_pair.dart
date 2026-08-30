@@ -174,6 +174,30 @@ extension PttSessionPair on PttSession {
     // things the queue owes it (the destination is keyed on machine_uid,
     // unaffected by pairing rounds).
     noteRoomJoined();
+    // 🔴 PHONE-FOLLOWS-PC ON THE PAIR LEG — the SECOND production caller of
+    // [_followNodeIfMisplaced], and its absence was a real defect rather than a
+    // gap of taste (2026-08-30).
+    //
+    // `mobile:pair` is writer-only, so a phone always pairs on the WRITER. Its
+    // PC may have settled on a replica — desktop node selection moves it there
+    // once it is registered — and rooms are per-process. Nothing reconnects
+    // after a successful pair: `connections_controller` goes straight to
+    // `_rememberActive` → `onPaired` → `load()`. So without this line the phone
+    // sat in a room on the writer that its PC was never going to join, until
+    // some unrelated socket drop happened to trigger the reconnect leg.
+    //
+    // ⚠️ AND THE FAILURE IS SILENT ON THE PATH THAT MATTERS MOST. `mirrorToPc`
+    // (audio.handler.ts) is `const pc = store.getPc(room); if (pc) send(pc);` —
+    // no PC in that node's room and the audio frame is dropped with no error,
+    // no refusal, no log. The user speaks, the phone shows the words, the PC
+    // receives nothing, and both halves look correct forever. The inject leg at
+    // least says INJECT_PC_OFFLINE; this one says nothing at all.
+    //
+    // Same call, same reasoning, same `unawaited` as the reconnect leg: this
+    // ack's own business must not wait on a network question, and on every
+    // single-node deployment `planNodeHop` answers from the ack alone with no
+    // request at all.
+    unawaited(_followNodeIfMisplaced(this, token, ack));
     unawaited(_refreshServerChannel(dial));
     // The list the LADDER walks is kept in the shape the ladder dials (the QR's
     // ws-urls here, the stored http form in `resumePairing`), because

@@ -44,6 +44,7 @@ import { restrictionRefusalBody, restrictionVerdict } from '../auth/account-rest
 import { EMAIL_NOT_VERIFIED, isEmailVerified, type EmailVerifiedReader } from '../auth/email-verification';
 import { readJsonBody, sendJson, str } from './console-http';
 import { log } from '../log';
+import { DRAIN_INTERVAL_MS } from '../node/outbox-drainer';
 
 /**
  * How stale `last_seen_at` may get before a room membership stops counting as
@@ -59,6 +60,17 @@ import { log } from '../log';
  * drifts in silence.
  */
 const PRESENCE_STALE_MS = AUDIO_DEFAULTS.heartbeat_timeout_ms;
+
+/**
+ * Extra staleness allowed for a PC whose heartbeat reaches this node through the
+ * replica outbox rather than through its own socket.
+ *
+ * IMPORTED, not typed as a number: it IS one outbox drain, and if that interval
+ * ever changes this window has to change with it. A literal `5000` here would be
+ * the second copy that drifts in silence — the same reason `PRESENCE_STALE_MS`
+ * above reads the protocol constant instead of spelling 15000.
+ */
+const REMOTE_PRESENCE_SLACK_MS = DRAIN_INTERVAL_MS;
 
 /**
  * A socket, as far as this file is concerned: something that can be told one
@@ -116,6 +128,14 @@ export interface ConsoleDeviceRoutesDeps {
    * question that needs two map lookups.
    */
   store: RoomLookup;
+  /**
+   * This relay node's own id, so `pcPresence` can tell a PC that lives HERE from
+   * one that lives on another node. Absent means single-node — where `home_node`
+   * is null on every row, the remote branch never runs, and behaviour is exactly
+   * what it was. The `stampHomeNode` precedent: absent is「there is no such fact」,
+   * never「skip it」.
+   */
+  nodeId?: string | null;
   now?: () => number;
 }
 
@@ -174,12 +194,42 @@ export function pcPresence(
   store: RoomLookup,
   pc: PcRecord,
   now: number,
+  thisNode?: string | null,
 ): boolean {
-  if (store.getPc(pc.room_uuid) === null) return false;
+  // ── 2026-08-30, multi-node ────────────────────────────────────────────────
+  // 🔴 CONDITION ① IS UNANSWERABLE FOR A PC ON ANOTHER NODE, and asking it
+  // anyway is not a conservative default — it is a wrong answer with a
+  // consequence. Rooms are per-process (`room/store.ts`: "Live socket presence
+  // ONLY"), the console always talks to the WRITER, so a perfectly healthy
+  // computer on a replica can never be in the writer's RoomStore. It would read
+  // absent — and by this function's own failure-direction note that also makes
+  // its row REMOVABLE.
+  //
+  // The honest substitute is the freshness of a `last_seen_at` written BY THE
+  // NODE THAT HOLDS THE SOCKET and forwarded here (node-runtime `stampPresence`
+  // → the writer's `setPresence`). That is not the persisted `is_online` flag
+  // owner ruled out in §5-1: that column is sticky and survives a restart, while
+  // this is a timestamp that stops advancing the moment the heartbeat stops.
+  //
+  // ⚠️ THE WINDOW IS WIDER FOR A REMOTE PC, and the number is derived rather
+  // than picked: the local path sees a heartbeat every 5 s, the forwarded path
+  // adds one outbox drain (5 s) plus a cross-ocean RTT. 15 s would leave about
+  // 5 s of margin and turn one late drain into "your computer is offline".
+  // `+ DRAIN_INTERVAL_MS` states where the extra came from, so anyone who
+  // changes the drain interval finds this.
+  //
+  // ⚠️ `thisNode` ABSENT means single-node, which is every deployment that is
+  // not the relay: `home_node` is null there, the first branch never runs, and
+  // the behaviour is byte-for-byte what it was.
+  const remote = typeof pc.home_node === 'string'
+    && pc.home_node.length > 0
+    && typeof thisNode === 'string'
+    && pc.home_node !== thisNode;
+  if (!remote && store.getPc(pc.room_uuid) === null) return false;
   if (pc.last_seen_at === null || pc.last_seen_at === undefined) return false;
   const seen = Date.parse(pc.last_seen_at);
   if (!Number.isFinite(seen)) return false;
-  return now - seen < PRESENCE_STALE_MS;
+  return now - seen < (remote ? PRESENCE_STALE_MS + REMOTE_PRESENCE_SLACK_MS : PRESENCE_STALE_MS);
 }
 
 /**
@@ -317,7 +367,7 @@ export function tryHandleConsoleDeviceRoutes(
       // browser's copy of the answer is by definition older than this one, so
       // this check is not a duplicate of the disabled state — it is the race
       // window between the page's last poll and the click.
-      if (pcPresence(deps.store, pc, now())) {
+      if (pcPresence(deps.store, pc, now(), deps.nodeId ?? null)) {
         return sendJson(res, 200, { ok: true, removed: false, reason: 'present' });
       }
 

@@ -15,7 +15,8 @@ import type { ServerConfig } from './config';
 import { deriveKey } from './auth/crypto';
 import { createDbConnection, type DbConnection } from './db/connection';
 import { checkSettingsSecretAtBoot } from './startup-secret-check';
-import { startRetentionSweeper } from './db/retention';
+import { startBackgroundSweeps } from './bootstrap-sweeps';
+import { serviceRefunder } from './bootstrap-billing-deps';
 import { seedDefaultSettings, seedDefaultSettingsForAllUsers } from './settings/defaults';
 import { Registry } from './room/registry';
 import { RoomStore } from './room/store';
@@ -59,16 +60,12 @@ import { makeShutdownSequence } from './shutdown';
 import { makeStatusProbes } from './status/status-probes';
 import { loadOrMintLanTlsIdentity } from './lan-tls/cert-store';
 import { createDualProtocolFront, type DualProtocolFront } from './lan-tls/dual-listener';
+import { resolveMailers } from './bootstrap-mail';
 import {
-  resolveEmailVerificationMailer,
-  resolvePasswordResetMailer,
-  resolveSubscriptionMailer,
-  unconfiguredSubscriptionMailer,
-  unconfiguredEmailVerificationMailer,
-  unconfiguredPasswordResetMailer,
   type EmailVerificationMailer,
   type PasswordResetMailer,
   type SubscriptionMailer,
+  type ServiceMailer,
 } from './mail';
 import {
   resolveGoogleIdTokenVerifier,
@@ -79,7 +76,7 @@ import type { PaddleClient } from './billing/paddle/client';
 import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.46';
+export const SERVER_VERSION = '0.3.50';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -150,6 +147,9 @@ export interface BootstrapOverrides {
   /** 0.3.25 B2: the subscription-confirmation channel — same contract as its two
    *  siblings above (optional here, required downstream). */
   subscriptionMail?: SubscriptionMailer;
+  /** gs-3: the setup service's channel — same contract as the three above
+   *  (optional here, required downstream; absent → resolved from the env). */
+  serviceMail?: ServiceMailer;
   /** 0.3.25 B2: the outbound Paddle writer. Absent → built from config, which is
    *  what production does, and which is OFF unless FLOWMIC_PADDLE_WRITE_ENABLED
    *  says otherwise.
@@ -279,40 +279,11 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // In-memory by design (a restart invalidating every pending QR is the correct
   // disposition for a 60-second credential); see auth/qr-grant.ts.
   const qrGrants = new QrGrantStore(overrides.now);
-  // 🔴 MAIL-1 — the mail channel, resolved once per process. The whole argument
-  // (why the unconfigured case shouts here instead of returning a quiet no-op)
-  // is in src/mail/index.ts `resolvePasswordResetMailer`; only the two choices
-  // that are LOCAL to this file are stated here:
-  //   · saas-only resolution, so 「no mail channel is configured」 never fires on
-  //     a standalone box for a feature it does not mount (no account ⇒ no
-  //     password to reset) — that ERROR line means exactly one thing;
-  //   · the standalone arm is the loudly-failing mailer and NOT null, because a
-  //     nullable would force a `!` at the console literal below, and 「it cannot
-  //     be null there, trust me」 is the kind of claim that outlives its truth.
-  //     Standalone never mounts those routes, so it is never read.
-  const mail: PasswordResetMailer =
-    config.mode === 'saas'
-      ? (overrides.mail ?? resolvePasswordResetMailer())
-      : (overrides.mail ?? unconfiguredPasswordResetMailer());
-  // VERIFY-1 — the verification-code channel, resolved beside its password-reset
-  // sibling and under the same two rules: saas-only resolution (standalone
-  // mounts no account surface, so its arm is the loudly-failing channel, never
-  // null), and `??` short-circuits so an injected test double never triggers an
-  // env resolution (or its boot log line). Two resolutions of the same
-  // FLOWMIC_MAIL_* block on purpose — each failure line names WHICH feature is
-  // dead, which is the actionable half of the message (mail/index.ts).
-  const verificationMail: EmailVerificationMailer =
-    config.mode === 'saas'
-      ? (overrides.verificationMail ?? resolveEmailVerificationMailer())
-      : (overrides.verificationMail ?? unconfiguredEmailVerificationMailer());
-  // 0.3.25 B2 — the subscription-confirmation channel, resolved beside its two
-  // siblings under the same saas-only rule (standalone has no merchant of record
-  // and mounts no billing controls, so its arm is the loudly-failing channel and
-  // never null).
-  const subscriptionMail: SubscriptionMailer =
-    config.mode === 'saas'
-      ? (overrides.subscriptionMail ?? resolveSubscriptionMailer())
-      : (overrides.subscriptionMail ?? unconfiguredSubscriptionMailer());
+  // The four mail channels, resolved once per process. All four blocks — and
+  // the argument for why one env block yields FOUR resolutions with four
+  // failure lines — live in bootstrap-mail.ts (see its header for why they
+  // moved).
+  const { mail, verificationMail, subscriptionMail, serviceMail } = resolveMailers(config, overrides);
   // 🔴 0.3.25 B2 — the ONE outbound Paddle writer, constructed once per process
   // beside the limiters and for the same reason they are single instances: it
   // carries the write switch and the API key, and a second one built somewhere
@@ -399,31 +370,20 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     users: db.users, mode: config.mode, ...(overrides.now ? { now: overrides.now } : {}),
   });
 
-  // GA-06: the daily retention sweep (05 §4). Runs in BOTH modes — a standalone
-  // local DB grows exactly the same way. Nothing sweeps at boot: the first pass
-  // lands one interval after listen() (see startRetentionSweeper).
-  //
-  // 🔴 0.2.38 — `limitsOf`, not `planOf`. This is the THIRD consumer of the plan
-  // table (quota-guard and the registry above are the other two) and the ONE that
-  // deletes data: with `planOf: billing.effectivePlan` the sweep re-derived the
-  // window from a tier, and a `permanent_free` account resolves to `plan:'free'`
-  // (owner bought nothing, D1 §6.1-bis) — so owner's own cloud blobs were on
-  // free's 30-day window and were being swept. Same single solver as the guard
-  // and the registry, so there is nowhere left that turns a tier into numbers.
-  const retention = startRetentionSweeper({
-    timeline: db.timeline,
-    // A2-5 — the second object of the SAME per-user sweep (90 days, fixed for
-    // every account — db/retention.ts USAGE_EVENTS_RETENTION_DAYS). Wired in
-    // BOTH modes and NOT behind `config.usageEventsEnabled`: turning collection
-    // off must not strand the rows that were written while it was on.
-    usageEvents: db.usageEvents,
-    siteCounts: db.siteCounts,
-    listUserIds: () => db.users.listAll().map((u) => u.id),
-    limitsOf: (userId) => billing.effectiveLimits(userId),
-    ...(overrides.now ? { nowMs: overrides.now } : {}),
+  // The interval-owning background sweeps — retention, and the deadline refund
+  // sweep. Both live in bootstrap-sweeps.ts (see its header for why they moved
+  // and why the status probes did not), and both are STOPPED by the sequence
+  // below.
+  const sweeps = startBackgroundSweeps({
+    config, db, billing,
+    ...(serviceRefunder({ config, db, billing, ...(overrides.now ? { now: overrides.now } : {}) }) === undefined
+      ? {}
+      : { refund: serviceRefunder({ config, db, billing, ...(overrides.now ? { now: overrides.now } : {}) }) }),
+    ...(overrides.now ? { now: overrides.now } : {}),
     ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
     ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
   });
+  const retention = sweeps.retention;
 
   // W-5a (REQ-13-03) — the status probe timer. ONE per server, held here for the
   // same reason `retention` is: it owns an interval, so a fresh instance per
@@ -504,6 +464,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     mail,
     verificationMail,
     subscriptionMail,
+    serviceMail,
     paddleClient,
     verificationSendLimiter, verificationLinkLimiter, accountMintLimiter,
     googleVerifier,
@@ -616,7 +577,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     }
     // GA-07: the application-layer liveness consumer — `heartbeat` moves
     // last_seen_at so "recent activity" stops being frozen at pairing time.
-    registerHeartbeatHandler(socket, { pcs: db.pcs, mobiles: db.mobiles });
+    registerHeartbeatHandler(socket, { pcs: db.pcs, mobiles: db.mobiles, ...(nodeRuntime.stampPresence ? { stampPresence: nodeRuntime.stampPresence } : {}) });
     registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.stampHomeNode ? { stampHomeNode: nodeRuntime.stampHomeNode } : {}) });
     // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
     // the SAME instance `console-routes.refuseRestricted` reads through and the
@@ -774,6 +735,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
 
   const stop = makeShutdownSequence({
     retention, statusProbes, closeSocket, audioRegistry, httpServer, db,
+    ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),
     ...(replicaPuller ? { replicaPuller } : {}) });
   return {

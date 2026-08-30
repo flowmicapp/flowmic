@@ -65,6 +65,21 @@ void _settleSpan(
   // whole-utterance row reported the last segment only. 0 ⇒ nothing in range
   // reported one ⇒ NULL (absence, not 0 — entry_metrics.dart).
   final int spanMs = segs.durationBetween(fromIdx, f.segmentIdx);
+  // 🔴 CR-7/CR-8 — claim this row's place in the recording, if one is running.
+  //
+  // Null for every ordinary utterance, which is almost all of them, and the
+  // cost of asking is a null check on a closed scribe. CLAIMED EXACTLY ONCE
+  // per row, here, because claiming ADVANCES the clock: a second claim for
+  // one row would push every later row late by that row's own length, and the
+  // error compounds down the rest of the recording with nothing to compare it
+  // against.
+  //
+  // ⚠️ Claimed BEFORE the row is built rather than after, so the offset and
+  // the row are ONE write. Building first and stamping second would leave a
+  // window in which a row exists inside an article at no position — and the
+  // article reader orders by exactly that field.
+  final ({String articleId, int offsetMs})? place =
+      c.session.articles.claim(spanMs > 0 ? spanMs : null);
   final TimelineEntry entry = c.store.buildFromUtterance(
     clientId: clientId ?? c._mintClientId(),
     mode: c._activeMode,
@@ -76,7 +91,24 @@ void _settleSpan(
     // has had. They coincide exactly when the row is the whole utterance.
     segmentsCount: f.segmentIdx - fromIdx + 1,
     origin: c.destination.isFixed ? 'cloud' : 'paired',
+    articleId: place?.articleId,
+    articleOffsetMs: place?.offsetMs,
   );
+  // The head is minted LAZILY, on the first segment that settles, and never
+  // before: a recording nobody said anything into leaves nothing behind,
+  // which is the honest record of it. The builder is idempotent on the id, so
+  // every later segment finds the head rather than forking a second cover.
+  //
+  // ⚠️ The head's createdAt is the SCRIBE's start instant, not now — the
+  // recording began when the button was pressed, and the list sorts by it.
+  if (place != null) {
+    buildArticleHeadOf(
+      c.store,
+      articleId: place.articleId,
+      startedAt: c.session.articles.startedAt ?? entry.createdAt,
+    );
+    refreshArticleHeadOf(c.store, place.articleId);
+  }
   // 🔴 J5 — the row exists, so the span is spoken for. Advance BEFORE any
   // `await`-carrying delivery so a replay landing inside that window is judged
   // against a watermark that already includes this row.

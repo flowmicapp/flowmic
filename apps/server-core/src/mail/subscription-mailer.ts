@@ -58,7 +58,7 @@ export interface SubscriptionMailer {
   /**
    * 0.3.25 B3 — acknowledge a statutory withdrawal.
    *
-   * 🔴 THIS ONE IS NOT A COURTESY. CRD art. 11a requires the trader to
+   * 🔴 THIS ONE IS NOT A COURTESY. CRD art. 11(3) requires the trader to
    * acknowledge receipt of a withdrawal on a DURABLE MEDIUM without undue delay,
    * and an email is how we discharge that. The message is the user's evidence
    * that they exercised the right and when — which is exactly why it must state

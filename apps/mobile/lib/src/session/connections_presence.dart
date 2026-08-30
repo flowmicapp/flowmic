@@ -89,6 +89,17 @@ mixin ConnectionsPresenceHost on ChangeNotifier {
   /// [PcPresence.unknown] until one has answered; callers must render that as
   /// 「不知道」("don't know"), **never as offline** (that would be saying we know it is not
   /// there) and never as online.
+  /// owner 2026-08-30 — the per-row hold that stops the status word changing
+  /// when a PROBE's outcome changes rather than the world's state.
+  ///
+  /// 🔴 It lives beside `_presence` and NOT inside it, because the two answer
+  /// different questions: `_presence` is 「what did this round find out」 and
+  /// must keep answering `unknown` when it found out nothing (the rule that
+  /// stops a stale 「online」); this is 「what should the screen say」. Merging
+  /// them would be the one-value-two-questions shape the whole fix is about.
+  /// See liveness_hold.dart and the 08-30 determinism design §2.
+  final LivenessHolds livenessHolds = LivenessHolds();
+
   PcPresence presenceOf(MobileSession pairing) =>
       _presence[ConnectionsController.keyFor(pairing)]?.presence ??
       PcPresence.unknown;

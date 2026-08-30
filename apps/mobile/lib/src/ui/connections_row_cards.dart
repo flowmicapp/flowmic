@@ -234,6 +234,10 @@ Widget _pairingCardRouted(_ConnectionsPageState page, AppStrings s, MobileSessio
                       ChannelBadge(label: s.cloudInstanceRow, cloud: true)
                     else
                       _transportFaceRouted(page, s, p),
+                    // owner 2026-08-30 — which machine room this row's cloud
+                    // connection goes through. See _nodeBadgeForRow for why it
+                    // is only ever drawn on the connected row.
+                    ..._nodeBadgeForRow(page, p),
                     const SizedBox(width: 8),
                     Flexible(
                       child: _statusLabelRouted(
@@ -423,4 +427,33 @@ Widget _leadingIconRouted({
     ),
     child: Icon(icon, color: ink, size: 20),
   );
+}
+
+/// owner 2026-08-30 — the node chip for ONE row, or nothing.
+///
+/// 🔴 ONLY THE ROW WE ARE ACTUALLY CONNECTED TO, and that restriction is the
+/// honest half of this feature rather than a simplification. The node arrives
+/// on a session ack; this page is the STATIC instance list and holds no socket
+/// for the other rows. A badge on them would be showing the node of the
+/// connection we have on a connection we do not have — one value answering two
+/// questions, with the two rows side by side to make it look consistent.
+///
+/// ⚠️ Absent on LAN too, and by DATA rather than by a branch: a local session
+/// never receives a node field, so `reconnect.node` stays null. There is no
+/// `if (lan)` here on purpose — a condition would be a second author for a
+/// fact the wire already answers.
+List<Widget> _nodeBadgeForRow(_ConnectionsPageState page, MobileSession p) {
+  final ConnectionsController c = page.widget.connections;
+  if (c.activePairing?.connectionIdentity != p.connectionIdentity) {
+    return const <Widget>[];
+  }
+  final String label = nodeBadgeLabel(
+    c.session.reconnect.node.value,
+    c.session.reconnect.nodeLabels.shortById,
+  );
+  if (label.isEmpty) return const <Widget>[];
+  return <Widget>[
+    const SizedBox(width: 6),
+    NodeBadge(label: label),
+  ];
 }

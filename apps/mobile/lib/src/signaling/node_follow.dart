@@ -84,10 +84,21 @@ class RelayNode {
     required this.url,
     this.selectable = true,
     this.isWriter = false,
+    this.short,
   });
 
   /// `srvny` — the same value that appears in `home_node`.
   final String id;
+
+  /// 2026-08-30 — the two-to-four character label to put on screen beside a
+  /// connection (`us`, `asia`). Served by the operator's node directory so the
+  /// two clients, which share no runtime, cannot disagree about it.
+  ///
+  /// ⚠️ Null is legal and means 「the operator gave this node no label」, which a
+  /// caller must render as the [id] rather than as nothing: a node the user is
+  /// connected to is worth naming awkwardly, and hiding it would make the
+  /// badge's absence mean two things (LAN, and 「we have no label」).
+  final String? short;
 
   /// `https://srvny.flowmic.app` — what a client dials.
   final String url;
@@ -139,6 +150,31 @@ String? nodeToFollow(Object? ack) {
   if (home.isEmpty || here.isEmpty) return null;
   if (home == here) return null;
   return home;
+}
+
+/// Which node ANSWERED this ack — for the badge, not for routing.
+///
+/// 🔴 A DIFFERENT QUESTION FROM [nodeToFollow], and kept apart on purpose.
+/// [nodeToFollow] answers 「am I in the wrong place」 and is null in the happy
+/// case; this one answers 「where am I」 and is non-null whenever the deployment
+/// has nodes at all. Deriving one from the other would give the badge nothing
+/// to draw exactly when everything is working.
+String? answeringNode(Object? ack) {
+  if (ack is! Map) return null;
+  final Object? here = ack['node'];
+  return (here is String && here.trim().isNotEmpty) ? here.trim() : null;
+}
+
+/// Which node the PAIRED PC lives on, per this ack.
+///
+/// Separate from [answeringNode] and from [nodeToFollow] for the reason those
+/// two are separate from each other: three questions — 「where is my PC」,
+/// 「where am I」, 「must I move」 — and only the first one tells a presence
+/// probe which node to ask.
+String? pcHomeNodeOf(Object? ack) {
+  if (ack is! Map) return null;
+  final Object? home = ack['home_node'];
+  return (home is String && home.trim().isNotEmpty) ? home.trim() : null;
 }
 
 /// The URL for [nodeId] in [nodes], or `null` when this list cannot answer.
@@ -217,6 +253,13 @@ List<RelayNode> parseNodeList(Object? decoded) {
       // literal `false` withdraws a node from selection.
       selectable: e['selectable'] != false,
       isWriter: e['role'] == 'writer',
+      // Length-checked on the way in as well as on the way out: this side is
+      // the one that puts the string on a screen, and a client that trusted a
+      // server field's length would be trusting a file it does not own.
+      short: e['short'] is String && (e['short']! as String).trim().isNotEmpty
+              && (e['short']! as String).trim().length <= 6
+          ? (e['short']! as String).trim()
+          : null,
     ));
   }
   return out;

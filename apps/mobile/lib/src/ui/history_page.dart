@@ -517,14 +517,18 @@ class _HistoryPageState extends State<HistoryPage> {
       onSelectAll: () =>
           _selection.selectAll(entries.map((TimelineEntry e) => e.id)),
       onCopy: () => unawaited(_onBatchCopy(context, s, selected)),
-      // 🔴 No 「organize with AI」 receiver on this page, and the button is
-      // still there. The refusal is the truth: organize runs through
-      // `ChatController.startAiCompose`, and this page has no controller — so
-      // it answers with the same 「not connected」 sentence the chat page uses
-      // when the link is down, rather than a dead cell that swallows the tap
-      // (0.2.27). Withholding the button instead would mean a toolbar whose
-      // shape changes between two screens showing the same rows.
-      onOrganize: () => _toast(context, s.selectionOrganizeOffline),
+      // 🔴 NO 「organize with AI」 BUTTON HERE AT ALL (owner 2026-08-30).
+      //
+      // What stood here passed a callback whose only effect was a toast saying
+      // it could not be done, and argued that keeping the button was the
+      // honest choice because 「withholding it would mean a toolbar whose shape
+      // changes between two screens showing the same rows」.
+      //
+      // That is R8 with the sign flipped: a control that cannot change
+      // anything is worse than no control, and this repo has paid for that
+      // three times. The differing shape is not the cost — it is the signal,
+      // and it is true: this page has no controller, so it cannot organize.
+      // Copy and delete both work here, and both stay.
       onDelete: () => unawaited(_onBatchDelete(context, s, selected)),
     );
   }
@@ -536,7 +540,15 @@ class _HistoryPageState extends State<HistoryPage> {
     AppStrings s,
     List<TimelineEntry> selected,
   ) async {
-    final SelectedRecords records = selectedRecords(selected);
+    // 🔴 REVERSED, because THIS page lists newest-first and only this page
+    // knows that. `selectedRecords` sorts by `createdAt` and that is the rule;
+    // what it cannot recover is a TIE — two rows minted in the same
+    // millisecond have no time difference to sort on, so they keep the order
+    // they arrived in, and arriving in screen order means arriving backwards
+    // here. Handing them over chronologically is a fact about this list, not a
+    // second copy of the ordering rule.
+    final SelectedRecords records =
+        selectedRecords(selected.reversed.toList());
     final BatchCopyOutcome outcome = await runBatchCopy(records);
     if (!context.mounted) return;
     _toast(context, batchCopyResultText(outcome, records, s));

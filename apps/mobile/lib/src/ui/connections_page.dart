@@ -20,6 +20,7 @@
 // in-flight connect;
 // what stays banned is a green dot nobody measured.
 
+import 'node_badge.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ import 'package:flutter/material.dart';
 import '../auth/login_controller.dart';
 import '../auth/token_storage.dart';
 import '../destination/destination_controller.dart';
+import '../session/cloud_readmit.dart' show kCloudChannel;
 import '../session/connections_controller.dart';
 // W8-1 — read the candidate report through the decoder that lives next to its
 // encoder, rather than string-matching the code here: the file comment on
@@ -36,6 +38,7 @@ import '../session/endpoint_candidates.dart'
     show CandidateFailure, decodeCandidateFailure;
 import '../session/instance_probe.dart';
 import '../session/machine_group.dart';
+import '../session/liveness_hold.dart';
 import '../session/pc_presence.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
@@ -285,7 +288,31 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     // ("last time it was this reason") must not
     // be read as 「这一次是这个原因」("this time it's this reason").
     _clearPinMismatch(key);
-    _toast(AppStrings.of(widget.appSettings.locale).pairError(outcome.error));
+    _toast(_rowErrorCopy(pairing, outcome.error));
+  }
+
+  /// 🔴 owner 2026-08-30 — WHICH COPY TABLE ANSWERS FOR THIS ROW.
+  ///
+  /// The light-record row is a `MobileSession` like any other, so it walks the
+  /// same `connectTo` funnel as a remembered PC — and inherited that funnel's
+  /// copy, which is written about PCs. The user was told 「电脑上已取消这台手机
+  /// 的配对」("the PC has cancelled this phone's pairing") about a row that has
+  /// no PC, no pairing code, and no revoke button anywhere in the product.
+  ///
+  /// [AppStrings.cloudError] is the table for this row and already says so in
+  /// its own doc (「Cloud-specific codes resolve here; the transport/pair
+  /// families delegate to pairError」) — it was simply never reachable from
+  /// here, because only `_openCloud` called it and `_openCloud` stops being
+  /// the entry point the moment a saas row exists (GA-33 retires the dashed
+  /// card). So the ONE path a returning user takes was the one path with the
+  /// wrong table.
+  ///
+  /// ⚠️ Not a wider fix than that: everything that is not cloud-specific still
+  /// delegates to `pairError` inside `cloudError`, so a timeout or an
+  /// unreachable relay reads exactly as it did.
+  String _rowErrorCopy(MobileSession pairing, String? code) {
+    final AppStrings s = AppStrings.of(widget.appSettings.locale);
+    return pairing.channel == kCloudChannel ? s.cloudError(code) : s.pairError(code);
   }
 
   /// Did this connect fail because the certificate did not match the pin?

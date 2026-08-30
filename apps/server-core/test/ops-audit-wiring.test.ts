@@ -76,7 +76,15 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       'ops_audit_log has no production writer — it is 【not wired】 again, and must not be\n' +
         'reported as 「implemented」. The intended writers are http/ops-audit-trail.ts adminGate\n' +
         '(route-level rows) and http/account-restriction-routes.ts (its business row).',
-    ).toEqual(['http/account-restriction-routes.ts', 'http/ops-audit-trail.ts']);
+    ).toEqual([
+      'http/account-restriction-routes.ts',
+      'http/ops-audit-trail.ts',
+      // 2026-08-29 — the paid setup service's operator surface. A THIRD writer,
+      // and it earns the place the same way the second did: it appends its own
+      // business row BEFORE moving a purchase and leaves the row untouched if
+      // that append throws.
+      'http/ops-purchase-routes.ts',
+    ]);
   });
 
   it('🔴 bootstrap actually hands the repo to a route surface', () => {
@@ -140,7 +148,14 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       'a second admin-gated route MUTATES. recordGateOutcome serves-and-shouts on a failed\n' +
         'audit write, which is only defensible for reads. Whatever you added must write its\n' +
         'own business row FAIL-CLOSED, the way http/account-restriction-routes.ts does.',
-    ).toEqual(['POST /api/ops/users/restrict']);
+    ).toEqual([
+      // 🔴 EACH ENTRY IS A CLAIM THAT ITS ROUTE WRITES ITS OWN BUSINESS ROW
+      // FAIL-CLOSED, not merely a note that a mutator exists. Adding a line
+      // here without that is how this guard becomes decoration.
+      'POST /api/ops/purchases/advance',
+      'POST /api/ops/purchases/refund',
+      'POST /api/ops/users/restrict',
+    ]);
   });
 
   it('🔴 the one mutating admin route does NOT rely on this module\'s serve-but-shout policy', () => {

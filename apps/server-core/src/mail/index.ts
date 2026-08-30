@@ -18,6 +18,8 @@ import {
   unconfiguredSubscriptionMailer,
 } from './unconfigured';
 import { makeSubscriptionMailer, type SubscriptionMailer } from './subscription-mailer';
+import { makeServiceMailer, type ServiceMailer } from './service-mailer';
+import { unconfiguredServiceMailer } from './unconfigured';
 
 export type { MailConfig, MailProviderId } from './config';
 export type { MailMessage, MailProvider } from './provider';
@@ -34,6 +36,17 @@ export { mailConfigFromEnv } from './config';
 export { unconfiguredEmailVerificationMailer, unconfiguredPasswordResetMailer, unconfiguredSubscriptionMailer } from './unconfigured';
 export type { SubscriptionMailer, CancellationMailInput } from './subscription-mailer';
 export { buildCancellationEmail, makeSubscriptionMailer } from './subscription-mailer';
+export type {
+  ServiceMailer,
+  SetupCompletedMailInput,
+  ServiceWithdrawalMailInput,
+} from './service-mailer';
+export {
+  buildSetupCompletedEmail,
+  buildServiceWithdrawalEmail,
+  makeServiceMailer,
+} from './service-mailer';
+export { unconfiguredServiceMailer } from './unconfigured';
 
 /**
  * Build the mail channel this process will use. ALWAYS returns a mailer —
@@ -127,6 +140,37 @@ export function resolveSubscriptionMailer(env: NodeJS.ProcessEnv = process.env):
   }
   log.info('mail: subscription channel ready', { provider: config.provider });
   return makeSubscriptionMailer(createResendMailProvider(config));
+}
+
+/**
+ * The paid setup service's channel, resolved from the SAME FLOWMIC_MAIL_* block
+ * as its three siblings.
+ *
+ * 🔴 ITS UNCONFIGURED LINE IS AN `error`, NOT A `warn`, AND THAT PUTS IT WITH
+ * THE OTHER TWO RATHER THAN WITH THE SUBSCRIPTION MAILER IT MOST RESEMBLES. The
+ * subscription mailer's own doc argues `warn` because what is lost there is only
+ * a receipt — the cancellation goes through either way. That argument does not
+ * transfer: this channel carries two letters the buyer AGREED to receive (gs-5
+ * — the completion notice that opens their two weeks of support, and the CRD
+ * art. 11(3) withdrawal acknowledgement, which is a legal duty). A dead channel
+ * means neither is ever sent and every delivered setup sits in the operator
+ * queue as unnotified. That is a broken product surface with a standing duty
+ * behind it, which is what `error` is for.
+ */
+export function resolveServiceMailer(env: NodeJS.ProcessEnv = process.env): ServiceMailer {
+  const config = mailConfigFromEnv(env);
+  if (config === null) {
+    log.error(
+      'mail: NO MAIL CHANNEL IS CONFIGURED — the paid setup service cannot tell a buyer their setup is complete, ' +
+        'and cannot acknowledge a withdrawal (CRD art. 11(3)). Every delivered setup on this box will sit in the ' +
+        'operator queue as unnotified until somebody sends that letter by hand. Nothing will silently claim to ' +
+        'have sent one.',
+      { missing: MAIL_ENV_KEYS.join(','), doc: 'docs/rebuild/10-OPS-DEPLOY.md §4.1' },
+    );
+    return unconfiguredServiceMailer();
+  }
+  log.info('mail: setup-service channel ready', { provider: config.provider });
+  return makeServiceMailer(createResendMailProvider(config));
 }
 
 export function resolveEmailVerificationMailer(env: NodeJS.ProcessEnv = process.env): EmailVerificationMailer {

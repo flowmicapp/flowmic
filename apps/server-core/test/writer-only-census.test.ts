@@ -99,8 +99,15 @@ const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
     verdict: 'lost',
     why: 'mobile:reconnect — touchLastSeen/setDeviceUid. Same reason, smaller consequence.',
   },
-  'pcs.touchLastSeen': { verdict: 'lost', why: 'heartbeat — last_seen is soft, and refusing a heartbeat would be absurd' },
-  'mobiles.touchLastSeen': { verdict: 'lost', why: 'as above' },
+  // 2026-08-30: was 'lost'. The local write on a replica IS still erased by the
+  // next pull — what changed is that the same heartbeat now also enqueues a
+  // `pc.presence` forward, and the writer's copy is the one the console reads.
+  // So the FACT reaches its reader; only a copy nobody reads is discarded.
+  'pcs.touchLastSeen': { verdict: 'forwarded', why: 'heartbeat — forwarded via node-runtime stampPresence so the console can see a remote PC' },
+  // Still lost, and deliberately: a phone's last_seen_at has no cross-node
+  // reader. Forwarding it would be work with no consumer — the defect shape this
+  // whole file exists to make visible.
+  'mobiles.touchLastSeen': { verdict: 'lost', why: 'heartbeat — no cross-node reader for a phone last_seen; refusing a heartbeat would be absurd' },
   'service.recordSignIn': { verdict: 'lost', why: 'auth — the sign-in audit row for a login served by a replica' },
 };
 
@@ -165,7 +172,6 @@ describe('writer-only census — every write in a socket handler has a verdict',
     // the multi-node channel look finished while presence still hits the floor.
     expect(lost.sort()).toEqual([
       'mobiles.touchLastSeen',
-      'pcs.touchLastSeen',
       'registry.reconnectMobile',
       'registry.reconnectPc',
       'service.recordSignIn',

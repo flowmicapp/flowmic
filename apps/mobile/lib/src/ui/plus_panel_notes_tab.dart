@@ -40,7 +40,12 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+
+import '../session/backfill_runner.dart';
+import '../timeline/entry_metrics.dart';
+import 'article_page.dart';
 
 import '../settings/app_strings.dart';
 import '../timeline/cloud/light_record_query.dart';
@@ -63,6 +68,7 @@ class PlusPanelNotesTab extends StatefulWidget {
     this.onSignIn,
     this.selection,
     this.imageSendable,
+    this.backfill,
   }) : assert(
          selection == null || imageSendable != null,
          'REQ-12-09 09-G: see PlusPanel\'s own assert — a tick box over a '
@@ -95,6 +101,19 @@ class PlusPanelNotesTab extends StatefulWidget {
   /// loads, never per frame.
   final Future<bool> Function(TimelineEntry entry)? imageSendable;
 
+  /// 🔴 CR-8 / ruling ⑮ — how much offline audio is still becoming words.
+  ///
+  /// A listenable rather than a value: a recovery finishing while this sheet
+  /// is open must take the sentence off the screen, and a frozen copy would
+  /// leave a piece claiming it is still catching up for as long as the user
+  /// keeps the panel open. Same rule as `isSignedIn` above, and the same
+  /// reason — this is the second value on this panel that can change from
+  /// underneath it.
+  ///
+  /// Null ⇒ no recovery channel is wired (test shapes), and the article page
+  /// says nothing about catching up. Absence, never a fabricated zero.
+  final ValueListenable<BackfillProgress>? backfill;
+
   @override
   State<PlusPanelNotesTab> createState() => _PlusPanelNotesTabState();
 }
@@ -122,6 +141,9 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   /// `build`. A row missing from this map has NOT been probed yet, which is a
   /// third state and is rendered as neither 「tickable」 nor 「no original image」 — see [_row].
   final Map<String, bool> _imageHasBytes = <String, bool>{};
+
+  /// articleId → its words, filled by [_readArticleWords].
+  final Map<String, String> _articleText = <String, String>{};
 
   /// Guards a slow query resolving after a newer one. Without it, deleting the
   /// last character can leave the previous word's hits on screen — a list that
@@ -151,9 +173,29 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
       _notes = rows;
       _loading = false;
     });
+    await _readArticleWords(rows);
     await _probeImages(rows);
     // A reload while a word is typed must not drop back to the full list.
     if (_search.text.trim().isNotEmpty) await _runSearch(_search.text);
+  }
+
+  /// The words of every recording in this list, so a tick has something to send.
+  ///
+  /// 🔴 READ HERE RATHER THAN AT TICK TIME. Ticking is a synchronous gesture and
+  /// the pick carries its text; making the tick await a table scan would either
+  /// block the gesture or produce a pick with no words in it. The same posture
+  /// as [_probeImages] next door, and the same cost argument the query itself
+  /// makes: a handful of recordings at private-domain scale, milliseconds.
+  Future<void> _readArticleWords(List<TimelineEntry> rows) async {
+    final int mine = _seq;
+    for (final TimelineEntry e in rows) {
+      if (!e.isArticle) continue;
+      if (_articleText.containsKey(e.clientId)) continue;
+      final String words = await widget.query.transcriptOf(e.clientId);
+      if (!mounted || mine != _seq) return;
+      _articleText[e.clientId] = words;
+    }
+    if (mounted && mine == _seq) setState(() {});
   }
 
   /// 09-G — ask, once, which picture rows still have their bytes.
@@ -386,6 +428,7 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   ///     simply has no control for the instant the probe is in flight, which is
   ///     the same 「say nothing when unsure」 the loading line above uses.
   Widget _row(TimelineEntry e) {
+    if (e.isArticle) return _articleRow(e);
     final PlusPanelSelection? sel = widget.selection;
     // Three states, and the third is 「hasn't been asked yet」 — see the doc above.
     final bool? hasBytes = e.isImage ? _imageHasBytes[e.id] : true;
@@ -481,6 +524,111 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
               child: body,
             )
           : body,
+    );
+  }
+
+  /// 🔴 CR-7 — ONE RECORDING, ONE ROW, AND IT OPENS.
+  ///
+  /// Its segments are not in this list (LightRecordQuery.all collapses
+  /// them), so this row is the only way to reach them — which is exactly why
+  /// it is tappable where a note row is not. The pinned rule this file
+  /// already carries is 「no control unless it does something」, and this one
+  /// does: it opens the piece.
+  ///
+  /// ⚠️ NOT TICKABLE, and that is not an oversight. The panel's tick set
+  /// sends things to a PC, and a continuous recording exists only where
+  /// nothing is delivered (ruling ⑨). A checkbox here would offer an action
+  /// whose whole premise the feature excludes.
+  Widget _articleRow(TimelineEntry head) {
+    final PlusPanelSelection? sel = widget.selection;
+    // 🔴 TICKABLE ONCE ITS WORDS ARE IN HAND, and not before. The piece is sent
+    // as one message composed from its members, so a tick before the transcript
+    // has been read would put an empty message in the queue — the tick would
+    // "work" and deliver nothing, which is worse than a control that is briefly
+    // absent (the same 「say nothing when unsure」 the picture rows above use
+    // while their byte probe is in flight).
+    final String? words = _articleText[head.clientId];
+    final bool tickable = sel != null && words != null && words.isNotEmpty;
+    final bool ticked = tickable && sel.contains(PlusPick.keyForNote(head));
+    return Container(
+    key: ValueKey<String>('plus.notes.article.${head.id}'),
+    decoration: BoxDecoration(
+      border: Border(top: BorderSide(color: FlowMicColors.line)),
+    ),
+    child: InkWell(
+      key: ValueKey<String>('plus.notes.openArticle.${head.id}'),
+      // In selection mode a tap TICKS rather than opens — the same rule the
+      // chat list follows (card FB-7): one gesture, decided in one place, so a
+      // user who is picking things cannot fall into a different screen.
+      onTap: tickable
+          ? () => setState(() => sel.toggle(PlusPick.article(head, words)))
+          : () => _openArticle(head),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (tickable) ...<Widget>[
+              Icon(
+                ticked
+                    ? Icons.check_box_outlined
+                    : Icons.check_box_outline_blank,
+                size: 17,
+                color: ticked ? FlowMicColors.brand : FlowMicColors.t3,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Icon(Icons.graphic_eq, size: 14, color: FlowMicColors.t3),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    head.outputText.isEmpty
+                        ? widget.strings.articleNoTitle
+                        : head.outputText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: FlowMicColors.t1, fontSize: 13),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    widget.strings.articleCardMeta(
+                      formatEntryDuration(head.durationMs ?? 0),
+                      head.segmentsCount,
+                    ),
+                    key: ValueKey<String>('plus.notes.articleMeta.${head.id}'),
+                    style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: FlowMicColors.t3),
+          ],
+        ),
+      ),
+    ),
+  );
+  }
+
+  Future<void> _openArticle(TimelineEntry head) async {
+    final List<TimelineEntry> rows =
+        await widget.query.membersOf(head.clientId);
+    if (!mounted) return;
+    // The ROOT navigator: this tab lives inside a modal sheet, and pushing
+    // onto the sheet's own navigator would open a transcript inside a
+    // half-height panel.
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ArticlePage(
+          head: head,
+          rows: rows,
+          strings: widget.strings,
+          pendingBackfillMs: widget.backfill?.value.pendingMs ?? 0,
+        ),
+      ),
     );
   }
 

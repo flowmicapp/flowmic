@@ -37,6 +37,25 @@ mixin ConnectionStrings on AppStringsLeaves {
   /// do, and the next tick usually answers. Same rule `INJECT_PC_MISMATCH`'s copy
   /// set — a sentence that tells someone to act on a situation they cannot act on
   /// is worse than one that just says what is true.
+  ///
+  /// 🔴 **2026-08-30, owner: 「暂时问不到」 → 「超时重试中」.** The new wording says
+  /// two things instead of one — it TIMED OUT, and we ARE RETRYING — and the
+  /// second half is a promise about a mechanism, which this repo does not let
+  /// copy make on credit (the 「待投递」 red line: a word that promises something
+  /// must have something behind it that delivers).
+  ///
+  /// It has one, twice over, and both are pinned by
+  /// `reach_unanswered_copy_test.dart` so the sentence cannot outlive them:
+  ///   · WITHIN a cycle — [kSessionPollPresenceBudget] runs more than one
+  ///     attempt, which is what makes 「timed out」 a considered verdict rather
+  ///     than one unlucky packet;
+  ///   · BETWEEN cycles — the idle poll ticks again on
+  ///     [kIdlePcPresencePollInterval], so 「retrying」 is a fact about a timer
+  ///     that exists, not a hope.
+  ///
+  /// ⚠️ And it is still not [offline], which is the reason the face exists. The
+  /// change makes the sentence more specific about US; it must never drift into
+  /// a claim about the other end.
   String get reachUnanswered => _lfReachUnanswered;
 
   /// 🔴 B4 (2026-08-18) — the button that replaces 「退出再进来」 ("back out and

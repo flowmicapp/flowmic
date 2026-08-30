@@ -56,6 +56,25 @@
 part of 'ptt_session.dart';
 
 extension PttSessionContinuous on PttSession {
+  /// 🔴 THE RECORDING THE USER IS MAKING RIGHT NOW — 「哪一篇正在被录」.
+  ///
+  /// Two halves, and BOTH are required, which is why this getter exists rather
+  /// than either input being read directly by a screen:
+  ///   · [ArticleScribe.liveArticleId] says WHICH article rows are being filed
+  ///     under. It stays non-null past the stop button ON PURPOSE — the last
+  ///     sentence settles after the recorder has closed, and it belongs in its
+  ///     own recording (the scribe is closed by the next `pttDown`, not by
+  ///     `endContinuous`);
+  ///   · [ContinuousRecording.isActive] says WHETHER a continuous capture is
+  ///     running. It is the same flag the in-progress bar is drawn from.
+  ///
+  /// Asking the scribe alone gets 「still recording」 wrong for as long as the
+  /// scribe stays open after 停止 — measured while writing
+  /// `article_screen_test.dart`: a finished recording never collapsed into its
+  /// card, which is the SAME product symptom this window was opened to fix,
+  /// arriving through a different door.
+  String? get recordingArticleId =>
+      continuous.isActive ? articles.liveArticleId : null;
   /// Mark this capture continuous, hold the screen, and start the ceiling's
   /// clock for [cap].
   ///
@@ -69,11 +88,23 @@ extension PttSessionContinuous on PttSession {
   /// tear the microphone down — and the clock must not outlive a capture that
   /// never began, so a refused `pttDown` has to call [endContinuous]. Both are
   /// pinned by the entry's own wiring test.
-  void beginContinuous({
+  ///
+  /// Returns the ARTICLE ID this recording will write under. The caller needs
+  /// it because it is also the retained-audio session key (CR-4): the same
+  /// string names 「which recording」 for the rows and for the bytes, so an
+  /// outage's audio cannot end up filed under a recording that was not running.
+  String beginContinuous({
     required Duration cap,
     required void Function() onWarning,
   }) {
-    diag('audio.continuous.begin', <String, Object?>{'cap_ms': cap.inMilliseconds});
+    // FIRST, and before the flag: the id has to exist before a byte is
+    // captured, because the retention layer keys its files by it.
+    final String articleId = articles.begin();
+    diag('audio.continuous.begin', <String, Object?>{
+      'cap_ms': cap.inMilliseconds,
+      'article': articleId,
+    });
+    audio.retainedAudio?.beginSession(articleId);
     continuous.begin();
     unawaited(screenWake.hold());
     capTimer.arm(
@@ -81,13 +112,34 @@ extension PttSessionContinuous on PttSession {
       onWarning: onWarning,
       onCap: () => unawaited(stopForContinuousCap()),
     );
+    return articleId;
   }
 
   /// Turn all three back off. Idempotent, cheap, and safe on a capture that was
   /// never continuous — see the header for why that matters more than it looks.
+  /// 🔴 AND IT DELIBERATELY DOES **NOT** CLOSE THE SCRIBE. Read this before
+  /// "fixing" the asymmetry — it looks exactly like the C8 bug and is its
+  /// opposite.
+  ///
+  /// A recording's LAST segment settles AFTER the button is released: `pttUp`
+  /// sends `audio:stop` and the terminal `stt:final` comes back afterwards.
+  /// Closing the scribe here dropped that final sentence out of its own
+  /// article — measured, three rows spoken and two filed. Same shape as §11-c:
+  /// a teardown running ahead of something that still reads what it tears down,
+  /// which this file already paid for once with the zombie microphone.
+  ///
+  /// ⇒ the scribe is closed by whatever is about to mint rows that must NOT be
+  /// in the recording — `pttDown` on an ordinary press, [beginContinuous] on
+  /// the next recording, and `dispose`. Nothing else can mint a row, so a
+  /// scribe left open between two presses cannot stamp anything.
+  ///
+  /// ⚠️ THE THREE VERBS ABOVE ARE STILL C8, UNCHANGED. They hold real
+  /// resources — a wake lock, a timer, a flag the link-loss edge reads — and
+  /// every one of them must be off on every exit. The scribe holds a string.
   void endContinuous() {
     capTimer.disarm();
     continuous.end();
+    audio.retainedAudio?.endSession();
     unawaited(screenWake.release());
   }
 

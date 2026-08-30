@@ -53,6 +53,7 @@ void _deleteOne(TimelineStore store, String id) {
   // (or its bytes) is still on disk while the screen shows it gone — the
   // mirror image of the persist_failed case below, and it gets the same loud
   // trail instead of vanishing into an unawaited future.
+  _healArticles(store, <TimelineEntry>[gone]);
   unawaited(
     store._reaper.reap(<TimelineEntry>[gone]).then<void>(
       (_) {},
@@ -101,6 +102,42 @@ void _deleteOne(TimelineStore store, String id) {
 /// rather than to over-claim it (rows wiped off the screen while they are
 /// still on disk). The throw is re-raised so the caller can SAY so —
 /// `AppStrings.selectionDeleteFailed` is that sentence.
+/// 🔴 CR-10 — KEEP EVERY TOUCHED ARTICLE HONEST AFTER A DELETE.
+///
+/// A head is derived from its members, so deleting members without
+/// recomputing it leaves a cover claiming a length and a part count that no
+/// longer exist — 「18 parts, 12:04」 over four sentences. That is not a
+/// cosmetic drift: those two numbers are the only thing the list shows about
+/// a recording, and a clear-by-date is exactly the operation that removes
+/// SOME of an article rather than all of it.
+///
+/// 🔴 AND AN ARTICLE WITH NO MEMBERS LEFT LOSES ITS HEAD. A cover over
+/// nothing is a row the user cannot open, cannot delete by its own name (its
+/// members are already gone) and cannot explain. It is minted lazily on the
+/// first thing said, and it goes the same way when the last thing said is
+/// removed — the two halves of one rule.
+///
+/// ⚠️ It does NOT delete an article when its HEAD is deleted. That direction
+/// is the user's call, not this function's, and cascading it would turn
+/// 「remove this cover」 into 「remove the meeting」 with no confirmation that
+/// said so. The members survive as ordinary light records, which is what
+/// they were before articles existed.
+void _healArticles(TimelineStore store, List<TimelineEntry> removed) {
+  final Set<String> touched = <String>{
+    for (final TimelineEntry e in removed)
+      if (e.articleId != null && !e.isArticle) e.articleId!,
+  };
+  for (final String id in touched) {
+    final TimelineEntry? head = store.findByClientId(id);
+    if (head == null || !head.isArticle) continue;
+    if (articleMembersOf(store, id).isEmpty) {
+      store.delete(head.id);
+      continue;
+    }
+    refreshArticleHeadOf(store, id);
+  }
+}
+
 Future<ReapResult> _deleteMany(
   TimelineStore store,
   List<TimelineEntry> doomed,
@@ -130,6 +167,7 @@ Future<ReapResult> _deleteMany(
     rethrow;
   }
   store._dropRows(unique.keys.toSet());
+  _healArticles(store, rows);
   return out;
 }
 

@@ -1,13 +1,23 @@
-// Card CR-4 — MEASURING a hazard before designing against it.
+// Card CR-4 — the hazard, and the fix that closed it.
 //
-// Question: segment files are named `seg-<idx>.pcm` with no session in the
+// 🔴 THIS FILE WAS RE-JUDGED, NOT DELETED (2026-08-30, CR-4's second half).
+// It was written to MEASURE a defect, so its central assertion asserted the
+// DEFECT: two runs' audio concatenating into one 420-byte file. The fix turns
+// that assertion red, which is the correct outcome and the exact moment a
+// pinning test is most often quietly removed. It is kept, pointed at the new
+// contract, and its measurement is preserved verbatim below the assertion — the
+// same rule C11 sets for its sibling guard, and the same reason: a test that
+// recorded WHY something was built is the only place that reason survives.
+//
+// The original question: segment files were named `seg-<idx>.pcm` with no session in the
 // name, `open()` adopts whatever is already in the directory, and `append` uses
 // `FileMode.append`. Segment indices restart per session. So what happens when
 // a previous run died with retained audio still on disk and a new session
 // reaches the same index?
 //
-// This file does not assert a fix. It records what the code does today, so the
-// remaining half of CR-4 is designed on a measurement instead of on a reading.
+// The answer was: they concatenate. The remaining half of CR-4 gave the files
+// the dimension their key was missing — the SESSION — and this file now holds
+// that door shut.
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -26,8 +36,7 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('🔴 MEASURED: a new session APPENDS ONTO the previous run\'s orphan',
-      () async {
+  test('🔴 CR-4: a new session CANNOT reach the previous run\'s orphan', () async {
     // Run 1: an outage retains 300 bytes for segment 0, then the app dies —
     // nothing settles, so the file survives.
     final RetainedAudioStore run1 =
@@ -46,15 +55,25 @@ void main() {
     await run2.append(segmentIdx: 0, bytes: Uint8List(120));
 
     final Uint8List? seg0 = await run2.read(0);
-    await run2.dispose();
 
-    // 🔴 THE MEASUREMENT. Two different sessions' audio is now one file, and
-    // nothing downstream can tell where one ends and the other begins: the
-    // recovery feed hands `read(0)` to the transcription path as a single
-    // stretch of speech.
-    expect(seg0!.length, 420,
-        reason: 'today the two runs concatenate — 300 orphaned bytes plus the '
-            'new session\'s 120');
+    // 🔴 THE FIX, ASSERTED AT THE POINT THE DEFECT USED TO SHOW.
+    //
+    // Both runs wrote 「segment 0」, and each run reads back ONLY its own audio.
+    // Before CR-4's second half this was 420 — 300 orphaned bytes and the new
+    // session's 120 in one file, handed to the recovery feed as a single
+    // stretch of speech that two different sittings had produced.
+    expect(seg0!.length, 120,
+        reason: 'run 2 must read its own 120 bytes, never the orphan behind them');
+
+    // POSITIVE CONTROL — the orphan is still THERE, untouched. Without this the
+    // assertion above would also pass on an implementation that simply deleted
+    // whatever it found, which loses the audio instead of mis-attributing it.
+    expect(run2.retainedBytes, 420,
+        reason: 'the directory still holds both — they are two files now, not one');
+    final List<String> sessions = await run2.pendingSessions();
+    expect(sessions, hasLength(2),
+        reason: 'two runs, two session keys — that IS the fix');
+    await run2.dispose();
 
     // ── WHY THIS MATTERS MORE NOW THAN IT USED TO ─────────────────────────
     //
@@ -77,6 +96,13 @@ void main() {
     // 「segments whose audio no final has claimed」, `settle` is delete, and
     // both survive a restart by construction. What is missing is not STATE, it
     // is IDENTITY: these files do not say whose they are.
+    //
+    // ✅ AND THAT IS WHAT WAS BUILT. Every retained file is now named
+    // `<session>__seg-<idx>.pcm`, the session defaulting to a PER-RUN key, so
+    // two runs cannot collide — not 「are unlikely to」, cannot. A continuous
+    // recording overrides that key with its ARTICLE ID, so the same string names
+    // 「which recording」 for the rows and for the bytes, which is what lets the
+    // re-transcription channel file recovered audio without a second table.
   });
 
   test('the TTL sweep does not save us — it is not supposed to', () async {
@@ -93,6 +119,10 @@ void main() {
     );
     await run2.open();
     await run2.sweep();
+    // ⚠️ STILL TRUE AFTER THE FIX, and it still matters. Identity stops the
+    // orphan being MIS-ATTRIBUTED; it does not make it disappear, and the sweep
+    // is still the only thing that eventually reclaims it. Two mechanisms, two
+    // jobs — reading this test as 「CR-4 handles orphans」 would be wrong.
     expect(run2.retainedBytes, 300,
         reason: 'the orphan is far younger than kDefaultTtl, so the sweep '
             'correctly leaves it alone — it is a 24 h backstop against audio '

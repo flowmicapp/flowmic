@@ -47,6 +47,17 @@
     "appendHold": "'Halten zum Anhängen'",
     "appendRelease": "'● Loslassen beendet das Anhängen'",
     "appendUnavailableBusy": "'Der vorherige Satz wird noch verarbeitet – gleich noch einmal versuchen'",
+    "articleBackfillPending": "'$clock offline aufgenommen, wird noch transkribiert'",
+    "articleCardMeta": "'$clock · $n Teil(e)'",
+    "nodePanelTitle": "'Relay-Knoten'",
+    "nodePanelNote": "'Der Computer wählt den Knoten; dieses Telefon folgt ihm.'",
+    "nodePanelMeasure": "'Messen'",
+    "nodeLegEdge": "'Bis Edge'",
+    "nodeLegOrigin": "'Bis Knoten'",
+    "nodeLegTotal": "'Gesamt'",
+    "articleBadge": "'Lange Aufnahme'",
+    "articleNoTitle": "'Noch nichts gesagt'",
+    "articleStartedAt": "'Aufgenommen $when'",
     "backToBottom": "'Nach unten'",
     "bannerAlbumAway": "'Foto wählen · verbindet sich beim Zurückkehren'",
     "bannerAllTitle": "'Alle Hinweise'",
@@ -546,6 +557,7 @@
     "pairError__15": "'PC nicht erreichbar'",
     "pairError__16": "'Kopplung abgelaufen — Adresse prüfen'",
     "pairError__17": "'Kopplung fehlgeschlagen — Netz prüfen und erneut versuchen$diag'",
+    "pairError__18": "'Dieser Server übernimmt keine Kopplung – neu verbinden und erneut versuchen'",
     "pairError__2": "'Code abgelaufen — auf dem PC erneuern'",
     "pairError__3": [
       "'Kopplung über das Cloud-Relais braucht die PCID des PC. QR-Code auf dem PC scannen '",
@@ -620,7 +632,7 @@
     "pttSubProcessingManual": "'Ihre Worte werden abgeschlossen'",
     "quotaContextUsed": "'Kontext $used/${limit} M'",
     "quotaVoiceUsed": "'Sprache $used/$limit Min.'",
-    "reachUnanswered": "'Gerade keine Antwort'",
+    "reachUnanswered": "'Zeitüberschreitung, neuer Versuch'",
     "recLinkDegraded": "'Neu verbinden · gehalten'",
     "recLinkDown": "'Leitung weg'",
     "recLinkOk": "'Netz OK'",
@@ -877,7 +889,6 @@
     "utteranceComposeError__4": "'abgelaufen'",
     "utteranceComposeError__5": "'abgebrochen'",
     "utteranceComposeError__6": "'der vorige Lauf ist nicht fertig'",
-    "utteranceComposeError__7": "'$why · nichts gesendet, auch das Original nicht · lange drücken zum Senden'",
-    "pairError__18": "'Dieser Server übernimmt keine Kopplung – neu verbinden und erneut versuchen'"
+    "utteranceComposeError__7": "'$why · nichts gesendet, auch das Original nicht · lange drücken zum Senden'"
   }
 }

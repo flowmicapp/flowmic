@@ -30,6 +30,8 @@ import '../portable/portable_controller.dart';
 import '../portable/portable_import.dart';
 import '../portable/portable_ports.dart' show AppVersionPort;
 import '../ptt/ptt_session.dart';
+import '../session/node_latency.dart' show probeNode;
+import 'node_latency_panel.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
 import '../settings/scenario_card.dart';
@@ -149,6 +151,17 @@ class SettingsPage extends StatelessWidget {
                       _dataCard(context, s),
                       settingsSection(s.secPreferences),
                       _preferencesCard(s),
+                      // owner 2026-08-30 — the relay-node panel. Draws NOTHING
+                      // on a single-node deployment (an empty directory), which
+                      // is every deployment until an operator publishes a
+                      // second node: a section with one row and no choice in it
+                      // would be a menu that is not a menu.
+                      NodeLatencyPanel(
+                        strings: s,
+                        nodes: session.reconnect.nodeLabels.nodes,
+                        currentNodeId: session.reconnect.node.value,
+                        probe: (String id, String url) => probeNode(id, url),
+                      ),
                       settingsSection(s.secAbout),
                       // P-7 — the "about" card added "review onboarding guide",
                       // which needs to push a route

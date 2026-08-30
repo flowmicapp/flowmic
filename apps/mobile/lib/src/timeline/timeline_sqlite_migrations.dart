@@ -141,6 +141,78 @@ Future<void> _upgradeV6CreateBlindStoreCloudStateAsShipped(Database d) async {
   );
 }
 
+/// v1 — THE TIMELINE TABLE AS v1 SHIPPED IT, frozen.
+///
+/// 🔴 THIS IS A COPY, AND THE COPY IS THE POINT. Until v7 the final create
+/// doubled as the v1 rebuild, because the table had never changed; the parity
+/// test (fresh-create vs stepwise-upgrade) was therefore comparing today's DDL
+/// with itself, and would have stayed green through any change made in both
+/// places at once. Frozen text is what makes 「upgrade an OLD database」 mean
+/// anything, and D13 rule 1 says the freeze happens on the FIRST change, not
+/// later — later is exactly when nobody remembers what v1 was.
+///
+/// Never edited again. A further column is a new `_upgradeVn` plus a version
+/// bump.
+Future<void> _createTimelineSchemaV1AsShipped(Database d) async {
+  await d.execute('''
+    CREATE TABLE $kTimelineTable (
+      id                    TEXT    PRIMARY KEY,
+      created_at            INTEGER NOT NULL,
+      updated_at            INTEGER NOT NULL,
+      client_id             TEXT    NOT NULL,
+      mode                  TEXT    NOT NULL,
+      status                TEXT    NOT NULL,
+      entry_type            TEXT    NOT NULL,
+      spoken_to_instance_id TEXT,
+      deleted               INTEGER NOT NULL DEFAULT 0,
+      search_text           TEXT    NOT NULL DEFAULT '',
+      payload               TEXT    NOT NULL
+    )
+  ''');
+  await d.execute(
+    'CREATE INDEX idx_timeline_created ON $kTimelineTable (created_at DESC)',
+  );
+  await d.execute(
+    'CREATE INDEX idx_timeline_owner ON $kTimelineTable '
+    '(spoken_to_instance_id, created_at DESC)',
+  );
+}
+
+/// v6 → v7 (card CR-7) — the article grouping key, AS v7 SHIPS IT.
+///
+/// Guarded by inspection rather than by luck, exactly like
+/// [_upgradeV3AddOutboxDuration]: SQLite has no `ADD COLUMN IF NOT EXISTS`, and
+/// D13 ① records a real way this step can run twice (an older APK stamped a
+/// newer file back DOWN, then a newer APK upgraded it again). An unguarded
+/// `ALTER` there does not merely fail — it drops that install to the 100-row
+/// store on every launch, permanently, with nothing naming the cause.
+///
+/// ⚠️ The INDEX is created in the same step as the column. It has to be: the
+/// fresh-vs-stepwise parity test compares indexes as well as columns, so a step
+/// that added the column alone would converge on shape and diverge on plan.
+///
+/// 🔴 NOTHING IS BACK-FILLED, and that is the honest answer rather than a
+/// shortcut. Every row written before articles existed belongs to no recording,
+/// and there is no evidence on disk from which one could be inferred — adopting
+/// them into 「whatever recording is nearest in time」 is the same lie V2-06a-1
+/// refused when it would not invent an owner for a legacy row.
+Future<void> _upgradeV7AddTimelineArticleId(Database d) async {
+  if (!await _timelineHasColumn(d, 'article_id')) {
+    await d.execute('ALTER TABLE $kTimelineTable ADD COLUMN article_id TEXT');
+  }
+  await d.execute(
+    'CREATE INDEX IF NOT EXISTS idx_timeline_article ON $kTimelineTable '
+    '(article_id, created_at ASC)',
+  );
+}
+
+Future<bool> _timelineHasColumn(Database d, String name) async {
+  final List<Map<String, Object?>> cols = await d.rawQuery(
+    'PRAGMA table_info($kTimelineTable)',
+  );
+  return cols.any((Map<String, Object?> c) => c['name'] == name);
+}
+
 Future<bool> _outboxHasColumn(Database d, String name) async {
   final List<Map<String, Object?>> cols = await d.rawQuery(
     'PRAGMA table_info($kOutboxTable)',
@@ -152,9 +224,14 @@ Future<bool> _outboxHasColumn(Database d, String name) async {
 // upgrade, and the DDL must be this file's own, not a copy that can drift ─────
 
 /// Rebuild a v1 database's schema (timeline only — v1 had no outbox table).
+///
+/// 🔴 Points at the FROZEN v1 text since v7. It used to point at
+/// `_createTimelineSchema`, which was correct only for as long as the table had
+/// never changed — see [_createTimelineSchemaV1AsShipped] for why that made the
+/// parity test compare today's DDL with itself.
 @visibleForTesting
 Future<void> createTimelineSchemaV1ForTest(Database d) =>
-    _createTimelineSchema(d);
+    _createTimelineSchemaV1AsShipped(d);
 
 /// Rebuild the outbox table exactly as v2 shipped it — the pre-B3-2b shape the
 /// v4 healing step exists for.

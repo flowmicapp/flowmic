@@ -39,6 +39,7 @@ import {
   tryHandleBillingRoutes,
   type BillingRoutesDeps,
 } from '../src/http/billing-routes';
+import { asPaddleSubscriptionWriter } from '../src/billing/paddle/subscription-writer-adapter';
 
 const SECRET = 'billing-withdrawal-secret-32-bytes-min';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -87,7 +88,7 @@ function boot(opts: { nowMs: number; writeEnabled?: boolean; seedSub?: boolean }
       unlockAll: false,
       now: () => opts.nowMs,
     }),
-    paddle,
+    writerFor: (p: string) => (p === 'paddle' ? asPaddleSubscriptionWriter(paddle) : null),
     mailer,
     refunds: db.billing,
     now: () => opts.nowMs,
@@ -112,6 +113,7 @@ function subscribe(userId: string, over: Record<string, unknown> = {}): void {
   db.billing.upsertSubscription({
     subscription_id: 'sub_test',
     user_id: userId,
+    provider: 'paddle',
     customer_id: 'ctm_test',
     status: 'active',
     tier: 'pro',
@@ -341,7 +343,11 @@ describe('the refund half can fail on its own, and says so', () => {
     expect(out.json.refund.state).toBe('failed');
     const row = db.billing.listRefundRequests(user.id, 10)[0]!;
     expect(row.state).toBe('failed');
-    expect(row.detail).toContain('PADDLE_REJECTED');
+    // 🔴 THE NORMALISED CODE, not the vendor's. The recorded detail is our own
+    // sentence, written in the one vocabulary billing-routes.ts is allowed to
+    // branch on — see billing/subscription-writer.ts for why a route that knew
+    // 'PADDLE_REJECTED' by name would silently mishandle every Creem failure.
+    expect(row.detail).toContain('PROVIDER_REJECTED');
     // The user is still told, and the mail does not ask them to do anything.
     expect(acknowledged[0]!.refundState).toBe('failed');
   });

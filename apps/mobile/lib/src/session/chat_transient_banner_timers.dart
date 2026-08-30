@@ -190,6 +190,9 @@ void reconcileBannerAutoHideRouted(ChatController c) {
 /// below, and the removed trailing `super.dispose()`, which
 /// chat_controller.dart's thin wrapper now calls itself).
 Future<void> disposeRouted(ChatController c) async {
+  // CR-5 — the recovery channel holds a ValueNotifier the UI listens to. A
+  // controller being torn down must not leave a notifier alive behind it.
+  c.backfill.dispose();
   // 窗口C-5 NEW: cancel every armed auto-hide timer — a torn-down controller
   // must not go on firing dismiss callbacks into a dead store, the same shape
   // as the DeliveryOutbox leak 窗口B3-2b found in this exact method.

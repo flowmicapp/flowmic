@@ -60,6 +60,7 @@ function paddleRow(over: Partial<PaddleSubRow> = {}): PaddleSubRow {
   return {
     subscription_id: 'sub_test01',
     user_id: USER,
+    provider: 'paddle',
     customer_id: 'ctm_test01',
     status: 'active',
     tier: 'pro',
@@ -105,6 +106,7 @@ describe('D1 §6.1 ④ — nothing at all', () => {
       withdrawal_deadline: null,
       contract_concluded_at: null,
       paddle_subscription_id: null,
+      billing_provider: null,
     });
   });
 });
@@ -277,6 +279,7 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
       withdrawal_deadline: null,
       contract_concluded_at: null,
       paddle_subscription_id: null,
+      billing_provider: null,
     });
   });
 

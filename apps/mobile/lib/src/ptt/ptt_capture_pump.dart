@@ -110,10 +110,47 @@ extension PttSessionCapturePump on PttSession {
     // The status stream is the fact: it is the same edge
     // `_pcPresence.noteLinkNotLive()` is judged on at the caller.
     if (s == SocketStatus.connected) {
+      // 🔴 CR-8 — ACCOUNT FOR THE OUTAGE **HERE**, BEFORE THE RETENTION
+      // STOPS. This is the one instant at which the length of the gap is
+      // knowable: the bytes are all on disk and none of them has been
+      // settled away yet. A moment later the recovery starts deleting them
+      // as it transcribes, and the gap becomes unmeasurable forever.
+      //
+      // If it is not accounted for now, every live row spoken after the link
+      // returns sits at an offset that pretends the outage had no duration —
+      // and nothing on any of those rows could ever show it.
+      _accountOutageForArticle();
       audio.noteUplinkUp();
     } else {
       audio.noteUplinkDown();
     }
+  }
+
+  /// The offline stretch just ended: add its length to the article clock.
+  ///
+  /// Only for a continuous recording, and only for the audio THIS recording
+  /// retained — an orphan from a previous run belongs to a different article
+  /// (or to none) and its length is not part of this one.
+  /// 🔴 SYNCHRONOUS, AND THE BYTE COUNT COMES FROM MEMORY. Both halves were
+  /// learned the hard way in one measurement: the first version read the
+  /// count back off the disk inside an `unawaited` future, and the recovery
+  /// channel — which fires on this same edge — had already begun deleting
+  /// the stretch it had transcribed. The 45-second gap was accounted as 0,
+  /// and every row after it sat 45 seconds early with nothing able to show
+  /// it. See RetainedAudioStore.sessionRetainedBytes.
+  void _accountOutageForArticle() {
+    final String? id = articles.articleId;
+    final RetainedAudioSpill? spill = audio.retainedAudio;
+    if (id == null || spill == null) return;
+    if (spill.sessionKey != id) return;
+    final int bytes = spill.sessionRetainedBytes;
+    if (bytes <= 0) return;
+    final int? at = articles.accountOfflineBytes(bytes);
+    diag('audio.continuous.outage_accounted', <String, Object?>{
+      'article': id,
+      'bytes': bytes,
+      'starts_at_ms': at,
+    });
   }
 
   void _emitChunk(CapturedChunk chunk) {

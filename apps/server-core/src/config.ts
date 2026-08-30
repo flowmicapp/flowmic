@@ -152,6 +152,7 @@ export interface ServerConfig {
   corsOrigins: string[];
   /** D1: Paddle (merchant-of-record) webhook intake. See PaddleConfig. */
   paddle: PaddleConfig;
+  creem: CreemConfig;
   /** D2-LAN: the LAN TLS identity's home, or null when this deployment serves
    *  the LAN in plain only. See resolveLanTls for what「null」means and why it is
    *  the default in more cases than it might look. */
@@ -207,6 +208,70 @@ export interface PaddleConfig {
    *  tier mapping; an unmapped price id is an `unmapped` ledger row, never a
    *  guessed tier. */
   priceTiers: Record<string, Plan>;
+}
+
+/**
+ * Creem intake. The SAME SHAPE as PaddleConfig and deliberately NOT the same
+ * object.
+ *
+ * 🔴 TWO SECRETS, TWO SWITCHES, TWO TIER TABLES — never shared. Sharing the
+ * secret would mean a body signed for one provider verifies as the other; and
+ * sharing the tier table would map a Creem `prod_xxx` against Paddle `pri_xxx`
+ * keys, find nothing, and file a correct-looking 'unmapped' row for a payment
+ * that was fine. The tier table is keyed by PRODUCT id here and PRICE id there,
+ * which is why the env var has a different name rather than a different value.
+ */
+export interface CreemConfig {
+  /** FLOWMIC_CREEM_ENABLED. saas-only (forced false in standalone). */
+  enabled: boolean;
+  /** FLOWMIC_CREEM_ENV — 'test' | 'prod'. Default 'test': production must be
+   *  said out loud, same rule as Paddle's sandbox default. */
+  env: 'test' | 'prod';
+  /** FLOWMIC_CREEM_WEBHOOK_SECRET. 🔴 NEVER logged, never persisted. */
+  webhookSecret: string | null;
+  /** FLOWMIC_CREEM_API_KEY. Same handling. */
+  apiKey: string | null;
+  /** FLOWMIC_CREEM_WRITE_ENABLED. Defaults OFF and is a SEPARATE switch from
+   *  `enabled` for the reason spelled out on PaddleConfig.writeEnabled: intake
+   *  is read-only, a write can cancel a paying customer or move money. */
+  writeEnabled: boolean;
+  /** FLOWMIC_CREEM_PRODUCT_TIERS, JSON {"prod_xxx":"pro"}. The ONLY
+   *  product_id → tier mapping. An unmapped product is a ledger row, never a
+   *  guessed tier.
+   *
+   *  ⚠️ THE ONE-TIME SERVICE PRODUCT IS DELIBERATELY ABSENT FROM THIS TABLE and
+   *  must never be added: it grants no tier, and a mapping would silently make
+   *  a $200 support purchase upgrade somebody's plan. The pipeline recognises
+   *  it by the checkout carrying no subscription, not by a list. */
+  productTiers: Record<string, Plan>;
+  /** FLOWMIC_CREEM_SERVICE_PRODUCT_ID — the paid one-time setup service.
+   *
+   *  🔴 A SEPARATE SETTING FROM `productTiers`, AND IT MUST NEVER APPEAR IN
+   *  THAT TABLE. A product listed there grants a tier; this one grants none, and
+   *  a single mapping would silently upgrade the plan of everybody who bought a
+   *  support session. Null ⇒ the buy route refuses by name (503) rather than
+   *  handing a browser a URL to nothing. */
+  serviceProductId: string | null;
+  /** FLOWMIC_CREEM_SUCCESS_URL — where the browser lands after paying. Null ⇒
+   *  Creem's own default page, which is honest but says nothing about us. */
+  serviceSuccessUrl: string | null;
+  /**
+   * FLOWMIC_CREEM_AUTO_REFUND_ENABLED — let the deadline sweep refund overdue
+   * purchases with nobody watching. Defaults OFF.
+   *
+   * 🔴 A THIRD SWITCH, SEPARATE FROM BOTH `enabled` AND `writeEnabled`, and the
+   * separation is the ruling (owner 2026-08-30: 「默认到期由运营队列中由人按一下，
+   * 但要实现自动退的功能和开关，只是默认由人来点」). `writeEnabled` answers 「may
+   * this process move money at all」 — the buttons need it. This answers 「may it
+   * move money with no human in the loop」. Folding them together would mean
+   * turning on the customer's own withdraw button also armed an unattended
+   * refunder, which is not a decision anybody would have made on purpose.
+   *
+   * ⚠️ IT IS A SUBSET, NOT AN OVERRIDE: with `writeEnabled` off the sweep can
+   * still tick and every call refuses by name. That combination is logged as
+   * such rather than being quietly equivalent to off.
+   */
+  autoRefundEnabled: boolean;
 }
 
 /** D2-LAN (design 2026-08-08 §4-2): where this machine's LAN TLS key + cert live.
@@ -451,6 +516,107 @@ function resolvePaddle(mode: ServerMode, overrides: Partial<PaddleConfig> | unde
   return paddle;
 }
 
+/** Creem's counterpart to resolvePaddle. Same guards, same fail-loud rules —
+ *  written out rather than shared, because a single parameterised resolver would
+ *  make the two providers' env var names computed strings, and `grep
+ *  FLOWMIC_CREEM_WEBHOOK_SECRET` is how an operator finds out whether a setting
+ *  exists at all. */
+function resolveCreem(mode: ServerMode, overrides: Partial<CreemConfig> | undefined): CreemConfig {
+  let enabled = overrides?.enabled ?? envFlag('FLOWMIC_CREEM_ENABLED');
+  if (mode === 'standalone' && enabled) {
+    log.warn('creem webhook intake is saas-only — forcing it OFF in standalone mode');
+    enabled = false;
+  }
+  const rawEnv = (process.env.FLOWMIC_CREEM_ENV ?? '').trim();
+  const creem: CreemConfig = {
+    enabled,
+    env: overrides?.env ?? (rawEnv === 'prod' ? 'prod' : 'test'),
+    webhookSecret:
+      overrides?.webhookSecret !== undefined ? overrides.webhookSecret : envSecretString('FLOWMIC_CREEM_WEBHOOK_SECRET'),
+    apiKey: overrides?.apiKey !== undefined ? overrides.apiKey : envSecretString('FLOWMIC_CREEM_API_KEY'),
+    writeEnabled: overrides?.writeEnabled ?? envFlag('FLOWMIC_CREEM_WRITE_ENABLED'),
+    productTiers: overrides?.productTiers ?? envCreemProductTiers(),
+    serviceProductId:
+      overrides?.serviceProductId !== undefined
+        ? overrides.serviceProductId
+        : (process.env.FLOWMIC_CREEM_SERVICE_PRODUCT_ID ?? '').trim() || null,
+    serviceSuccessUrl:
+      overrides?.serviceSuccessUrl !== undefined
+        ? overrides.serviceSuccessUrl
+        : (process.env.FLOWMIC_CREEM_SUCCESS_URL ?? '').trim() || null,
+    autoRefundEnabled: overrides?.autoRefundEnabled ?? envFlag('FLOWMIC_CREEM_AUTO_REFUND_ENABLED'),
+  };
+
+  // 🔴 A PRODUCT THAT IS BOTH A TIER AND A SERVICE IS A CONTRADICTION, and it is
+  // cheap to catch here and expensive to catch in production — the symptom would
+  // be support-session buyers silently on a paid plan. Refuse to start.
+  if (creem.serviceProductId !== null && creem.productTiers[creem.serviceProductId] !== undefined) {
+    throw new Error(
+      `config: FLOWMIC_CREEM_SERVICE_PRODUCT_ID (${creem.serviceProductId}) also appears in ` +
+        'FLOWMIC_CREEM_PRODUCT_TIERS — a one-time service must not grant a plan tier',
+    );
+  }
+
+  // 🔴 An enabled webhook endpoint without a secret verifies nothing, which
+  // means it ACCEPTS ANY EVENT ANYONE POSTS — free Pro for the whole internet.
+  // Fail loud rather than serve that.
+  if (creem.enabled && (creem.webhookSecret === null || creem.webhookSecret === '')) {
+    throw new Error('config: FLOWMIC_CREEM_ENABLED is on but FLOWMIC_CREEM_WEBHOOK_SECRET is empty');
+  }
+  if (creem.enabled) {
+    if (Object.keys(creem.productTiers).length === 0) {
+      log.warn('creem is enabled but FLOWMIC_CREEM_PRODUCT_TIERS is empty — every subscription event will be recorded as unmapped');
+    }
+    log.info('creem webhook intake enabled', {
+      env: creem.env,
+      webhook_secret_len: creem.webhookSecret === null ? 0 : creem.webhookSecret.length,
+      api_key_present: creem.apiKey !== null,
+      product_tiers: Object.keys(creem.productTiers).length,
+      write_enabled: creem.writeEnabled,
+      auto_refund_enabled: creem.autoRefundEnabled,
+    });
+    if (creem.writeEnabled && (creem.apiKey === null || creem.apiKey === '')) {
+      log.warn('creem WRITES are enabled but FLOWMIC_CREEM_API_KEY is empty — every outbound call will refuse by name');
+    }
+    // 🔴 THE COMBINATION THAT LOOKS ARMED AND IS NOT. An operator who set the
+    // auto-refund switch has decided we may refund unattended; if writes are off
+    // every one of those attempts refuses by name, so the promise is NOT being
+    // kept and the queue is not being cleared either. Two switches, one
+    // sentence, said at the only moment somebody can act on it.
+    if (creem.autoRefundEnabled && !creem.writeEnabled) {
+      log.warn(
+        'creem AUTOMATIC deadline refunds are enabled but FLOWMIC_CREEM_WRITE_ENABLED is off — the sweep will ' +
+          'run and every refund it tries will refuse by name. Nothing will be refunded and nothing will be flagged ' +
+          'as done: set writes on, or turn the auto-refund switch back off and press refunds from the ops queue.',
+      );
+    }
+  } else {
+    log.info('creem webhook intake disabled', { mode });
+  }
+  return creem;
+}
+
+/** FLOWMIC_CREEM_PRODUCT_TIERS → {product_id: Plan}. Same refusal rules as
+ *  envPriceTiers: a typo'd tier we accepted would map real money to a plan that
+ *  does not exist, and the failure would only surface as a user who paid and
+ *  stayed on free. */
+function envCreemProductTiers(): Record<string, Plan> {
+  const parsed = envJson('FLOWMIC_CREEM_PRODUCT_TIERS');
+  if (parsed === undefined) return {};
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('config: FLOWMIC_CREEM_PRODUCT_TIERS must be a JSON object of {product_id: tier}');
+  }
+  const out: Record<string, Plan> = {};
+  for (const [productId, tier] of Object.entries(parsed as Record<string, unknown>)) {
+    if (productId.trim() === '') throw new Error('config: FLOWMIC_CREEM_PRODUCT_TIERS has an empty product id key');
+    if (!isPlan(tier)) {
+      throw new Error(`config: FLOWMIC_CREEM_PRODUCT_TIERS maps ${productId} to "${String(tier)}", which is not a plan tier`);
+    }
+    out[productId] = tier;
+  }
+  return out;
+}
+
 export interface LoadConfigOverrides {
   mode?: ServerMode;
   port?: number;
@@ -477,6 +643,7 @@ export interface LoadConfigOverrides {
   /** D1: explicit Paddle block (tests). Merged cell-by-cell over the env values;
    *  the mode clamp and the secret guard still run on the merged result. */
   paddle?: Partial<PaddleConfig>;
+  creem?: Partial<CreemConfig>;
   /** A1: explicit plan-limit overlay (tests). `null` = "no overrides" and, like
    *  every other override here, WINS over the env var. */
   planLimits?: PlanLimitsOverrides | null;
@@ -620,6 +787,7 @@ export function loadConfig(overrides: LoadConfigOverrides = {}): ServerConfig {
     corsOrigins: overrides.corsOrigins ?? envCorsOrigins(),
     lanTls: overrides.lanTls !== undefined ? overrides.lanTls : resolveLanTls(mode),
     paddle: resolvePaddle(mode, overrides.paddle),
+    creem: resolveCreem(mode, overrides.creem),
     planLimits: planLimitOverrides,
   };
 }

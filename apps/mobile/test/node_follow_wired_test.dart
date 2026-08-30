@@ -98,4 +98,40 @@ void main() {
     expect(dial, greaterThan(persist),
         reason: 'persist first, then drop the socket');
   });
+
+  // ── 2026-08-30, added after a cross-check found the other half missing ─────
+  //
+  // 🔴 EVERY TEST ABOVE WAS GREEN WHILE THE FEATURE WAS HALF-WIRED. They assert
+  // that the RECONNECT leg calls the follow, and it does — and the PAIR leg did
+  // not, for as long as this file has existed. So "phone-follows-PC is wired"
+  // read as true while a first-time cloud pairing to a PC on a replica put the
+  // phone in a room its PC would never join. ONE wired caller was mistaken for
+  // a wired feature, by a file written specifically to check wiring.
+  test('🔴 the PAIR leg follows too — a first pairing is an admission as much '
+      'as a reconnect is', () {
+    final File site = File('lib/src/ptt/ptt_pair.dart');
+    expect(site.existsSync(), isTrue,
+        reason: 'positive control: run from apps/mobile or this is blind');
+    final String src = site.readAsStringSync();
+
+    expect(src.contains('_followNodeIfMisplaced(this, token, ack)'), isTrue,
+        reason: 'mobile:pair is writer-only, so a phone always pairs on the '
+            'WRITER while its PC may have settled on a replica. Nothing '
+            'reconnects after a successful pair — connections_controller goes '
+            'straight to _rememberActive, onPaired, load() — so without this '
+            'the phone sits in the writer\'s room until an unrelated socket '
+            'drop happens to trigger the reconnect leg. And the audio leg fails '
+            'SILENTLY there: mirrorToPc is `if (pc) send(pc)`, so the frame is '
+            'dropped with no error, no refusal and no log.');
+  });
+
+  test('REVERSE CONTROL — the reconnect leg still has its own call', () {
+    // Without this, deleting the reconnect caller and keeping only the pair one
+    // would satisfy the assertion above. Two admissions, two callers, and
+    // neither is redundant: a phone can reconnect for months without ever
+    // re-pairing, and a PC can move nodes in between.
+    final String src =
+        File('lib/src/ptt/ptt_reconnect_ack.dart').readAsStringSync();
+    expect(src.contains('_followNodeIfMisplaced(s, token, ack)'), isTrue);
+  });
 }

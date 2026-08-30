@@ -104,6 +104,15 @@ export interface PairingInfo {
    *  Absent/null = a relay older than this round (or LAN). No `pcid=` is then
    *  appended and the payload is byte-for-byte the pre-0.2.66 one. */
   pcid?: string | null;
+
+  /** owner 2026-08-30 — WHICH relay node this cloud connection goes through
+   *  (Rust `PairingInfo.node`): `srvny`, `srvjp`.
+   *
+   *  🔴 Absent/null on the LAN channel and on a single-node deployment, and the
+   *  card must draw NOTHING then rather than 「unknown」: there is no node on
+   *  either path, so naming one would be a fact about a route this connection
+   *  never takes. */
+  node?: string | null;
 }
 
 /** 0.2.66 — nine digits are unreadable in one run; the display groups them

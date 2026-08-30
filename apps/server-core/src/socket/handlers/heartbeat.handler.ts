@@ -48,6 +48,15 @@ export interface HeartbeatHandlerDeps {
    *  never no-ops (DI-default rule). */
   logger?: GuardLogger;
   writeFailureGate?: RateGate;
+  /**
+   * REPLICA ONLY — forward this PC's presence to the writer as well as writing
+   * it locally. Absent on a writer or a single node, and absent MEANS「there is
+   * nowhere to forward it to」, never「skip it」 (the `stampHomeNode` precedent).
+   *
+   * Only the PC branch calls it: the console's device table is about computers,
+   * and a phone's `last_seen_at` has no cross-node reader.
+   */
+  stampPresence?: (pcId: string, lastSeenAtMs: number) => void;
 }
 
 export function registerHeartbeatHandler(socket: Socket, deps: HeartbeatHandlerDeps): void {
@@ -64,7 +73,15 @@ export function registerHeartbeatHandler(socket: Socket, deps: HeartbeatHandlerD
     let touch: () => void;
     if (auth.kind === 'pc' && auth.deviceId) {
       const deviceId = auth.deviceId;
-      touch = (): void => deps.pcs.touchLastSeen(deviceId, when);
+      touch = (): void => {
+        deps.pcs.touchLastSeen(deviceId, when);
+        // AFTER the local write and INSIDE the same guarded call, so a forward
+        // is never enqueued for a heartbeat that did not land. On a replica the
+        // local row is erased by the next replication pull, which is exactly why
+        // the writer needs its own copy: the console asks the writer, and the
+        // writer's RoomStore cannot contain a PC that lives on another node.
+        deps.stampPresence?.(deviceId, Date.parse(when));
+      };
     } else if (auth.kind === 'mobile' && auth.pairingId) {
       const pairingId = auth.pairingId;
       touch = (): void => deps.mobiles.touchLastSeen(pairingId, when);

@@ -28,6 +28,7 @@
 // are really on disk, which is exactly what design §3-3 state B forbids. So the
 // two share the PREDICATE ([isLightRecord]) rather than the object.
 
+import '../../ui/plus_panel_selection.dart' show joinSelectedTexts;
 import '../timeline_entry.dart';
 import '../timeline_persistence.dart';
 import 'blind_store_timeline_bridge.dart';
@@ -52,13 +53,66 @@ class LightRecordQuery {
   /// the reason its doc already argues: at private-domain scale this is a few
   /// thousand rows and milliseconds, and a projected `origin` column would be a
   /// schema change plus a second home for the value.
+  /// 🔴 CR-7 — A RECORDING IS ONE ENTRY IN THIS LIST, NOT N+1.
+  ///
+  /// An article's segments are ordinary light-record rows, so without this a
+  /// half-hour meeting arrives as forty loose sentences with its own cover
+  /// somewhere among them — the list stops being a list of things the user
+  /// did. The head stands for its members here and the members are read
+  /// through [membersOf] when one is opened.
+  ///
+  /// ⚠️ THE COLLAPSE IS **ONLY** HERE, and that is deliberate. Blind-store sync
+  /// (`BlindStoreTimelineBridge.lightRecords`) must still see every member:
+  /// they are the rows that carry the words, and a sync that uploaded a cover
+  /// instead would back up a title. Two readers, two questions, one predicate
+  /// ([isLightRecord]) shared between them.
   Future<List<TimelineEntry>> all() async {
     final List<TimelineEntry> rows = await _persistence.loadAll();
     return _newestFirst(<TimelineEntry>[
       for (final TimelineEntry e in rows)
-        if (isLightRecord(e)) e,
+        if (isLightRecord(e) && !e.isInArticle) e,
     ]);
   }
+
+  /// The rows of one article, OLDEST FIRST — the transcript order.
+  ///
+  /// Reads from storage rather than from the in-memory store for the reason
+  /// this class exists at all (see the header): a light record is born with
+  /// the cloud instance's owner id, and the screen the user opened this from
+  /// structurally cannot be holding those rows.
+  ///
+  /// ⚠️ Ordered by [TimelineEntry.articleOffsetMs] when both rows have one —
+  /// NOT by `createdAt`. A backfilled segment is written to disk long after
+  /// the live segments that follow it inside the recording, so creation order
+  /// is the order we HEARD them, and this page is about the order they were
+  /// SAID. Same rule, same reason, as `articleMembersOf`.
+  Future<List<TimelineEntry>> membersOf(String articleId) async {
+    final List<TimelineEntry> rows = await _persistence.loadAll();
+    final List<TimelineEntry> members = <TimelineEntry>[
+      for (final TimelineEntry e in rows)
+        if (e.articleId == articleId && !e.isArticle && !e.deleted) e,
+    ];
+    members.sort((TimelineEntry a, TimelineEntry b) {
+      final int? ao = a.articleOffsetMs;
+      final int? bo = b.articleOffsetMs;
+      if (ao != null && bo != null && ao != bo) return ao.compareTo(bo);
+      return a.createdAt.compareTo(b.createdAt);
+    });
+    return List<TimelineEntry>.unmodifiable(members);
+  }
+
+  /// One article's words, in the order they were said.
+  ///
+  /// 🔴 Composed with [joinSelectedTexts] — the SAME rule a multi-row tick uses
+  /// (owner 2026-08-12 ruling 3: a single newline, no numbering, no separator
+  /// lines, no decoration). A second joining rule here would mean a piece sent
+  /// on its own and the same piece sent beside a note arrive differently
+  /// punctuated, and nothing on any screen would explain why.
+  Future<String> transcriptOf(String articleId) async =>
+      joinSelectedTexts(<String>[
+        for (final TimelineEntry e in await membersOf(articleId))
+          if (e.displayText.trim().isNotEmpty) e.displayText,
+      ]);
 
   /// The light records whose visible text contains [query], newest first.
   ///

@@ -19,6 +19,7 @@
 // process. These tests run on REAL FILES in a temp dir and reopen them, which
 // is the only way the persistence claim gets gated (D13 ③).
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flowmic/src/auth/token_storage.dart';
@@ -85,6 +86,34 @@ TimelineEntry _entry(String id, {DateTime? at}) {
     status: EntryStatus.noted,
     createdAt: t,
     updatedAt: t,
+  );
+}
+
+/// 🔴 Write a row into a database that is STILL AT ITS HISTORICAL VERSION,
+/// using only the columns that version had.
+///
+/// The production persistence layer writes today's projection, which since v7
+/// names `article_id`. That is correct for production — an old file is always
+/// carried through `onUpgrade` before anything writes to it — and wrong for a
+/// fixture that opens a v1/v4-shaped file DIRECTLY, which is what these tests do
+/// to build 「a database that already existed」. Using the production writer there
+/// made the fixture assert something no install can reach, and it started
+/// failing the moment a column was added: the fixture, not the migration.
+///
+/// So the fixture writes the way THAT version wrote. Which is also the more
+/// faithful thing to have been doing all along — the row under test is meant to
+/// be 「what this install already had」, and what it had was v1 columns.
+Future<void> _insertLegacyRow(Database d, String id) async {
+  final int t = DateTime.utc(2026, 8, 4, 10).millisecondsSinceEpoch;
+  await d.rawInsert(
+    'INSERT INTO $kTimelineTable '
+    '(id, created_at, updated_at, client_id, mode, status, entry_type, '
+    ' spoken_to_instance_id, deleted, search_text, payload) '
+    'VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)',
+    <Object?>[
+      id, t, t, id, 'realtime', 'noted', 'transcript',
+      'said $id', jsonEncode(_entry(id).toJson()),
+    ],
   );
 }
 
@@ -367,7 +396,7 @@ void main() {
           onCreate: (Database d, int _) => createTimelineSchemaV1ForTest(d),
         ),
       );
-      await SqfliteTimelinePersistence(future).upsert(_entry('loc_future'));
+      await _insertLegacyRow(future, 'loc_future');
       await future.close();
 
       final TimelineStorageOpen out = await _open(path);
@@ -521,7 +550,7 @@ void main() {
           },
         ),
       );
-      await SqfliteTimelinePersistence(old).upsert(_entry('loc_before_f2'));
+      await _insertLegacyRow(old, 'loc_before_f2');
       // Positive control — the table genuinely is not there yet.
       expect(
         await old.rawQuery(

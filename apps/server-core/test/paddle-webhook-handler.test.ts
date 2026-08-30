@@ -27,6 +27,7 @@
 //      Paddle sent, never one derived from a cycle constant. The failure this
 //      block exists for: the tier is right, the expiry is computed as monthly ⇒ the user paid for a year and is downgraded after one month.
 
+import { paddleAdapter } from '../src/billing/paddle/adapter';
 import { describe, expect, it, vi } from 'vitest';
 import { createDbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
@@ -46,6 +47,7 @@ function world(over: Partial<PaddleWebhookDeps> = {}) {
   db.users.insert({ id: 'u1', display_name: 'U1', plan: 'free' });
   db.users.insert({ id: 'u2', display_name: 'U2', plan: 'free' });
   const deps: PaddleWebhookDeps = {
+    adapter: paddleAdapter,
     repo: db.billing,
     users: db.users,
     secret: SECRET,
@@ -335,7 +337,7 @@ describe('④ 「unknown event」 and 「cannot tell who it is」 are different 
     // the existence check working rather than a database with FKs off.
     expect(() =>
       db.billing.upsertSubscription({
-        subscription_id: 'sub_FK', user_id: 'ghost', customer_id: null, status: 'active', tier: 'pro',
+        subscription_id: 'sub_FK', user_id: 'ghost', provider: 'paddle', customer_id: null, status: 'active', tier: 'pro',
         price_id: null, cycle: null, current_period_end: null, canceled_at: null,
         scheduled_change_action: null, scheduled_change_at: null,
         next_billed_at: null, contract_concluded_at: null,

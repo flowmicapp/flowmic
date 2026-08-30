@@ -47,6 +47,17 @@
     "appendHold": "'Maintenir pour ajouter'",
     "appendRelease": "'● Relâcher pour finir l\\'ajout'",
     "appendUnavailableBusy": "'La phrase précédente est encore en cours — réessayez dans un instant'",
+    "articleBackfillPending": "'$clock enregistré hors ligne est encore en transcription'",
+    "articleCardMeta": "'$clock · $n partie(s)'",
+    "nodePanelTitle": "'Nœuds de relais'",
+    "nodePanelNote": "'Votre ordinateur choisit le nœud ; ce téléphone le suit.'",
+    "nodePanelMeasure": "'Mesurer'",
+    "nodeLegEdge": "'Vers le bord'",
+    "nodeLegOrigin": "'Vers le nœud'",
+    "nodeLegTotal": "'Total'",
+    "articleBadge": "'Session longue'",
+    "articleNoTitle": "'Rien de dit pour l\\'instant'",
+    "articleStartedAt": "'Enregistré $when'",
     "backToBottom": "'Retour en bas'",
     "bannerAlbumAway": "'Choix d\\'une photo · reconnexion à votre retour'",
     "bannerAllTitle": "'Toutes les alertes'",
@@ -546,6 +557,7 @@
     "pairError__15": "'Impossible d\\'atteindre le PC'",
     "pairError__16": "'Appairage expiré — vérifiez l\\'adresse'",
     "pairError__17": "'Échec de l\\'appairage — vérifiez le réseau et réessayez$diag'",
+    "pairError__18": "'Ce serveur ne gère pas l’appairage — reconnectez-vous et réessayez'",
     "pairError__2": "'Code expiré — actualisez-le sur votre PC'",
     "pairError__3": [
       "'L\\'appairage via le relais cloud exige le PCID du PC. Scannez le code QR sur votre PC, '",
@@ -620,7 +632,7 @@
     "pttSubProcessingManual": "'Finalisation de vos paroles'",
     "quotaContextUsed": "'Contexte $used/${limit} M'",
     "quotaVoiceUsed": "'Voix $used/$limit min'",
-    "reachUnanswered": "'Pas de réponse pour le moment'",
+    "reachUnanswered": "'Délai dépassé, nouvel essai'",
     "recLinkDegraded": "'Reconnexion · conservé'",
     "recLinkDown": "'Connexion coupée'",
     "recLinkOk": "'Réseau OK'",
@@ -878,7 +890,6 @@
     "utteranceComposeError__4": "'expiré'",
     "utteranceComposeError__5": "'annulé'",
     "utteranceComposeError__6": "'le traitement précédent n\\'est pas terminé'",
-    "utteranceComposeError__7": "'$why · rien n\\'a été envoyé, et l\\'original non plus · appui long pour l\\'envoyer'",
-    "pairError__18": "'Ce serveur ne gère pas l’appairage — reconnectez-vous et réessayez'"
+    "utteranceComposeError__7": "'$why · rien n\\'a été envoyé, et l\\'original non plus · appui long pour l\\'envoyer'"
   }
 }

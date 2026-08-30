@@ -299,9 +299,49 @@ pub fn start(app: &AppHandle) {
 /// milliseconds apart would trade the socket back and forth forever.
 static CURRENT_NODE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-fn remember_node(node: Option<String>) {
+/// The node this process is dialing, for the DEVICE PAGE to name it.
+///
+/// owner 2026-08-30 — 「PC 端的云端中继连接通道的信息卡片中也增加连接的节点信息」.
+///
+/// 🔴 `None` on a single-node deployment and on every LAN-only run, and the card
+/// must then say nothing rather than 「unknown」: there is no node in either case,
+/// so naming one would be inventing a fact about a path this connection does not
+/// take. Same posture as the phone's badge (node_badge.dart).
+pub fn current_node() -> Option<String> {
+    // 🔴 THE OPERATOR'S LABEL OR NOTHING — never the node id. Owner
+    // 2026-08-30: 「当前只有 asia/us 两个节点，不要显示其它文字」, and the
+    // 2026-08-22 iron rule already forbade internal vocabulary in anything a
+    // user can see. `srvjp` is our name for that machine, not theirs.
+    //
+    // An earlier version of this line fell back to the id. It was wrong for the
+    // same reason on both clients, and the phone's node_badge.dart carries the
+    // full argument — including why the 0.2.53 「print the raw error code」
+    // precedent does NOT transfer (there the alternative was a fabricated
+    // sentence; here it is silence, and silence is honest).
+    //
+    // The card must draw nothing on None: no node (LAN, single node) and no
+    // label are both 「nothing to name」, and both deserve the same silence.
+    let _ = CURRENT_NODE.lock().ok().and_then(|g| g.clone())?;
+    CURRENT_NODE_LABEL
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|s| !s.trim().is_empty())
+}
+
+static CURRENT_NODE_LABEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Remember BOTH halves in one call, from the same [node_select::Choice].
+///
+/// 🔴 One writer for two values that must never disagree: an id from this round
+/// beside a label from the last one would name the wrong machine room on a
+/// card whose whole job is to name it.
+fn remember_node(node: Option<String>, label: Option<String>) {
     if let Ok(mut g) = CURRENT_NODE.lock() {
         *g = node;
+    }
+    if let Ok(mut g) = CURRENT_NODE_LABEL.lock() {
+        *g = label;
     }
 }
 
@@ -335,6 +375,7 @@ fn select_relay_node(endpoint: &str, must_register: bool) -> node_select::Choice
         return node_select::Choice {
             url: endpoint.to_string(),
             node: None,
+            short: None,
             reason: node_select::Reason::NoneReachable,
         };
     };
@@ -374,7 +415,7 @@ fn connect_cloud(app: &AppHandle) {
                 "cloud",
                 &format!("dialing relay {} with Cloud Key (head={head})", choice.url),
             );
-            remember_node(choice.node.clone());
+            remember_node(choice.node.clone(), choice.short.clone());
             connect_on_main(app, &choice.url, Channel::Cloud, cfg.jwt.clone());
         }
         not_ready => {

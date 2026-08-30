@@ -18,6 +18,7 @@
 // chose.
 
 import type { IncomingMessage } from 'node:http';
+import type { ServicePurchaseRoutesDeps } from './service-purchase-routes';
 import type { ServerConfig } from '../config';
 import type { BillingService } from '../billing/billing-service';
 import type { BillingRoutesDeps } from './billing-routes';
@@ -28,6 +29,7 @@ import type { AccountRestrictionRoutesDeps } from './account-restriction-routes'
 import type { UsageEventsRoutesDeps } from './usage-events-routes';
 import type { OpsUserRoutesDeps } from './ops-user-routes';
 import type { OpsUsageEventsRoutesDeps } from './ops-usage-events-routes';
+import type { OpsPurchaseRoutesDeps } from './ops-purchase-routes';
 import type { ProbeRoutesDeps } from './probe-routes';
 import type { SttModelRoutesDeps } from './stt-model-routes';
 import type { PresenceRoutesDeps } from './presence-routes';
@@ -49,6 +51,9 @@ import type { UserIdVerdict } from './account-auth';
 export interface HttpDeps {
   config: ServerConfig;
   billing: BillingService;
+  /** The paid one-time service's routes. Absent ⇒ they 404, which is the honest
+   *  answer on a deployment that cannot sell it. */
+  servicePurchases?: ServicePurchaseRoutesDeps;
   version: string;
   /** Who is this request? A VERDICT, not a string: the saas branch can fail, and
    *  a `string` return has no way to say so except by inventing a user (which is
@@ -125,6 +130,18 @@ export interface HttpDeps {
    *  refactor of the account surface. Absent → the path falls to the router's
    *  404, the same saas-only mounting as `ops` and `opsUsers`. */
   opsUsageEvents?: OpsUsageEventsRoutesDeps;
+  /**
+   * 2026-08-29 — saas-only `GET /api/ops/purchases` + `POST
+   * /api/ops/purchases/advance`: the paid setup service's operator surface.
+   *
+   * A FIFTH dep under that prefix, and the split is the structural one
+   * `restriction` and `opsUsers` already explain — `OpsRoutesDeps` is a
+   * read-only aggregate surface and this one holds a WRITE. Absent unless Creem
+   * is configured: a deployment that cannot sell the service has no queue of
+   * sessions to deliver, and mounting an operator screen that is permanently
+   * empty invites somebody to conclude nobody has bought.
+   */
+  opsPurchases?: OpsPurchaseRoutesDeps;
   /** GA-12 STT/LLM "test connection" probes. Test seams only — production passes {} and
    *  the module's own defaults dial the real engines. */
   probe?: ProbeRoutesDeps;

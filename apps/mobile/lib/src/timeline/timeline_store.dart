@@ -32,6 +32,8 @@ import '../diag/diag_log.dart';
 import '../session/outbox_inject_authorship.dart'
     show isPcAdmissionRefusalCode, isPcInjectionVerdictCode;
 import '../signaling/wire_payloads.dart' show FlowMode, Delivery;
+import 'article.dart';
+import 'entry_metrics.dart' show textWordCount;
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
 import 'timeline_purge.dart';
@@ -50,6 +52,10 @@ part 'timeline_store_control_rows.dart';
 // multi-select batch, a range clear). Same 800-line cap, same rule; that file's
 // header argues why the three belong together.
 part 'timeline_store_batch_delete.dart';
+
+// CR-7 — the article head row. Same cut and same reason as the control rows
+// above; see that file's header for the family and the delegates.
+part 'timeline_store_article_rows.dart';
 
 /// V2-06a-1 — the seam that answers「这条是对谁说的」("who this entry was
 /// spoken to") at the moment a row is born.
@@ -342,6 +348,10 @@ class TimelineStore extends ChangeNotifier {
     String origin = 'paired',
     String entryType = TimelineEntry.kTranscript,
     String? thumbB64,
+    // CR-7/CR-8 — which recording this row belongs to and where inside it.
+    // Null for every row outside an article, which is almost all of them.
+    String? articleId,
+    int? articleOffsetMs,
   }) {
     final TimelineEntry? existing = findByClientId(clientId);
     if (existing != null) return existing;
@@ -363,6 +373,8 @@ class TimelineStore extends ChangeNotifier {
       origin: origin,
       entryType: entryType,
       thumbB64: thumbB64,
+      articleId: articleId,
+      articleOffsetMs: articleOffsetMs,
       // V2-06a-1: snapshot 「这条是对谁说的」("who this entry was spoken to") at
       // BIRTH, not at delivery. Doing it
       // here is what makes noted rows (「留在手机」("kept on the phone"), which

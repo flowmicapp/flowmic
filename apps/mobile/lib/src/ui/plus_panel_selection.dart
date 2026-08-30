@@ -117,6 +117,32 @@ class PlusPick {
     entry: entry,
   );
 
+  /// A whole continuous recording — the piece, not its cover.
+  ///
+  /// 🔴 owner 2026-08-30: 「长程的历史转录无法选择，此处需要支持」. The article
+  /// card was deliberately NOT tickable, and the comment that made it so was
+  /// wrong in a way worth keeping written down: it read 「continuous recording
+  /// only exists where nothing is delivered (ruling ⑨), so a checkbox here
+  /// offers an action the feature excludes」. Ruling ⑨ is about the moment of
+  /// RECORDING — you cannot run a long recording while delivering live. It says
+  /// nothing about later. Ruling ⑥ is the one that governs this: 「整篇与单段
+  /// 都要」, and CR-0 even measured the wire limit for a whole piece
+  /// (INJECT_TEXT_MAX_CHARS is 100,000; thirty minutes of speech is 5–8k).
+  ///
+  /// ⇒ two moments got collapsed into one rule, and the feature the owner had
+  /// already ruled for went missing behind an argument that sounded principled.
+  ///
+  /// [transcript] is the piece's words, already composed by the caller from its
+  /// members — this class never reads storage, and the composition rule is
+  /// [joinSelectedTexts], the same one a multi-row tick uses. One rule for
+  /// 「how do several things become one message」, not two.
+  factory PlusPick.article(TimelineEntry head, String transcript) => PlusPick._(
+    key: keyForNote(head),
+    kind: PlusPickKind.note,
+    text: transcript,
+    entry: head,
+  );
+
   /// The key for a light-record row, without building a pick. Used by the list
   /// widgets to ask "is this row ticked" while rebuilding.
   static String keyForNote(TimelineEntry entry) => 'note:${entry.id}';

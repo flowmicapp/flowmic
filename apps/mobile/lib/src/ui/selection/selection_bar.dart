@@ -61,7 +61,7 @@ class SelectionBar extends StatelessWidget {
     required this.onCancel,
     required this.onSelectAll,
     required this.onCopy,
-    required this.onOrganize,
+    this.onOrganize,
     required this.onDelete,
   });
 
@@ -75,7 +75,21 @@ class SelectionBar extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onSelectAll;
   final VoidCallback onCopy;
-  final VoidCallback onOrganize;
+  /// 🔴 NULL ⇒ NO BUTTON. owner 2026-08-30: 「手机上的全部历史页面，多选出现的
+  /// 交 AI 整理这个按钮拿掉不要，只保留复制」.
+  ///
+  /// The full-history page used to pass a callback whose only effect was a
+  /// toast saying it could not be done — organize runs through
+  /// `ChatController.startAiCompose` and that page has no controller. The
+  /// comment there argued for keeping it: 「withholding the button would mean a
+  /// toolbar whose shape changes between two screens showing the same rows」.
+  ///
+  /// That argument loses to R8, which this repo has paid for three times: a
+  /// control that cannot change anything is worse than no control. A button
+  /// that only ever answers 「not here」 is not a consistent toolbar, it is a
+  /// consistent disappointment — and the shape difference it was protecting is
+  /// the honest signal that these two screens can do different things.
+  final VoidCallback? onOrganize;
 
   /// Card NR-3. Like the other two it is **always** called on a tap — the
   /// 「nothing is ticked」 case is answered by a spoken refusal at the call
@@ -173,17 +187,19 @@ class SelectionBar extends StatelessWidget {
                     onTap: onCopy,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _action(
-                    id: 'organize',
-                    icon: Icons.segment,
-                    label: strings.selectionOrganize,
-                    sub: strings.selectionOrganizeSub,
-                    tint: FlowMicColors.brand,
-                    onTap: onOrganize,
+                if (onOrganize != null) ...<Widget>[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _action(
+                      id: 'organize',
+                      icon: Icons.segment,
+                      label: strings.selectionOrganize,
+                      sub: strings.selectionOrganizeSub,
+                      tint: FlowMicColors.brand,
+                      onTap: onOrganize!,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

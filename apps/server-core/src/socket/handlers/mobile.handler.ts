@@ -40,6 +40,7 @@ import type { WriterOnlyGuard } from '../../node/writer-only';
 import { getAuth, safeAck, setAuth, setCloudSession, setRoomUuid, type ActingIdentity } from '../wire';
 import { adoptAudioSession, peekAudioLastContiguousSeq } from '../../engine/audio-registry';
 import { clientIpFromHandshake } from '../../http/trusted-proxy';
+import { log } from '../../log';
 
 export interface MobileHandlerDeps {
   io: Server;
@@ -410,6 +411,23 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
       setAuth(socket, { userId: mobile.user_id ?? pc.user_id, pairingId: mobile.id, deviceId: pc.id, kind: 'mobile' });
       setRoomUuid(socket, pc.room_uuid);
       joinAndNotify(store, pc.room_uuid, mobile, socket);
+      // 🔴 A HOP INSTRUCTION LEAVES A TRACE, because it is the one thing on this
+      // path that later looks like nothing at all. If the phone does not act on
+      // it, the symptom is 「the user speaks, the phone shows words, the PC gets
+      // nothing」 with no error anywhere (`mirrorToPc` drops silently). Without
+      // this line the server side of that story is a blank.
+      //
+      // Logged ONLY when the answer is 「not here」: a line on every pair would
+      // be the alarm that fires every time, which is the alarm nobody reads
+      // (0.3.26's `dropped_unrendered`, 36/36).
+      if (pc.home_node && deps.nodeId && pc.home_node !== deps.nodeId) {
+        log.info('pair.node_hint — the phone paired away from its PC', {
+          pairing_id: mobile.id,
+          pc_id: pc.id,
+          home_node: pc.home_node,
+          paired_on: deps.nodeId,
+        });
+      }
       safeAck(ack, {
         pairing_id: mobile.id,
         mobile_token: token,
@@ -423,6 +441,28 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         pc_name: pc.device_name,
         room_uuid: pc.room_uuid,
         pc_online: store.getPc(pc.room_uuid) !== null,
+        // 🔴 2026-08-30 — THE PAIR LEG NEEDS THESE AS MUCH AS THE RECONNECT LEG,
+        // and the asymmetry was a real defect rather than an omission of taste.
+        //
+        // `mobile:pair` is writer-only, so a phone always pairs on the WRITER.
+        // Its PC may have settled on a replica (desktop node selection moves it
+        // there once registered). Rooms are per-process, and nothing reconnects
+        // after a successful pair — connections_controller goes straight to
+        // `_rememberActive` → `onPaired` → `load()`. So the phone stayed in a
+        // room on the writer that its PC will never join.
+        //
+        // ⚠️ AND THE FAILURE IS SILENT ON THE PATH THAT MATTERS MOST.
+        // `audio.handler.ts` `mirrorToPc` is `const pc = store.getPc(room); if
+        // (pc) send(pc);` — no PC in this node's room means the audio frame is
+        // dropped with no error, no refusal and no log. The user speaks, the
+        // phone shows the words, the PC receives nothing, and both halves look
+        // correct forever.
+        //
+        // Same two fields, same meaning, same instant as the reconnect ack —
+        // one question ("am I where my PC is?") must not have two answers with
+        // two shapes. Both omitted on a single-node deployment.
+        ...(pc.home_node ? { home_node: pc.home_node } : {}),
+        ...(deps.nodeId ? { node: deps.nodeId } : {}),
       });
     } catch (err) {
       // A resolve miss (bad / expired code) is a brute-force signal → count it.
