@@ -83,8 +83,10 @@ describe('verdict', () => {
     expect(showsUpdateBlock(state({ auto_check: false }))).toBe(true);
   });
 
-  /** A dev build checked nothing, so it claims nothing — not even “unknown”. */
-  it('a dev build shows nothing at all', () => {
+  /** A dev build checked nothing, so it claims nothing — not even “unknown” —
+   *  and gets no full block. (What it SAYS instead is the card's business:
+   *  update-block.test.ts.) */
+  it('a dev build claims no verdict and gets no full block', () => {
     expect(verdict(state({ form: 'dev' }))).toEqual({ kind: 'hidden' });
     expect(verdict(state({ plan: 'not_checked' }))).toEqual({ kind: 'hidden' });
     expect(showsUpdateBlock(state({ form: 'dev' }))).toBe(false);

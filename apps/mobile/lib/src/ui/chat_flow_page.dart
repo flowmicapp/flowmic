@@ -80,6 +80,7 @@ import 'image_preview_page.dart';
 import 'image_transfer_bar.dart';
 import 'mic_glyph.dart';
 import 'mode_chip.dart';
+import 'article_copy.dart';
 import 'article_page.dart';
 import 'plus_panel.dart';
 import 'chat_flow_toast.dart';

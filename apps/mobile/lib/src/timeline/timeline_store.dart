@@ -33,6 +33,7 @@ import '../session/outbox_inject_authorship.dart'
     show isPcAdmissionRefusalCode, isPcInjectionVerdictCode;
 import '../signaling/wire_payloads.dart' show FlowMode, Delivery;
 import 'article.dart';
+import 'article_view.dart' show articleMembersIn;
 import 'entry_metrics.dart' show textWordCount;
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';

@@ -34,9 +34,49 @@
        constructor).
 -->
 <template>
-  <div v-if="showsUpdateBlock(s)" class="upd">
+  <!-- 🔴 NO `v-if` ON THE ROOT (0.3.49). This root WAS `v-if="showsUpdateBlock(s)"`,
+       and for `form === 'dev'` the whole component rendered as a comment while
+       SettingsPage's `card pad` wrapper stayed on screen around it: an EMPTY
+       rounded box under Settings → About. `form: 'dev'` is what the store holds
+       before `update_state` returns AND what a copy running from `publish/` or
+       `target/` reports, so the box appeared on a real user's machine (owner
+       2026-08-30, Windows 10, 0.3.48, English UI), who read it as 「自动更新检
+       测没有实现」("auto-update detection is not implemented"). The card now
+       always says what it is: loading, unreadable, a build-tree copy, or the
+       full block. `update-block-every-outcome.test.ts` renders every outcome
+       Rust can emit and refuses an empty one. -->
+  <div class="upd">
     <div class="sub-h">{{ S.upd_section }}</div>
 
+    <!-- Rust has been asked and has not answered yet — milliseconds at boot.
+         A sentence rather than a blank, because a blank and 「not implemented」
+         look identical. -->
+    <div v-if="snapshot === 'pending'" class="muted upd-hint" role="status" aria-live="polite">
+      {{ S.upd_loading }}
+    </div>
+
+    <!-- The boot snapshot never came back. Not 「loading」 — that would be a
+         wait with nothing behind it (a 「待…」 with no mechanism, red line).
+         The button is the recovery: `update_check` returns a whole state, and
+         the store adopts it. -->
+    <template v-else-if="snapshot === 'unanswered'">
+      <div class="upd-fail" role="alert">
+        <div>{{ S.upd_state_unavailable }}</div>
+      </div>
+      <button class="btn ghost sm" type="button" :disabled="isBusy" @click="emit('check')">
+        {{ busy === 'checking' ? S.upd_checking : S.upd_check_now }}
+      </button>
+    </template>
+
+    <!-- A build-tree / artifact-area copy (`InstallForm::Dev`). It checks nothing
+         (design §4.2), so it offers no check, no verdict and no evidence line —
+         but it SAYS so, and names the criterion (`form.rs::is_dev_path`), so a
+         user who ran the app out of a folder called `publish` can see why. -->
+    <div v-else-if="!showsUpdateBlock(s)" class="muted upd-hint" role="status">
+      {{ S.upd_dev_note }}
+    </div>
+
+    <template v-else>
     <!-- The result of the previous attempt (breadcrumb). Event-type "updated to x" / state-type "last one did not finish" -->
     <div v-if="notice" class="upd-notice" :class="notice.kind" role="status">
       <span v-if="notice.kind === 'done'">{{ S.upd_done }} {{ notice.to }}</span>
@@ -207,6 +247,7 @@
     <button class="btn ghost sm" type="button" :disabled="isBusy" @click="emit('check')">
       {{ busy === 'checking' ? S.upd_checking : S.upd_check_now }}
     </button>
+    </template>
   </div>
 </template>
 
@@ -223,11 +264,16 @@ import {
   showsUpdateBlock,
   verdict,
   type UpdateActivity,
+  type UpdateSnapshot,
   type UpdateStateDto,
 } from '../../lib/update-view';
 
 const props = defineProps<{
   s: UpdateStateDto;
+  /** Whether `s` is Rust's answer or the store's placeholder — see
+   *  `UpdateSnapshot`. Defaults to `answered` so a caller handing over a real
+   *  state (every test in update-block.test.ts) gets the full block. */
+  snapshot?: UpdateSnapshot;
   /** The VERB in flight, or nothing. See `UpdateActivity` for why this is the
    *  frontend's fact and not `s.checking`. */
   busy?: UpdateActivity;
@@ -239,6 +285,7 @@ const emit = defineEmits<{
 }>();
 
 const s = computed(() => props.s);
+const snapshot = computed<UpdateSnapshot>(() => props.snapshot ?? 'answered');
 const busy = computed(() => props.busy ?? null);
 /** Any command in flight — every action on this card is unavailable while one is. */
 const isBusy = computed(() => busy.value !== null);

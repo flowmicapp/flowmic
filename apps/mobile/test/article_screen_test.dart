@@ -44,131 +44,26 @@
 // have stayed green through the whole 0.3.47 defect, because the rules were
 // never the thing that was wrong.
 
-import 'package:flowmic/generated/flowmic_events.g.dart';
-import 'package:flowmic/src/audio/audio_capture.dart';
-import 'package:flowmic/src/destination/destination_controller.dart';
+// The two below are for their EXTENSIONS (`pttDown`/`pttUp` on ChatController,
+// `endContinuous` on PttSession), which the rig's own file does not re-export.
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
-import 'package:flowmic/src/settings/local_prefs.dart';
-import 'package:flowmic/src/signaling/socket_core.dart';
-import 'package:flowmic/src/signaling/state_machine.dart';
-import 'package:flowmic/src/timeline/timeline_store.dart';
-import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/article_page.dart';
 import 'package:flowmic/src/ui/chat_article_tile.dart';
-import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/ui/chat_message_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/di.dart';
-import 'support/fakes.dart';
+import 'support/article_rig.dart';
 
-/// 🔴 THE ROWS MUST BE OWNED BY THE INSTANCE THIS SCREEN IS SCOPED TO, or the
-/// page renders nothing at all and every `findsNothing` below passes for the
-/// wrong reason. `entriesForOwners` excludes rows with a null owner by design
-/// (card F2), and `newTestStore`'s default owner has none — the first draft of
-/// this file failed with 「Found 0 widgets with text 随口说一句」 on the reverse
-/// control, which is exactly the positive control doing its job on the FIXTURE
-/// rather than on the product.
-class _SessionOwner implements InstanceOwnerProbe {
-  const _SessionOwner(this._session);
-  final PttSession _session;
-  @override
-  String? get instanceId => _session.connectedInstanceId;
-  @override
-  String? get instanceName => _session.pcDisplayName;
-}
+// The rig (a real ChatController over the light-record screen, and the tall
+// surface the screen has to be mounted on) moved VERBATIM to
+// support/article_rig.dart on 2026-08-30 so article_copy_screen_test.dart can
+// drive the same screen through the same chain. Its arguments live there.
+typedef _Rig = ArticleRig;
 
-class _Rig {
-  _Rig() {
-    transport = FakeSocketTransport();
-    session = newTestSession(
-      transport: transport,
-      audio: AudioCapture(recorder: FakeAudioRecorder()),
-      stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
-    );
-    giveSessionAPairedIdentity(session);
-    store = newTestStore(owner: _SessionOwner(session));
-    controller = ChatController(
-      outboxStore: newTestOutboxStore(),
-      outboxBlobs: newTestOutboxBlobs(),
-      session: session,
-      store: store,
-      // Ruling ⑨ — continuous recording only exists where nothing is delivered.
-      destination: DestinationController(fixedRecordOnly: true),
-      syncGate: TimelineSyncGate(transport: transport),
-      localPrefs: InMemoryLocalPrefs(),
-    );
-    transport.pushStatus(SocketStatus.connected);
-  }
-
-  late final FakeSocketTransport transport;
-  late final PttSession session;
-  late final TimelineStore store;
-  late final ChatController controller;
-
-  Future<String> startRecording() async {
-    final String id = session.beginContinuous(
-      cap: const Duration(minutes: 30),
-      onWarning: () {},
-    );
-    await controller.pttDown();
-    return id;
-  }
-
-  Future<void> say(String text, int idx, {required bool isSegment}) async {
-    transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
-      'text': text,
-      'confidence': 0.95,
-      'language': 'zh',
-      'segment_idx': idx,
-      'is_segment': isSegment,
-      'duration_ms': 30000,
-    });
-    await pumpEventQueue();
-  }
-
-  /// Three sentences, then stop — the smallest thing that is a RECORDING and
-  /// not an utterance.
-  Future<String> recordThreeAndStop() async {
-    final String id = await startRecording();
-    await say('今天先过两件事', 0, isSegment: true);
-    await say('第一件是库存口径', 1, isSegment: true);
-    await controller.pttUp();
-    await say('第二件是采购节奏', 2, isSegment: false);
-    session.endContinuous();
-    return id;
-  }
-
-  Future<void> dispose() async {
-    await controller.dispose();
-    store.dispose();
-    await session.dispose();
-  }
-}
-
-/// 🔴 A TALL SURFACE, AND IT IS NOT COSMETIC. The timeline is a `ListView`,
-/// which BUILDS ONLY WHAT FITS. On the default 800×600 surface the dock, header
-/// and banner slot leave a viewport short enough that older rows are never
-/// built at all — and an unbuilt row cannot be found by any finder, including
-/// `skipOffstage: false`. Measured while writing this file: two of three
-/// sentences 「passed」 `findsNothing` on a build where the collapse was not
-/// running at all.
-///
-/// ⇒ 「先核你的尺子」 in its widget-test form: `findsNothing` over a lazy list
-/// is not evidence of absence unless the list had room to build everything.
-/// [_ChatMessageTile count] is the primary claim below for the same reason.
-Future<void> _mount(WidgetTester tester, _Rig r) async {
-  tester.view.physicalSize = const Size(800, 2400);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.reset);
-  await tester.pumpWidget(
-    MaterialApp(home: ChatFlowPage(controller: r.controller)),
-  );
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 50));
-}
+Future<void> _mount(WidgetTester tester, _Rig r) =>
+    mountLightRecordScreen(tester, r);
 
 void main() {
   testWidgets(

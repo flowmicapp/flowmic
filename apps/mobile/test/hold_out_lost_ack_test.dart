@@ -81,6 +81,8 @@ import 'package:flowmic/src/auth/token_storage.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/hold_out_retry.dart';
 import 'package:flowmic/src/session/instance_probe.dart' show HealthReading;
+import 'package:flowmic/src/signaling/mobile_reconnect_flow.dart'
+    show ReconnectRefusal;
 import 'package:flowmic/src/signaling/socket_core.dart' show EventEnvelope;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -197,6 +199,39 @@ void main() {
     // timer is broken", not "can it still recover after getting no answer".
     expect(await _waitFor(() => _reconnectFrames(transport) >= 2), isTrue,
         reason: 'the ordinary 49-2 recheck never even left — this case is no longer testing this card');
+
+    // 🔴 ...and then for its VERDICT to land, which is a SECOND moment. The
+    // frame leaving and "nobody answered" being processed are separated by a
+    // microtask: `_LosesAnAck.emitWithAck` records the frame and throws, and
+    // the throw reaches `runMobileReconnect`'s catch — and so `onRejected`,
+    // which lowers the banner — only when that microtask runs. On
+    // flutter_tester that gap is observable from here: the UI isolate's
+    // schedule-immediate closure is dart:ui's, so `_Timer._runTimers`'s
+    // `_runPendingImmediateCallback()` (timer_impl.dart) is a no-op and two
+    // timers due in the same wakeup — the 1 s hold-out timer and this
+    // helper's 50 ms poll — run back-to-back with NO microtask flush between
+    // them, while `Future.delayed`'s completion resumes `_waitFor` and this
+    // test body SYNCHRONOUSLY inside the poll's own timer callback. Sampling
+    // "frames >= 2" there sees the frame but not the verdict.
+    // Measured 2026-08-30 (dev-pc-a, this case alone ×20): 1/20 runs
+    // hit exactly that — `Expected: false / Actual: <true>` on the banner
+    // assertion below — and a two-timer drill reproduced the ordering on
+    // demand (`frameLeft=true verdict=false`).
+    //
+    // So the wait is on the verdict itself. `lastReconnectRefusal` is written
+    // by the SAME synchronous block of `onRejected` that lowers the banner
+    // (ptt_reconnect_ack.dart), and a non-null refusal with a null code is,
+    // by that class's own contract, "asked, nobody answered". It cannot be
+    // satisfied by "we got in" instead: frame ③'s accepted ack never writes
+    // it, so the banner assertion below still reads the state left by the
+    // LOST ack, not by the later success.
+    expect(
+        await _waitFor(() {
+          final ReconnectRefusal? verdict = session.lastReconnectRefusal;
+          return verdict != null && verdict.code == null;
+        }),
+        isTrue,
+        reason: 'the recheck left but its "nobody answered" verdict never landed');
 
     // 0.2.52 split "draw the banner or not" from "when to ask again"; this card
     // **must not merge them back**: when we got no answer the banner must fall

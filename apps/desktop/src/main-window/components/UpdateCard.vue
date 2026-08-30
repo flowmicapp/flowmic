@@ -33,6 +33,7 @@
 <template>
   <UpdateBlock
     :s="s"
+    :snapshot="snapshot"
     :busy="busy"
     :open-failed="openFailed"
     @check="updateCheckNow"
@@ -55,6 +56,7 @@ import {
   updateDismissPending,
   updateDownload,
   updateSetAutoCheck,
+  updateSnapshot as snapshot,
   updateState as s,
 } from '../update-store';
 

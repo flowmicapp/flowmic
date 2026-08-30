@@ -9,6 +9,16 @@
 // and the zh-CN fixed
 // time formatting are unit-testable in isolation.
 //
+// 🔴 2026-08-30 owner defect sweep: `asPairedMobiles` used to fall back to the
+// hardcoded Chinese literal '手机' whenever a pairing's `mobile_name` came back
+// empty (a phone that has not sent a name yet), rendered in the device page's
+// paired-phones table under every UI locale, not only zh-CN. The fallback is
+// now `S.dev_paired_default_name` (lib/strings/devices.ts) — a live read at
+// call time (this module is called on every refresh, not once at import), so
+// it always reflects whatever locale is active THEN, same as the
+// GETTERS-reading-S pattern PACK_LABELS/PROFESSION_LABELS use in
+// settings-model.ts.
+//
 // TWO honesty rules live here, both learned the hard way:
 //   • A FAILED read (socket down, ack timeout, server refusal) is NOT an empty
 //     list. "No phones paired" and "we could not ask" are different facts and the
@@ -18,12 +28,27 @@
 //     a phone to online on its own (e.g. from a recent last_seen_at); a missing
 //     flag reads offline.
 
+import { S } from './strings';
+
 /** One row of the pc:list-mobiles ack — the PUBLIC projection, five fields.
  *  There is deliberately no token/secret field: the server never sends one and
  *  the Rust bridge narrows the ack again before it reaches this layer. */
 export interface PairedMobile {
   /** mobile_pairings row id (the id the phone joins the room under). */
   pairing_id: string;
+  /** From the server's `mobile_pairings.mobile_name`. When the phone has not
+   *  claimed a name yet, [[asPairedMobiles]] fills this in with a localized
+   *  DISPLAY fallback (`S.dev_paired_default_name`, e.g. "Phone"/"手机").
+   *  This module is Tauri-free/pure (file header) and has NO writer of any
+   *  kind — grep confirms there is no desktop-side call that could send a
+   *  phone's `mobile_name` back to the server (renaming a device is not a
+   *  capability this app exposes at all; only the phone itself ever claims
+   *  its own name — see `server-core/src/room/registry.ts`'s pairing insert,
+   *  which stores the phone's claimed name or its own server-side fallback).
+   *  So the desktop fallback is read here, shown here, and goes nowhere else: a row
+   *  carrying it still has an EMPTY name server-side, and the next refresh
+   *  after the phone DOES claim a name simply replaces this locale-dependent
+   *  placeholder with the real one. */
   mobile_name: string;
   /** ISO-8601 pairing timestamp. */
   paired_at: string;
@@ -100,7 +125,7 @@ export function asPairedMobiles(raw: unknown): PairedMobile[] | null {
     if (pairing_id === '') continue;
     rows.push({
       pairing_id,
-      mobile_name: str(o.mobile_name) || '手机',
+      mobile_name: str(o.mobile_name) || S.dev_paired_default_name,
       paired_at: str(o.paired_at),
       last_seen_at: typeof o.last_seen_at === 'string' && o.last_seen_at !== '' ? o.last_seen_at : null,
       online: o.online === true,

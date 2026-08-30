@@ -316,6 +316,14 @@ const S_EN_OWN = {
   pack_finance: 'Finance terms pack',
   pack_proper_noun: 'Product & brand names pack',
   pack_code_switch: 'zh–en mixed speech pack',
+  profession_swdev: 'Software development',
+  profession_cloud_ops: 'Cloud-native / Ops',
+  profession_product_design: 'Product design',
+  profession_finance: 'Finance',
+  profession_healthcare: 'Healthcare',
+  profession_law: 'Law',
+  profession_education: 'Education',
+  profession_research: 'Research',
   saved: 'Saved',
   saved_local: 'Saved locally',
   saved_local_no_service_hint: 'The local service is not ready yet — the settings above are saved on this PC and will sync automatically once it starts. If this persists, check the local service status on the Devices page and retry.',
@@ -614,6 +622,9 @@ const S_EN_OWN = {
   upd_open_page: 'Open download page',
   upd_dismiss: 'Dismiss',
   upd_retry: 'Retry',
+  upd_loading: 'Reading this copy’s update status…',
+  upd_state_unavailable: 'Could not read this copy’s update status. Use “Check now” to ask again.',
+  upd_dev_note: 'This copy runs from a build or artifact folder (target/ or publish/), so it never checks for updates.',
   upd_form_unknown: 'We cannot tell how this copy was installed, so updating has to be manual.',
   upd_form_unsupported: 'Automatic updates are not built for this platform yet.',
   upd_no_fetchable: 'This release has no package this machine can install automatically.',
@@ -726,6 +737,9 @@ const S_EN_OWN = {
   op_reinject_nothing: 'Nothing was typed',
   op_reinject_failed: 'Could not re-inject',
   cloud_err_wrong_node: "This relay server does not handle registration — reconnect to reach the one that does",
+  set_prefs_autostart_unrecognised_shape: 'the response had an unrecognized shape',
+  injected_into: 'Injected into {title} · {when}',
+  dev_paired_default_name: 'Phone',
 };
 
 const S_EN = {
@@ -736,7 +750,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 702/702 translated;
+// zh-CN (中文) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -1032,6 +1046,14 @@ const S_ZH_CN_OWN = {
   pack_finance: '金融术语词包',
   pack_proper_noun: '产品 / 品牌名词包',
   pack_code_switch: '中英混说词包',
+  profession_swdev: '软件开发',
+  profession_cloud_ops: '云原生 / 运维',
+  profession_product_design: '产品设计',
+  profession_finance: '金融',
+  profession_healthcare: '医疗',
+  profession_law: '法律',
+  profession_education: '教育',
+  profession_research: '科研',
   saved: '已保存',
   saved_local: '已存本地',
   saved_local_no_service_hint: '本地服务尚未就绪，以上设置已保存在本机，服务启动后自动同步。若长时间未恢复，请前往「设备」页查看本地服务状态并重试。',
@@ -1330,6 +1352,9 @@ const S_ZH_CN_OWN = {
   upd_open_page: '打开下载页',
   upd_dismiss: '知道了',
   upd_retry: '重试',
+  upd_loading: '正在读取本副本的更新状态…',
+  upd_state_unavailable: '读不到本副本的更新状态，请点“立即检查”再问一次。',
+  upd_dev_note: '本副本运行在构建或产物目录（target/ 或 publish/）里，因此从不检查更新。',
   upd_form_unknown: '无法确定这份拷贝的安装形态，只能手动更新。',
   upd_form_unsupported: '这个平台的自动更新还没做。',
   upd_no_fetchable: '这一版没有本机能自动安装的安装包。',
@@ -1442,6 +1467,9 @@ const S_ZH_CN_OWN = {
   op_reinject_nothing: '什么都没有输入',
   op_reinject_failed: '无法重新注入',
   cloud_err_wrong_node: "这台中继服务器不处理注册，请重新连接以到达能注册的那一台",
+  set_prefs_autostart_unrecognised_shape: '返回的数据格式无法识别',
+  injected_into: '注入到 {title} · {when}',
+  dev_paired_default_name: '手机',
 };
 
 const S_ZH_CN = {
@@ -1452,7 +1480,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 697/702 translated;
+// zh-TW (繁體中文) — 711/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1743,6 +1771,14 @@ const S_ZH_TW_OWN = {
   pack_finance: '金融術語詞庫',
   pack_proper_noun: '產品 / 品牌名稱詞庫',
   pack_code_switch: '中英夾雜詞庫',
+  profession_swdev: '軟體開發',
+  profession_cloud_ops: '雲原生 / 維運',
+  profession_product_design: '產品設計',
+  profession_finance: '金融',
+  profession_healthcare: '醫療',
+  profession_law: '法律',
+  profession_education: '教育',
+  profession_research: '科研',
   saved: '已儲存',
   saved_local: '已存於本機',
   saved_local_no_service_hint: '本機服務尚未就緒，以上設定已儲存在本機，服務啟動後會自動同步。若長時間未恢復，請前往「裝置」頁查看本機服務狀態並重試。',
@@ -2041,6 +2077,9 @@ const S_ZH_TW_OWN = {
   upd_open_page: '開啟下載頁',
   upd_dismiss: '知道了',
   upd_retry: '重試',
+  upd_loading: '正在讀取本副本的更新狀態…',
+  upd_state_unavailable: '讀不到本副本的更新狀態，請點「立即檢查」再問一次。',
+  upd_dev_note: '本副本執行於建置或產物目錄（target/ 或 publish/）中，因此從不檢查更新。',
   upd_form_unknown: '無法確定這份副本的安裝形式，只能手動更新。',
   upd_form_unsupported: '這個平台的自動更新還沒做。',
   upd_no_fetchable: '這一版沒有本機能自動安裝的安裝檔。',
@@ -2153,6 +2192,9 @@ const S_ZH_TW_OWN = {
   op_reinject_nothing: '什麼都沒有輸入',
   op_reinject_failed: '無法重新注入',
   cloud_err_wrong_node: "這臺中繼伺服器不處理註冊，請重新連線以連上能註冊的那一臺",
+  set_prefs_autostart_unrecognised_shape: '返回的資料格式無法識別',
+  injected_into: '注入到 {title} · {when}',
+  dev_paired_default_name: '手機',
 };
 
 const S_ZH_TW = {
@@ -2163,7 +2205,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 702/702 translated;
+// fr (Français) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2459,6 +2501,14 @@ const S_FR_OWN = {
   pack_finance: 'Pack de termes financiers',
   pack_proper_noun: 'Pack de noms de produits et de marques',
   pack_code_switch: 'Pack parole mixte chinois-anglais',
+  profession_swdev: 'Développement logiciel',
+  profession_cloud_ops: 'Cloud natif / Ops',
+  profession_product_design: 'Conception produit',
+  profession_finance: 'Finance',
+  profession_healthcare: 'Santé',
+  profession_law: 'Droit',
+  profession_education: 'Éducation',
+  profession_research: 'Recherche',
   saved: 'Enregistré',
   saved_local: 'Enregistré localement',
   saved_local_no_service_hint: "Le service local n'est pas encore prêt — les paramètres ci-dessus sont enregistrés sur ce PC et se synchroniseront automatiquement à son démarrage. Si cela persiste, vérifiez l'état du service local dans la page Appareils et réessayez.",
@@ -2757,6 +2807,9 @@ const S_FR_OWN = {
   upd_open_page: 'Ouvrir la page de téléchargement',
   upd_dismiss: 'OK',
   upd_retry: 'Réessayer',
+  upd_loading: 'Lecture de l’état de mise à jour de cette copie…',
+  upd_state_unavailable: 'Impossible de lire l’état de mise à jour de cette copie. Utilisez « Vérifier maintenant » pour redemander.',
+  upd_dev_note: 'Cette copie s’exécute depuis un dossier de build ou d’artefacts (target/ ou publish/), elle ne vérifie donc jamais les mises à jour.',
   upd_form_unknown: 'Nous ne pouvons pas déterminer comment cette copie a été installée ; la mise à jour doit donc être manuelle.',
   upd_form_unsupported: 'Les mises à jour automatiques ne sont pas encore disponibles sur cette plateforme.',
   upd_no_fetchable: "Cette version n'a aucun paquet que cette machine puisse installer automatiquement.",
@@ -2869,6 +2922,9 @@ const S_FR_OWN = {
   op_reinject_nothing: 'Rien n\'a été saisi',
   op_reinject_failed: 'Réinjection impossible',
   cloud_err_wrong_node: "Ce serveur relais ne gère pas l’enregistrement — reconnectez-vous pour atteindre celui qui le fait",
+  set_prefs_autostart_unrecognised_shape: 'la réponse avait un format non reconnu',
+  injected_into: 'Injecté dans {title} · {when}',
+  dev_paired_default_name: 'Téléphone',
 };
 
 const S_FR = {
@@ -2879,7 +2935,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 702/702 translated;
+// es (Español) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -3175,6 +3231,14 @@ const S_ES_OWN = {
   pack_finance: 'Paquete de términos financieros',
   pack_proper_noun: 'Paquete de nombres de productos y marcas',
   pack_code_switch: 'Paquete de habla mixta chino-inglés',
+  profession_swdev: 'Desarrollo de software',
+  profession_cloud_ops: 'Cloud nativo / Operaciones',
+  profession_product_design: 'Diseño de producto',
+  profession_finance: 'Finanzas',
+  profession_healthcare: 'Salud',
+  profession_law: 'Derecho',
+  profession_education: 'Educación',
+  profession_research: 'Investigación',
   saved: 'Guardado',
   saved_local: 'Guardado en local',
   saved_local_no_service_hint: 'El servicio local todavía no está listo: los ajustes de arriba se han guardado en este PC y se sincronizarán solos cuando arranque. Si sigue así, revisa el estado del servicio local en la página Dispositivos y vuelve a intentarlo.',
@@ -3473,6 +3537,9 @@ const S_ES_OWN = {
   upd_open_page: 'Abrir la página de descarga',
   upd_dismiss: 'Entendido',
   upd_retry: 'Reintentar',
+  upd_loading: 'Leyendo el estado de actualización de esta copia…',
+  upd_state_unavailable: 'No se pudo leer el estado de actualización de esta copia. Usa «Comprobar ahora» para volver a preguntar.',
+  upd_dev_note: 'Esta copia se ejecuta desde una carpeta de compilación o de artefactos (target/ o publish/), por lo que nunca busca actualizaciones.',
   upd_form_unknown: 'No podemos saber cómo se instaló esta copia, así que la actualización tiene que ser manual.',
   upd_form_unsupported: 'La actualización automática todavía no existe para esta plataforma.',
   upd_no_fetchable: 'Esta versión no tiene ningún paquete que esta máquina pueda instalar automáticamente.',
@@ -3585,6 +3652,9 @@ const S_ES_OWN = {
   op_reinject_nothing: 'No se escribió nada',
   op_reinject_failed: 'No se pudo reinyectar',
   cloud_err_wrong_node: "Este servidor de retransmisión no gestiona el registro: vuelve a conectarte para llegar al que sí lo hace",
+  set_prefs_autostart_unrecognised_shape: 'la respuesta tenía un formato no reconocido',
+  injected_into: 'Inyectado en {title} · {when}',
+  dev_paired_default_name: 'Teléfono',
 };
 
 const S_ES = {
@@ -3595,7 +3665,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 702/702 translated;
+// de (Deutsch) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3891,6 +3961,14 @@ const S_DE_OWN = {
   pack_finance: 'Wortpaket Finanzen',
   pack_proper_noun: 'Wortpaket Produkt- & Markennamen',
   pack_code_switch: 'Wortpaket Chinesisch-Englisch gemischt',
+  profession_swdev: 'Softwareentwicklung',
+  profession_cloud_ops: 'Cloud-native / Betrieb',
+  profession_product_design: 'Produktdesign',
+  profession_finance: 'Finanzen',
+  profession_healthcare: 'Gesundheitswesen',
+  profession_law: 'Recht',
+  profession_education: 'Bildung',
+  profession_research: 'Forschung',
   saved: 'Gespeichert',
   saved_local: 'Lokal gespeichert',
   saved_local_no_service_hint: 'Der lokale Dienst ist noch nicht bereit – die Einstellungen oben sind auf diesem PC gespeichert und werden nach dem Start automatisch synchronisiert. Hält das an, prüfe den Status des lokalen Dienstes auf der Seite „Geräte“ und versuche es erneut.',
@@ -4189,6 +4267,9 @@ const S_DE_OWN = {
   upd_open_page: 'Download-Seite öffnen',
   upd_dismiss: 'Verstanden',
   upd_retry: 'Wiederholen',
+  upd_loading: 'Update-Status dieser Kopie wird gelesen…',
+  upd_state_unavailable: 'Der Update-Status dieser Kopie konnte nicht gelesen werden. Mit „Jetzt prüfen“ erneut fragen.',
+  upd_dev_note: 'Diese Kopie läuft aus einem Build- oder Artefaktordner (target/ oder publish/) und prüft daher nie auf Updates.',
   upd_form_unknown: 'Wir können nicht feststellen, wie diese Kopie installiert wurde, daher muss manuell aktualisiert werden.',
   upd_form_unsupported: 'Automatische Updates gibt es für diese Plattform noch nicht.',
   upd_no_fetchable: 'Diese Version enthält kein Paket, das dieser Rechner automatisch installieren kann.',
@@ -4301,6 +4382,9 @@ const S_DE_OWN = {
   op_reinject_nothing: 'Es wurde nichts eingegeben',
   op_reinject_failed: 'Erneutes Einfügen nicht möglich',
   cloud_err_wrong_node: "Dieser Relay-Server übernimmt keine Registrierung – neu verbinden, um den zuständigen zu erreichen",
+  set_prefs_autostart_unrecognised_shape: 'die Antwort hatte ein nicht erkanntes Format',
+  injected_into: 'Eingefügt in {title} · {when}',
+  dev_paired_default_name: 'Handy',
 };
 
 const S_DE = {
@@ -4311,7 +4395,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 702/702 translated;
+// ja (日本語) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4607,6 +4691,14 @@ const S_JA_OWN = {
   pack_finance: '金融用語パック',
   pack_proper_noun: '製品 / ブランド名パック',
   pack_code_switch: '中国語・英語混在パック',
+  profession_swdev: 'ソフトウェア開発',
+  profession_cloud_ops: 'クラウドネイティブ / 運用',
+  profession_product_design: 'プロダクトデザイン',
+  profession_finance: '金融',
+  profession_healthcare: '医療',
+  profession_law: '法律',
+  profession_education: '教育',
+  profession_research: '研究',
   saved: '保存しました',
   saved_local: 'ローカルに保存しました',
   saved_local_no_service_hint: 'ローカルサービスがまだ準備できていません。上記の設定はこのPCに保存され、サービス起動後に自動的に同期されます。長時間解消しない場合は「デバイス」ページでローカルサービスの状態を確認し、再試行してください。',
@@ -4905,6 +4997,9 @@ const S_JA_OWN = {
   upd_open_page: 'ダウンロードページを開く',
   upd_dismiss: '閉じる',
   upd_retry: '再試行',
+  upd_loading: 'このコピーの更新状態を読み込んでいます…',
+  upd_state_unavailable: 'このコピーの更新状態を読み取れませんでした。「今すぐ確認」でもう一度問い合わせてください。',
+  upd_dev_note: 'このコピーはビルドまたは成果物フォルダー（target/ または publish/）から実行されているため、更新を確認しません。',
   upd_form_unknown: 'このコピーの導入形態が判別できないため、更新は手動になります。',
   upd_form_unsupported: 'このプラットフォームの自動更新はまだありません。',
   upd_no_fetchable: 'この版には、この端末が自動で導入できるパッケージがありません。',
@@ -5017,6 +5112,9 @@ const S_JA_OWN = {
   op_reinject_nothing: '何も入力されませんでした',
   op_reinject_failed: '再注入できませんでした',
   cloud_err_wrong_node: "この中継サーバーは登録を扱いません。接続し直して、登録できるサーバーに接続してください",
+  set_prefs_autostart_unrecognised_shape: '応答の形式を認識できませんでした',
+  injected_into: '{title} に注入 · {when}',
+  dev_paired_default_name: 'スマホ',
 };
 
 const S_JA = {
@@ -5027,7 +5125,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 702/702 translated;
+// ko (한국어) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -5323,6 +5421,14 @@ const S_KO_OWN = {
   pack_finance: '금융 용어 팩',
   pack_proper_noun: '제품 / 브랜드 명사 팩',
   pack_code_switch: '중국어·영어 혼합 발화 팩',
+  profession_swdev: '소프트웨어 개발',
+  profession_cloud_ops: '클라우드 네이티브 / 운영',
+  profession_product_design: '제품 디자인',
+  profession_finance: '금융',
+  profession_healthcare: '의료',
+  profession_law: '법률',
+  profession_education: '교육',
+  profession_research: '연구',
   saved: '저장했습니다',
   saved_local: '로컬에 저장했습니다',
   saved_local_no_service_hint: '로컬 서비스가 아직 준비되지 않았습니다. 위 설정은 이 PC에 저장되며 서비스가 시작되면 자동으로 동기화됩니다. 오랫동안 해결되지 않으면 「기기」 페이지에서 로컬 서비스 상태를 확인하고 다시 시도하세요.',
@@ -5621,6 +5727,9 @@ const S_KO_OWN = {
   upd_open_page: '다운로드 페이지 열기',
   upd_dismiss: '확인',
   upd_retry: '다시 시도',
+  upd_loading: '이 복사본의 업데이트 상태를 읽는 중…',
+  upd_state_unavailable: '이 복사본의 업데이트 상태를 읽을 수 없습니다. “지금 확인”으로 다시 물어보세요.',
+  upd_dev_note: '이 복사본은 빌드 또는 산출물 폴더(target/ 또는 publish/)에서 실행되고 있어 업데이트를 확인하지 않습니다.',
   upd_form_unknown: '이 사본이 어떻게 설치되었는지 알 수 없어 수동으로 업데이트해야 합니다.',
   upd_form_unsupported: '이 플랫폼의 자동 업데이트는 아직 없습니다.',
   upd_no_fetchable: '이 버전에는 이 기기가 자동으로 설치할 수 있는 패키지가 없습니다.',
@@ -5733,6 +5842,9 @@ const S_KO_OWN = {
   op_reinject_nothing: '아무것도 입력되지 않았습니다',
   op_reinject_failed: '재주입할 수 없습니다',
   cloud_err_wrong_node: "이 중계 서버는 등록을 처리하지 않습니다. 다시 연결해 등록이 가능한 서버로 접속하세요",
+  set_prefs_autostart_unrecognised_shape: '응답 형식을 인식할 수 없습니다',
+  injected_into: '{title}에 삽입됨 · {when}',
+  dev_paired_default_name: '휴대폰',
 };
 
 const S_KO = {
@@ -5743,7 +5855,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 702/702 translated;
+// ru (Русский) — 716/716 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -6039,6 +6151,14 @@ const S_RU_OWN = {
   pack_finance: 'Пакет финансовых терминов',
   pack_proper_noun: 'Пакет названий продуктов и брендов',
   pack_code_switch: 'Пакет для смешанной китайско-английской речи',
+  profession_swdev: 'Разработка ПО',
+  profession_cloud_ops: 'Облачная инфраструктура / DevOps',
+  profession_product_design: 'Дизайн продукта',
+  profession_finance: 'Финансы',
+  profession_healthcare: 'Здравоохранение',
+  profession_law: 'Право',
+  profession_education: 'Образование',
+  profession_research: 'Исследования',
   saved: 'Сохранено',
   saved_local: 'Сохранено локально',
   saved_local_no_service_hint: 'Локальная служба ещё не готова — настройки выше сохранены на этом компьютере и синхронизируются автоматически после её запуска. Если это не проходит долго, проверьте состояние локальной службы на странице «Устройства» и повторите.',
@@ -6337,6 +6457,9 @@ const S_RU_OWN = {
   upd_open_page: 'Открыть страницу загрузки',
   upd_dismiss: 'Понятно',
   upd_retry: 'Повторить',
+  upd_loading: 'Читаем статус обновления этой копии…',
+  upd_state_unavailable: 'Не удалось прочитать статус обновления этой копии. Нажмите «Проверить сейчас», чтобы спросить снова.',
+  upd_dev_note: 'Эта копия запущена из папки сборки или артефактов (target/ или publish/), поэтому обновления никогда не проверяются.',
   upd_form_unknown: 'Не удаётся определить, как была установлена эта копия, поэтому обновлять придётся вручную.',
   upd_form_unsupported: 'Автоматические обновления для этой платформы пока не реализованы.',
   upd_no_fetchable: 'В этом выпуске нет пакета, который эта машина может установить автоматически.',
@@ -6449,6 +6572,9 @@ const S_RU_OWN = {
   op_reinject_nothing: 'Ничего не было введено',
   op_reinject_failed: 'Не удалось вставить снова',
   cloud_err_wrong_node: "Этот ретранслятор не выполняет регистрацию — переподключитесь, чтобы попасть на тот, который её выполняет",
+  set_prefs_autostart_unrecognised_shape: 'ответ имел нераспознанный формат',
+  injected_into: 'Вставлено в {title} · {when}',
+  dev_paired_default_name: 'Телефон',
 };
 
 const S_RU = {

@@ -118,11 +118,44 @@ describe('UpdateBlock (rendered)', () => {
     expect(checked).toContain(S.upd_up_to_date);
   });
 
-  /** A dev build renders nothing at all — not even "unknown." */
-  it('a dev build renders no update block', async () => {
+  /**
+   * A dev build claims no verdict — not "up to date", not even "unknown" — and
+   * offers no check. 🔴 But it is not BLANK (0.3.49): this test used to assert
+   * `not.toContain(S.upd_section)`, i.e. it required the empty box that a real
+   * user then saw on Windows 10 and read as "not implemented". The section
+   * title and one sentence naming why it never checks are what a dev copy says.
+   */
+  it('a dev build says it never checks, and claims nothing else', async () => {
     const html = await render(state({ form: 'dev' }));
-    expect(html).not.toContain(S.upd_section);
+    expect(html).toContain(S.upd_section);
+    expect(html).toContain(S.upd_dev_note);
     expect(html).not.toContain(S.upd_up_to_date);
+    expect(html).not.toContain(S.upd_check_now);
+    expect(html).not.toContain(S.upd_last_check);
+  });
+
+  /**
+   * 🔴 The two frontend-only states (0.3.49). Before Rust answers the card says
+   * it is reading; if Rust never answers it says so AND still offers the
+   * check — and per L-① the button is verified by what clicking it DOES, not
+   * by its markup: the emit is the store's `update_check`, whose returned
+   * state flips the store back to `answered` (update-store.test.ts).
+   */
+  it('🔴 says it is reading before Rust answers, and says so when Rust never did', async () => {
+    const pending = await renderToString(
+      createSSRApp(UpdateBlock, { s: state({ form: 'dev', current_version: '' }), snapshot: 'pending' }),
+    );
+    expect(pending).toContain(S.upd_loading);
+    expect(pending).not.toContain(S.upd_check_now);
+    expect(pending).not.toContain(S.upd_dev_note);
+
+    const unanswered = await renderToString(
+      createSSRApp(UpdateBlock, { s: state({ form: 'dev', current_version: '' }), snapshot: 'unanswered' }),
+    );
+    expect(unanswered).toContain(S.upd_state_unavailable);
+    expect(unanswered).toContain(S.upd_check_now);
+    expect(unanswered).not.toContain(S.upd_loading);
+    expect(unanswered).not.toContain(S.upd_dev_note);
   });
 
   /**

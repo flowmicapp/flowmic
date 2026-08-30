@@ -5,7 +5,7 @@
 // 手机」("no paired phones yet"), and a phone must never be shown online on
 // anything but the server's live presence flag.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   asPairedMobiles,
   asPairedMobilesView,
@@ -17,6 +17,8 @@ import {
   writePairedCache,
   type PairedMobile,
 } from './paired-mobiles';
+import { S_BY_LOCALE } from './strings';
+import { UI_LOCALES, setLocale, type UiLocale } from './strings/locale';
 
 const ROW: PairedMobile = {
   pairing_id: 'p1',
@@ -47,15 +49,56 @@ describe('asPairedMobiles — narrowing the IPC payload', () => {
     expect(asPairedMobiles([{ pairing_id: 'p1', online: 1 }])?.[0]?.online).toBe(false);
   });
 
-  it('drops unidentifiable rows and falls back to a neutral name', () => {
+  it('drops unidentifiable rows and falls back to a neutral, localized name (default UI locale = en)', () => {
+    setLocale('en');
     const rows = asPairedMobiles([{ mobile_name: 'ghost' }, { pairing_id: 'p2' }]);
     expect(rows).toHaveLength(1);
     expect(rows?.[0]?.pairing_id).toBe('p2');
-    expect(rows?.[0]?.mobile_name).toBe('手机');
+    expect(rows?.[0]?.mobile_name).toBe(S_BY_LOCALE.en.dev_paired_default_name);
   });
 
   it('treats an empty last_seen_at as never-connected (null), not as blank text', () => {
     expect(asPairedMobiles([{ pairing_id: 'p1', last_seen_at: '' }])?.[0]?.last_seen_at).toBeNull();
+  });
+});
+
+// ── 2026-08-30 owner defect sweep ────────────────────────────────────────────
+// Before this fix, an unnamed pairing's `mobile_name` fell back to the
+// hardcoded Chinese literal '手机', rendered in the device page's paired-
+// phones table (PairedList.vue) under every UI locale, not only zh-CN. The
+// fallback is now `S.dev_paired_default_name` (lib/strings/devices.ts), read
+// live at call time — see the long comment on `PairedMobile.mobile_name`.
+const CJK = /[㐀-鿿]/;
+
+describe('asPairedMobiles empty-name fallback localizes with the UI locale (owner 2026-08-30)', () => {
+  afterEach(() => setLocale('en')); // back to the real DEFAULT_LOCALE for any test after this one
+
+  it('en: fallback name contains no CJK characters and matches the catalogue', () => {
+    setLocale('en');
+    const name = asPairedMobiles([{ pairing_id: 'p9' }])?.[0]?.mobile_name ?? '';
+    expect(name, 'en fallback must not contain any CJK character').not.toMatch(CJK);
+    expect(name).toBe('Phone');
+  });
+
+  it('🔴 positive control: the SAME probe under zh-CN DOES find CJK — proves the regex is not blind', () => {
+    setLocale('zh-CN');
+    const name = asPairedMobiles([{ pairing_id: 'p9' }])?.[0]?.mobile_name ?? '';
+    expect(name, 'zh-CN fallback should still contain CJK').toMatch(CJK);
+    expect(name).toBe('手机');
+  });
+
+  it('every one of the nine UI locales gets its own fallback word, not a bare token or stale locale', () => {
+    for (const loc of UI_LOCALES as readonly UiLocale[]) {
+      setLocale(loc);
+      const name = asPairedMobiles([{ pairing_id: 'p9' }])?.[0]?.mobile_name;
+      expect(name, `${loc} fallback name`).toBe(S_BY_LOCALE[loc].dev_paired_default_name);
+    }
+  });
+
+  it('a non-empty mobile_name from the server is NEVER overridden by the fallback', () => {
+    setLocale('en');
+    const name = asPairedMobiles([{ pairing_id: 'p9', mobile_name: 'Pixel 9' }])?.[0]?.mobile_name;
+    expect(name).toBe('Pixel 9');
   });
 });
 

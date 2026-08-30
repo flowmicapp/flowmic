@@ -117,10 +117,43 @@ function save(key: string, value: unknown): void {
   localKv.set(key, JSON.stringify(value));
 }
 
-/** Options offered by the profession/domain chip row (multi-select → card.professions). */
+/** Options offered by the profession/domain chip row (multi-select → card.professions).
+ *
+ *  🔴 THESE ARE THE STORED VALUES, NOT JUST DISPLAY TEXT (owner 2026-08-30
+ *  defect report). `card.professions` is a bare `string[]` (packages/protocol
+ *  src/scenario.ts) with no separate id — the entry the user clicks IS what
+ *  gets saved, synced to the server, and dropped verbatim into the compose
+ *  prompt as `Speaker professions: ...` (apps/server-core/src/compose/scenario.ts).
+ *  So this array must NOT change: an existing install's already-chosen chips,
+ *  and any prompt text already built from them, are keyed on these exact
+ *  strings. What was missing is a DISPLAY overlay — see PROFESSION_LABELS /
+ *  PROFESSIONS below, same split PACK_LABELS already draws for dictionary
+ *  packs (id stored, label shown). */
 export const PROFESSION_OPTIONS = [
   '软件开发', '云原生 / 运维', '产品设计', '金融', '医疗', '法律', '教育', '科研',
 ] as const;
+
+/** Localized display labels for PROFESSION_OPTIONS (owner 2026-08-30 defect:
+ *  the chip row showed Chinese labels under every UI locale, because the
+ *  template rendered the stored id directly). GETTERS reading S for the same
+ *  reason as PACK_LABELS just below — an init-time literal table would freeze
+ *  the boot locale and never switch. */
+export const PROFESSION_LABELS: Record<string, string> = {
+  get '软件开发'() { return S.profession_swdev; },
+  get '云原生 / 运维'() { return S.profession_cloud_ops; },
+  get '产品设计'() { return S.profession_product_design; },
+  get '金融'() { return S.profession_finance; },
+  get '医疗'() { return S.profession_healthcare; },
+  get '法律'() { return S.profession_law; },
+  get '教育'() { return S.profession_education; },
+  get '科研'() { return S.profession_research; },
+};
+/** `{id, label}` pairs the chip row iterates — `id` is the stored value
+ *  (unchanged), `label` is what the user reads. Same shape as PACKS below. */
+export const PROFESSIONS = PROFESSION_OPTIONS.map((id) => ({
+  id,
+  get label() { return PROFESSION_LABELS[id] ?? id; },
+}));
 
 /** Labels for the curated dictionary packs (protocol pack ids → UI label).
  *  V2-07.8a: GETTERS reading S — an init-time literal table would freeze the

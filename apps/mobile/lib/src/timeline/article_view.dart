@@ -30,6 +30,42 @@
 
 import 'timeline_entry.dart';
 
+/// Every row of [rows] that belongs to [articleId], OLDEST FIRST — the
+/// transcript order.
+///
+/// 🔴 THE ORDER IS THE CONTRACT, AND IT HAS ONE AUTHOR. Three readers need it
+/// (`articleMembersOf` over the store, `articleMembersOnDisk` and
+/// `LightRecordQuery.membersOf` over storage) and until 2026-08-30 two of them
+/// each carried their own copy of this sort. Copy paths now render a recording
+/// through whichever reader their screen has, so the sort those readers share
+/// is what makes 「the order the page shows」 and 「the order the clipboard
+/// gets」 the same fact rather than two that happen to agree.
+///
+/// Position inside the recording when both rows know it — NOT `createdAt`: a
+/// backfilled segment is written to disk long after the live segments that
+/// follow it inside the recording, so creation order is the order we HEARD
+/// them, and a transcript is the order they were SAID. `createdAt` is the
+/// tie-break, and the only order a row with no offset has.
+///
+/// Excludes the head (a cover is not one of the things that were said) and
+/// soft-deleted rows.
+List<TimelineEntry> articleMembersIn(
+  Iterable<TimelineEntry> rows,
+  String articleId,
+) {
+  final List<TimelineEntry> members = <TimelineEntry>[
+    for (final TimelineEntry e in rows)
+      if (e.articleId == articleId && !e.isArticle && !e.deleted) e,
+  ];
+  members.sort((TimelineEntry a, TimelineEntry b) {
+    final int? ao = a.articleOffsetMs;
+    final int? bo = b.articleOffsetMs;
+    if (ao != null && bo != null && ao != bo) return ao.compareTo(bo);
+    return a.createdAt.compareTo(b.createdAt);
+  });
+  return List<TimelineEntry>.unmodifiable(members);
+}
+
 /// Replace the member rows of every FINISHED article with its head row.
 ///
 /// [rows] is the screen's own list, in whatever order it already had; the

@@ -89,6 +89,13 @@ export const TIMELINE_KEYS = [
    *  same one (none). The exact cause is on the forensic record every time.
    *  Never used for `op_reinject_nothing`'s case, which the user CAN act on. */
   'op_reinject_failed',
+  // 2026-08-30 owner defect sweep: `injectProvenanceTooltip` (lib/inject-
+  // provenance.ts) used to build the injected-row hover tooltip from a
+  // hardcoded Chinese template (`注入到 ${title} · ${when}`), rendered as a
+  // native `title=""` tooltip in every UI locale. `{title}` and `{when}` are
+  // replaced the same way every other two-slot desktop string is (see
+  // relative-time.ts / cloud-account.ts's `.replace('{…}', …)` call sites).
+  'injected_into',
   'tl_sender_tip',
   'tl_zoom_hint',
   'tl_zoom_close',

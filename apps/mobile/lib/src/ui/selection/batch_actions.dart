@@ -31,6 +31,7 @@ import '../../session/image_clipboard.dart' show TextCopy;
 import '../../settings/app_strings.dart';
 import '../../timeline/timeline_entry.dart';
 import '../../timeline/timeline_reaper.dart' show ReapResult;
+import '../article_copy.dart' show ArticleMembers, articleCopyText;
 
 /// The text the selected records fold down into, and how that folding happened.
 class SelectedRecords {
@@ -59,14 +60,53 @@ class SelectedRecords {
 /// The separator is a single newline: one record per line. The organize
 /// pipeline gets 「a number of sentences」, not one long run glued together
 /// by spaces — the latter would make the LLM unable to tell where one ends.
-SelectedRecords selectedRecords(Iterable<TimelineEntry> selected) {
+///
+/// ── 🔴 A RECORDING IS ONE RECORD, AND ITS TEXT IS ITS PIECE (owner 2026-08-30)
+/// A continuous-recording head's `displayText` is a TITLE, so folding it down
+/// like any other row copied the name of the recording and called it the
+/// recording — 「轻记录的转录历史中复制…只复制了卡片上看得见的」. A head now
+/// renders through [articleCopyText] over [membersOf] (every segment, each
+/// with the range `ArticlePage` shows), counts as ONE record, and its members
+/// are skipped when they are ticked beside it (the full-history page lists
+/// them as rows) — a segment inside the piece and again as a line would be
+/// the same words twice.
+///
+/// [membersOf] is REQUIRED the moment a head is in [selected], and a missing
+/// lookup throws rather than falling back to the title: the fallback would be
+/// this exact defect, reinstated quietly by the next caller that forgets.
+/// Callers with no recordings on their screen may omit it.
+SelectedRecords selectedRecords(
+  Iterable<TimelineEntry> selected, {
+  ArticleMembers? membersOf,
+}) {
   final List<String> lines = <String>[];
   int images = 0;
-  for (final TimelineEntry e in _oldestFirst(selected)) {
+  final List<TimelineEntry> rows = _oldestFirst(selected);
+  final Set<String> heads = <String>{
+    for (final TimelineEntry e in rows)
+      if (e.isArticle && e.articleId != null) e.articleId!,
+  };
+  for (final TimelineEntry e in rows) {
     if (e.isImage) {
       images++;
       continue;
     }
+    if (e.isArticle) {
+      final String? id = e.articleId;
+      if (id == null) continue;
+      if (membersOf == null) {
+        throw StateError(
+          'selectedRecords: recording $id is selected but no membersOf '
+          'lookup was given — its text is its members, not its title',
+        );
+      }
+      final String piece = articleCopyText(membersOf(id));
+      if (piece.isEmpty) continue; // a recording nobody spoke into
+      lines.add(piece);
+      continue;
+    }
+    // A segment whose recording is in the same batch is already inside it.
+    if (e.isInArticle && heads.contains(e.articleId)) continue;
     final String t = e.displayText.trim();
     if (t.isEmpty) continue; // an empty line neither counts as one nor pretends to be one
     lines.add(t);

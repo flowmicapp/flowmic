@@ -17,16 +17,28 @@ import type { TimelineRow } from './types';
  *  component's render). The web console never hit it because a fresh browser
  *  profile has no such cache. `== null` covers both; the field reads are
  *  defensive for the same reason — a persisted row is untyped data at runtime,
- *  not the TimelineRow the compiler was promised. */
+ *  not the TimelineRow the compiler was promised.
+ *
+ *  🔴 2026-08-30 owner defect sweep: this used to hardcode the Chinese template
+ *  (`` `注入到 ${title} · ${when}` ``), rendered as this row's native `title=""`
+ *  hover tooltip in EVERY UI locale, not only zh-CN. `template` is now supplied
+ *  by the caller (`S.injected_into`, lib/strings/timeline.ts) — same shape as
+ *  `cachedCauseTooltip`/`failedCauseInline` below taking their `reasons` table
+ *  as a parameter rather than importing `S` here: this module stays pure and
+ *  locale-free, and the call site (TimelinePage.vue) is the one place that
+ *  provably reads the live catalogue. `{title}` and `{when}` are replaced the
+ *  same way every other two-slot desktop string is — see relative-time.ts /
+ *  cloud-account.ts's `.replace('{…}', …)` call sites. */
 export function injectProvenanceTooltip(
   status: HistoryStatus,
   target: TimelineRow['target'],
+  template: string,
 ): string | null {
   if (status !== 'injected' || target == null) return null;
   const title = (target.window_title ?? '').trim() || (target.process_name ?? '').trim();
   const at = target.injected_at?.trim() ?? '';
   if (title.length === 0 || at.length === 0) return null;
-  return `注入到 ${title} · ${formatTimelineLabel(at)}`;
+  return template.replace('{title}', title).replace('{when}', formatTimelineLabel(at));
 }
 
 /** 🔴 "why didn't this row get injected" (这一行为什么没注进去) (owner 2026-08-02 F1a / docs/rebuild/15 §2.5e-4).

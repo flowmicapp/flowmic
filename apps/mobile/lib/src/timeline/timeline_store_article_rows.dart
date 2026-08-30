@@ -154,24 +154,26 @@ ArticleSummary? refreshArticleHeadOf(TimelineStore store, String articleId) {
 /// added for it is ASC where its two neighbours are DESC.
 ///
 /// Excludes the head (a cover is not one of the things that were said) and
-/// soft-deleted rows.
-List<TimelineEntry> articleMembersOf(TimelineStore store, String articleId) {
-  final List<TimelineEntry> rows = <TimelineEntry>[
-    for (final TimelineEntry e in store._entries)
-      if (e.articleId == articleId && !e.isArticle && !e.deleted) e,
-  ];
-  rows.sort((TimelineEntry a, TimelineEntry b) {
-    // Position inside the recording, when both rows know it. That is the
-    // ordering the user is actually asking for, and it is NOT the same as
-    // `createdAt`: a backfilled segment is written to disk long after the live
-    // segments that follow it in the recording.
-    final int? ao = a.articleOffsetMs;
-    final int? bo = b.articleOffsetMs;
-    if (ao != null && bo != null && ao != bo) return ao.compareTo(bo);
-    return a.createdAt.compareTo(b.createdAt);
-  });
-  return List<TimelineEntry>.unmodifiable(rows);
-}
+/// soft-deleted rows. The predicate and the sort are [articleMembersIn]'s —
+/// this is the in-memory reader over them.
+List<TimelineEntry> articleMembersOf(TimelineStore store, String articleId) =>
+    articleMembersIn(store._entries, articleId);
+
+/// The same rows, read from STORAGE rather than from the loaded pages.
+///
+/// For the surface that cannot trust its pages: the full-history page holds a
+/// paginated window plus search hits that come straight from storage, so a
+/// head the user long-pressed there can be loaded while its members never were
+/// (a hit is one row, not its recording). Copying through [articleMembersOf]
+/// on that page would render a recording from whatever happened to be paged
+/// in, and it would look like a shorter recording rather than a truncated copy.
+///
+/// The light-record screen keeps [articleMembersOf]: it opens `ArticlePage`
+/// from the store already, so its copy reads the same rows its page shows.
+Future<List<TimelineEntry>> articleMembersOnDisk(
+  TimelineStore store,
+  String articleId,
+) async => articleMembersIn(await store._persistence.loadAll(), articleId);
 
 /// Every article head on this device, newest first.
 List<TimelineEntry> articleHeadsOf(TimelineStore store) => <TimelineEntry>[

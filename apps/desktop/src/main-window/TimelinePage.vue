@@ -173,7 +173,7 @@ function senderLabel(e: TimelineRow): string | null {
  *  alone shows one word for all three). `INJECT_FAIL_REASON` is the SAME table the
  *  capsule reads, so the two PC surfaces cannot drift (§2.5c). */
 function provenanceTip(e: TimelineRow): string | null {
-  return injectProvenanceTooltip(e.status, e.target)
+  return injectProvenanceTooltip(e.status, e.target, S.injected_into)
     ?? cachedCauseTooltip(e.status, e.cached_cause, INJECT_FAIL_REASON);
 }
 

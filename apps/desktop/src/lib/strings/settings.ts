@@ -91,6 +91,17 @@ export const SETTINGS_KEYS = [
   'set_prefs_autostart_dead',
   'set_prefs_autostart_failed',
   'set_prefs_autostart_read_failed',
+  // 2026-08-30 owner defect sweep: `fetchAutostartState`/`setAutostartEnabled`
+  // (lib/bridge.ts) used to bake a Chinese sentence straight into `reason` when
+  // `asAutostartInfo` rejected the IPC payload's shape, so every non-zh-CN UI
+  // locale showed that one Chinese sentence appended after the (already
+  // localized) `set_prefs_autostart_*_failed` prefix. bridge.ts now returns a
+  // stable machine CODE instead (`autostart_state_unrecognised_shape` /
+  // `autostart_set_unrecognised_shape`) and lib/autostart-reason.ts maps both
+  // codes to this ONE sentence — see that file for the unmapped-code fallback
+  // (render the code itself, never invented prose; INJECT_FAIL_REASON's
+  // policy).
+  'set_prefs_autostart_unrecognised_shape',
   'set_about_title',
   // ── 「注入与输入」 (2026-08-26) — the standing disclosure that injecting text
   // borrows the clipboard. It exists because the DEFAULT inject path became the
@@ -384,6 +395,19 @@ export const SETTINGS_KEYS = [
   'pack_finance',
   'pack_proper_noun',
   'pack_code_switch',
+  // 2026-08-30 owner defect: the profession/domain chip row rendered its
+  // stored value (Chinese text, doubling as both id and label) directly, so
+  // every UI locale but zh-CN showed Chinese chips. Ids are UNCHANGED
+  // (PROFESSION_OPTIONS in settings-model.ts); these are pure display
+  // overrides, same split PACK_LABELS already draws above.
+  'profession_swdev',
+  'profession_cloud_ops',
+  'profession_product_design',
+  'profession_finance',
+  'profession_healthcare',
+  'profession_law',
+  'profession_education',
+  'profession_research',
   'saved',
   'saved_local',
   // SETTINGS_SYNC_FAIL fail-loud note

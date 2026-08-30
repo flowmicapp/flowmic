@@ -38,6 +38,10 @@ import {
 } from '../lib/bridge';
 // 0.3.8 — the OS-owned doors moved out of bridge.ts when the 800-line cap bit.
 import { openLogDirectory } from '../lib/bridge-os';
+// 2026-08-30 — maps fetchAutostartState/setAutostartEnabled's machine reason
+// CODE to a localized sentence; unmapped reasons (free-form bridge text) pass
+// through unchanged. See that file's header for why.
+import { describeAutostartReason } from '../lib/autostart-reason';
 import { settingsSyncNotice } from '../lib/settings-sync-notice';
 import {
   asCloudStatus,
@@ -147,7 +151,7 @@ async function loadAutostart(): Promise<void> {
     autostart.value = r.info;
   } else {
     autostart.value = null;
-    autostartError.value = `${S.set_prefs_autostart_read_failed}${r.reason}`;
+    autostartError.value = `${S.set_prefs_autostart_read_failed}${describeAutostartReason(r.reason)}`;
   }
 }
 
@@ -166,7 +170,7 @@ async function toggleAutostart(): Promise<void> {
       // verifies it, not the value we hoped for.
       autostart.value = r.info;
     } else {
-      autostartError.value = `${S.set_prefs_autostart_failed}${r.reason}`;
+      autostartError.value = `${S.set_prefs_autostart_failed}${describeAutostartReason(r.reason)}`;
       // Even a write that fails partway through must let the display follow the
       // truth (e.g. it got registered but the re-check failed).
       const s = await fetchAutostartState();

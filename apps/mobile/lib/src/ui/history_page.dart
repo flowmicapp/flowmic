@@ -68,7 +68,8 @@ import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_sqlite.dart' show TimelineStorageKind;
 import '../timeline/timeline_store.dart';
 import '../session/image_clipboard.dart'
-    show ImageCopyOutcome, copyEntrySourceText, copyEntryToClipboard;
+    show ImageCopyOutcome, copyEntrySourceText;
+import 'article_copy.dart' show copyRowToClipboard;
 import 'chat_flow_toast.dart' show showChatToast;
 import 'chat_message_tile.dart';
 import 'confirm_dialog.dart';
@@ -547,8 +548,21 @@ class _HistoryPageState extends State<HistoryPage> {
     // they arrived in, and arriving in screen order means arriving backwards
     // here. Handing them over chronologically is a fact about this list, not a
     // second copy of the ordering rule.
-    final SelectedRecords records =
-        selectedRecords(selected.reversed.toList());
+    // owner 2026-08-30: a recording in the batch copies its whole piece. The
+    // members are read from STORAGE before composing (this page's loaded
+    // window need not contain them — a search hit is one row), and handed to
+    // the one composer as a lookup so it stays the sync function it is.
+    final Map<String, List<TimelineEntry>> members =
+        <String, List<TimelineEntry>>{};
+    for (final TimelineEntry e in selected) {
+      final String? id = e.isArticle ? e.articleId : null;
+      if (id == null || members.containsKey(id)) continue;
+      members[id] = await articleMembersOnDisk(widget.store, id);
+    }
+    final SelectedRecords records = selectedRecords(
+      selected.reversed.toList(),
+      membersOf: (String id) => members[id] ?? const <TimelineEntry>[],
+    );
     final BatchCopyOutcome outcome = await runBatchCopy(records);
     if (!context.mounted) return;
     _toast(context, batchCopyResultText(outcome, records, s));
@@ -612,7 +626,12 @@ class _HistoryPageState extends State<HistoryPage> {
     if (action == null || !context.mounted) return;
     switch (action) {
       case EntryAction.copy:
-        final ImageCopyOutcome copied = await copyEntryToClipboard(entry);
+        // owner 2026-08-30: a recording's row copies its whole piece, each
+        // segment with its range, from storage (see `_onBatchCopy`).
+        final ImageCopyOutcome copied = await copyRowToClipboard(
+          entry,
+          membersOf: (String id) => articleMembersOnDisk(widget.store, id),
+        );
         final String? note = s.imageCopyResult(copied);
         if (note == null || !context.mounted) return;
         _toast(context, note);

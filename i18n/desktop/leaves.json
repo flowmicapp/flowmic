@@ -1753,6 +1753,54 @@
       "name": "pack_code_switch"
     },
     {
+      "key": "profession_swdev",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_swdev"
+    },
+    {
+      "key": "profession_cloud_ops",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_cloud_ops"
+    },
+    {
+      "key": "profession_product_design",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_product_design"
+    },
+    {
+      "key": "profession_finance",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_finance"
+    },
+    {
+      "key": "profession_healthcare",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_healthcare"
+    },
+    {
+      "key": "profession_law",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_law"
+    },
+    {
+      "key": "profession_education",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_education"
+    },
+    {
+      "key": "profession_research",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_research"
+    },
+    {
       "key": "saved",
       "shard": "settings",
       "kind": "string",
@@ -3569,6 +3617,24 @@
       "name": "upd_retry"
     },
     {
+      "key": "upd_loading",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_loading"
+    },
+    {
+      "key": "upd_state_unavailable",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_state_unavailable"
+    },
+    {
+      "key": "upd_dev_note",
+      "shard": "update",
+      "kind": "string",
+      "name": "upd_dev_note"
+    },
+    {
       "key": "upd_form_unknown",
       "shard": "update",
       "kind": "string",
@@ -4476,6 +4542,24 @@
       "shard": "cloud",
       "kind": "string",
       "name": "cloud_err_wrong_node"
+    },
+    {
+      "key": "set_prefs_autostart_unrecognised_shape",
+      "shard": "settings",
+      "kind": "string",
+      "name": "set_prefs_autostart_unrecognised_shape"
+    },
+    {
+      "key": "injected_into",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "injected_into"
+    },
+    {
+      "key": "dev_paired_default_name",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_paired_default_name"
     }
   ]
 }

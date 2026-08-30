@@ -29,6 +29,7 @@
 // two share the PREDICATE ([isLightRecord]) rather than the object.
 
 import '../../ui/plus_panel_selection.dart' show joinSelectedTexts;
+import '../article_view.dart' show articleMembersIn;
 import '../timeline_entry.dart';
 import '../timeline_persistence.dart';
 import 'blind_store_timeline_bridge.dart';
@@ -85,21 +86,11 @@ class LightRecordQuery {
   /// NOT by `createdAt`. A backfilled segment is written to disk long after
   /// the live segments that follow it inside the recording, so creation order
   /// is the order we HEARD them, and this page is about the order they were
-  /// SAID. Same rule, same reason, as `articleMembersOf`.
-  Future<List<TimelineEntry>> membersOf(String articleId) async {
-    final List<TimelineEntry> rows = await _persistence.loadAll();
-    final List<TimelineEntry> members = <TimelineEntry>[
-      for (final TimelineEntry e in rows)
-        if (e.articleId == articleId && !e.isArticle && !e.deleted) e,
-    ];
-    members.sort((TimelineEntry a, TimelineEntry b) {
-      final int? ao = a.articleOffsetMs;
-      final int? bo = b.articleOffsetMs;
-      if (ao != null && bo != null && ao != bo) return ao.compareTo(bo);
-      return a.createdAt.compareTo(b.createdAt);
-    });
-    return List<TimelineEntry>.unmodifiable(members);
-  }
+  /// SAID. The predicate and the sort are [articleMembersIn]'s — the same
+  /// function `articleMembersOf` reads through, so this list and the store's
+  /// cannot disagree about what a transcript's order is.
+  Future<List<TimelineEntry>> membersOf(String articleId) async =>
+      articleMembersIn(await _persistence.loadAll(), articleId);
 
   /// One article's words, in the order they were said.
   ///

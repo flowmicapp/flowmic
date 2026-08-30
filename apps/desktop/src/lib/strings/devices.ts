@@ -81,6 +81,13 @@ export const DEVICES_KEYS = [
   'dev_rename_save',
   'dev_rename_failed',
   'dev_paired',
+  // 2026-08-30 owner defect sweep: `asPairedMobiles` (lib/paired-mobiles.ts)
+  // used to fall back to the hardcoded Chinese literal '手机' whenever a
+  // phone's `pc:list-mobiles` row carried an empty `mobile_name` (a pairing
+  // that has not sent a name yet), rendered in every UI locale. Display-only —
+  // see the long comment at that call site for why it can never be persisted
+  // back as the device's actual name.
+  'dev_paired_default_name',
   'dev_mobiles_online',
   // R6 T-8: the server-side query (pc:list-mobiles) now exists, so the table is
   // REAL rows instead of the old「仅在线台数」("online-count only") stand-in.

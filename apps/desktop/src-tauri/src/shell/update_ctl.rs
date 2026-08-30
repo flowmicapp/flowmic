@@ -228,7 +228,25 @@ fn push(app: &AppHandle, state: &UpdateState) {
 
 #[tauri::command]
 pub fn update_state(state: State<'_, UpdateState>) -> UpdateStateDto {
-    snapshot(&state)
+    let dto = snapshot(&state);
+    // 🔴 0.3.49 — RECORD WHAT THIS COPY THINKS IT IS, at the one moment the
+    // window asks. A `dev` form never checks, so it never wrote a line here,
+    // and the forensic log of a machine showing an empty update card (owner
+    // 2026-08-30, Windows 10, 0.3.48) could not say whether the app had
+    // classified itself as a build-tree copy or had simply never been asked.
+    // `exe` is the evidence `form.rs::is_dev_path` judged, so the answer to
+    // 「why dev」 is on the same line as 「dev」.
+    crate::forensic::record(
+        "update",
+        &format!(
+            "state → form={} exe={}",
+            dto.form,
+            std::env::current_exe()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "(unreadable)".to_string())
+        ),
+    );
+    dto
 }
 
 /// Turn automatic checking on or off. Changes save immediately (即改即存), no save button (red line).

@@ -71,6 +71,18 @@ export const UPDATE_KEYS = [
   'upd_open_page',
   'upd_dismiss',
   'upd_retry',
+  // 🔴 The three faces the card wore as an EMPTY BOX until 0.3.49 (owner
+  // 2026-08-30, Windows 10 on 0.3.48). `form: 'dev'` is both the store's
+  // pre-answer placeholder and what a copy under `publish/` or `target/`
+  // reports, and the block had no branch for either. One sentence each:
+  //   upd_loading           — asked Rust, not answered yet (boot, milliseconds);
+  //   upd_state_unavailable — the boot snapshot never came back; the check
+  //                           button below it is the recovery, not decoration;
+  //   upd_dev_note          — a build-tree copy: names the criterion, so a user
+  //                           who ran it out of a folder called `publish` sees why.
+  'upd_loading',
+  'upd_state_unavailable',
+  'upd_dev_note',
   // package format
   'upd_form_unknown',
   'upd_form_unsupported',

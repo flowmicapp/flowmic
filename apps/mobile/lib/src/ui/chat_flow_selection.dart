@@ -184,7 +184,10 @@ Future<void> _onBatchCopyRouted(
   AppStrings strings,
   List<TimelineEntry> selected,
 ) async {
-  final SelectedRecords records = selectedRecords(selected);
+  final SelectedRecords records = selectedRecords(
+    selected,
+    membersOf: (String id) => articleMembersOf(s.controller.store, id),
+  );
   final BatchCopyOutcome outcome = await runBatchCopy(records);
   if (!context.mounted) return;
   s._toast(context, batchCopyResultText(outcome, records, strings));
@@ -210,7 +213,12 @@ void _onBatchOrganizeRouted(
   AppStrings strings,
   List<TimelineEntry> selected,
 ) {
-  final SelectedRecords records = selectedRecords(selected);
+  // Synchronous by contract (no `await` before `startAiCompose`, see below),
+  // which is why the members lookup is the store's sync reader.
+  final SelectedRecords records = selectedRecords(
+    selected,
+    membersOf: (String id) => articleMembersOf(s.controller.store, id),
+  );
   final BatchOrganizeRefusal? refusal = checkBatchOrganize(
     records: records,
     selectedCount: selected.length,

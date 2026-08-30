@@ -39,6 +39,7 @@ import {
   UPDATE_MANIFEST_BASE,
   verdict,
   type UpdateActivity,
+  type UpdateSnapshot,
   type UpdateStateDto,
 } from '../lib/update-view';
 
@@ -70,6 +71,31 @@ function emptyState(): UpdateStateDto {
 }
 
 export const updateState = ref<UpdateStateDto>(emptyState());
+
+/**
+ * Has Rust answered yet — and if not, is it still coming?
+ *
+ * 🔴 THIS EXISTS BECAUSE `form: 'dev'` ANSWERED TWO QUESTIONS (0.3.49). The
+ * placeholder above says `dev` so that nothing is claimed before Rust speaks,
+ * and a real build-tree copy says `dev` because it never checks. The card had
+ * one branch for both — none — so a machine whose `update_state` had not
+ * returned (or never would) and a machine running from `publish/` were both an
+ * EMPTY rounded box under Settings → About, and owner read that box, on a
+ * Windows 10 machine on 0.3.48, as 「自动更新检测没有实现」("auto-update
+ * detection is not implemented"). The DTO's `form` is Rust's word and keeps
+ * meaning what Rust means; this ref is the frontend's own fact about whether
+ * that word has arrived, so the card can say 「正在读取」 vs 「读不到」 vs
+ * 「这是开发副本」 instead of nothing.
+ *
+ *   pending     — `update_state` has been asked and has not returned;
+ *   answered    — a whole state has been adopted (a pull returned, or a full
+ *                 `update:state` frame arrived);
+ *   unanswered  — the snapshot pull came back with nothing (the invoke threw,
+ *                 or there is no Tauri underneath). A later successful pull —
+ *                 the manual 「check now」 returns a whole state — flips it to
+ *                 `answered`, which is why the card still offers that button.
+ */
+export const updateSnapshot = ref<UpdateSnapshot>('pending');
 
 /**
  * What this card is doing right now — `null` when it is doing nothing.
@@ -123,7 +149,15 @@ async function updatePull(cmd: string, args?: Record<string, unknown>): Promise<
   updateBusy.value = cmd in ACTIVITY ? (ACTIVITY[cmd] ?? null) : 'saving';
   try {
     const next = await invokeSafe<UpdateStateDto>(cmd, args);
-    if (next) updateState.value = next;
+    if (next) {
+      updateState.value = next;
+      updateSnapshot.value = 'answered';
+    } else if (cmd === 'update_state' && updateSnapshot.value === 'pending') {
+      // The boot pull is the one call whose silence leaves the card with the
+      // placeholder. Say so, rather than letting `form: 'dev'` stand in for
+      // 「we never heard back」.
+      updateSnapshot.value = 'unanswered';
+    }
   } finally {
     updateBusy.value = null;
   }
@@ -174,6 +208,7 @@ export async function initUpdateStore(): Promise<void> {
     if (!next || typeof next !== 'object') return;
     if ('current_version' in next) {
       updateState.value = next as UpdateStateDto;
+      updateSnapshot.value = 'answered';
       return;
     }
     // 🔴 THE FRAGMENT BRANCH (0.3.33). Until this existed the shape check above

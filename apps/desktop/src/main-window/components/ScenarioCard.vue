@@ -5,7 +5,7 @@ import { S } from '../../lib/strings';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
 import {
   PACKS,
-  PROFESSION_OPTIONS,
+  PROFESSIONS,
   SCENARIO_CAPS,
   addTerm,
   model,
@@ -47,8 +47,8 @@ function submitTerm(): void {
     <div class="field">
       <label>{{ S.scenario_professions }}</label>
       <div class="ctx-chips">
-        <span v-for="p in PROFESSION_OPTIONS" :key="p" class="ctx-chip"
-              :class="{ on: model.card.professions.includes(p) }" @click="toggleProfession(p)">{{ p }}</span>
+        <span v-for="p in PROFESSIONS" :key="p.id" class="ctx-chip"
+              :class="{ on: model.card.professions.includes(p.id) }" @click="toggleProfession(p.id)">{{ p.label }}</span>
       </div>
     </div>
 

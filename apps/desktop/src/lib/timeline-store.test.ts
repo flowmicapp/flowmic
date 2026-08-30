@@ -1065,6 +1065,7 @@ import { describe as d3, expect as e3, it as i3 } from 'vitest';
 import { asChannelTag, normalizeCachedRow } from './timeline-normalize';
 import { TimelineStore as TS3 } from './timeline-store';
 import { injectProvenanceTooltip } from './inject-provenance';
+import { S } from './strings';
 
 /** Verbatim shape of a row found in the owner's real WebView2 localStorage. */
 function legacyServerRow(): Record<string, unknown> {
@@ -1092,8 +1093,8 @@ d3('timeline cache — legacy/foreign row shapes cannot blank the page', () => {
   i3('the provenance helper survives an injected row whose target is undefined', () => {
     // This threw `Cannot read properties of undefined (reading window_title)`
     // before the fix — inside a Vue render, which took the entire page with it.
-    e3(() => injectProvenanceTooltip('injected', undefined as never)).not.toThrow();
-    e3(injectProvenanceTooltip('injected', undefined as never)).toBeNull();
+    e3(() => injectProvenanceTooltip('injected', undefined as never, S.injected_into)).not.toThrow();
+    e3(injectProvenanceTooltip('injected', undefined as never, S.injected_into)).toBeNull();
   });
 
   i3('a raw server row normalizes to the TimelineRow contract', () => {
@@ -1130,7 +1131,7 @@ d3('timeline cache — legacy/foreign row shapes cannot blank the page', () => {
     const rows = store.entries();
     e3(rows).toHaveLength(1);
     // The exact call the template makes for every row — must not throw.
-    e3(() => injectProvenanceTooltip(rows[0]!.status, rows[0]!.target)).not.toThrow();
+    e3(() => injectProvenanceTooltip(rows[0]!.status, rows[0]!.target, S.injected_into)).not.toThrow();
   });
 
   i3('junk in the cache is dropped instead of poisoning the store', () => {

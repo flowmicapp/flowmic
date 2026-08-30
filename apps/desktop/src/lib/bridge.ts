@@ -517,12 +517,24 @@ export function asAutostartInfo(v: unknown): AutostartInfo | null {
 }
 
 /** Read the real autostart state. `ok:false` means the READ failed — the page
- *  must say so, not render a guess either way. */
+ *  must say so, not render a guess either way.
+ *
+ *  🔴 2026-08-30 owner defect sweep: `reason` used to carry a raw Chinese
+ *  sentence for the "unrecognised shape" case ('autostart_state 返回了无法识别的
+ *  形状'), rendered verbatim by SettingsPage.vue's `autostartError` in every UI
+ *  locale, not only zh-CN. `reason` is otherwise genuinely free-form (an IPC
+ *  failure message already in whatever language the OS/Tauri produced it in —
+ *  not something this bridge can localize), so the fix is narrow: the ONE case
+ *  this function itself puts into words now returns a stable machine CODE
+ *  (`autostart_state_unrecognised_shape`), and lib/autostart-reason.ts's
+ *  `describeAutostartReason` maps it to a localized sentence at the page —
+ *  same split as `INJECT_FAIL_REASON` (a code, mapped by the reader, unmapped
+ *  codes render verbatim rather than invented prose). */
 export async function fetchAutostartState(): Promise<{ ok: true; info: AutostartInfo } | { ok: false; reason: string }> {
   if (!hasTauri()) return { ok: false, reason: 'bridge unavailable (not running under Tauri)' };
   try {
     const info = asAutostartInfo(await invoke('autostart_state'));
-    if (info === null) return { ok: false, reason: 'autostart_state 返回了无法识别的形状' };
+    if (info === null) return { ok: false, reason: 'autostart_state_unrecognised_shape' };
     return { ok: true, info };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -531,12 +543,13 @@ export async function fetchAutostartState(): Promise<{ ok: true; info: Autostart
 
 /** Change-and-save-immediately (即改即存) write: enable/disable, read-back-verified on the Rust side. On
  *  success the returned info IS the re-read system state; on failure `reason`
- *  is the exact step that failed (registry write / quoted rewrite / verify). */
+ *  is the exact step that failed (registry write / quoted rewrite / verify).
+ *  Same 2026-08-30 code split as [[fetchAutostartState]] above. */
 export async function setAutostartEnabled(enable: boolean): Promise<{ ok: true; info: AutostartInfo } | { ok: false; reason: string }> {
   if (!hasTauri()) return { ok: false, reason: 'bridge unavailable (not running under Tauri)' };
   try {
     const info = asAutostartInfo(await invoke('autostart_set', { enable }));
-    if (info === null) return { ok: false, reason: 'autostart_set 返回了无法识别的形状' };
+    if (info === null) return { ok: false, reason: 'autostart_set_unrecognised_shape' };
     return { ok: true, info };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };

@@ -47,10 +47,15 @@ function dto(over: Partial<UpdateStateDto> = {}): UpdateStateDto {
   };
 }
 
+/** `false` makes the boot snapshot come back empty — what `invokeSafe` returns
+ *  when the invoke threw or there is no Tauri underneath. */
+let snapshotAnswers = true;
+
 vi.mock('../lib/bridge', () => ({
   invokeSafe: async (cmd: string, args?: Record<string, unknown>) => {
     const base = args && 'base' in args ? `:${String(args.base)}` : '';
     seq.push(`invoke:${cmd}${base}`);
+    if (cmd === 'update_state' && !snapshotAnswers) return undefined;
     return dto(stateAnswer);
   },
 }));
@@ -81,7 +86,54 @@ beforeEach(() => {
   seq.length = 0;
   pushed = null;
   stateAnswer = {};
+  snapshotAnswers = true;
   vi.useRealTimers();
+});
+
+/**
+ * 🔴 「has Rust answered」 is the frontend's own fact (0.3.49). The placeholder
+ * state is `form: 'dev'`, and so is a real build-tree copy; the card can only
+ * tell 「not yet」 / 「never」 / 「really dev」 apart through this ref. The empty
+ * update card on owner's Windows 10 box (2026-08-30) was the state with no name.
+ */
+describe('updateSnapshot', () => {
+  it('is pending until the boot pull returns, then answered', async () => {
+    const store = await fresh();
+    expect(store.updateSnapshot.value).toBe('pending');
+    const boot = store.initUpdateStore();
+    expect(store.updateSnapshot.value).toBe('pending');
+    await boot;
+    expect(store.updateSnapshot.value).toBe('answered');
+  });
+
+  it('🔴 is unanswered when the boot pull comes back empty — and a manual check recovers it', async () => {
+    snapshotAnswers = false;
+    const store = await fresh();
+    await store.initUpdateStore();
+    await settle();
+    expect(store.updateSnapshot.value).toBe('unanswered');
+    // The placeholder still says `dev`, so no automatic check went out…
+    expect(checksIssued()).toBe(0);
+    // …and the card's button is the recovery: `update_check` returns a whole
+    // state, and the store adopts it (L-①: what the click DOES).
+    stateAnswer = { form: 'msi', plan: 'up_to_date' };
+    await store.updateCheckNow();
+    expect(store.updateSnapshot.value).toBe('answered');
+    expect(store.updateState.value.form).toBe('msi');
+  });
+
+  it('a whole pushed state counts as an answer; a progress fragment does not', async () => {
+    snapshotAnswers = false;
+    const store = await fresh();
+    await store.initUpdateStore();
+    await settle();
+    expect(store.updateSnapshot.value).toBe('unanswered');
+    pushed?.({ payload: { progress: { received: 1, total: 2 } } });
+    expect(store.updateSnapshot.value).toBe('unanswered');
+    pushed?.({ payload: dto({ form: 'portable' }) });
+    expect(store.updateSnapshot.value).toBe('answered');
+    expect(store.updateState.value.form).toBe('portable');
+  });
 });
 
 describe('initUpdateStore', () => {

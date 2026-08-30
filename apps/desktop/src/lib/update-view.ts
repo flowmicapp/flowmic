@@ -65,6 +65,22 @@ export interface UpdatePendingDto {
  */
 export type UpdateActivity = 'checking' | 'downloading' | 'installing' | 'saving' | null;
 
+/**
+ * Whether the state the card holds is Rust's answer or the store's placeholder.
+ *
+ * 🔴 The placeholder is `form: 'dev'` — chosen so that nothing is CLAIMED before
+ * Rust speaks — and a real build-tree copy is `form: 'dev'` too. Those are two
+ * facts, and until 0.3.49 the card had one branch for both: none. This is the
+ * frontend's own record of 「has the word arrived」, kept beside the DTO rather
+ * than inside it, so Rust's `form` keeps meaning exactly what Rust means.
+ *
+ *   pending    — asked, not yet answered (milliseconds at boot);
+ *   answered   — a whole state from Rust has been adopted;
+ *   unanswered — the boot pull returned nothing; a later successful pull (the
+ *                manual check) flips it back to `answered`.
+ */
+export type UpdateSnapshot = 'pending' | 'answered' | 'unanswered';
+
 export interface UpdateStateDto {
   current_version: string;
   form: UpdateForm | string;
@@ -178,10 +194,15 @@ export function verdict(s: UpdateStateDto): Verdict {
 }
 
 /**
- * Should the whole update block be rendered at all?
+ * Should the FULL update block — verdict, evidence line, actions, the check
+ * button — be rendered?
  *
- * Only a dev build hides it. Everything else shows it, because "a new version is
+ * Only a dev build says no. Everything else says yes, because "a new version is
  * available" is useful even where we cannot install it for you.
+ *
+ * ⚠️ `false` is not 「render nothing」 (0.3.49): a dev build gets its own one-line
+ * face saying it never checks. The empty rounded box that a bare `v-if` on this
+ * value produced is the defect `update-block-every-outcome.test.ts` guards.
  */
 export function showsUpdateBlock(s: UpdateStateDto): boolean {
   return s.form !== 'dev';

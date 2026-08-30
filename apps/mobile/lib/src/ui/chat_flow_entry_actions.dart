@@ -55,7 +55,14 @@ Future<void> _onLongPressRouted(
       // owner 2026-07-27: a picture row copies the PICTURE. Only the bounded
       // preview survives on this phone, so the outcome is announced — the one
       // silent branch is a plain text copy, which is what it always did.
-      final ImageCopyOutcome copied = await copyEntryToClipboard(entry);
+      // owner 2026-08-30: a recording card copies its whole piece, each
+      // segment with the range the article page shows — through the one
+      // renderer in article_copy.dart, over the same store rows the page
+      // opens (`_openArticleRouted`).
+      final ImageCopyOutcome copied = await copyRowToClipboard(
+        entry,
+        membersOf: (String id) async => articleMembersOf(s.controller.store, id),
+      );
       final String? note = strings.imageCopyResult(copied);
       if (note == null || !context.mounted) return;
       s._toast(context, note);
