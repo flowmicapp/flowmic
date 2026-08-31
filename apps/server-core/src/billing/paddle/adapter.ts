@@ -16,9 +16,10 @@
 // change makes one of these do more than reorder its arguments, it belongs in
 // the module it is calling, not here.
 
-import type { BillingProviderAdapter, OneTimePurchaseFacts, RefundFacts, SigVerdict, WebhookEnvelope } from '../webhook-types';
+import type { BillingProviderAdapter, SigVerdict, WebhookEnvelope } from '../webhook-types';
 import { parsePaddleEnvelope, readSubscriptionFacts } from './envelope';
 import { verifyPaddleSignature } from './signature';
+import { readPaddleOneTimePurchase, readPaddleRefund } from './one-time';
 
 /**
  * Events that describe THE SUBSCRIPTION ITSELF (D1 §5.3 table, all eight).
@@ -48,7 +49,32 @@ const SUBSCRIPTION_EVENTS: ReadonlySet<string> = new Set([
 /** Events we RECOGNISE and deliberately do not act on (D1 §5.3 table: "record
  *  only, do not change the tier"). Recorded as `applied` with a detail that says
  *  so — see `LEDGER_ONLY_DETAIL` in the pipeline for why not `ignored`. */
-const LEDGER_ONLY_EVENTS: ReadonlySet<string> = new Set(['transaction.payment_failed', 'adjustment.created']);
+const LEDGER_ONLY_EVENTS: ReadonlySet<string> = new Set(['transaction.payment_failed']);
+
+/**
+ * Events that are NOT about a subscription and that we DO act on: the one-time
+ * purchase and the refund.
+ *
+ * 🔴 WHY THIS SET EXISTS INSTEAD OF THREE MORE ENTRIES IN THE ONE ABOVE. The
+ * pipeline's admission gate asks `isSubscriptionEvent(t) || isLedgerOnlyEvent(t)`
+ * and drops everything else as `ignored`, so an event has to be in one of the two
+ * to be seen at all. Piling these into `LEDGER_ONLY_EVENTS` would have worked —
+ * and would have made that constant's own documentation false, since its name and
+ * its comment both promise「we do not act on these」while `transaction.completed`
+ * writes a $200 purchase row. A name that lies about money is the cheapest kind
+ * of defect to create and the most expensive to notice.
+ *
+ * ⚠️ `adjustment.created` MOVED HERE FROM THE SET ABOVE and its behaviour did not
+ * change: `readPaddleRefund` returns null for an adjustment Paddle has not
+ * approved, so a pending refund still falls through to the same ledger-only
+ * conclusion it reached before. What changed is that an APPROVED one no longer
+ * does.
+ */
+const NON_SUBSCRIPTION_ACTED_EVENTS: ReadonlySet<string> = new Set([
+  'transaction.completed',
+  'adjustment.created',
+  'adjustment.updated',
+]);
 
 export const paddleAdapter: BillingProviderAdapter = {
   id: 'paddle',
@@ -66,26 +92,29 @@ export const paddleAdapter: BillingProviderAdapter = {
   },
 
   isSubscriptionEvent: (t) => SUBSCRIPTION_EVENTS.has(t),
-  isLedgerOnlyEvent: (t) => LEDGER_ONLY_EVENTS.has(t),
+  /**
+   * ⚠️ THE NAME ASKS THE WRONG QUESTION, AND THE PIPELINE IS WHY. This method is
+   * the second half of the admission gate — `isSubscriptionEvent(t) ||
+   * isLedgerOnlyEvent(t)`, everything else `ignored` — so what it really answers
+   * is「may this event be looked at」, not「do we ignore this event」. Since
+   * 2026-08-31 two of the events it admits are acted on. Renaming the method
+   * would touch Creem's adapter and the shared interface for a word; naming the
+   * two sets apart, here, costs nothing and stops the union from reading as a
+   * claim that we do nothing with any of them.
+   */
+  isLedgerOnlyEvent: (t) => LEDGER_ONLY_EVENTS.has(t) || NON_SUBSCRIPTION_ACTED_EVENTS.has(t),
 
   /**
-   * 🔴 ALWAYS NULL, AND THAT IS A STATEMENT ABOUT WHAT WE SELL, NOT A STUB.
+   * Wired on 2026-08-31, when the owner moved all collection to Paddle after
+   * Creem's KYC did not complete.
    *
-   * The only one-time product FlowMic sells — the $200 Guided Setup service —
-   * exists in Creem and nowhere else. Paddle's live surface is subscriptions
-   * only. Returning null is therefore the true answer for every Paddle event
-   * that will ever reach this function.
-   *
-   * ⚠️ IF A ONE-TIME PRODUCT IS EVER SOLD THROUGH PADDLE, this must be
-   * implemented rather than left to return null — a null here would then mean
-   * 「we took the money and recorded nothing」, and it would be silent. It is
-   * written as a named constant returning null, not as an omitted method, so
-   * that the omission cannot be mistaken for the interface not requiring it.
+   * 🔴 THE COMMENT THAT USED TO BE HERE IS THE REASON THIS IS NOW REAL. It said
+   * this must be implemented rather than left returning null the day a one-time
+   * product is sold through Paddle, because a null would then mean「we took the
+   * money and recorded nothing」— silently. That day is today. The behaviour is
+   * in `one-time.ts`; this file stays assembly-only so it cannot develop a second
+   * opinion about anything.
    */
-  readOneTimePurchase: (): OneTimePurchaseFacts | null => null,
-  // ⚠️ Paddle HAS refund events; they are deliberately not wired. The one-time
-  // service is sold through Creem only, so a Paddle refund reader would be a
-  // method that can never name a purchase. It lands the day Paddle sells one,
-  // together with the surface that would read it.
-  readRefund: (): RefundFacts | null => null,
+  readOneTimePurchase: readPaddleOneTimePurchase,
+  readRefund: readPaddleRefund,
 };

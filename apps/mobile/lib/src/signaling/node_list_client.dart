@@ -33,6 +33,14 @@ import '../diag/diag_log.dart' show diag;
 import 'http_endpoint.dart' show httpBaseOf, httpEndpointUri;
 import 'node_follow.dart';
 
+// 🔴 A DOOR, NOT A HOME. `planSelfNodeHop` lives in node_self_select.dart; it is
+// re-exported here so ptt_session.dart reaches both node-routing entry points
+// through ONE import line. That file sits AT the 800-line cap the file-size lint
+// enforces, so a second import is a red gate — and moving the symbol itself into
+// this file would put 「follow your PC」 and 「there is no PC, choose」 in one place
+// when the whole point is that they are different situations.
+export 'node_self_select.dart' show planSelfNodeHop;
+
 /// The node-list URL for a relay endpoint.
 ///
 /// Through the repo's ONE canonical [httpEndpointUri], never a second copy of

@@ -344,11 +344,29 @@ Future<void> _followNodeIfMisplaced(
     endpoint: here,
     homeNode: pcHomeNodeOf(ack),
   );
-  final String? move = await planNodeHop(
+  String? move = await planNodeHop(
     ack: ack,
     currentEndpoint: here,
     fetch: httpNodeListFetch,
   );
+  // 🔴 NO PC TO FOLLOW ⇒ CHOOSE. A light-record ("FlowMic Cloud") session has a
+  // virtual `pc_devices` row that nothing ever connects to as a PC, so its
+  // `home_node` is NULL forever — measured on the writer 2026-08-31, every such
+  // row. `planNodeHop` therefore answered 「stay」 for the life of the install and
+  // the phone sat on the address it was first handed (the writer) wherever in
+  // the world it was: 1026 ms from a mainland tablet against 215 ms to the
+  // nearest node. Following a PC and having no PC are two different situations;
+  // only the first has a reason to refuse to choose. See node_self_select.dart
+  // for why choosing is safe here and would not be for a paired session.
+  //
+  // ⚠️ ONCE PER APP RUN, like the desktop's 「startup, and a reconnect after a
+  // network change」. This costs three sequential requests per node on a radio;
+  // doing it on every reconnect would turn a routing decision into a battery
+  // report, and re-deciding mid-session is how a selector becomes a flapper.
+  if (move == null && !s.reconnect.selfNodeChoiceMade) {
+    s.reconnect.selfNodeChoiceMade = true;
+    move = await planSelfNodeHop(ack: ack, currentEndpoint: here, fetch: httpNodeListFetch);
+  }
   if (move == null) return;
   // Persist BEFORE dialling: a cold start must go straight to the right node,
   // and the persisted endpoint is the whole of 「remember the last known node」.

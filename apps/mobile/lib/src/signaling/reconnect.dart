@@ -184,6 +184,22 @@ class ReconnectCoordinator {
   /// Rooms are per-process (server-core room/store.ts).
   final ValueNotifier<String?> pcHomeNode = ValueNotifier<String?>(null);
 
+  /// 2026-08-31 — has this app run already chosen a node for a session that has
+  /// no PC to follow? See node_self_select.dart.
+  ///
+  /// ⚠️ ONCE PER RUN, matching the desktop's 「startup, and a reconnect after a
+  /// network change」. The choice costs three sequential requests per node on a
+  /// radio: doing it on every reconnect ack would turn a routing decision into a
+  /// battery report, and re-deciding mid-session is how a selector becomes a
+  /// flapper — the reason `STICKY_MARGIN_MS` exists on the desktop side.
+  ///
+  /// 🔴 It lives HERE and not on `PttSession` for two reasons, and the second is
+  /// the load-bearing one: `ptt_session.dart` is at the 800-line cap, and 「which
+  /// node is this connection on」 is already this class's subject ([node],
+  /// [pcHomeNode], [nodeLabels], `url`). A latch about node choice sitting next
+  /// to the mic state would be a second place to look for one fact.
+  bool selfNodeChoiceMade = false;
+
   /// Single writer for all three, called from the reconnect and pair ack legs.
   void noteAnsweringNode(String? id, {String? endpoint, String? homeNode}) {
     final String t = (id ?? '').trim();

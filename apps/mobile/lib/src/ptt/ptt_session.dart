@@ -47,7 +47,7 @@ import '../signaling/lan_pinning.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/mobile_reconnect_flow.dart';
 import '../signaling/node_follow.dart' show answeringNode, pcHomeNodeOf;
-import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop;
+import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop, planSelfNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
 import '../signaling/wire_payloads.dart';
