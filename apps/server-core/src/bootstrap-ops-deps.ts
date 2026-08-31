@@ -191,6 +191,27 @@ export function opsHttpDeps(w: OpsDepsWiring): Partial<HttpDeps> {
             // authorities, one code path — see bootstrap-billing-deps.ts.
             ...(opsRefund === undefined ? {} : { refund: opsRefund }),
           },
+          // 2026-08-31 — the way out of a stuck 'refund_requested'. Gated on the
+          // SAME two conditions as the queue beside it, for the same reason: a
+          // box that cannot sell the service has no stuck refunds to resolve.
+          //
+          // 🔴 A SEPARATE OBJECT rather than three more methods on the one
+          // above, and the separation is the design: `opsPurchases.purchases` is
+          // sliced to include `advanceOneTimePurchase`, and the release surface
+          // must not be able to reach the delivery states by another name. Its
+          // own slice names three methods and `advance` is not one of them, so
+          // the refusal of 'delivered' in that file is enforced by the object it
+          // holds and not only by the branch that types the sentence.
+          opsRefundRelease: {
+            auth: authService,
+            purchases: db.billing,
+            audit: db.opsAudit,
+            // Both or neither, same as the queue's completion notice: with only
+            // one of them the route can never send, and it says so in
+            // `notice_sent: false` rather than pretending.
+            mailer: w.serviceMail,
+            users: db.users,
+          },
         }
       : {}),
   };

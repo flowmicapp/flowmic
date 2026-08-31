@@ -30,6 +30,7 @@ import { VerificationSendLimiter } from './auth/email-verification';
 import { wireVerificationGrace } from './auth/verification-grace';
 import { createSocketServer } from './socket/server';
 import { wireNodeRuntime } from './node/node-runtime';
+import { nodeIdForHost, parseNodeHostMap, requestHost } from './node/node-identity';
 import { makeQuotaGuard } from './billing/quota-guard';
 import { BillingService } from './billing/billing-service';
 import { makeHttpHandler } from './http/router';
@@ -76,7 +77,7 @@ import type { PaddleClient } from './billing/paddle/client';
 import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 
-export const SERVER_VERSION = '0.3.51';
+export const SERVER_VERSION = '0.3.53';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -339,6 +340,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   //
   // 2026-08-29 multi-node: the node role, the metering seam that role implies,
   // and both replication timers. ONE call — see node/node-runtime.ts.
+  // 2026-08-31 multi-door — read once, consulted per socket. Empty for every
+  // deployment that has not published a second hostname for this process.
+  const nodeHostMap = parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS);
   const nodeRuntime = wireNodeRuntime({
     db, config, log,
     ...(overrides.now ? { now: overrides.now } : {}),
@@ -578,7 +582,23 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // GA-07: the application-layer liveness consumer — `heartbeat` moves
     // last_seen_at so "recent activity" stops being frozen at pairing time.
     registerHeartbeatHandler(socket, { pcs: db.pcs, mobiles: db.mobiles, ...(nodeRuntime.stampPresence ? { stampPresence: nodeRuntime.stampPresence } : {}) });
-    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.stampHomeNode ? { stampHomeNode: nodeRuntime.stampHomeNode } : {}) });
+    // 2026-08-31 multi-door — which node this process answers AS for THIS socket.
+    // A process reached under a regional front door (`srvasia02`) must say so on
+    // the ack and must stamp THAT into pc_devices.home_node, or the phone that
+    // follows its PC would be sent to the slow door the PC deliberately left.
+    // Falls back to the process's own id whenever the host is unmapped, which is
+    // every deployment that has not configured a second name.
+    const socketNodeId = nodeRuntime.nodeConfig.nodeId === null
+      ? null
+      : nodeIdForHost(
+        requestHost(socket.handshake.headers as unknown as Record<string, unknown>),
+        nodeHostMap,
+        nodeRuntime.nodeConfig.nodeId,
+      );
+    const stampHomeNodeHere = nodeRuntime.stampHomeNode === null
+      ? null
+      : (pcId: string): void => nodeRuntime.stampHomeNode?.(pcId, socketNodeId ?? undefined);
+    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}) });
     // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
     // the SAME instance `console-routes.refuseRestricted` reads through and the
     // same one Bearers are verified with, so the HTTP gate and the two socket
@@ -588,7 +608,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // the JWT could not carry this). Passed in BOTH modes — standalone's single
     // 'default' row is never restricted, so the gate is inert by fact rather
     // than by being unwired.
-    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, ...(nodeRuntime.nodeConfig.nodeId ? { nodeId: nodeRuntime.nodeConfig.nodeId } : {}) });
+    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, ...(socketNodeId ? { nodeId: socketNodeId } : {}) });
     registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly });
     // (0.2.27) still registered, and now ONLY to refuse out loud: the five
     // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is

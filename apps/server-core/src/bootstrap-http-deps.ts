@@ -59,6 +59,7 @@ import type { SubscriptionMailer } from './mail/subscription-mailer';
 import type { EmailVerificationMailer, PasswordResetMailer } from './mail';
 import type { ProbedTargets } from './status/status-probes';
 import { log } from './log';
+import { parseNodeHostMap } from './node/node-identity';
 
 /** Everything the HttpDeps composition read out of `startServer`'s closure,
  *  named. Each field is the SAME instance bootstrap uses elsewhere — handing a
@@ -281,6 +282,11 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
       ? {
           nodes: {
             nodeId: process.env.FLOWMIC_NODE_ID,
+            // 2026-08-31 multi-door: `/api/node/{ping,list}` must name the door
+            // the caller reached, not the process, or a client measuring two
+            // doors of one process is told both are the same node and stops
+            // being able to choose between them.
+            nodeHosts: parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS),
             version,
             ...(process.env.FLOWMIC_NODE_LIST_PATH
               ? { nodeListPath: process.env.FLOWMIC_NODE_LIST_PATH }
@@ -312,6 +318,24 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                   sharedSecret: w.nodeRuntime.nodeConfig.sharedSecret,
                   ...(w.nodeRuntime.snapshot ? { snapshot: w.nodeRuntime.snapshot } : {}),
                   remainingSttMs: (userId: string) => w.quota.remainingSttMs(userId),
+                  // 2026-08-31 — mint a pairing code for a PC that is registered
+                  // HERE but connected to a replica. The SAME registry call the
+                  // socket handler makes on this node (`pc:refresh-code`), so the
+                  // code and its TTL have one author whichever door the PC came
+                  // in through; re-implementing the mint for the forwarded case
+                  // would be the second author this repo keeps paying for.
+                  //
+                  // Returns null — never throws — when the PC is unknown here, so
+                  // the route can answer 404 and the replica can fall back to its
+                  // honest refusal. `refreshShortCode` throws PAIR_PC_OFFLINE for
+                  // an unknown id, which is a socket-shaped answer to an HTTP
+                  // question and would come out of the route as a 500 (= 「the
+                  // writer is broken」) instead of 「I do not have that PC」.
+                  mintShortCode: (pcId: string) => {
+                    if (!db.pcs.findById(pcId)) return null;
+                    const short_code = registry.refreshShortCode(pcId);
+                    return { short_code, expires_in_ms: registry.shortCodeExpiresInMs(pcId) };
+                  },
                   receiveForward: makeForwardReceiver({
                     ledger: makeForwardLedger(db.raw),
                     targets: {

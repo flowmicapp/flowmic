@@ -37,7 +37,7 @@ import {
   PROMISED_DEADLINES,
 } from '../billing/guided-setup';
 import type { DeadlinePolicy } from '../billing/service-deadlines';
-import { refundWindow, supportUntil } from '../billing/service-deadlines';
+import { refundRelease, refundWindow, supportUntil } from '../billing/service-deadlines';
 import type { ServiceMailer } from '../mail/service-mailer';
 import { CREEM_USER_ID_KEY } from '../billing/creem/envelope';
 import type { OneTimePurchaseRepo } from '../db/repos/one-time-purchase.repo';
@@ -179,11 +179,10 @@ export function tryHandleServicePurchaseRoutes(
       max_session_hours: GUIDED_SETUP_MAX_SESSION_HOURS,
       // The periods the wording names, served from the same constants it is
       // written against — so the page that explains the service and the machine
-      // that enforces it cannot come to disagree. ⚠️ `complete_deadline_days`
-      // is INTERNAL (gs-5): it is echoed for the operator console's benefit and
-      // the customer page must not render it as a promise.
+      // that enforces it cannot come to disagree. ⚠️ There is ONE deadline
+      // (owner 2026-08-30): a completion deadline used to be echoed here too
+      // and was removed with the concept; a client must not expect it back.
       start_deadline_days: policy.startDeadlineDays,
-      complete_deadline_days: policy.completeDeadlineDays,
       aftercare_days: GUIDED_SETUP_AFTERCARE_DAYS,
       terms_version: GUIDED_SETUP_CONSENT_VERSION,
       purchases: rows.map((p) => ({
@@ -213,6 +212,17 @@ export function tryHandleServicePurchaseRoutes(
         // right and been told nothing happened. `closes_at` is always null
         // since gs-5 (the window shuts on an event, not a date).
         refund_window: refundWindow(p, nowMs, policy),
+        // 🔴 WHY A REFUND REQUEST THIS BUYER MADE IS NO LONGER IN FLIGHT — null
+        // unless an operator ended one by hand. Without it the console would
+        // simply STOP saying "we have asked for your money back" one day, and
+        // the buyer would be left to work out on their own that the refund they
+        // exercised is not coming. A silent revert is the same class of defect
+        // as the frozen row this field exists because of.
+        //
+        // ⚠️ ADDITIVE AND ALWAYS PRESENT (null, not omitted): a console reading
+        // `refund_release` must be able to tell "no release" from "a server too
+        // old to answer", and an absent key answers both.
+        refund_release: refundRelease(p),
         // ⚠️ SURFACED, because the console has to be able to say what the buyer
         // agreed to and when. A consent record nobody can read is a record that
         // only exists for us.

@@ -80,6 +80,17 @@ export interface PcHandlerDeps {
    * which is a decision anyone reading bootstrap can see was made.
    */
   writerOnly: WriterOnlyGuard;
+  /**
+   * 2026-08-31 — REPLICA ONLY: ask the writer to mint this PC's pairing code.
+   *
+   * Optional, and here the `?` is honest rather than dangerous (contrast
+   * `writerOnly` above): absent means「there is nobody to ask」, which is the
+   * truth on a writer and on every single-node deployment, and the code path it
+   * gates FALLS BACK TO THE EXISTING REFUSAL. A forgotten wiring therefore
+   * restores 2026-08-30's behaviour — visibly broken in the way that was already
+   * documented — rather than silently disabling a gate.
+   */
+  mintCodeOnWriter?: (pcId: string) => Promise<{ short_code: string; expires_in_ms: number | null } | null>;
 }
 
 export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
@@ -405,9 +416,52 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     // Mints a code and stamps its TTL — both erased by the next pull, while the
     // PC displays the dead code to the user. See pc:register above.
     const replicaCode = deps.writerOnly();
-    if (replicaCode) return safeAck(ack, replicaCode);
     const auth = getAuth(socket);
     if (!auth || auth.kind !== 'pc' || !auth.deviceId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    if (replicaCode) {
+      // ── 🔴 2026-08-31 — THE REFUSAL THAT HAD NO WAY OUT ────────────────────
+      //
+      // Until this branch existed, this event was simply refused here, and the
+      // consequence was not 「one action fails」 — it was that A PC WHICH LANDS ON
+      // A REPLICA CAN NEVER ADD A PHONE AGAIN. `pc:reconnect` is deliberately
+      // served on a replica (refusing it would stop the node doing the only job
+      // it has), and a token reconnect leaves `short_code` null BY CONSTRUCTION,
+      // so this event is the sole way to mint one. The session meanwhile looks
+      // perfect: registered, transcribing, injecting. Measured 2026-08-31 on the
+      // owner's PC against srvjp; the desktop sat on 「no valid pairing code yet」
+      // with no QR and no reason, because the desktop drops a refusal it does not
+      // classify as an account fact (socket/outbound.rs is_account_validity_refusal).
+      //
+      // node_select.rs routes a PC to the writer when it must REGISTER. Minting a
+      // code is the SECOND writer-only operation on that path, and nothing routed
+      // it — so the fix is a forward, not another client-side rule. Doing it here
+      // rather than in the client also fixes every ALREADY-SHIPPED desktop, which
+      // a client-side rule could not.
+      //
+      // ⚠️ AUTH IS CHECKED ABOVE THIS BRANCH NOW, and that is a real change: the
+      // refusal used to be returned before the auth check, so an unauthenticated
+      // socket could observe NODE_IS_REPLICA. It has to move, because forwarding
+      // needs a device id — and 「who are you」 was always the more honest first
+      // question. What a replica answers an anonymous socket becomes
+      // AUTH_TOKEN_INVALID, exactly like the writer.
+      const forward = deps.mintCodeOnWriter;
+      if (!forward) return safeAck(ack, replicaCode);
+      const pcId = auth.deviceId;
+      void forward(pcId)
+        .then((minted) => {
+          // `null` = the writer does not know this PC. Nothing was minted, so the
+          // honest refusal stands. NEVER a fabricated code.
+          if (!minted) return safeAck(ack, replicaCode);
+          safeAck(ack, { short_code: minted.short_code, expires_in_ms: minted.expires_in_ms });
+        })
+        // A writer that could not be reached is the SAME visible outcome as a
+        // node that cannot mint — and that is correct rather than lazy: both mean
+        // 「no code exists for you right now」, both are transient, and the copy
+        // NODE_IS_REPLICA carries (「reconnect and try again」) is the action that
+        // helps in either case. What must never happen is a code, or silence.
+        .catch(() => safeAck(ack, replicaCode));
+      return;
+    }
     try {
       const short_code = registry.refreshShortCode(auth.deviceId);
       // GA-18: same additive field as the register ack. Read AFTER the mint, so

@@ -170,6 +170,25 @@ pub const STICKY_MARGIN_MS: u128 = 25;
 /// `must_register` is 「this PC has no token, so this connection will emit
 /// `pc:register`」 — [`Credentials::is_registered`] inverted, and it OVERRIDES
 /// distance entirely. See the block on it below.
+/// Which published node IS this url — asked when we are NOT choosing one.
+///
+/// 🔴 「我们没有在选点」 and 「我们不知道自己在哪」 are two different facts, and until
+/// 2026-08-31 every non-choosing path answered the second one by accident: the
+/// desktop's cloud card names the node from this value, so on the overwhelmingly
+/// common `SingleNode` path — one selectable node, which is production right now
+/// — the card drew nothing at all and the user was told less than the server
+/// had already said. Nothing is fetched here: the directory is in hand.
+///
+/// ⚠️ Matching is on the URL and only on the URL. Comparing ids would need us to
+/// already know our id, which is the thing being asked.
+fn identify(url: &str, published: &[NodeEntry]) -> (Option<String>, Option<String>) {
+    let want = url.trim().trim_end_matches('/');
+    published
+        .iter()
+        .find(|n| n.url.trim_end_matches('/').eq_ignore_ascii_case(want))
+        .map_or((None, None), |n| (Some(n.id.clone()), n.short.clone()))
+}
+
 pub fn choose(
     endpoint: &str,
     current: Option<&str>,
@@ -198,9 +217,13 @@ pub fn choose(
     // ⚠️ NOTHING IS PROBED HERE. Latency is not the question — correctness is —
     // and probing would make a first-run connection wait on measurements whose
     // answer it is going to ignore.
+    // Fetched ONCE, and used by both the writer search and the candidate filter.
+    // It is also what lets every non-choosing return below still say WHICH node
+    // it is dialing — see `identify`.
+    let published = probe.list(ep).unwrap_or_default();
+
     if must_register {
-        let nodes = probe.list(ep).unwrap_or_default();
-        return match nodes.iter().find(|n| n.writer && n.url.starts_with("https://")) {
+        return match published.iter().find(|n| n.writer && n.url.starts_with("https://")) {
             Some(w) => Choice {
                 url: w.url.clone(),
                 node: Some(w.id.clone()),
@@ -209,12 +232,10 @@ pub fn choose(
             },
             // No node claims to be the writer. That is every single-node
             // deployment, and every self-hosted one — dial what we were given.
-            None => Choice {
-                url: endpoint.to_string(),
-                node: None,
-            short: None,
-                reason: Reason::NoWriterPublished,
-            },
+            None => {
+                let (node, short) = identify(endpoint, &published);
+                Choice { url: endpoint.to_string(), node, short, reason: Reason::NoWriterPublished }
+            }
         };
     }
 
@@ -222,17 +243,16 @@ pub fn choose(
     // authority on which doors are its own, so a self-hosted install cannot be
     // moved onto our infrastructure by this function — there is no path here
     // that invents a URL.
-    let nodes: Vec<NodeEntry> = probe
-        .list(ep)
-        .unwrap_or_default()
-        .into_iter()
+    let nodes: Vec<NodeEntry> = published
+        .iter()
         .filter(|n| n.selectable && n.url.starts_with("https://"))
+        .cloned()
         .collect();
     if nodes.len() < 2 {
         // One node or none. Note this is NOT an error: it is what every
         // single-node deployment answers, which is every deployment until today.
-        return Choice { url: endpoint.to_string(), node: None,
-            short: None, reason: Reason::SingleNode };
+        let (node, short) = identify(endpoint, &published);
+        return Choice { url: endpoint.to_string(), node, short, reason: Reason::SingleNode };
     }
 
     let mut timed: Vec<(&NodeEntry, u128)> = Vec::new();
@@ -249,8 +269,8 @@ pub fn choose(
         }
     }
     if timed.is_empty() {
-        return Choice { url: endpoint.to_string(), node: None,
-            short: None, reason: Reason::NoneReachable };
+        let (node, short) = identify(endpoint, &published);
+        return Choice { url: endpoint.to_string(), node, short, reason: Reason::NoneReachable };
     }
     if timed.len() == 1 {
         let (n, ms) = timed[0];
@@ -271,10 +291,11 @@ pub fn choose(
     // choosing on them would produce a confident, arbitrary answer that never
     // looks wrong. Say so instead.
     if spread < NOISE_FLOOR_MS {
+        let (node, short) = identify(endpoint, &published);
         return Choice {
             url: endpoint.to_string(),
-            node: None,
-            short: None,
+            node,
+            short,
             reason: Reason::BelowNoiseFloor { spread_ms: spread },
         };
     }

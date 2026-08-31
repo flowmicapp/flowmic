@@ -24,6 +24,7 @@ Future<void> _mount(
   List<RelayNode> nodes = kNodes,
   String? current = 'srvjp',
   Future<NodeLatency> Function(String, String)? probe,
+  Future<List<RelayNode>> Function()? warmup,
 }) async {
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
@@ -32,6 +33,7 @@ Future<void> _mount(
           strings: _zh,
           nodes: nodes,
           currentNodeId: current,
+          warmup: warmup,
           probe: probe ??
               (String id, String url) async =>
                   NodeLatency(id: id, url: url, edgeMs: 30, totalMs: 190),
@@ -144,5 +146,50 @@ void main() {
     // …and there is no per-node control to press.
     expect(find.byType(Radio<String>), findsNothing);
     expect(find.byType(Switch), findsNothing);
+  });
+  // ── warmup (2026-08-31) ───────────────────────────────────────────────────
+  //
+  // 🔴 REPRODUCED ON A TABLET BEFORE IT WAS WRITTEN. The directory arrived only
+  // on a reconnect ack, so after a cold start with no session this panel was not
+  // on the settings page at all — the one screen that answers 「why is my
+  // connection slow」 existed only while the connection was fine.
+
+  testWidgets('🔴 an empty directory is fetched, and the panel then appears',
+      (WidgetTester tester) async {
+    // ⚠️ No 「and it was absent one frame earlier」 assertion here: this warmup
+    // resolves on a microtask, so `_mount`'s own pump already delivers it. That
+    // would be a test of the fixture's timing, not of the panel.
+    await _mount(tester, nodes: const <RelayNode>[],
+        warmup: () async => kNodes);
+    await tester.pumpAndSettle();
+    expect(find.text(_zh.nodePanelTitle), findsOneWidget);
+  });
+
+  testWidgets('🔴 negative control: a warmup that returns nothing leaves the page as it was',
+      (WidgetTester tester) async {
+    // A failed or empty directory read must not turn into an empty section: the
+    // panel degrades to what it already showed, which here is nothing.
+    await _mount(tester, nodes: const <RelayNode>[],
+        warmup: () async => const <RelayNode>[]);
+    await tester.pumpAndSettle();
+    expect(find.text(_zh.nodePanelTitle), findsNothing);
+  });
+
+  testWidgets('a throwing warmup is swallowed, not surfaced',
+      (WidgetTester tester) async {
+    await _mount(tester, nodes: const <RelayNode>[],
+        warmup: () async => throw StateError('offline'));
+    await tester.pumpAndSettle();
+    expect(find.text(_zh.nodePanelTitle), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('no fetch at all when the directory is already in hand',
+      (WidgetTester tester) async {
+    int calls = 0;
+    await _mount(tester, warmup: () async { calls++; return kNodes; });
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+    expect(find.text(_zh.nodePanelTitle), findsOneWidget);
   });
 }

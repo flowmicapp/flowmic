@@ -4,7 +4,7 @@
 //     whose WHERE clause §4 pairs this against)
 //   src/billing/guided-setup.ts (gs-5 — the wording these periods enforce)
 //
-// THE TWO DEADLINES, THE SUPPORT PERIOD, AND THE ONE EVENT THAT CLOSES A REFUND.
+// THE ONE DEADLINE, THE SUPPORT PERIOD, AND THE ONE EVENT THAT CLOSES A REFUND.
 //
 // 🔴 §4 IS THE ONE THAT EARNS ITS KEEP. Everything above it tests a pure
 // function; §4 tests that the pure function and the SQL that actually moves
@@ -37,7 +37,7 @@ const BOUGHT = '2026-08-01T00:00:00.000Z';
 const BOUGHT_MS = Date.parse(BOUGHT);
 
 /** Short, round numbers so an arithmetic slip is visible rather than plausible. */
-const P: DeadlinePolicy = { startDeadlineDays: 14, completeDeadlineDays: 40 };
+const P: DeadlinePolicy = { startDeadlineDays: 14 };
 const AFTERCARE = 14;
 
 function subject(over: Partial<DeadlineSubject> = {}): DeadlineSubject {
@@ -46,41 +46,44 @@ function subject(over: Partial<DeadlineSubject> = {}): DeadlineSubject {
     created_at: BOUGHT,
     delivered_at: null,
     completion_notice_at: null,
+    // No release ever happened, which is what every purchase looks like until
+    // an operator resolves a stuck refund by hand. §6 overrides it on purpose.
+    refund_release_reason: null,
     ...over,
   };
 }
 
-describe('§1 which deadline a purchase is running against', () => {
-  it('a paid purchase is due at 14 days, not 40 — nobody has even booked a time', () => {
+describe('§1 whether a purchase is running against the deadline', () => {
+  it('a paid purchase is due at 14 days — nobody has even booked a time', () => {
     expect(refundDueReason(subject(), BOUGHT_MS + 13.9 * DAY, P)).toBeNull();
     expect(refundDueReason(subject(), BOUGHT_MS + 14 * DAY, P)).toBe('no_start');
   });
 
-  it('booking a session moves it to the 40-day clock — that is what scheduled MEANS', () => {
-    // 🔴 THE POINT OF HAVING TWO. An operator who has spoken to the buyer and
-    // put a time in the diary has already moved the row; if 'scheduled' were
-    // still on the 14-day clock we would refund people we are actively working
-    // with, three weeks before we said we would.
+  it('🔴 booking a session takes it off every clock — a scheduled row 100 days old is NOT due', () => {
+    // owner 2026-08-30 (evening): the completion deadline is gone from the
+    // product, not demoted. An operator who has spoken to the buyer and put a
+    // time in the diary has already moved the row; from that moment a clock
+    // must never take money back from somebody we are actively working with.
+    // 100 days is deliberately past every number this file has ever held.
     const s = subject({ state: 'scheduled' });
     expect(refundDueReason(s, BOUGHT_MS + 20 * DAY, P)).toBeNull();
-    expect(refundDueReason(s, BOUGHT_MS + 40 * DAY, P)).toBe('not_completed');
-  });
-
-  it('🔴 a setup that has BEGUN is never due — not at 40 days, not ever (gs-5)', () => {
-    // owner 2026-08-30: the 40-day flag is internal and applies to booked
-    // setups only. A clock must not take money back from somebody mid-session.
-    const s = subject({ state: 'in_progress' });
-    expect(refundDueReason(s, BOUGHT_MS + 40 * DAY, P)).toBeNull();
+    expect(refundDueReason(s, BOUGHT_MS + 100 * DAY, P)).toBeNull();
     expect(refundDueReason(s, BOUGHT_MS + 999 * DAY, P)).toBeNull();
     // And it has no deadline date beside it in the queue.
     expect(nextDeadlineAt(s, P, AFTERCARE)).toBeNull();
   });
 
-  it('the two reasons stay distinct, because the operator does different things about them', () => {
+  it('🔴 a setup that has BEGUN is never due — not at 100 days, not ever', () => {
+    // A clock must not take money back from somebody mid-session.
+    const s = subject({ state: 'in_progress' });
+    expect(refundDueReason(s, BOUGHT_MS + 100 * DAY, P)).toBeNull();
+    expect(refundDueReason(s, BOUGHT_MS + 999 * DAY, P)).toBeNull();
+    expect(nextDeadlineAt(s, P, AFTERCARE)).toBeNull();
+  });
+
+  it('a paid purchase stays due however old it gets — the reason does not change with age', () => {
     expect(refundDueReason(subject(), BOUGHT_MS + 50 * DAY, P)).toBe('no_start');
-    expect(refundDueReason(subject({ state: 'scheduled' }), BOUGHT_MS + 50 * DAY, P)).toBe(
-      'not_completed',
-    );
+    expect(refundDueReason(subject(), BOUGHT_MS + 500 * DAY, P)).toBe('no_start');
   });
 
   it('delivered, refund_requested and refunded are NEVER due', () => {
@@ -99,11 +102,9 @@ describe('§1 which deadline a purchase is running against', () => {
     expect(nextDeadlineAt(subject({ created_at: 'not-a-date' }), P, AFTERCARE)).toBeNull();
   });
 
-  it('the next deadline is rendered as a date, and it is the one that applies', () => {
+  it('the next deadline is rendered as a date for a paid row, and there is none once it is booked', () => {
     expect(nextDeadlineAt(subject(), P, AFTERCARE)).toBe(new Date(BOUGHT_MS + 14 * DAY).toISOString());
-    expect(nextDeadlineAt(subject({ state: 'scheduled' }), P, AFTERCARE)).toBe(
-      new Date(BOUGHT_MS + 40 * DAY).toISOString(),
-    );
+    expect(nextDeadlineAt(subject({ state: 'scheduled' }), P, AFTERCARE)).toBeNull();
   });
 });
 
@@ -350,15 +351,146 @@ describe('§4 🔴 the verdict and the SQL claim make the SAME decision', () => 
   });
 });
 
+describe('§6 🔴 what a RELEASE REASON costs the unattended sweep', () => {
+  // 🔴 WHY THIS SECTION EXISTS AT ALL. `refund_release_reason` is the only
+  // field on `DeadlineSubject` that is not a date, and it is the only one whose
+  // VALUE changes what an unattended timer does with somebody's money. Getting
+  // it wrong in one direction re-opens a case a human closed, in an hourly
+  // loop, silently undoing their decision; getting it wrong in the other
+  // silently withdraws a promised protection from a buyer who wants the
+  // service — invisible on every screen, and discoverable only on the day it
+  // did not fire.
+  //
+  // ⚠️ IT IS DRIVEN THROUGH THE REAL REPO ON A REAL DATABASE, not through
+  // hand-built subjects. The thing that has to be true is that the row the
+  // release WRITES is the row the sweep READS — and a literal typed into this
+  // file would answer for both halves, which is the one thing it must not do.
+  function released(
+    reason: 'provider_declined' | 'buyer_withdrew_request',
+    to: 'paid' | 'scheduled' | 'in_progress' = 'paid',
+  ): OneTimePurchaseRow {
+    const db = new DatabaseSync(':memory:');
+    db.exec(BILLING_SQL);
+    const repo = makeOneTimePurchaseRepo(db);
+    repo.recordOneTimePurchase({
+      order_id: 'ord_1',
+      provider: 'creem',
+      user_id: 'u1',
+      product_id: 'prod_setup',
+      checkout_id: null,
+      transaction_id: 'tx_1',
+      customer_id: null,
+      amount_minor: 20000,
+      currency: 'USD',
+      state: 'paid',
+      early_start_consent_at: BOUGHT,
+      withdrawal_waiver_ack_at: BOUGHT,
+      consent_terms_version: 'gs-5',
+      scheduled_at: null,
+      started_at: null,
+      delivered_at: null,
+      refund_requested_at: null,
+      refund_provider_id: null,
+      refund_status: null,
+      refunded_at: null,
+      completion_notice_at: null,
+      note: null,
+      created_at: BOUGHT,
+    });
+    // The REAL claim, then the REAL release — the production path, both halves.
+    expect(
+      repo.requestOneTimeRefund('ord_1', { requested_at: BOUGHT, provider_id: null, provider_status: null }, BOUGHT),
+    ).toBe('claimed');
+    expect(
+      repo.releaseOneTimeRefundRequest('ord_1', { to_state: to, reason, released_at: BOUGHT }, BOUGHT),
+    ).toBe('released');
+    return repo.getOneTimePurchase('ord_1')!;
+  }
+
+  const LATE = BOUGHT_MS + 30 * DAY;
+
+  it("🔴 a 'provider_declined' release is never due again, however old it gets", () => {
+    const row = released('provider_declined');
+    // The fixture really is back in a state the sweep would otherwise pick up…
+    expect(row.state).toBe('paid');
+    // …and it really is past the deadline. Both are POSITIVE CONTROLS: without
+    // them a null below could mean "the release worked" or "this row was never
+    // due in the first place", and those are opposite conclusions.
+    expect(refundDueReason({ ...row, refund_release_reason: null }, LATE, P)).toBe('no_start');
+    expect(refundDueReason(row, LATE, P)).toBeNull();
+    // A year later, still null. The exemption is not a cooling-off period.
+    expect(refundDueReason(row, BOUGHT_MS + 365 * DAY, P)).toBeNull();
+  });
+
+  it("🔴 a 'buyer_withdrew_request' release IS still due — the protection stays", () => {
+    const row = released('buyer_withdrew_request');
+    expect(row.state).toBe('paid');
+    expect(row.refund_release_reason).toBe('buyer_withdrew_request');
+    // 🔴 THE HALF THAT IS EASY TO LOSE. The buyer changed their mind and wants
+    // the service; the 14-day no-start deadline exists to protect exactly them.
+    // Taking it away as a side effect of a bookkeeping action would be a silent
+    // loss of a promised protection.
+    expect(refundDueReason(row, LATE, P)).toBe('no_start');
+    // …and it is not due EARLY either: the release does not restart or shorten
+    // the clock, which still runs from the purchase.
+    expect(refundDueReason(row, BOUGHT_MS + 13.9 * DAY, P)).toBeNull();
+  });
+
+  it('a released row that is scheduled or in_progress is not due, for the ordinary reason', () => {
+    // Neither exemption is doing the work here — the state is. Stated so the
+    // two tests above cannot be read as "released rows are special".
+    for (const to of ['scheduled', 'in_progress'] as const) {
+      expect(refundDueReason(released('buyer_withdrew_request', to), LATE, P)).toBeNull();
+      expect(refundDueReason(released('provider_declined', to), LATE, P)).toBeNull();
+    }
+  });
+
+  it('⚠️ neither reason changes whether the buyer may ask again', () => {
+    // `refundWindow` is a function of STATE, so a released purchase gets its
+    // withdraw button back on its own — for BOTH reasons. The sweep exemption
+    // is about what a TIMER may do unasked; it takes nothing away from the
+    // person.
+    for (const reason of ['provider_declined', 'buyer_withdrew_request'] as const) {
+      expect(refundWindow(released(reason), LATE, P)).toEqual({
+        open: true,
+        reason: 'not_yet_completed',
+        closes_at: null,
+      });
+    }
+  });
+
+  it('⚠️ an unrecognised reason on disk reads as no release — the buyer keeps the protection', () => {
+    // SQLite has no enum. A hand-edited row, or one written by a newer build,
+    // can carry a word this build does not know. `toPurchaseRow` gates on the
+    // predicate rather than casting, so the value becomes null — and null means
+    // the sweep still runs, which is the direction that costs a buyer nothing.
+    const db = new DatabaseSync(':memory:');
+    db.exec(BILLING_SQL);
+    const repo = makeOneTimePurchaseRepo(db);
+    repo.recordOneTimePurchase({
+      order_id: 'ord_1', provider: 'creem', user_id: 'u1', product_id: 'p', checkout_id: null,
+      transaction_id: 'tx_1', customer_id: null, amount_minor: 20000, currency: 'USD', state: 'paid',
+      early_start_consent_at: null, withdrawal_waiver_ack_at: null, consent_terms_version: 'gs-5',
+      scheduled_at: null, started_at: null, delivered_at: null, refund_requested_at: null,
+      refund_provider_id: null, refund_status: null, refunded_at: null, completion_notice_at: null,
+      note: null, created_at: BOUGHT,
+    });
+    db.exec("UPDATE one_time_purchases SET refund_release_reason = 'provider-declined' WHERE order_id = 'ord_1'");
+    const row = repo.getOneTimePurchase('ord_1')!;
+    expect(row.refund_release_reason).toBeNull();
+    expect(refundDueReason(row, LATE, P)).toBe('no_start');
+  });
+});
+
 describe('§5 the promise the product actually ships with', () => {
   it('is the one gs-5 is written against', () => {
-    // ⚠️ A CHANGE HERE IS A CHANGE TO A CONSUMER CONTRACT (the 14) or to an
-    // internal ops flag (the 40); this test is the thing that makes moving one
-    // of them a deliberate act rather than a tidy-up. There is no third number:
-    // `disputeDays` left with gs-5.
+    // ⚠️ A CHANGE HERE IS A CHANGE TO A CONSUMER CONTRACT (the 14); this test
+    // is the thing that makes moving it a deliberate act rather than a
+    // tidy-up. There is no second number: `disputeDays` left with gs-5 and the
+    // completion deadline left by owner ruling on 2026-08-30. `toEqual` (not
+    // `toMatchObject`) is what makes a quietly re-added key fail.
     expect(PROMISED_DEADLINES).toEqual({
       startDeadlineDays: 14,
-      completeDeadlineDays: 40,
     });
     expect(GUIDED_SETUP_AFTERCARE_DAYS).toBe(14);
   });

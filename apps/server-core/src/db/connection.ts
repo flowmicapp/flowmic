@@ -402,10 +402,37 @@ export function reconcileSchema(db: DatabaseSync): void {
   // on a database that predates it the ALTER runs once and never again.
   // Idempotent, non-destructive, re-runnable — the same shape as every guarded
   // step above it.
+  //
+  // ── 2026-08-31: the refund release path's three columns, SAME BLOCK ────────
+  //
+  // 🔴 IN THIS BLOCK RATHER THAN IN `BILLING_ADDITIVE_TEXT_COLUMNS`, and the
+  // reason is the one the usage_events block above states: that loop runs ~100
+  // lines EARLIER, so on a database that predates both rounds it would append
+  // these three BEFORE `started_at` while a fresh CREATE appends them after —
+  // two shapes differing in column ORDER, which is exactly what
+  // "the forward-ported table is INDISTINGUISHABLE from a fresh one" compares.
+  // Keeping every one_time_purchases ALTER in one block, in DDL order, is what
+  // makes that convergence hold.
+  //
+  // 🔴 NO BACKFILL, and here the truth is simply that there is nothing to write:
+  // a purchase that predates these columns never had a stuck refund released by
+  // a human, and NULL says that. A backfilled `refund_release_reason` would be
+  // worse than untidy — 'provider_declined' takes a row off the 14-day sweep
+  // for ever, so inventing one would silently withdraw a promised protection
+  // from buyers on the rows least able to defend themselves.
   {
     const purchaseCols = tableColumns(db, 'one_time_purchases');
     if (!purchaseCols.has('started_at')) {
       db.exec('ALTER TABLE one_time_purchases ADD COLUMN started_at TEXT');
+    }
+    if (!purchaseCols.has('refund_released_at')) {
+      db.exec('ALTER TABLE one_time_purchases ADD COLUMN refund_released_at TEXT');
+    }
+    if (!purchaseCols.has('refund_release_reason')) {
+      db.exec('ALTER TABLE one_time_purchases ADD COLUMN refund_release_reason TEXT');
+    }
+    if (!purchaseCols.has('refund_external_reference')) {
+      db.exec('ALTER TABLE one_time_purchases ADD COLUMN refund_external_reference TEXT');
     }
   }
   // v0.2.4 machine-level identity lookups. Created AFTER the ALTER loop above —

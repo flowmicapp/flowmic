@@ -24,7 +24,7 @@ import { makeUsageTracker, type UsageTracker } from '../billing/usage-tracker';
 import { ReplicaOutbox } from '../db/replica-outbox';
 import { readNodeConfig, type NodeConfig } from './node-config';
 import { makeForwardingUsageTracker } from './forwarding-usage-tracker';
-import { makeWriterClient } from './writer-client';
+import { makeWriterClient, type MintedCode } from './writer-client';
 import { startOutboxDrainer, type OutboxDrainer } from './outbox-drainer';
 import { makeReplicaPuller, type ReplicaPuller } from './replica-puller';
 import { makeSnapshotProducer } from './snapshot';
@@ -96,8 +96,13 @@ export interface NodeRuntime {
    * one node there is no such fact, and writing a node id there would assert
    * something nothing has observed. The pc handler treats absent as「there is
    * nothing to record」, never as「skip recording it」.
+   *
+   * `asNode` (2026-08-31) is the node id THIS CONNECTION arrived as — a process
+   * reachable under a regional front door answers as that door, and the value a
+   * phone follows must be the same one its PC's ack reported. Omitted → the
+   * process's own id, which is every single-name deployment.
    */
-  stampHomeNode: ((pcId: string) => void) | null;
+  stampHomeNode: ((pcId: string, asNode?: string) => void) | null;
 
   /**
    * REPLICA ONLY — forward the heartbeat's presence fact to the writer, so the
@@ -122,6 +127,21 @@ export interface NodeRuntime {
    * explicit decision rather than an absent one.
    */
   writerOnly: WriterOnlyGuard;
+  /**
+   * 2026-08-31 — present ONLY on a replica that has a writer client: ask the
+   * writer to mint a pairing code for a PC connected here.
+   *
+   * 🔴 It is the counterpart of `writerOnly`, and the pair has to be read
+   * together: the guard says 「this node must not perform that write」, and this
+   * says 「and here is the one place it may ask for it instead」. Everything
+   * `writerOnly` refuses stays refused; this narrows exactly one event
+   * (`pc:refresh-code`), which is the one whose refusal left a registered PC
+   * permanently unable to add a phone.
+   *
+   * `null` on the writer and on every single-node deployment — there is nobody
+   * to ask, because this process IS the answer.
+   */
+  mintCodeOnWriter: ((pcId: string) => Promise<MintedCode | null>) | null;
 }
 
 export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
@@ -266,13 +286,18 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
   const stampHomeNode = nodeConfig.nodeId === null
     ? null
     : replicaOutbox
-      ? (pcId: string): void => {
+      ? (pcId: string, asNode?: string): void => {
         try {
           replicaOutbox.enqueue({
             id: randomUUID(),
             kind: 'home_node',
+            // `node` is WHICH PROCESS queued this — an audit field, and it stays
+            // the process id even when the connection arrived under a front
+            // door. `home_node` is WHERE THE PHONE MUST DIAL, and that is the
+            // door. Two questions, two values; collapsing them would send every
+            // phone to the name the operator front-ended away from.
             node: nodeConfig.nodeId ?? 'unknown',
-            body: { kind: 'pc.home_node', pc_id: pcId, home_node: nodeConfig.nodeId },
+            body: { kind: 'pc.home_node', pc_id: pcId, home_node: asNode ?? nodeConfig.nodeId },
           });
         } catch (err) {
           log.error('node.outbox could not record home_node — this PC will not be locatable', {
@@ -281,7 +306,8 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
           });
         }
       }
-      : (pcId: string): void => db.pcs.setHomeNode(pcId, nodeConfig.nodeId as string);
+      : (pcId: string, asNode?: string): void =>
+        db.pcs.setHomeNode(pcId, asNode ?? (nodeConfig.nodeId as string));
 
   /**
    * The heartbeat's presence fact, taking the same two routes as `stampHomeNode`.
@@ -348,8 +374,17 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     ? makeWriterOnlyGuard(nodeConfig.writerUrl)
     : NODE_CAN_WRITE;
 
+  // The narrow counterpart of : the single writer-only event a
+  // replica may ask the writer to perform for it, synchronously. Keyed off the
+  // writer CLIENT rather than off the role, because that client is the thing
+  // that actually carries the secret and the URL — a role with no client could
+  // only produce a promise it cannot keep.
+  const mintCodeOnWriter = writerClient
+    ? (pcId: string): Promise<MintedCode | null> => writerClient.mintShortCode(pcId)
+    : null;
+
   return {
     nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
-    wrapQuota, stampHomeNode, stampPresence, writerOnly,
+    wrapQuota, stampHomeNode, stampPresence, writerOnly, mintCodeOnWriter,
   };
 }

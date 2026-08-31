@@ -16,6 +16,7 @@
 
 import { isPlan, type Plan, type ServerMode } from '@flowmic/protocol';
 import { installPlanLimits, resolvePlanLimits, type PlanLimitsOverrides } from './billing/plans';
+import { reportPaddleApiKeyShape } from './billing/paddle/api-key-format';
 import { resolveStandaloneSecret } from './identity';
 import { trustedProxiesFromEnv, TRUSTED_PROXIES_ENV } from './http/trusted-proxy';
 import { REGISTER_MAX_ATTEMPTS, REGISTER_WINDOW_MS } from './auth/register-rate-limit';
@@ -498,6 +499,10 @@ function resolvePaddle(mode: ServerMode, overrides: Partial<PaddleConfig> | unde
       // this is the only line printed before anyone clicks anything.
       write_enabled: paddle.writeEnabled,
     });
+    // 🔴 Turns the `api_key_len` printed just above from a number nobody ever
+    // compared into a verdict. See billing/paddle/api-key-format.ts for the
+    // 2026-08-31 production incident it exists for, and for why it is not fatal.
+    reportPaddleApiKeyShape(paddle.apiKey, paddle.env, paddle.writeEnabled);
     if (paddle.writeEnabled && (paddle.apiKey === null || paddle.apiKey === '')) {
       // NOT fatal, deliberately, and the asymmetry with the webhook-secret check
       // above is the argument: a missing webhook secret makes us ACCEPT forged

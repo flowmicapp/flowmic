@@ -146,6 +146,7 @@ const SSOT = {
   USAGE_PAGE_MAX: 'apps/server-core/src/db/repos/usage.repo.ts',
   USAGE_EVENTS_PAGE_DEFAULT: 'apps/server-core/src/db/repos/usage-events.repo.ts',
   USAGE_EVENTS_PAGE_MAX: 'apps/server-core/src/db/repos/usage-events.repo.ts',
+  PURCHASE_EXTERNAL_REFERENCE_MAX: 'apps/server-core/src/http/ops-refund-release-routes.ts',
 };
 
 /** Every hand-written copy in the admin repo that is tied to one of the above.
@@ -162,6 +163,12 @@ const MIRRORS = [
   // sizing, hand-copied by the admin console the day it grew its first caller.
   { rel: 'equals', ssot: 'USAGE_EVENTS_PAGE_DEFAULT', file: 'src/lib/api.ts', decl: 'USAGE_EVENTS_PAGE_DEFAULT' },
   { rel: 'equals', ssot: 'USAGE_EVENTS_PAGE_MAX', file: 'src/lib/api.ts', decl: 'USAGE_EVENTS_PAGE_MAX' },
+  // `POST /api/ops/purchases/refund/settle` — the longest external reference the
+  // settle-by-hand route will store. Both sides REFUSE past it rather than
+  // truncate (half a bank reference is a wrong reference, not a shorter one), so
+  // if the two numbers ever diverge the console accepts a paste the server will
+  // reject, and the operator learns that from a 400 instead of from the field.
+  { rel: 'equals', ssot: 'PURCHASE_EXTERNAL_REFERENCE_MAX', file: 'src/lib/api.ts', decl: 'PURCHASE_EXTERNAL_REFERENCE_MAX' },
 ];
 
 /** `const NAME = <int>;` / `export const NAME = <int>;`, optionally `: number`. */

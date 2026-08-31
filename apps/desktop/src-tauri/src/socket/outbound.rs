@@ -239,6 +239,13 @@ impl DesktopSocket {
             },
         );
         if emit.is_err() {
+            // 🔴 2026-08-31 — see the forensic block below: this early return used
+            // to be the quietest of the three failures. Nothing was written
+            // anywhere, and the modal said 「refresh failed, try again later」.
+            crate::forensic::record(
+                "pair",
+                "refresh-code: could not emit (socket down) — no code minted",
+            );
             return None;
         }
         // Give the ack callback a beat beyond its own timeout to land.
@@ -246,6 +253,38 @@ impl DesktopSocket {
             .recv_timeout(timeout + Duration::from_millis(500))
             .unwrap_or((None, None));
         self.note_account_refusal(events::PC_REFRESH_CODE, refusal.as_deref());
+        // ── 🔴 WHY THIS LINE EXISTS (2026-08-31, and it cost a day) ────────────
+        //
+        // `note_account_refusal` above forwards ONLY `is_account_validity_refusal`
+        // codes — auth failures and ACCOUNT_RESTRICTED. That is correct: a node
+        // refusal is not an account fact, and painting it as one would put a red
+        // 「your account」 line on a session that is working perfectly.
+        //
+        // But the code was then DROPPED ENTIRELY. When the relay answered
+        // `NODE_IS_REPLICA` (a PC that had landed on the Tokyo replica could not
+        // mint a code at all), the whole chain went: server says exactly what is
+        // wrong and who can fix it → this layer throws the sentence away → the
+        // modal shows 「refresh failed, try again later」 → the forensic log
+        // contains NOT ONE WORD about it. The machine holding the answer could
+        // not answer 「why can I not add a phone」 from its own log, and the
+        // diagnosis had to be rebuilt from the outside against production.
+        //
+        // That is R11 in the diagnostic surface: the layer that has to make the
+        // judgement must be given the fact. So every outcome of a mint is now
+        // recorded, refusal code VERBATIM. It is forensic, not user copy — the
+        // screen keeps its plain sentence (owner 2026-08-22: no internal
+        // vocabulary in front of a user), and the log keeps the identifier.
+        match (&code, &refusal) {
+            (Some(_), _) => crate::forensic::record("pair", "refresh-code: minted"),
+            (None, Some(err)) => crate::forensic::record(
+                "pair",
+                &format!("refresh-code: REFUSED by the server — {err}"),
+            ),
+            (None, None) => crate::forensic::record(
+                "pair",
+                "refresh-code: no ack within the timeout — no code minted",
+            ),
+        }
         code
     }
 

@@ -313,7 +313,44 @@ CREATE TABLE IF NOT EXISTS one_time_purchases (
   completion_notice_at TEXT,
   note                TEXT,                     -- operator's own words, never shown to the buyer
   created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL
+  updated_at          TEXT NOT NULL,
+  -- 2026-08-31 -- THE RELEASE PATH OUT OF 'refund_requested'.
+  --
+  -- Before these three, that state was a one-way door: only the provider's
+  -- refund webhook could leave it, so a refund the provider never accepted
+  -- (service-refund.ts claims the row BEFORE it calls out, deliberately) froze
+  -- the purchase for ever -- the buyer reading the sentence "we have asked for
+  -- your money back" with no button, and the operator console calling the row
+  -- "Closed" when the money may not have moved at all.
+  --
+  -- 🔴 THREE COLUMNS AND NOT ONE, because they answer three questions:
+  --   refund_released_at        -- WHEN a human took the row off that door.
+  --   refund_release_reason     -- WHY, from a closed set. 🔴 IT IS NOT
+  --                                COSMETIC: 'provider_declined' takes the row
+  --                                off the unattended 14-day sweep for ever
+  --                                (service-deadlines.ts argues it), and
+  --                                'buyer_withdrew_request' deliberately does
+  --                                not. One word, two behaviours, so the
+  --                                operator has to say which happened.
+  --   refund_external_reference -- the operator's PROOF that money moved
+  --                                somewhere we cannot see (a lost webhook, a
+  --                                bank transfer). NON-NULL is what makes a
+  --                                human-asserted refund distinguishable for
+  --                                ever from a provider-confirmed one.
+  --
+  -- 🔴 THAT DISTINCTION IS NOT ENCODED IN refund_status. That column holds the
+  -- provider's own word, verbatim, and writing one of ours into it would make
+  -- "what did the provider actually say" unanswerable on exactly the rows
+  -- where the question matters most.
+  --
+  -- 🔴 DECLARED LAST, AFTER updated_at, and the position is load-bearing: the
+  -- forward-port in connection.ts is an ALTER TABLE ... ADD COLUMN, which
+  -- APPENDS. A column declared mid-table here would leave a migrated database
+  -- and a fresh one with different column ORDER, which is the one thing
+  -- "the forward-ported table is indistinguishable from a fresh one" compares.
+  refund_released_at        TEXT,
+  refund_release_reason     TEXT,
+  refund_external_reference TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_one_time_purchases_user ON one_time_purchases(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_one_time_purchases_state ON one_time_purchases(state);

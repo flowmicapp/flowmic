@@ -351,6 +351,8 @@ function serviceMailer(): {
       async sendWithdrawalReceived(input: ServiceWithdrawalMailInput): Promise<void> {
         acks.push(input);
       },
+      async sendRefundSettledByHand(): Promise<void> {},
+      async sendRefundReleased(): Promise<void> {},
     },
   };
 }
@@ -481,6 +483,8 @@ describe('⑧ CRD art. 11a — the withdrawal is acknowledged in writing', () =>
         async sendWithdrawalReceived(): Promise<void> {
           throw new Error('mail server said no');
         },
+        async sendRefundSettledByHand(): Promise<void> {},
+        async sendRefundReleased(): Promise<void> {},
       },
     });
     const id = purchaseFor(db);
@@ -554,11 +558,14 @@ describe('⑨ the console can see whether the button belongs on the screen', () 
     purchaseFor(db, { state: 'in_progress', scheduled_at: NOW_ISO, started_at: NOW_ISO });
     const out = await call(deps, 'GET', '/api/cloud/billing/services', { token }).settled;
     expect(out.payload.start_deadline_days).toBe(14);
-    expect(out.payload.complete_deadline_days).toBe(40);
     expect(out.payload.aftercare_days).toBe(GUIDED_SETUP_AFTERCARE_DAYS);
     expect(out.payload.terms_version).toBe(GUIDED_SETUP_CONSENT_VERSION);
     // gs-5 has no post-completion refund period, so the wire has no number for one.
     expect(out.payload).not.toHaveProperty('dispute_days');
+    // And owner 2026-08-30 removed the completion deadline outright, so the
+    // wire carries no number for that either — a page that found one would
+    // print a promise nobody makes.
+    expect(out.payload).not.toHaveProperty('complete_deadline_days');
     const row = (out.payload.purchases as Record<string, unknown>[])[0]!;
     expect(row).toHaveProperty('started_at', NOW_ISO);
     expect(row).toHaveProperty('support_until', null);

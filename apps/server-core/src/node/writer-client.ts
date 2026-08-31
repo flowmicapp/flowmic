@@ -71,9 +71,35 @@ export const FORWARD_BATCH_MAX = 200;
  */
 export const SNAPSHOT_TIMEOUT_MS = 120_000;
 
+/** What the writer minted, as the replica hands it back to the desktop. */
+export interface MintedCode {
+  short_code: string;
+  /** The governor's remaining life for THIS issuance, or null if it said none.
+   *  Carried rather than re-derived: a countdown computed on a second machine is
+   *  a second author for one deadline (GA-18's whole point). */
+  expires_in_ms: number | null;
+}
+
 export interface WriterClient {
   forward(records: OutboxRecord[]): Promise<ForwardResult>;
   authoritativeRead<T>(path: string): Promise<T>;
+  /**
+   * 「Mint a pairing code for this PC」 — the one WRITE this client performs
+   * synchronously instead of queueing (http/node-routes.ts `mintShortCode` has
+   * the measurement and the reason).
+   *
+   * Three outcomes, kept structurally apart on purpose:
+   *   · a code            — the writer minted it and it will resolve there;
+   *   · `null`            — the writer does not know this PC (404). A fact.
+   *   · WriterUnreachable — nothing is known. The caller must NOT read this as
+   *                         「no code exists」 and must fall back to the honest
+   *                         refusal, because retrying is what the user will do.
+   *
+   * ⚠️ NEVER RETRIED HERE. Every retry mints another code and invalidates the
+   * previous one (single-column overwrite), so a blind retry loop would race the
+   * user's own screen. The user's 「refresh」 button is the retry.
+   */
+  mintShortCode(pcId: string): Promise<MintedCode | null>;
   /** The writer's whole database, gzipped. Its own timeout, an order of
    *  magnitude longer than the others: this transfers a file across an ocean
    *  (154 ms RTT NY↔Tokyo, measured), and giving it the 8-second budget meant
@@ -154,6 +180,39 @@ export function makeWriterClient(opts: WriterClientOptions): WriterClient {
       }
       if (!res.ok) throw new WriterUnreachable(`HTTP ${res.status}`);
       return Buffer.from(await res.arrayBuffer());
+    },
+
+    async mintShortCode(pcId: string): Promise<MintedCode | null> {
+      const res = await call('/api/node/mint-code', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pc_id: pcId }),
+      });
+      // The writer knows this PC does not exist there. Not a transport problem,
+      // and the caller acts differently on it — see the interface doc.
+      if (res.status === 404) return null;
+      if (!res.ok) throw new WriterUnreachable(`HTTP ${res.status}`);
+      let parsed: { short_code?: unknown; expires_in_ms?: unknown };
+      try {
+        parsed = (await res.json()) as { short_code?: unknown; expires_in_ms?: unknown };
+      } catch (err) {
+        throw new WriterUnreachable(`unreadable response: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      // 🔴 The shape is CHECKED, not trusted, and a bad one throws rather than
+      // returning null: null means「there is no such PC」, and a writer that
+      // answered 200 with nothing usable has told us neither that nor a code.
+      // Four digits is the protocol's own definition of a short code
+      // (room/registry.ts resolvePcForPair) — anything else could never be
+      // redeemed, so showing it to a user would be a code-shaped lie.
+      if (typeof parsed.short_code !== 'string' || !/^\d{4}$/.test(parsed.short_code)) {
+        throw new WriterUnreachable('writer answered 200 with no usable short_code');
+      }
+      return {
+        short_code: parsed.short_code,
+        expires_in_ms: typeof parsed.expires_in_ms === 'number' && Number.isFinite(parsed.expires_in_ms)
+          ? parsed.expires_in_ms
+          : null,
+      };
     },
 
     async authoritativeRead<T>(path: string): Promise<T> {

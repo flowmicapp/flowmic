@@ -1,15 +1,17 @@
 // SPEC-REF:
-//   apps/server-core/src/billing/guided-setup.ts (the two numbers and gs-5's
+//   apps/server-core/src/billing/guided-setup.ts (the one number and gs-5's
 //     promise, which this is the machinery for)
 //   apps/server-core/src/db/repos/one-time-purchase.repo.ts (the row)
 //   owner rulings 2026-08-30: 「14天客户未同意启动就退款」,
 //     「默认到期由运营队列中由人按一下，但要实现自动退的功能和开关」,
-//     and the same day's lifecycle ruling: completion closes refunds; the
-//     40-day completion deadline is internal only and never applies to a
-//     setup that is in progress; the post-completion fortnight is support.
+//     the same day's lifecycle ruling: completion closes refunds and the
+//     post-completion fortnight is support; and the evening ruling that
+//     removed the completion deadline outright — the ONLY deadline is the
+//     14 days to start, and a purchase that has been booked or begun is
+//     never due on any clock.
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //
-// 🔴 THE ONE PLACE THAT ANSWERS 「is this purchase past a deadline we promised」
+// 🔴 THE ONE PLACE THAT ANSWERS 「is this purchase past the deadline we promised」
 // AND 「can it still be refunded」.
 //
 // The operator queue asks it to decide what to show; the sweep asks it to decide
@@ -18,12 +20,12 @@
 // not touch, or a console offering a button the write will refuse — and on a
 // surface that moves money, those are not cosmetic.
 //
-// ⚠️ TWO CLOCKS LIVE HERE AND THEY START AT DIFFERENT EVENTS. The two DEADLINES
-// run from the purchase (14 days to start, 40 to finish); the SUPPORT period
-// runs from the delivery. They are in one file because they are one promise
-// seen from two ends, and they are separate functions because merging them
-// would need a single 「due date」 that answered both — this repo's number-one
-// defect shape (one value, two questions).
+// ⚠️ TWO CLOCKS LIVE HERE AND THEY START AT DIFFERENT EVENTS. The DEADLINE
+// runs from the purchase (14 days to start); the SUPPORT period runs from the
+// delivery. They are in one file because they are one promise seen from two
+// ends, and they are separate functions because merging them would need a
+// single 「due date」 that answered both — this repo's number-one defect shape
+// (one value, two questions).
 //
 // 🔴 REFUNDABILITY IS A FUNCTION OF STATE ALONE since gs-5. Under gs-3/gs-4 a
 // delivered purchase stayed refundable for a fortnight after the completion
@@ -40,40 +42,57 @@
 // without money being able to move. Everything that CAN move money is on the
 // other side of this boundary and has to state which verdict it acted on.
 
+// ── 🔴 2026-08-31: A ROW A HUMAN TOOK OWNERSHIP OF CAN LEAVE THIS CLOCK ────
+//
+// The refund release path gave an operator two honest ways out of a stuck
+// 'refund_requested'. One of them, `provider_declined`, means the payment
+// provider has already refused an automatic refund on THIS row. Sending the
+// unattended sweep back to ask the same provider the same question about the
+// same charge is a loop, and an hourly timer must not keep re-opening a case a
+// person has taken ownership of — the row would re-enter 'refund_requested'
+// within the hour and land straight back where it was stuck, with the operator's
+// decision silently undone.
+//
+// ⇒ `refundDueReason` returns null for such a row. Nothing else about it
+// changes: it is still fully refundable by hand from the operator queue and
+// still shows the buyer their withdraw button, because `refundWindow` is a
+// function of STATE and the release put the state back.
+//
+// 🔴 AND `buyer_withdrew_request` DELIBERATELY STAYS ON THE SWEEP. That buyer
+// changed their mind and wants the service; the 14-day no-start deadline exists
+// to protect exactly them, and taking it away because of an unrelated
+// bookkeeping action would be a silent loss of a promised protection — invisible
+// to the buyer, invisible in any log, and discoverable only on the day it did
+// not fire. The two reasons pulling in opposite directions is why the operator
+// has to say which one it was.
+
 /** The state a purchase must still be in for a deadline to mean anything. */
-import type { OneTimePurchaseState } from '../db/repos/one-time-purchase.repo';
+import type { OneTimePurchaseState, RefundReleaseReason } from '../db/repos/one-time-purchase.repo';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Why a purchase is due to be refunded, or null.
  *
- * 🔴 TWO REASONS AND NOT ONE, because they are two different failures and an
- * operator's next move differs:
+ *   'no_start' — 14 days on, the customer has never engaged. We have done no
+ *                work. Refunding costs us nothing and is the whole point of
+ *                having this deadline: it stops us holding money for somebody
+ *                who never came back, and it stops us doing unpaid work later
+ *                for somebody who was never going to take part.
  *
- *   'no_start'      — 14 days on, the customer has never engaged. We have done
- *                     no work. Refunding costs us nothing and is the whole
- *                     point of having this deadline: it stops us holding money
- *                     for somebody who never came back, and it stops us doing
- *                     unpaid work later for somebody who was never going to
- *                     take part.
- *   'not_completed' — 40 days on, the customer DID engage (a time was booked)
- *                     and we have not started. This one is ours. The operator
- *                     may well want to talk to them before refunding, which is
- *                     exactly why the default is a queue entry rather than an
- *                     automatic refund. ⚠️ INTERNAL ONLY: it is not in the
- *                     consent wording and must not reach customer copy.
- *
- * Collapsing them into 「overdue」 would hide which side failed, on the screen
- * where somebody decides what to do about it.
+ * 🔴 ONE REASON, AND IT IS A UNION ON PURPOSE. owner 2026-08-30 (evening)
+ * removed the completion deadline this type used to carry a second member for:
+ * a purchase that has been booked or begun is never due on a clock, full stop.
+ * The type stays a named union rather than a bare literal so the operator
+ * queue, the sweep and their tests keep reading 「which deadline」 through one
+ * name — and so a second deadline, if owner ever restores one, is added here
+ * and nowhere else.
  */
-export type RefundDueReason = 'no_start' | 'not_completed';
+export type RefundDueReason = 'no_start';
 
 export interface DeadlinePolicy {
-  /** Days after purchase by which we must have started. */
+  /** Days after purchase by which we must have started. The only deadline. */
   startDeadlineDays: number;
-  /** Days after purchase by which a BOOKED setup must have finished. Internal. */
-  completeDeadlineDays: number;
 }
 
 /** What the verdict needs from a row. A SLICE, not the row: these functions must
@@ -96,16 +115,29 @@ export interface DeadlineSubject {
    * the notice used」 finds this sentence rather than silence.
    */
   completion_notice_at: string | null;
+  /**
+   * Why an operator released a stuck refund request, or null if none ever was.
+   *
+   * 🔴 THE ONE FIELD ON THIS SLICE THAT IS NOT A DATE, and the only one whose
+   * value changes what the sweep does. See the block at the top of this file.
+   */
+  refund_release_reason: RefundReleaseReason | null;
 }
 
 /**
- * Is this purchase past a deadline we promised, and which one.
+ * Is this purchase past the deadline we promised.
  *
- * ⚠️ 'in_progress', 'delivered', 'refund_requested' and 'refunded' ARE NEVER
- * DUE. A setup that has started is being worked on — refunding it on a clock
- * would take money back from somebody mid-session; a delivered one is a promise
- * kept; the other two are money already on its way back, and flagging them
- * would put a second refund in front of an operator for a purchase that has one.
+ * ⚠️ ONLY 'paid' CAN EVER BE DUE. 'scheduled' and 'in_progress' are a customer
+ * who engaged and work that is booked or under way — refunding either on a
+ * clock would take money back from somebody we are actively working with, and
+ * owner 2026-08-30 removed the clock that used to run on booked setups. A
+ * 'delivered' one is a promise kept; 'refund_requested' and 'refunded' are
+ * money already on its way back, and flagging them would put a second refund
+ * in front of an operator for a purchase that has one.
+ *
+ * ⚠️ A ROW RELEASED AS 'provider_declined' RETURNS null WHATEVER ITS AGE, and
+ * a row released as 'buyer_withdrew_request' is treated as though no release
+ * had ever happened. The block at the top of this file argues both halves.
  *
  * ⚠️ AN UNPARSEABLE `created_at` RETURNS null, LOUDLY DOING NOTHING. A row whose
  * date we cannot read is not 「due」 — it is a row somebody has to look at, and
@@ -117,20 +149,19 @@ export function refundDueReason(
   nowMs: number,
   policy: DeadlinePolicy,
 ): RefundDueReason | null {
-  if (subject.state !== 'paid' && subject.state !== 'scheduled') return null;
-  const boughtMs = Date.parse(subject.created_at);
-  if (Number.isNaN(boughtMs)) return null;
-  const ageDays = (nowMs - boughtMs) / DAY_MS;
-
   // 🔴 'paid' MEANS NOBODY HAS EVEN BOOKED A TIME. That is what makes the
   // 14-day rule mean 「the customer never engaged」 rather than 「we are slow」:
   // an operator who has spoken to them and put a time in the diary has already
-  // moved the row to 'scheduled', which changes which deadline applies — and
-  // one who has actually begun has moved it to 'in_progress', which removes it
-  // from every deadline.
-  if (subject.state === 'paid' && ageDays >= policy.startDeadlineDays) return 'no_start';
-  if (ageDays >= policy.completeDeadlineDays) return 'not_completed';
-  return null;
+  // moved the row to 'scheduled', and from that moment no deadline applies.
+  if (subject.state !== 'paid') return null;
+  // 🔴 A REFUND THIS PROVIDER ALREADY DECLINED IS NOT DUE AGAIN, EVER. Full
+  // argument in the block at the top of this file. Note what is NOT here:
+  // 'buyer_withdrew_request' falls through and stays on the clock.
+  if (subject.refund_release_reason === 'provider_declined') return null;
+  const boughtMs = Date.parse(subject.created_at);
+  if (Number.isNaN(boughtMs)) return null;
+  const ageDays = (nowMs - boughtMs) / DAY_MS;
+  return ageDays >= policy.startDeadlineDays ? 'no_start' : null;
 }
 
 /**
@@ -164,8 +195,9 @@ export function supportUntil(
  * customer's promise is the sentence in gs-5, and a countdown to 「we refund
  * you」 invites waiting rather than the conversation the service needs.
  *
- * ⚠️ 'in_progress' ANSWERS null. There is no clock on a setup that has begun;
- * the operator is in the room and the row needs no date beside it.
+ * ⚠️ 'scheduled' AND 'in_progress' ANSWER null. There is no clock on a setup
+ * that has been booked or begun (owner 2026-08-30); the operator is in the
+ * conversation and the row needs no date beside it.
  */
 export function nextDeadlineAt(
   subject: DeadlineSubject,
@@ -176,11 +208,44 @@ export function nextDeadlineAt(
   // one. Answering null here would tell the operator console 「nothing is
   // pending on this row」 while we still owed two weeks of help on it.
   if (subject.state === 'delivered') return supportUntil(subject, aftercareDays);
-  if (subject.state !== 'paid' && subject.state !== 'scheduled') return null;
+  if (subject.state !== 'paid') return null;
   const boughtMs = Date.parse(subject.created_at);
   if (Number.isNaN(boughtMs)) return null;
-  const days = subject.state === 'paid' ? policy.startDeadlineDays : policy.completeDeadlineDays;
-  return new Date(boughtMs + days * DAY_MS).toISOString();
+  return new Date(boughtMs + policy.startDeadlineDays * DAY_MS).toISOString();
+}
+
+/**
+ * What a console shows about a refund request that ENDED without the money
+ * moving through the provider — `null` when no release ever happened.
+ *
+ * 🔴 IT LIVES HERE, BESIDE `refundWindow`, FOR THAT FUNCTION'S REASON: the
+ * customer console and the operator queue both render it, and two copies of
+ * "what does a released refund look like" is how one of them comes to say
+ * something the other does not. It deliberately carries NO sentence — the copy
+ * is the console's, in its own nine (or four) locales; this answers only which
+ * of the two things happened, and when.
+ *
+ * ⚠️ IT IS NOT A REFUND STATUS AND MUST NOT BE RENDERED AS ONE. A row can carry
+ * a release AND be delivered, or carry a release and be back in flight on a
+ * second request. The state is the state; this is the history of one decision.
+ */
+export interface RefundRelease {
+  reason: RefundReleaseReason;
+  /** RFC3339. */
+  at: string;
+}
+
+export function refundRelease(
+  subject: Pick<DeadlineSubject, 'refund_release_reason'> & { refund_released_at: string | null },
+): RefundRelease | null {
+  // 🔴 BOTH OR NEITHER, and the repo makes that true by writing them in one
+  // statement. Answering with a reason and no date (or the reverse) would be
+  // this function inventing half of a record — so a half-written row, which
+  // the SQL cannot produce today, reads as "no release" rather than as a
+  // partial one nobody can act on.
+  const { refund_release_reason: reason, refund_released_at: at } = subject;
+  if (reason === null || at === null) return null;
+  return { reason, at };
 }
 
 /** Why a purchase can be refunded right now. */

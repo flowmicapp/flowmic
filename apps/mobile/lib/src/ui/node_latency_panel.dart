@@ -17,6 +17,8 @@
 // ⚠️ NOTHING IS MEASURED UNTIL THE USER ASKS. Three sequential requests per
 // node on a radio is not something to do because a screen opened.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../session/node_latency.dart';
@@ -31,6 +33,7 @@ class NodeLatencyPanel extends StatefulWidget {
     super.key,
     required this.strings,
     required this.nodes,
+    this.warmup,
     this.currentNodeId,
     this.probe = probeNode,
   });
@@ -41,6 +44,21 @@ class NodeLatencyPanel extends StatefulWidget {
   /// state on a single-node deployment, and the panel then draws nothing at all
   /// rather than a section with one row and no choice in it.
   final List<RelayNode> nodes;
+
+  /// 2026-08-31 — load the operator directory if this screen opened before one
+  /// arrived, and rebuild when it does.
+  ///
+  /// 🔴 WHY THIS EXISTS. The directory used to be fetched in exactly one place:
+  /// the reconnect ack. So the panel — the one screen that answers 「why is my
+  /// connection slow」 — was present only while a connection was working, and
+  /// absent in the state it was built for. Reproduced on a tablet 2026-08-31:
+  /// after a cold start with no session, RELAY NODES was not on the page at all.
+  ///
+  /// ⚠️ Returns the CURRENT list rather than void, because the caller that owns
+  /// it is a StatelessWidget: a setState here cannot re-read a snapshot passed
+  /// down at build time, and a panel that fetched a directory it could not then
+  /// display would be a request with no reader.
+  final Future<List<RelayNode>> Function()? warmup;
 
   /// The node this session is on, so the row can be marked 「you are here」 —
   /// a statement, never a selection.
@@ -57,6 +75,26 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
   final Map<String, NodeLatency> _results = <String, NodeLatency>{};
   bool _busy = false;
 
+  /// What this panel draws. Starts as what the caller had at build time and is
+  /// replaced ONLY by a warmup that actually returned rows — never emptied, so a
+  /// failed directory read leaves the screen exactly as it was.
+  late List<RelayNode> _nodes = widget.nodes;
+
+  @override
+  void initState() {
+    super.initState();
+    final Future<List<RelayNode>> Function()? warm = widget.warmup;
+    if (warm == null || _nodes.isNotEmpty) return;
+    unawaited(warm().then((List<RelayNode> got) {
+      if (!mounted || got.isEmpty) return;
+      setState(() => _nodes = got);
+    }).catchError((Object _) {
+      // Swallowed on purpose, and not retried: the panel degrades to what it
+      // already showed. A chip that retried a directory read on a timer is how
+      // a screen becomes a battery report (node_labels.dart made the same call).
+    }));
+  }
+
   Future<void> _measure() async {
     if (_busy) return;
     setState(() {
@@ -66,7 +104,7 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
       // nothing on the row would say which was which.
       _results.clear();
     });
-    for (final RelayNode n in widget.nodes) {
+    for (final RelayNode n in _nodes) {
       final NodeLatency r = await widget.probe(n.id, n.url);
       if (!mounted) return;
       setState(() => _results[n.id] = r);
@@ -76,7 +114,7 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.nodes.isEmpty) return const SizedBox.shrink();
+    if (_nodes.isEmpty) return const SizedBox.shrink();
     final AppStrings s = widget.strings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -85,10 +123,10 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
         settingsCard(
           child: Column(
             children: <Widget>[
-              for (int i = 0; i < widget.nodes.length; i++)
+              for (int i = 0; i < _nodes.length; i++)
                 settingsRow(
-                  last: i == widget.nodes.length - 1,
-                  child: _row(widget.nodes[i], s),
+                  last: i == _nodes.length - 1,
+                  child: _row(_nodes[i], s),
                 ),
             ],
           ),
@@ -169,7 +207,7 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
   }
 
   Map<String, String> _shortById() => <String, String>{
-        for (final RelayNode n in widget.nodes)
+        for (final RelayNode n in _nodes)
           if (n.short != null && n.short!.trim().isNotEmpty)
             n.id: n.short!.trim(),
       };

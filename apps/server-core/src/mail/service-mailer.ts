@@ -41,6 +41,7 @@
 // surface somebody has to own). ⇒ if this product ever localizes its mail it is
 // one card covering all of them, not this file quietly going first.
 
+import type { RefundReleaseReason } from '../db/repos/one-time-purchase.repo';
 import type { MailMessage, MailProvider } from './provider';
 
 /**
@@ -84,6 +85,26 @@ export interface ServiceMailer {
    * surface and dropped on the other.
    */
   sendWithdrawalReceived(input: ServiceWithdrawalMailInput): Promise<void>;
+  /**
+   * Tell a buyer a refund we could not observe has been settled by hand.
+   *
+   * 🔴 IT QUOTES THE REFERENCE THE OPERATOR RECORDED. This is the one message
+   * in this file that asserts money MOVED — every other refund sentence we send
+   * says "asked" — and the only thing standing behind it is a human's word. The
+   * buyer gets the same handle the operator has, so they can check it with their
+   * bank instead of taking ours for it.
+   */
+  sendRefundSettledByHand(input: RefundSettledMailInput): Promise<void>;
+  /**
+   * Tell a buyer the refund request is over and their purchase is active again.
+   *
+   * 🔴 IT IS NOT OPTIONAL POLITENESS. Their console said "we have asked for
+   * your money back"; without this letter it silently stops saying it, and the
+   * buyer is left to discover on their own that a refund they exercised is not
+   * coming. A silent revert is the same class of defect as the frozen row this
+   * whole path exists to fix.
+   */
+  sendRefundReleased(input: RefundReleasedMailInput): Promise<void>;
   /** Transport id for log lines only (`'resend'` / `'unconfigured'`). */
   readonly id: string;
 }
@@ -107,6 +128,28 @@ export interface ServiceWithdrawalMailInput {
   receivedAt: string;
   amountMinor: number | null;
   currency: string | null;
+}
+
+export interface RefundSettledMailInput {
+  to: string;
+  orderId: string;
+  /** 🔴 THE OPERATOR'S PROOF, VERBATIM. A bank reference, a provider refund id,
+   *  whatever they had. It is quoted into the letter unchanged: paraphrasing a
+   *  reference makes it useless to the person who has to look it up. */
+  externalReference: string;
+  amountMinor: number | null;
+  currency: string | null;
+}
+
+export interface RefundReleasedMailInput {
+  to: string;
+  orderId: string;
+  /** 🔴 WHICH OF THE TWO THINGS HAPPENED. The letters differ in more than tone:
+   *  one has to explain that we could not complete a refund the buyer asked for
+   *  (and that they may ask again), the other acknowledges that THEY called it
+   *  off. Telling a buyer they changed their mind when they did not is the kind
+   *  of sentence that ends up in a complaint. */
+  reason: RefundReleaseReason;
 }
 
 /** Minor units → a printable amount. Currency CODE rather than a symbol, for the
@@ -169,9 +212,10 @@ export function buildSetupCompletedEmail(input: SetupCompletedMailInput): MailMe
       'reply to this email.',
       '',
       'Now that your setup is confirmed complete, refunds for this service are',
-      'closed. This does not affect your legal rights: if the setup was not',
-      'provided as described, was not delivered, or does not work, reply to this',
-      'email and we will put it right or refund you.',
+      'closed, and any question about a refund from here on is handled by email',
+      '— just reply to this one. This does not affect your legal rights: if the',
+      'setup was not provided as described, was not delivered, or does not work,',
+      'reply to this email and we will put it right or refund you.',
       '',
       `After those ${weeks} of support the service is closed. You can still email`,
       'us if you need help.',
@@ -231,6 +275,80 @@ export function buildServiceWithdrawalEmail(input: ServiceWithdrawalMailInput): 
   };
 }
 
+export function buildRefundSettledEmail(input: RefundSettledMailInput): MailMessage {
+  const amount = money(input.amountMinor, input.currency);
+  return {
+    to: input.to,
+    subject: 'Your FlowMic setup service refund is complete',
+    text: [
+      amount === null
+        ? 'Your refund for the FlowMic one-time setup service is complete.'
+        : `Your refund of ${amount} for the FlowMic one-time setup service is complete.`,
+      '',
+      `Order: ${input.orderId}`,
+      // 🔴 THE REFERENCE, ON ITS OWN LINE, LABELLED. This refund did not come
+      // through the automatic channel — that is the entire reason this letter
+      // exists — so the buyer cannot find it by looking at our system. This
+      // string is what they take to their bank.
+      `Payment reference: ${input.externalReference}`,
+      '',
+      'If it has not reached your account, reply to this email with that',
+      'reference and we will chase it.',
+      '',
+      'Nothing you created has been deleted, and FlowMic continues to work on your',
+      'own network.',
+      '',
+      '— FlowMic',
+    ].join('\n'),
+  };
+}
+
+export function buildRefundReleasedEmail(input: RefundReleasedMailInput): MailMessage {
+  // 🔴 TWO LETTERS, ONE BUILDER, AND NO SHARED MIDDLE SENTENCE. The opening
+  // paragraph is the whole difference and it is not cosmetic: one says WE could
+  // not do it, the other says YOU asked us not to. A single paragraph fudged to
+  // cover both would tell half the recipients something untrue about their own
+  // conduct.
+  const declined = input.reason === 'provider_declined';
+  return {
+    to: input.to,
+    subject: declined
+      ? 'We could not complete your FlowMic refund — your purchase is active again'
+      : 'Your FlowMic refund request has been cancelled — your purchase is active again',
+    text: [
+      ...(declined
+        ? [
+            'We asked our payment provider to return your payment for the FlowMic',
+            'one-time setup service, and it could not be completed through that',
+            'channel. No money has moved.',
+          ]
+        : [
+            'As you asked, we have cancelled your refund request for the FlowMic',
+            'one-time setup service. No money has moved.',
+          ]),
+      '',
+      `Order: ${input.orderId}`,
+      '',
+      // ⚠️ THE SAME SECOND PARAGRAPH FOR BOTH, and here that IS right: whichever
+      // way the request ended, the purchase is live again and the buyer's rights
+      // are identical. Saying it differently would imply a difference that does
+      // not exist.
+      'Your purchase is active again and your setup session is still yours. You',
+      'can ask for a refund again at any time before we confirm the setup is',
+      'complete — from your console, or simply by replying to this email.',
+      ...(declined
+        ? [
+            '',
+            'If you want the refund, reply to this email and we will arrange it',
+            'another way. You do not need to chase us for it.',
+          ]
+        : []),
+      '',
+      '— FlowMic',
+    ].join('\n'),
+  };
+}
+
 /**
  * Bind the templates to a transport.
  *
@@ -248,6 +366,12 @@ export function makeServiceMailer(provider: MailProvider): ServiceMailer {
     },
     async sendWithdrawalReceived(input): Promise<void> {
       await provider.send(buildServiceWithdrawalEmail(input));
+    },
+    async sendRefundSettledByHand(input): Promise<void> {
+      await provider.send(buildRefundSettledEmail(input));
+    },
+    async sendRefundReleased(input): Promise<void> {
+      await provider.send(buildRefundReleasedEmail(input));
     },
   };
 }

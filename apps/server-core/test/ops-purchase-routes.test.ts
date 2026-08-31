@@ -744,6 +744,10 @@ function mailer(mode: 'ok' | 'throws' = 'ok'): ServiceMailer & { sent: SetupComp
       sent.push(input);
     },
     async sendWithdrawalReceived(): Promise<void> {},
+    // Present so this stub really satisfies ServiceMailer. This suite drives
+    // the advance/refund routes, which never send either of them.
+    async sendRefundSettledByHand(): Promise<void> {},
+    async sendRefundReleased(): Promise<void> {},
   } as ServiceMailer & { sent: SetupCompletedMailInput[] };
 }
 
@@ -904,7 +908,7 @@ describe('POST /api/ops/purchases/refund — the operator presses a due refund',
     const { deps, rows } = makeDeps(repo, { refund: r.fn });
     const out = await call(deps, 'POST', '/api/ops/purchases/refund', {
       order_id: id,
-      note: '40 days, never finished',
+      note: 'buyer asked for it by email',
     });
     expect(out.status).toBe(200);
     expect(r.calls).toEqual([[id, 'operator']]);
@@ -914,7 +918,7 @@ describe('POST /api/ops/purchases/refund — the operator presses a due refund',
     const business = businessRows(rows);
     expect(business).toHaveLength(1);
     expect(business[0]!.action).toBe(PURCHASE_REFUND_ACTION);
-    expect(business[0]!.detail).toBe('40 days, never finished');
+    expect(business[0]!.detail).toBe('buyer asked for it by email');
   });
 
   it('🔴 FAIL-CLOSED: an unwritable audit row means NO money moves', async () => {
@@ -1016,25 +1020,30 @@ describe('the queue tells an operator what is DUE and when', () => {
     const row = (out.body.purchases as Record<string, unknown>[])[0]!;
     expect(row.refund_due).toBe('no_start');
     expect(row.next_deadline_at).toBe(new Date(Date.parse(bought) + 14 * DAY_MS).toISOString());
-    // The periods are echoed so the console renders them from the server —
-    // and there is no `dispute_days` any more (gs-5 has no such period).
+    // The period is echoed so the console renders it from the server — and
+    // there is no `dispute_days` (gs-5) and no `complete_deadline_days` (owner
+    // 2026-08-30 removed the completion deadline outright) on the wire.
     expect(out.body.start_deadline_days).toBe(14);
-    expect(out.body.complete_deadline_days).toBe(40);
     expect(out.body.aftercare_days).toBe(GUIDED_SETUP_AFTERCARE_DAYS);
     expect(out.body).not.toHaveProperty('dispute_days');
+    expect(out.body).not.toHaveProperty('complete_deadline_days');
   });
 
-  it('flags a BOOKED purchase past 40 days as not_completed, but never one that has begun (gs-5)', async () => {
+  it('🔴 never flags a BOOKED or BEGUN purchase, however old — there is no completion deadline', async () => {
+    // owner 2026-08-30 (evening): the completion deadline is gone from the
+    // product, not demoted to an internal flag. 100 days is past every number
+    // this queue has ever counted to.
     const repo = makeDb();
-    const bought = new Date(NOW_MS - 45 * DAY_MS).toISOString();
+    const bought = new Date(NOW_MS - 100 * DAY_MS).toISOString();
     seed(repo, { order_id: 'ord_booked', state: 'scheduled', scheduled_at: bought, created_at: bought });
     seed(repo, { order_id: 'ord_begun', state: 'in_progress', scheduled_at: bought, started_at: bought, created_at: bought });
     const { deps } = makeDeps(repo);
     const out = await call(deps, 'GET', '/api/ops/purchases');
     const byId = new Map((out.body.purchases as Record<string, unknown>[]).map((p) => [p.order_id, p]));
-    expect(byId.get('ord_booked')!.refund_due).toBe('not_completed');
+    expect(byId.get('ord_booked')!.refund_due).toBeNull();
+    expect(byId.get('ord_booked')!.next_deadline_at).toBeNull();
     // 🔴 THE ONE THAT MATTERS: a clock must not take money back from somebody
-    // mid-session. The 40-day flag is internal and is for booked setups only.
+    // mid-session.
     expect(byId.get('ord_begun')!.refund_due).toBeNull();
     expect(byId.get('ord_begun')!.next_deadline_at).toBeNull();
   });

@@ -58,6 +58,67 @@ export function isOneTimePurchaseState(v: unknown): v is OneTimePurchaseState {
   );
 }
 
+/**
+ * Why an operator took a stuck refund off 'refund_requested'.
+ *
+ * 🔴 THE TWO MEMBERS ARE NOT COSMETIC AND THIS TYPE IS NOT A LABEL. The value
+ * decides whether the unattended 14-day no-start sweep still protects the
+ * buyer: `provider_declined` takes the row off it for ever (retrying an
+ * automatic refund through a provider that already refused THIS row is a loop),
+ * and `buyer_withdrew_request` deliberately leaves it on (the buyer changed
+ * their mind and wants the service — the deadline exists for exactly them).
+ * billing/service-deadlines.ts `refundDueReason` is where that is spent.
+ *
+ * ⚠️ IT IS NOT A FOURTH `RefundOrigin`. An origin says why a refund was ASKED
+ * for; this says why one stopped being asked for. Merging them would hand the
+ * provider call a reason it must never carry.
+ */
+export type RefundReleaseReason = 'provider_declined' | 'buyer_withdrew_request';
+
+/**
+ * Every `RefundReleaseReason`, as a runtime table.
+ *
+ * 🔴 EXISTS SO A TEST CAN COUNT THEM, and it is a `Record<RefundReleaseReason,
+ * true>` rather than an array for the reason `REFUND_ORIGIN_TABLE` in
+ * billing/service-refund.ts states: BOTH a missing member and an extra one are
+ * then compile errors, where a hand-written list would let the union grow while
+ * the list stayed stale. A third member is a deliberate act, and whoever adds
+ * one owes an answer to the only question this type is ever asked — does the
+ * sweep still run on a row released for that reason.
+ */
+const REFUND_RELEASE_REASON_TABLE: Readonly<Record<RefundReleaseReason, true>> = {
+  provider_declined: true,
+  buyer_withdrew_request: true,
+};
+export const REFUND_RELEASE_REASONS: readonly RefundReleaseReason[] = Object.keys(
+  REFUND_RELEASE_REASON_TABLE,
+) as RefundReleaseReason[];
+
+export function isRefundReleaseReason(v: unknown): v is RefundReleaseReason {
+  return v === 'provider_declined' || v === 'buyer_withdrew_request';
+}
+
+/**
+ * The states a released refund may land back in.
+ *
+ * 🔴 'delivered' IS ABSENT, AND THE ABSENCE IS THE DESIGN. Declaring a setup
+ * complete is its own visible action with its own audit row; letting a release
+ * reach 'delivered' would let one click both end a refund AND close the refund
+ * window on it, with the trail naming only the first. 'refunded' is absent
+ * because it is a claim about money — the webhook writes it, or an operator
+ * does with an external reference behind it, never as a side effect of
+ * releasing.
+ *
+ * Declared as a tuple so a refusal message can list the legal values rather
+ * than a second hand-written copy of them drifting out of date.
+ */
+export const REFUND_RELEASE_TARGETS = ['paid', 'scheduled', 'in_progress'] as const;
+export type RefundReleaseTarget = (typeof REFUND_RELEASE_TARGETS)[number];
+
+export function isRefundReleaseTarget(v: unknown): v is RefundReleaseTarget {
+  return v === 'paid' || v === 'scheduled' || v === 'in_progress';
+}
+
 /** Column-for-column with the table. */
 export interface OneTimePurchaseRow {
   order_id: string;
@@ -99,7 +160,38 @@ export interface OneTimePurchaseRow {
   note: string | null;
   created_at: string;
   updated_at: string;
+  /** When an operator released a stuck refund request. NULL means no release
+   *  ever happened — it never means "we do not know". */
+  refund_released_at: string | null;
+  /** Why. 🔴 READ BY `refundDueReason`: 'provider_declined' takes this row off
+   *  the unattended 14-day sweep for ever, and 'buyer_withdrew_request' leaves
+   *  it on. Nothing else in the product branches on it. */
+  refund_release_reason: RefundReleaseReason | null;
+  /** The operator's proof that money moved somewhere we cannot see.
+   *
+   *  🔴 NON-NULL IS WHAT DISTINGUISHES A HUMAN-ASSERTED REFUND FROM A
+   *  PROVIDER-CONFIRMED ONE, for ever. 'refunded' with this null came from the
+   *  webhook; 'refunded' with this set came from a person who typed a reference
+   *  they can be held to. `refund_status` is deliberately NOT overloaded to
+   *  carry that distinction — it holds the provider's own word and nothing of
+   *  ours. */
+  refund_external_reference: string | null;
 }
+
+/**
+ * What `recordOneTimePurchase` is given.
+ *
+ * 🔴 THE THREE RELEASE COLUMNS ARE OMITTED, NOT DEFAULTED. A purchase being
+ * written for the FIRST time cannot have had a stuck refund released by a
+ * human, so requiring three nulls would ask the webhook to hold an opinion
+ * about something that has not happened — and the INSERT does not name those
+ * columns at all, so the table's own NULL is the answer. A type rather than a
+ * convention, so a future caller cannot pass one by accident.
+ */
+export type NewOneTimePurchase = Omit<
+  OneTimePurchaseRow,
+  'updated_at' | 'refund_released_at' | 'refund_release_reason' | 'refund_external_reference'
+>;
 
 export interface OneTimePurchaseRepo {
   /**
@@ -112,7 +204,7 @@ export interface OneTimePurchaseRepo {
    * observation, and the ledger would then report a state change for a delivery
    * that changed nothing.
    */
-  recordOneTimePurchase(row: Omit<OneTimePurchaseRow, 'updated_at'>): 'inserted' | 'duplicate';
+  recordOneTimePurchase(row: NewOneTimePurchase): 'inserted' | 'duplicate';
   getOneTimePurchase(order_id: string): OneTimePurchaseRow | null;
   /** Newest first. The console's own read; it never joins against subscriptions. */
   listOneTimePurchasesForUser(user_id: string, limit: number): OneTimePurchaseRow[];
@@ -223,6 +315,58 @@ export interface OneTimePurchaseRepo {
     fields: { refunded_at: string; provider_id: string | null; provider_status: string | null },
     nowIso: string,
   ): 'confirmed' | 'unknown_order';
+  /**
+   * Record that a refund we asked for DID happen, on the word of a human who
+   * has proof of it.
+   *
+   * 🔴 THE SECOND WRITER OF 'refunded', and the only thing that entitles it to
+   * exist is that it demands something the webhook cannot: an external
+   * reference. The webhook writes 'refunded' because the provider said so; this
+   * writes it because a person says so AND leaves behind what they said it on.
+   * Without the reference the row would assert that money moved with nothing at
+   * all behind the claim — the "said it was done when it was not" half of
+   * no-silent-failure, pointed at somebody's money.
+   *
+   * ⚠️ CONDITIONAL ON 'refund_requested' IN THE SQL, not in the caller — the
+   * same discipline as the claim above. Two operators on two tabs would
+   * otherwise both read the state and both write, and only one of their
+   * references would survive. The route checks the state too so it can answer
+   * 409 with a sentence; this condition is what makes that answer true under a
+   * race.
+   *
+   * ⚠️ `refund_status` AND `refund_provider_id` ARE LEFT ALONE. They are the
+   * history of what the provider said when we asked, and that history is
+   * exactly what makes this row readable a year later.
+   */
+  settleOneTimeRefundByHand(
+    order_id: string,
+    fields: { refunded_at: string; external_reference: string },
+    nowIso: string,
+  ): 'settled' | 'not_requested';
+  /**
+   * Take a stuck refund request back off 'refund_requested'.
+   *
+   * 🔴 IT NEVER WRITES 'refunded' AND CANNOT REACH 'delivered'. The target is a
+   * `RefundReleaseTarget` — paid, scheduled, in_progress — so the buyer keeps
+   * the right to ask again while the service is not yet completed, and a refund
+   * decision can never be hidden inside a delivery.
+   *
+   * 🔴 THE TWO STAMPS ARE WRITTEN BY THIS ONE STATEMENT AND THERE IS NO OTHER
+   * WAY TO SET EITHER. A caller able to write the date without the reason would
+   * produce a row saying a release happened that cannot say what it meant — and
+   * the reason is the input to whether the 14-day sweep still runs.
+   *
+   * ⚠️ `refund_requested_at`, `refund_status` and `refund_provider_id` are
+   * kept as history: they record that we DID ask and what came back, which is
+   * the whole reason anybody is looking at this row.
+   *
+   * ⚠️ CONDITIONAL ON 'refund_requested' IN THE SQL, for the reason above.
+   */
+  releaseOneTimeRefundRequest(
+    order_id: string,
+    fields: { to_state: RefundReleaseTarget; reason: RefundReleaseReason; released_at: string },
+    nowIso: string,
+  ): 'released' | 'not_requested';
   advanceOneTimePurchase(
     order_id: string,
     patch: {
@@ -282,6 +426,21 @@ function toPurchaseRow(r: Record<string, unknown>): OneTimePurchaseRow {
     note: str(r.note),
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
+    refund_released_at: str(r.refund_released_at),
+    // 🔴 GATED ON THE PREDICATE, not cast. SQLite has no enum, so a hand-edited
+    // row could carry any word here — and this one is READ BY THE SWEEP. A
+    // silent cast would let 'provider-declined' (a typo) be neither of the two
+    // things this system knows how to do: it would not stop the sweep, and
+    // nothing would say so. NULL is the honest answer for a value we do not
+    // recognise, and NULL means "the sweep still runs", which is the safe
+    // direction — a buyer keeps a protection rather than losing one silently.
+    // 🔴 THE STATE COLUMN ABOVE DOES THE OPPOSITE ON PURPOSE (it passes an
+    // unknown value through) because there the callers are built to say "I do
+    // not recognise this" out loud; here there is no caller that could.
+    refund_release_reason: isRefundReleaseReason(r.refund_release_reason)
+      ? r.refund_release_reason
+      : null,
+    refund_external_reference: str(r.refund_external_reference),
   };
 }
 
@@ -349,6 +508,38 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
        updated_at = ?
      WHERE order_id = ?`,
   );
+  // ── the release path out of 'refund_requested' (2026-08-31) ──────────────
+  //
+  // 🔴 BOTH ARE CONDITIONAL ON `state = 'refund_requested'`, which is what makes
+  // them incapable of doing anything to a row somebody else already moved. The
+  // routes read the state first so they can answer 409 with a sentence a person
+  // can act on; these conditions are what make that answer true under a race
+  // between two operator tabs.
+  //
+  // ⚠️ `refunded_at` KEEPS ITS COALESCE, exactly as `confirmRefund` does. If a
+  // webhook landed 'refunded' between the route's read and this write the UPDATE
+  // matches nothing anyway — but if the ordering ever changes, the date the
+  // money actually moved must not be rewritten by the date somebody typed it in.
+  const settleRefundByHand = db.prepare(
+    `UPDATE one_time_purchases SET
+       state = 'refunded',
+       refunded_at = COALESCE(refunded_at, ?),
+       refund_external_reference = ?,
+       updated_at = ?
+     WHERE order_id = ? AND state = 'refund_requested'`,
+  );
+  // 🔴 ONE STATEMENT WRITES BOTH STAMPS. There is deliberately no way to set the
+  // date without the reason: the reason is what decides whether the 14-day sweep
+  // still protects this buyer, and a row carrying a release with no reason would
+  // be a decision nobody made.
+  const releaseRefundRequest = db.prepare(
+    `UPDATE one_time_purchases SET
+       state = ?,
+       refund_released_at = ?,
+       refund_release_reason = ?,
+       updated_at = ?
+     WHERE order_id = ? AND state = 'refund_requested'`,
+  );
   const purchasesForUser = db.prepare(
     'SELECT * FROM one_time_purchases WHERE user_id = ? ORDER BY created_at DESC, order_id DESC LIMIT ?',
   );
@@ -358,6 +549,12 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
   // The delivery stamps are ASSIGNED; `transaction_id` and `note` keep
   // COALESCE. The consent stamps are absent from this UPDATE entirely — see the
   // interface for both decisions.
+  //
+  // ⚠️ THE THREE RELEASE COLUMNS ARE ABSENT TOO, and that is not an oversight:
+  // they are not part of the delivery picture, they are the record of a
+  // decision an operator already made and signed an audit row for. A purchase
+  // released back to 'paid' and later delivered keeps saying WHY its refund
+  // stopped — which is exactly what somebody reading it a year later needs.
   const advancePurchase = db.prepare(
     `UPDATE one_time_purchases SET
        state = ?,
@@ -440,6 +637,27 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
         order_id,
       );
       return res.changes > 0 ? 'confirmed' : 'unknown_order';
+    },
+    settleOneTimeRefundByHand(order_id, fields, nowIso): 'settled' | 'not_requested' {
+      const res = settleRefundByHand.run(
+        fields.refunded_at,
+        fields.external_reference,
+        nowIso,
+        order_id,
+      );
+      // `changes` IS THE ANSWER, same as the claim: zero means the row moved
+      // between the caller's read and this write, or never existed.
+      return res.changes > 0 ? 'settled' : 'not_requested';
+    },
+    releaseOneTimeRefundRequest(order_id, fields, nowIso): 'released' | 'not_requested' {
+      const res = releaseRefundRequest.run(
+        fields.to_state,
+        fields.released_at,
+        fields.reason,
+        nowIso,
+        order_id,
+      );
+      return res.changes > 0 ? 'released' : 'not_requested';
     },
     advanceOneTimePurchase(order_id, patch, nowIso): void {
       advancePurchase.run(

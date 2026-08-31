@@ -101,6 +101,17 @@ export function unconfiguredSubscriptionMailer(): SubscriptionMailer {
  * write, not an open window. `completion_notice_at` stays NULL and the
  * operator queue shows the row as delivered-but-unnotified, which is the duty
  * somebody has to discharge by hand.
+ *
+ * 🔴 2026-08-31 — AND WHAT IT COSTS ON THE TWO REFUND-RESOLUTION LETTERS IS
+ * WORSE, so it is stated separately rather than folded into the paragraph
+ * above. The buyer's console has been saying "we have asked for your money
+ * back"; when an operator ends that request the sentence simply stops
+ * appearing. Without the letter the buyer is never told whether the money is
+ * coming, and nothing on their screen distinguishes "settled by hand" from "we
+ * could not do it". The routes still make the state change — the decision is
+ * audited and must not be lost to a mail outage — and report
+ * `notice_sent: false` so the letter is a visible duty rather than an
+ * assumption.
  */
 export function unconfiguredServiceMailer(): ServiceMailer {
   return {
@@ -111,6 +122,26 @@ export function unconfiguredServiceMailer(): ServiceMailer {
           'no mail channel is configured on this deployment — a SETUP COMPLETION NOTICE cannot be delivered. ' +
             'The buyer agreed (gs-5) to be emailed when their setup is confirmed complete and their two weeks ' +
             'of support begin; on this box nobody is told, and the row stays flagged as unnotified. ' +
+            `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
+        ),
+      );
+    },
+    sendRefundSettledByHand(): Promise<void> {
+      return Promise.reject(
+        new MailNotConfiguredError(
+          'no mail channel is configured on this deployment — a REFUND SETTLEMENT NOTICE cannot be delivered. ' +
+            'An operator has recorded that this refund was paid outside our provider; the buyer is not being ' +
+            'told, and they are not being given the payment reference they would need to trace it. ' +
+            `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
+        ),
+      );
+    },
+    sendRefundReleased(): Promise<void> {
+      return Promise.reject(
+        new MailNotConfiguredError(
+          'no mail channel is configured on this deployment — a REFUND RELEASE NOTICE cannot be delivered. ' +
+            'A refund this buyer asked for has ended without the money moving, and their console will simply ' +
+            'stop saying it was requested. Nobody is telling them; someone has to, by hand. ' +
             `Set ${MAIL_ENV_KEYS.join(', ')} (see docs/rebuild/10-OPS-DEPLOY.md §4.1)`,
         ),
       );

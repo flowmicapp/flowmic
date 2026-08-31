@@ -30,6 +30,7 @@ import '../portable/portable_controller.dart';
 import '../portable/portable_import.dart';
 import '../portable/portable_ports.dart' show AppVersionPort;
 import '../ptt/ptt_session.dart';
+import '../auth/saas_endpoint.dart' show resolveSaasEndpoint;
 import '../session/node_latency.dart' show probeNode;
 import 'node_latency_panel.dart';
 import '../settings/app_settings.dart';
@@ -161,6 +162,21 @@ class SettingsPage extends StatelessWidget {
                         nodes: session.reconnect.nodeLabels.nodes,
                         currentNodeId: session.reconnect.node.value,
                         probe: (String id, String url) => probeNode(id, url),
+                        // 🔴 The directory used to arrive ONLY on a reconnect ack,
+                        // so this panel existed only while a connection worked —
+                        // and vanished in the state it was built to diagnose
+                        // (reproduced on a tablet 2026-08-31 after a cold start).
+                        // `reconnect.url` is where this phone actually talks when
+                        // it has a session; `resolveSaasEndpoint()` is the same
+                        // host the account already uses when it does not.
+                        warmup: () async {
+                          final String? live = session.reconnect.url;
+                          final String ep = (live == null || live.trim().isEmpty)
+                              ? resolveSaasEndpoint()
+                              : live;
+                          await session.reconnect.nodeLabels.ensureLoaded(ep);
+                          return session.reconnect.nodeLabels.nodes;
+                        },
                       ),
                       settingsSection(s.secAbout),
                       // P-7 — the "about" card added "review onboarding guide",

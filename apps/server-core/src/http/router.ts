@@ -28,6 +28,7 @@ import { tryHandleUsageEventsRoutes } from './usage-events-routes';
 import { tryHandleOpsUserRoutes } from './ops-user-routes';
 import { tryHandleOpsUsageEventsRoutes } from './ops-usage-events-routes';
 import { tryHandleOpsPurchaseRoutes } from './ops-purchase-routes';
+import { tryHandleOpsRefundReleaseRoutes } from './ops-refund-release-routes';
 import { tryHandleProbeRoutes } from './probe-routes';
 import { tryHandleSttModelRoutes } from './stt-model-routes';
 import { tryHandlePresenceRoutes } from './presence-routes';
@@ -307,7 +308,9 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
       return true;
     }
 
-    if (url === '/api/health' && method === 'GET') {
+    // 2026-08-31 — PATH, not whole URL: `/api/health?cb=1` used to 404, so a
+    // monitor that cache-busts read a healthy relay as gone (health-route-query.test.ts).
+    if (url.split('?')[0] === '/api/health' && method === 'GET') {
       // PUBLIC BY NECESSITY, and the ONE route that must stay that way: a phone
       // with no token yet probes it to draw the instance list and to learn which
       // channel answered (mobile/src/session/instance_probe.dart reads `ok` +
@@ -625,6 +628,11 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // never say yes.
     if (config.mode === 'saas' && deps.opsPurchases
       && tryHandleOpsPurchaseRoutes(req, res, deps.opsPurchases)) return true;
+
+    // 2026-08-31 — the way out of a stuck 'refund_requested'. Same two
+    // conditions and the same reason as the mount above it.
+    if (config.mode === 'saas' && deps.opsRefundRelease
+      && tryHandleOpsRefundReleaseRoutes(req, res, deps.opsRefundRelease)) return true;
 
     // SALT-1 — GET/PUT /api/timeline/keymeta. SAAS ONLY, the reverse of the
     // image inject mount above (that door exists only in standalone; this one

@@ -14,11 +14,12 @@
 //   POST /api/node/forward — a replica handing the writer the writes it owes
 //   GET  /api/node/quota    — the ONE read a replica may not answer itself
 //   GET  /api/node/snapshot — the writer's database, for the replication pull
+//   POST /api/node/mint-code — the ONE write a replica may ask for SYNCHRONOUSLY
 //
 // The first three are PUBLIC — a client must choose a node before it has
-// anywhere to authenticate. The last three are the NODE-TO-NODE channel: all
-// three require the shared secret, and two of them are writer-only, which is
-// what stops a replica re-serving the database it was given.
+// anywhere to authenticate. The last four are the NODE-TO-NODE channel: all of
+// them require the shared secret, and three are writer-only, which is what stops
+// a replica re-serving the database it was given.
 //
 // 🔴 Read the paragraph above /forward before touching it: its per-record
 // response shape is load-bearing, and 「silence means retry」 is the whole
@@ -51,6 +52,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
+import { nodeIdForHost, requestHost, type NodeHostMap } from '../node/node-identity';
 
 /** What a node calls itself. Matches the subdomain: `srvny`, `srvjp`. */
 export type NodeId = string;
@@ -111,6 +113,10 @@ export interface NodeRoutesDeps {
    *  default — a node that does not know its own name cannot be located, and
    *  guessing one would put a wrong value into pc_devices.home_node. */
   nodeId: NodeId;
+  /** 2026-08-31 — `host → node id`, for a process reachable under more than one
+   *  name (a regional front door). Empty, or a host that is not in it, means
+   *  [nodeId]. See node/node-identity.ts for why the hostname owns this. */
+  nodeHosts?: NodeHostMap;
   /** Operator-maintained list, same shape of dependency as the update manifest:
    *  a path, whose mere presence means "this deployment is multi-node". */
   nodeListPath?: string;
@@ -143,6 +149,36 @@ export interface NodeRoutesDeps {
   /** Writer only. The ONE authoritative read a replica is allowed to make, and
    *  deliberately not a general account API: one number, one question. */
   remainingSttMs?: (userId: string) => number;
+  /**
+   * Writer only. Mint a fresh pairing code for a PC that is registered HERE, on
+   * behalf of a replica that PC happens to be connected to.
+   *
+   * 🔴 WHY THIS EXISTS (2026-08-31, measured). `pc:refresh-code` is a writer-only
+   * event (node/writer-only.ts), while `pc:reconnect` is deliberately NOT — a
+   * replica must keep serving live sessions. The two together produced a state
+   * nobody designed: a PC that lands on srvjp reconnects with its token, looks
+   * completely healthy, transcribes and injects — and can NEVER ADD A PHONE
+   * AGAIN, because a token reconnect leaves `short_code` null by construction and
+   * the only event that mints one is refused. node_select.rs forces the writer
+   * when a PC must REGISTER; minting a code is the SECOND writer-only operation
+   * on that path and nothing routed it.
+   *
+   * ⚠️ NOT the outbox. Forwarded WRITES are at-least-once and eventually
+   * consistent, which is right for metering and wrong here: the user is standing
+   * in front of the modal waiting for the digits. This is synchronous, unretried,
+   * and its failure is answerable — the replica falls back to the honest
+   * NODE_IS_REPLICA refusal rather than to a code nobody minted.
+   *
+   * ⚠️ THE CODE MUST BE MINTED WHERE IT WILL BE REDEEMED. `resolvePcForPair` runs
+   * on the writer (a phone's first contact is routed there by `role: 'writer'`)
+   * and checks the in-memory governor (room/short-code.ts) as well as the row.
+   * Minting locally on the replica would write a code into a snapshot the next
+   * pull replaces AND stamp a governor no phone will ever ask.
+   *
+   * Returns `null` when this writer does not know the PC — a real answer, not a
+   * failure, and the caller must not turn it into a code.
+   */
+  mintShortCode?: (pcId: string) => { short_code: string; expires_in_ms: number | null } | null;
 }
 
 const JSON_HEADERS = {
@@ -170,6 +206,14 @@ interface CachedList {
  *  let a misbehaving or hostile sender choose how much memory it allocates. */
 export const FORWARD_RECORDS_MAX = 500;
 
+/** The node-to-node routes that WRITE, and therefore the only POSTs here. A set
+ *  rather than a chain of `===`: adding a member is one line and cannot leave a
+ *  method allowlist and a route handler disagreeing about which paths exist. */
+const POST_PATHS = new Set(['/api/node/forward', '/api/node/mint-code']);
+
+/** Shared empty mapping, so a single-name deployment allocates nothing per request. */
+const EMPTY_HOSTS: NodeHostMap = new Map<string, string>();
+
 /** Constant-time comparison. A `===` here leaks the shared secret one byte at a
  *  time to anyone who can measure the reply — slowly, but this endpoint is
  *  reachable from the internet and there is no reason to be the cheap kind of
@@ -182,10 +226,13 @@ function secretMatches(expected: string, offered: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** Read and parse the forward body, with a hard byte ceiling. Streaming rather
- *  than buffering the whole request first: the ceiling has to bite BEFORE the
- *  bytes are in memory, or it is decoration. */
-async function readForwardBody(req: IncomingMessage): Promise<{ records?: unknown }> {
+/** Read and parse a node-to-node POST body, with a hard byte ceiling. Streaming
+ *  rather than buffering the whole request first: the ceiling has to bite BEFORE
+ *  the bytes are in memory, or it is decoration.
+ *
+ *  Shared by /forward and /mint-code. The ceiling is sized for the former (a
+ *  batch of records); the latter sends one id and is nowhere near it. */
+async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; pc_id?: unknown }> {
   const MAX_BYTES = 4 * 1024 * 1024;
   let size = 0;
   const chunks: Buffer[] = [];
@@ -196,8 +243,8 @@ async function readForwardBody(req: IncomingMessage): Promise<{ records?: unknow
     chunks.push(buf);
   }
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-  if (!parsed || typeof parsed !== 'object') throw new Error('forward body must be an object');
-  return parsed as { records?: unknown };
+  if (!parsed || typeof parsed !== 'object') throw new Error('node body must be an object');
+  return parsed as { records?: unknown; pc_id?: unknown };
 }
 
 /** Parse defensively: an operator edits this file by hand on a live box, and a
@@ -270,11 +317,28 @@ export function makeNodeRoutes(
     const url = req.url ?? '/';
     const method = req.method ?? 'GET';
     if (!url.startsWith('/api/node/')) return false;
-    const path = url.split('?')[0];
-    // /forward is the one write in this file, so it is the one POST. Everything
-    // else stays read-only, which is what lets the rest of the module be
-    // unauthenticated without further argument.
-    const allowed = path === '/api/node/forward' ? method === 'POST' : method === 'GET' || method === 'HEAD';
+    // `?? url` is unreachable — String.split always yields at least one element —
+    // and is here only so `path` is a plain string for the POST_PATHS lookup
+    // below. Under noUncheckedIndexedAccess it would otherwise be `string |
+    // undefined`, which a Set.has() cannot take.
+    const path = url.split('?')[0] ?? url;
+    // The writes in this file are the POSTs, and they are the only routes that
+    // require the shared secret. Everything else stays read-only, which is what
+    // lets the rest of the module be unauthenticated without further argument.
+    //
+    // ⚠️ This used to read 「/forward is the one write in this file, so it is the
+    // one POST」 and it was true when written. `mint-code` (2026-08-31) made it
+    // two. Stated as a SET rather than as a sentence about one path, so the next
+    // addition changes a line of code instead of quietly falsifying a comment.
+    // Which node this process answers AS, for THIS request. A deployment reached
+    // under a single name resolves to `deps.nodeId` on every path — which is what
+    // every caller of this file assumed before regional front doors existed.
+    const selfNodeId = nodeIdForHost(
+      requestHost(req.headers as unknown as Record<string, unknown>),
+      deps.nodeHosts ?? EMPTY_HOSTS,
+      deps.nodeId,
+    );
+    const allowed = POST_PATHS.has(path) ? method === 'POST' : method === 'GET' || method === 'HEAD';
     if (!allowed) {
       sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
       return true;
@@ -288,7 +352,7 @@ export function makeNodeRoutes(
     if (path === '/api/node/ping') {
       sendJson(res, 200, {
         ok: true,
-        node: deps.nodeId,
+        node: selfNodeId,
         version: deps.version,
         // Wall clock at the ORIGIN. A client that sees two nodes report the
         // same instant to the millisecond is being served by something that is
@@ -306,7 +370,7 @@ export function makeNodeRoutes(
         // Always name the node answering, even when the list is empty: a client
         // that gets [] still learns where it is, and "empty list" then means
         // 「single-node deployment」 rather than 「I could not read the file」.
-        node: deps.nodeId,
+        node: selfNodeId,
         nodes,
         // A replica says who can be asked authoritatively. Absent = this node
         // is the writer.
@@ -385,7 +449,7 @@ export function makeNodeRoutes(
       const from = req.headers['x-flowmic-node-id'];
       void (async (): Promise<void> => {
         try {
-          const body = await readForwardBody(req);
+          const body = await readJsonBody(req);
           const records = Array.isArray(body.records) ? body.records : [];
           if (records.length > FORWARD_RECORDS_MAX) {
             sendJson(res, 413, { ok: false, error: 'too_many_records', max: FORWARD_RECORDS_MAX });
@@ -483,6 +547,74 @@ export function makeNodeRoutes(
           sendJson(res, 500, {
             ok: false,
             error: 'snapshot_failed',
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+      return true;
+    }
+
+    // ── POST /api/node/mint-code ────────────────────────────────────────────
+    //
+    // 「Mint a pairing code for this PC, because I cannot.」 The one write a
+    // replica asks for SYNCHRONOUSLY rather than through the outbox, and the
+    // asymmetry is deliberate: a forwarded metering record can arrive a minute
+    // late and nobody is waiting for it, while these four digits are what a user
+    // is staring at an empty modal for. See `NodeRoutesDeps.mintShortCode` for
+    // the failure this closes.
+    //
+    // 🔴 THE ANSWER IS THE CODE ITSELF, not「accepted」. That is what makes this a
+    // different shape from /forward and why it does not share its ledger: there
+    // is nothing idempotent to record. Re-asking mints a NEW code, exactly as
+    // pressing 「refresh」 twice on the writer does, and the old one stops
+    // resolving — the same single-column overwrite `pc:refresh-code` has always
+    // had (pc.repo.ts setShortCode).
+    //
+    // ⚠️ Scope, stated so it does not creep: this route mints for a pc_id and
+    // does nothing else. It is NOT 「the replica's write channel for pairing」.
+    // `pc:register` stays refused (node_select.rs already routes registration to
+    // the writer, and registration issues a TOKEN — a credential this machine
+    // channel has no business minting on someone's behalf), and `mobile:pair`
+    // stays refused (a phone's first contact is routed to the writer by
+    // `role: 'writer'`, so it never needs forwarding).
+    if (path === '/api/node/mint-code') {
+      if (!deps.mintShortCode || !deps.sharedSecret) {
+        sendJson(res, 501, { ok: false, error: 'mint_not_configured' });
+        return true;
+      }
+      const offered = req.headers['x-flowmic-node-secret'];
+      if (!secretMatches(deps.sharedSecret, typeof offered === 'string' ? offered : '')) {
+        sendJson(res, 403, { ok: false, error: 'forbidden' });
+        return true;
+      }
+      void (async (): Promise<void> => {
+        try {
+          const body = await readJsonBody(req);
+          const pcId = typeof body.pc_id === 'string' ? body.pc_id.trim() : '';
+          if (!pcId) {
+            sendJson(res, 400, { ok: false, error: 'pc_id_required' });
+            return;
+          }
+          const minted = deps.mintShortCode!(pcId);
+          if (!minted) {
+            // 🔴 404, NOT 200-with-nothing. 「I do not know this PC」 and 「I minted
+            // you a code」 must not be one response the caller has to squint at:
+            // the replica turns this into the honest NODE_IS_REPLICA refusal the
+            // desktop already knows how to show, while a transport failure it
+            // must NOT confuse with this becomes a throw on its side.
+            sendJson(res, 404, { ok: false, error: 'pc_unknown', node: deps.nodeId });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            node: deps.nodeId,
+            short_code: minted.short_code,
+            expires_in_ms: minted.expires_in_ms,
+          });
+        } catch (err) {
+          sendJson(res, 500, {
+            ok: false,
+            error: 'mint_failed',
             detail: err instanceof Error ? err.message : String(err),
           });
         }

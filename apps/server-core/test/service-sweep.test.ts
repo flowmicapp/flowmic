@@ -48,6 +48,9 @@ function purchase(over: Partial<OneTimePurchaseRow>): OneTimePurchaseRow {
     refund_provider_id: null,
     refund_status: null,
     refunded_at: null,
+    refund_released_at: null,
+    refund_release_reason: null,
+    refund_external_reference: null,
     completion_notice_at: null,
     note: null,
     created_at: new Date(NOW_MS - 60 * DAY).toISOString(),
@@ -148,31 +151,37 @@ describe('§1 🔴 the switch gates the TIMER, and only the timer', () => {
 });
 
 describe('§2 it refunds exactly what the verdict says is due, and names why', () => {
-  it('the two deadlines produce two distinct origins', async () => {
-    // 🔴 NOT ONE 「deadline」 VALUE. The customer never engaging and us not
-    // finishing are different failures; this is the only place that distinction
-    // survives into the provider's dashboard and our own logs.
+  it('the no-start deadline is recorded under its own origin, and a booked row beside it is left alone', async () => {
+    // 🔴 THE ORIGIN NAMES THE CLOCK, so a sweep refund is distinguishable from
+    // a button press in the provider's dashboard and our own logs. The booked
+    // row is 60 days old (the fixture default) and is NOT touched: owner
+    // 2026-08-30 removed the completion deadline, so 'scheduled' has no clock.
     const rows = [
       purchase({ order_id: 'never_started', state: 'paid' }),
-      purchase({ order_id: 'not_finished', state: 'scheduled', scheduled_at: 'x' }),
+      purchase({ order_id: 'booked_long_ago', state: 'scheduled', scheduled_at: 'x' }),
     ];
     const { deps, asked } = make(rows);
     await startServiceRefundSweeper(deps).runOnce();
-    expect(asked).toEqual([
-      { orderId: 'never_started', origin: 'deadline_no_start' },
-      { orderId: 'not_finished', origin: 'deadline_not_completed' },
-    ]);
+    expect(asked).toEqual([{ orderId: 'never_started', origin: 'deadline_no_start' }]);
   });
 
   it('leaves everything that is not due alone', async () => {
     const rows = [
-      // Bought yesterday: neither deadline has passed.
+      // Bought yesterday: the deadline has not passed.
       purchase({ order_id: 'fresh', created_at: new Date(NOW_MS - 1 * DAY).toISOString() }),
       // Done. Ours to keep, not to refund.
       purchase({ order_id: 'done', state: 'delivered', delivered_at: 'x' }),
-      // 🔴 BEGUN, 60 days ago (gs-5). A setup that is in progress is never a
-      // 'not_completed' target: a clock must not take money back from
-      // somebody mid-session. The 40-day flag is for BOOKED setups only.
+      // 🔴 BOOKED 100 days ago. No clock runs on a booked setup (owner
+      // 2026-08-30); a sweep that refunded it would be taking money back from
+      // somebody we have a time in the diary with.
+      purchase({
+        order_id: 'booked',
+        state: 'scheduled',
+        scheduled_at: 'x',
+        created_at: new Date(NOW_MS - 100 * DAY).toISOString(),
+      }),
+      // 🔴 BEGUN, 60 days ago. A clock must not take money back from somebody
+      // mid-session.
       purchase({ order_id: 'underway', state: 'in_progress', scheduled_at: 'x', started_at: 'x' }),
       // Already in flight — refunding again is the failure this must not have.
       purchase({ order_id: 'asked', state: 'refund_requested' }),

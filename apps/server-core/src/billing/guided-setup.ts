@@ -62,17 +62,11 @@ export const GUIDED_SETUP_MAX_SESSION_HOURS = 3;
  */
 export const GUIDED_SETUP_CONSENT_VERSION = 'gs-5';
 
-/** Days after purchase by which we contact and start, or refund unasked. */
+/** Days after purchase by which we contact and start, or refund unasked.
+ *  🔴 THE ONLY DEADLINE. History, one line: a 40-day completion promise existed
+ *  in the gs-2..gs-4 wording (and briefly survived gs-5 as an internal flag);
+ *  owner removed the concept entirely on 2026-08-30 (「不要再提 40 天了」). */
 export const GUIDED_SETUP_START_DEADLINE_DAYS = 14;
-/**
- * Days after purchase by which the setup must be complete.
- *
- * ⚠️ INTERNAL ONLY since gs-5 (owner 2026-08-30). It is an ops-queue flag on a
- * purchase that was booked and never finished; it is NOT a promise in the
- * consent wording and must not appear in customer-facing copy. It never applies
- * to a setup that is in progress — see `refundDueReason`.
- */
-export const GUIDED_SETUP_COMPLETE_DEADLINE_DAYS = 40;
 /**
  * Days of support AFTER completion, counted from `delivered_at`.
  *
@@ -87,7 +81,7 @@ export const GUIDED_SETUP_COMPLETE_DEADLINE_DAYS = 40;
 export const GUIDED_SETUP_AFTERCARE_DAYS = 14;
 
 /**
- * The two deadlines above, as the one object every deadline consumer reads.
+ * The deadline above, as the one object every deadline consumer reads.
  *
  * 🔴 NOT CONFIGURABLE, AND THAT IS THE POINT. The start deadline appears
  * verbatim in the text a buyer agreed to (gs-5). An env var that could move it
@@ -103,7 +97,6 @@ export const GUIDED_SETUP_AFTERCARE_DAYS = 14;
  */
 export const PROMISED_DEADLINES: DeadlinePolicy = {
   startDeadlineDays: GUIDED_SETUP_START_DEADLINE_DAYS,
-  completeDeadlineDays: GUIDED_SETUP_COMPLETE_DEADLINE_DAYS,
 };
 
 /**
@@ -291,8 +284,10 @@ export const GUIDED_SETUP_CONSENT_TEXT: Readonly<Record<string, { earlyStart: st
   //     closed. It is not a refund period and the copy must not read as one.
   //   · the buyer must INITIATE a refund (console button, no reason asked).
   //     The one refund we make unasked is the 14-day no-start deadline, which
-  //     stays in the text. The internal 40-day completion flag is no longer a
-  //     promise and is not mentioned.
+  //     stays in the text. The completion deadline earlier wordings promised
+  //     is not mentioned — and since the evening ruling it no longer exists
+  //     anywhere in the product; after completion a refund is discussed by
+  //     email only.
   //
   // ⚠️ WHAT THIS DOES TO THE ART. 16(a) ARGUMENT. gs-3's reason for the window
   // was that 「complete」 was decided by the party it benefits, on a fact only
@@ -328,7 +323,7 @@ export const GUIDED_SETUP_CONSENT_TEXT: Readonly<Record<string, { earlyStart: st
       'follow are help, not a refund period.',
     // 🔴 THE PART THAT DOES THE REAL WORK. Note 「you have to ask; we do not
     // assume」: the buyer initiates, and the only unasked refund is the no-start
-    // deadline. The 40-day figure is gone from the copy on purpose.
+    // deadline. No completion deadline is named, on purpose.
     whatRemains:
       'Until then you can get all of your money back at any time, from your console, without ' +
       'giving a reason — you have to ask; we do not assume. If we have not started within 14 days ' +

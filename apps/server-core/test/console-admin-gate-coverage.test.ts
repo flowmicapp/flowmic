@@ -70,6 +70,17 @@ const ROUTE_SOURCES = [
   // it. It is a NEW FILE holding a NEW ADMIN ROUTE — both blind spots this suite
   // exists to close, at once — and one of its two routes MUTATES.
   join(SRC, 'http', 'ops-purchase-routes.ts'),
+  // 🔴 2026-08-31 — `ops-refund-release-routes.ts`, added in the same commit
+  // that created it, and it is worth recording HOW MUCH of this was forced and
+  // how much was not. Forced: `adminGate`'s fourth parameter is typed
+  // `AdminGatedRoute`, so a route in this file could not call the gate without
+  // its literal joining ADMIN_GATED_ROUTES, and the agreement assertion below
+  // then went red on its own ("expected 16 to deeply equal 14") before this
+  // line existed. NOT forced: a route in an unscanned file that never called
+  // the gate AT ALL would be invisible to every assertion here — the header's
+  // own warning, still true, and the reason adding this line is part of
+  // shipping the file rather than a tidy-up afterwards.
+  join(SRC, 'http', 'ops-refund-release-routes.ts'),
   join(SRC, 'http', 'console-routes.ts'),
   join(SRC, 'http', 'password-reset-routes.ts'),
   join(SRC, 'http', 'ops-routes.ts'),
@@ -231,6 +242,14 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   // 2026-08-30 — the operator's refund. 'admin' for the same reason as its
   // neighbour, one step stronger: it names an order by id and sends money.
   'POST /api/ops/purchases/refund': 'admin',
+  // 2026-08-31 — the two ways out of a stuck refund. 'admin' for the same
+  // reason as the route above them, and with the same stakes: one records that
+  // money went back where we could not see it, the other ends a refund the
+  // buyer asked for. Both name an order by id and neither is scoped to the
+  // caller's own account, so there is nothing here an 'account' gate could
+  // protect.
+  'POST /api/ops/purchases/refund/settle': 'admin',
+  'POST /api/ops/purchases/refund/release': 'admin',
   // A2-4 — the read-only account list and its single-account read. 'admin' for
   // the same reason as every other `/api/ops/` entry: they enumerate and read
   // ACROSS accounts. Note the detail route's shape — `?user_id=` rather than
@@ -398,6 +417,8 @@ describe('admin gate — route coverage is derived from the source, not from a l
       'GET /api/ops/users/detail', // A2-4 — one account, by id
       'POST /api/ops/purchases/advance', // 2026-08-29 — the second mutator
       'POST /api/ops/purchases/refund', // 2026-08-30 — the third, and it moves money
+      'POST /api/ops/purchases/refund/release', // 2026-08-31 — the refund will not happen
+      'POST /api/ops/purchases/refund/settle', // 2026-08-31 — it happened where we could not see it
       'POST /api/ops/users/restrict', // A2-3 — the first one that mutates
     ]);
   });

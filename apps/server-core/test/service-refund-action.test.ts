@@ -14,13 +14,22 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { requestServiceRefund, type ServiceRefundDeps } from '../src/billing/service-refund';
+import {
+  REFUND_ORIGINS,
+  requestServiceRefund,
+  type RefundOrigin,
+  type ServiceRefundDeps,
+} from '../src/billing/service-refund';
 import type { SubscriptionWriter } from '../src/billing/subscription-writer';
 import { BILLING_SQL } from '../src/db/schema-billing';
 import {
   makeOneTimePurchaseRepo,
+  REFUND_RELEASE_REASONS,
+  REFUND_RELEASE_TARGETS,
   type OneTimePurchaseRepo,
   type OneTimePurchaseRow,
+  type RefundReleaseReason,
+  type RefundReleaseTarget,
 } from '../src/db/repos/one-time-purchase.repo';
 import { PROMISED_DEADLINES } from '../src/billing/guided-setup';
 
@@ -240,5 +249,143 @@ describe('§4 gs-5: completion closes the refund, and starting does not', () => 
     });
     expect(w.calls).toHaveLength(0);
     expect(repo.getOneTimePurchase('ord_1')!.state).toBe('delivered');
+  });
+});
+
+describe('§5 the origins a refund can carry are exactly three', () => {
+  it('🔴 customer, operator, no-start deadline — and nothing for a completion deadline', () => {
+    // owner 2026-08-30 (evening) removed the completion deadline from the
+    // product, and with it the origin a sweep used to stamp on that refund.
+    // The table is a `Record<RefundOrigin, true>`, so the union and this list
+    // cannot drift apart without a compile error; this test is what makes a
+    // fourth member a deliberate act rather than a tidy-up.
+    expect([...REFUND_ORIGINS].sort()).toEqual(
+      (['customer_withdrawal', 'deadline_no_start', 'operator'] as const satisfies readonly RefundOrigin[]).slice(),
+    );
+    expect(REFUND_ORIGINS).toHaveLength(3);
+    expect(REFUND_ORIGINS).not.toContain('deadline_not_completed');
+  });
+
+  it('🔴 a RELEASE REASON is not a fourth origin, and the two unions never meet', () => {
+    // 2026-08-31. An ORIGIN says why a refund was ASKED for and is handed to the
+    // payment provider; a RELEASE REASON says why one stopped being asked for
+    // and is read by the deadline sweep. Merging them would give the provider
+    // call a word it must never carry, and would give an unattended timer a
+    // value chosen for a vendor dashboard.
+    for (const r of REFUND_RELEASE_REASONS) {
+      expect(REFUND_ORIGINS as readonly string[]).not.toContain(r);
+    }
+    for (const o of REFUND_ORIGINS) {
+      expect(REFUND_RELEASE_REASONS as readonly string[]).not.toContain(o);
+    }
+  });
+});
+
+describe('§6 the release reasons and targets are exactly these', () => {
+  it('🔴 two reasons, and each one means a different thing to the sweep', () => {
+    // Same instrument as §5 and for the same reason: the table is a
+    // `Record<RefundReleaseReason, true>`, so the union and the list cannot
+    // drift apart without a compile error, and this is what makes a THIRD
+    // member a deliberate act rather than a tidy-up.
+    //
+    // 🔴 WHOEVER ADDS ONE OWES AN ANSWER TO ONE QUESTION: does the unattended
+    // 14-day no-start sweep still run on a row released for that reason?
+    // §6 of test/service-deadlines.test.ts is where that answer has to be
+    // written down, and the two existing members answer it in opposite
+    // directions — which is the whole reason this is a union and not a boolean.
+    expect([...REFUND_RELEASE_REASONS].sort()).toEqual(
+      (['buyer_withdrew_request', 'provider_declined'] as const satisfies readonly RefundReleaseReason[]).slice(),
+    );
+    expect(REFUND_RELEASE_REASONS).toHaveLength(2);
+  });
+
+  it("🔴 'delivered' and 'refunded' are not release targets", () => {
+    expect([...REFUND_RELEASE_TARGETS].sort()).toEqual(
+      (['in_progress', 'paid', 'scheduled'] as const satisfies readonly RefundReleaseTarget[]).slice(),
+    );
+    // The two absences the design turns on, asserted rather than assumed:
+    // delivery is a separate visible action, and 'refunded' is a claim about
+    // money that needs the external reference standing behind it.
+    expect(REFUND_RELEASE_TARGETS as readonly string[]).not.toContain('delivered');
+    expect(REFUND_RELEASE_TARGETS as readonly string[]).not.toContain('refunded');
+    expect(REFUND_RELEASE_TARGETS as readonly string[]).not.toContain('refund_requested');
+  });
+});
+
+describe('§7 🔴 a late webhook still lands on a row that was released back', () => {
+  // THE PROPERTY THAT MAKES RELEASING SAFE, and it is a property of a function
+  // NOBODY IS EDITING in this round — which is exactly why it is pinned here.
+  // `confirmOneTimeRefund` is deliberately NOT conditioned on the prior state
+  // (its own interface argues why: a refund issued from the provider's own
+  // dashboard never passes through our route). The release path leans on that:
+  // an operator who releases a stuck request has NOT made the provider's answer
+  // unrecordable, so a webhook arriving an hour, a day or a week later still
+  // writes 'refunded' and the buyer's console stops offering to withdraw money
+  // that has already gone back.
+  //
+  // 🔴 IF SOMEBODY EVER ADDS "WHERE state = 'refund_requested'" TO THAT UPDATE
+  // — which reads like tightening — these assertions go red, and that red is
+  // the whole point: without it the release path would quietly turn a real
+  // refund into an unrecordable one.
+  function releasedRow(reason: RefundReleaseReason): OneTimePurchaseRepo {
+    const repo = repoWith();
+    expect(
+      repo.requestOneTimeRefund('ord_1', { requested_at: BOUGHT, provider_id: null, provider_status: null }, BOUGHT),
+    ).toBe('claimed');
+    expect(repo.releaseOneTimeRefundRequest('ord_1', { to_state: 'paid', reason, released_at: BOUGHT }, BOUGHT)).toBe(
+      'released',
+    );
+    return repo;
+  }
+
+  for (const reason of ['provider_declined', 'buyer_withdrew_request'] as const) {
+    it(`lands on a row released as '${reason}'`, () => {
+      const repo = releasedRow(reason);
+      expect(repo.getOneTimePurchase('ord_1')!.state).toBe('paid');
+      expect(
+        repo.confirmOneTimeRefund(
+          'ord_1',
+          { refunded_at: '2026-09-02T00:00:00.000Z', provider_id: 'ref_1', provider_status: 'succeeded' },
+          '2026-09-02T00:00:00.000Z',
+        ),
+      ).toBe('confirmed');
+      const row = repo.getOneTimePurchase('ord_1')!;
+      expect(row.state).toBe('refunded');
+      expect(row.refunded_at).toBe('2026-09-02T00:00:00.000Z');
+      expect(row.refund_provider_id).toBe('ref_1');
+      // ⚠️ THE RELEASE RECORD SURVIVES. The row now says both true things: a
+      // human released the request, and the provider paid anyway. Erasing
+      // either would make one of them unanswerable.
+      expect(row.refund_release_reason).toBe(reason);
+      expect(row.refund_released_at).toBe(BOUGHT);
+      // …and it did NOT invent an external reference. That column is the mark
+      // of a HUMAN-asserted refund; this one came from the provider.
+      expect(row.refund_external_reference).toBeNull();
+    });
+  }
+
+  it('lands on a delivered row too — the negative control for the pin above', () => {
+    // If the two assertions above were green merely because 'paid' happens to
+    // be allowed by some new condition, this one would be red. It is the same
+    // property seen from a state the release path can never produce.
+    const repo = repoWith({ state: 'delivered', delivered_at: BOUGHT });
+    expect(
+      repo.confirmOneTimeRefund(
+        'ord_1',
+        { refunded_at: '2026-09-02T00:00:00.000Z', provider_id: 'ref_2', provider_status: 'succeeded' },
+        '2026-09-02T00:00:00.000Z',
+      ),
+    ).toBe('confirmed');
+    expect(repo.getOneTimePurchase('ord_1')!.state).toBe('refunded');
+  });
+
+  it("and an order that does not exist is still 'unknown_order', not a silent no-op", () => {
+    expect(
+      repoWith().confirmOneTimeRefund(
+        'nope',
+        { refunded_at: '2026-09-02T00:00:00.000Z', provider_id: null, provider_status: null },
+        '2026-09-02T00:00:00.000Z',
+      ),
+    ).toBe('unknown_order');
   });
 });

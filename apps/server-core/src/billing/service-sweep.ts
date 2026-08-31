@@ -36,11 +36,11 @@
 // ── ⚠️ WHAT IT DELIBERATELY CANNOT DO ─────────────────────────────────────
 //
 // · It cannot write 'refunded'. Only the provider's webhook does.
-// · It cannot touch an in_progress, delivered, refund_requested or refunded
-//   purchase — `refundDueReason` returns null for all four, so a row somebody
-//   already acted on is never picked up twice, and a setup that has BEGUN is
-//   never refunded by a clock (gs-5: 'not_completed' is a flag on 'scheduled'
-//   only, and it is internal).
+// · It cannot touch a scheduled, in_progress, delivered, refund_requested or
+//   refunded purchase — `refundDueReason` returns null for all five, so a row
+//   somebody already acted on is never picked up twice, and a setup that has
+//   been BOOKED or BEGUN is never refunded by a clock (owner 2026-08-30: the
+//   only deadline is the 14 days to start).
 // · It cannot refund a purchase whose deadline has not passed. There is no
 //   「catch up」 mode and no operator override on this path: the buttons exist
 //   for that, with an audit row and a named human behind each.
@@ -72,7 +72,7 @@ export const SERVICE_SWEEP_INTERVAL_MS = HOUR_MS;
  *
  * 🔴 A CAP ON AN UNATTENDED MONEY MOVER, and it is not defensive decoration.
  * The one failure this cannot recover from is refunding a batch it should not
- * have — a clock skewed by a container, a policy typo of `40` for `4` — and the
+ * have — a clock skewed by a container, a policy typo of `14` for `1` — and the
  * difference between that costing twenty refunds and costing every open purchase
  * is this number. Hitting it is LOGGED at warn, because a sweep that quietly
  * stopped halfway is indistinguishable from one that had nothing left to do.
@@ -131,13 +131,16 @@ export interface ServiceSweeper {
   stop(): void;
 }
 
-/** The origin recorded for each deadline, so the two are distinguishable
- *  forever afterwards in the provider's dashboard and in our own logs.
- *  🔴 NOT ONE 「deadline」 VALUE: the two are different failures — one is the
- *  customer never engaging, one is us not finishing — and flattening them would
- *  destroy the only place that distinction survives. */
+/** The origin recorded for the deadline, so a sweep refund is distinguishable
+ *  forever afterwards from a button press in the provider's dashboard and in
+ *  our own logs. A table rather than a constant so that a second deadline, if
+ *  owner ever restores one, has to be given its own origin here — and so the
+ *  compiler, not a reader, notices a `RefundDueReason` this does not name. */
+const ORIGIN_FOR: Readonly<Record<RefundDueReason, RefundOrigin>> = {
+  no_start: 'deadline_no_start',
+};
 function originFor(reason: RefundDueReason): RefundOrigin {
-  return reason === 'no_start' ? 'deadline_no_start' : 'deadline_not_completed';
+  return ORIGIN_FOR[reason];
 }
 
 function zero(): ServiceSweepCounts {
@@ -265,8 +268,8 @@ export function startServiceRefundSweeper(deps: ServiceSweepDeps): ServiceSweepe
     // keep. Same placement argument as mail/index.ts's unconfigured line.
     log.info(
       'service sweep: automatic deadline refunds are OFF (the default) — a purchase past its 14-day ' +
-        'start or 40-day completion deadline is flagged in the operator queue and refunded when a human ' +
-        'presses it. Set FLOWMIC_CREEM_AUTO_REFUND_ENABLED=1 to let this run unattended.',
+        'start deadline is flagged in the operator queue and refunded when a human presses it; there ' +
+        'is no other deadline. Set FLOWMIC_CREEM_AUTO_REFUND_ENABLED=1 to let this run unattended.',
     );
     return {
       runOnce,

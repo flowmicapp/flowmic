@@ -30,6 +30,7 @@ import type { UsageEventsRoutesDeps } from './usage-events-routes';
 import type { OpsUserRoutesDeps } from './ops-user-routes';
 import type { OpsUsageEventsRoutesDeps } from './ops-usage-events-routes';
 import type { OpsPurchaseRoutesDeps } from './ops-purchase-routes';
+import type { OpsRefundReleaseRoutesDeps } from './ops-refund-release-routes';
 import type { ProbeRoutesDeps } from './probe-routes';
 import type { SttModelRoutesDeps } from './stt-model-routes';
 import type { PresenceRoutesDeps } from './presence-routes';
@@ -142,6 +143,11 @@ export interface HttpDeps {
    * empty invites somebody to conclude nobody has bought.
    */
   opsPurchases?: OpsPurchaseRoutesDeps;
+  /** 2026-08-31 — the two routes that resolve a stuck 'refund_requested'. A
+   *  SEPARATE dep from `opsPurchases` and not a widening of it: that object
+   *  carries `advanceOneTimePurchase`, and this surface's whole design is that
+   *  it cannot reach the delivery states by another name. */
+  opsRefundRelease?: OpsRefundReleaseRoutesDeps;
   /** GA-12 STT/LLM "test connection" probes. Test seams only — production passes {} and
    *  the module's own defaults dial the real engines. */
   probe?: ProbeRoutesDeps;

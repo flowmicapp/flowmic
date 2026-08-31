@@ -16,8 +16,14 @@
 // ── THE FOUR VERDICTS ──────────────────────────────────────────────────────
 //   'refused'   — this event is refused on a replica (node/writer-only.ts), so
 //                 the write never runs there. Pinned by writer-only-refusal.test.
-//   'forwarded' — the write goes to the writer through the outbox and is NOT
-//                 performed locally (node/node-runtime.ts swaps the tracker).
+//   'forwarded' — the write goes to the WRITER and is NOT performed locally.
+//                 Two transports, and they are two because they answer two
+//                 questions: metering goes through the durable outbox (at-least-
+//                 once, nobody is waiting), while `pc:refresh-code` is forwarded
+//                 SYNCHRONOUSLY over /api/node/mint-code because a user is
+//                 staring at the modal that needs the digits. Both share the
+//                 property this column asserts: the replica's own database is
+//                 not written.
 //   'in-memory' — touches no database, so a replica has nothing to lose.
 //                 EVERY entry with this verdict was verified by reading the
 //                 declaration, not by the name looking harmless.
@@ -55,7 +61,14 @@ type Verdict = 'refused' | 'forwarded' | 'in-memory' | 'lost';
 const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
   // ── refused on a replica (node/writer-only.ts) ────────────────────────────
   'registry.registerPc': { verdict: 'refused', why: 'pc:register — mints identity + the short code the PC displays' },
-  'registry.refreshShortCode': { verdict: 'refused', why: 'pc:refresh-code — mints a code that would die at the next pull' },
+  // 🔴 2026-08-31 — 'forwarded', and the ONLY member of that verdict that does
+  // not travel through the outbox. The write still never happens on a replica
+  // (which is what this column is about); it is performed BY THE WRITER, over
+  // POST /api/node/mint-code, synchronously, because a user is waiting for the
+  // digits. Left as 'refused' this row would have gone on describing a guard
+  // whose real consequence — a PC on a replica can never add a phone again —
+  // nobody had noticed, which is precisely what this census exists to prevent.
+  'registry.refreshShortCode': { verdict: 'forwarded', why: 'pc:refresh-code — minted ON THE WRITER via /api/node/mint-code; the replica falls back to the refusal when it cannot ask' },
   'registry.revokeMobile': { verdict: 'refused', why: 'pc:release-mobile — a revoke that comes back is a control silently not applied' },
   'registry.pairMobile': { verdict: 'refused', why: 'mobile:pair — mints the pairing row and its token' },
   'registry.admitCloudInstance': { verdict: 'refused', why: 'mobile:pair (cloud-instance variant) — inserts a PC row and a pairing' },

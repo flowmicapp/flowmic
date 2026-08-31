@@ -84,6 +84,14 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       // business row BEFORE moving a purchase and leaves the row untouched if
       // that append throws.
       'http/ops-purchase-routes.ts',
+      // 2026-08-31 — the refund release path. A FOURTH writer, and it earns the
+      // place exactly as the third did: it appends its own business row BEFORE
+      // either write and answers 503 without touching the purchase if that
+      // append throws (test/ops-refund-release-routes.test.ts §4 proves both
+      // halves — the behavioural one with a throwing sink, and the structural
+      // one by reading the source, because with a WORKING sink append-after-
+      // write looks identical).
+      'http/ops-refund-release-routes.ts',
     ]);
   });
 
@@ -154,6 +162,11 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       // here without that is how this guard becomes decoration.
       'POST /api/ops/purchases/advance',
       'POST /api/ops/purchases/refund',
+      // 2026-08-31 — the two ways out of 'refund_requested'. Each entry is a
+      // CLAIM that the route writes its own business row fail-closed; both are
+      // discharged by test/ops-refund-release-routes.test.ts §4.
+      'POST /api/ops/purchases/refund/release',
+      'POST /api/ops/purchases/refund/settle',
       'POST /api/ops/users/restrict',
     ]);
   });

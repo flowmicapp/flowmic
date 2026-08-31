@@ -191,7 +191,14 @@ describe('a replica refuses the writes it cannot keep', () => {
     expect(db.mobiles.listByPc(pc.id)).toHaveLength(1);
   });
 
-  it('pc:refresh-code — refused, and the code on screen is the one still valid', async () => {
+  // ⚠️ 2026-08-31 — READ THIS WITH replica-code-mint-forwarding.test.ts. This
+  // harness wires NO `mintCodeOnWriter`, so what it pins is the FALLBACK: a
+  // replica with nobody to ask still refuses and still writes nothing. It is no
+  // longer the whole behaviour of this event, and a green here says nothing about
+  // whether a PC can actually get a code — that claim lives in the other file,
+  // against two databases. Keeping this test unchanged is deliberate: the
+  // fallback is the failure direction the forwarding rests on.
+  it('pc:refresh-code — refused with no forwarder, and the code on screen is the one still valid', async () => {
     const { pc } = registry.registerPc({ device_name: 'PC-A', user_id: 'default', client_instance_id: 'inst-aaaaaaaaaaaaaaa' });
     const before = registry.findPc(pc.id)!.short_code;
 

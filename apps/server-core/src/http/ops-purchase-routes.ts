@@ -74,7 +74,7 @@ import { adminGate, type OpsAuditSink } from './ops-audit-trail';
 import { readJsonBody, sendJson, str } from './console-http';
 import type { RefundOrigin, ServiceRefundOutcome } from '../billing/service-refund';
 import type { DeadlinePolicy } from '../billing/service-deadlines';
-import { nextDeadlineAt, refundDueReason, refundWindow, supportUntil } from '../billing/service-deadlines';
+import { nextDeadlineAt, refundDueReason, refundRelease, refundWindow, supportUntil } from '../billing/service-deadlines';
 import { PROMISED_DEADLINES } from '../billing/guided-setup';
 import type { ServiceMailer } from '../mail/service-mailer';
 import type { UserRepo } from '../db/repos/user.repo';
@@ -412,6 +412,15 @@ function toOperatorRow(
     // could see 「refundable」 where the write would refuse (or the reverse) would
     // be looking at a second opinion about somebody's money.
     refund_window: refundWindow(p, nowMs, policy),
+    // 🔴 WHETHER A HUMAN ALREADY RESOLVED A STUCK REFUND ON THIS ROW, and how.
+    // An operator looking at a purchase back in 'paid' cannot otherwise tell it
+    // from one that was never refunded at all — and the difference decides
+    // whether the no-start sweep will pick it up (see service-deadlines.ts).
+    refund_release: refundRelease(p),
+    // 🔴 THE OPERATOR'S OWN PROOF, WHERE THEY CAN READ IT. A 'refunded' row with
+    // this set was settled by a person, not confirmed by the provider — and this
+    // string is the only handle anybody has for checking it.
+    refund_external_reference: p.refund_external_reference,
     note: p.note,
     updated_at: p.updated_at,
   };
@@ -454,12 +463,11 @@ export function tryHandleOpsPurchaseRoutes(
       // ⚠️ THE CAP IS ECHOED. A console holding 200 rows cannot otherwise tell
       // 「that is all of them」 from 「that is as many as we send」.
       limit: PURCHASES_LIST_LIMIT,
-      // The deadlines are echoed so the console renders the promise from the
-      // server's numbers rather than a second copy of them.
+      // The deadline is echoed so the console renders the promise from the
+      // server's number rather than a second copy of it. ⚠️ ONE deadline
+      // (owner 2026-08-30): the completion deadline this queue used to flag on
+      // booked setups was removed with the concept, not demoted.
       start_deadline_days: policy.startDeadlineDays,
-      // ⚠️ INTERNAL (gs-5): the 40-day flag is an ops-queue signal on booked
-      // setups, not a promise; it is echoed here and nowhere customer-facing.
-      complete_deadline_days: policy.completeDeadlineDays,
       aftercare_days: GUIDED_SETUP_AFTERCARE_DAYS,
       purchases: rows.map((p) => toOperatorRow(p, now(), policy)),
     });

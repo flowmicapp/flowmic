@@ -34,6 +34,22 @@
 //                        not exist in thirty seconds.
 //   pc:refresh-code    refreshShortCode → pcs.setShortCode (+ in-memory stamp)
 //                      ⇒ same, minus the registration.
+//                      🔴 2026-08-31 — STILL REFUSED HERE, BUT NO LONGER THE END
+//                        OF THE STORY, and this note is the whole difference
+//                        between a guard and a dead end. Refusing it was correct
+//                        and was ALSO the only thing standing between a PC on a
+//                        replica and ever adding a phone again: `pc:reconnect` is
+//                        deliberately served here (see the open account below),
+//                        and a token reconnect leaves the desktop with no code,
+//                        so this event is the sole way to get one. Measured on
+//                        the owner's PC against srvjp: healthy session, working
+//                        transcription, 「add a phone」 permanently empty.
+//                        The handler now FORWARDS the mint to the writer
+//                        (http/node-routes.ts POST /api/node/mint-code) and falls
+//                        back to this refusal when there is nobody to ask or the
+//                        ask fails. The refusal below is unchanged and is still
+//                        what a user sees on that fallback — which is why it, and
+//                        not a new code, is the failure direction.
 //   pc:release-mobile  revokeMobile → mobiles.remove
 //                      🔴 A REVOKE THAT COMES BACK. The user removes a phone,
 //                        both ends say OK, and the pairing returns on the next

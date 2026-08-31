@@ -32,12 +32,39 @@
 // carries `provider_status: null`, which is the signal that we asked and did
 // not get an answer.
 //
-// ⚠️ THERE IS NO AUTOMATIC WAY BACK OUT OF THAT STATE, and an earlier draft of
-// this header named a `releaseUnclaimedRefund` that does not exist — a comment
-// asserting a function nobody wrote. Getting a stuck row moving again is an
-// operator action today; it is listed in the queue with `refund_status: null`,
-// which is what distinguishes 「we asked and heard nothing」 from 「the provider
-// answered」. Building the release path is a card, not a claim to make here.
+// ⚠️ THERE IS STILL NO AUTOMATIC WAY BACK OUT OF THAT STATE — no timer and no
+// retry moves a claimed row, and none should: only a person can know which of
+// the two things below actually happened.
+//
+// ✅ 2026-08-31 — THE RELEASE PATH IS BUILT, and this paragraph is replaced
+// rather than softened because the sentence it used to end with ("Building the
+// release path is a card, not a claim to make here") is now false, and a
+// comment that goes on describing a gap somebody has closed is this repo's
+// most expensive shape. An earlier draft of this same header named a
+// `releaseUnclaimedRefund` that never existed; the correction is not to write
+// nothing here, it is to write what a reader can grep.
+//
+// The two ways out, each its own admin-gated route with its own audit action
+// (http/ops-refund-release-routes.ts):
+//   · POST /api/ops/purchases/refund/settle  — the money DID go back somewhere
+//     we cannot see. -> 'refunded', and an external reference is REQUIRED,
+//     because that word is a claim about money our system never observed.
+//     Repo: `settleOneTimeRefundByHand`.
+//   · POST /api/ops/purchases/refund/release — it will not happen. -> back to
+//     paid / scheduled / in_progress, with a reason of `provider_declined` or
+//     `buyer_withdrew_request`. Repo: `releaseOneTimeRefundRequest`.
+//
+// 🔴 NEITHER CAN REACH 'delivered', and `advanceOneTimePurchase` still refuses
+// a 'refund_requested' row outright. Both refusals stand.
+//
+// 🔴 AND THE REASON IS NOT A LABEL: `provider_declined` takes the row off the
+// unattended no-start sweep for ever (asking a provider that already refused
+// THIS row is a loop), while `buyer_withdrew_request` leaves it on. The
+// argument is at the top of service-deadlines.ts, where it is spent.
+//
+// ⚠️ WHAT STILL DISTINGUISHES A STUCK ROW IN THE QUEUE IS `refund_status: null`
+// — 「we asked and heard nothing」 as against 「the provider answered」. That is
+// unchanged, and it is what an operator looks at before pressing either button.
 
 import type { SubscriptionWriter } from './subscription-writer';
 import type { OneTimePurchaseRepo, OneTimePurchaseRow } from '../db/repos/one-time-purchase.repo';
@@ -47,7 +74,25 @@ import { log } from '../log';
 /** Why this refund is being asked for. Stored on the audit trail and used
  *  NOWHERE to decide anything — the decision is the caller's, and a reason that
  *  could change behaviour would be a second decider. */
-export type RefundOrigin = 'customer_withdrawal' | 'operator' | 'deadline_no_start' | 'deadline_not_completed';
+export type RefundOrigin = 'customer_withdrawal' | 'operator' | 'deadline_no_start';
+
+/**
+ * Every `RefundOrigin`, as a runtime table.
+ *
+ * 🔴 EXISTS SO A TEST CAN COUNT THEM. The union is what the compiler checks;
+ * this is what a test can hold up against it. It is typed as a
+ * `Record<RefundOrigin, true>` rather than an array so that BOTH a missing
+ * member and an extra one are compile errors — a list would let the union grow
+ * while the table stayed stale. owner 2026-08-30 removed the fourth member — a
+ * completion-deadline origin — with the deadline itself: a refund after
+ * completion is a conversation by email, never a clock.
+ */
+const REFUND_ORIGIN_TABLE: Readonly<Record<RefundOrigin, true>> = {
+  customer_withdrawal: true,
+  operator: true,
+  deadline_no_start: true,
+};
+export const REFUND_ORIGINS: readonly RefundOrigin[] = Object.keys(REFUND_ORIGIN_TABLE) as RefundOrigin[];
 
 export type ServiceRefundOutcome =
   /** The provider accepted the request. `providerStatus` is its own word and is

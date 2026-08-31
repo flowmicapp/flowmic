@@ -196,6 +196,9 @@ describe('§3 the completion notice says what the wording promises it says', () 
     // notice: it would look like we told them.
     expect(mail.text).toContain('refunds for this service are');
     expect(mail.text).toContain('closed');
+    // owner 2026-08-30 (evening): after completion a refund is discussed by
+    // email and nowhere else — the letter has to say where, not just that.
+    expect(mail.text).toContain('any question about a refund from here on is handled by email');
     expect(mail.text).toContain('This does not affect your legal rights');
     // And it does NOT offer money back from the console any more.
     expect(mail.text).not.toContain('all of your money');

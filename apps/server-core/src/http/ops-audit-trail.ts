@@ -151,6 +151,14 @@ export const ADMIN_GATED_ROUTES = [
   // provider is called — and higher stakes: an unrecorded refund is a
   // payment nobody authorised on paper.
   'POST /api/ops/purchases/refund',
+  // 🔴 2026-08-31 — THE FOURTH AND FIFTH MUTATORS, and the way OUT of the state
+  // the one above puts a purchase into. Both take the same fail-closed shape as
+  // their three neighbours (business row before the write), and both move the
+  // same money question: one records that a refund happened where we could not
+  // see it, the other records that it will not happen at all
+  // (http/ops-refund-release-routes.ts).
+  'POST /api/ops/purchases/refund/settle',
+  'POST /api/ops/purchases/refund/release',
 ] as const;
 
 /** The admin-gated routes that CHANGE something. Exported so the failure-policy
@@ -161,6 +169,8 @@ export const MUTATING_ADMIN_GATED_ROUTES: readonly AdminGatedRoute[] = [
   'POST /api/ops/users/restrict',
   'POST /api/ops/purchases/advance',
   'POST /api/ops/purchases/refund',
+  'POST /api/ops/purchases/refund/settle',
+  'POST /api/ops/purchases/refund/release',
 ];
 
 /** `'<METHOD> <path>'` for one of the routes above. Nothing else is expressible. */
