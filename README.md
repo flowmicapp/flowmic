@@ -172,10 +172,11 @@ language, pushed through the product's real session path:
 | German | ❌ a single full stop | 🔬 to be evaluated | ✅ correct |
 | Russian | ❌ a full stop, labelled Korean | 🔬 to be evaluated | ✅ correct |
 
-Those four ❌ cells are why the four rows below English exist, and why the
-engine now **refuses a language its model does not cover, by name**. It used to
-exit cleanly and hand back punctuation: silence dressed up as a transcript,
-which is the worst of the three possible outcomes.
+Those four ❌ cells are why French, Spanish, German and Russian each get their
+own pack in the table above, and why the engine now **refuses a language its
+model does not cover, by name**. It used to exit cleanly and hand back
+punctuation instead: silence dressed up as a transcript, which is worse than an
+error, because nothing about it looks wrong.
 
 **2. How accurate, in Mandarin** (2026-08-29) — 15 human-read clips of 21–26 s
 (10 Mandarin, 5 Mandarin/English code-switching), every engine scored by the
