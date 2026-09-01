@@ -78,7 +78,9 @@ allowed in, not what the software can do.
 **Speech recognition is pluggable** — seven engines are wired
 (`apps/server-core/src/stt/engines/`), including a fully local one
 (sherpa-onnx) that needs no GPU and no account, plus OpenAI Whisper/Realtime,
-Deepgram, FunASR, and any OpenAI-compatible endpoint you point it at.
+Deepgram, FunASR, and any OpenAI-compatible endpoint you point it at. Which
+model to pick for which language is its own section,
+[below](#speech-models-by-language).
 
 ### Repository layout
 
@@ -95,6 +97,120 @@ Deepgram, FunASR, and any OpenAI-compatible endpoint you point it at.
 > Most documentation under `docs/` is written in Chinese. Code, comments in the
 > hot paths, and everything contributor-facing are in English. If a Chinese doc
 > is blocking you, open an issue — we will translate the section you need.
+
+---
+
+## Speech models, by language
+
+FlowMic hosts no model weights, mirrors none, and pulls none behind your back:
+auto-download is **off** by default, and a missing model fails loudly instead of
+quietly falling back to something else. What the desktop app does give you is a
+catalogue of packs it knows how to fetch, checksum and open, under
+**Settings → Speech recognition → Built-in speech model**.
+
+Pick the pack for the language you actually speak. Every row below is read out
+of the product's own catalogue,
+`apps/server-core/src/stt/sherpa/model-catalog.ts` — if that file and this table
+ever disagree, the file is right and this table is stale.
+
+| Spoken language | Pack to download | Size | Licence | Live text while you talk |
+|---|---|---|---|---|
+| **English** | `sherpa-onnx-zipformer-en-2023-06-26` | 67 MiB | Apache-2.0 | no |
+| **Chinese (Mandarin)** | `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | 228 MiB | FunASR Model 1.1 ⚠️ | partial |
+| **Japanese** | `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01` | 169 MiB | Apache-2.0 | no |
+| **Korean** | `sherpa-onnx-zipformer-korean-2024-06-24` | 73 MiB | Apache-2.0 | no |
+| **Russian** | `sherpa-onnx-nemo-ctc-giga-am-v2-russian-2025-04-19` | 226 MiB | MIT | no |
+| **Spanish** | `sherpa-onnx-nemo-fast-conformer-ctc-es-1424-int8` | 126 MiB | CC-BY-4.0 | no |
+| **German** | `sherpa-onnx-nemo-stt_de_fastconformer_hybrid_large_pc-int8` | 126 MiB | CC-BY-4.0 | no |
+| **French** | `sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8` | 198 MiB | CC-BY-4.0 | no |
+| **All eight, one pack** | `sherpa-onnx-whisper-turbo` | 989 MiB | MIT | no |
+
+Second choices, and why you might want one:
+
+- **English, smaller footprint is not the reason** — `sherpa-onnx-moonshine-tiny-en-int8`
+  (118 MiB, MIT) is the "lite" tier but is *larger* than the Zipformer above.
+  Take it if you want an MIT pack rather than a smaller one.
+- **Chinese under an OSI licence** — `sherpa-onnx-zipformer-zh-en-2023-11-22`
+  (257 MiB, Apache-2.0) if the FunASR licence below is a problem for you. It
+  covers Chinese *and* English in one pack, but has no live preview.
+- **Russian, smaller** — `sherpa-onnx-zipformer-ru-int8-2025-04-20` (70 MiB,
+  Apache-2.0), a third of the size of the GigaAM pack.
+- **Spanish / German / French / English in one pack** — the Canary pack listed
+  on the French row covers all four.
+- **French is the one language with no offline single-language pack today.**
+  The dedicated French Zipformer *is* in the catalogue, but it is a *streaming*
+  pack and this release's recogniser cannot open one — so the download button
+  and the loader both refuse it **by name** rather than pretending. Until that
+  changes, French means Canary or Whisper.
+
+⚠️ **Two licence facts that are easy to get wrong.** The *engine*
+(sherpa-onnx) is Apache-2.0; the *weights* are not necessarily anything of the
+sort — the two just travel together. And the built-in default, SenseVoice-small,
+is under the **FunASR Model License v1.1, which is not an OSI-approved
+open-source licence** and carries non-standard terms. Read it before you rely
+on it commercially. Every pack's licence is a field in the catalogue, rendered
+on the card, precisely so nobody has to take a README's word for it.
+
+### What we have actually measured
+
+Honest answer first: **there is no per-language error rate for the packs in the
+table above.** The multilingual benchmark that would produce them is planned and
+has not been run. Two things *have* been measured, and neither is a substitute
+for it.
+
+**1. Does the language work at all** (2026-08-17) — one ~8 s utterance per
+language, pushed through the product's real session path:
+
+| Language | Built-in default (SenseVoice) | The pack recommended above | Cloud engine on the hosted relay |
+|---|---|---|---|
+| English | ✅ correct | 🔬 to be evaluated | ✅ correct |
+| Chinese | ✅ correct | 🔬 to be evaluated | ✅ correct |
+| Japanese | ✅ correct | 🔬 to be evaluated | ✅ correct |
+| Korean | ✅ correct | 🔬 to be evaluated | ✅ correct |
+| French | ❌ 22 words in, `La Mer.` out | 🔬 to be evaluated | ✅ correct |
+| Spanish | ❌ `,on.` | 🔬 to be evaluated | ✅ correct |
+| German | ❌ a single full stop | 🔬 to be evaluated | ✅ correct |
+| Russian | ❌ a full stop, labelled Korean | 🔬 to be evaluated | ✅ correct |
+
+Those four ❌ cells are why the four rows below English exist, and why the
+engine now **refuses a language its model does not cover, by name**. It used to
+exit cleanly and hand back punctuation: silence dressed up as a transcript,
+which is the worst of the three possible outcomes.
+
+**2. How accurate, in Mandarin** (2026-08-29) — 15 human-read clips of 21–26 s
+(10 Mandarin, 5 Mandarin/English code-switching), every engine scored by the
+same script:
+
+| Engine | Deployment | Median CER | Code-switching |
+|---|---|---|---|
+| Cloud engine on the hosted relay | not self-hostable | **1.1 %** | **0.8 %** |
+| Qwen3-ASR 0.6B (Apache-2.0) | your own GPU, ~1.7 GB VRAM | **2.1 %** | 2.8 % |
+| Nemotron 3.5 0.6B | your own GPU | 10.4 % | 24.8 % |
+
+Read those with three caveats. They are **Mandarin only** — that run says
+nothing about French, German, Spanish, Japanese, Korean or Russian. **None of
+the three is a pack from the table above**; they were driven directly, not
+through FlowMic (Qwen3-ASR would be reachable through the OpenAI-compatible
+endpoint setting, which we have not measured end to end). And a 30× spread on
+code-switching between two models on the same card, the same audio and the same
+scoring script is the real lesson here: **which model you choose matters far
+more than what you run it on.**
+
+### Not using the built-in packs
+
+Three other shapes work, and they differ in one way you will feel immediately:
+
+- **A self-hosted streaming service** (FunASR over WebSocket) — real live text
+  while you speak.
+- **A self-hosted batch endpoint** (Whisper, or anything speaking the
+  OpenAI-compatible `/audio/transcriptions` API) — **no live text**: the line
+  stays empty while you hold the button and the whole utterance lands when you
+  release. It still works; it just feels different.
+- **A cloud key of your own** (Deepgram, OpenAI Realtime) — streaming, and your
+  audio goes to them.
+
+Cantonese is a fourth case: SenseVoice claims it, the language picker does not
+offer it, and it is reachable only by configuring the engine by hand.
 
 ---
 
