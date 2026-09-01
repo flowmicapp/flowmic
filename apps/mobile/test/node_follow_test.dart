@@ -195,6 +195,48 @@ void main() {
     });
   });
 
+  // ── P0 (2026-09-01): the same sentence read from the other end ────────────
+  group('settledAtHomeNode', () {
+    test('🔴 it is nodeToFollow\'s exact complement, on every shape absence '
+        'can arrive in', () {
+      // Written as a LOOP over the same inputs the first group enumerates,
+      // rather than as a handful of hand-picked cases, because the property
+      // being defended is 「these two can never disagree」 — and a fixed list of
+      // examples is exactly what would keep passing after someone gave
+      // `settledAtHomeNode` a parser of its own.
+      final List<Object?> acks = <Object?>[
+        null,
+        'not a map',
+        <String, Object?>{},
+        _ack(),
+        _ack(home: 'srvny'),
+        _ack(node: 'srvny'),
+        _ack(home: '', node: 'srvny'),
+        _ack(home: 'srvny', node: ''),
+        _ack(home: 7, node: 'srvny'),
+        _ack(home: 'srvny', node: 'srvny'),
+        _ack(home: 'srvjp', node: 'srvny'),
+      ];
+      for (final Object? ack in acks) {
+        expect(settledAtHomeNode(ack), nodeToFollow(ack) == null,
+            reason: 'the two disagreed about $ack — one of them has grown its '
+                'own reading of the fields');
+      }
+    });
+
+    test('🔴 only a real cross-node ack answers false — everything else is '
+        'settled, and that is what keeps today\'s phones untouched', () {
+      // Positive control first: if this one ever stops being false the test
+      // below is measuring nothing.
+      expect(settledAtHomeNode(_ack(home: 'srvjp', node: 'srvny')), isFalse);
+      expect(settledAtHomeNode(_ack()), isTrue,
+          reason: 'a single-node ack carries neither field, and every handset '
+              'in the world sends one — it must read as 「nothing to wait for」 '
+              'or the pairing confirmation would hang forever');
+      expect(settledAtHomeNode(_ack(home: 'srvny', node: 'srvny')), isTrue);
+    });
+  });
+
   test('🔴 END TO END, the shape that must never move a phone off a '
       'self-hosted relay', () {
     // A pairing's endpoint is not always ours — `addByCode` stores whatever the

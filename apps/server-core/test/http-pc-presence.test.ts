@@ -28,6 +28,13 @@ import { createDbConnection } from '../src/db/connection';
 import type { DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 
+/** The deployment shape these cases are about: SINGLE NODE. No FLOWMIC_NODE_ID,
+ *  so `nodeIdFor` answers null, and the rows are this process's own rather than
+ *  a replication snapshot. `pcPresence` then takes its local branch and this
+ *  route answers exactly what it answered before it learned about nodes —
+ *  which is the property these cases have always been pinning. */
+const SINGLE_NODE = { nodeIdFor: (): null => null, rowsFromReplicationPull: false };
+
 function request(method: string, url: string, token?: string): IncomingMessage {
   const stream = Readable.from([]);
   const req = stream as unknown as IncomingMessage;
@@ -82,7 +89,7 @@ function ask(
     res,
     // `pcs` is the C9 cross-account read. The REAL repo, not a stub: the point of
     // this world is that the two 「is it in the room」 answers cannot drift.
-    { registry: deps.registry, store: deps.store as unknown as RoomStore, pcs: deps.db.pcs },
+    { registry: deps.registry, store: deps.store as unknown as RoomStore, pcs: deps.db.pcs, ...SINGLE_NODE },
   );
   return { handled, ...read() };
 }
@@ -123,6 +130,7 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
       pcs: w.db.pcs,
+      ...SINGLE_NODE,
     });
     expect(read()).toMatchObject({ status: 401, body: { error: PRESENCE_AUTH_REQUIRED } });
   });
@@ -151,7 +159,7 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
     tryHandlePresenceRoutes(
       request('GET', `${PC_PRESENCE_PATH}?pc_id=${w.b.pc.id}`, w.a.token),
       res,
-      { registry: w.registry, store: w.store as unknown as RoomStore, pcs: w.db.pcs },
+      { registry: w.registry, store: w.store as unknown as RoomStore, pcs: w.db.pcs, ...SINGLE_NODE },
     );
     expect(read().body).toMatchObject({ pc_id: w.a.pc.id, pc_online: false });
   });
@@ -187,6 +195,7 @@ describe('GET /api/pc/presence — "is the PC I paired with there"', () => {
         registry: w.registry,
         store: w.store as unknown as RoomStore,
         pcs: w.db.pcs,
+        ...SINGLE_NODE,
       }),
     ).toBe(false);
   });
@@ -219,6 +228,7 @@ describe('mounting — the relay is the deployment that needs this', () => {
         registry: w.registry,
         store: w.store as unknown as RoomStore,
         pcs: w.db.pcs,
+        ...SINGLE_NODE,
       });
       const { res, read } = response();
       expect(handler(request('GET', PC_PRESENCE_PATH, w.a.token), res)).toBe(true);

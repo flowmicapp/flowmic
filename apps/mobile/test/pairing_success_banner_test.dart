@@ -132,8 +132,8 @@ void main() {
   testWidgets('🔴 an AUTOMATIC reconnect (the room-join edge) raises NOTHING', (WidgetTester tester) async {
     final _Rig r = await _pump(tester);
     // The ladder's rejoin: the same edge every network flap produces.
-    r.session.noteRoomJoined();
-    r.session.noteRoomJoined();
+    r.session.noteRoomJoined(atHomeNode: true);
+    r.session.noteRoomJoined(atHomeNode: true);
     await tester.pump();
     await tester.pump();
     expect(r.session.roomJoins.value, 2, reason: 'positive control: the edges really fired');

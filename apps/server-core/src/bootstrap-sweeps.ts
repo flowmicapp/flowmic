@@ -35,6 +35,7 @@ import type { ServerConfig } from './config';
 import type { DbConnection } from './db/connection';
 import type { BillingService } from './billing/billing-service';
 import { startRetentionSweeper, type RetentionSweeper } from './db/retention';
+import { serviceRefunder } from './bootstrap-billing-deps';
 import { startServiceRefundSweeper, type ServiceSweeper } from './billing/service-sweep';
 import { PROMISED_DEADLINES } from './billing/guided-setup';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
@@ -116,4 +117,33 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
         });
 
   return { retention, ...(serviceRefunds === undefined ? {} : { serviceRefunds }) };
+}
+
+/** Assemble [SweepWiring] from what bootstrap already holds, then start.
+ *
+ *  🔴 IT EXISTS SO `serviceRefunder` IS CALLED ONCE. The call site in
+ *  bootstrap.ts built the refunder to test it for `undefined`, threw that
+ *  one away, and built a second one to pass along — two clients where the wiring
+ *  promises one. Here the value is named, so there is only ever the one.
+ *
+ *  It also keeps the optional-property spread (`exactOptionalPropertyTypes`)
+ *  beside the interface it has to satisfy, which is why this is not a
+ *  three-line convenience in the caller.
+ */
+export function startSweepsForBootstrap(args: {
+  config: ServerConfig;
+  db: DbConnection;
+  billing: BillingService;
+  overrides: Pick<SweepWiring, 'now' | 'setIntervalFn' | 'clearIntervalFn'>;
+}): BackgroundSweeps {
+  const { config, db, billing, overrides } = args;
+  const now = overrides.now ? { now: overrides.now } : {};
+  const refund = serviceRefunder({ config, db, billing, ...now });
+  return startBackgroundSweeps({
+    config, db, billing,
+    ...(refund === undefined ? {} : { refund }),
+    ...now,
+    ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
+    ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
+  });
 }

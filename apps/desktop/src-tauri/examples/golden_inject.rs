@@ -66,6 +66,7 @@ fn main() {
         // no capsule gate, and the channel tag is the LAN default it dials.
         channel: socket::Channel::Lan,
         admission: None,
+        on_dead_transport: None,
     }) {
         Ok(s) => s,
         Err(e) => {

@@ -375,6 +375,29 @@ describe('admin gate — route coverage is derived from the source, not from a l
     // second gate has been born, and two gates is how one of them ends up
     // admitting what the other rejects (the argument account-auth.ts already
     // makes for `bearerToken` / `accountFromBearer`).
+    //
+    // ── TWO ADDITIONS ON 2026-08-31, AND THE INSTRUMENT DID ITS JOB ─────────
+    // It went red on both, which is exactly what it is for: it does not know
+    // whether a new reader is a gate, so it makes somebody answer. The answers:
+    //
+    //   · `db/repos/user-ops-view.ts` — NOT NEW CODE. `toOpsUser` moved out of
+    //     user.repo.ts verbatim when that file crossed the 800-line cap, and it
+    //     took its `is_admin` read with it. It DISPLAYS the bit to an operator
+    //     who is already behind the gate; it has never decided anything. Same
+    //     read, new file name.
+    //   · `node/token-rows.ts` — the multi-node read-through, and it does not
+    //     read the bit at all in the sense this test means: it CARRIES the
+    //     column across the node channel (`is_admin: o.is_admin === true`) so a
+    //     replica's local `users` row is the writer's row. Deciding admin-ness
+    //     from it would be a second gate; copying a column between two copies of
+    //     one database is transport. The `=== true` rather than truthiness is
+    //     there precisely so a stray value on the wire cannot promote an
+    //     account — the opposite of a gate that could be talked into opening.
+    //
+    // 🔴 Neither may branch on it. If either file ever grows an `if (is_admin)`,
+    // this assertion will NOT catch it — it counts readers, not decisions. That
+    // is the residual, and it is why both entries carry a reason here rather
+    // than being quietly appended to the list.
     const hits: Record<string, number> = {};
     for (const f of tsFilesUnder(SRC)) {
       const n = (stripComments(readFileSync(f, 'utf8')).match(/is_admin/g) ?? []).length;
@@ -384,7 +407,13 @@ describe('admin gate — route coverage is derived from the source, not from a l
       Object.keys(hits).sort(),
       'a new file reads users.is_admin — is it a SECOND admin gate? The gate is\n' +
         'http/account-auth.ts adminFromBearer; call it instead of re-deriving it.',
-    ).toEqual(['db/repos/user.repo.ts', 'db/schema.ts', 'http/account-auth.ts']);
+    ).toEqual([
+      'db/repos/user-ops-view.ts',
+      'db/repos/user.repo.ts',
+      'db/schema.ts',
+      'http/account-auth.ts',
+      'node/token-rows.ts',
+    ]);
     // …and inside the gate module there is exactly ONE read: the decision itself.
     // Two would mean adminFromBearer grew a second branch, or a second function.
     expect(hits['http/account-auth.ts'], 'account-auth.ts now reads is_admin more than once').toBe(1);

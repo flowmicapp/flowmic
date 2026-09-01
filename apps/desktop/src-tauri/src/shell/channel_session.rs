@@ -273,6 +273,14 @@ fn connect_socket(app: &AppHandle, url: &str, channel: Channel, jwt: Option<Stri
     // the capsule — the whole point of the two-channel arbitration.
     cfg.channel = channel;
     cfg.admission = Some(admission_of(app));
+    // WP2 Card 7: heartbeat-death rebuild. MUST leave the pump thread —
+    // `set_socket(None)` Drops this session and `disconnect` joins the pump.
+    cfg.on_dead_transport = Some(Arc::new({
+        let app = app.clone();
+        move || {
+            super::sidecar_ctl::rebuild_after_heartbeat_death(&app, channel);
+        }
+    }));
     let tag = channel.tag();
     match socket::connect(cfg) {
         Ok(sock) => {

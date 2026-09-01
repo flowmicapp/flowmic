@@ -265,8 +265,15 @@ describe('🔴 M2-7 — no response body can carry a password hash', () => {
     const rows = list.json.rows as Record<string, unknown>[];
     expect(rows).toHaveLength(SEED_IDS.length);
     for (const row of rows) {
+      // 🔴 WP2 card 5 — `plan_resolved_now` is DELIBERATELY EXCLUDED from this
+      // comparison. It is not part of `toOpsUser`'s whitelist (it never touches
+      // `UserRecord` at all — it is `BillingService.resolvePlanReadOnly`'s
+      // answer, merged onto the row at the route), so it must not silently
+      // widen OPS_USER_FIELDS, which exists to pin THAT whitelist. Its own
+      // shape is pinned separately below (「M2-8 resolved」).
+      const { plan_resolved_now: _planResolvedNow, ...rest } = row;
       expect(
-        Object.keys(row).sort(),
+        Object.keys(rest).sort(),
         'the ops projection changed shape. Every field on this surface is a decision:\n' +
           'add one only by editing BOTH `toOpsUser` and OPS_USER_FIELDS, which is the point.',
       ).toEqual(OPS_USER_FIELDS);
@@ -292,37 +299,102 @@ describe('🔴 M2-7 — no response body can carry a password hash', () => {
   });
 });
 
-// ── ③ 🔴 M2-8: no tier, and this path writes not one byte to the database ─────────────────────────────
-describe('🔴 M2-8 — a read-only account list must not carry a tier, and must not write', () => {
-  it('no `plan` anywhere in the list, and the drifted column survives both routes', async () => {
+// ── ③ 🔴 M2-8 RESOLVED (WP2 card 5) — both routes carry a REAL tier, and the
+// resolver writes not one byte to `users.plan` ─────────────────────────────
+//
+// 🔴 THIS DESCRIBE BLOCK USED TO ASSERT THE OPPOSITE — that no response body
+// could contain the strings `"plan"` or `"pro"` anywhere, because the only way
+// to answer "what tier" was `BillingService.getPlan`, and that WRITES. That
+// was M2-8's whole shape, and it is why the old test's own comment read "a
+// list is a loop; a tier in it is `getPlan` per row, and `getPlan` writes."
+// `BillingService.resolvePlanReadOnly` closes that gap (billing-service.ts) —
+// see http/ops-user-routes.ts's M2-8 header and its 2026-09-01 correction for
+// the full argument, including why the list may now carry it too.
+type ResolvedPlan = { plan: string; source: string; quota_exempt: boolean };
+
+describe('🔴 M2-8 resolved — plan_resolved_now is real, and the resolver never writes', () => {
+  it('the resolver wins over a STALE mirror, and the mirror is byte-unchanged after the call', async () => {
     const { url, handle } = await saas();
     seed(handle);
     const admin = bearer(handle, 'u-admin');
 
-    // The bait: `users.plan` says 'pro' while nothing has been paid for.
+    // The bait, unchanged from the old M2-8 test: `users.plan` says 'pro'
+    // while nothing has been paid for — a STALE mirror by construction.
     expect(handle.db.users.findById('u-admin')?.plan).toBe('pro');
     const before = usersSnapshot(handle);
 
-    for (const path of [`${LIST}?limit=${OPS_USER_PAGE_MAX}`, `${LIST}?q=ops.co`, `${DETAIL}?user_id=u-admin`]) {
-      const r = await get(url, path, admin);
-      expect(r.status).toBe(200);
-      // A list is a loop; a tier in it is `getPlan` per row, and `getPlan` writes.
-      expect(r.body, `${path} published a tier`).not.toContain('"plan"');
-      expect(r.body).not.toContain('"pro"');
+    const list = await get(url, `${LIST}?limit=${OPS_USER_PAGE_MAX}`, admin);
+    expect(list.status).toBe(200);
+    const listRow = (list.json.rows as { id: string; plan_resolved_now: ResolvedPlan }[]).find(
+      (row) => row.id === 'u-admin',
+    );
+    const detail = await get(url, `${DETAIL}?user_id=u-admin`, admin);
+    expect(detail.status).toBe(200);
+    const detailPlan = detail.json.plan_resolved_now as ResolvedPlan;
+
+    // 🔴 THE HEART OF THE CARD. Neither response echoes the stale 'pro' mirror
+    // — both resolve the REAL answer, 'free' (nobody has paid, no subscription
+    // row exists), through the SAME read-only computation.
+    for (const resolved of [listRow?.plan_resolved_now, detailPlan]) {
+      expect(resolved, 'plan_resolved_now missing or did not resolve the real tier').toMatchObject({
+        plan: 'free', source: 'none', quota_exempt: false,
+      });
     }
 
-    // 🔴 THE NEGATIVE HALF, on the WHOLE table rather than on one column: nothing
-    // about any account moved, not the tier and not anything beside it.
-    expect(usersSnapshot(handle), 'a read route wrote to the users table').toBe(before);
+    // 🔴 THE NEGATIVE HALF, on the WHOLE table rather than on one column:
+    // resolving the tier for every row on both calls above moved nothing.
+    expect(usersSnapshot(handle), 'the read-only resolver wrote to the users table').toBe(before);
 
-    // 🔴 THE POSITIVE CONTROL, and it is the load-bearing half: prove the probe
-    // can SEE a write. ONE direct getPlan() and the column is rewritten — so the
-    // byte-identical snapshot above is the routes behaving, not the probe being
-    // blind. (This is also why the deps carry no BillingService at all: the mine
-    // is unreachable from the route, not merely unused.)
+    // 🔴 THE POSITIVE CONTROL, and it is the load-bearing half: prove the
+    // probe can SEE a write. ONE direct getPlan() call and the column is
+    // rewritten to match what was already resolved above — so the
+    // byte-identical snapshot is the resolver behaving, not the probe being
+    // blind.
     expect(handle.billing.getPlan('u-admin').plan).toBe('free');
     expect(handle.db.users.findById('u-admin')?.plan).toBe('free');
     expect(usersSnapshot(handle)).not.toBe(before);
+  });
+
+  it('a permanent_free account never resolves to a sellable tier label (D1 §6.1-bis)', async () => {
+    const { url, handle } = await saas();
+    seed(handle);
+    handle.db.users.setPermanentFree('u-p1', true);
+    const admin = bearer(handle, 'u-admin');
+    const r = await get(url, `${DETAIL}?user_id=u-p1`, admin);
+    expect(r.status).toBe(200);
+    // The exemption is `source` + `quota_exempt`, never a tier value — writing
+    // 'pro'/'max' into `plan` for an exempt account would be exactly the
+    // "owner blocked by his own product" trap D1 exists to close.
+    expect(r.json.plan_resolved_now).toMatchObject({ plan: 'free', source: 'permanent_free', quota_exempt: true });
+  });
+
+  it('is_admin alone manufactures no tier — u-admin resolves by the same rules as anyone else', async () => {
+    const { url, handle } = await saas();
+    seed(handle);
+    expect(handle.db.users.findById('u-admin')?.permanent_free).toBe(false);
+    const admin = bearer(handle, 'u-admin');
+    const r = await get(url, `${DETAIL}?user_id=u-admin`, admin);
+    expect(r.json.plan_resolved_now).toMatchObject({ plan: 'free', source: 'none', quota_exempt: false });
+  });
+
+  it('both routes carry the field, and 401/403 refusals leak nothing of it', async () => {
+    const { url, handle } = await saas();
+    seed(handle);
+    for (const path of [LIST, `${DETAIL}?user_id=u-normal`]) {
+      const anon = await get(url, path);
+      expect(anon.status).toBe(401);
+      expect(anon.body).not.toContain('plan_resolved_now');
+      const refused = await get(url, path, bearer(handle, 'u-normal'));
+      expect(refused.status).toBe(403);
+      expect(refused.body).not.toContain('plan_resolved_now');
+    }
+    const admin = bearer(handle, 'u-admin');
+    const list = await get(url, `${LIST}?limit=${OPS_USER_PAGE_MAX}`, admin);
+    const rows = list.json.rows as { plan_resolved_now?: ResolvedPlan }[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.plan_resolved_now !== undefined), 'a row on the list is missing plan_resolved_now').toBe(true);
+    const detail = await get(url, `${DETAIL}?user_id=u-admin`, admin);
+    expect(detail.json.plan_resolved_now).toBeDefined();
   });
 });
 

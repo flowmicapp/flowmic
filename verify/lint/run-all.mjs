@@ -46,6 +46,7 @@ import worktreeLocation from './worktree-location.mjs';
 import planLimitCopy from './plan-limit-copy.mjs';
 import externalLinkDoor from './external-link-door.mjs';
 import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
+import outwardVoice from './outward-voice.mjs';
 
 const LINTS = [
   { name: 'protocol-whitelist', run: protocolWhitelist },
@@ -79,6 +80,7 @@ const LINTS = [
   { name: 'plan-limit-copy', run: planLimitCopy },
   { name: 'external-link-door', run: externalLinkDoor },
   { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
+  { name: 'outward-voice', run: outwardVoice },
 ];
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;

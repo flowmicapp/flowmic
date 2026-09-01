@@ -381,6 +381,14 @@ export function foldConfirmedWithDraft(confirmed: string, draft: string): string
  * gate is the same fact {@link foldInterim} already turns on — and like it,
  * this belongs HERE so the choice and the folds it chooses between are read
  * together (the INT-2 argument, one function up).
+ *
+ * Production call site is `spawnEngine` in orchestrator-core.ts. Only the
+ * LADDER's respawn arrives there with a non-empty draft (`start()` /
+ * `rolloverSegment()` / `dialLeg()` clear or fold the accumulators before
+ * spawning). `accumEmittedByFinal` is deliberately untouched at that site:
+ * the interims that built the draft already cleared it and no final has run
+ * since (the leg died) — the banked text is exactly "content no final has
+ * carried".
  */
 export function bankDraftAcrossLegs(
   shape: InterimShape | undefined,

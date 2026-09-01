@@ -140,8 +140,10 @@ describe('SEG-3 §2 — the reason travels, because the repair depends on it', (
   });
 
   it('🔴 a finished sentence FOLLOWED BY a pause is still "sentence", not "pause"', () => {
-    // The ordering row. Both signals are true here, and reading it as 'pause'
-    // would strip a full stop the speaker really did produce.
+    // The ordering row. Both signals are true here. F-2 Fix B waits on 'pause'
+    // only; misreading this as 'pause' would add up to 800 ms to a row that
+    // already had its terminator. (Fix C: both reasons now KEEP the mark, so
+    // this row is no longer about seamText stripping.)
     expect(segmentCutDecision({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }).cut).toBe(true);
     expect(segmentCutDecision({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }))
       .toEqual({ cut: true, reason: 'sentence' });
@@ -166,8 +168,10 @@ describe('SEG-3 §3 — the seam repair', () => {
     expect(seamText('这句说完了。', 'sentence')).toBe('这句说完了。');
   });
 
-  it('repairs a pause seam too — a breath-length gap ends no sentence either', () => {
-    expect(seamText('我在想。', 'pause')).toBe('我在想');
+  it('KEEPS an engine-produced terminator on a pause cut (F-2 Fix C)', () => {
+    // FunASR 2pass-offline punctuates. Stripping that mark on a pause cut is
+    // destroying evidence, not un-editing a fabricated span stop (that's 'leg').
+    expect(seamText('我在想。', 'pause')).toBe('我在想。');
   });
 
   it('takes exactly ONE mark, never the run — 「吗？！」 is the speaker\'s emphasis', () => {
@@ -183,3 +187,10 @@ describe('SEG-3 §3 — the seam repair', () => {
     expect(seamText('所以呢，', 'leg')).toBe('所以呢，');
   });
 });
+
+// ── REVERSE CONTROL (2026-08-31, dev-pc-a, run and observed) ────────
+// Dropping `|| reason === 'pause'` from seamText turns:
+//   AssertionError: expected '我在想' to be '我在想。' // Object.is equality
+// and the wiring row:
+//   AssertionError: expected '没有标点也可以切，覆盖离线来了' to be '没有标点也可以切，覆盖离线来了。'
+// Restored; marker F2-FIXC-REVERSE-CONTROL grepped to 0 in src/.

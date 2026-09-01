@@ -83,6 +83,13 @@
  * caught. The six counts below sum to 73, and that identity is worth preserving —
  * it means this table accounts for every catch the family tables count, so a rule
  * cannot be dropped from it without the sum saying so.
+ *
+ * 🔴 AMENDED 2026-09-01 (Z3). A seventh rule, `cjk_latin_glued`, is now in the
+ * table at its measured 4. The original six still sum to the catches they
+ * accounted for on 2026-08-12; do not rewrite that identity. The new row is
+ * additive. The corpus has grown since 193/73 (P1-1 multilingual rows); several
+ * older rules now fire above their floors. Raising those floors is a separate
+ * re-measure, not this card.
  */
 export const GUARD_RULE_MIN_CATCHES = {
   volume_runaway: 59,
@@ -91,19 +98,29 @@ export const GUARD_RULE_MIN_CATCHES = {
   target_script_absent: 2,
   untranslated_echo: 2,
   invented_numerals: 2,
+  // Z3, 2026-09-01: new rule, measured 4 on this corpus (the four ja/ko
+  // glue rows of organize/silent_reformat). Count floor at the measured
+  // value, same convention as every other entry here. Adding this row
+  // is the rule-axis half of moving the family out of GUARD_KNOWN_UNFLOORED;
+  // a new rule with no floor is the FB-5b anti-pattern on this axis.
+  cjk_latin_glued: 4,
 };
 
 /**
  * The rule-axis counterpart of GUARD_KNOWN_UNFLOORED: rules permitted to fire with
  * no floor, named explicitly, so a NEW rule cannot arrive unwatched.
  *
- * EMPTY TODAY — a measurement, not an omission. All six rules that fire on this
+ * EMPTY ON THE DAY IT SHIPPED — a measurement, not an omission. All six rules that fire on this
  * corpus catch >= 2 cases, so every one of them can carry a real floor and none
  * needs acknowledging. The set exists anyway because it is the half of "no silent
  * no-floor" that does the enforcing: a rule listed in neither table reddens the
  * gate. That is what will happen the day the guard grows a new rule, by design —
  * the new rule arrives with a measured floor, or with a written acknowledgement,
  * in the commit that adds it.
+ *
+ * ⚠️ Still empty after Z3 (2026-09-01): `cjk_latin_glued` arrived with a
+ * measured floor of 4 in GUARD_RULE_MIN_CATCHES, which is the arrival this
+ * paragraph describes. Do not put it here.
  *
  * 🔴 A FLOOR OF 0 IS NOT THE WAY TO USE THIS SET. That is the fake supervision
  * GUARD_FLOORS' own comment refuses: "A floor of 0 would make the mode incapable

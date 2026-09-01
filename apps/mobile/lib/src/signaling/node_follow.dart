@@ -44,34 +44,39 @@
 // deployment. There is no input to this file that can move a phone onto our
 // infrastructure, and that is a property of the shape rather than of a check.
 
-// ── ⚠️ NOTHING CALLS THIS IN PRODUCTION YET, AND THE MISSING PIECE IS A
-//    PRODUCT DECISION RATHER THAN PLUMBING ────────────────────────────────────
+// ── ⚠️ THIS FILE IS WIRED. THE PARAGRAPH THAT USED TO STAND HERE SAID IT WAS
+//    NOT, AND IT OUTLIVED ITS OWN TRUTH ────────────────────────────────────────
 //
-// The decision and the fetch are complete and tested. What is not written is
-// the APPLY, and the reason is worth stating rather than leaving as a gap:
+// Until 2026-08-30 this header opened with "NOTHING CALLS THIS IN PRODUCTION
+// YET", and it went on to argue that the missing APPLY was a product decision
+// (「may the phone move mid-utterance?」) rather than plumbing. The apply was
+// written on 2026-08-30 and the paragraph was not — so a reader arriving here
+// on 2026-09-01 was told, in a confident voice, that a live path was dead code.
+// That is anti-façade ④ in its most expensive shape: a stale truth reads exactly
+// like a current one, and nobody re-measures a sentence that sounds settled.
 //
-//   moving to another node means dropping the current socket, and dropping the
-//   socket drops the ROOM. If the user is mid-utterance, an ordinary
-//   push-to-talk press ends there — the link-loss edge stops the capture. A
-//   CONTINUOUS recording survives it (card CR-3 keeps the microphone and the
-//   retention layer catches the audio), but "survives" is not "was a good idea".
+// THE PRODUCTION CALLERS, greppable, both of them:
+//   · `_followNodeIfMisplaced` in ptt_reconnect_ack.dart — the `mobile:reconnect`
+//     ack leg (the reconnect ladder, `resumePairing`, the hold-out recheck);
+//   · the same function called from ptt_pair.dart — the `mobile:pair` ack leg,
+//     because `mobile:pair` is writer-only so a phone ALWAYS pairs on the writer.
+// Both are pinned by `test/node_follow_wired_test.dart`, which exists precisely
+// because one wired caller was once mistaken for a wired feature.
 //
-// ⇒ "when may the phone move?" is a question about the user's session, not
-// about networking, and the honest answer is almost certainly "not while
-// recording" — which is a condition to state and test, not one to invent at the
-// end of an afternoon. Registered rather than guessed.
+// The mid-utterance question was answered rather than dropped, and the answer is
+// in `_followNodeIfMisplaced`'s own doc ("WHY IMMEDIATELY, RATHER THAN WAITING
+// FOR AN IDLE MOMENT"): `mirrorToPc` drops a frame for an absent PC with no
+// error, no refusal and no log, so staying put does not trade one lost utterance
+// against a delay — it trades a whole session of silent loss against one
+// reconnect.
 //
-// ⚠️ There is also no rush: srvjp is published `selectable:false`, so no client
-// is offered a second node today and nothing can reach this path in production
-// even once it is wired.
-//
-// The insertion point is already there and should be used rather than a new
-// one built: `ReconnectCoordinator._resolveThenDial` asks a `DialUrlResolver`
-// which address each rung should use and ADOPTS the answer, and a resolver that
-// throws falls back to the address it had. Persisting through
-// `persistDialedEndpoint` (session/endpoint_candidates.dart) is the other half
-// — and it is also the whole of "remember the last known node per instance",
-// because the persisted endpoint IS that memory. No new stored field.
+// The insertion point named below is the one that was used:
+// `ReconnectCoordinator._resolveThenDial` asks a `DialUrlResolver` which address
+// each rung should use and ADOPTS the answer, and a resolver that throws falls
+// back to the address it had. Persisting through `persistDialedEndpoint`
+// (session/endpoint_candidates.dart) is the other half — and it is also the
+// whole of "remember the last known node per instance", because the persisted
+// endpoint IS that memory. No new stored field.
 
 /// One row of `GET /api/node/list`, as this phone needs it.
 ///
@@ -151,6 +156,30 @@ String? nodeToFollow(Object? ack) {
   if (home == here) return null;
   return home;
 }
+
+/// 「this ack already came from where the PC is」 — the ONE fact the pairing
+/// confirmation is allowed to wait for.
+///
+/// 🔴 DEFINED AS `nodeToFollow(ack) == null`, NEVER AS A SECOND PARSE OF THE
+/// TWO FIELDS. Every reason [nodeToFollow] answers 「stay」 — both fields absent,
+/// either one empty or of the wrong type, the two equal, a null ack from a
+/// timeout — is also a reason this answers 「settled」, and that is not a
+/// coincidence to be re-derived but the same sentence read from the other end.
+/// A second parser would drift on the first edit, and the two would disagree
+/// about exactly the malformed acks nobody tests by hand.
+///
+/// 🔴 AND THE DEGRADE DIRECTION IS THE WHOLE SAFETY ARGUMENT. Every handset in
+/// the world sees neither field, so every one of them is 「settled」 from the
+/// first ack — which is what makes the pairing confirmation on a single-node
+/// deployment fire at byte-for-byte the moment it fires today. A cross-node
+/// pairing is the ONLY input that can answer false, and the only thing false
+/// costs is that the confirmation waits for the phone to arrive.
+///
+/// ⚠️ It is NOT 「the PC is online」 and must never be rendered as such. It says
+/// where this socket is relative to the PC's node, and a PC can be registered on
+/// this very node and still be switched off — `pc_online` is that question and it
+/// has its own field on the same ack.
+bool settledAtHomeNode(Object? ack) => nodeToFollow(ack) == null;
 
 /// Which node ANSWERED this ack — for the badge, not for routing.
 ///

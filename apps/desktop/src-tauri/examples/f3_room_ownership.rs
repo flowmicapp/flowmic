@@ -70,6 +70,7 @@ fn open_session(url: &str, cred_path: &PathBuf, ledger: &PathBuf, label: &str) -
         // here are the same channel. Installing one would make it, not the server,
         // decide who is primary — i.e. the instrument would answer the question.
         admission: None,
+        on_dead_transport: None,
     }) {
         Ok(s) => s,
         Err(e) => {

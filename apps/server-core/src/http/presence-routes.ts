@@ -2,8 +2,11 @@
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §1.4 / §1.4.1
 //     (which question "online" answers; RV-98 has the instance list actually ask that PC)
 //   docs/rebuild/15-… §6 G-15 (this route closes off exactly the ② half of it)
-//   apps/server-core/src/socket/handlers/mobile.handler.ts (`pc_online`, each
-//     site computed as `store.getPc(pc.room_uuid) !== null`)
+//   apps/server-core/src/room/pc-presence.ts (`pcPresence` — the ONE author of
+//     "is this computer here right now"; this route is one of its surfaces)
+//   apps/server-core/src/socket/handlers/mobile.handler.ts (`pc_online` on the
+//     pair and reconnect acks — the other two phone-facing surfaces, which ask
+//     the same function so the three cannot disagree)
 //   CLAUDE.md human-audit the four sensitive paths: pairing/auth
 //   *** HUMAN-AUDIT SENSITIVE (auth) — reviewable in isolation ***
 //
@@ -58,9 +61,16 @@
 // `verifyPairedMobile`: that helper IS the speculative-unsafe one.)
 //
 // WHAT COMES BACK is one bit plus an echo the caller already had:
-//   `pc_online` — `store.getPc(room_uuid) !== null`, the EXACT expression behind
-//                 the `pc_online` field on the pair/reconnect acks. Not a second
-//                 definition of "in the room": the same one, read over http.
+//   `pc_online` — `pcPresence(...)`, the EXACT function behind the `pc_online`
+//                 field on the pair/reconnect acks. Not a second definition of
+//                 "is it here": the same one, read over http.
+//                 🔴 2026-09-01: it USED to be `store.getPc(room_uuid) !== null`
+//                 spelled out here and again at each ack. Three copies of one
+//                 expression agreed for as long as there was one relay process;
+//                 the day a second node became selectable they all became the
+//                 right answer to the wrong question, because a room is a Map
+//                 inside ONE process and a phone can be talking to a different
+//                 one from its PC. See room/pc-presence.ts.
 //   `pc_id`     — echoed so the phone can check the answer is about the PC it
 //                 asked about (cross-wiring identifiers is strictly forbidden). The phone already stores this from its
 //                 own pair ack, so nothing new is disclosed by returning it.
@@ -96,6 +106,7 @@ import type { Registry } from '../room/registry';
 import type { RoomStore } from '../room/store';
 import type { PcRepo } from '../db/repos/pc.repo';
 import { pcAbsenceReasons } from '../room/pc-absence';
+import { pcPresence } from '../room/pc-presence';
 import type { PcAbsentReason } from '../room/pc-absence';
 import {
   MACHINE_REASSIGNED_REASON,
@@ -192,6 +203,39 @@ export interface PresenceRoutesDeps {
    *  dep with a friendly fallback is how one is built. The compiler is the gate:
    *  bootstrap cannot construct these deps without supplying it. */
   pcs: Pick<PcRepo, 'listByMachineUidOtherUsers'>;
+  /** 2026-09-01 — WHICH NODE THIS PROCESS ANSWERS AS, for THIS request.
+   *
+   *  🔴 A FUNCTION OF THE REQUEST, not a string, and the reason is that the
+   *  socket side already does it this way. `home_node` is stamped with the id
+   *  of the DOOR a PC arrived through (`bootstrap.ts` `socketNodeId` →
+   *  node-identity.ts `nodeIdForHost`), because a process behind a regional
+   *  front door has to answer as that door or the phone is sent to the slow one
+   *  the PC deliberately left. A static process id here would compare a door id
+   *  against a process id and call a PC on THIS process remote — one question
+   *  with two answers across two phone-facing surfaces, which is the whole
+   *  shape this card exists to remove.
+   *
+   *  Returns null on every deployment with no FLOWMIC_NODE_ID, and null means
+   *  「there are no nodes」: `pcPresence` then takes the local branch and this
+   *  route answers exactly what it has always answered.
+   *
+   *  🔴 REQUIRED, no `?`, for the same reason `pcs` above is: a bootstrap that
+   *  forgot this line would silently go back to the local-only check — which is
+   *  not a degraded answer, it is THE DEFECT, and nothing would say so. The
+   *  compiler is the gate. */
+  nodeIdFor: (req: IncomingMessage) => string | null;
+  /** 2026-09-01 — true when this node's rows arrive via the replication pull
+   *  (role 'replica'). Widens the freshness window for a REMOTE PC only; the
+   *  whole argument, with the arithmetic, is on `PcPresenceOptions`.
+   *
+   *  REQUIRED for the same reason as `nodeIdFor`: forgetting it on a replica
+   *  makes a healthy remote PC flap online/offline with the 30 s pull period,
+   *  and a flap looks like a network problem rather than like a missing line of
+   *  wiring. `false` is the honest value on a writer or a single node. */
+  rowsFromReplicationPull: boolean;
+  /** Server clock. Optional because the default is the REAL clock, not a
+   *  friendly no-op — the DI-default rule bans the second, not the first. */
+  now?: () => number;
   /** Forensic seams. Defaults are the REAL logger and the REAL shared gate —
    *  never no-ops (DI-default rule: a friendly empty implementation is how a
    *  capability ends up wired to nothing). */
@@ -225,6 +269,38 @@ export function tryHandlePresenceRoutes(
   // ONE refusal for "no token" and "a token nothing owns" on purpose: telling
   // those two apart would confirm to a guesser that a value exists, which is the
   // only feedback a 256-bit guess could ever profit from.
+  // ── Z4 (2026-09-01): THIS MISS DELIBERATELY HAS NO WRITER READ-THROUGH ─────
+  //
+  // The handshake (auth/middleware.ts) and `mobile:reconnect`
+  // (socket/handlers/mobile.handler.ts) both ask the writer when this node's copy
+  // of the database has never seen a token, because replication makes rows arrive
+  // late. This route resolves the SAME token against the SAME table and is
+  // knowingly left local-only. Three measured reasons, in the order that decided
+  // it:
+  //
+  //  1. ITS REFUSAL DESTROYS NOTHING — checked against the phone, not assumed.
+  //     `removeByToken` has exactly TWO call sites in the whole app
+  //     (`signaling/mobile_reconnect_flow.dart` and
+  //     `signaling/auth_expired_handler.dart`) and neither is on this path. A 401
+  //     carrying PRESENCE_AUTH_REQUIRED becomes
+  //     `PcPresenceReading.pairingGone()` → `pairingRejected` → an amber FACE
+  //     (`session/pc_presence_probe.dart`, `session/pc_presence.dart`). It is a
+  //     display state, and the next poll replaces it.
+  //  2. THE HOPPED PHONE IS NOT ASKING A NODE THAT MISSES. `presence_route.dart`
+  //     sends this request to the PC's `home_node` off the last ack — the node the
+  //     phone has just been admitted on, which therefore already landed these rows
+  //     through one of the two seams above.
+  //  3. AMPLIFICATION, and it is the reason not to wire it 「just in case」. This
+  //     route is UNAUTHENTICATED, polled every 10 s by every phone
+  //     (`kIdlePcPresencePollInterval`, an owner-set number), and its own header
+  //     above states it has NO rate limit. Putting a writer call behind it would
+  //     turn a poll into cross-region load on the one node that can write, to
+  //     correct a face that self-corrects in ≤10 s and a row that lands in ≤30 s.
+  //
+  // 🔴 IF ANY OF THE THREE STOPS BEING TRUE — most plausibly (1), if a future
+  // client ever deletes a pairing on this refusal — this decision is void and the
+  // seam belongs here too. The greppable anchor is `removeByToken`: two sites,
+  // and it must stay two.
   const resolved = token === '' ? null : deps.registry.findPairingByToken(token);
   if (!resolved) {
     sendJson(res, 401, { ok: false, error: PRESENCE_AUTH_REQUIRED });
@@ -232,7 +308,25 @@ export function tryHandlePresenceRoutes(
   }
 
   const { pc } = resolved;
-  const online = deps.store.getPc(pc.room_uuid) !== null;
+  // 🔴 2026-09-01 — WAS `deps.store.getPc(pc.room_uuid) !== null`, and that
+  // expression answered the wrong question the day a second node became
+  // selectable. Rooms are per-process (room/store.ts: "Live socket presence
+  // ONLY"), so a phone that reaches node A about a PC living on node B was told
+  // — truthfully, and uselessly — that its computer is not there. Nothing
+  // reported an error, because nothing was wrong with the answer.
+  //
+  // `pcPresence` is the ONE author of this fact (room/pc-presence.ts). It keeps
+  // the room check for a PC that lives here and substitutes the freshness of a
+  // forwarded `last_seen_at` for one that does not, which is the only honest
+  // substitute available when the room is in another process.
+  //
+  // ⚠️ STILL NO SIDE EFFECTS (this file's §NO SIDE EFFECTS note). `pcPresence`
+  // only reads: one Map lookup and one `Date.parse` of a column somebody else
+  // wrote. This route must never begin stamping `last_seen_at` — a resting list
+  // polling for presence is not the phone having a session.
+  const online = pcPresence(deps.store, pc, (deps.now ?? Date.now)(), deps.nodeIdFor(req), {
+    rowsFromReplicationPull: deps.rowsFromReplicationPull,
+  });
   // Asked ONLY when the PC is absent: a reason is an answer to "why is it not
   // here", and for a PC that IS here that question has no answer to give. This
   // also means the online response keeps exactly the three keys it always had.

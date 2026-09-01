@@ -30,6 +30,7 @@
 import type { ServerConfig } from './config';
 import type { DbConnection } from './db/connection';
 import type { AuthService } from './auth/auth-service';
+import type { BillingService } from './billing/billing-service';
 import type { HttpDeps } from './http/router-deps';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
 import type { ServiceMailer } from './mail/service-mailer';
@@ -38,6 +39,13 @@ export interface OpsDepsWiring {
   config: ServerConfig;
   db: DbConnection;
   authService: AuthService;
+  /** WP2 card 5 / M2-8 — the SAME `BillingService` instance the rest of the
+   *  process uses, passed WHOLE (the narrowing to `resolvePlanReadOnly` alone
+   *  happens at `opsUsers.billing` below, on the consumer — the same pattern
+   *  `db.users` follows for `restriction`/`opsUsers.users`). A second instance
+   *  would be a second decider of "what tier", which is exactly the trap D1
+   *  §6.1 exists to close. */
+  billing: BillingService;
   /** Injectable clock, threaded through unchanged from the caller. */
   now?: () => number;
   /** gs-3 — the channel the completion notice goes out on. */
@@ -51,7 +59,7 @@ export interface OpsDepsWiring {
 /** The operator-surface slice of {@link HttpDeps}. Spread into the literal that
  *  builds the rest. */
 export function opsHttpDeps(w: OpsDepsWiring): Partial<HttpDeps> {
-  const { config, db, authService, opsRefund, now } = w;
+  const { config, db, authService, billing, opsRefund, now } = w;
   return {
     // 0.2.48 — saas-only CROSS-ACCOUNT ops REST (`/api/ops/*`, O-2 platform usage aggregation).
     //
@@ -118,15 +126,26 @@ export function opsHttpDeps(w: OpsDepsWiring): Partial<HttpDeps> {
     // from a list surface even though this object has them. The slice belongs on
     // the consumer, exactly as `ops.usage` and `restriction.users` do.
     //
-    // ⚠️ NO `billing` DEP, AND ITS ABSENCE IS THE POINT (M2-8): a list is a loop,
-    // and the only way to answer "which tier" today is `getPlan`, which WRITES the
-    // column it reports. The surface cannot ask because it has nobody to ask.
+    // 🔴🔴 ORIGINAL-PLACE CORRECTION (2026-09-01, WP2 card 5) — the paragraph
+    // this replaced said 「NO `billing` DEP, AND ITS ABSENCE IS THE POINT (M2-8):
+    // a list is a loop, and the only way to answer "which tier" today is
+    // `getPlan`, which WRITES the column it reports. The surface cannot ask
+    // because it has nobody to ask.」 That was true THEN. `BillingService` now
+    // has a method that answers without writing
+    // (`resolvePlanReadOnly` — billing-service.ts), so the surface has somebody
+    // to ask, and `opsUsers.billing` below is that somebody — sliced to ONE
+    // method, `Pick<BillingService,'resolvePlanReadOnly'>`, so `getPlan` and
+    // every write-capable member of `BillingService` stay exactly as
+    // unreachable from this route as before. The absence this comment used to
+    // describe is now a narrowing instead; see http/ops-user-routes.ts's own
+    // M2-8 correction for the full argument.
     ...(config.mode === 'saas'
       ? {
           opsUsers: {
             auth: authService,
             users: db.users,
             audit: db.opsAudit,
+            billing,
             // LOGIN-1 — the SWITCH STATE, not a permission. The route is mounted
             // either way and reports `login_recording` honestly; what this
             // decides is whether the card can say "we are not recording"

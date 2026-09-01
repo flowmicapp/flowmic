@@ -29,6 +29,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { OutboxRecord } from '../db/replica-outbox';
+import { parseTokenResolution, type TokenResolution } from './token-rows';
 
 /** Per-record outcome. `duplicate` and `accepted` both mean「stop owing it」;
  *  they are two values rather than one because a duplicate RATE is the health
@@ -70,6 +71,19 @@ export const FORWARD_BATCH_MAX = 200;
  *  saying why.
  */
 export const SNAPSHOT_TIMEOUT_MS = 120_000;
+/** Token read-through budget. Its own value, an order of magnitude UNDER the
+ *  JSON default, because a socket.io handshake is waiting on it: this call sits
+ *  between a phone tapping 「connect」 and its connection being admitted, and the
+ *  failure it must never produce is a hang. Sized against the measured
+ *  cross-ocean RTT this design lives on (154 ms NY-Tokyo, 2026-08-29) — three
+ *  seconds is ~19 round trips of headroom, so a timeout here means the writer is
+ *  down or unreachable and not that the link is slow.
+ *
+ *  ⚠️ Its EXPIRY is not a failure of the product: it degrades to exactly the
+ *  refusal a replica gave before this route existed. Making it longer buys a
+ *  better answer for a writer that is barely alive, at the price of holding a
+ *  user's connect button for that long. */
+export const RESOLVE_TOKEN_TIMEOUT_MS = 3_000;
 
 /** What the writer minted, as the replica hands it back to the desktop. */
 export interface MintedCode {
@@ -100,6 +114,24 @@ export interface WriterClient {
    * user's own screen. The user's 「refresh」 button is the retry.
    */
   mintShortCode(pcId: string): Promise<MintedCode | null>;
+  /**
+   * 「Which rows does this token stand for?」 — the second read that may not be
+   * served locally, and the one a handshake is waiting on (node/token-rows.ts
+   * has the defect and the exposure argument; http/node-routes.ts has the route).
+   *
+   * Three outcomes, structurally apart for the same reason `mintShortCode`'s are:
+   *   · rows              — the writer knows the token. Land them and proceed.
+   *   · `null`            — the writer does not know it (404). A FACT, and the
+   *                         writer is the authority, so the refusal it produces
+   *                         is honest rather than merely local.
+   *   · WriterUnreachable — nothing is known. Refuse anyway (that is today's
+   *                         behaviour), but never record it as「no such token」.
+   *
+   * ⚠️ NEVER RETRIED HERE. The client's own reconnect ladder is the retry, and a
+   * loop inside a handshake would turn one slow writer into every phone in the
+   * region holding a connection open.
+   */
+  resolveToken(token: string): Promise<TokenResolution | null>;
   /** The writer's whole database, gzipped. Its own timeout, an order of
    *  magnitude longer than the others: this transfers a file across an ocean
    *  (154 ms RTT NY↔Tokyo, measured), and giving it the 8-second budget meant
@@ -113,12 +145,16 @@ export function makeWriterClient(opts: WriterClientOptions): WriterClient {
   const timeoutMs = opts.timeoutMs ?? 8_000;
   const base = opts.writerUrl.replace(/\/+$/, '');
 
-  const call = async (path: string, init: RequestInit): Promise<Response> => {
+  // `budgetMs` overrides the shared JSON timeout for the ONE call that has a
+  // user waiting on it. A parameter rather than a second client: the client is
+  // where the shared secret and the writer URL live, and a second one is a
+  // second place either of them can be wrong (this file's own opening argument).
+  const call = async (path: string, init: RequestInit, budgetMs = timeoutMs): Promise<Response> => {
     let res: Response;
     try {
       res = await doFetch(`${base}${path}`, {
         ...init,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(budgetMs),
         headers: {
           ...(init.headers ?? {}),
           'x-flowmic-node-secret': opts.sharedSecret,
@@ -213,6 +249,35 @@ export function makeWriterClient(opts: WriterClientOptions): WriterClient {
           ? parsed.expires_in_ms
           : null,
       };
+    },
+
+    async resolveToken(token: string): Promise<TokenResolution | null> {
+      const res = await call(
+        '/api/node/resolve-token',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token }),
+        },
+        RESOLVE_TOKEN_TIMEOUT_MS,
+      );
+      // The writer is authoritative and says it has never seen this token.
+      if (res.status === 404) return null;
+      if (!res.ok) throw new WriterUnreachable(`HTTP ${res.status}`);
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch (err) {
+        throw new WriterUnreachable(`unreadable response: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const rows = parseTokenResolution(parsed);
+      // 🔴 THROWS rather than returning null, the same distinction
+      // `mintShortCode` draws: null means 「there is no such token」, and a 200
+      // carrying rows we cannot use has told us neither that nor an identity.
+      // Collapsing the two would let one bad deploy on the writer turn every
+      // valid pairing in the region into a permanent AUTH_TOKEN_INVALID.
+      if (!rows) throw new WriterUnreachable('writer answered 200 with no usable rows');
+      return rows;
     },
 
     async authoritativeRead<T>(path: string): Promise<T> {

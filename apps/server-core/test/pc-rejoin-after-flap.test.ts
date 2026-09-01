@@ -39,6 +39,11 @@ import { RoomStore } from '../src/room/store';
 import { pcAbsenceReasons } from '../src/room/pc-absence';
 import { PC_PRESENCE_PATH, tryHandlePresenceRoutes } from '../src/http/presence-routes';
 
+/** Single node: no FLOWMIC_NODE_ID (so `nodeIdFor` answers null) and rows that
+ *  are this process's own. `pcPresence` takes its local branch and this route
+ *  answers exactly what it answered before it learned about nodes. */
+const SINGLE_NODE = { nodeIdFor: (): null => null, rowsFromReplicationPull: false };
+
 let server: BootstrapHandle;
 let url: string;
 const sockets: ClientSocket[] = [];
@@ -236,6 +241,7 @@ describe('the forensic line for an absent PC', () => {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
       pcs: w.db.pcs,
+      ...SINGLE_NODE,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -262,6 +268,7 @@ describe('the forensic line for an absent PC', () => {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
       pcs: w.db.pcs,
+      ...SINGLE_NODE,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -278,6 +285,7 @@ describe('the forensic line for an absent PC', () => {
       registry: w.registry,
       store: w.store as unknown as RoomStore,
       pcs: w.db.pcs,
+      ...SINGLE_NODE,
       logger: { info: (msg, fields) => lines.push({ msg, fields: fields ?? {} }) },
       absentLogGate: new RateGate(60_000),
     });
@@ -297,6 +305,7 @@ describe('the forensic line for an absent PC', () => {
         registry: w.registry,
         store: w.store as unknown as RoomStore,
         pcs: w.db.pcs,
+        ...SINGLE_NODE,
         logger,
         absentLogGate: gate,
       });

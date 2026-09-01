@@ -41,6 +41,25 @@ export interface MobileRepo {
    *  PcRepo.setMachineUid): the phone is the authority on its own identity, and
    *  a row paired before the field existed gets it filled on first reconnect. */
   setDeviceUid(id: string, device_uid: string): void;
+  /**
+   * 2026-08-31 multi-node — write a WHOLE pairing row that came from the writer,
+   * on a replica. Sole caller: the handshake read-through
+   * (node/token-read-through.ts).
+   *
+   * 🔴 `ON CONFLICT(id) DO UPDATE`, deliberately NOT `INSERT OR REPLACE` — the
+   * same argument as `PcRepo.upsertReplicated`, stated here too because the
+   * next person to touch this file will not have that one open: REPLACE deletes
+   * the conflicting row first, and a delete on this table under
+   * `PRAGMA foreign_keys = ON` is the shape that silently takes other rows with
+   * it. Keeping both spellings identical also means「the two upserts behave the
+   * same way」is true by construction rather than by memory.
+   *
+   * ⚠️ Throws on a UNIQUE violation (`mobile_token` under a different id) and on
+   * an FK violation (`pc_device_id` not present locally). Both are「the row did
+   * not land」, and the caller must refuse rather than proceed — which is why
+   * the PC row is upserted FIRST and both live in one transaction.
+   */
+  upsertReplicated(row: MobileRecord): void;
 }
 
 function toRecord(r: Record<string, unknown>): MobileRecord {
@@ -67,6 +86,21 @@ export function makeMobileRepo(db: DatabaseSync): MobileRepo {
   const setTokenStmt = db.prepare('UPDATE mobile_pairings SET mobile_token=? WHERE id=?');
   const setUidStmt = db.prepare('UPDATE mobile_pairings SET device_uid=? WHERE id=?');
   const delStmt = db.prepare('DELETE FROM mobile_pairings WHERE id=?');
+  // See `MobileRepo.upsertReplicated` for why this is ON CONFLICT DO UPDATE and
+  // never INSERT OR REPLACE.
+  const upsertStmt = db.prepare(
+    `INSERT INTO mobile_pairings
+       (id, user_id, pc_device_id, mobile_token, mobile_name, device_uid, paired_at, last_seen_at)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       user_id=excluded.user_id,
+       pc_device_id=excluded.pc_device_id,
+       mobile_token=excluded.mobile_token,
+       mobile_name=excluded.mobile_name,
+       device_uid=excluded.device_uid,
+       paired_at=excluded.paired_at,
+       last_seen_at=excluded.last_seen_at`,
+  );
   const touchSeen = db.prepare('UPDATE mobile_pairings SET last_seen_at=? WHERE id=?');
 
   return {
@@ -103,6 +137,18 @@ export function makeMobileRepo(db: DatabaseSync): MobileRepo {
     },
     setDeviceUid(id, device_uid): void {
       setUidStmt.run(device_uid, id);
+    },
+    upsertReplicated(row): void {
+      upsertStmt.run(
+        row.id,
+        row.user_id,
+        row.pc_device_id,
+        row.mobile_token,
+        row.mobile_name,
+        row.device_uid,
+        row.paired_at,
+        row.last_seen_at,
+      );
     },
   };
 }

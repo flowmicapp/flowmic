@@ -331,17 +331,42 @@ pub fn current_node() -> Option<String> {
 
 static CURRENT_NODE_LABEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Remember BOTH halves in one call, from the same [node_select::Choice].
+/// The URL last dialed for [CURRENT_NODE]. Needed so the next pick can fetch
+/// `/api/node/list` from that node instead of always asking the canonical writer
+/// (`socket/node_select.rs` `fetch_published`). An id without a URL cannot be
+/// asked; a URL without an id cannot be checked for containment.
+static CURRENT_NODE_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The node **id** this process is dialing, for the latency panel to mark
+/// "in use". Distinct from [`current_node`], which returns the operator's
+/// **label** (or nothing) because that value is painted on a card.
 ///
-/// 🔴 One writer for two values that must never disagree: an id from this round
-/// beside a label from the last one would name the wrong machine room on a
-/// card whose whole job is to name it.
-fn remember_node(node: Option<String>, label: Option<String>) {
+/// ⚠️ The panel is read-only: this is a stamp, not a setter. The only
+/// writer remains `remember_node` in this file.
+pub fn current_node_id() -> Option<String> {
+    CURRENT_NODE
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Remember the id, the operator label, and the dialed URL from the same
+/// [node_select::Choice].
+///
+/// 🔴 One writer for three values that must never disagree: an id from this
+/// round beside a label from the last one would name the wrong machine room
+/// on a card whose whole job is to name it, and a list fetch to a URL that
+/// is not that id's door would be asking a stranger for the directory.
+fn remember_node(node: Option<String>, label: Option<String>, url: String) {
     if let Ok(mut g) = CURRENT_NODE.lock() {
         *g = node;
     }
     if let Ok(mut g) = CURRENT_NODE_LABEL.lock() {
         *g = label;
+    }
+    if let Ok(mut g) = CURRENT_NODE_URL.lock() {
+        *g = Some(url);
     }
 }
 
@@ -380,7 +405,14 @@ fn select_relay_node(endpoint: &str, must_register: bool) -> node_select::Choice
         };
     };
     let current = CURRENT_NODE.lock().ok().and_then(|g| g.clone());
-    node_select::choose(endpoint, current.as_deref(), must_register, &probe)
+    let current_url = CURRENT_NODE_URL.lock().ok().and_then(|g| g.clone());
+    node_select::choose(
+        endpoint,
+        current.as_deref(),
+        current_url.as_deref(),
+        must_register,
+        &probe,
+    )
 }
 
 /// Bring the CLOUD channel up alongside the LAN one. A relay that cannot be dialed
@@ -415,7 +447,7 @@ fn connect_cloud(app: &AppHandle) {
                 "cloud",
                 &format!("dialing relay {} with Cloud Key (head={head})", choice.url),
             );
-            remember_node(choice.node.clone(), choice.short.clone());
+            remember_node(choice.node.clone(), choice.short.clone(), choice.url.clone());
             connect_on_main(app, &choice.url, Channel::Cloud, cfg.jwt.clone());
         }
         not_ready => {
@@ -466,6 +498,29 @@ pub fn ensure_dialed(app: &AppHandle, target: Channel) {
             }
         }
     }
+}
+
+/// WP2 Card 7 / G5 reconstruction: empty the slot so [`ensure_dialed`] will
+/// actually dial, then dial. The new session's `"open"` is the room-entering
+/// author — same funnel as a cold start. Spawned because the pump calls this
+/// and `set_socket(None)` Drops the session whose pump we are on.
+///
+/// Shared by both channels: the detector lives in the shared pump, and this
+/// is the shared dial funnel. No LAN-only fork.
+pub(super) fn rebuild_after_heartbeat_death(app: &AppHandle, channel: Channel) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        forensic::record(
+            "socket",
+            &format!(
+                "heartbeat death: emptying {} slot then ensure_dialed — new `open` owns the \
+                 room-entering emit (Edge 1; session was not closing)",
+                channel.tag()
+            ),
+        );
+        set_socket(&app, channel, None);
+        ensure_dialed(&app, channel);
+    });
 }
 
 /// The blocking bring-up worker (runs on a thread). Honours the FLOWMIC_SERVER_URL

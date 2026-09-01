@@ -144,6 +144,29 @@ mixin SettingsStrings on AppStringsLeaves {
     }
   }
 
+  /// One-line description of a pack's sample terms, looked up by protocol id.
+  /// [generatedPreview] is the first-four-seed-terms string from
+  /// `gen_protocol.mjs` — those terms are STT hotwords, not UI copy. It is
+  /// the answer for an unknown id so a newly-added pack never renders blank.
+  String packPreview(String id, String generatedPreview) {
+    switch (id) {
+      case 'tech-dev':
+        return _lfPackPreview_tech_dev;
+      case 'medical':
+        return _lfPackPreview_medical;
+      case 'legal':
+        return _lfPackPreview_legal;
+      case 'finance':
+        return _lfPackPreview_finance;
+      case 'proper-noun':
+        return _lfPackPreview_proper_noun;
+      case 'code-switch':
+        return _lfPackPreview_code_switch;
+      default:
+        return generatedPreview;
+    }
+  }
+
   /// Client-facing label for a dictionary-pack id. The id is the protocol
   /// contract; [englishLabel] is the protocol's English SSOT label, which is
   /// ALSO the answer for an unknown id (both locales) — a pack the catalogue

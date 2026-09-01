@@ -2,8 +2,8 @@
 // 本机-CF延时-中继节点延时 = 总延时 的信息以方便了解网络情况」.
 //
 // SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4;
-//   lib/src/session/node_latency.dart (where the three numbers come from and
-//   why the middle one is a subtraction).
+//   lib/src/session/node_latency.dart (hot round-trip: first sample is connect,
+//   the headline is the minimum of the rest).
 //
 // ── IT IS INFORMATION, AND THE COPY HAS TO SAY SO ───────────────────────────
 //
@@ -165,7 +165,7 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
             // 文字」 — `srvjp` is our word for that machine, not the user's, and
             // the 2026-08-22 iron rule forbids internal vocabulary in anything
             // a user can see. A node the operator gave no label is therefore
-            // unnamed here, and the row is still useful: it carries the three
+            // unnamed here, and the row is still useful: it carries the two
             // numbers, which is what the panel is for.
             NodeBadge(label: nodeBadgeLabel(n.id, _shortById())),
             const Spacer(),
@@ -174,16 +174,15 @@ class _NodeLatencyPanelState extends State<NodeLatencyPanel> {
           ],
         ),
         const SizedBox(height: 4),
-        // 🔴 The three legs, and the middle one is why the panel exists: the
-        // edge time answers 「how far is your nearest Cloudflare」 and the
-        // remainder answers 「how far is the machine room from it」. A single
-        // total cannot tell a user which half is slow.
+        // Connect (first sample, setup paid) and Latency (hot round trip).
+        // The middle subtraction is gone: it mixed a cold first round into
+        // the headline, which is how this row used to say 836 ms for a 67 ms
+        // path.
         Text(
           r == null
               ? '—'
               : (r.ok
                   ? '${s.nodeLegEdge} ${r.edgeMs} ms · '
-                      '${s.nodeLegOrigin} ${r.originMs} ms · '
                       '${s.nodeLegTotal} ${r.totalMs} ms'
                   // A failure is SAID, not scored. 「9999 ms」 would be
                   // sortable, comparable and wrong — that node is not slow, it

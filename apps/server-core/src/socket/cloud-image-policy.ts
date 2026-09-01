@@ -69,7 +69,7 @@
 // to bound. `user_id` is also the unit every other saas-side budget here uses
 // (usage_records PK, quota-guard's argument), and on a mobile socket it is
 // resolved from the phone's own token via `mobile_pairings.user_id`
-// (auth/middleware.ts:165-170) — never from anything the frame says.
+// (auth/middleware.ts:150-152) — never from anything the frame says.
 
 import type { ServerMode } from '@flowmic/protocol';
 import {

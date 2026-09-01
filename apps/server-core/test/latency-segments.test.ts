@@ -9,11 +9,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   markAudioStop,
+  markFlushSent,
   markSttFinal,
   markInjectRequest,
   markInjectResult,
+  emitLatencySummary,
+  startLatencyReader,
   __resetLatencyState,
   __droppedCount,
+  LATENCY_SUMMARY_INTERVAL_MS,
 } from '../src/obs/latency';
 import { log } from '../src/log';
 
@@ -53,6 +57,39 @@ describe('latency segmentation (server clock only)', () => {
       inject_ms: 80,
       server_total_ms: 600,
     });
+    // WP2-6a: no flush stamp ⇒ old shape. A reader that only knows stt_ms
+    // must not see the split keys at all (absence, not null).
+    expect(lines[0]?.fields).not.toHaveProperty('stt_to_flush_ms');
+    expect(lines[0]?.fields).not.toHaveProperty('stt_from_flush_ms');
+  });
+
+  it('WP2-6a: the two sub-spans sum to stt_ms on the same record', () => {
+    // REVERSE-CONTROL 6a: break the split (stamp flush at t0, or skip
+    // markFlushSent) and this assertion goes red — the two numbers would
+    // no longer add to the field every old reader already trusts.
+    const c = clockFrom(1_000);
+    markAudioStop(ROOM, c.now);
+    c.advance(900); markFlushSent(ROOM, c.now);
+    c.advance(100); markSttFinal(ROOM, c.now);
+    c.advance(50); markInjectRequest(ROOM, 'eSplit', c.now);
+    c.advance(50); markInjectResult(ROOM, 'eSplit', c.now);
+
+    const f = lines[0]?.fields ?? {};
+    expect(f.stt_ms).toBe(1000);
+    expect(f.stt_to_flush_ms).toBe(900);
+    expect(f.stt_from_flush_ms).toBe(100);
+    expect((f.stt_to_flush_ms as number) + (f.stt_from_flush_ms as number)).toBe(f.stt_ms);
+  });
+
+  it('WP2-6a: a flush stamp after stt:final is ignored (wrong side of the wire)', () => {
+    const c = clockFrom(0);
+    markAudioStop(ROOM, c.now);
+    c.advance(400); markSttFinal(ROOM, c.now);
+    c.advance(10); markFlushSent(ROOM, c.now); // too late
+    c.advance(10); markInjectRequest(ROOM, 'eLate', c.now);
+    c.advance(10); markInjectResult(ROOM, 'eLate', c.now);
+    expect(lines[0]?.fields).not.toHaveProperty('stt_to_flush_ms');
+    expect(lines[0]?.fields?.stt_ms).toBe(400);
   });
 
   it('reports an unmeasured segment as null, never as 0', () => {
@@ -107,5 +144,72 @@ describe('latency segmentation (server clock only)', () => {
     c.advance(200_000);
     markAudioStop('room-2', c.now); // any later mark sweeps
     expect(__droppedCount()).toBe(1);
+  });
+});
+
+describe('WP2-6b latency.summary production-leg reader', () => {
+  function complete(room: string, sttMs: number, turnMs: number, injMs: number, toFlush: number | null): void {
+    const c = clockFrom(0);
+    markAudioStop(room, c.now);
+    if (toFlush !== null) { c.advance(toFlush); markFlushSent(room, c.now); c.advance(sttMs - toFlush); }
+    else { c.advance(sttMs); }
+    markSttFinal(room, c.now);
+    c.advance(turnMs); markInjectRequest(room, `${room}-e`, c.now);
+    c.advance(injMs); markInjectResult(room, `${room}-e`, c.now);
+  }
+
+  it('emits p50/p95 of the window and drains so a second tick is silent', () => {
+    // REVERSE-CONTROL 6b: skip rememberClosed (or skip emitLatencySummary)
+    // and summaries.length is 0 — the metric has no production-leg reader.
+    complete('r-a', 1000, 200, 50, 900);
+    complete('r-b', 1100, 300, 50, 1000);
+    complete('r-c', 1200, 400, 50, 1100);
+    emitLatencySummary();
+    const summaries = lines.filter((l) => l.msg === 'latency.summary');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.fields).toMatchObject({
+      n: 3,
+      dropped_so_far: 0,
+      window_ms: LATENCY_SUMMARY_INTERVAL_MS,
+      stt_ms_p50: 1100,
+      stt_to_flush_ms_p50: 1000,
+      phone_turnaround_ms_p50: 300,
+    });
+    const before = summaries.length;
+    emitLatencySummary();
+    expect(lines.filter((l) => l.msg === 'latency.summary')).toHaveLength(before);
+  });
+
+  it('stays silent when the window is empty and dropped has not moved', () => {
+    emitLatencySummary();
+    expect(lines.filter((l) => l.msg === 'latency.summary')).toHaveLength(0);
+  });
+
+  it('prints dropped_so_far even when n=0 (the ①-c hole on the success path)', () => {
+    const c = clockFrom(0);
+    markAudioStop(ROOM, c.now);
+    c.advance(200_000);
+    markAudioStop('room-2', c.now);
+    expect(__droppedCount()).toBe(1);
+    emitLatencySummary();
+    const summaries = lines.filter((l) => l.msg === 'latency.summary');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.fields).toMatchObject({ n: 0, dropped_so_far: 1 });
+  });
+
+  it('startLatencyReader ticks on its interval and stop() disarms it', () => {
+    const ticks: Array<() => void> = [];
+    let cleared = false;
+    const reader = startLatencyReader({
+      intervalMs: 60_000,
+      setIntervalFn: (fn): unknown => { ticks.push(fn); return fn; },
+      clearIntervalFn: (): void => { cleared = true; },
+    });
+    complete('r-tick', 800, 100, 20, null);
+    expect(lines.filter((l) => l.msg === 'latency.summary')).toHaveLength(0);
+    ticks[0]?.();
+    expect(lines.filter((l) => l.msg === 'latency.summary')).toHaveLength(1);
+    reader.stop();
+    expect(cleared).toBe(true);
   });
 });

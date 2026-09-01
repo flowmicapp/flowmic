@@ -55,7 +55,7 @@ const SHAPE_MID_FINALS: Pick<EngineScript, 'finalEveryN'> = { finalEveryN: 10 };
 const SHAPE_NO_MID_FINALS: Pick<EngineScript, 'finalEveryN'> = { finalEveryN: 0 };
 /** REQ-14-01: the production Soniox as of 2026-08-14 — no mid-session final AND
  *  a declared cumulative interim stream, which is what gates the cross-leg
- *  draft bank (`orchestrator-core.ts` bankCumulativeDraftFromDeadLeg). */
+ *  draft bank (`spawnEngine` → `bankDraftAcrossLegs` in text-merge.ts). */
 const SHAPE_SONIOX_DECLARED: Pick<EngineScript, 'finalEveryN' | 'interimShape'> =
   { finalEveryN: 0, interimShape: 'cumulative' };
 
@@ -325,7 +325,7 @@ describe('RT-3 CASE 1 dropped characters — a 7 s recovery must not outrun the 
      * the terminal fold is banked + new — the WHOLE utterance, exactly.
      *
      * REVERSE CONTROL (must be run once when touching the bank): comment out the
-     * `bankCumulativeDraftFromDeadLeg()` call in `spawnEngine` and this row
+     * `bankDraftAcrossLegs(...)` call in `spawnEngine` and this row
      * reports the pre-drop 20 chunks (4.0 s) gone — the UNDECLARED row's loss,
      * on the declared engine.
      */

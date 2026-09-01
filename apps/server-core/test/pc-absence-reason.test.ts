@@ -46,6 +46,11 @@ import { createDbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 import type { AuthContext } from '../src/auth/middleware';
 
+/** Single node: no FLOWMIC_NODE_ID (so `nodeIdFor` answers null) and rows that
+ *  are this process's own. `pcPresence` takes its local branch and this route
+ *  answers exactly what it answered before it learned about nodes. */
+const SINGLE_NODE = { nodeIdFor: (): null => null, rowsFromReplicationPull: false };
+
 type Db = ReturnType<typeof createDbConnection>;
 
 // ── the http half (same shapes as http-pc-presence.test.ts) ──────────────────
@@ -178,6 +183,7 @@ function askPresence(mobileToken: string): { status: number; body: Record<string
     registry,
     store: store as unknown as RoomStore,
     pcs: db.pcs,
+    ...SINGLE_NODE,
   });
   return read();
 }

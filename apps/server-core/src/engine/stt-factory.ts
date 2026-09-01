@@ -19,7 +19,7 @@ import type { Delivery, ServerMode } from '@flowmic/protocol';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { QuotaGuard } from '../billing/quota-guard';
 import type { RoomStore } from '../room/store';
-import { markSttFinal } from '../obs/latency';
+import { markFlushSent, markSttFinal } from '../obs/latency';
 import { getRoomUuid } from '../socket/wire';
 import type { SttStartArgs } from '../socket/handlers/audio.handler';
 import type { SttOrchestrator } from './orchestrator';
@@ -202,13 +202,14 @@ export function makeSttSessionFactory(
     // delivery intent is fixed for the utterance, so the fan-out decision is
     // too. A room switch mid-utterance would otherwise silently redirect
     // content — the session is torn down on that edge instead.
+    const roomUuid = getRoomUuid(socket);
     const emitter = makeSttEmitter({
       // GA-04: the audio handler supplies a resolver that follows the session
       // across a reconnect; without one (unpaired/local session) the emitter
       // stays bound to the socket that started the utterance, as before.
       resolveSocket: args.resolveSocket ?? ((): Socket => socket),
       store: deps.store,
-      roomUuid: getRoomUuid(socket),
+      roomUuid,
       delivery: args.delivery,
     });
     // 🔴 fix-025 (BILLING FACE). This line used to read
@@ -303,7 +304,16 @@ export function makeSttSessionFactory(
     }
     return new SttSessionBridge({
       traceId,
-      build: withQuotaBudget(build, quotaBudgetMs, deps.quota),
+      build: (session, language, userId, vad) => {
+        const built = withQuotaBudget(build, quotaBudgetMs, deps.quota)(session, language, userId, vad);
+        // WP2-6a: one author of the flush-sent stamp is raceFlushFinal; this
+        // is only the room wiring. Soft-segment flushes before audio:stop
+        // no-op inside markFlushSent (no pending leg yet).
+        if (roomUuid !== null) {
+          built.orchestrator.flushSentHook = (): void => { markFlushSent(roomUuid); };
+        }
+        return built;
+      },
       emitter,
       userId: args.userId,
       mode: args.mode,

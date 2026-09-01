@@ -15,11 +15,12 @@
 //   GET  /api/node/quota    — the ONE read a replica may not answer itself
 //   GET  /api/node/snapshot — the writer's database, for the replication pull
 //   POST /api/node/mint-code — the ONE write a replica may ask for SYNCHRONOUSLY
+//   POST /api/node/resolve-token — the ONE row read a replica may not answer itself
 //
 // The first three are PUBLIC — a client must choose a node before it has
-// anywhere to authenticate. The last four are the NODE-TO-NODE channel: all of
-// them require the shared secret, and three are writer-only, which is what stops
-// a replica re-serving the database it was given.
+// anywhere to authenticate. The rest are the NODE-TO-NODE channel: all of them
+// require the shared secret, and all of them are writer-only, which is what
+// stops a replica re-serving the database it was given.
 //
 // 🔴 Read the paragraph above /forward before touching it: its per-record
 // response shape is load-bearing, and 「silence means retry」 is the whole
@@ -53,6 +54,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { nodeIdForHost, requestHost, type NodeHostMap } from '../node/node-identity';
+import { isValidTokenShape } from '../auth/token';
+import type { TokenResolution } from '../node/token-rows';
 
 /** What a node calls itself. Matches the subdomain: `srvny`, `srvjp`. */
 export type NodeId = string;
@@ -179,6 +182,41 @@ export interface NodeRoutesDeps {
    * failure, and the caller must not turn it into a code.
    */
   mintShortCode?: (pcId: string) => { short_code: string; expires_in_ms: number | null } | null;
+  /**
+   * Writer only. 「Which rows does this connection token stand for?」
+   *
+   * 🔴 WHY THIS EXISTS (2026-08-31, P0-①). `mobile:pair` is writer-only, so a
+   * brand-new `mobile_pairings` row is born on the writer and reaches a replica
+   * ONLY through the 30-second whole-database pull — no ForwardedWrite carries
+   * it. A phone that pairs and then immediately follows its PC to that PC's home
+   * node is refused AUTH_TOKEN_INVALID at the handshake for up to thirty
+   * seconds, on a credential that is perfectly valid. `pc_devices` has the same
+   * gap when a PC re-selects a node it has never been on.
+   *
+   * ⚠️ It answers with WHOLE ROWS rather than with an identity, and
+   * node/token-rows.ts explains why: everything after the handshake reads those
+   * rows out of the LOCAL database, so admitting the socket without landing them
+   * would trade a refused connection for a connected phone that is refused by
+   * its first event. S1b added the owning `users` row(s) to the same answer,
+   * because both device tables REFERENCE `users(id)` and that table replicates
+   * on the same 30-second cycle — so the onboarding path (sign up, pair, hop,
+   * all inside one window) was still refused without them.
+   *
+   * ⚠️ ON EXPOSURE, stated once and not left to be inferred: the body carries a
+   * device/mobile token and a whole `users` row, `password_hash` included. The
+   * SAME credential already fetches `/api/node/snapshot`, which is the whole
+   * user database — every token and every password hash. One row is not a new
+   * exposure over a channel that already carries all of them, and omitting the
+   * hash would land NULL on the replica rather than nothing (node/token-rows.ts
+   * has the full argument, including why this follows `user.repo.ts`'s own
+   * precedent rather than contradicting it). That argument depends entirely on
+   * this route being unreachable without the shared secret, so there is no
+   * 「optional in dev」 branch below and there must never be one.
+   *
+   * Returns null for 「no such token here」 — a FACT, not a failure, and the
+   * route turns it into a 404 the replica can tell apart from an outage.
+   */
+  resolveToken?: (token: string) => TokenResolution | null;
 }
 
 const JSON_HEADERS = {
@@ -206,10 +244,19 @@ interface CachedList {
  *  let a misbehaving or hostile sender choose how much memory it allocates. */
 export const FORWARD_RECORDS_MAX = 500;
 
-/** The node-to-node routes that WRITE, and therefore the only POSTs here. A set
- *  rather than a chain of `===`: adding a member is one line and cannot leave a
- *  method allowlist and a route handler disagreeing about which paths exist. */
-const POST_PATHS = new Set(['/api/node/forward', '/api/node/mint-code']);
+/** The node-to-node routes that take a BODY, and therefore the only POSTs here.
+ *  A set rather than a chain of `===`: adding a member is one line and cannot
+ *  leave a method allowlist and a route handler disagreeing about which paths
+ *  exist.
+ *
+ *  ⚠️ This used to be 「the routes that WRITE」 and that stopped being true with
+ *  `/resolve-token` (2026-08-31), which writes nothing. It is a POST because its
+ *  argument is a CREDENTIAL: a query string is written to access logs, proxy
+ *  logs and error reports as a matter of course, so putting a device token there
+ *  would leak it into places nobody is guarding. Restated rather than left to
+ *  quietly become false — a comment that explains a rule by a property the rule
+ *  no longer has is worse than no comment. */
+const POST_PATHS = new Set(['/api/node/forward', '/api/node/mint-code', '/api/node/resolve-token']);
 
 /** Shared empty mapping, so a single-name deployment allocates nothing per request. */
 const EMPTY_HOSTS: NodeHostMap = new Map<string, string>();
@@ -232,7 +279,7 @@ function secretMatches(expected: string, offered: string): boolean {
  *
  *  Shared by /forward and /mint-code. The ceiling is sized for the former (a
  *  batch of records); the latter sends one id and is nowhere near it. */
-async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; pc_id?: unknown }> {
+async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; pc_id?: unknown; token?: unknown }> {
   const MAX_BYTES = 4 * 1024 * 1024;
   let size = 0;
   const chunks: Buffer[] = [];
@@ -244,7 +291,7 @@ async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; 
   }
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
   if (!parsed || typeof parsed !== 'object') throw new Error('node body must be an object');
-  return parsed as { records?: unknown; pc_id?: unknown };
+  return parsed as { records?: unknown; pc_id?: unknown; token?: unknown };
 }
 
 /** Parse defensively: an operator edits this file by hand on a live box, and a
@@ -615,6 +662,74 @@ export function makeNodeRoutes(
           sendJson(res, 500, {
             ok: false,
             error: 'mint_failed',
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+      return true;
+    }
+
+    // ── POST /api/node/resolve-token ────────────────────────────────────────
+    //
+    // 「I have a token my copy of the database has never seen. Do you know it?」
+    // The reads a replica may not answer for itself are now two, and they are
+    // two for the SAME reason stated in writer-client.ts: a read whose purpose is
+    // to detect someone else's RECENT write must not be served from a replica.
+    // `/quota` asks 「did somebody just spend these minutes」; this asks 「did
+    // somebody just create this pairing」. A stale answer to either is a
+    // confident, wrong 「no」.
+    //
+    // 🔴 THE MISS IS A 404 AND THE OUTAGE IS A 5xx/throw, and the caller acts
+    // oppositely on them — this is `/mint-code`'s 404 argument applied to a
+    // credential. 「I do not know this token」 is the writer being authoritative,
+    // and the replica turns it into today's honest AUTH_TOKEN_INVALID. 「I could
+    // not ask」 is nothing being known, and it degrades to the SAME refusal — but
+    // it must never take the 404's shape, because a body that says 「unknown」
+    // when the truth is 「unreachable」 would be a permanent negative cached from
+    // a transient failure the moment anyone adds caching here.
+    if (path === '/api/node/resolve-token') {
+      if (!deps.resolveToken || !deps.sharedSecret) {
+        sendJson(res, 501, { ok: false, error: 'resolve_token_not_configured' });
+        return true;
+      }
+      const offered = req.headers['x-flowmic-node-secret'];
+      if (!secretMatches(deps.sharedSecret, typeof offered === 'string' ? offered : '')) {
+        sendJson(res, 403, { ok: false, error: 'forbidden' });
+        return true;
+      }
+      void (async (): Promise<void> => {
+        try {
+          const body = await readJsonBody(req);
+          // Shape-checked HERE as well as on the replica, and the duplication is
+          // deliberate: this route is reachable by anything holding the secret,
+          // so 「the caller already checked」 is an assumption about someone
+          // else's code. A malformed token never reaches a prepared statement.
+          if (!isValidTokenShape(body.token)) {
+            sendJson(res, 400, { ok: false, error: 'token_malformed' });
+            return;
+          }
+          const resolved = deps.resolveToken!(body.token);
+          if (!resolved) {
+            sendJson(res, 404, { ok: false, error: 'token_unknown', node: deps.nodeId });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            node: deps.nodeId,
+            kind: resolved.kind,
+            // The owning account row(s), because `pc_devices.user_id` and
+            // `mobile_pairings.user_id` both REFERENCE `users(id)` and `users`
+            // is replicated by the same 30-second pull. Without them the
+            // onboarding case — sign up, pair, hop, all inside that window —
+            // cannot land and is refused on a credential that is perfectly good.
+            users: resolved.users,
+            pc: resolved.pc,
+            ...(resolved.kind === 'mobile' ? { mobile: resolved.mobile } : {}),
+          });
+        } catch (err) {
+          sendJson(res, 500, {
+            ok: false,
+            error: 'resolve_token_failed',
             detail: err instanceof Error ? err.message : String(err),
           });
         }

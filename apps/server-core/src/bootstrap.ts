@@ -15,8 +15,7 @@ import type { ServerConfig } from './config';
 import { deriveKey } from './auth/crypto';
 import { createDbConnection, type DbConnection } from './db/connection';
 import { checkSettingsSecretAtBoot } from './startup-secret-check';
-import { startBackgroundSweeps } from './bootstrap-sweeps';
-import { serviceRefunder } from './bootstrap-billing-deps';
+import { startSweepsForBootstrap } from './bootstrap-sweeps';
 import { seedDefaultSettings, seedDefaultSettingsForAllUsers } from './settings/defaults';
 import { Registry } from './room/registry';
 import { RoomStore } from './room/store';
@@ -76,8 +75,9 @@ import {
 import type { PaddleClient } from './billing/paddle/client';
 import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
+import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.54';
+export const SERVER_VERSION = '0.3.55';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -165,7 +165,11 @@ export interface BootstrapOverrides {
   paddleClient?: PaddleClient;
 }
 
-function tokenLookupOver(db: DbConnection): TokenLookup {
+/** Exported for the cross-node handshake tests ONLY, so they drive the
+ *  production definition of 「what this node's database says a token means」
+ *  instead of a lookalike written in a test file. There is no second production
+ *  caller — grep says so, and if one ever appears it belongs beside this one. */
+export function tokenLookupOver(db: DbConnection): TokenLookup {
   return {
     findPcByToken(t) {
       const r = db.pcs.findByToken(t);
@@ -378,15 +382,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // sweep. Both live in bootstrap-sweeps.ts (see its header for why they moved
   // and why the status probes did not), and both are STOPPED by the sequence
   // below.
-  const sweeps = startBackgroundSweeps({
-    config, db, billing,
-    ...(serviceRefunder({ config, db, billing, ...(overrides.now ? { now: overrides.now } : {}) }) === undefined
-      ? {}
-      : { refund: serviceRefunder({ config, db, billing, ...(overrides.now ? { now: overrides.now } : {}) }) }),
-    ...(overrides.now ? { now: overrides.now } : {}),
-    ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
-    ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
-  });
+  const sweeps = startSweepsForBootstrap({ config, db, billing, overrides });
   const retention = sweeps.retention;
 
   // W-5a (REQ-13-03) — the status probe timer. ONE per server, held here for the
@@ -504,7 +500,16 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     config.mode === 'saas' ? { secret: jwtSecret, ...(overrides.now ? { nowMs: overrides.now } : {}) } : undefined;
   const { io, close: closeSocket } = createSocketServer({
     httpServer,
-    authMiddleware: authMiddleware(tokenLookupOver(db), jwtHandshake),
+    // 2026-08-31 (P0-①) — the third argument is present ONLY on a multi-node
+    // replica (`nodeRuntime.resolveTokenOnWriter` is null everywhere else), so a
+    // single-node deployment gets the two-argument middleware that shipped
+    // before this existed. See node/token-read-through.ts for the thirty-second
+    // window it closes and why absence-of-dependency is the guarantee.
+    authMiddleware: authMiddleware(
+      tokenLookupOver(db),
+      jwtHandshake,
+      nodeRuntime.resolveTokenOnWriter ?? undefined,
+    ),
     // GA-15: the saas allow-list is env-driven (FLOWMIC_CORS_ORIGIN, comma
     // separated) with the current production value as the default, so putting
     // flowmic.app in front of .online is a deploy-time change rather than a
@@ -608,7 +613,14 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // the JWT could not carry this). Passed in BOTH modes — standalone's single
     // 'default' row is never restricted, so the gate is inert by fact rather
     // than by being unwired.
-    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, ...(socketNodeId ? { nodeId: socketNodeId } : {}) });
+    // 2026-09-01 — `rowsFromReplicationPull` travels with `nodeId` because the two
+    // are one question: which node is answering, and did its copy of the row come
+    // from a pull. `pcPresence` needs both to answer `pc_online` for a PC on a
+    // different node from the phone asking (room/pc-presence.ts). Z4's
+    // `resolveTokenOnWriter` is the SAME instance `authMiddleware` got above (one
+    // budget, one single-flight table) and is null on the writer and on every
+    // single-node deployment, so that spread is empty there.
+    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}) });
     registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly });
     // (0.2.27) still registered, and now ONLY to refuse out loud: the five
     // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is
@@ -753,8 +765,14 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // process starting and the process being able to answer.
   statusProbes.start();
 
+  // WP2-6b — in-process reader for latency.segment. Real setInterval, not the
+  // bootstrap setIntervalFn override: retention's bootstrap test asserts that
+  // override sees exactly one timer. This does not dial out, so it is armed
+  // with the port (same moment as statusProbes).
+  const latencyReader = startLatencyReader();
+
   const stop = makeShutdownSequence({
-    retention, statusProbes, closeSocket, audioRegistry, httpServer, db,
+    retention, statusProbes, latencyReader, closeSocket, audioRegistry, httpServer, db,
     ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),
     ...(replicaPuller ? { replicaPuller } : {}) });

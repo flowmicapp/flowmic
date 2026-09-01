@@ -391,6 +391,9 @@ pub(super) fn spawn(
     // handlers. The STATE watchdog below runs on it; see speak_liveness.rs for why an
     // absolute deadline armed at audio:start could not do this job.
     liveness: SpeakLiveness,
+    // WP2 Card 7: consecutive heartbeat-emit failures on a still-wanted session.
+    // `None` (tests / golden) skips reconstruction; the detector still clears.
+    on_dead_transport: Option<crate::socket::hb_death::DeadTransportHook>,
 ) -> JoinHandle<()> {
     let tag = channel.tag();
     // F3: the SPEAKING-lock hard cap. Read from the SAME `client::lock_timeout()` the
@@ -399,6 +402,7 @@ pub(super) fn spawn(
     // not per tick, because it parses an env var.
     let lock_cap = crate::socket::client::lock_timeout();
     std::thread::spawn(move || {
+        use crate::socket::hb_death::{self, HbDeathAction, HeartbeatDeath};
         // v0.2.4 — THE PUMP MUST NOT BE ABLE TO DIE QUIETLY.
         //
         // owner 2026-07-29 (device page screenshot): both channel cards sat at "connecting…" and
@@ -452,6 +456,8 @@ pub(super) fn spawn(
         // it used to be a local here, which is the F3 staleness bug.)
         // RV-26: this connection's register-retry ledger (reset on a new socket).
         let mut register_wd = RegisterWatchdog::default();
+        // WP2 Card 7: consecutive heartbeat-emit failures on this connection.
+        let mut hb_death = HeartbeatDeath::default();
         // F3: when this pump FIRST saw the FSM in SpeakingLocked/Injecting. Cleared the
         // moment it leaves, so it always measures the CURRENT lock and never an old one.
         let mut speaking_since: Option<Instant> = None;
@@ -687,9 +693,44 @@ pub(super) fn spawn(
             // handler refuses a frame from a socket it has no `auth` for
             // (heartbeat.handler.ts → AUTH_TOKEN_INVALID), so a heartbeat sent before
             // the ack lands is not liveness — it is a rejected frame every 5 s.
+            //
+            // WP2 Card 7: the Result is no longer discarded. rust_socketio 0.6
+            // swallows engine.io Close, so FlowMic `"close"` never runs and this
+            // emit is the local probe that the engine is dead. One failure is a
+            // candidate; two consecutive failures are a verdict (same writes as
+            // `"close"`, then rebuild so `"open"` re-enters the room).
             if acked && last_hb.elapsed() >= Duration::from_secs(5) {
-                let _ = hb_client.emit(events::HEARTBEAT, wire::build_heartbeat(now_millis()));
+                let emit_ok = hb_client
+                    .emit(events::HEARTBEAT, wire::build_heartbeat(now_millis()))
+                    .is_ok();
                 last_hb = Instant::now();
+                match hb_death.on_emit(emit_ok, pairing.is_closing()) {
+                    HbDeathAction::Idle => {}
+                    HbDeathAction::Candidate => {
+                        forensic::record(
+                            "pump",
+                            &format!(
+                                "heartbeat emit FAILED (channel={tag}) — candidate, not a verdict; \
+                                 a second consecutive failure will treat the transport as dead"
+                            ),
+                        );
+                    }
+                    HbDeathAction::Verdict => {
+                        forensic::record(
+                            "pump",
+                            &format!(
+                                "heartbeat emit FAILED twice consecutively (channel={tag}) — \
+                                 transport dead; clearing handshake the same way `close` does, \
+                                 then rebuilding so `open` re-enters the room"
+                            ),
+                        );
+                        hb_death::apply_verdict(
+                            &connected,
+                            &pairing,
+                            on_dead_transport.as_deref(),
+                        );
+                    }
+                }
             }
 
             // ── foreground: ONE sample → ONE change judgment → TWO sinks (GA-25) ──

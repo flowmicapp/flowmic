@@ -103,6 +103,7 @@ pub fn socket_config_from_env() -> socket::SocketConfig {
         // `shell::sidecar_ctl` overrides both when it brings the two channels up.
         channel: socket::Channel::Lan,
         admission: None,
+        on_dead_transport: None,
     }
 }
 
@@ -491,6 +492,9 @@ pub fn run() {
             shell::update_ctl::update_apply,
             shell::update_ctl::update_set_auto_check,
             shell::update_ctl::update_dismiss_pending,
+            // WP2 Card 1 — read-only relay-node latency. On demand (the settings
+            // panel's check button); never a selection.
+            shell::node_latency::relay_latency_check,
             // U6 — the frontend mirrors its persisted UI locale here (boot +
             // every change) so the Rust surface (tray / exit dialog / autostart
             // errors) speaks the app language. See shell/locale_sync.rs.

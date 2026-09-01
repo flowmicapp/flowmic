@@ -117,9 +117,10 @@ export type SegmentCutDecision = { cut: false } | { cut: true; reason: SegmentCu
  * SEG-4's whole content is that time alone never again ends a row.
  *
  * 🔴 SENTENCE IS TESTED BEFORE PAUSE and the order is load-bearing, not tidiness:
- * a speaker who ends a sentence and then breathes satisfies both, and the reason
- * decides whether the engine's full stop is kept or removed. Reading that seam
- * as 'pause' would strip a full stop the speaker really did produce.
+ * a speaker who ends a sentence and then breathes satisfies both. The reason
+ * names the boundary (they finished a sentence, then paused). F-2 Fix B also
+ * waits for a covering FunASR offline on 'pause' only — misreading that seam
+ * as 'pause' would add up to 800 ms to a row that already had its terminator.
  */
 export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
   if (!input.due) return { cut: false };
@@ -153,22 +154,32 @@ export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
  * terminators must exist — unless they are removed on the way out. That is this
  * function, and it is the whole of it.
  *
- * WHAT IT DOES. On a span we closed for TIME (a 'leg' rotation) or for BREATH
- * ('pause'), the confirmed text provably did NOT end at a sentence
- * (`segmentCutDecision` tests that first and would have said 'sentence'), so a
- * terminator on the end of the flush is a property of where the span closed,
- * not of what was said: drop it. On a 'sentence' cut it is the speaker's own,
- * and is kept. Under card SEG-4 the 'leg' arm matters MORE than it did as
- * 'ceiling': the repaired text is banked and the NEXT LEG'S text is appended
- * after it inside the same row, so a surviving fabricated 「。」 would now sever
- * a clause in the middle of one row instead of across two.
+ * WHAT IT DOES. On a span we closed for TIME (a 'leg' rotation) the confirmed
+ * text provably did NOT end at a sentence (`segmentCutDecision` tests that first
+ * and would have said 'sentence'), so a terminator on the end of the flush is a
+ * property of where the SPAN closed, not of what was said: drop it. SenseVoice
+ * punctuates as a function of the span; that is SEG-3's owner defect.
  *
- * ⚠️ FAILURE DIRECTION, chosen deliberately. The lossy case is a sentence that
- * completes DURING the flush round-trip: we then drop a full stop that had just
- * become real, and two sentences run together at the seam. That is a missing
- * mark between two intact sentences. The alternative is owner's defect: one
- * sentence severed by a mark that was never spoken. A reader can punctuate the
- * first; nobody can un-split the second.
+ * 🔴 F-2 (2026-08-31) — 'pause' NO LONGER STRIPS. FunASR's 2pass-offline pass
+ * punctuates (measured: online never does; offline does). A pause-cut row that
+ * waited for that covering offline (Fix B) would then have seamText eat the
+ * mark the engine just produced — the unreadable run-together text the owner
+ * reported. Keeping an ENGINE-produced terminator is not force-closing; we
+ * still do not run `ensureTerminalPunctuation` on `is_segment` rows (06 §5).
+ * 'sentence' keeps the mark, as before. 'leg' still drops it.
+ *
+ * Under card SEG-4 the 'leg' arm matters MORE than it did as 'ceiling': the
+ * repaired text is banked and the NEXT LEG'S text is appended after it inside
+ * the same row, so a surviving fabricated 「。」 would now sever a clause in the
+ * middle of one row instead of across two.
+ *
+ * ⚠️ FAILURE DIRECTION, chosen deliberately, and it now applies to 'leg' only.
+ * The lossy case is a sentence that completes DURING the flush round-trip: we
+ * then drop a full stop that had just become real, and two sentences run
+ * together at the seam. That is a missing mark between two intact sentences.
+ * The alternative is owner's defect: one sentence severed by a mark that was
+ * never spoken. A reader can punctuate the first; nobody can un-split the
+ * second. 'pause' no longer takes that trade — the FunASR offline mark is real.
  *
  * ⚠️ Exactly ONE terminator, and never the whole run: 「…吗？！」 is emphasis the
  * speaker produced, and eating the lot would edit them rather than un-edit us.
@@ -184,7 +195,7 @@ export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
  * than no repair.
  */
 export function seamText(finalText: string, reason: SegmentCutReason): string {
-  if (reason === 'sentence') return finalText;
+  if (reason === 'sentence' || reason === 'pause') return finalText;
   const end = finalText.trimEnd().length; // index just past the last visible char
   if (end === 0) return finalText;
   if (!SENTENCE_TERMINATORS.includes(finalText[end - 1]!)) return finalText;
@@ -247,6 +258,13 @@ export class SoftSegmentCadence {
    *  repair), so a path that forgets to ask errs toward removing a mark rather
    *  than keeping a fabricated one — {@link seamText}'s failure direction. */
   get lastCutReason(): SegmentCutReason { return this._lastCutReason; }
+
+  /** How long the VAD gate has been CONTINUOUSLY closed, as of [nowMs]; 0 while open.
+   *  Same number {@link shouldCut} hands to {@link segmentCutDecision} — one
+   *  silence-run, not a second tracker (repo #1 shape). */
+  gateClosedMs(nowMs: number): number {
+    return this.gateClosedAtMs === 0 ? 0 : nowMs - this.gateClosedAtMs;
+  }
 
   /**
    * Called once per audio chunk. Returns true when this chunk is the DELIVERY

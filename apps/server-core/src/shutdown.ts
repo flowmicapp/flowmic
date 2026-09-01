@@ -150,6 +150,9 @@ export interface ShutdownSteps {
    *  tick that fired mid-teardown would open a provider session while we are
    *  closing. Disarmed FIRST, beside retention, for exactly that reason. */
   statusProbes: { stop(): void };
+  /** WP2-6b — the latency.summary interval. Same shape as statusProbes: a live
+   *  timer keeps the process (and the tests) alive. Disarmed with the others. */
+  latencyReader: { stop(): void };
   /** 2026-08-30 — the deadline refund sweep. OPTIONAL because a deployment that
    *  cannot refund has no such timer; absent means 「there is no timer」, never
    *  「skip stopping it」, same contract as the two replica timers below.
@@ -176,7 +179,7 @@ export interface ShutdownSteps {
 /** THE ordered stop sequence. One list, one order, one owner. */
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
-    retention, statusProbes, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
+    retention, statusProbes, latencyReader, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
     outboxDrainer, replicaPuller,
   } = steps;
   return async (): Promise<void> => {
@@ -187,6 +190,7 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.
     await announceShutdownStep('statusProbes.stop', () => statusProbes.stop());
+    await announceShutdownStep('latencyReader.stop', () => latencyReader.stop());
     // 2026-08-30 — the deadline refund sweep, disarmed here rather than later
     // because it is the only timer in this list that can spend money.
     if (serviceRefunds) {

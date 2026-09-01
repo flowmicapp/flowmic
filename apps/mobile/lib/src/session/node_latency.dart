@@ -2,24 +2,23 @@
 // 本机-CF延时-中继节点延时 = 总延时 的信息以方便了解网络情况」.
 //
 // SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4;
-//   docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §2-2.
+//   docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §2-2;
+//   docs/strategy/2026-09-01-lan-fable-work-package-2.md Card 1 (hot round trip).
 //
-// ── THE DECOMPOSITION IS MEASURED, NOT ESTIMATED ────────────────────────────
+// ── WHAT THE TWO NUMBERS ARE ───────────────────────────────────────────────
 //
-//   · 本机 → 边缘  = the time to get a connected, TLS-negotiated socket. Under
-//     Cloudflare that terminates at the nearest EDGE, so this is the distance
-//     to it and to nothing else;
-//   · 边缘 → 节点  = total − edge. The hop to the origin, plus the origin's own
-//     work on the request;
-//   · 总          = the application-layer round trip to /api/node/ping.
+//   · Connect  = the first sample that answered. It pays TLS and a cold origin
+//     fetch. Under Cloudflare that first round is handshake + origin, and it
+//     is how this panel used to say **836 ms** for a path whose real RTT was
+//     **67 ms**.
+//   · Latency  = one round trip on the HOT connection: the minimum of the
+//     samples AFTER that first success. That is the headline, and it is the
+//     same definition the PC settings panel reports.
 //
-// 🔴 THIS IS THE EXACT NUMBER §2-2 FORBIDS AS A SELECTION CRITERION, AND THAT
-// IS NOT A CONTRADICTION — IT IS THE REASON THIS PANEL IS USEFUL. Five VPSes
-// measured 7/8/10/9/10 ms of TLS handshake to the same host while their real
-// sessions spanned 44→279 ms: the handshake answers 「how far is your edge」 and
-// nothing else, so choosing on it picks a node at random with great confidence.
-// Shown BESIDE the total, the same number is the one thing that tells a user
-// WHICH HALF is slow — their own link, or the ocean.
+// 🔴 THE MIDDLE SUBTRACTION (total − edge) IS GONE FROM THE HEADLINE. It
+// mixed a cold first round with a later one and answered a question nobody
+// asked. The edge clock (`getUrl` completing) is still recorded on each raw
+// ping for diagnostics; [hotOf] does not use it as the headline.
 //
 // ⚠️ The panel this feeds is INFORMATION, not a control: the desktop selects a
 // node, the phone follows its PC (multi-node design §4-1, and that following is
@@ -30,7 +29,7 @@
 import 'dart:async';
 import 'dart:io';
 
-/// One node's three numbers, or the reason there are none.
+/// One node's two numbers, or the reason there are none.
 class NodeLatency {
   const NodeLatency({
     required this.id,
@@ -43,14 +42,16 @@ class NodeLatency {
   final String id;
   final String url;
 
-  /// Connect + TLS: the distance to the nearest Cloudflare edge.
+  /// First successful sample's whole round trip: TLS + cold origin. Shown as
+  /// "Connect". Not the headline.
   final int? edgeMs;
 
-  /// The whole application-layer round trip.
+  /// Hot round-trip: the minimum of the samples AFTER the first success.
+  /// Shown as "Latency". This is the number that must match the PC panel.
   final int? totalMs;
 
   /// Why there are no numbers — `timeout`, `network`, `tls`, `status`,
-  /// `malformed`. Non-null IFF the other two are null.
+  /// `malformed`. Set when nothing answered.
   ///
   /// 🔴 A FAILURE IS NAMED, NEVER DRAWN AS A LARGE NUMBER. A row that showed
   /// 「9999 ms」 for an unreachable node would be sortable, comparable and
@@ -58,15 +59,14 @@ class NodeLatency {
   /// answers for the person reading.
   final String? miss;
 
-  /// Edge → origin, the hop this panel exists to expose. Null when either half
-  /// is missing — never 0, which would read as 「instant」.
+  /// Edge → origin on a SINGLE constructed sample. Null when either half is
+  /// missing — never 0, which would read as 「instant」. The panel no longer
+  /// paints this (it mixed cold and hot); the getter stays so a raw ping can
+  /// still answer "which half of THIS request was the ocean".
   int? get originMs {
     final int? t = totalMs;
     final int? e = edgeMs;
     if (t == null || e == null) return null;
-    // Clamped at 0 rather than allowed negative: the two clocks are the same
-    // clock, so a negative can only come from timer granularity, and a negative
-    // millisecond on a screen is a bug report about us.
     return t - e < 0 ? 0 : t - e;
   }
 
@@ -77,14 +77,8 @@ class NodeLatency {
 typedef NodePinger = Future<NodeLatency> Function(
     String id, String url, Duration timeout);
 
-/// The median of the samples that answered, per node.
-///
-/// 🔴 MEDIAN, NOT MEAN, and not 「best of」. One request landing on a cold
-/// connection or a retried TLS is normal and would drag a mean; taking the best
-/// would flatter a node that is usually slow. Three samples, middle one —
-/// the same rule the desktop selector uses (multi-node design §2-2), because
-/// the panel and the selector must not be able to disagree about what a node's
-/// latency IS.
+/// The median of the samples that answered, per node. Kept as a helper for
+/// tests of that aggregation; the panel's headline is [hotOf], not this.
 NodeLatency medianOf(String id, String url, List<NodeLatency> samples) {
   final List<NodeLatency> good = samples.where((NodeLatency s) => s.ok).toList()
     ..sort((NodeLatency a, NodeLatency b) => a.totalMs!.compareTo(b.totalMs!));
@@ -92,12 +86,41 @@ NodeLatency medianOf(String id, String url, List<NodeLatency> samples) {
     return NodeLatency(
       id: id,
       url: url,
-      // The first named failure, or a generic one. Named beats counted: the
-      // user's next move differs between 「timed out」 and 「TLS refused」.
       miss: samples.isEmpty ? 'unmeasured' : (samples.first.miss ?? 'unexpected'),
     );
   }
   return good[good.length ~/ 2];
+}
+
+/// Headline aggregation: first success is connect, the rest are hot, the
+/// reported latency is the **minimum** of the hot set.
+///
+/// ⚠️ Do not take the median of all three: for `[836, 67, 70]` that is 70,
+/// which still mixes the cold sample into the headline. The reverse control
+/// for this function is to put the first sample back into the headline and
+/// watch that sequence report 836.
+NodeLatency hotOf(String id, String url, List<NodeLatency> samples) {
+  final List<NodeLatency> good =
+      samples.where((NodeLatency s) => s.ok).toList();
+  if (good.isEmpty) {
+    return NodeLatency(
+      id: id,
+      url: url,
+      miss: samples.isEmpty ? 'unmeasured' : (samples.first.miss ?? 'unexpected'),
+    );
+  }
+  final int connect = good.first.totalMs!;
+  if (good.length == 1) {
+    // One sample paid setup. That is not a hot round trip, so there is no
+    // headline — named unanswered, never a huge number.
+    return NodeLatency(id: id, url: url, edgeMs: connect);
+  }
+  int rtt = good[1].totalMs!;
+  for (int i = 2; i < good.length; i++) {
+    final int t = good[i].totalMs!;
+    if (t < rtt) rtt = t;
+  }
+  return NodeLatency(id: id, url: url, edgeMs: connect, totalMs: rtt);
 }
 
 /// Three samples against one node, sequentially.
@@ -105,6 +128,12 @@ NodeLatency medianOf(String id, String url, List<NodeLatency> samples) {
 /// ⚠️ SEQUENTIAL ON PURPOSE. Three concurrent requests share one radio and one
 /// TCP slow-start; they would measure each other. This panel is opened by hand,
 /// so the extra second costs nothing that matters.
+///
+/// Production reuses one [HttpClient] across the rounds so rounds 2 and 3
+/// ride a hot connection. The previous implementation opened and
+/// `close(force: true)`'d a client per ping, so every sample was cold — that
+/// is the 836 ms number. Tests that pass a fake [ping] still go through the
+/// seam and do not need a real client.
 Future<NodeLatency> probeNode(
   String id,
   String url, {
@@ -112,21 +141,34 @@ Future<NodeLatency> probeNode(
   Duration timeout = const Duration(seconds: 5),
   int rounds = 3,
 }) async {
-  final List<NodeLatency> samples = <NodeLatency>[];
-  for (int i = 0; i < rounds; i++) {
-    samples.add(await ping(id, url, timeout));
+  HttpClient? owned;
+  final NodePinger effective;
+  if (identical(ping, httpNodePing)) {
+    owned = HttpClient()..connectionTimeout = timeout;
+    effective = (String i, String u, Duration t) =>
+        pingOnClient(owned!, i, u, t);
+  } else {
+    effective = ping;
   }
-  return medianOf(id, url, samples);
+  try {
+    final List<NodeLatency> samples = <NodeLatency>[];
+    for (int i = 0; i < rounds; i++) {
+      samples.add(await effective(id, url, timeout));
+    }
+    return hotOf(id, url, samples);
+  } finally {
+    owned?.close(force: true);
+  }
 }
 
-/// One application-layer round trip to `GET {url}/api/node/ping`, split.
-///
-/// ⚠️ THE ROUTE MUST NOT BE CACHEABLE, and the server already says so
-/// (`cache-control: no-store` in node-routes.ts). A cached ping would be served
-/// by the edge and this function would report a beautiful, meaningless number
-/// — the failure mode §2-2 is about, arriving through the other door.
-Future<NodeLatency> httpNodePing(String id, String url, Duration timeout) async {
-  final HttpClient client = HttpClient()..connectionTimeout = timeout;
+/// One application-layer round trip to `GET {url}/api/node/ping` on an
+/// existing client (keep-alive).
+Future<NodeLatency> pingOnClient(
+  HttpClient client,
+  String id,
+  String url,
+  Duration timeout,
+) async {
   final Stopwatch sw = Stopwatch()..start();
   int? edge;
   try {
@@ -140,8 +182,6 @@ Future<NodeLatency> httpNodePing(String id, String url, Duration timeout) async 
       unawaited(res.drain<void>().catchError((Object _) {}));
       return NodeLatency(id: id, url: url, miss: 'status');
     }
-    // Drained before stopping the clock: a round trip that stops at the headers
-    // is not the round trip a user experiences.
     await res.drain<void>().timeout(timeout);
     return NodeLatency(
         id: id, url: url, edgeMs: edge, totalMs: sw.elapsedMilliseconds);
@@ -153,6 +193,16 @@ Future<NodeLatency> httpNodePing(String id, String url, Duration timeout) async 
     return NodeLatency(id: id, url: url, miss: 'tls');
   } on Object {
     return NodeLatency(id: id, url: url, miss: 'unexpected');
+  }
+}
+
+/// One-shot ping: a fresh client, closed after the sample. Used as the
+/// [NodePinger] default so tests that call it directly still compile; production
+/// [probeNode] does not go through this (it would make every round cold).
+Future<NodeLatency> httpNodePing(String id, String url, Duration timeout) async {
+  final HttpClient client = HttpClient()..connectionTimeout = timeout;
+  try {
+    return await pingOnClient(client, id, url, timeout);
   } finally {
     client.close(force: true);
   }

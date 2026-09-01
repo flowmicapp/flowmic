@@ -829,6 +829,66 @@
       "name": "cloud_signin_err_endpoint"
     },
     {
+      "key": "node_lat_title",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_title"
+    },
+    {
+      "key": "node_lat_note",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_note"
+    },
+    {
+      "key": "node_lat_check",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_check"
+    },
+    {
+      "key": "node_lat_checking",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_checking"
+    },
+    {
+      "key": "node_lat_connect",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_connect"
+    },
+    {
+      "key": "node_lat_latency",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_latency"
+    },
+    {
+      "key": "node_lat_via_cloud",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_via_cloud"
+    },
+    {
+      "key": "node_lat_via_direct",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_via_direct"
+    },
+    {
+      "key": "node_lat_here",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_here"
+    },
+    {
+      "key": "node_lat_unanswered",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "node_lat_unanswered"
+    },
+    {
       "key": "pair_title",
       "shard": "pairing",
       "kind": "string",
@@ -1799,6 +1859,12 @@
       "shard": "settings",
       "kind": "string",
       "name": "profession_research"
+    },
+    {
+      "key": "profession_writing",
+      "shard": "settings",
+      "kind": "string",
+      "name": "profession_writing"
     },
     {
       "key": "saved",

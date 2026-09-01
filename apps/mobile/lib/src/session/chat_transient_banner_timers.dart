@@ -201,6 +201,11 @@ Future<void> disposeRouted(ChatController c) async {
   }
   c._bannerAutoHideTimers.clear();
   c._bannerLastSeen.clear();
+  // 🔴 P0 (2026-09-01) — the pairing confirmation can now be ARMED and waiting
+  // for this phone to reach the PC's node, and that wait is a timer. Same
+  // argument as the loop directly above: a torn-down controller must not leave
+  // one running.
+  c.pairingSuccess.dispose();
   AlbumAway.instance.removeListener(c._onAlbumAwayChanged);
   c.session.pcPresence.removeListener(c._onPcPresenceChanged); // RV-92
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7

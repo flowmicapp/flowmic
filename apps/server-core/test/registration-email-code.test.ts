@@ -162,6 +162,11 @@ describe('fix-023 enumeration proof: the malformed-email refusal cannot become a
       // nothing to the collection surface either.
       stampLastLogin: () => { throw new Error('test bug: stampLastLogin() must not be called'); },
       remove: () => { throw new Error('test bug: remove() must not be called'); },
+      // S1b (2026-08-31) — same rule as the two notes above: the spy is an
+      // exhaustive `UserRepo`, so the replica read-through's account upsert has
+      // to appear here too, and a registration path that reached it would say so
+      // by name.
+      upsertReplicated: () => { throw new Error('test bug: upsertReplicated() must not be called'); },
       listAll: () => { throw new Error('test bug: listAll() must not be called'); },
       // A2-4 — same story as `setRestricted` above: the exhaustive literal is
       // what forced this line, and the ops account list is emphatically a method

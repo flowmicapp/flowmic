@@ -4,33 +4,21 @@
 // 法律 / 教育 / 科研) while everything around them — including the sibling
 // "Domain packs" row — was English.
 //
-// ── ROOT CAUSE ───────────────────────────────────────────────────────────────
-// `PROFESSION_OPTIONS` (settings-model.ts) is the STORED value of
-// `card.professions` (a bare `string[]`, no separate id — it rides verbatim
-// into the compose prompt as `Speaker professions: ...`,
-// apps/server-core/src/compose/scenario.ts). ScenarioCard.vue used to render
-// that stored value directly as the chip's label:
-//   `<span v-for="p in PROFESSION_OPTIONS" ...>{{ p }}</span>`
-// — the same id-doubles-as-label shape PACK_LABELS already exists to avoid for
-// the sibling "Domain packs" row. Fix: PROFESSION_LABELS (a display overlay,
-// same GETTERS-reading-S pattern as PACK_LABELS) + PROFESSIONS (`{id, label}`
-// pairs), with the template now reading `p.id` for storage and `p.label` for
-// display. PROFESSION_OPTIONS itself — the stored ids — is UNCHANGED.
+// ── ROOT CAUSE (2026-08-30) ──────────────────────────────────────────────────
+// The template rendered the stored id as the chip label. Fix: PROFESSION_LABELS
+// overlay + PROFESSIONS `{id, label}` pairs. W-i18n-B (2026-08-31) then switched
+// the stored ids themselves to the phone's English alphabet
+// (`profession-ids.ts`, mirror of kProfessionPresets). Display still goes
+// through the overlay; this file still pins the RENDERED result, not the
+// catalogue.
 //
 // ── WHAT THIS FILE PINS ──────────────────────────────────────────────────────
-// 🔴 The rendered result, not the catalogue (0.2.53's law — a test that only
-// asserted `S.profession_*` strings exist would have been green while the
-// chips on screen were Chinese, because the defect was in the TEMPLATE, not
-// in the string table). Scoped to the professions chip row specifically (not
-// the whole card) so the CJK check cannot accidentally pass or fail on
-// unrelated prose elsewhere on the page.
+// 🔴 The rendered result, not the catalogue (0.2.53's law). Scoped to the
+// professions chip row specifically so the CJK check cannot accidentally pass
+// or fail on unrelated prose elsewhere on the page.
 //
 // 🔴 REVERSE CONTROL: the same probe run against zh-CN must find CJK — a CJK
-// regex that never matches anything is a blind probe, not a passing test (the
-// G13 lesson this repo keeps re-learning). Seen red against the pre-fix
-// template (`{{ p }}` on PROFESSION_OPTIONS) before this file's fix landed:
-// the `en` assertion below failed with the seven raw Chinese labels in the
-// chip HTML; reverted to confirm, then re-applied.
+// regex that never matches anything is a blind probe, not a passing test.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSSRApp } from 'vue';
@@ -96,6 +84,7 @@ describe('scenario-card profession chips localize with the UI locale (owner 2026
     expect(chips).toContain(esc(S_BY_LOCALE.en.profession_law));
     expect(chips).toContain(esc(S_BY_LOCALE.en.profession_education));
     expect(chips).toContain(esc(S_BY_LOCALE.en.profession_research));
+    expect(chips).toContain(esc(S_BY_LOCALE.en.profession_writing));
   });
 
   it('🔴 positive control: the SAME probe against zh-CN DOES find CJK — proves the regex is not blind', async () => {
@@ -103,10 +92,14 @@ describe('scenario-card profession chips localize with the UI locale (owner 2026
     expect(chips, 'zh-CN chips should still contain CJK').toMatch(CJK);
   });
 
-  it('zh-CN wording is byte-identical to what shipped before this fix (no silent rewording)', async () => {
+  it('zh-CN chips render overlay labels, not the stored English ids', async () => {
     const chips = professionChipsHtml(await render('zh-CN'));
+    const s = S_BY_LOCALE['zh-CN'];
+    expect(chips).toContain(esc(s.profession_swdev));
+    expect(chips).toContain(esc(s.profession_cloud_ops));
+    expect(chips).toContain(esc(s.profession_writing));
     for (const id of PROFESSION_OPTIONS) {
-      expect(chips, `zh-CN chip for id ${JSON.stringify(id)}`).toContain(esc(id));
+      expect(chips, `zh-CN must not paint the stored English id ${JSON.stringify(id)}`).not.toContain(`>${esc(id)}<`);
     }
   });
 
@@ -123,19 +116,24 @@ describe('scenario-card profession chips localize with the UI locale (owner 2026
         'profession_law',
         'profession_education',
         'profession_research',
+        'profession_writing',
       ] as const) {
         expect(chips, `${loc}.${key} missing from chip row`).toContain(esc(s[key]));
       }
     }
   });
 
-  it('the stored ids (PROFESSION_OPTIONS) are unchanged — only the display label moved', () => {
-    // Locked verbatim: card.professions is a bare string[] that rides into the
-    // compose prompt as "Speaker professions: ...", and is already persisted
-    // on existing installs keyed on these exact strings. Changing any of them
-    // here would silently un-select an existing user's chosen chips.
-    expect(PROFESSION_OPTIONS).toEqual([
-      '软件开发', '云原生 / 运维', '产品设计', '金融', '医疗', '法律', '教育', '科研',
+  it('the stored ids are the phone\'s English alphabet, not the old Chinese labels', () => {
+    expect([...PROFESSION_OPTIONS]).toEqual([
+      'software development',
+      'product design',
+      'devops / SRE',
+      'research',
+      'writing / editing',
+      'teaching',
+      'medicine',
+      'law',
+      'finance',
     ]);
   });
 });

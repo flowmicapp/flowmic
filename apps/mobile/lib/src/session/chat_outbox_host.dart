@@ -12,6 +12,36 @@
 
 part of 'chat_controller.dart';
 
+/// The body of `ChatController._onRoomJoined` — the `PttSession.roomJoins`
+/// edge, which is 「the server has actually put this connection into a room」.
+///
+/// 🔴 TWO SUBSCRIBERS OF ONE EDGE, NOT TWO EDGES. The queue drain is F-1's
+/// (the whole argument is at the bottom of this file); the pairing
+/// confirmation is the P0's. They are here together because they need the SAME
+/// moment and re-deriving it would give 「when did we get in」 two answers — the
+/// mistake F-1 was itself created to undo.
+///
+/// 🔴 THE ORDER OF THE TWO LINES IS NOT LOAD-BEARING, BUT THE ORDER OF THE
+/// SECOND LINE'S TWO READS IS. `lastJoinAtHomeNode` is written by
+/// `PttSession.noteRoomJoined` IMMEDIATELY BEFORE it bumps `roomJoins`, and a
+/// `ValueNotifier` notifies synchronously — so what is read here is this join's
+/// own verdict. Written the other way round it would be the previous join's,
+/// and on the very hop this exists to cover that is the answer that is wrong.
+void onRoomJoinedRouted(ChatController c) {
+  unawaited(c.outbox.drain());
+  c.pairingSuccess.noteJoinAtHomeNode(c.session.reconnect.lastJoinAtHomeNode);
+}
+
+/// P0 — the connections page's deliberate-entry funnel, wired in `main.dart`
+/// (`onDeliberateEntry`). It ARMS; it does not decide when to show anything.
+///
+/// It lives here rather than as a closure in main.dart because the read it
+/// performs — 「was the ack behind our last room join already at the PC's
+/// node」 — is the same read [onRoomJoinedRouted] does, and the two belong
+/// beside each other; main.dart is also at the 800-line cap.
+void armPairingSuccessRouted(ChatController c) => c.pairingSuccess
+    .armDeliberateEntry(atHomeNodeNow: c.session.reconnect.lastJoinAtHomeNode);
+
 // ── window-B3-2a: OutboxDrainHost ──────────────────────────────────────────
 // The queue decides WHAT goes out and WHEN; these four give it the means.
 

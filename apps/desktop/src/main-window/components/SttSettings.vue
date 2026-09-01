@@ -384,16 +384,13 @@ onBeforeUnmount(() => watcher?.disconnect());
           >{{ s === 'smooth' ? S.polish_strength_smooth : S.polish_strength_strict }}</button>
         </div>
         <div class="sub note">{{ S.polish_strength_hint }}</div>
-        <!-- R-2乙 (owner 2026-08-29): what smooth's meaning check can and cannot
-             see, shown only to the person who chose smooth. The guard's §3.2
-             closed-class half is built from Chinese and English term sets, so in
-             every other language it degrades to a digit check; at strict the
-             §3.1 bound is tight enough to carry the load, while smooth widens it
-             by design — so this is the mode where the gap actually bites.
-             The covered pair is named rather than derived from the user's own
-             routing rows: the desktop can hold several language rows at once, so
-             「your language is covered」 would be a claim about a set, not about
-             this utterance. -->
+        <!-- R-2乙 (owner 2026-08-29): what smooth's meaning check can see,
+             shown only to the person who chose smooth. WP8 P1-2 extended
+             the closed-class tables to the spoken set; the copy names that
+             coverage rather than a zh/en-only pair. Not derived from the
+             user's own routing rows: the desktop can hold several language
+             rows at once, so 「your language is covered」 would be a claim
+             about a set, not about this utterance. -->
         <div v-if="model.polishStrength === 'smooth'" class="sub note coverage">
           {{ S.polish_strength_smooth_coverage }}
         </div>

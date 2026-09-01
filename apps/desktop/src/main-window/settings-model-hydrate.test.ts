@@ -36,7 +36,9 @@ describe('applyServerSettings adopts a server settings:list snapshot into the mo
     expect(model.llm.endpoint).toBe('http://llm:8000/v1');
     expect(model.llm.model).toBe('qwen');
     expect(model.llm.preset_id).toBe('lan-vllm-qwen35'); // server value has no preset_id — UI's is kept
-    expect(model.card.professions).toEqual(['法律']);
+    // W-i18n-B: the snapshot still carries the pre-fix Chinese id; read mapping
+    // turns it into the phone slug so the chip lights. Input above is `法律`.
+    expect(model.card.professions).toEqual(['law']);
     expect(model.card.terms).toEqual(['FlowMic']);
   });
 

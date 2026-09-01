@@ -9,10 +9,10 @@
 //     calibrated guard — the closed-class token sets, the EDIT_DISTANCE_FLOOR=8 /
 //     RATIO_MIN_LEN=10 calibration, and the openClassTokenDelta GAP-2 fix are the
 //     legacy implementation carried byte-for-byte, not a re-derivation.
-//     Divergence from legacy: NONE (this is a pure, deterministic function with no
-//     transport/settings surface, so the WP-R4-6 contract reversals — which live
-//     in stt-polish.ts / the bridge — do not touch it). Header-only edit: the
-//     legacy calibration decision doc path is retained below for provenance.
+//     Divergence from legacy: WP8 P1-2 extended the closed-class TABLES
+//     (stt-polish-guard-terms.ts) to the spoken set and generalised the
+//     word-boundary matcher from ASCII `\b` to a Unicode letter-boundary so
+//     Cyrillic and Hangul are visible. Cardinality calibration is untouched.
 //   docs/decisions/2026-07-20-wp4c-polish-guard-calibration.md (legacy calibration)
 //
 // This file owns ONLY the §3 meaning-preservation guard: `checkMeaningPreserved`
@@ -21,133 +21,35 @@
 // string replace the raw final. Split out to respect the file-size cap.
 
 import { DEFAULT_POLISH_STRENGTH, type PolishStrength } from '@flowmic/protocol';
+import {
+  CLOSED_CLASS_TERMS,
+  WORD_BOUNDARY_TERMS,
+} from './stt-polish-guard-terms';
 
-// ─── §3.2 closed-class token set (K-independent hard gate) ───────────
+export {
+  CLOSED_CLASS_ADDED,
+  CLOSED_CLASS_GUARDED_LANGS,
+  CLOSED_CLASS_TERMS,
+  WORD_BOUNDARY_TERMS,
+  isClosedClassGuarded,
+} from './stt-polish-guard-terms';
 
-const ZH_NEGATION = ['不', '没', '没有', '别', '未', '无', '非', '勿', '莫'];
-const EN_NEGATION = ['not', "n't", 'no', 'never', 'none', 'neither', 'nor', 'without'];
+// ─── §3.2 closed-class matching (K-independent hard gate) ───────────
+//
+// Term tables live in stt-polish-guard-terms.ts (WP8 P1-2). Two strategies,
+// same as the legacy guard: substring (zh/ja/digits/`n't`) and Unicode
+// letter-boundary (en/fr/es/de/ko/ru). `\b` was ASCII-only, so it could not
+// see Cyrillic or Hangul; the lookaround is the same strategy, not a third.
+// English hits are unchanged — pinned by stt-polish-guard-langs.test.ts.
 
-const ZH_QUANTIFIER = ['都', '全', '只', '仅', '每', '各', '所有'];
-const EN_QUANTIFIER = ['all', 'only', 'every', 'each', 'both', 'most', 'some', 'any', 'few', 'none'];
-const ZH_NUMERALS = ['一', '二', '两', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千', '万', '亿', '零'];
-const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-const ZH_MODAL = ['能', '会', '要', '得', '必须', '应该', '可能', '也许', '一定', '千万'];
-const EN_MODAL = ['must', 'can', 'cannot', 'could', 'should', 'would', 'may', 'might', 'will', 'shall'];
-
-/** Every closed-class term, longest-first so multi-char zh phrases (e.g.
- *  `没有`) are matched as themselves in addition to their component
- *  chars — both are tracked as INDEPENDENT multiset entries per §3.2
- *  ("computes the closed-class multiset... of raw and polished"), so a
- *  drift in either the phrase or a component char is caught.
- *
- * ─────────────────────────────────────────────────────────────────────────
- * 🔴 PER-LANGUAGE COVERAGE — THIS SET IS NARROWER THAN THE PRODUCT, AND SAYING
- * SO IS THE POINT (card C8, owner 2026-08-17: 「注意不同语种的区别，不光只考虑
- * 中/英文」).
- *
- * The product ships NINE UI locales and dictates in more. This list is built
- * from `ZH_*` and `EN_*` sets only. What that means, per language, measured
- * rather than assumed — see also `closedClassMultiset`, which has exactly two
- * matching strategies (CJK-style substring, and English word-boundary) and no
- * third:
- *
- *   · zh-CN / zh-TW — FULLY GUARDED as designed. Negation, quantifiers,
- *     numerals and modals are all present and matched as substrings, which is
- *     correct for a script with no word boundaries.
- *   · en — FULLY GUARDED as designed, via the word-boundary regex.
- *   · ja — PARTIALLY GUARDED, and better than it looks: Japanese negation is
- *     inflectional (ない / ません), so none of it is here, BUT Japanese written
- *     text uses the same Han numerals as Chinese, and those ARE in the list and
- *     ARE substring-matched. So numbers are pinned; negation and modality are
- *     NOT.
- *   · ko — DIGITS ONLY. Hangul negation (안 / 못 / 없다) and modality are absent,
- *     and Korean is not matched by either strategy in any useful way.
- *   · ru / de / fr / es — DIGITS ONLY, IN EFFECT. These run the English
- *     word-boundary path against an English term list, so the only things that
- *     can match are the digits and the handful of English words that happen to
- *     be spelled identically in that language (German `all`, `most`; French
- *     `none` does not occur). Their real negations — `не`, `nicht`, `ne…pas`,
- *     `no` — are NOT in the list. Note `no` is a genuine gap for Spanish
- *     specifically: `EN_NEGATION` contains `no`, and the word-boundary regex
- *     will match Spanish `no` by coincidence. Coincidence is not coverage, and
- *     it must not be cited as such.
- *
- * ⚠️ SO THE HONEST ONE-LINE SUMMARY IS: **digits are guarded in every language;
- * negation, quantification and modality are guarded in zh and en only.** For
- * ja/ko/ru/de/fr/es the §3.2 gate degrades to a number check, and the §3.1
- * cardinality bounds are doing all the remaining work.
- *
- * 🔴 WHY THIS IS NOT FIXED HERE, DELIBERATELY. Adding `не` / `nicht` / `ne` /
- * `no` naively would be worse than the gap: these are matched by the ENGLISH
- * branch, which is a word-boundary regex, and `\bno\b` against Spanish also
- * matches inside constructions where a smoothing pass legitimately restructures
- * the clause — a guard that rejects correct work gets loosened until it never
- * fires, which is how this guard would lose its Chinese and English coverage
- * too. Extending it needs per-language term sets AND a per-language matching
- * strategy AND a corpus in that language to calibrate against. The corpus is
- * the part that does not exist yet, which is why card C8's eval half adds a
- * `lang` axis first. Sequence: measure, then extend. Not the other way round.
- *
- * ⚠️ CONSEQUENCE FOR `smooth`, STATED SO IT IS NOT DISCOVERED LATER: at smooth
- * strength the §3.1 bounds are wider, and for the six languages above §3.1 is
- * the ONLY thing left. Smooth mode is therefore materially less supervised in
- * ja/ko/ru/de/fr/es than in zh/en. That is a real limitation of this release,
- * not a rounding error, and it belongs in the handback report rather than in a
- * silently optimistic default. */
-export const CLOSED_CLASS_TERMS: readonly string[] = [
-  ...ZH_NEGATION, ...EN_NEGATION,
-  ...ZH_QUANTIFIER, ...EN_QUANTIFIER, ...ZH_NUMERALS, ...DIGITS,
-  ...ZH_MODAL, ...EN_MODAL,
-].sort((a, b) => b.length - a.length);
-
-const EN_WORD_TERMS = new Set([...EN_NEGATION, ...EN_QUANTIFIER, ...EN_MODAL].filter((t) => t !== "n't"));
-
-/**
- * The spoken languages whose NEGATION, QUANTIFICATION and MODALITY this gate
- * actually checks — as data, because the 40-line block above was the only place
- * that fact lived, and a fact that lives only in prose cannot be consulted and
- * cannot be kept honest.
- *
- * 🔴 THIS IS A COVERAGE STATEMENT, NOT A LANGUAGE WHITELIST. Every language
- * still gets polished and still gets the §3.1 cardinality bound; what the ones
- * outside this set do NOT get is the §3.2 closed-class check, which degrades to
- * a digit check for them (digits are script-independent and are counted in every
- * language). Nothing is refused on the strength of this set.
- *
- * ⚠️ `es` IS NOT IN HERE, and the reason is the sharpest thing in this file:
- * `EN_NEGATION` contains `no`, and the English word-boundary branch will match
- * Spanish `no` by coincidence. Coincidence is not coverage. Listing `es` because
- * one word happens to line up is exactly how a coverage claim becomes a lie.
- *
- * Kept in sync with reality by `stt-polish-guard-coverage.test.ts`, which drives
- * `closedClassMultiset` with real negations in each language and asserts that
- * membership here predicts whether they are seen. Adding a row without adding
- * the terms reddens that test — which is the whole point, since the previous
- * form of this fact (a comment) could not go red at all.
- *
- * owner ruling R-2乙 (2026-08-29) consumes this: a user who explicitly turns on
- * `smooth` while speaking a language outside this set is told the supervision is
- * weaker there. ⚠️ It is NOT consumed to change the default — measured, the
- * default is already `strict` (DEFAULT_POLISH_STRENGTH), so there was never
- * anything to downgrade; see the decision doc's R-2 note.
- */
-export const CLOSED_CLASS_GUARDED_LANGS: readonly string[] = ['zh', 'en'];
-
-/** True when [CLOSED_CLASS_GUARDED_LANGS] covers this spoken tag. Base-language
- *  match, so `zh-CN` / `zh-TW` / `en-US` all resolve to their base. An absent or
- *  unrecognised tag answers `false`: the honest reading of 「we do not know what
- *  language this is」 is 「we cannot claim to be checking it」. */
-export function isClosedClassGuarded(lang: string | undefined): boolean {
-  if (lang === undefined) return false;
-  const base = lang.trim().toLowerCase().replace(/_/g, '-').split('-')[0] ?? '';
-  return CLOSED_CLASS_GUARDED_LANGS.includes(base);
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Count occurrences of every closed-class term in `text`. zh terms +
- *  digits are counted as plain substrings (CJK has no word boundaries);
- *  en terms use a case-insensitive word-boundary regex; `n't` is a
- *  boundary-less suffix substring. */
+/** Count occurrences of every closed-class term in `text`. zh/ja terms +
+ *  digits are counted as plain substrings (no word boundaries);
+ *  space-separated terms use a case-insensitive Unicode letter-boundary;
+ *  `n't` is a boundary-less suffix substring. */
 export function closedClassMultiset(text: string): Map<string, number> {
   const out = new Map<string, number>();
   const lower = text.toLowerCase();
@@ -155,8 +57,11 @@ export function closedClassMultiset(text: string): Map<string, number> {
     let count: number;
     if (term === "n't") {
       count = lower.split("n't").length - 1;
-    } else if (EN_WORD_TERMS.has(term)) {
-      const re = new RegExp(`\\b${term}\\b`, 'gi');
+    } else if (WORD_BOUNDARY_TERMS.has(term)) {
+      const re = new RegExp(
+        `(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`,
+        'giu',
+      );
       count = (text.match(re) ?? []).length;
     } else {
       count = text.split(term).length - 1;

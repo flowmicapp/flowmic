@@ -88,6 +88,14 @@ class ConnectionsPage extends StatefulWidget {
   /// pairing-success notice. 🔴 Nothing automatic reaches this either: the
   /// reconnect ladder never pushes the chat page, so a network flap cannot
   /// raise it.
+  ///
+  /// 🔴 P0 (owner 2026-09-01) — IT ARMS, IT NO LONGER RAISES. This page still
+  /// owns 「may a confirmation be shown at all」 (a deliberate entry, and nothing
+  /// else); WHEN it is shown is now owned by the fact it is about — the first
+  /// accepted ack for which this phone is already on the PC's node
+  /// (session/pairing_success_notice.dart). On every single-node deployment the
+  /// two happen in the same turn and this is byte-for-byte the old call. Nothing
+  /// on this page needs to know that, which is why the type did not change.
   final void Function()? onDeliberateEntry;
 
   final AppSettingsController appSettings;

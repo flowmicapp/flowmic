@@ -169,11 +169,42 @@ extension PttSessionPair on PttSession {
     if (name is String && name.isNotEmpty) connectedDeviceName.value = name;
     _pcPresence.noteAck(ack); // RV-92: `pc_online` has always been on this ack, nobody read it until now
     paired.value = true; _startPresencePoll(); // G-15①: really paired, see ptt_presence_poll.dart
+    // 🔴 P0 — THE TOKEN EXISTS ON THE WRITER AND NOWHERE ELSE YET.
+    // `mobile:pair` is writer-only; a replica learns about this row on its next
+    // 30 s pull. Until then a replica answering `AUTH_TOKEN_INVALID` is telling
+    // the truth about its own copy, and the phone's standing reading of that
+    // code deletes the pairing the user completed one second ago. The window
+    // (session/replica_lag_window.dart) is what tells the two apart.
+    reconnect.lagWindow.notePaired();
     // F-1: a successful pair and a successful reconnect are the same fact —
     // 「进房了」("joined the room"). Re-pairing the same machine may still have
     // things the queue owes it (the destination is keyed on machine_uid,
     // unaffected by pairing rounds).
-    noteRoomJoined();
+    //
+    // 🔴 P0 — `atHomeNode` is this ack's OWN verdict, recorded here rather than
+    // derived later by whoever subscribes: `settledAtHomeNode` reads the two
+    // node fields off THIS ack, and re-asking after the hop has started would
+    // be comparing two instants (the trap the two-field design closed).
+    noteRoomJoined(atHomeNode: settledAtHomeNode(ack));
+    unawaited(_refreshServerChannel(dial));
+    // The list the LADDER walks is kept in the shape the ladder dials (the QR's
+    // ws-urls here, the stored http form in `resumePairing`), because
+    // `_resolveReconnectUrl` proves 「current 是这台 PC 的地址之一」 ("current is
+    // one of this PC's addresses") by membership.
+    // The persisted copy above is normalized instead — two different questions.
+    _dialCandidates = candidates.length > 1 ? candidates : const <String>[];
+    // D2LAN-B3 — the ladder re-dials this address for the rest of the session,
+    // so it needs the same key this one successful dial used. `replacePin: true`
+    // for the same reason `replaceToken` is true: pairing a relay instance after
+    // a LAN one must CLEAR the previous pin, not inherit it.
+    reconnect.configure(
+      url: dial,
+      token: token,
+      replaceToken: true,
+      pinFingerprint: pin,
+      replacePin: true,
+    );
+    reconnect.start();
     // 🔴 PHONE-FOLLOWS-PC ON THE PAIR LEG — the SECOND production caller of
     // [_followNodeIfMisplaced], and its absence was a real defect rather than a
     // gap of taste (2026-08-30).
@@ -197,26 +228,20 @@ extension PttSessionPair on PttSession {
     // ack's own business must not wait on a network question, and on every
     // single-node deployment `planNodeHop` answers from the ack alone with no
     // request at all.
+    //
+    // 🔴 IT MOVED BELOW `reconnect.configure` ON 2026-09-01, AND UNTIL THEN IT
+    // WAS DOING NOTHING ON THE ONE PATH IT WAS WRITTEN FOR. `unawaited(f())`
+    // runs f's body synchronously up to its first `await`, and the first thing
+    // `_followNodeIfMisplaced` does is read `reconnect.url` — which, on the
+    // FIRST pairing of an app run, is still null (`ReconnectCoordinator` is
+    // constructed with no url and only `pair` / `resumePairing` ever configure
+    // one). Null ⇒ it returned immediately ⇒ no node badge, no hop, on exactly
+    // the 「user just scanned the QR」 path the owner reported. On a LATER pair
+    // in the same run it was worse than nothing: `here` was the PREVIOUS PC's
+    // address, so the node list was fetched from the wrong deployment.
+    // ⇒ the call belongs after the ladder knows where we are, and after
+    // `start()` so the disconnect it performs has a running ladder to hear it.
     unawaited(_followNodeIfMisplaced(this, token, ack));
-    unawaited(_refreshServerChannel(dial));
-    // The list the LADDER walks is kept in the shape the ladder dials (the QR's
-    // ws-urls here, the stored http form in `resumePairing`), because
-    // `_resolveReconnectUrl` proves 「current 是这台 PC 的地址之一」 ("current is
-    // one of this PC's addresses") by membership.
-    // The persisted copy above is normalized instead — two different questions.
-    _dialCandidates = candidates.length > 1 ? candidates : const <String>[];
-    // D2LAN-B3 — the ladder re-dials this address for the rest of the session,
-    // so it needs the same key this one successful dial used. `replacePin: true`
-    // for the same reason `replaceToken` is true: pairing a relay instance after
-    // a LAN one must CLEAR the previous pin, not inherit it.
-    reconnect.configure(
-      url: dial,
-      token: token,
-      replaceToken: true,
-      pinFingerprint: pin,
-      replacePin: true,
-    );
-    reconnect.start();
     return PairResult(ok: true, session: session);
   }
 

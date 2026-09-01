@@ -183,15 +183,41 @@ bool _sameHost(String a, String b) {
 /// ⚠️ Returns null when the resolved URL is the one we are already using, so a
 /// caller cannot be tricked into a pointless reconnect by a list that maps a
 /// different id onto the same address.
+///
+/// 🔴 [cached] IS AN OPTIMISATION THAT CANNOT PRODUCE A WORSE ANSWER, and that
+/// property is structural rather than a check. The directory this app already
+/// read for the node badge (`NodeLabels.nodes`) is consulted FIRST, and it is
+/// used only when it RESOLVES the wanted id: a stale copy that has never heard
+/// of that node, or an empty one, falls through to exactly the fetch this
+/// function has always made. So the two failure shapes a cached directory could
+/// have — 「too old to know the node」 and 「not loaded yet」 — both cost today's
+/// round trip and nothing else.
+///
+/// ⚠️ WHAT IT DOES **NOT** BUY, stated because the opposite is the easy
+/// assumption: on the FIRST hop of an app run the badge's own read is usually
+/// still in flight, so [cached] is empty and the fetch happens. The saving is on
+/// every hop after that (a ladder rung, a hold-out recheck, a second pairing),
+/// which is also every hop that happens while the user is already talking.
+///
+/// ⚠️ A stale entry that resolves to a MOVED address would dial the wrong host —
+/// but the same stale directory would be handed to `resolveNodeUrl` by the fetch
+/// path too, because the node list this phone can read is served by the node it
+/// is talking to. The cache does not widen that exposure; it only skips asking
+/// the same question twice in one app run.
 Future<String?> planNodeHop({
   required Object? ack,
   required String currentEndpoint,
   required NodeListFetcher fetch,
+  List<RelayNode> cached = const <RelayNode>[],
 }) async {
   final String? wanted = nodeToFollow(ack);
   if (wanted == null) return null;
-  final List<RelayNode> nodes = await fetch(nodeListUri(currentEndpoint), kNodeListTimeout);
-  final String? url = resolveNodeUrl(nodes, wanted);
+  String? url = resolveNodeUrl(cached, wanted);
+  if (url == null) {
+    final List<RelayNode> nodes =
+        await fetch(nodeListUri(currentEndpoint), kNodeListTimeout);
+    url = resolveNodeUrl(nodes, wanted);
+  }
   if (url == null) {
     diag('node.follow.unresolved', <String, Object?>{'want': wanted});
     return null;

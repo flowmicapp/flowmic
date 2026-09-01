@@ -16,7 +16,9 @@ import { SttEngineError, requireEndpoint, unexpectedCloseError } from './base';
 import { funasrChunkFromEnv, funasrItnFromEnv } from '../tuning-env';
 
 interface FunasrFrame {
-  mode?: string;
+  /** Probe T1/T5 trailer omits this key (JSON → undefined). Analysis dumps
+   *  write `null`. Neither is `2pass-offline`. */
+  mode?: string | null;
   text?: string;
   wav_name?: string;
   is_final?: boolean;
@@ -143,38 +145,48 @@ export class FunasrEngine extends EventEmitter implements SttEngine {
     } catch {
       return;
     }
-    if (typeof frame.text !== 'string') return;
 
+    const text = typeof frame.text === 'string' ? frame.text : '';
     // F-2100 — route by PASS, not by is_final. A 2pass-offline frame is the
     // authoritative offline result for a completed VAD span → 'final' +
     // offlineAccum. A 2pass-online frame is always a live chunk-boundary draft
-    // → 'interim' only, never offlineAccum. frame.mode=undefined keeps the
-    // legacy is_final→final routing for test fakes.
-    const isOfflinePass = frame.mode === '2pass-offline'
-      || (frame.mode === undefined && frame.is_final === true);
-    if (isOfflinePass) {
-      const ev: FinalResult = {
-        kind: 'final',
-        text: frame.text,
-        confidence: 1,
-        language: this.cfg.language,
-        duration_ms: Math.max(0, Date.now() - this.startedAt),
-      };
-      this.emit('final', ev);
-    } else {
-      const ev: InterimResult = {
-        kind: 'interim',
-        text: frame.text,
-        confidence: 0.5,
-        language: this.cfg.language,
-      };
-      this.emit('interim', ev);
+    // → 'interim' only, never offlineAccum. mode missing/null + is_final keeps
+    // the legacy is_final→final routing for test fakes and the T1/T5 trailer.
+    //
+    // F-1: an empty frame contributes no text. Emitting `final{text:''}` would
+    // reach the orchestrator's handler (`offlineAccum = mergeOverlap(…);
+    // onlineDraft = ''`) and wipe a longer live draft BEFORE raceFlushFinal
+    // late-binds getOfflineText(). Empty is a settle signal, not a result.
+    if (text.length > 0) {
+      const isOfflinePass = frame.mode === '2pass-offline'
+        || (frame.mode == null && frame.is_final === true);
+      if (isOfflinePass) {
+        const ev: FinalResult = {
+          kind: 'final',
+          text,
+          confidence: 1,
+          language: this.cfg.language,
+          duration_ms: Math.max(0, Date.now() - this.startedAt),
+        };
+        this.emit('final', ev);
+      } else {
+        const ev: InterimResult = {
+          kind: 'interim',
+          text,
+          confidence: 0.5,
+          language: this.cfg.language,
+        };
+        this.emit('interim', ev);
+      }
     }
 
-    // Unblock flush() on the OFFLINE pass only. The offline frame can carry
-    // is_final=false; resolveFlush is set only after is_speaking:false, so a
-    // mid-session offline frame can't settle flush early.
-    if (isOfflinePass && this.resolveFlush) {
+    // F-1: unblock flush() on the first post-flush frame with is_final===true
+    // (any mode) — including the empty mode-omitted trailer. Previously this
+    // fired on the first 2pass-offline, which on T2_linger is the body span
+    // at +7.26s; the tail sentence lives in the SECOND offline at +8.11s.
+    // resolveFlush is set only after is_speaking:false, so a mid-session
+    // offline (even one carrying is_final=true) cannot settle flush early.
+    if (frame.is_final === true && this.resolveFlush) {
       const r = this.resolveFlush;
       this.resolveFlush = null;
       r();

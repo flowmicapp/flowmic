@@ -14,6 +14,7 @@
 
 import '../../generated/flowmic_events.g.dart';
 import '../auth/token_storage.dart';
+import '../diag/diag_log.dart' show diag;
 import '../session/platform_device_info.dart';
 import 'socket_core.dart';
 import 'wire_payloads.dart';
@@ -209,12 +210,27 @@ ReconnectRefusal? handshakeRefusal(SocketTransport transport) {
   return const ReconnectRefusal(code: 'AUTH_TOKEN_INVALID');
 }
 
+/// 🔴 P0 (owner 2026-09-01) — 「is an `AUTH_TOKEN_INVALID` right now more likely
+/// to be replication lag than a verdict about this pairing」.
+///
+/// A callback rather than a bool because it must be evaluated AFTER the ack
+/// round-trip, not before it: the answer is a function of elapsed time and the
+/// awaited call is where the time goes. Passing today's value in would be asking
+/// the question at the one moment it cannot be about the refusal.
+///
+/// 🔴 REQUIRED, WITH NO DEFAULT. `() => false` would be today's behaviour and
+/// would read as harmless, which is exactly the friendly DI default this repo
+/// bans: a second call site added later would silently opt out of the protection
+/// and the deleted pairing would look like a server bug.
+typedef ReplicaLagProbe = bool Function();
+
 Future<bool> runMobileReconnect({
   required SocketTransport transport,
   required TokenStorage tokenStorage,
   required String token,
   required Duration timeout,
   required bool surfaceTransientFailure,
+  required ReplicaLagProbe suspectedReplicaLag,
   required ReconnectAccepted onAccepted,
   required ReconnectRejected onRejected,
 }) async {
@@ -245,11 +261,42 @@ Future<bool> runMobileReconnect({
     ok = false;
   }
   if (!ok) {
-    final bool invalid =
+    // 🔴 BOTH SHAPES OF THE SAME REFUSAL, and the P0 needed both: the ack-level
+    // one (socket up, `mobile:reconnect` refused by name) and the
+    // handshake-level one (the middleware refused the token before the frame
+    // could go out, so there is no ack at all and the code is on
+    // `lastConnectError`). A replica that has not pulled our row yet can produce
+    // EITHER, depending on whether it refuses at admission or at the handler.
+    final bool refusedToken =
         (ack is Map && ack['error'] == 'AUTH_TOKEN_INVALID') ||
         (transport.currentStatus == SocketStatus.error &&
             (transport.lastConnectError?.contains('AUTH_TOKEN_INVALID') ??
                 false));
+    // 🔴 P0 (owner 2026-09-01) — 「pairing must succeed ONCE」. `mobile:pair` is
+    // writer-only, so a fresh token exists on the writer and nowhere else until
+    // a replica's next 30 s pull; the phone then FOLLOWS ITS PC to that replica
+    // and presents it. Deleting the pairing there destroys the thing the user
+    // just made, and the only recovery — scan again — repeats the whole race.
+    //
+    // 🔴 WHAT IS SUPPRESSED IS THE DELETION, NOT THE REFUSAL. The reconnect
+    // still fails, `onRejected` still runs, the phone is still out of the room
+    // and still says so; the token simply survives so that something can ask
+    // again. Nothing is reported as connected that is not.
+    //
+    // 🔴 AND `invalid` GOES FALSE WITH IT, WHICH IS THE POINT RATHER THAN A SIDE
+    // EFFECT. `invalid` is what makes `PttSession._authValid` false, and that
+    // flag STOPS THE RECONNECT LADDER (`shouldReconnect`). Suppressing the
+    // deletion while still stopping the ladder would leave a phone holding a
+    // valid token that nothing will ever re-present — a quieter version of the
+    // same defect. The pair `invalid == false` with `error ==
+    // 'AUTH_TOKEN_INVALID'` is unreachable any other way, and
+    // `_noteHoldOut` reads exactly that pair as 「this one was suppressed，
+    // schedule the replica re-ask」.
+    final bool lag = refusedToken && suspectedReplicaLag();
+    final bool invalid = refusedToken && !lag;
+    if (lag) {
+      diag('reconnect.token_refused_within_lag_window', const <String, Object?>{});
+    }
     if (invalid) await tokenStorage.removeByToken(token);
     // Card L7 — the ack's own `error`, verbatim. A throw / timeout leaves `ack`
     // non-Map ⇒ null: 「我们没问到」("we didn't get an answer") and 「服务器说了 X」

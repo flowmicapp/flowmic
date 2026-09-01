@@ -32,11 +32,14 @@ import {
 } from '@flowmic/protocol';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
+import { pcPresence } from '../../room/pc-presence';
+import type { PcRecord } from '../../db/repos/pc.repo';
 import type { PairRateLimiter } from '../../room/pair-rate-limit';
 import type { ReleaseSuppression } from '../../room/release-suppression';
 import { errorPayload } from '../../errors';
 import { restrictionRefusalBody, restrictionVerdict, type RestrictionReader } from '../../auth/account-restriction';
 import type { WriterOnlyGuard } from '../../node/writer-only';
+import type { TokenReadThroughSeam } from '../../auth/middleware';
 import { getAuth, safeAck, setAuth, setCloudSession, setRoomUuid, type ActingIdentity } from '../wire';
 import { adoptAudioSession, peekAudioLastContiguousSeq } from '../../engine/audio-registry';
 import { clientIpFromHandshake } from '../../http/trusted-proxy';
@@ -56,6 +59,23 @@ export interface MobileHandlerDeps {
    *  Absent on a single-node deployment, and absent must keep meaning「there are
    *  no nodes」rather than「I do not know which node」— see the schema. */
   nodeId?: string;
+  /** 2026-09-01 — true when this node's `pc_devices` rows arrive via the
+   *  replication pull (role 'replica'). Handed straight to `pcPresence`, which
+   *  carries the arithmetic on `PcPresenceOptions`: it widens the freshness
+   *  window for a REMOTE PC only, because a replica's copy of somebody else's
+   *  row advances at the 30 s pull rather than at the 5 s outbox drain.
+   *
+   *  OPTIONAL, and absent means「this node's rows are its own」— the writer, and
+   *  every single-node deployment there is. It travels beside `nodeId` above
+   *  and is optional for the same reason that one is: the branch it tunes only
+   *  runs when `nodeId` is present AND the PC lives elsewhere, so on a
+   *  deployment that omits `nodeId` this value cannot change any answer. The
+   *  wiring is pinned instead by test/presence-wiring-source.test.ts, which
+   *  reads bootstrap.ts and fails if the line stops being there. */
+  rowsFromReplicationPull?: boolean;
+  /** Server clock — injected so a test can state an instant instead of racing
+   *  one. The default is the REAL clock, never a friendly no-op. */
+  now?: () => number;
   /** 2026-08-29 multi-node — see PcHandlerDeps.writerOnly. REQUIRED for the same
    *  reason `restriction` below is: an optional gate is a gate that can be
    *  switched off by forgetting, with nothing red to show for it. */
@@ -81,6 +101,36 @@ export interface MobileHandlerDeps {
    *  column there) — the gate is inert BY FACT, not by being unwired. Making it
    *  saas-only would put a mode branch between an auth decision and its reader. */
   restriction: RestrictionReader;
+  /**
+   * Z4 (2026-09-01) — the SAME handshake read-through, on the one other seam
+   * that resolves a pairing token against this node's local database.
+   *
+   * 🔴 WHY THE HANDSHAKE'S COPY WAS NOT ENOUGH. A phone dials with its token in
+   * `handshake.auth`, so the middleware's read-through normally lands the rows
+   * before this event is ever emitted. Two things get past that:
+   *   · a socket admitted with NO token — `pc:register` / `mobile:pair` flows
+   *     connect first and get their credential mid-session, so nothing ran a
+   *     read-through for them;
+   *   · the REPLICATION PULL RACING US. `replica-puller.ts` applies
+   *     `DELETE FROM t; INSERT INTO t SELECT * FROM snap.t` for every table, so a
+   *     snapshot FETCHED before this pairing existed and APPLIED after we landed
+   *     it erases the row again — underneath a socket that is still open. The
+   *     next `mobile:reconnect` (a rejoin, a presence self-heal re-probe) then
+   *     misses locally, and THAT refusal is the one the phone deletes its local
+   *     pairing on (`mobile_reconnect_flow.dart`, `removeByToken` — one of only
+   *     two call sites in the whole app).
+   *
+   * ⚠️ Optional, unlike `writerOnly` and `restriction` right above, and for the
+   * opposite reason: those are gates whose absence would silently switch them
+   * off, while absence here is a LEGITIMATE DEPLOYMENT SHAPE — the writer and
+   * every single-node deployment have nothing to ask. Same argument, same
+   * spelling, as `PcHandlerDeps.mintCodeOnWriter`. With it absent this handler is
+   * byte-for-byte the one that shipped before.
+   *
+   * ⚠️ The instance is the one bootstrap also hands `authMiddleware`. One budget,
+   * one single-flight table; see the type's own doc for why two would be wrong.
+   */
+  resolveTokenOnWriter?: TokenReadThroughSeam;
   /** Acting-user resolution for the cloud-instance variant (saas: handshake-JWT
    *  sub / in-session login; standalone never reaches this — it fails earlier). */
   resolveActingUser(socket: Socket): ActingIdentity;
@@ -298,6 +348,28 @@ function refuseRestricted(deps: MobileHandlerDeps, userId: string, ack: unknown)
 
 export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps): void {
   const { registry, store, pairLimiter } = deps;
+  const now = deps.now ?? Date.now;
+  /**
+   * `pc_online` for one ack — the phone-facing half of「is my computer here」.
+   *
+   * 🔴 IT WAS `store.getPc(pc.room_uuid) !== null`, WRITTEN OUT AT EACH ACK, and
+   * that expression answers a question about THIS PROCESS's room map. Rooms are
+   * per-process (room/store.ts: "Live socket presence ONLY"), `mobile:pair` is
+   * writer-only, and a PC settles on whichever node its own selection chose — so
+   * a phone that paired on the writer while its PC lives on a replica was told
+   * its computer is not there. Truthfully, and uselessly: the right answer to
+   * the wrong question, with nothing to report because nothing had failed.
+   *
+   * One local function so both acks cannot drift apart, and it does nothing but
+   * call the ONE author of this fact (room/pc-presence.ts) with what this node
+   * knows about itself. `deps.nodeId` is the DOOR this socket arrived through
+   * (bootstrap's `socketNodeId`), which is the same id `home_node` is stamped
+   * with — comparing a door against a process id would call a PC on this very
+   * process remote.
+   */
+  const pcOnline = (pc: PcRecord): boolean => pcPresence(store, pc, now(), deps.nodeId ?? null, {
+    rowsFromReplicationPull: deps.rowsFromReplicationPull === true,
+  });
 
   // Free the per-socket backoff slot when the socket goes away (bounded memory).
   socket.on('disconnect', () => pairLimiter.forget(socket.id));
@@ -440,7 +512,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         pc_machine_uid: pc.machine_uid,
         pc_name: pc.device_name,
         room_uuid: pc.room_uuid,
-        pc_online: store.getPc(pc.room_uuid) !== null,
+        pc_online: pcOnline(pc),
         // 🔴 2026-08-30 — THE PAIR LEG NEEDS THESE AS MUCH AS THE RECONNECT LEG,
         // and the asymmetry was a real defect rather than an omission of taste.
         //
@@ -471,11 +543,43 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
     }
   });
 
-  socket.on('mobile:reconnect', (payload: unknown, ack: unknown) => {
+  // ⚠️ ASYNC, and the only thing that awaits is the replica read-through below.
+  // An `async` function runs synchronously to its first `await`, so a local hit —
+  // every hit on a writer, on a single node, and the overwhelming majority on a
+  // replica — reaches `safeAck` in the same tick it always did. The socket.io
+  // wrapper already handles a thenable handler (error-handling.ts inspects the
+  // return value and attaches a rejection reporter), so this is not a new
+  // containment shape either.
+  socket.on('mobile:reconnect', async (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:reconnect', payload);
     if (!parsed.success) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
     try {
-      const result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
+      let result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
+      // ── LOCAL MISS ──────────────────────────────────────────────────────
+      //
+      // 🔴 ON A REPLICA A LOCAL MISS IS A MAYBE, NOT A NO — the same asymmetry
+      // `authMiddleware` and `/api/node/locate` already answer, on the one other
+      // seam that resolves a pairing token against this node's own database.
+      // Replication makes rows arrive late (and, when a pull races a
+      // read-through, arrive and then LEAVE); it never invents them.
+      //
+      // 🔴 THIS REFUSAL IS THE EXPENSIVE ONE. A handshake-level
+      // AUTH_TOKEN_INVALID and this ack-level one are read by the same phone
+      // code, and BOTH set `invalid` (mobile_reconnect_flow.dart) ⇒ the local
+      // pairing is DELETED. A replica answering from a lagging database was
+      // therefore able to destroy a credential that was valid the whole time.
+      // After this, a refusal here means the WRITER does not know the token.
+      //
+      // Exactly ONE retry, and only after rows actually landed: the read-through
+      // is authoritative, so a second attempt on the same answer could only
+      // produce the same miss. Every failure of it — no dep, writer unreachable,
+      // timeout, spent budget, an authoritative「never heard of it」— resolves
+      // `false` and falls through to the refusal below, which is what this
+      // handler did before Z4.
+      if (!result && deps.resolveTokenOnWriter) {
+        const landed = await deps.resolveTokenOnWriter.resolve(parsed.data.token);
+        if (landed) result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
+      }
       if (!result) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
       const { mobile, pc } = result;
       // A2-3 — the identity this socket is ABOUT to be given, computed ONCE and
@@ -557,7 +661,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         pc_machine_uid: pc.machine_uid,
         pc_name: pc.device_name,
         room_uuid: pc.room_uuid,
-        pc_online: store.getPc(pc.room_uuid) !== null,
+        pc_online: pcOnline(pc),
         ...audioAckFields,
         ...nodeAckFields,
       });

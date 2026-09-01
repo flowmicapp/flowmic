@@ -51,6 +51,7 @@ import { makeResolveUserId } from './http/account-auth';
 import type { NodeRuntime } from './node/node-runtime';
 import { makeForwardReceiver } from './node/forward-receiver';
 import { makeForwardLedger } from './node/forward-ledger';
+import { resolveTokenRows } from './node/token-rows';
 import { diagLogPathBeside } from './http/diag-routes';
 import { seedDefaultSettings } from './settings/defaults';
 import { seedSaasByokEmpty } from './settings/byok';
@@ -59,7 +60,7 @@ import type { SubscriptionMailer } from './mail/subscription-mailer';
 import type { EmailVerificationMailer, PasswordResetMailer } from './mail';
 import type { ProbedTargets } from './status/status-probes';
 import { log } from './log';
-import { parseNodeHostMap } from './node/node-identity';
+import { nodeIdForHost, parseNodeHostMap, requestHost } from './node/node-identity';
 
 /** Everything the HttpDeps composition read out of `startServer`'s closure,
  *  named. Each field is the SAME instance bootstrap uses elsewhere — handing a
@@ -171,6 +172,11 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
   // switch and the API key can be read at a different moment — which is exactly
   // the argument `subscriptionWriterFor` makes for building its clients once.
   const opsRefund = serviceRefunder({ config, db, billing, ...(now ? { now } : {}) });
+  // ONE parse of FLOWMIC_NODE_HOSTS for this process. Two consumers read it —
+  // the presence route's per-request node id and the `/api/node/*` dep below —
+  // and two `parseNodeHostMap(process.env…)` calls would be two places one typo
+  // can be half-applied.
+  const nodeHostMap = parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS);
   // ── 2026-08-27 batch-2 item 4 — the GLOBAL daily registration surge gate ───
   //
   // 🔴 ONE INSTANCE PER PROCESS, and it is built HERE rather than in
@@ -224,7 +230,30 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     // sent to check a computer that is powered on and fine. The dep is REQUIRED
     // (presence-routes.ts states why), so forgetting this line is a type error
     // rather than a feature that silently is not there.
-    presence: { registry, store, pcs: db.pcs },
+    // 2026-09-01 — the last two facts this route needed to stop answering the
+    // wrong question. `nodeIdFor` is a FUNCTION of the request for the same
+    // reason bootstrap's socket leg computes `socketNodeId` per socket: a
+    // process behind a regional front door answers AS that door, and
+    // `home_node` is stamped with the door id, so a static process id here
+    // would compare two different kinds of name and call a PC on this very
+    // process remote. `nodeHostMap` is the SAME parse the `nodes` dep below
+    // uses — one env var, one map, one answer.
+    presence: {
+      registry,
+      store,
+      pcs: db.pcs,
+      nodeIdFor: (req): string | null => (
+        w.nodeRuntime.nodeConfig.nodeId === null
+          ? null
+          : nodeIdForHost(
+            requestHost(req.headers as unknown as Record<string, unknown>),
+            nodeHostMap,
+            w.nodeRuntime.nodeConfig.nodeId,
+          )
+      ),
+      rowsFromReplicationPull: w.nodeRuntime.nodeConfig.role === 'replica',
+      ...(now ? { now } : {}),
+    },
     // D6 (2026-08-04) — the pairing registry `POST /api/diag/mobile` judges its
     // Bearer against, wired in BOTH modes because the route is now mounted in
     // both. The SAME `registry` the socket handlers use; a dep of its own rather
@@ -286,7 +315,7 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             // the caller reached, not the process, or a client measuring two
             // doors of one process is told both are the same node and stops
             // being able to choose between them.
-            nodeHosts: parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS),
+            nodeHosts: nodeHostMap,
             version,
             ...(process.env.FLOWMIC_NODE_LIST_PATH
               ? { nodeListPath: process.env.FLOWMIC_NODE_LIST_PATH }
@@ -336,6 +365,16 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                     const short_code = registry.refreshShortCode(pcId);
                     return { short_code, expires_in_ms: registry.shortCodeExpiresInMs(pcId) };
                   },
+                  // 2026-08-31 (P0-①) — the writer half of the handshake
+                  // read-through. `resolveTokenRows` is the ONE definition of
+                  // 「which rows does this token stand for」 and it looks up the
+                  // PC table first, exactly as `authMiddleware` does, so the two
+                  // sides of the wire cannot disagree about a token's kind.
+                  //
+                  // Returns null — never throws — for a token this writer does
+                  // not have, so the route can answer 404 and the replica can
+                  // tell 「no such token」 apart from 「I could not ask」.
+                  resolveToken: (token: string) => resolveTokenRows(db, token),
                   receiveForward: makeForwardReceiver({
                     ledger: makeForwardLedger(db.raw),
                     targets: {
@@ -699,7 +738,7 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
     // sliced by the CONSUMER, so `grep` answers 「what can this route do」 at the
     // route rather than here).
     ...opsHttpDeps({
-      config, db, authService, serviceMail: w.serviceMail,
+      config, db, authService, billing, serviceMail: w.serviceMail,
       ...(now ? { now } : {}),
       ...(opsRefund === undefined ? {} : { opsRefund }),
     }),

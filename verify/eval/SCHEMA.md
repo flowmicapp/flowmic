@@ -86,6 +86,7 @@ Extra fields:
 | `must_not_contain` | string[] | the fabrication attractors this input invites |
 | `no_new_numerals` | bool (default `true`) | **every digit run in the output must appear in the input.** The sharpest hallucination detector we have and it needs no case-specific authoring. |
 | `no_new_latin_tokens` | bool | for CJK inputs: any latin word in the output must be in the input. Catches invented product/company names. |
+| `preserve_internal_spaces` | bool | opt-in. `must_contain_any` is matched with internal spaces kept (only case and outer whitespace are normalised). Catches a model that deletes the space between a CJK word and a Latin word, which `fold()` cannot see and which `no_new_latin_tokens` only sees when two Latin words are glued. |
 | `max_len_ratio` | number | organize may shorten; a large expansion is the runaway-expansion signature |
 
 ### Families required (≥10 cases each)

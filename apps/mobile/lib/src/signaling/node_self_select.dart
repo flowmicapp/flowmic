@@ -35,11 +35,10 @@
 // readings that flat produces a confident, arbitrary answer that never looks
 // wrong, which is the failure this floor exists to refuse.
 //
-// ⚠️ ONE DIFFERENCE FROM THE DESKTOP, STATED RATHER THAN HIDDEN: it takes the
-// MIN of its probe rounds and this takes the MEDIAN, because the median is what
-// `probeNode` already computes and what the settings panel already shows the
-// user. Same source, same route, same rounds — a user comparing the panel with
-// what got chosen must not find two different numbers.
+// ⚠️ SAME HEADLINE AS THE SETTINGS PANEL: [probeNode] reports a hot round trip
+// (first success is connect, the rest are the headline). A user comparing this
+// choice with the numbers on the relay-node panel must not find two different
+// definitions of "latency".
 
 import 'dart:async';
 

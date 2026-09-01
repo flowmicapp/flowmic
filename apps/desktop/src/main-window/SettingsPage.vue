@@ -16,6 +16,7 @@ import UpdateCard from './components/UpdateCard.vue';
 // Devices page's cloud card embeds the same component, so the two places never
 // need separate fixes again.
 import CloudAccountLines from './components/CloudAccountLines.vue';
+import NodeLatencyPanel from './components/NodeLatencyPanel.vue';
 // ⚠️ owner 2026-08-02 UI batch 1 ③: `TimelineStats` / `DataPortability` /
 // `TimelineClear` **moved as a group to the Timeline page** (data operations belong
 // next to the data itself). None of the three components changed a single line —
@@ -38,6 +39,7 @@ import {
 } from '../lib/bridge';
 // 0.3.8 — the OS-owned doors moved out of bridge.ts when the 800-line cap bit.
 import { openLogDirectory } from '../lib/bridge-os';
+import { checkRelayLatency, type NodeLatencyRow } from '../lib/relay-latency';
 // 2026-08-30 — maps fetchAutostartState/setAutostartEnabled's machine reason
 // CODE to a localized sentence; unmapped reasons (free-form bridge text) pass
 // through unchanged. See that file's header for why.
@@ -121,6 +123,21 @@ const signedIn = computed(() => cloud.value.key_set);
 // lines. The Cloud Key's own exp is still shown, but is now carried by this
 // binding to the "Cloud Key valid until" line.
 const { card: accountCard, refresh: refreshAccount } = useCloudAccount(cloud);
+/** WP2 Card 1 — relay-node latency. Empty until the user asks; never auto-measured
+ *  (this page is `v-show`'d, so onMounted would fire on every app start). */
+const latNodes = ref<NodeLatencyRow[]>([]);
+const latBusy = ref(false);
+async function checkRelayNodes(): Promise<void> {
+  if (latBusy.value) return;
+  latBusy.value = true;
+  latNodes.value = [];
+  try {
+    const rows = await checkRelayLatency();
+    if (rows) latNodes.value = rows;
+  } finally {
+    latBusy.value = false;
+  }
+}
 /** RV-94: 'saved' | 'pending_transient' | 'pending_no_service' — see
  *  lib/settings-sync-notice.ts for why `settingsPending` alone cannot answer
  *  "why, and what should I do". */
@@ -361,6 +378,12 @@ onUnmounted(() => {
               <Icon name="devices" />{{ S.set_account_goto_devices }}
             </button>
           </div>
+          <NodeLatencyPanel
+            v-if="signedIn"
+            :nodes="latNodes"
+            :busy="latBusy"
+            @check="checkRelayNodes"
+          />
         </section>
 
         <!-- Speech recognition (existing component, includes the scenario card) -->

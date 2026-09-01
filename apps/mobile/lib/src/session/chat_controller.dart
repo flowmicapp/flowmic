@@ -222,8 +222,8 @@ class ChatController extends ChangeNotifier
   void _onAlbumAwayChanged() => onAlbumAwayChangedRouted(this);
 
   /// The server just put this connection into the room ⇒ now, and only now,
-  /// the queue can actually deliver. See F-1.
-  void _onRoomJoined() => unawaited(outbox.drain());
+  /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
+  void _onRoomJoined() => onRoomJoinedRouted(this);
 
   final PttSession session;
   /// Card PAIR-SUCCESS — raised by main.dart from the connections page's deliberate-entry funnel only.

@@ -127,7 +127,15 @@ describe('A2-5 census — nothing shipped here is a capability with no caller', 
     // reason the paragraph above gives about node-runtime.ts — without the call
     // assertion the sweeps file could become an orphan with this still green.
     expect(sweeps).toContain('usageEvents: db.usageEvents');
-    expect(boot).toContain('startBackgroundSweeps(');
+    // 🔴 2026-09-01: bootstrap no longer names `startBackgroundSweeps` — the
+    // assembly moved one door further out, to `startSweepsForBootstrap` in the
+    // same file, so that `serviceRefunder` is built once instead of twice. BOTH
+    // links are asserted: bootstrap calls the wrapper, and the wrapper calls the
+    // sweeps. Asserting only the first would let the wrapper stop starting
+    // anything with this test still green — which is the orphan the paragraph
+    // above is about, moved one link along.
+    expect(boot).toContain('startSweepsForBootstrap(');
+    expect(sweeps).toContain('startBackgroundSweeps(');
   });
 
   it('recordQuotaRefusal is called from EXACTLY the two user-facing admission points', () => {

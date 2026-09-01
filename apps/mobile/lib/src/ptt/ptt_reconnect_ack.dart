@@ -93,7 +93,28 @@ extension PttSessionHoldOutRecheck on PttSession {
   /// now: [_recheckHoldOut] below still owns "can we ask right now" (link down ⇒ the
   /// ladder's job; no token ⇒ nothing to ask with), and it re-checks both at
   /// fire time, which is the only moment those answers are current.
-  void _noteHoldOut(String? code, int? retryAfterMs) {
+  ///
+  /// 🔴 P0 (2026-09-01) — a THIRD question arrived on this seam, and it had to
+  /// be a third entry point for the same reason the second one did.
+  /// [suppressedTokenRefusal] is true only for the pair 「the server said
+  /// `AUTH_TOKEN_INVALID`, and `invalid` came back false」, which
+  /// `mobile_reconnect_flow.dart` can produce in exactly one situation: it kept
+  /// the token because this credential is newer than the refusing node may know.
+  ///
+  /// Without this branch that refusal falls into the arm directly below it —
+  /// 「the server answered and named no budget ⇒ not one dial」 — which is the
+  /// right answer for a REAL dead token and the wrong one here, where the socket
+  /// is up, nothing will drop, and therefore nothing else in the app will ever
+  /// ask a second time.
+  void _noteHoldOut(
+    String? code,
+    int? retryAfterMs, {
+    bool suppressedTokenRefusal = false,
+  }) {
+    if (suppressedTokenRefusal) {
+      _holdOut.noteReplicaLag(retry: _recheckHoldOut);
+      return;
+    }
     if (code == null) {
       _holdOut.noteLostAck(retry: _recheckHoldOut);
       return;
@@ -126,6 +147,10 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
       token: token,
       timeout: const Duration(seconds: 5),
       surfaceTransientFailure: false,
+      // 🔴 P0 — asked at the moment of refusal, never before it. See
+      // session/replica_lag_window.dart for why a fresh or just-moved credential
+      // may be legitimately unknown to the node that refused it.
+      suspectedReplicaLag: () => s.reconnect.lagWindow.open,
       onAccepted: (ack) {
         // 🔴 Card L7 ① — we are back in the room, so whatever was holding it has
         // let go. This is the PRIMARY release path (doc 15 §2.5d, release
@@ -183,7 +208,20 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // A counter, not a bool: subscribers want the **edge** ("entered the
         // room again"), and a bool that stays true forever notifies nobody on
         // the second room entry.
-        s.noteRoomJoined();
+        //
+        // 🔴 P0 (2026-09-01) — `atHomeNode` is THIS ack's own verdict
+        // (`settledAtHomeNode`, node_follow.dart), recorded here because the
+        // subscriber on the other side of the `roomJoins` edge — the pairing
+        // confirmation — must be answering about the join it is being told
+        // about. `PttSession.noteRoomJoined` writes it before it bumps the
+        // counter, and `ValueNotifier` notifies synchronously, so there is no
+        // window in which the two disagree.
+        s.noteRoomJoined(atHomeNode: settledAtHomeNode(ack));
+        // 🔴 P0 — being IN a room is proof that the node we are talking to knows
+        // this token, so there is nothing left to blame on replication lag. Left
+        // open, the window would keep suppressing a genuine revocation for up to
+        // 75 s after we were demonstrably admitted.
+        s.reconnect.lagWindow.close();
         s.paired.value = true;
         s._startPresencePoll(); // G-15①: resumePairing()+ladder
         if (ack is Map) {
@@ -268,7 +306,19 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // one null standing for both "answered, no budget" and "never answered at all", and the
         // second of those is the case in which nobody else will ever ask again.
         // See [PttSessionHoldOutRecheck._noteHoldOut] for the split.
-        s._noteHoldOut(error, retryAfterMs);
+        //
+        // 🔴 P0 — `AUTH_TOKEN_INVALID` WITHOUT `invalid` is the suppressed
+        // shape, and it is unreachable any other way: `invalid` is true for
+        // every other route by which that code can arrive
+        // (mobile_reconnect_flow.dart computes them together). It means the
+        // token was KEPT because the node that refused it may simply not have
+        // pulled our row yet, so the one thing this layer owes it is a second
+        // ask — the socket is still up, so the reconnect ladder never will.
+        s._noteHoldOut(
+          error,
+          retryAfterMs,
+          suppressedTokenRefusal: error == 'AUTH_TOKEN_INVALID' && !invalid,
+        );
         diag('reconnect.refused', <String, Object?>{
           'code': error, 'retry_after_ms': retryAfterMs, 'invalid': invalid,
         });
@@ -348,6 +398,11 @@ Future<void> _followNodeIfMisplaced(
     ack: ack,
     currentEndpoint: here,
     fetch: httpNodeListFetch,
+    // 🔴 P0 — the directory the node badge already read, reused rather than
+    // asked for a second time. It is consulted only when it RESOLVES the wanted
+    // id, so a stale or not-yet-loaded copy costs exactly the fetch below and
+    // nothing else (planNodeHop's own doc states the property and its limits).
+    cached: s.reconnect.nodeLabels.nodes,
   );
   // 🔴 NO PC TO FOLLOW ⇒ CHOOSE. A light-record ("FlowMic Cloud") session has a
   // virtual `pc_devices` row that nothing ever connects to as a PC, so its
@@ -375,6 +430,10 @@ Future<void> _followNodeIfMisplaced(
     token: token,
     url: move,
   );
+  // 🔴 P0 — we are about to present this token to a node that may never have
+  // heard of it. Opened BEFORE the dial, because the refusal it protects against
+  // arrives on the very next admission (session/replica_lag_window.dart).
+  s.reconnect.lagWindow.noteNodeHop();
   // `_scheduleReconnect` re-reads `_url` rather than closing over it (B4-15),
   // so reconfiguring mid-flight is supported by design.
   s.reconnect.configure(url: move);
@@ -382,4 +441,24 @@ Future<void> _followNodeIfMisplaced(
   // disconnection and dial the new address. `superseded` publishes
   // `connecting`, on which the ladder deliberately schedules nothing (F-5).
   await s.transport.disconnect();
+  // 🔴 P0 — A DELIBERATE MOVE IS NOT A FAILURE, SO IT MUST NOT PAY A FAILURE'S
+  // PENALTY. `disconnect()` publishes `disconnected`, the ladder reads that as a
+  // drop and arms its FIRST RUNG — 1 s (`initialBackoff`) — before dialling the
+  // address we just chose. That second is spent by a phone whose user has just
+  // scanned a QR code and is watching for the confirmation, and it buys nothing:
+  // backoff exists to stop a client hammering a link that is failing, and this
+  // link did not fail, we moved it.
+  //
+  // Same distinction 0.2.51's F-5 fix drew between 「replacing a live
+  // connection」 and 「a real drop」, one layer up: there the ladder had to be
+  // told NOT to treat a replacement as a drop; here it must be told not to make
+  // an intentional move WAIT like one.
+  //
+  // [kickNow] rather than a second dialling path, deliberately: it routes
+  // through `_scheduleReconnect` → `_resolveThenDial`, so B4-15's per-rung
+  // address question is still asked and 「which address to dial」 keeps one
+  // author (a machine identity — never cross-wire ids). Its own guards refuse if
+  // the ladder is stopped or a dial is already in flight, so the worst case is
+  // that nothing happens and the 1 s rung serves, i.e. exactly today.
+  s.reconnect.kickNow(reason: 'node-hop');
 }

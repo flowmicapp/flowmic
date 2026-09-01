@@ -338,9 +338,45 @@ function duplicationJudge(kase, out) {
     : [];
 }
 
+/** Case-folded, outer whitespace trimmed, INTERNAL spaces kept. */
+function spaceFold(s) {
+  return String(s ?? '').toLowerCase().trim();
+}
+
+/**
+ * Space-preserving `must_contain_any`. Opt-in via `preserve_internal_spaces`.
+ *
+ * `fold()` strips every whitespace character, so `must_contain_any: [["GitHub API"]]`
+ * also matches `GitHubAPI`. `no_new_latin_tokens` catches Latin–Latin gluing
+ * (GitHubAPI is a novel token) but not Latin–CJK gluing (`Slack通知` still
+ * contains the token `Slack`). This judge is the one that can see a deleted
+ * internal space.
+ *
+ * Compared against the case's own `must_contain_any` groups — the existing
+ * expectation field — with only case and outer whitespace normalised. A
+ * per-record boolean, same shape as `no_new_latin_tokens` / `expect_punctuation`.
+ *
+ * 🔴 REVERSE-CONTROL: remove this function from BY_SUITE.organize; the
+ * organize/silent_reformat glue rows' golden_bad start passing and the
+ * sole-rejecter floor for `preserve_internal_spaces` breaches.
+ */
+function spacePreservingContainsJudge(kase, out) {
+  if (!kase.preserve_internal_spaces) return [];
+  const groups = kase.must_contain_any ?? [];
+  const hay = spaceFold(out);
+  const misses = [];
+  for (const group of groups) {
+    const hit = group.some((m) => m && hay.includes(spaceFold(m)));
+    if (!hit) misses.push(group);
+  }
+  return misses.length
+    ? [fail('preserve_internal_spaces', `missing group(s) with internal spaces kept: ${misses.map((g) => JSON.stringify(g)).join(', ')}`)]
+    : [];
+}
+
 const BY_SUITE = {
   translate: [containsAnyJudge, notContainsJudge, illocutionJudge, lenRatioJudge],
-  organize: [containsAnyJudge, notContainsJudge, lenRatioJudge, numeralJudge, latinJudge],
+  organize: [containsAnyJudge, notContainsJudge, spacePreservingContainsJudge, lenRatioJudge, numeralJudge, latinJudge],
   realtime: [fragmentsJudge, coverageJudge, punctuationJudge, segmentsJudge],
   // `merge` asks two questions, and it needs both. Loss is the red line, but
   // the OPPOSITE failure is the one this exact layer shipped in 0.2.48 — the

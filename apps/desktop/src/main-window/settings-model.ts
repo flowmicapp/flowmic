@@ -66,6 +66,15 @@ import { asOrderedRoutings, orderedRoutings, type Routing } from './stt-routing-
 export { orderedRoutings, type Routing };
 import { S } from '../lib/strings';
 import { settings } from './store';
+import { migrateProfessionList } from './profession-ids';
+export {
+  migrateProfessionId,
+  migrateProfessionList,
+  PROFESSION_LABELS,
+  PROFESSION_LEGACY_ZH_TO_SLUG,
+  PROFESSION_OPTIONS,
+  PROFESSIONS,
+} from './profession-ids';
 
 // stt.dictionary is read by the server via a VARIABLE key (scenario-context /
 // engine-factory) and is deliberately NOT a drift-lint anchor — so it is pushed
@@ -116,44 +125,6 @@ const K_INFER = 'flowmic.ui.scenario.inference';
 function save(key: string, value: unknown): void {
   localKv.set(key, JSON.stringify(value));
 }
-
-/** Options offered by the profession/domain chip row (multi-select → card.professions).
- *
- *  🔴 THESE ARE THE STORED VALUES, NOT JUST DISPLAY TEXT (owner 2026-08-30
- *  defect report). `card.professions` is a bare `string[]` (packages/protocol
- *  src/scenario.ts) with no separate id — the entry the user clicks IS what
- *  gets saved, synced to the server, and dropped verbatim into the compose
- *  prompt as `Speaker professions: ...` (apps/server-core/src/compose/scenario.ts).
- *  So this array must NOT change: an existing install's already-chosen chips,
- *  and any prompt text already built from them, are keyed on these exact
- *  strings. What was missing is a DISPLAY overlay — see PROFESSION_LABELS /
- *  PROFESSIONS below, same split PACK_LABELS already draws for dictionary
- *  packs (id stored, label shown). */
-export const PROFESSION_OPTIONS = [
-  '软件开发', '云原生 / 运维', '产品设计', '金融', '医疗', '法律', '教育', '科研',
-] as const;
-
-/** Localized display labels for PROFESSION_OPTIONS (owner 2026-08-30 defect:
- *  the chip row showed Chinese labels under every UI locale, because the
- *  template rendered the stored id directly). GETTERS reading S for the same
- *  reason as PACK_LABELS just below — an init-time literal table would freeze
- *  the boot locale and never switch. */
-export const PROFESSION_LABELS: Record<string, string> = {
-  get '软件开发'() { return S.profession_swdev; },
-  get '云原生 / 运维'() { return S.profession_cloud_ops; },
-  get '产品设计'() { return S.profession_product_design; },
-  get '金融'() { return S.profession_finance; },
-  get '医疗'() { return S.profession_healthcare; },
-  get '法律'() { return S.profession_law; },
-  get '教育'() { return S.profession_education; },
-  get '科研'() { return S.profession_research; },
-};
-/** `{id, label}` pairs the chip row iterates — `id` is the stored value
- *  (unchanged), `label` is what the user reads. Same shape as PACKS below. */
-export const PROFESSIONS = PROFESSION_OPTIONS.map((id) => ({
-  id,
-  get label() { return PROFESSION_LABELS[id] ?? id; },
-}));
 
 /** Labels for the curated dictionary packs (protocol pack ids → UI label).
  *  V2-07.8a: GETTERS reading S — an init-time literal table would freeze the
@@ -270,6 +241,17 @@ const LLM_UNCONFIGURED: LlmConfigModel = {
 
 const EMPTY_CARD: ScenarioCard = { professions: [], domains: [], packs: [], terms: [] };
 
+/** asCard, then the profession-id read mapping. The only read author for a
+ *  card that is about to be shown or saved — local cache load AND the
+ *  settings:list snapshot both go through here, so a stored `软件开发` lights
+ *  the `software development` chip from either source. Unknown values pass
+ *  through (migrateProfessionList). */
+function asCardMigrated(v: unknown): ScenarioCard | null {
+  const c = asCard(v);
+  if (!c) return null;
+  return { ...c, professions: migrateProfessionList(c.professions) };
+}
+
 export const model = reactive({
   /** 🔴 `'zh'`, NOT `'zh-CN'` (owner 2026-08-27 §2-2). One hyphen made this row
    *  unreachable: phone and seeder both say `zh`, routing was string equality,
@@ -341,7 +323,7 @@ export const model = reactive({
   llmCapabilityUsable: true,
   refineEnabled: loadWith<boolean>(K_REFINE, false, asBoolean),
   llm: loadWith<LlmConfigModel>(K_LLM, { ...LLM_UNCONFIGURED }, asLlmConfig),
-  card: loadWith<ScenarioCard>(K_SCENARIO, EMPTY_CARD, asCard),
+  card: loadWith<ScenarioCard>(K_SCENARIO, EMPTY_CARD, asCardMigrated),
   /** V2-08 — the consent this PC last recorded, or `null` for "never asked,"
    *  which is the state every install starts in and the state the feature is
    *  OFF in. NOT a
@@ -697,18 +679,14 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
           save(K_LLM, model.llm);
         }
         break;
-      case SETTINGS_ANCHOR_KEYS.scenarioCard: // 'scenario.card'
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const c = value as Partial<ScenarioCard>;
-          model.card = {
-            professions: c.professions ?? [],
-            domains: c.domains ?? [],
-            packs: c.packs ?? [],
-            terms: c.terms ?? [],
-          };
+      case SETTINGS_ANCHOR_KEYS.scenarioCard: { // 'scenario.card'
+        const card = asCardMigrated(value);
+        if (card !== null) {
+          model.card = card;
           save(K_SCENARIO, model.card);
         }
         break;
+      }
       case SCENARIO_INFERENCE_KEY: { // 'scenario.inference' (V2-08 consent row)
         // The SERVER's row is the one the gate actually reads, so it wins over
         // this PC's display cache. A row this narrows to null is left alone

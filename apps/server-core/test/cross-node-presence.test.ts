@@ -23,7 +23,7 @@
 // forwarded timestamp in place of a room membership it cannot observe.
 
 import { describe, it, expect } from 'vitest';
-import { pcPresence } from '../src/http/console-device-routes';
+import { pcPresence } from '../src/room/pc-presence';
 import { registerHeartbeatHandler } from '../src/socket/handlers/heartbeat.handler';
 import { AUDIO_DEFAULTS } from '@flowmic/protocol';
 import { DRAIN_INTERVAL_MS } from '../src/node/outbox-drainer';

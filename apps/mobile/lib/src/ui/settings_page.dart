@@ -557,7 +557,7 @@ class SettingsPage extends StatelessWidget {
             for (int i = 0; i < packs.length; i++)
               settingsCheckRow(
                 title: s.packLabel(packs[i].id, packs[i].label),
-                sub: packs[i].preview,
+                sub: s.packPreview(packs[i].id, packs[i].preview),
                 checked: card.hasPack(packs[i].id),
                 onTap: () => scenario.togglePack(packs[i].id),
                 last: i == packs.length - 1,

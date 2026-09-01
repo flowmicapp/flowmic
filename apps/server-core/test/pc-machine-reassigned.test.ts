@@ -34,6 +34,11 @@ import { pcAbsenceReasons } from '../src/room/pc-absence';
 import { createDbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 
+/** Single node: no FLOWMIC_NODE_ID (so `nodeIdFor` answers null) and rows that
+ *  are this process's own. `pcPresence` takes its local branch and this route
+ *  answers exactly what it answered before it learned about nodes. */
+const SINGLE_NODE = { nodeIdFor: (): null => null, rowsFromReplicationPull: false };
+
 const MACHINE = 'machine-uid-shared-by-two-accounts';
 
 function request(token: string): IncomingMessage {
@@ -106,6 +111,7 @@ function askPresence(
     registry: w.registry,
     store: w.store as unknown as RoomStore,
     pcs: w.db.pcs,
+    ...SINGLE_NODE,
   });
   return read();
 }

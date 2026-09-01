@@ -22,7 +22,8 @@ import {
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
-import { seamText, SoftSegmentCadence } from './segment-boundary';
+import { seamText, SoftSegmentCadence, endsAtSentenceBoundary } from './segment-boundary';
+import { FunasrSpanClosureFeeder } from './funasr-span-closure';
 import { recheckQuotaOnLegBirth } from './quota-recheck';
 import { replayStillOwed } from './replay-debt';
 import { EngineSessionReconnectLadder, DEFAULT_BACKOFF_MS, type EngineSessionHooks } from './engine-session';
@@ -30,7 +31,8 @@ import { EngineIdleHangup, type IdleHangupHooks } from './engine-idle-hangup';
 import { raceSpawnTimeout } from './spawn-timeout';
 import { SttConfigMissingError } from './engine-router';
 import { mergeOverlap, foldInterim, foldConfirmedWithDraft, bankDraftAcrossLegs } from './text-merge';
-import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, type FlushOutcome } from './flush-final';
+import { feedReplayBufferTail } from './orchestrator-replay';
+import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, isFunasrFlushFamily, type FlushOutcome } from './flush-final';
 import { noEngineTerminalText } from './terminal-final-text';
 import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
 import { coldOpenErrorVerdict } from './cold-open-verdict';
@@ -44,6 +46,7 @@ export class SttEngineOrchestrator extends EventEmitter {
   /** card SEG-1 — composed like {@link idle}/{@link ladder}: it owns the timer,
    *  both phases and `due`. Account: `stt/segment-boundary.ts`. */
   private readonly cadence: SoftSegmentCadence;
+  private readonly spanClosure = new FunasrSpanClosureFeeder();
   private terminated = false;
   /** F-405 / W2.5-B: synchronous fence raised by BOTH terminal paths — hard-limit
    *  fan-out and stop() — before their closing flush begins. It means "this
@@ -192,6 +195,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.segmentStartMs = this.now();
     this.currentSegmentIdx = 0;
     this.cadence.reset(); // card SEG-1 — a fresh recording is never already due
+    this.spanClosure.reset();
     this.offlineAccum = '';
     this.onlineDraft = '';
     this.accumEmittedByFinal = false;
@@ -271,7 +275,13 @@ export class SttEngineOrchestrator extends EventEmitter {
     // ~200 ms chunks ⇒ one chunk of latency, every cut on a stack we own.
     // `feed` is passed, not re-derived (one gate reading per chunk); the cadence
     // owns the silence RUN too (SEG-3) — measured, not one instant reading.
-    if (this.cadence.shouldCut(feed, this.now(), this.offlineAccum)) this.startRollover(true);
+    const cut = this.cadence.shouldCut(feed, this.now(), this.offlineAccum);
+    // F-2 Fix A: feed ~1 s of zeros to FunASR AFTER the silence-run is updated
+    // and BEFORE startRollover, so a pause-cut flush can wait on a span the
+    // runtime has actually been shown. Client silence still does not go through.
+    if (feed) this.spanClosure.noteOpen();
+    else this.spanClosure.noteClosed(this.engine, this.now(), this.cadence.gateClosedMs(this.now()));
+    if (cut) this.startRollover(true);
     if (!feed) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return; }
     // card fix-022 / G-23: the gate just said this audio is worth sending, so this
     // is the ONE site that can record "the user really did speak" — and it is the same
@@ -458,6 +468,17 @@ export class SttEngineOrchestrator extends EventEmitter {
       this.replayBufferTail(true);
       return; // the cadence re-arms its own leg timer; `due` stays raised
     }
+    // F-2 Fix B: pause-cut only, FunASR family only. Wait ≤800 ms for the
+    // covering 2pass-offline (punctuated) to fold into offlineAccum; on expiry
+    // mint with today's text. Sentence cuts and non-FunASR pause cuts unchanged.
+    if (this.cadence.lastCutReason === 'pause') {
+      await this.spanClosure.waitForCoveringOffline({
+        enabled: isFunasrFlushFamily(this.engine.id),
+        alreadyCovered: endsAtSentenceBoundary(this.offlineAccum),
+        setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout,
+      });
+      if (this.terminated || this.terminalizing || !this.engine) return;
+    }
     const emitted = await this.flushAndEmitFinal(true, boundaryMs - this.segmentStartMs);
     if (this.terminated) return;
     // W2.5-B: both fence checks spend the index the same way ("once it's sent
@@ -600,7 +621,8 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.accumEmittedByFinal = true;
     if (!isSegment) return this.emitTerminalFinal(r, durationMs);
     // 🔴 card SEG-3 — the one place a segment's text leaves this class, so the one
-    // place a full stop the SPAN produced (not the speaker) can be taken back off.
+    // place a full stop the SPAN produced (not the speaker) can be taken back off
+    // on a 'leg' seam. F-2: a 'pause' cut keeps an engine-produced terminator.
     this.emit('final', {
       text: seamText(r.text, this.cadence.lastCutReason), confidence: r.confidence, language: r.language,
       segment_idx: this.currentSegmentIdx, is_segment: isSegment, duration_ms: durationMs,
@@ -661,26 +683,10 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.emit('error', flushErrorVerdict(err));
   }
 
-  /**
-   * 🔴 REQ-14-01 — a DEAD leg's cumulative draft becomes confirmed text before
-   * the next leg starts, or the next leg's final erases it (`onlineDraft = ''`
-   * in the `final` handler). Verdict, gate (declared-cumulative legs only) and
-   * the duplication trade: {@link bankDraftAcrossLegs}; measurements:
-   * `test/stt-outage-loss.test.ts` REQ-14-01 rows. Only the LADDER's respawn
-   * arrives here with a non-empty draft (`start()`/`rolloverSegment()`/
-   * `dialLeg()` clear or fold the accumulators before spawning).
-   * ⚠️ `accumEmittedByFinal` deliberately untouched: the interims that built
-   * the draft already cleared it and no final has run since (the leg died) —
-   * the banked text is exactly "content no final has carried".
-   */
-  private bankCumulativeDraftFromDeadLeg(): void {
-    const banked = bankDraftAcrossLegs(this.legInterimShape, this.offlineAccum, this.onlineDraft);
-    if (banked !== null) { this.offlineAccum = banked; this.onlineDraft = ''; }
-  }
-
   private async spawnEngine(): Promise<void> {
     if (this.engine) await this.closeEngine(); // never orphan a live engine on a stray double-spawn
-    this.bankCumulativeDraftFromDeadLeg();
+    const banked = bankDraftAcrossLegs(this.legInterimShape, this.offlineAccum, this.onlineDraft);
+    if (banked !== null) { this.offlineAccum = banked; this.onlineDraft = ''; }
     const engine = this.engineFactory() as EngineSubscriber;
     const handlers: EngineHandlers = {
       // F-2100: monotonic-cumulative preview per segment_idx (client REPLACES).
@@ -700,6 +706,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       final: (e) => {
         if (this.terminated || (this.terminalizing && !this.flushing)) return;
         this.offlineAccum = mergeOverlap(this.offlineAccum, e.text); this.onlineDraft = '';
+        this.spanClosure.notifyFold();
         this.accumEmittedByFinal = false; // card RT3-B: ditto — an ENGINE final is not a SERVER final
       },
       // F-2044: attached BEFORE open() (connect error owned by spawn). Flush-phase error is one-shot, never the ladder.
@@ -767,34 +774,21 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  `mergeOnlineDraft` — which exist to pick between two hypotheses OF THE SAME
    *  span — were discarding confirmed speech here. This string is the terminal
    *  transcript, not a preview: see `flush-final.ts:104-109`. */
+  flushSentHook: (() => void) | undefined = undefined; // WP2-6a: stt-factory → markFlushSent; raceFlushFinal is the one author
   private flushFinal(): Promise<FlushOutcome> {
-    const tMs = resolveFlushTimeoutMs(this.engine?.id ?? '', this.engineFlushTimeoutMs, this.engineFlushTimeoutExplicit);
-    return raceFlushFinal({ engine: this.engine, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: tMs, setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout });
+    return raceFlushFinal({ engine: this.engine, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: resolveFlushTimeoutMs(this.engine?.id ?? '', this.engineFlushTimeoutMs, this.engineFlushTimeoutExplicit), setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: this.flushSentHook });
   }
 
-  /** card RT-3 — is any engine still expected to be handed audio? Live, mid-rollover,
-   *  or a reconnect rung armed. Once all three are false the ladder has given up
-   *  and no replay will ever happen, so holding unheard audio would only leak. */
-  /// Re-feed buffered tail: RECONNECT (gateUnfed=false) full 5s; ROLLOVER (true) seq>lastFed.
   private replayBufferTail(gateUnfed = false): void {
-    if (!this.engine || this.terminated || this.terminalizing) return;
-    // card M3-4b: the window is measured on the RECEIVE clock, by the session that
-    // stamped it — never `this.now()` against the phone's `ts_ms`. `chunk.ts_ms`
-    // below is deliberately untouched: the engine wants CAPTURE order, and that
-    // is the one question the phone's clock is the right answer to.
-    // card RT-3, the READ half. The window still decides how much ALREADY-FED audio
-    // is re-offered for context (so the duplication exposure measured in CASE 3
-    // is unchanged, deliberately — owner already chose duplication over dropped content). What is
-    // added is every chunk NO engine has heard, whatever its age: a window may
-    // not decide whether unheard speech is delivered.
-    const tail = this.session.replayTail(this.replayWindowMs, this.lastEngineFedSeq);
-    let fed = 0;
-    for (const chunk of tail) {
-      if (gateUnfed && chunk.seq <= this.lastEngineFedSeq) continue;
-      try { this.engine.push(chunk.payload, chunk.ts_ms); this.engineFedBytes += chunk.payload.length; this.sessionFedBytes += chunk.payload.length; this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, chunk.seq); fed += 1; } catch (err) { console.error('[SttEngineOrchestrator] replayBufferTail engine.push error (will surface via reconnect):', err); }
-    }
-    // card RT-2: replayed bytes are bytes the vendor received, so they restart the
-    // silence countdown for the same reason a live push does.
-    if (fed > 0) this.idle.arm();
+    const host = {
+      engine: this.engine, terminated: this.terminated, terminalizing: this.terminalizing,
+      lastEngineFedSeq: this.lastEngineFedSeq, engineFedBytes: this.engineFedBytes, sessionFedBytes: this.sessionFedBytes,
+      takeTail: () => this.session.replayTail(this.replayWindowMs, this.lastEngineFedSeq),
+      armIdle: () => { this.idle.arm(); },
+    };
+    feedReplayBufferTail(host, gateUnfed);
+    this.lastEngineFedSeq = host.lastEngineFedSeq;
+    this.engineFedBytes = host.engineFedBytes;
+    this.sessionFedBytes = host.sessionFedBytes;
   }
 }

@@ -76,6 +76,11 @@ class HoldOutRetry {
   /// safety argument for the bound.
   int _lostAcks = 0;
 
+  /// How many suppressed `AUTH_TOKEN_INVALID` asks this episode has made — see
+  /// [noteReplicaLag]. Reset by [cancel], i.e. by getting in, by the user
+  /// leaving the screen, or by any answer that is not that one.
+  int _lagAsks = 0;
+
   /// The **floor and ceiling** on the budget the server gives.
   ///
   /// The floor guards against "the budget is 0 or negative" — which would
@@ -127,6 +132,37 @@ class HoldOutRetry {
     Duration(seconds: 4),
     Duration(seconds: 8),
     Duration(seconds: 16),
+  ];
+
+  /// 🔴 P0 (2026-09-01) — the cadence for 「the node that refused us may simply
+  /// not know this credential yet」, and the third question this one timer
+  /// answers.
+  ///
+  /// WHY THESE NUMBERS: the cumulative sums are 3 / 9 / 21 / 45 / 75 seconds,
+  /// and 75 is `kReplicaLagWindow` (session/replica_lag_window.dart) — so the
+  /// last ask lands ON the edge of the window it is covering rather than after
+  /// it, and there is no gap in which nobody is asking while the suppression is
+  /// still in force. The steps double because the thing being waited for is a
+  /// 30 s replication pull whose phase we cannot see: asking every 3 s for 75 s
+  /// would be 25 frames to learn one thing.
+  ///
+  /// 🔴 IT IS A CADENCE, NOT A BUDGET, AND THAT IS WHY IT IS NOT [note]'s
+  /// ARGUMENT. `note` clamps a number the SERVER measured (`remainingMs`) and
+  /// the rule that the phone never computes 「how much is left」 stands; the relay
+  /// has no field for 「your row has not replicated yet」, so nobody measured
+  /// anything here and there is nothing to be handed. Feeding these into `note`
+  /// would put a fabricated budget on the server's authority — and it would
+  /// reach the user, since the same value is rendered as 「wait N more seconds」.
+  ///
+  /// ⚠️ Running out is not a failure state and invents nothing: the suppression
+  /// window closes at the same moment, so the next refusal from any source is
+  /// taken at face value and the pairing is deleted exactly as it is today.
+  static const List<Duration> replicaLagWaits = <Duration>[
+    Duration(seconds: 3),
+    Duration(seconds: 6),
+    Duration(seconds: 12),
+    Duration(seconds: 24),
+    Duration(seconds: 30),
   ];
 
   /// Test-visible: is the timer currently running.
@@ -202,6 +238,31 @@ class HoldOutRetry {
     _arm(lostAckWaits[attempt], retry);
   }
 
+  /// Record an `AUTH_TOKEN_INVALID` whose DELETION was suppressed because this
+  /// credential may be newer than the refusing node knows
+  /// (session/replica_lag_window.dart), and schedule the next ask off
+  /// [replicaLagWaits].
+  ///
+  /// 🔴 Why it cannot reuse either entry point above. [note] would need a
+  /// fabricated budget (see [replicaLagWaits]); [noteLostAck] answers 「nobody
+  /// answered at all」 and this refusal was answered, by name, on purpose. Three
+  /// questions, three doors, one timer — which is this class's whole shape, and
+  /// the reason it exists is that two of these once shared a `null`.
+  ///
+  /// ⚠️ Its streak counter is its OWN, not [noteLostAck]'s. Sharing one would
+  /// make that field's doc — 「how many asks in a row have gone UNANSWERED」 —
+  /// false, and these asks were answered. Both are bounded independently, so a
+  /// session that alternates between the two still stops.
+  void noteReplicaLag({required Future<void> Function() retry}) {
+    final int attempt = _lagAsks;
+    // Same reason as [noteLostAck]: stop the pending timer without clearing the
+    // streak, or the bound is unreachable and therefore not a bound.
+    _stop();
+    if (attempt >= replicaLagWaits.length) return;
+    _lagAsks = attempt + 1;
+    _arm(replicaLagWaits[attempt], retry);
+  }
+
   /// Must stop the timer when the user leaves this screen or the session is
   /// torn down — a phone that fires `mobile:reconnect` once a minute behind a
   /// screen nobody is looking at is traffic we manufactured ourselves.
@@ -212,6 +273,7 @@ class HoldOutRetry {
   void cancel() {
     _stop();
     _lostAcks = 0;
+    _lagAsks = 0;
   }
 
   void _stop() {

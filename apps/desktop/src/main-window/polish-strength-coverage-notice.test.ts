@@ -1,15 +1,14 @@
 // R-2乙 (owner 2026-08-29) — the sentence that tells a user who chose `smooth`
-// what smooth's meaning check can and cannot see.
+// what smooth's meaning check can see.
 //
 // WHY THE SENTENCE EXISTS. The polish guard has two halves. The cardinality
 // bound (§3.1) is language-independent. The closed-class check (§3.2) — the one
 // that catches a dropped negation, the edit that reverses meaning while barely
-// moving the edit distance — is built from Chinese and English term sets only,
-// so everywhere else it degrades to a digit check. At `strict` the §3.1 bound is
-// tight enough to carry the load; `smooth` widens it by design, which is exactly
-// where the gap bites. `CLOSED_CLASS_GUARDED_LANGS` (server) is that fact as
-// data and `stt-polish-guard-coverage.test.ts` keeps it true; this file checks
-// that the fact reaches a human.
+// moving the edit distance — used to be built from Chinese and English term
+// sets only. WP8 P1-2 extended those tables to the spoken set, so the sentence
+// now states that coverage. `CLOSED_CLASS_GUARDED_LANGS` (server) is that fact
+// as data and `stt-polish-guard-coverage.test.ts` keeps it true; this file
+// checks that the fact reaches a human.
 //
 // 【rendered-result】 Every copy assertion goes through renderToString, never the
 // catalogue. 0.2.53 is the reason: a sentence that exists in the string table and
@@ -62,9 +61,8 @@ describe('the coverage sentence renders exactly when smooth is the chosen streng
   });
 
   it('reaches the screen in every locale, not just the authored ones', async () => {
-    // The gap it describes is worst in exactly the languages whose speakers are
-    // least likely to be reading the Chinese build, so a locale that had the key
-    // but never rendered it would fail the people it is for.
+    // The coverage it describes is for speakers of every locale, so a locale
+    // that had the key but never rendered it would fail the people it is for.
     for (const loc of LOCALES) {
       setPolishStrength('smooth');
       const html = await renderIn(loc);
@@ -103,10 +101,10 @@ describe('the coverage sentence renders exactly when smooth is the chosen streng
         expect(s, `${loc} must not claim a default`).not.toContain(bad.toLowerCase());
       }
     }
-    // And it names the pair the guard actually covers, so the sentence stays
+    // And it names the coverage the guard actually has, so the sentence stays
     // checkable against CLOSED_CLASS_GUARDED_LANGS rather than being vague.
-    expect(S_BY_LOCALE.en.polish_strength_smooth_coverage).toContain('Chinese');
-    expect(S_BY_LOCALE.en.polish_strength_smooth_coverage).toContain('English');
+    expect(S_BY_LOCALE.en.polish_strength_smooth_coverage).toContain('every spoken language');
+    expect(S_BY_LOCALE.en.polish_strength_smooth_coverage).toContain('negations');
   });
 
   it('polish switched off ⇒ still no coverage sentence at strict', async () => {

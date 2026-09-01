@@ -30,6 +30,8 @@ import { makeReplicaPuller, type ReplicaPuller } from './replica-puller';
 import { makeSnapshotProducer } from './snapshot';
 import { makeAuthoritativeQuotaReader, type QuotaReader } from './authoritative-quota';
 import { makeWriterOnlyGuard, NODE_CAN_WRITE, type WriterOnlyGuard } from './writer-only';
+import { makeTokenReadThrough, type TokenReadThrough } from './token-read-through';
+import { applyTokenResolution } from './token-rows';
 
 export interface NodeRuntimeDeps {
   db: DbConnection;
@@ -142,6 +144,24 @@ export interface NodeRuntime {
    * to ask, because this process IS the answer.
    */
   mintCodeOnWriter: ((pcId: string) => Promise<MintedCode | null>) | null;
+  /**
+   * 2026-08-31 (P0-①) — present ONLY on a replica that has a writer client: the
+   * handshake's read-through for a token this node's copy of the database has
+   * never seen.
+   *
+   * 🔴 It is the THIRD member of the same family as `wrapQuota` and
+   * `mintCodeOnWriter`, and the family rule is worth stating once: a replica
+   * answers everything locally EXCEPT the questions whose whole purpose is to
+   * detect someone else's recent write. 「How many minutes are left」, 「mint me a
+   * code」, and now 「does this token exist」 — a pairing is created on the writer
+   * and reaches a replica only through the 30-second pull, so a local miss here
+   * is a maybe and not a no (node/token-read-through.ts has the measurement).
+   *
+   * `null` on the writer and on every single-node deployment. That null is what
+   * makes those deployments byte-identical: `authMiddleware` with no seam is the
+   * code that shipped before this existed, refusing on the same tick.
+   */
+  resolveTokenOnWriter: TokenReadThrough | null;
 }
 
 export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
@@ -383,8 +403,27 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     ? (pcId: string): Promise<MintedCode | null> => writerClient.mintShortCode(pcId)
     : null;
 
+  // The handshake read-through, keyed off the writer CLIENT for the same reason
+  // `mintCodeOnWriter` is: the client is what actually carries the secret and the
+  // URL, so a role with no client could only produce a promise it cannot keep.
+  //
+  // 🔴 `apply` writes to THIS node's database, and that is not a contradiction of
+  // 「a replica must not write」. Every other write a replica is forbidden is one
+  // it ORIGINATES — a fact the writer has never seen, landing in a snapshot the
+  // next pull replaces, which is a success that was not true. This one writes
+  // rows the writer already holds and the next pull will hand us anyway; it moves
+  // them thirty seconds earlier and invents nothing.
+  const resolveTokenOnWriter = writerClient
+    ? makeTokenReadThrough({
+      askWriter: (token) => writerClient.resolveToken(token),
+      apply: (rows) => applyTokenResolution(db, rows),
+      log,
+    })
+    : null;
+
   return {
     nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
     wrapQuota, stampHomeNode, stampPresence, writerOnly, mintCodeOnWriter,
+    resolveTokenOnWriter,
   };
 }

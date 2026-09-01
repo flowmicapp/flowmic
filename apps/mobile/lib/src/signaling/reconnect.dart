@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 
 import '../audio/audio_emitter.dart';
 import '../diag/diag_log.dart' show diag;
+import '../session/replica_lag_window.dart';
 import 'http_endpoint.dart' show secureDialUrl;
 import 'network_watch.dart';
 import 'node_labels.dart';
@@ -199,6 +200,39 @@ class ReconnectCoordinator {
   /// [pcHomeNode], [nodeLabels], `url`). A latch about node choice sitting next
   /// to the mic state would be a second place to look for one fact.
   bool selfNodeChoiceMade = false;
+
+  /// 🔴 P0 one-shot pairing — 「is the token this ladder dials with newer than a
+  /// replica may know」 (session/replica_lag_window.dart holds the whole
+  /// argument, the derivation of its 75 s, and the two writers).
+  ///
+  /// It lives HERE for the same reason [selfNodeChoiceMade] does, and the reason
+  /// is not shelf space: this class OWNS the credential ([_token],
+  /// `configure(replaceToken:)`) and it owns the hop that carries that credential
+  /// to a node which has never seen it ([configure] + the disconnect in
+  /// `_followNodeIfMisplaced`). Both events that can open the window are already
+  /// this object's business, and `ptt_session.dart` — where a session fact would
+  /// otherwise go — is at the 800-line cap.
+  final ReplicaLagWindow lagWindow = ReplicaLagWindow();
+
+  /// Was the accepted ack behind the LAST [PttSession.roomJoins] edge already at
+  /// the PC's home node (`settledAtHomeNode`, node_follow.dart)?
+  ///
+  /// 🔴 TRUE UNTIL AN ACK SAYS OTHERWISE, and that default is the safety
+  /// argument rather than optimism: every single-node deployment — which is
+  /// every installation that exists today — never carries the two node fields at
+  /// all, so 「no information」 has to mean 「nothing to wait for」 or the pairing
+  /// confirmation would hang on a fact nobody is ever going to send. False is
+  /// produced by exactly one input: an ack whose `home_node` names a node other
+  /// than the one that answered.
+  ///
+  /// Sole writer: [noteJoinAtHomeNode], called from `PttSession.noteRoomJoined`
+  /// so the verdict is recorded IMMEDIATELY BEFORE the edge it describes —
+  /// `roomJoins` notifies synchronously, so a subscriber reading this field must
+  /// be reading this join's answer and not the previous one's.
+  bool get lastJoinAtHomeNode => _lastJoinAtHomeNode;
+  bool _lastJoinAtHomeNode = true;
+
+  void noteJoinAtHomeNode(bool atHomeNode) => _lastJoinAtHomeNode = atHomeNode;
 
   /// Single writer for all three, called from the reconnect and pair ack legs.
   void noteAnsweringNode(String? id, {String? endpoint, String? homeNode}) {

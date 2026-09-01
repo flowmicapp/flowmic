@@ -142,7 +142,7 @@ void main() {
     // ── the actual point: the server put us in the room ──────────────────────
     // In production this is fired by `mobile:reconnect`'s `onAccepted`
     // (ptt_reconnect_ack.dart).
-    rig.session.noteRoomJoined();
+    rig.session.noteRoomJoined(atHomeNode: true);
     await rig.settle();
     expect(
       rig.drained,
@@ -157,7 +157,7 @@ void main() {
 
     await rig.speak('第一句');
     rig.transport.pushStatus(SocketStatus.connected);
-    rig.session.noteRoomJoined();
+    rig.session.noteRoomJoined(atHomeNode: true);
     await rig.settle();
     expect(rig.drained, isTrue);
 
@@ -170,7 +170,7 @@ void main() {
     await rig.speak('第二句');
     expect(rig.drained, isFalse, reason: 'down again; there must be no drain yet');
     rig.transport.pushStatus(SocketStatus.connected);
-    rig.session.noteRoomJoined();
+    rig.session.noteRoomJoined(atHomeNode: true);
     await rig.settle();
     expect(rig.drained, isTrue, reason: 'second join did not drain ⇒ only the first disconnect can self-heal');
   });

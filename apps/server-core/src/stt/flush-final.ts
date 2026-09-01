@@ -12,7 +12,7 @@
 
 import type { EventEmitter } from 'node:events';
 import type { FinalResult, SttEngine } from './engines/base';
-import { vadClosureSilenceBytes } from './tuning-env';
+import { vadClosureSilenceBytes, PCM_BYTES_PER_MS } from './tuning-env';
 
 export interface FlushFinalDeps {
   /** The engine being flushed, or null (→ resolve immediately with offline text). */
@@ -25,13 +25,62 @@ export interface FlushFinalDeps {
   timeoutMs: number;
   setTimeoutFn: (fn: () => void, ms: number) => unknown;
   clearTimeoutFn: (handle: unknown) => void;
+  /**
+   * WP2-6a — fired the instant `engine.flush()` is invoked, not when this
+   * function is entered and not when the flush settles. That instant is the
+   * only honest "we sent the flush" timestamp; a parallel clock on the
+   * caller would measure a different moment. Absent (harnesses) ⇒ no stamp.
+   * Production author: `SttEngineOrchestrator.flushSentHook` ← `stt-factory.ts`.
+   */
+  onFlushSent?: () => void;
 }
 
-/** Streaming engines (funasr/funspeech 2pass) get a 5s DEFAULT flush floor (the
- *  offline pass can exceed 3s); an EXPLICITLY configured cap wins. */
+/**
+ * Same family the old 5s flush floor targeted (`startsWith('funasr')` /
+ * `startsWith('funspeech')`). Soniox and the other engines are not in it.
+ */
+export function isFunasrFlushFamily(engineId: string): boolean {
+  return engineId.startsWith('funasr') || engineId.startsWith('funspeech');
+}
+
+/**
+ * Probe T2_linger (p1-packet-E, 2026-08-31, office FunASR runtime): post-flush
+ * inter-frame gaps were 104 / 105 / 105 / 104 / 429 ms — all ≤ ~450 ms. 2000 ms
+ * is ~4.4× the largest measured gap, so a live drain keeps extending.
+ *
+ * Armed on the FIRST post-flush frame, not at flush send: T2's first offline
+ * is at +7264 ms of silence, so a 2s-from-start quiescence would reproduce the
+ * tail loss. A completely silent engine therefore falls to the hard cap.
+ *
+ * F-1b — quiescence settle is allowed ONLY after ≥1 FINAL since attach.
+ * Interim-only activity still (re)sets this timer, because a live online drain
+ * must not look idle. But a fire with zero post-attach finals MUST NOT settle:
+ * disarm and leave the hard cap (or a later real drain) in charge.
+ *
+ * Failure shape: a STRAGGLER 2pass-online — one in-flight online response
+ * landing shortly after flush()/listener attach, before the 5–7 s pre-drain
+ * silence — is also a "first post-flush frame". Arming 2s on that interim,
+ * then going quiet, fires BEFORE the offline drain begins and settles the
+ * accumulated draft: the exact F-1 tail-loss shape, just earlier. The F-1
+ * probe could not show this (audio ended ~2.5 s before flush). Production
+ * flushes almost immediately after the last audio chunk, so one straggler
+ * online is plausible. After the first post-attach final, 2s quiet settles.
+ */
+export const FUNASR_FLUSH_QUIESCENCE_MS = 2_000;
+
+/**
+ * Probe T2_linger: last 2pass-offline arrived at +8110 ms on a 62.6 s span.
+ * 15000 ms is ~1.85× that measured drain, and matches the linger that found
+ * the runtime still open (server did not FIN within 15 s). Replaces the flat
+ * 5s floor that fired before either offline.
+ */
+export const FUNASR_FLUSH_HARD_CAP_MS = 15_000;
+
+/** Funasr/funspeech family default is the 15s hard cap (activity-extended
+ *  quiescence lives in {@link raceFlushFinal}). An EXPLICITLY configured cap
+ *  still wins the number; other engines are unchanged. */
 export function resolveFlushTimeoutMs(engineId: string, configuredMs: number, explicit: boolean): number {
-  const streaming = engineId.startsWith('funasr') || engineId.startsWith('funspeech');
-  return streaming && !explicit ? Math.max(configuredMs, 5_000) : configuredMs;
+  return isFunasrFlushFamily(engineId) && !explicit ? FUNASR_FLUSH_HARD_CAP_MS : configuredMs;
 }
 
 /** FunASR/FunSpeech 2pass VAD needs trailing silence to close the final word —
@@ -67,6 +116,32 @@ export function feedVadClosureSilence(
 }
 
 /**
+ * Probe T2_gaps1000 (p1-packet-E, 2026-08-31, office FunASR runtime): 1000 ms of
+ * silence closes a runtime VAD span (offline mid-stream); 300 ms does not;
+ * 600 ms (product MIN_PAUSE_MS) was unprobed. Hence we feed the measured full
+ * second rather than trusting the ungated pause length.
+ *
+ * Same invariant as {@link feedVadClosureSilence}: ENGINE ONLY — never the
+ * session buffer/seq, so replay and billing (`vad.sessionMs` in stt-session
+ * settle) are untouched. Called once per gate-closure episode by
+ * `FunasrSpanClosureFeeder` (funasr-span-closure.ts), not on every silent chunk.
+ */
+export const FUNASR_RUNTIME_SPAN_CLOSURE_MS = 1_000;
+
+export function feedRuntimeSpanClosureSilence(
+  engine: (SttEngine & { state?: string }) | null,
+  nowMs: number,
+): void {
+  if (!isFunasrFlushFamily(engine?.id ?? '')) return;
+  if (!engine || engine.state !== 'open') return;
+  try {
+    engine.push(Buffer.alloc(FUNASR_RUNTIME_SPAN_CLOSURE_MS * PCM_BYTES_PER_MS), nowMs);
+  } catch (err) {
+    console.error('[feedRuntimeSpanClosureSilence] engine.push error (pause proceeds):', err);
+  }
+}
+
+/**
  * What {@link raceFlushFinal} settled on.
  *
  * 🔴 `timedOut` is here because the caller has to be able to tell "the engine
@@ -88,17 +163,38 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
   const empty: FinalResult = { kind: 'final', text: '', confidence: 0, language: d.language, duration_ms: 0 };
   const engine = d.engine;
   if (!engine) return Promise.resolve({ result: { ...empty, text: d.getOfflineText() }, timedOut: false });
+  const activityExtended = isFunasrFlushFamily(engine.id);
   return new Promise<FlushOutcome>((resolve) => {
     let captured: FinalResult | null = null;
     let settled = false;
     let timedOut = false;
-    const onFinal = (e: FinalResult): void => { captured = e; }; // last final wins
+    let quiescenceTimer: unknown = null;
+    let postAttachFinals = 0;
+    const onActivity = (): void => {
+      if (!activityExtended || settled) return;
+      if (quiescenceTimer !== null) d.clearTimeoutFn(quiescenceTimer);
+      quiescenceTimer = d.setTimeoutFn(() => {
+        // F-1b: a straggler 2pass-online arms this timer. Settling here with
+        // zero post-attach finals loses the tail — see FUNASR_FLUSH_QUIESCENCE_MS.
+        if (postAttachFinals === 0) {
+          quiescenceTimer = null;
+          return;
+        }
+        timedOut = true;
+        console.warn(`[raceFlushFinal] engine.flush() timeout ${FUNASR_FLUSH_QUIESCENCE_MS}ms quiescence — using accumulated offline finals (${d.getOfflineText().length} chars)`);
+        finish(captured ?? empty);
+      }, FUNASR_FLUSH_QUIESCENCE_MS);
+    };
+    const onFinal = (e: FinalResult): void => { captured = e; postAttachFinals += 1; onActivity(); }; // last final wins
+    const onInterim = (): void => { onActivity(); };
     const finish = (r: FinalResult): void => {
       if (settled) return;
       settled = true;
       engine.off('final', onFinal);
       engine.off('error', onError);
-      d.clearTimeoutFn(timer);
+      if (activityExtended) engine.off('interim', onInterim);
+      d.clearTimeoutFn(hardCapTimer);
+      if (quiescenceTimer !== null) d.clearTimeoutFn(quiescenceTimer);
       // offlineAccum is authoritative. On timeout fallback only, if captured.text
       // is longer and contains offlineText as a prefix, use captured — the
       // engine's final may have the tail word offlineAccum lacks.
@@ -112,11 +208,16 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
     const onError = (): void => finish(captured ?? empty); // settle, don't hang
     engine.on('final', onFinal);
     engine.on('error', onError);
-    const timer = d.setTimeoutFn(() => {
+    if (activityExtended) engine.on('interim', onInterim);
+    const hardCapTimer = d.setTimeoutFn(() => {
       timedOut = true;
       console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — using accumulated offline finals (${d.getOfflineText().length} chars)`);
       finish(captured ?? empty);
     }, d.timeoutMs);
+    // WP2-6a: stamp BEFORE the call, not in its `.then` — `.then` is "flush
+    // settled", which is the other side of the split. Absence of engine (early
+    // return above) is not a send, so it never reaches here.
+    d.onFlushSent?.();
     engine.flush().then(() => finish(captured ?? empty)).catch(() => finish(captured ?? empty));
   });
 }

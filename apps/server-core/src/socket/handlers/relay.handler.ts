@@ -180,7 +180,7 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     // THE EVIDENCE IS THIS CONNECTION'S TOKEN BINDING, NEVER "who is in the room right now".
     // On a mobile socket `auth.deviceId` IS `pc_devices.id` of the PC this phone
     // is paired to, resolved from its token and from nothing else
-    // (auth/middleware.ts:169-172 → `mobileRow.pc_device_id`; mobile.handler.ts
+    // (auth/middleware.ts:152-154 → `mobileRow.pc_device_id`; mobile.handler.ts
     // :134/:180/:235 → `deviceId: pc.id`). `target_pc_id` is written in that exact
     // convention: it is the `pc_id` the phone was handed in its pairing ack — the SAME
     // `pc.id`, from the same three admission sites (mobile.handler.ts :143/:186/

@@ -58,6 +58,41 @@
 // not smuggled into a list card. Stated here so the omission is a decision on the
 // record rather than a gap somebody later 「fixes」 with the writing call.
 //
+// ── 🔴🔴 ORIGINAL-PLACE CORRECTION (2026-09-01, WP2 card 5) ─────────────────
+// EVERYTHING ABOVE THIS LINE WAS TRUE WHEN WRITTEN, AND ONE SENTENCE OF IT IS
+// FALSE NOW. Kept verbatim rather than edited, on the same footing as the
+// LOGIN-1 correction below it — how it was true is the reusable part.
+//
+// 「M2-8 处置 (a) `inspect`」 now exists: `BillingService.resolvePlanReadOnly`
+// (billing-service.ts). It IS [resolve] with `mirrorPlanColumn` never called —
+// the same one read of the `users` row, the same `computeView` call, no second
+// copy of the decision written by a different hand. `deps.billing` below is a
+// ONE-METHOD slice (`Pick<BillingService, 'resolvePlanReadOnly'>`): `getPlan`,
+// `effectivePlan`, `effectiveLimits` and every mock-gateway trigger stay
+// unreachable from this file, so the write this header warns about is not
+// merely avoided, it has no path in.
+//
+// Both routes below now carry `plan_resolved_now` (`OpsPlanResolution`,
+// defined further down). 🔴 THE LIST ROUTE TOO — which
+// docs/strategy/2026-08-02-o3-user-management-final.md §3 R1 explicitly rules
+// out: 「列表刻意不含 plan…循环调 getPlan 就是 M2-8 的字面形状」(the list
+// deliberately excludes it, because looping `getPlan` is M2-8's literal
+// shape). That rule's REASON was the per-row WRITE — a list is a loop, and
+// looping a writer writes once per row. `resolvePlanReadOnly` does not write,
+// so the specific harm the rule exists to prevent cannot occur through it, and
+// its conclusion does not survive its own premise once the write is gone. The
+// o3 document is not silently edited to match — CLAUDE.md's rule is to correct
+// in place and keep the original — so that paragraph there still reads as
+// before; this correction is the record of why the code now disagrees with it,
+// and docs/strategy/2026-08-31-lan-ops-console-third-party-spec.md §6 P1 / §7
+// G1 are updated in the SAME commit to say the resolver exists and the gap
+// this row describes is closed.
+//
+// Still true, unedited by this correction: `users.plan` remains a MIRROR
+// nothing in this process may read to DECIDE anything, and `plan_resolved_now`
+// is named the way it is — never bare `plan` — so a reader of the response
+// cannot mistake it for that column (see `OpsPlanResolution`'s own doc).
+//
 // ── 🔴 NO "last login" (上次登录), AND NO PLAUSIBLE STAND-IN FOR IT ────────────
 // owner asked for "login info" (登录信息) by name. This repo cannot answer it: there is no
 // `last_login_at`, no session table, no denylist and no login record of any kind
@@ -165,8 +200,14 @@
 // grow a write later without making it — see MUTATING_ADMIN_GATED_ROUTES.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Plan } from '@flowmic/protocol';
 import type { UserRepo } from '../db/repos/user.repo';
-import { OPS_USER_PAGE_DEFAULT, OPS_USER_PAGE_MAX, toOpsUser } from '../db/repos/user.repo';
+import { OPS_USER_PAGE_DEFAULT, OPS_USER_PAGE_MAX } from '../db/repos/user.repo';
+// The whitelist projection moved out of user.repo.ts on 2026-08-31 (verbatim,
+// for the 800-line cap). Same function, same object literal, same argument in
+// its own file header — the import path is the only thing that changed.
+import { toOpsUser } from '../db/repos/user-ops-view';
+import type { BillingService, PlanSource, PlanView } from '../billing/billing-service';
 import type { AccountVerifier } from './account-auth';
 import { adminGate, type AdminGatedRoute, type OpsAuditSink } from './ops-audit-trail';
 import { sendJson } from './body';
@@ -239,6 +280,63 @@ export interface OpsUserRoutesDeps {
    * recording?」 with 「this build has no such feature」.
    */
   loginRecording: boolean;
+  /**
+   * 🔴 WP2 card 5 / M2-8 — the READ-ONLY tier resolver, and NOTHING ELSE of
+   * `BillingService`. Sliced to ONE method for the same reason `users` above is
+   * sliced to two: `getPlan` (WRITES `users.plan` via `mirrorPlanColumn`),
+   * `effectivePlan`, `effectiveLimits`, and every mock-gateway trigger
+   * (`mockCheckout`/`mockConfirm`/…) must stay unreachable from a surface whose
+   * entire justification for existing is that it does not write. bootstrap
+   * passes the full `BillingService`; the narrowing is enforced HERE, on the
+   * consumer, exactly as `users` is.
+   */
+  billing: Pick<BillingService, 'resolvePlanReadOnly'>;
+}
+
+/**
+ * WP2 card 5 / M2-8 — what "tier" looks like on THIS surface.
+ *
+ * 🔴 THE NAME IS THE GUARD. `plan_resolved_now` on the wire, never bare
+ * `plan`: this file's whole M2-8 header is about a column named `plan`
+ * (`users.plan`) that LIES by construction (an eventually-consistent mirror),
+ * so the one new field this card adds must not be spellable the same way a
+ * reader would spell that column. `plan_resolved_now` states which of the two
+ * answers it is — resolved THIS CALL, via `BillingService.resolvePlanReadOnly`
+ * — in the field name itself, not only in a comment a reader could miss.
+ *
+ * Deliberately NARROWER than the full `PlanView` `BillingService.getPlan`
+ * hands to an account's own owner (`GET /api/billing/plan`): `cycle`,
+ * `state`, `expires_at`, `scheduled_change`, `next_billed_at`,
+ * `withdrawal_deadline`, `contract_concluded_at`, `paddle_subscription_id`
+ * and `billing_provider` answer "what IS this subscription", a different
+ * question from "what TIER" this card exists to answer — and
+ * docs/strategy/2026-08-31-lan-ops-console-third-party-spec.md §7 already
+ * registers the rest as a SEPARATE open gap (G5, "无订阅明细读接口"), not
+ * this one. Widening this type to the full `PlanView` is that card, not this
+ * edit.
+ */
+export interface OpsPlanResolution {
+  /** THE tier right now. NEVER `users.plan` (the mirror column) — see this
+   *  file's M2-8 header and its 2026-09-01 correction block. */
+  plan: Plan;
+  /** Why `plan` is what it is. A tier with no visible source is D1's headline
+   *  failure (billing-service.ts `PlanSource`'s own doc), repeated here rather
+   *  than dropped because an operator screen is exactly the screen that
+   *  failure was named for. */
+  source: PlanSource;
+  /** The exemption flag. A `permanent_free` account's `plan` reads 'free' —
+   *  this is where "why does this account look unlimited" is answered instead
+   *  (D1 §6.1-bis: `permanent_free` must never be mapped onto a sellable
+   *  tier). */
+  quota_exempt: boolean;
+}
+
+/** [OpsPlanResolution] projected from a full [PlanView] — the one point that
+ *  narrows `resolvePlanReadOnly`'s answer for this surface, applied at both
+ *  response points below, never written out as two object literals (the same
+ *  discipline `toOpsUser` states for the account whitelist one block up). */
+function toOpsPlanResolution(view: PlanView): OpsPlanResolution {
+  return { plan: view.plan, source: view.source, quota_exempt: view.quota_exempt };
 }
 
 /** `{ok:true, …}` or the 400 message — the ops family's parse verdict. Never
@@ -395,7 +493,17 @@ export function tryHandleOpsUserRoutes(req: IncomingMessage, res: ServerResponse
       // deployment. Making the parameter REQUIRED is what turned that from a
       // runtime lie into a compile error — and this note is what stops the next
       // reader from 「tidying」 the arrow away.
-      rows: page.rows.map((u) => toOpsUser(u, deps.loginRecording)),
+      //
+      // 🔴 WP2 card 5 / M2-8 — `plan_resolved_now` resolved FRESH per row,
+      // through `deps.billing.resolvePlanReadOnly` (never `u.plan`, the
+      // mirror). See this file's M2-8 header and its 2026-09-01 correction
+      // for why a LIST route may now carry a tier: the o3 design doc's
+      // objection was to `getPlan`'s per-row WRITE, and this resolver does
+      // not write.
+      rows: page.rows.map((u) => ({
+        ...toOpsUser(u, deps.loginRecording),
+        plan_resolved_now: toOpsPlanResolution(deps.billing.resolvePlanReadOnly(u.id)),
+      })),
       next_after_user_id: page.next_after_user_id,
     });
     return true;
@@ -413,12 +521,18 @@ export function tryHandleOpsUserRoutes(req: IncomingMessage, res: ServerResponse
   // paging needs to know where the id already sits.
   //
   // The user is wrapped in `{ user: … }` rather than returned bare so that the
-  // siblings O-3's R2 reserves (`plan`, `devices`) can arrive without changing the
-  // shape of what is already there — and so that a reader can see at a glance
-  // that they are ABSENT rather than merged in. Why each is absent: this file's
-  // header (tier = M2-8 with no read-only resolver yet; device counts need a
-  // per-user pairing read that mobile.repo.ts does not expose, and that repo is
-  // not this card's file).
+  // sibling O-3's R2 reserves (`devices`) can arrive without changing the shape
+  // of what is already there — and so that a reader can see at a glance that it
+  // is ABSENT rather than merged in. Why: device counts need a per-user pairing
+  // read that mobile.repo.ts does not expose, and that repo is not this card's
+  // file.
+  //
+  // 🔴 WP2 card 5 / M2-8 — `plan` IS NO LONGER ABSENT, and lives as a SIBLING
+  // field (`plan_resolved_now`), not merged into `user`, for the same reason
+  // `devices` was reserved as its own key: `toOpsUser`'s whitelist is a
+  // projection of a `UserRecord`, and a tier is not a fact about that record —
+  // it is `BillingService`'s answer, resolved fresh, and merging the two would
+  // make one object look like it came from one place when it came from two.
   if (method === 'GET' && (url === '/api/ops/users/detail' || url.startsWith('/api/ops/users/detail?'))) {
     if (gate(req, res, deps, 'GET /api/ops/users/detail') === null) return true;
     const id = parseUserId(url);
@@ -436,7 +550,10 @@ export function tryHandleOpsUserRoutes(req: IncomingMessage, res: ServerResponse
       sendJson(res, 404, { error: OPS_USER_UNKNOWN, message: 'user_id names no account' });
       return true;
     }
-    sendJson(res, 200, { user: toOpsUser(user, deps.loginRecording) });
+    sendJson(res, 200, {
+      user: toOpsUser(user, deps.loginRecording),
+      plan_resolved_now: toOpsPlanResolution(deps.billing.resolvePlanReadOnly(user.id)),
+    });
     return true;
   }
 

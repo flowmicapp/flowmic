@@ -773,7 +773,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
             // the `child:` of the layer above and is never rebuilt by it).
             updateListenable: _update,
             hasUpdate: () => _update.hasUpdate,
-            onDeliberateEntry: _controller.pairingSuccess.raise, // card PAIR-SUCCESS
+            onDeliberateEntry: () => armPairingSuccessRouted(_controller), // card PAIR-SUCCESS / P0: ARMS, the settled ack raises
           ),
         ),
         ),

@@ -67,7 +67,7 @@ void main() {
     expect(find.text(_zh.nodePanelTitle), findsOneWidget);
   });
 
-  testWidgets('🔴 the three legs are rendered, and the middle one is the point',
+  testWidgets('🔴 connect and latency are rendered, and the headline is the hot number',
       (WidgetTester tester) async {
     await _mount(tester);
     await tester.tap(find.text(_zh.nodePanelMeasure));
@@ -76,15 +76,15 @@ void main() {
     final String legs = tester
         .widget<Text>(find.byKey(const ValueKey<String>('node.legs.srvjp')))
         .data!;
-    // 30 to the edge, 190 in total ⇒ 160 across the ocean. A single total
-    // cannot tell a user which half is slow, which is the entire reason this
-    // panel exists.
+    // Fixture: edgeMs 30, totalMs 190 — already aggregated. The panel must
+    // paint those two and must NOT paint the old middle subtraction (160),
+    // which mixed a cold first round into the headline.
     expect(legs, contains('30'));
-    expect(legs, contains('160'));
     expect(legs, contains('190'));
+    expect(legs, isNot(contains('160')));
     expect(legs, contains(_zh.nodeLegEdge));
-    expect(legs, contains(_zh.nodeLegOrigin));
     expect(legs, contains(_zh.nodeLegTotal));
+    expect(legs, isNot(contains(_zh.nodeLegOrigin)));
   });
 
   testWidgets('🔴 a node that did not answer is NAMED, not given a big number',

@@ -67,6 +67,12 @@ const MAX_PENDING = 256;
 interface PendingLeg {
   /** t0 — audio:stop received. */
   audioStopAt: number;
+  /**
+   * WP2-6a — engine.flush() invoked. null until the one author
+   * (`raceFlushFinal` → `onFlushSent`) stamps it. Splits `stt_ms` into
+   * (speech-end → flush sent) and (flush sent → stt:final).
+   */
+  flushSentAt: number | null;
   /** t1 — stt:final emitted. null until the engine produces it. */
   sttFinalAt: number | null;
   /** t2 — inject:request received, keyed on by entry_id from here on. */
@@ -107,7 +113,16 @@ export function markAudioStop(room: string, now: Now = defaultNow): void {
     dropped += 1;
     return; // refuse to grow without bound; the miss is counted, not hidden
   }
-  pending.set(room, { audioStopAt: t, sttFinalAt: null, injectRequestAt: null, entryId: null });
+  pending.set(room, { audioStopAt: t, flushSentAt: null, sttFinalAt: null, injectRequestAt: null, entryId: null });
+}
+
+/** WP2-6a — the flush-sent instant. One author: `raceFlushFinal` calls this
+ *  via `onFlushSent` immediately before `engine.flush()`. First stamp wins;
+ *  a flush after t1 is not the send we are measuring and is ignored. */
+export function markFlushSent(room: string, now: Now = defaultNow): void {
+  const leg = pending.get(room);
+  if (leg === undefined || leg.flushSentAt !== null || leg.sttFinalAt !== null) return;
+  leg.flushSentAt = now();
 }
 
 /** t1. */
@@ -151,10 +166,20 @@ export function markInjectRequest(room: string, entryId: string | null, now: Now
  *  PRODUCTION leg — and no alerting on either. That gap is card D10; full audit
  *  in docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §1.3.
  *
+ *  ✅ WP2-6b (2026-08-31) — the PRODUCTION-leg reader that this process can
+ *  carry is now `latency.summary` below (`startLatencyReader`). Same stderr
+ *  journald already captures; cadence 60s; no file, no deploy-side scrape, no
+ *  threshold, no alert. The audit's layer-③ scheduled journalctl dump and
+ *  every alerting ring remain unbuilt (they live in the web repo's `deploy/`
+ *  and need production SSH).
+ *
  *  ⚠️ Related gap, same audit: `dropped` below is published ONLY inside the line
  *  this SUCCESS path emits. If no utterance ever completes — precisely the
  *  incident the counter exists to describe — the count is never printed at all.
- *  See docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §4.2 ①-c. */
+ *  See docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §4.2 ①-c.
+ *  6b's summary line prints `dropped_so_far` on its own cadence, including
+ *  when n=0 but dropped moved, which is the half of ①-c this process can
+ *  close without a journald scrape. */
 export function markInjectResult(room: string, entryId: string | null, now: Now = defaultNow): void {
   const t = now();
   const leg = (entryId !== null && entryId !== '' ? byEntry.get(entryId) : undefined) ?? pending.get(room);
@@ -168,8 +193,16 @@ export function markInjectResult(room: string, entryId: string | null, now: Now 
     ? null
     : leg.injectRequestAt - leg.sttFinalAt;
   const inject = leg.injectRequestAt === null ? null : t - leg.injectRequestAt;
+  // WP2-6a — additive. Absence of flushSentAt ⇒ the two sub-span keys are
+  // omitted, which is the old shape: every reader that only looks at stt_ms
+  // is unchanged. When both sub-spans are present they sum to stt_ms
+  // (same clock, same two endpoints).
+  const toFlush = leg.flushSentAt === null ? null : leg.flushSentAt - leg.audioStopAt;
+  const fromFlush = leg.flushSentAt === null || leg.sttFinalAt === null
+    ? null
+    : leg.sttFinalAt - leg.flushSentAt;
 
-  log.info('latency.segment', {
+  const fields: Record<string, unknown> = {
     entry_id: leg.entryId,
     // ms, server clock, all four boundaries local. See the header for why no
     // phone timestamp appears anywhere in this line.
@@ -178,17 +211,136 @@ export function markInjectResult(room: string, entryId: string | null, now: Now 
     inject_ms: inject,
     server_total_ms: t - leg.audioStopAt,
     dropped_so_far: dropped,
+  };
+  if (toFlush !== null) fields.stt_to_flush_ms = toFlush;
+  if (fromFlush !== null) fields.stt_from_flush_ms = fromFlush;
+
+  log.info('latency.segment', fields);
+
+  rememberClosed({
+    stt_ms: stt,
+    stt_to_flush_ms: toFlush,
+    stt_from_flush_ms: fromFlush,
+    phone_turnaround_ms: turnaround,
+    inject_ms: inject,
+    server_total_ms: t - leg.audioStopAt,
   });
 }
 
 /** Test seam: reset module state between cases. */
 export function __resetLatencyState(): void {
+  stopLatencyReader();
   pending.clear();
   byEntry.clear();
   dropped = 0;
+  closed.splice(0);
+  lastEmittedDropped = 0;
 }
 
 /** Test seam: how many legs were abandoned rather than mis-attributed. */
 export function __droppedCount(): number {
   return dropped;
+}
+
+// ── WP2-6b production-leg reader ────────────────────────────────────────────
+//
+// Per-utterance `latency.segment` lines already go to journald on the relay
+// (stderr; no FLOWMIC_LOG_PATH). Nobody was aggregating them, so the 2026-08-31
+// turnaround climb (468 → 60977 ms) had to be reconstructed by hand. This
+// reader emits one `latency.summary` line per window with p50/p95 of whatever
+// closed in that window. No thresholds. No alerts. journalctl
+// `SYSLOG_IDENTIFIER=flowmic-app | grep latency.summary` is the query.
+//
+// ⚠️ This is the emit half. A scheduled journalctl scrape, a file for
+// `latency-report.mjs` to open, and any alerting ring are deploy-side and
+// are not in this repo.
+
+/** Cadence of `latency.summary`. Same 60s the D10 audit used for M-1. */
+export const LATENCY_SUMMARY_INTERVAL_MS = 60_000;
+
+interface ClosedSegment {
+  stt_ms: number | null;
+  stt_to_flush_ms: number | null;
+  stt_from_flush_ms: number | null;
+  phone_turnaround_ms: number | null;
+  inject_ms: number | null;
+  server_total_ms: number;
+}
+
+const closed: ClosedSegment[] = [];
+let lastEmittedDropped = 0;
+let readerHandle: unknown = null;
+let readerClear: ((h: unknown) => void) | null = null;
+
+function rememberClosed(sample: ClosedSegment): void {
+  if (closed.length >= MAX_PENDING) closed.shift();
+  closed.push(sample);
+}
+
+/** Nearest-rank percentile over a sorted array. Empty → null, never 0. */
+function pct(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  const rank = Math.ceil((p / 100) * sorted.length);
+  return sorted[Math.min(rank, sorted.length) - 1] ?? null;
+}
+
+function numericOf(samples: ClosedSegment[], key: keyof ClosedSegment): number[] {
+  const out: number[] = [];
+  for (const s of samples) {
+    const v = s[key];
+    if (typeof v === 'number') out.push(v);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+function putPct(fields: Record<string, unknown>, name: string, values: number[]): void {
+  const p50 = pct(values, 50);
+  const p95 = pct(values, 95);
+  if (p50 !== null) fields[`${name}_p50`] = p50;
+  if (p95 !== null) fields[`${name}_p95`] = p95;
+}
+
+/**
+ * Drain the window and emit `latency.summary` if there is anything to say.
+ * Silent when n=0 AND dropped has not moved — idle noise is not a reading.
+ * Exported so tests drive the tick without a wall-clock interval.
+ */
+export function emitLatencySummary(): void {
+  const n = closed.length;
+  if (n === 0 && dropped === lastEmittedDropped) return;
+  const samples = closed.splice(0);
+  lastEmittedDropped = dropped;
+  const fields: Record<string, unknown> = {
+    n,
+    dropped_so_far: dropped,
+    window_ms: LATENCY_SUMMARY_INTERVAL_MS,
+  };
+  putPct(fields, 'stt_ms', numericOf(samples, 'stt_ms'));
+  putPct(fields, 'stt_to_flush_ms', numericOf(samples, 'stt_to_flush_ms'));
+  putPct(fields, 'stt_from_flush_ms', numericOf(samples, 'stt_from_flush_ms'));
+  putPct(fields, 'phone_turnaround_ms', numericOf(samples, 'phone_turnaround_ms'));
+  putPct(fields, 'inject_ms', numericOf(samples, 'inject_ms'));
+  putPct(fields, 'server_total_ms', numericOf(samples, 'server_total_ms'));
+  log.info('latency.summary', fields);
+}
+
+export function stopLatencyReader(): void {
+  if (readerHandle !== null && readerClear !== null) readerClear(readerHandle);
+  readerHandle = null;
+  readerClear = null;
+}
+
+/** Arm the production-leg reader. One interval per process; a second call is
+ *  a no-op so bootstrap and a test cannot double-arm. Stopped by shutdown. */
+export function startLatencyReader(opts: {
+  intervalMs?: number;
+  setIntervalFn?: (fn: () => void, ms: number) => unknown;
+  clearIntervalFn?: (handle: unknown) => void;
+} = {}): { stop(): void } {
+  if (readerHandle !== null) return { stop: stopLatencyReader };
+  const intervalMs = opts.intervalMs ?? LATENCY_SUMMARY_INTERVAL_MS;
+  const setI = opts.setIntervalFn ?? ((fn, ms): unknown => setInterval(fn, ms));
+  readerClear = opts.clearIntervalFn ?? ((h): void => { clearInterval(h as ReturnType<typeof setInterval>); });
+  readerHandle = setI(() => { emitLatencySummary(); }, intervalMs);
+  return { stop: stopLatencyReader };
 }

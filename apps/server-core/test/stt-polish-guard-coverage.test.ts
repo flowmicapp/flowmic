@@ -12,6 +12,13 @@
 // CLOSED_CLASS_GUARDED_LANGS predicts what the matcher actually sees. It is the
 // only thing standing between "we check negation in this language" and a wish.
 //
+// WP8 P1-2 extended the tables to the spoken set. The unguarded half of this
+// file now uses Italian (`it`) as the negative control — a language the product
+// does not ship as a spoken tag, so a hit there would mean a term leaked into
+// the matcher without a coverage row. Spanish was the previous "coincidence is
+// not coverage" exhibit (`no` overlapping English); it is now genuinely
+// guarded (nunca / nada / ningún, not just `no`).
+//
 // Refs docs/decisions/2026-08-29-owner-english-as-auxiliary-language.md (R-2乙)
 //      docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F3
 
@@ -38,9 +45,12 @@ const NEGATION_PAIRS: readonly { lang: string; withNeg: string; without: string 
   { lang: 'en', withNeg: 'the build is not ready', without: 'the build is ready' },
   { lang: 'de', withNeg: 'der Build ist nicht fertig', without: 'der Build ist fertig' },
   { lang: 'fr', withNeg: 'le build ne marche pas', without: 'le build marche' },
+  { lang: 'es', withNeg: 'el build no está listo', without: 'el build está listo' },
   { lang: 'ru', withNeg: 'сборка не готова', without: 'сборка готова' },
   { lang: 'ja', withNeg: 'ビルドは終わっていません', without: 'ビルドは終わっています' },
   { lang: 'ko', withNeg: '빌드가 안 됐어요', without: '빌드가 됐어요' },
+  // Negative control: Italian is not a spoken tag. `non` is not in the tables.
+  { lang: 'it', withNeg: 'il build non è pronto', without: 'il build è pronto' },
 ];
 
 describe('closed-class gate — the coverage table matches what the matcher does', () => {
@@ -73,14 +83,10 @@ describe('closed-class gate — the coverage table matches what the matcher does
     }
   });
 
-  it('es is deliberately absent — a coincidental match is not coverage', () => {
-    // Spanish `no` collides with EN_NEGATION's `no`, so the matcher DOES see this
-    // one pair. That is a coincidence of spelling, not Spanish coverage: `nunca`,
-    // `nada`, `ningún` are all invisible. The table says es is unguarded, and
-    // this test pins the reason so nobody "fixes" the table by adding the row.
-    expect(isClosedClassGuarded('es')).toBe(false);
+  it('es is genuinely guarded — nunca is coverage, coincidental no is not the claim', () => {
+    expect(isClosedClassGuarded('es')).toBe(true);
     expect(negationSeen('el build no está listo', 'el build está listo')).toBe(true);
-    expect(negationSeen('nunca funciona', 'siempre funciona')).toBe(false);
+    expect(negationSeen('nunca funciona', 'siempre funciona')).toBe(true);
   });
 
   it('base-language matching, and an unknown tag is not a claim of coverage', () => {
@@ -88,12 +94,16 @@ describe('closed-class gate — the coverage table matches what the matcher does
     expect(isClosedClassGuarded('zh-TW')).toBe(true);
     expect(isClosedClassGuarded('en-US')).toBe(true);
     expect(isClosedClassGuarded('EN')).toBe(true);
+    expect(isClosedClassGuarded('fr-FR')).toBe(true);
     expect(isClosedClassGuarded(undefined)).toBe(false);
     expect(isClosedClassGuarded('xh')).toBe(false);
+    expect(isClosedClassGuarded('it')).toBe(false);
     expect(isClosedClassGuarded('')).toBe(false);
   });
 
-  it('the table lists exactly the two languages the term sets are built from', () => {
-    expect([...CLOSED_CLASS_GUARDED_LANGS].sort()).toEqual(['en', 'zh']);
+  it('the table lists the spoken set the term tables are built from', () => {
+    expect([...CLOSED_CLASS_GUARDED_LANGS].sort()).toEqual(
+      ['de', 'en', 'es', 'fr', 'ja', 'ko', 'ru', 'zh'],
+    );
   });
 });

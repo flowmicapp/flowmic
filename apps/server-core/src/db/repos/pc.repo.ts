@@ -97,6 +97,27 @@ export interface PcRepo {
    *  fills NULLs AND corrects a stale value, because the uid is derived from
    *  the hardware and the client is the authority on it. */
   setMachineUid(id: string, machine_uid: string): void;
+  /**
+   * 2026-08-31 multi-node — write a WHOLE row that came from the writer, on a
+   * replica, keyed on the primary key. The only caller is the handshake
+   * read-through (node/token-read-through.ts); ordinary code paths must keep
+   * using the narrow setters above, which each say what they are changing.
+   *
+   * 🔴 IT IS NOT `INSERT OR REPLACE`, AND THAT IS LOAD-BEARING. SQLite's REPLACE
+   * conflict resolution DELETES the conflicting row before inserting, and with
+   * `PRAGMA foreign_keys = ON` (schema.ts) a delete here fires
+   * `mobile_pairings.pc_device_id REFERENCES pc_devices(id) ON DELETE CASCADE`.
+   * So the「obvious」spelling of this method would silently destroy every phone
+   * pairing a PC has, every time a token was read through — a data loss with no
+   * error and no log. `ON CONFLICT(id) DO UPDATE` never deletes anything.
+   *
+   * ⚠️ It can still THROW: `device_token` and `room_uuid` are UNIQUE and `pcid`
+   * has a partial unique index, so a stale local row holding one of those values
+   * under a DIFFERENT id makes this a constraint violation. The caller must
+   * treat that as「could not land the row」and fall back to refusing, never
+   * swallow it — a half-applied identity is worse than a slow one.
+   */
+  upsertReplicated(row: PcRecord): void;
   setOnline(id: string, online: boolean): void;
   /** GA-07: stamp last_seen_at WITHOUT touching is_online. `heartbeat` proves
    *  activity, not a state transition — setOnline would rewrite a flag this
@@ -198,6 +219,27 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     'SELECT * FROM pc_devices WHERE user_id=? AND machine_uid=? ORDER BY created_at DESC, rowid DESC',
   );
   const setMachineStmt = db.prepare('UPDATE pc_devices SET machine_uid=? WHERE id=?');
+  // See `PcRepo.upsertReplicated` for why this is ON CONFLICT DO UPDATE and not
+  // INSERT OR REPLACE (REPLACE would cascade-delete this PC's pairings).
+  const upsertStmt = db.prepare(
+    `INSERT INTO pc_devices
+       (id, user_id, device_name, client_instance_id, machine_uid, pcid, home_node,
+        device_token, room_uuid, short_code, is_online, last_seen_at, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       user_id=excluded.user_id,
+       device_name=excluded.device_name,
+       client_instance_id=excluded.client_instance_id,
+       machine_uid=excluded.machine_uid,
+       pcid=excluded.pcid,
+       home_node=excluded.home_node,
+       device_token=excluded.device_token,
+       room_uuid=excluded.room_uuid,
+       short_code=excluded.short_code,
+       is_online=excluded.is_online,
+       last_seen_at=excluded.last_seen_at,
+       created_at=excluded.created_at`,
+  );
   const byMachineOther = db.prepare(
     'SELECT * FROM pc_devices WHERE machine_uid=? AND user_id<>? ORDER BY created_at DESC, rowid DESC',
   );
@@ -269,6 +311,23 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     },
     setMachineUid(id, machine_uid): void {
       setMachineStmt.run(machine_uid, id);
+    },
+    upsertReplicated(row): void {
+      upsertStmt.run(
+        row.id,
+        row.user_id,
+        row.device_name,
+        row.client_instance_id,
+        row.machine_uid,
+        row.pcid,
+        row.home_node,
+        row.device_token,
+        row.room_uuid,
+        row.short_code,
+        row.is_online,
+        row.last_seen_at,
+        row.created_at,
+      );
     },
     findByPcid(pcid): PcRecord | null {
       // An empty pcid must never match, for the same reason the uid lookup

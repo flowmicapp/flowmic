@@ -48,7 +48,8 @@
 
 import { isRealPc } from '../room/registry';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { pcPresence, tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
+import { tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
+import { pcPresence } from '../room/pc-presence';
 import type { AuthService } from '../auth/auth-service';
 import type { RegisterRateLimiter } from '../auth/register-rate-limit';
 import type { BillingService } from '../billing/billing-service';
@@ -114,7 +115,7 @@ export interface ConsoleRoutesDeps {
    * `pc_devices.is_online` must not be asked: "is this computer here right now".
    * The SAME store the socket handlers hold, so the console cannot grow a second
    * definition of presence; the judgement itself is `pcPresence()` in
-   * http/console-device-routes.ts and this file only calls it.
+   * room/pc-presence.ts and this file only calls it.
    *
    * REQUIRED (book 13 §7 F1 ②): optional would mean a bootstrap missing one line
    * still serves the device list, just with every row silently reading absent —
@@ -632,7 +633,7 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       // the console shows only this one — `is_online` stays for the readers that
       // already have it, and MUST NOT be used to decide whether a computer can
       // be removed. The judgement lives in ONE function, shared verbatim with the
-      // remove route that enforces it (console-device-routes.ts `pcPresence`).
+      // remove route that enforces it (room/pc-presence.ts `pcPresence`).
       is_present: pcPresence(deps.store, pc, nowMs, deps.nodeId ?? null),
       last_seen_at: pc.last_seen_at,
       created_at: pc.created_at,

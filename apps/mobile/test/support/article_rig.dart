@@ -15,6 +15,7 @@ import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
+import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
@@ -31,8 +32,14 @@ import 'fakes.dart';
 /// screen test failed with 「Found 0 widgets with text 随口说一句」 on the
 /// reverse control, which is exactly the positive control doing its job on the
 /// FIXTURE rather than on the product.
-class _SessionOwner implements InstanceOwnerProbe {
-  const _SessionOwner(this._session);
+///
+/// Public (not `_`-prefixed): card 4 / A-3 (2026-09-01) needs the SAME
+/// owner-wiring for a rig that is not [ArticleRig] (the catch-up case builds
+/// its own `TimelineStore`/`ChatController` around a `RetainedAudioStore`),
+/// and a second, drifting copy of this class is exactly the kind of thing
+/// that stops matching this one.
+class SessionOwnerProbe implements InstanceOwnerProbe {
+  const SessionOwnerProbe(this._session);
   final PttSession _session;
   @override
   String? get instanceId => _session.connectedInstanceId;
@@ -41,7 +48,14 @@ class _SessionOwner implements InstanceOwnerProbe {
 }
 
 class ArticleRig {
-  ArticleRig() {
+  /// [persistence] — card A-1 (2026-09-01): an app-restart test needs a
+  /// SECOND rig reading the SAME disk the first one wrote, to prove a
+  /// finished recording is still one card after the process is rebuilt from
+  /// scratch. Optional and defaulting to a fresh in-memory store, so every
+  /// existing call site (one rig, one process lifetime) is unaffected — this
+  /// is the same additive-parameter shape `newTestStore` already uses.
+  ArticleRig({TimelinePersistence? persistence})
+      : persistence = persistence ?? InMemoryTimelinePersistence() {
     transport = FakeSocketTransport();
     session = newTestSession(
       transport: transport,
@@ -49,7 +63,10 @@ class ArticleRig {
       stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
     );
     giveSessionAPairedIdentity(session);
-    store = newTestStore(owner: _SessionOwner(session));
+    store = newTestStore(
+      persistence: this.persistence,
+      owner: SessionOwnerProbe(session),
+    );
     controller = ChatController(
       outboxStore: newTestOutboxStore(),
       outboxBlobs: newTestOutboxBlobs(),
@@ -63,6 +80,9 @@ class ArticleRig {
     transport.pushStatus(SocketStatus.connected);
   }
 
+  /// The disk this rig's [store] reads and writes. Exposed so a SECOND rig
+  /// can be built over the same one (card A-1's "restart").
+  final TimelinePersistence persistence;
   late final FakeSocketTransport transport;
   late final PttSession session;
   late final TimelineStore store;

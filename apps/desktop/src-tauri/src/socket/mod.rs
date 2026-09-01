@@ -18,6 +18,10 @@ pub mod client;
 /// header) without channel.rs growing an endpoint constant it is not allowed to have.
 pub mod cloud_endpoint;
 pub mod node_select;
+/// Card 1 (WP2) — the read-only latency surface. Separate from `node_select`
+/// because that file is being changed on another branch; this one reuses the
+/// ping shape and otherwise stays out of the way.
+pub mod node_probe_surface;
 pub mod credentials;
 pub mod dedup;
 /// The server→frontend fan-out seam (GA-28 primary gate + RV-01 channel stamp),
@@ -60,6 +64,11 @@ pub mod control_row;
 /// re-emit pc:register with backoff and a loud cap), split out of pump.rs at the
 /// 800-line cap so the auth-adjacent decision is auditable on its own.
 pub mod register_watchdog;
+/// WP2 Card 7 / G5: consecutive heartbeat-emit failures mean the engine is dead
+/// even though FlowMic never got `"close"`. Split out of pump.rs so the decision
+/// is unit-testable without a live rust_socketio client (same reason as
+/// `register_watchdog`). `"open"` stays the only room-entering emitter.
+pub mod hb_death;
 pub mod roster_apply;
 /// F3 (owner 2026-08-02 "the tray stays a red dot but I'm not speaking"): the SPEAKING lock's OTHER
 /// local watchdog — the one that times the FSM STATE rather than the `audio:start`

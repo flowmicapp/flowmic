@@ -215,6 +215,7 @@ import {
   volumeBudget,
 } from './output-guard-volume';
 import { assistantFrame } from './output-guard-frames';
+import { findCjkLatinGlue } from './output-guard-space';
 
 // Re-exported, not re-declared: the union now lives beside `MAX_EXPANSION`, the
 // exhaustive table keyed by it. See that file for why the cycle forced the move.
@@ -243,6 +244,7 @@ export type ComposeGuardRule =
   | 'untranslated_echo'
   | 'invented_numerals'
   | 'invented_latin_tokens'
+  | 'cjk_latin_glued'
   | 'volume_runaway'
   | 'over_compressed'
   | 'script_changed';
@@ -648,6 +650,22 @@ export function guardComposeOutput(input: ComposeGuardInput): ComposeGuardVerdic
           repairs,
         );
       }
+    }
+
+    // ── rule 12: silent CJK–Latin space deletion ──
+    //
+    // Organize of mixed CJK/Latin speech. The model deletes the space between a
+    // Latin product name and its CJK neighbour (or concatenates two Latin words
+    // that sat next to CJK). invented_latin_tokens cannot see this: Slack通知
+    // still tokenises as Slack, and kana/Hangul sources fail HAN_SOURCE_FRACTION.
+    //
+    // 🔴 ONLY glued adjacency fires. An output that drops the pair entirely is
+    // a rephrase, not a glue, and must be accepted — detector in
+    // output-guard-space.ts.
+    // Reuses COMPOSE_OUTPUT_REJECTED; no new error code.
+    const glued = findCjkLatinGlue(source, text);
+    if (glued !== null) {
+      return reject('cjk_latin_glued', glued, repairs);
     }
   }
 

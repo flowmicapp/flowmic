@@ -221,21 +221,20 @@ export const SETTINGS_KEYS = [
   'polish_strength_strict',
   'polish_strength_smooth',
   'polish_strength_hint',
-  // ─── R-2乙 (owner 2026-08-29): smooth's supervision is not the same in every
-  //     language, and the user picking smooth is the one who should know it ────
+  // ─── R-2乙 (owner 2026-08-29): smooth's supervision used to be weaker
+  //     outside zh/en; WP8 P1-2 extended the closed-class tables to the
+  //     spoken set, so the sentence now states that coverage rather than
+  //     the old zh/en-only gap ──────────────────────────────────────────────
   //
   // The meaning-preservation guard behind polish has TWO parts. The cardinality
   // bound (§3.1) is language-independent. The closed-class check (§3.2) — the
-  // one that catches a dropped negation, the edit that reverses meaning while
-  // barely moving the edit distance — is built from Chinese and English term
-  // sets only, so in every other language it degrades to a digit check.
-  // `CLOSED_CLASS_GUARDED_LANGS` in stt-polish-guard.ts is that fact as data,
-  // and `stt-polish-guard-coverage.test.ts` keeps it true.
+  // one that catches a dropped negation — is the table in
+  // `CLOSED_CLASS_GUARDED_LANGS` (stt-polish-guard-terms.ts), kept honest by
+  // `stt-polish-guard-coverage.test.ts`.
   //
-  // 🔴 SHOWN ONLY WHEN `smooth` IS SELECTED, because that is when it matters:
-  // at strict the §3.1 bound is tight and is doing real work, while smooth
-  // widens it by design — so for the six unguarded languages smooth is the mode
-  // where §3.1 is nearly all that is left.
+  // 🔴 SHOWN ONLY WHEN `smooth` IS SELECTED, because that is when the
+  // cardinality bound is the looser of the two strengths; the closed-class
+  // half is strength-independent and this sentence is what it can see.
   //
   // ⚠️ Statement of fact, no imperative, and NO claim about the default — same
   // discipline as `polish_strength_hint` above (data-flow-disclosure.test.ts's
@@ -244,8 +243,8 @@ export const SETTINGS_KEYS = [
   //
   // ⚠️ Deliberately NOT conditioned on the user's own routing rows. The desktop
   // can hold several language rows at once, so 「your language is covered」 would
-  // be a claim about a set, not about this utterance. Naming the covered pair is
-  // true regardless of what happens to be configured.
+  // be a claim about a set, not about this utterance. Naming the spoken set
+  // is true regardless of what happens to be configured.
   'polish_strength_smooth_coverage',
   // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on both
   // model sections because the alternative is a user tuning a dictionary here
@@ -395,11 +394,14 @@ export const SETTINGS_KEYS = [
   'pack_finance',
   'pack_proper_noun',
   'pack_code_switch',
-  // 2026-08-30 owner defect: the profession/domain chip row rendered its
-  // stored value (Chinese text, doubling as both id and label) directly, so
-  // every UI locale but zh-CN showed Chinese chips. Ids are UNCHANGED
-  // (PROFESSION_OPTIONS in settings-model.ts); these are pure display
+  // 2026-08-30 owner defect: the profession chip row rendered its stored
+  // value (then Chinese text, doubling as both id and label) directly, so
+  // every UI locale but zh-CN showed Chinese chips. W-i18n-B (2026-08-31)
+  // switched the stored ids to the phone's English slugs
+  // (profession-ids.ts / kProfessionPresets); these remain pure display
   // overrides, same split PACK_LABELS already draws above.
+  // `profession_writing` is the overlay for the phone-only id
+  // `writing / editing` — the eight older chips reuse the keys below.
   'profession_swdev',
   'profession_cloud_ops',
   'profession_product_design',
@@ -408,6 +410,7 @@ export const SETTINGS_KEYS = [
   'profession_law',
   'profession_education',
   'profession_research',
+  'profession_writing',
   'saved',
   'saved_local',
   // SETTINGS_SYNC_FAIL fail-loud note

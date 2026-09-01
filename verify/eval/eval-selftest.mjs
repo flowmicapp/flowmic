@@ -95,6 +95,14 @@ const SOLE_REJECTER_FLOORS = {
   no_new_latin_tokens: 1,
   expect_punctuation: 1,
   expect_segments: 1,
+  // WP8 P1-2: space-preserving must_contain_any. Measured 2026-08-31 on
+  // this tree: sole 5 / total 8. The five sole-rejecters are the
+  // organize/silent_reformat glue rows (ja-001/002, ko-001/002, ru-001),
+  // where fold() cannot see GitHubAPI ≠ GitHub API and no_new_latin_tokens
+  // is deliberately off so this judge is the last line of defence. The
+  // other three silent_reformat rows (fr/es/de English-switch) also fire
+  // it, but they already fail must_not_contain / folded must_contain_any.
+  preserve_internal_spaces: 5,
   // Not a BY_SUITE judge: `empty` is judgeCase's own early return for blank
   // output. Floored anyway because it rots identically — `mg-ctrl-005`'s
   // golden_bad is the empty string, and if that one case were edited to be

@@ -120,6 +120,11 @@ pub struct SocketConfig {
     /// channel sessions. `None` ⇒ no gate at all (single-socket callers — the
     /// headless tests and the golden example — keep the pre-GA-28 behaviour).
     pub admission: Option<Arc<Admission>>,
+    /// WP2 Card 7: pump-thread hook when two consecutive heartbeat emits fail
+    /// on a session that is still wanted. Production empties the slot then
+    /// `ensure_dialed` on a spawned thread (Drop joins the pump). `None` skips
+    /// reconstruction; the detector still clears `connected` + the handshake.
+    pub on_dead_transport: Option<crate::socket::hb_death::DeadTransportHook>,
 }
 
 /// A live desktop socket session. Holding it keeps the connection (and the
@@ -170,11 +175,12 @@ pub struct DesktopSocket {
 }
 
 impl DesktopSocket {
-    /// Whether THIS channel's socket is open right now (the `open`/`close`
-    /// handlers own this flag). Distinct from [`is_registered`], which asks
-    /// whether a token exists — a stored token survives a dropped socket, so
-    /// reporting registration as connection is exactly the conflation that let
-    /// the UI look plausible while being wrong.
+    /// Whether THIS channel's socket is open right now. The `"open"` handler
+    /// sets it true; `"close"` and the pump's heartbeat-death verdict set it
+    /// false. Distinct from [`is_registered`], which asks whether a token
+    /// exists — a stored token survives a dropped socket, so reporting
+    /// registration as connection is exactly the conflation that let the UI
+    /// look plausible while being wrong.
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
     }
@@ -397,8 +403,13 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
         });
     }
 
-    // ── close / error: mark disconnected so the pump forwards the transition;
-    //    the settings/timeline queues flush again on the next open. ──
+    // ── close: mark disconnected so the pump forwards the transition;
+    //    the settings/timeline queues flush again on the next open.
+    //    rust_socketio 0.6 also has Event::Error; it is NOT registered. An
+    //    earlier comment claimed "close / error" — only `"close"` is wired.
+    //    `"open"` is the sole room-entering emitter; Error is not a second
+    //    handshake author. Engine Close that never becomes `"close"` (Edge 1)
+    //    is detected at the pump's heartbeat emit (`socket::hb_death`). ──
     {
         let conn_c = connected.clone();
         let p_c = pairing.clone();
@@ -748,6 +759,9 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
         reconciler.clone(),
         // F3: the audio-liveness clock the handlers above feed, for the STATE watchdog.
         liveness,
+        // WP2 Card 7: consecutive heartbeat-emit failures rebuild the session
+        // through ensure_dialed so this `open` handler re-enters the room.
+        config.on_dead_transport,
     );
 
     Ok(DesktopSocket {

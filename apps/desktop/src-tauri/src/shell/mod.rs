@@ -224,6 +224,11 @@ pub mod accessibility;
 /// decidable lives in the tauri-free core; this only owns the `AppHandle`.
 pub mod update_ctl;
 
+/// WP2 Card 1 — on-demand relay-node latency. Thin: the numbers are decided
+/// in `socket::node_probe_surface` (tauri-free, unit-tested). This file
+/// only reads the cloud endpoint and the current node id.
+pub mod node_latency;
+
 /// The ONE door from the WebView to the system browser. It exists because
 /// `target="_blank"` and `window.open` are silently swallowed in this app —
 /// measured off wry/tauri's own sources, see that module's header.

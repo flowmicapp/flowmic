@@ -698,6 +698,16 @@ export class BillingService {
     return this.resolve(userId).plan;
   }
 
+  /** 🔴 WP2 card 5 / M2-8 — read-only resolver for a caller looping over MANY
+   *  accounts (ops-user-routes.ts's list) without writing `users.plan` per row
+   *  like [resolve]: [resolve]'s first half, `mirrorPlanColumn` never invoked.
+   *  ⚠️ [computeView]'s mock branch can still lazily write the mock ledger via
+   *  [evaluate] (never `users.plan`; dead in saas, `assertMockBillingMountable`). */
+  resolvePlanReadOnly(userId: string): PlanView {
+    const user = this.deps.users.findById(userId);
+    return this.computeView(userId, user?.permanent_free === true);
+  }
+
   /**
    * 🔴 D1 §6.1-bis — THE one place that answers "what is this user's quota right
    * now".

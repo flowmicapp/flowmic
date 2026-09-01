@@ -44,7 +44,10 @@ try {
 }
 
 const SEGMENTS = ['stt_ms', 'phone_turnaround_ms', 'inject_ms', 'server_total_ms'];
-const samples = Object.fromEntries(SEGMENTS.map((s) => [s, []]));
+/** WP2-6a — additive split of stt_ms. Old logs omit these keys; they must
+ *  NOT join SEGMENTS or every pre-split log would count as incomplete. */
+const OPTIONAL_SEGMENTS = ['stt_to_flush_ms', 'stt_from_flush_ms'];
+const samples = Object.fromEntries([...SEGMENTS, ...OPTIONAL_SEGMENTS].map((s) => [s, []]));
 let rows = 0;
 let incomplete = 0;
 let droppedMax = 0;
@@ -66,6 +69,9 @@ for (const raw of text.split('\n')) {
     else missing = true;
   }
   if (missing) incomplete += 1;
+  for (const s of OPTIONAL_SEGMENTS) {
+    if (typeof rec[s] === 'number') samples[s].push(rec[s]);
+  }
 }
 
 if (rows === 0) {
@@ -76,6 +82,8 @@ if (rows === 0) {
 
 const label = {
   stt_ms: 'STT (audio:stop → stt:final)',
+  stt_to_flush_ms: 'STT to flush (audio:stop → flush sent)',
+  stt_from_flush_ms: 'STT from flush (flush sent → stt:final)',
   phone_turnaround_ms: 'phone turnaround (stt:final → inject:request)',
   inject_ms: 'inject (inject:request → inject:result)',
   server_total_ms: 'server total (t0 → t3)',
@@ -96,6 +104,21 @@ for (const s of SEGMENTS) {
       fmt(pct(sorted, 95)).padStart(9) +
       fmt(n ? sorted[n - 1] : null).padStart(9),
   );
+}
+const optionalPresent = OPTIONAL_SEGMENTS.some((s) => samples[s].length > 0);
+if (optionalPresent) {
+  for (const s of OPTIONAL_SEGMENTS) {
+    const sorted = [...samples[s]].sort((a, b) => a - b);
+    const n = sorted.length;
+    const fmt = (v) => (v === null ? '—' : `${v}`);
+    console.log(
+      label[s].padEnd(38) +
+        String(n).padStart(6) +
+        fmt(pct(sorted, 50)).padStart(9) +
+        fmt(pct(sorted, 95)).padStart(9) +
+        fmt(n ? sorted[n - 1] : null).padStart(9),
+    );
+  }
 }
 console.log('\nUnit ms. The public promise is 「LAN ≤300ms 可复现」(master-plan §3.4) — that is perceived end-to-end,');
 console.log('longer than this table\'s server total; do not hold this row against that promise.');

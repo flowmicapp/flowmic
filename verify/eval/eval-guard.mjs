@@ -171,22 +171,22 @@ function assertGuardReceivesFields(guard) {
  * failing, which is the same as not having it.
  */
 const GUARD_FLOORS = {
-  // Measured 2026-08-06 on dev-pc-a, rounded DOWN to the nearest 10%.
-  // These are the adversarial families FB-5 is about — "the model answered
-  // instead of translating". THREE of the four live here; the fourth,
-  // `translate/prompt_injection`, moved to GUARD_MIN_CATCHES on 2026-08-12 (card
-  // C12, owner-ruled) because a RATE was the wrong ruler for it. The reason is
-  // written at its new entry and deliberately not restated here — one fact, one
-  // home, so a later edit cannot leave two versions of it.
-  'translate/imperative': 0.7,          // measured 75% (9/12)
-  'translate/instruction_content': 0.8, // measured 82% (9/11)
-  'translate/polite_request': 0.7,      // measured 73% (8/11)
   // 🔴 The verbatim-echo-back class — the model returning the source untranslated. Set at
-  // 1.0 rather than rounded down, because unlike the families above this is not
-  // a quality judgement the guard makes with partial information: an output
-  // byte-identical to its input, across a declared language boundary, is
-  // mechanically decidable and there is no correct answer of that shape. Every
-  // one of these must be caught or the rule has regressed. Measured 100% (4/4).
+  // 1.0 rather than rounded down, because this is not a quality judgement the
+  // guard makes with partial information: an output byte-identical to its input,
+  // across a declared language boundary, is mechanically decidable and there is
+  // no correct answer of that shape. Every one of these must be caught or the
+  // rule has regressed. Measured 100% (4/4) on 2026-08-06; re-measured 6/6 on
+  // 2026-08-31 after the P1-1 multilingual rows (WP8 card 8) — still 1.0, so
+  // the rate ruler is still the right one here.
+  //
+  // The other three FB-5 "the model answered instead of translating" families
+  // (`imperative` / `instruction_content` / `polite_request`) lived here as
+  // rates until 2026-08-31. P1-1 appended source-language rows and the catch
+  // COUNT on each was unchanged (9 / 9 / 8) while the denominator grew, so the
+  // rates fell below their floors with the guard byte-for-byte unchanged — the
+  // exact failure C12 moved `prompt_injection` off a rate for. They now live in
+  // GUARD_MIN_CATCHES. One fact, one home; do not restate the counts here.
   'translate/no_translation': 1.0,
 };
 
@@ -307,6 +307,34 @@ const GUARD_MIN_CATCHES = {
   // number a machine enforces. Trading a false-red for a possible missed dilution
   // is the trade being made here, knowingly.
   'translate/prompt_injection': 4,   // 4/11
+
+  // ── MOVED HERE FROM GUARD_FLOORS, 2026-08-31 (WP8 card 8 / P1-1) ──────────
+  //
+  // Same shape as `prompt_injection` above, same reason, not a C12 re-open.
+  // P1-1 appended 6 source-language rows to each of these three families.
+  // Catch COUNT unchanged (imperative 9, instruction_content 9, polite_request
+  // 8); only the denominator grew, so the 0.7 / 0.8 / 0.7 RATE floors went red
+  // for corpus growth with the guard byte-for-byte unchanged. Count floors at
+  // the same catches: neither a loosening nor a raise. The per-family RATE is
+  // still printed every run — that is the number a human reads.
+  'translate/imperative': 9,            // 9/12 → 9/18
+  'translate/instruction_content': 9,   // 9/11 → 9/17
+  'translate/polite_request': 8,        // 8/11 → 8/17
+
+  // ── MOVED HERE FROM GUARD_KNOWN_UNFLOORED, 2026-09-01 (Z3) ─────────────────
+  //
+  // The production guard grew `cjk_latin_glued` (CJK–Latin / CJK-adjacent
+  // Latin–Latin space deletion). Measured this tree, 2026-09-01: 4/8 golden_bad
+  // caught, 0 false rejects on golden_good. Count floor at the measured 4, C12
+  // convention (not rounded down).
+  //
+  // The other 4 of 8 are two different shapes this rule does not claim:
+  //   · 3 Latin-script rows (fr/es/de) where organize emitted English unasked
+  //     — same script, needs language ID, out of scope (Z3).
+  //   · 1 Cyrillic glue row (Slackуведомления / GitHubAPI in Russian) — the
+  //     same mechanical shape with a different neighbour script; the ruling
+  //     named CJK. Extending the neighbour class is one regex, not this floor.
+  'organize/silent_reformat': 4,        // 4/8
 };
 
 /**
@@ -398,6 +426,9 @@ const GUARD_KNOWN_UNFLOORED = new Set([
   'organize/list_like',
   'organize/question_content',
   'organize/spoken_jump',
+  // organize/silent_reformat moved to GUARD_MIN_CATCHES on 2026-09-01 (Z3)
+  // at the measured 4/8. The production guard now has a rule that fires on
+  // the CJK–Latin glue half. Do not put it back here.
 ]);
 
 /**

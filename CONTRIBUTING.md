@@ -116,6 +116,9 @@ surrounding code is English. Do not bulk-translate existing Chinese comments;
 change a line's language only when you were already editing that line. A
 translated comment is not a verified comment.
 
+If a Chinese document is blocking you, open an issue and we will translate the
+section you need.
+
 ### Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/) —

@@ -243,6 +243,18 @@ export const CLOUD_KEYS = [
   'cloud_signin_err_unreachable',
   'cloud_signin_err_listen',
   'cloud_signin_err_endpoint',
+  // WP2 Card 1 — read-only relay-node latency beside the account card.
+  // Latency / check family (no "probe"): the headline is a hot round trip.
+  'node_lat_title',
+  'node_lat_note',
+  'node_lat_check',
+  'node_lat_checking',
+  'node_lat_connect',
+  'node_lat_latency',
+  'node_lat_via_cloud',
+  'node_lat_via_direct',
+  'node_lat_here',
+  'node_lat_unanswered',
 ] as const;
 
 // Notes that were recorded against a TRANSLATION rather than against the

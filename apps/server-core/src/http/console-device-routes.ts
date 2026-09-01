@@ -25,15 +25,15 @@
 // should find one file, not a paragraph inside a router.
 //
 // ── THE ONE THING THAT MUST NOT DRIFT ──────────────────────────────────────
-// `pcPresence()` below is THE definition of "is this computer here right now",
-// and it has exactly two callers: the GET projection that decides whether the
-// browser draws the remove button, and the remove route that decides whether to
-// honour the click. If those two ever compute presence separately they will
-// disagree, and the user gets either a disabled button that would have worked or
-// an enabled one that is refused. One function, both callers.
+// "Is this computer here right now" has ONE author, and it is no longer in this
+// file: `pcPresence()` moved VERBATIM to room/pc-presence.ts, which states the
+// rule and lists every surface that asks it. The remove route below is one of
+// those surfaces; the console's GET projection (console-routes.ts `is_present`)
+// is another, and the two must never compute presence separately or the user
+// gets either a disabled button that would have worked or an enabled one that
+// is refused.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AUDIO_DEFAULTS } from '@flowmic/protocol';
 import type { AuthService } from '../auth/auth-service';
 import type { MobileRepo } from '../db/repos/mobile.repo';
 import type { PcRecord, PcRepo } from '../db/repos/pc.repo';
@@ -44,33 +44,7 @@ import { restrictionRefusalBody, restrictionVerdict } from '../auth/account-rest
 import { EMAIL_NOT_VERIFIED, isEmailVerified, type EmailVerifiedReader } from '../auth/email-verification';
 import { readJsonBody, sendJson, str } from './console-http';
 import { log } from '../log';
-import { DRAIN_INTERVAL_MS } from '../node/outbox-drainer';
-
-/**
- * How stale `last_seen_at` may get before a room membership stops counting as
- * presence. NOT a number chosen here: it is the protocol's own heartbeat
- * timeout (15 s), and the desktop pump emits a beat every 5 s for as long as its
- * handshake is acked — IDLE INCLUDED (socket/pump.rs gates the beat on `acked`,
- * not on an audio session, so a connected computer nobody is talking to still
- * stamps `last_seen_at`). Three beats missed is the same threshold the audio
- * side already treats as "this peer stopped talking to us".
- *
- * Read through the protocol constant rather than restated, so moving the
- * protocol's number moves this one. A literal here would be a second copy that
- * drifts in silence.
- */
-const PRESENCE_STALE_MS = AUDIO_DEFAULTS.heartbeat_timeout_ms;
-
-/**
- * Extra staleness allowed for a PC whose heartbeat reaches this node through the
- * replica outbox rather than through its own socket.
- *
- * IMPORTED, not typed as a number: it IS one outbox drain, and if that interval
- * ever changes this window has to change with it. A literal `5000` here would be
- * the second copy that drifts in silence — the same reason `PRESENCE_STALE_MS`
- * above reads the protocol constant instead of spelling 15000.
- */
-const REMOTE_PRESENCE_SLACK_MS = DRAIN_INTERVAL_MS;
+import { pcPresence } from '../room/pc-presence';
 
 /**
  * A socket, as far as this file is concerned: something that can be told one
@@ -154,82 +128,6 @@ function refuseRestricted(res: ServerResponse, deps: ConsoleDeviceRoutesDeps, us
   if (verdict === null) return false;
   sendJson(res, 403, restrictionRefusalBody(verdict.reason));
   return true;
-}
-
-/**
- * Is this computer in its room RIGHT NOW — the present tense, for one row.
- *
- * 🔴 `pc_devices.is_online` IS NOT CONSULTED, and that is the whole point of
- * this function existing (owner ruling 2026-08-28 §5-1). That column is a
- * PERSISTED FLAG: a relay restart drops every room and leaves a whole fleet of
- * rows still saying `is_online = 1`. Answering the present tense with it is how
- * a computer that has been powered off for a week reads as "online" — and with
- * removal refused for a present computer, a lying flag would make that row
- * permanently undeletable. That is the dead end this whole surface exists to
- * remove, wearing a different hat. The column keeps being what it is; it simply
- * does not answer this question.
- *
- * TWO conditions, because each covers a gap the other leaves:
- *   ① room membership — `store.getPc(room_uuid) !== null`, the SAME expression
- *      `pc_online` and GET /api/pc/presence already answer with. Survives the
- *      stale-flag problem entirely: a restarted relay has empty rooms.
- *   ② heartbeat freshness — socket.io keeps a force-killed peer in the room for
- *      up to its ~20 s pingTimeout, so membership alone has a ghost window. The
- *      pump's 5 s beat closes it at `heartbeat_timeout_ms`.
- *
- * ⚠️ FAILURE DIRECTION, stated rather than left to be discovered: if the
- * `last_seen_at` write is failing (a full disk — heartbeat.handler.ts logs it
- * and carries on), a genuinely present PC goes stale and reads as absent. That
- * makes it REMOVABLE, and removing it costs the user nothing they cannot undo:
- * the machine re-registers on its next connection. The opposite bias — treating
- * a stale row as present — would restore the undeletable-row dead end. Fail
- * toward the recoverable side.
- *
- * ⚠️ A row that has NEVER connected has `last_seen_at === null`. That is absent,
- * not present: `Date.parse(null as never)` is NaN and every comparison against
- * NaN is false, so the explicit null check below is not defensive noise — it is
- * the difference between "absent" and an accidental "present".
- */
-export function pcPresence(
-  store: RoomLookup,
-  pc: PcRecord,
-  now: number,
-  thisNode?: string | null,
-): boolean {
-  // ── 2026-08-30, multi-node ────────────────────────────────────────────────
-  // 🔴 CONDITION ① IS UNANSWERABLE FOR A PC ON ANOTHER NODE, and asking it
-  // anyway is not a conservative default — it is a wrong answer with a
-  // consequence. Rooms are per-process (`room/store.ts`: "Live socket presence
-  // ONLY"), the console always talks to the WRITER, so a perfectly healthy
-  // computer on a replica can never be in the writer's RoomStore. It would read
-  // absent — and by this function's own failure-direction note that also makes
-  // its row REMOVABLE.
-  //
-  // The honest substitute is the freshness of a `last_seen_at` written BY THE
-  // NODE THAT HOLDS THE SOCKET and forwarded here (node-runtime `stampPresence`
-  // → the writer's `setPresence`). That is not the persisted `is_online` flag
-  // owner ruled out in §5-1: that column is sticky and survives a restart, while
-  // this is a timestamp that stops advancing the moment the heartbeat stops.
-  //
-  // ⚠️ THE WINDOW IS WIDER FOR A REMOTE PC, and the number is derived rather
-  // than picked: the local path sees a heartbeat every 5 s, the forwarded path
-  // adds one outbox drain (5 s) plus a cross-ocean RTT. 15 s would leave about
-  // 5 s of margin and turn one late drain into "your computer is offline".
-  // `+ DRAIN_INTERVAL_MS` states where the extra came from, so anyone who
-  // changes the drain interval finds this.
-  //
-  // ⚠️ `thisNode` ABSENT means single-node, which is every deployment that is
-  // not the relay: `home_node` is null there, the first branch never runs, and
-  // the behaviour is byte-for-byte what it was.
-  const remote = typeof pc.home_node === 'string'
-    && pc.home_node.length > 0
-    && typeof thisNode === 'string'
-    && pc.home_node !== thisNode;
-  if (!remote && store.getPc(pc.room_uuid) === null) return false;
-  if (pc.last_seen_at === null || pc.last_seen_at === undefined) return false;
-  const seen = Date.parse(pc.last_seen_at);
-  if (!Number.isFinite(seen)) return false;
-  return now - seen < (remote ? PRESENCE_STALE_MS + REMOTE_PRESENCE_SLACK_MS : PRESENCE_STALE_MS);
 }
 
 /**

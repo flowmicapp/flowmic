@@ -1,6 +1,9 @@
 // owner 2026-08-30 — 本机 → 边缘 → 节点 = 总，and each part has to mean what it says.
+// 2026-09-01 WP2 Card 1 — the headline is a HOT round trip. Connect is the first
+// sample; latency is the min of the rest. 836 ms was the cold first round.
 //
-// SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4.
+// SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4;
+//   docs/strategy/2026-09-01-lan-fable-work-package-2.md Card 1.
 
 import 'package:flowmic/src/session/node_latency.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -63,7 +66,24 @@ void main() {
         reason: '「never asked」 is not 「asked and got nothing」');
   });
 
-  test('probeNode takes the median of its rounds through the seam', () async {
+  test('hotOf: headline is the min of samples AFTER the first success', () {
+    // Card 1: 836 ms was handshake + cold origin; 67 ms is the hot RTT.
+    final NodeLatency h = hotOf('srvjp', 'https://srvjp.flowmic.app',
+        <NodeLatency>[_s(400, 836), _s(10, 67), _s(10, 70)]);
+    expect(h.edgeMs, 836, reason: 'first success is connect, reported separately');
+    expect(h.totalMs, 67, reason: 'min of the hot set, never the cold first');
+    expect(h.ok, isTrue);
+  });
+
+  test('hotOf: a lone cold sample is unanswered, not a headline', () {
+    final NodeLatency h = hotOf('srvjp', 'https://srvjp.flowmic.app',
+        <NodeLatency>[_s(400, 836)]);
+    expect(h.edgeMs, 836);
+    expect(h.totalMs, isNull);
+    expect(h.ok, isFalse);
+  });
+
+  test('probeNode takes the hot split of its rounds through the seam', () async {
     final List<int> totals = <int>[300, 100, 200];
     int i = 0;
     final NodeLatency out = await probeNode(
@@ -73,6 +93,7 @@ void main() {
           _s(20, totals[i++]),
     );
     expect(i, 3, reason: 'three rounds, sequentially — they must not race');
-    expect(out.totalMs, 200);
+    expect(out.edgeMs, 300);
+    expect(out.totalMs, 100, reason: 'skip first, min of [100, 200]');
   });
 }

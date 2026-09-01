@@ -32,8 +32,10 @@
 //! before the frontend had mounted.
 //!
 //! The rule that replaces it is stronger, not weaker: the candidate nodes come
-//! from `{endpoint}/api/node/list` and NOWHERE ELSE. The endpoint is the only
-//! authority on which doors belong to it. A self-hosted relay publishes no list
+//! from a published `/api/node/list` and NOWHERE ELSE. We ask the node this PC
+//! is already on when that copy is usable, and the canonical endpoint otherwise
+//! (`fetch_published`). Either way the authority is a list that service
+//! published, not a URL we invented. A self-hosted relay publishes no list
 //! (or its own), so this cannot move that install onto our infrastructure — not
 //! because we recognised the name, but because nothing told us to. Authority
 //! beats recognition: a name check has to be kept in step with reality, and this
@@ -69,14 +71,30 @@ use std::time::Duration;
 /// neighbourhood is evidence that we are timing an edge rather than an origin.
 /// Real inter-region differences in the same measurement were 44→279 ms, two
 /// orders of magnitude clear of this.
+///
+/// Valid at [`PROBE_ROUNDS`] = 2. This floor compares the spread of per-node
+/// *minima*, not the number of samples that produced each minimum. Two rounds
+/// still include one warm sample (the second). Warm-to-warm jitter in the
+/// 2026-08-31 Singapore sample was 1–13 ms — inside this floor, two orders
+/// below inter-region deltas. Raising it because we dropped a round would
+/// answer a question this number does not ask.
 pub const NOISE_FLOOR_MS: u128 = 20;
 
-/// How many times each node is probed. Three, and the MINIMUM is kept rather
+/// How many times each node is probed. Two, and the MINIMUM is kept rather
 /// than the mean: a single sample carries whatever the scheduler and the TLS
 /// session cache were doing, and the mean lets one outlier move the answer,
 /// whereas the minimum converges on the floor of the path — which is what
 /// "distance" means here.
-pub const PROBE_ROUNDS: usize = 3;
+///
+/// ⚠️ THREE → TWO IS A REAL REDUCTION IN CONFIDENCE. A round is noise
+/// rejection, not a retry. Measured 2026-08-31 from Singapore (WP2 card 2):
+/// NY 764/255/242 and Tokyo 259/80/79 — round 1 is the cold origin fetch,
+/// round 2 is already on the warm floor, round 3 moved the min by 13 ms and
+/// 1 ms and never changed the ranking. Dropping the third round is that
+/// 13 ms of floor-hunting. The sticky margin and noise floor stay at 25/20:
+/// they were derived against inter-node spread and reconnect cost, not
+/// against round count — see those constants.
+pub const PROBE_ROUNDS: usize = 2;
 
 /// A node as published by `GET /api/node/list`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,7 +135,11 @@ pub enum Reason {
     /// Probed, and the spread was below the noise floor — see NOISE_FLOOR_MS.
     BelowNoiseFloor { spread_ms: u128 },
     /// Probed and chose. `margin_ms` is how much better than the runner-up.
-    Chose { node: String, rtt_ms: u128, margin_ms: u128 },
+    Chose {
+        node: String,
+        rtt_ms: u128,
+        margin_ms: u128,
+    },
     /// Probed and kept the node already in use, because the challenger was not
     /// better by enough to be worth a reconnect.
     Kept { node: String, rtt_ms: u128 },
@@ -148,7 +170,10 @@ pub struct Choice {
 
 /// Minimal seam so the decision is testable without a network. Production wires
 /// this to `reqwest::blocking`.
-pub trait Probe {
+///
+/// `Sync` because candidate pings run on scoped threads (one per node). A
+/// probe that cannot be shared cannot be the production probe.
+pub trait Probe: Sync {
     /// `GET {base}/api/node/list` → the published nodes, or None if unreadable.
     fn list(&self, base: &str) -> Option<Vec<NodeEntry>>;
     /// `GET {url}/api/node/ping` → round-trip time, or None if it failed.
@@ -159,17 +184,120 @@ pub trait Probe {
 /// caller reconnects. Without it, two nodes a few milliseconds apart would trade
 /// places on every probe and every trade is a dropped socket — the classic
 /// flapping selector, which is worse than picking the wrong node once.
+///
+/// Valid at [`PROBE_ROUNDS`] = 2. This is the cost of tearing down a live
+/// socket, not a confidence interval on the probe. The challenger is
+/// compared on the same min-of-rounds number as the incumbent. Warm-round
+/// jitter in the 2026-08-31 sample (13 ms NY, 1 ms Tokyo) sits at or under
+/// this margin, so a two-round min does not make the selector flappier than
+/// three did. Tightening it because we probe less would confuse a
+/// reconnect-cost constant with a sample-size constant.
 pub const STICKY_MARGIN_MS: u128 = 25;
 
-/// Choose a node to dial.
+/// One scoped thread per candidate, capped. The operator's directory is
+/// already a small set; this is a belt against a huge file, not a pool we
+/// tune. Rounds *within* a node stay sequential: round 1 is cold, round 2
+/// is warm, and the min of those two is the aggregation. Parallelising rounds
+/// would mix cold and warm across nodes and change the ruler.
+const PROBE_PARALLELISM: usize = 8;
+
+/// Per-node aggregation: `PROBE_ROUNDS` pings, keep the minimum of those that
+/// answered. A node that answers none of them is absent from the result.
+fn time_one_node(n: &NodeEntry, probe: &impl Probe) -> Option<u128> {
+    let mut best: Option<u128> = None;
+    for _ in 0..PROBE_ROUNDS {
+        if let Some(d) = probe.ping(&n.url) {
+            let ms = d.as_millis();
+            best = Some(best.map_or(ms, |b: u128| b.min(ms)));
+        }
+    }
+    best
+}
+
+/// Probe candidates in parallel. Wall time is ~max(single node), not the sum.
+/// Join order is spawn order (the published order), so equal-RTT ties keep
+/// the same winner as the sequential loop this replaced.
+fn time_nodes_parallel<'a>(
+    nodes: &'a [NodeEntry],
+    probe: &impl Probe,
+) -> Vec<(&'a NodeEntry, u128)> {
+    let mut timed = Vec::with_capacity(nodes.len());
+    for chunk in nodes.chunks(PROBE_PARALLELISM) {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|n| s.spawn(move || time_one_node(n, probe).map(|ms| (n, ms))))
+                .collect();
+            for handle in handles {
+                if let Some(pair) = handle
+                    .join()
+                    .unwrap_or_else(|p| std::panic::resume_unwind(p))
+                {
+                    timed.push(pair);
+                }
+            }
+        });
+    }
+    timed
+}
+
+fn urls_eq(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/')
+        .eq_ignore_ascii_case(b.trim_end_matches('/'))
+}
+
+/// A replica's directory copy is usable only when it is a real, self-describing
+/// fleet. Anything else falls back to the canonical-endpoint fetch — today's
+/// path, byte for byte.
 ///
-/// `current` is the node id in use right now, if any — passed in rather than
-/// stored here so this function stays pure and the stickiness is visible at the
-/// call site.
+/// 🔴 2026-08-30 INCIDENT SHAPE. The writer's `nodes.json` and Tokyo's
+/// disagreed (`selectable` on `srvjp`). A client that trusted Tokyo's copy
+/// skipped selection; the phone badge vanished. A stale replica copy is a
+/// real failure mode, which is why this guard exists.
 ///
-/// `must_register` is 「this PC has no token, so this connection will emit
-/// `pc:register`」 — [`Credentials::is_registered`] inverted, and it OVERRIDES
-/// distance entirely. See the block on it below.
+/// `GET /api/node/list` carries `{ok, node, nodes, writer?}` — no freshness
+/// stamp (the file mtime is an in-process cache on the answering node, never
+/// a response field; `version` lives on `/ping`, not on `/list`). Without a
+/// stamp the guard is containment: the copy must be non-empty and must name
+/// the node we asked. Fail / empty / unparseable / missing-self all degrade
+/// to the canonical fetch. Never to "no nodes", never to a guessed URL.
+///
+/// ⚠️ Containment does not catch the exact 08-30 bytes (Tokyo still *named*
+/// itself, it just marked itself unselectable). A stamp would; the route
+/// does not have one. The fallback still catches a fetch that fails, a copy
+/// that is empty, and a copy that does not know the node we are on.
+fn replica_copy_usable(list: &[NodeEntry], current_id: &str) -> bool {
+    !list.is_empty() && list.iter().any(|n| n.id == current_id)
+}
+
+/// Prefer the node this PC is already talking to. The Singapore measurement
+/// (2026-08-31, fmsrvtest-sg) paid **728 ms** asking `flowmic.app` (NY) for a
+/// list the local node would have answered in one regional hop.
+///
+/// Cold start (`current` / `current_url` absent) is today's fetch: the
+/// canonical endpoint is the only authority we have. A current URL that
+/// *is* the endpoint is the same fetch, not a second one.
+fn fetch_published(
+    endpoint: &str,
+    current: Option<&str>,
+    current_url: Option<&str>,
+    probe: &impl Probe,
+) -> Vec<NodeEntry> {
+    let canonical = || probe.list(endpoint).unwrap_or_default();
+    let (Some(id), Some(url)) = (current, current_url) else {
+        return canonical();
+    };
+    let url = url.trim_end_matches('/');
+    if url.is_empty() || urls_eq(url, endpoint) {
+        return canonical();
+    }
+    match probe.list(url) {
+        Some(list) if replica_copy_usable(&list, id) => list,
+        // Unusable copy (error / empty / missing self) → today's fetch.
+        _ => canonical(),
+    }
+}
+
 /// Which published node IS this url — asked when we are NOT choosing one.
 ///
 /// 🔴 「我们没有在选点」 and 「我们不知道自己在哪」 are two different facts, and until
@@ -189,16 +317,35 @@ fn identify(url: &str, published: &[NodeEntry]) -> (Option<String>, Option<Strin
         .map_or((None, None), |n| (Some(n.id.clone()), n.short.clone()))
 }
 
+/// Choose a node to dial.
+///
+/// `current` is the node id in use right now, if any — passed in rather than
+/// stored here so this function stays pure and the stickiness is visible at the
+/// call site.
+///
+/// `current_url` is the URL that id was last dialed at. The directory is
+/// fetched from there when the copy is usable; otherwise from `endpoint`.
+/// The two are separate arguments because an id without a URL cannot be
+/// asked, and a URL without an id cannot be checked for containment.
+///
+/// `must_register` is 「this PC has no token, so this connection will emit
+/// `pc:register`」 — [`Credentials::is_registered`] inverted, and it OVERRIDES
+/// distance entirely. See the block on it below.
 pub fn choose(
     endpoint: &str,
     current: Option<&str>,
+    current_url: Option<&str>,
     must_register: bool,
     probe: &impl Probe,
 ) -> Choice {
     let ep = endpoint.trim_end_matches('/');
     if ep.is_empty() {
-        return Choice { url: endpoint.to_string(), node: None,
-            short: None, reason: Reason::NoEndpoint };
+        return Choice {
+            url: endpoint.to_string(),
+            node: None,
+            short: None,
+            reason: Reason::NoEndpoint,
+        };
     }
 
     // ── 🔴 REGISTRATION GOES TO THE WRITER, WHATEVER THE DISTANCE ────────────
@@ -220,10 +367,13 @@ pub fn choose(
     // Fetched ONCE, and used by both the writer search and the candidate filter.
     // It is also what lets every non-choosing return below still say WHICH node
     // it is dialing — see `identify`.
-    let published = probe.list(ep).unwrap_or_default();
+    let published = fetch_published(ep, current, current_url, probe);
 
     if must_register {
-        return match published.iter().find(|n| n.writer && n.url.starts_with("https://")) {
+        return match published
+            .iter()
+            .find(|n| n.writer && n.url.starts_with("https://"))
+        {
             Some(w) => Choice {
                 url: w.url.clone(),
                 node: Some(w.id.clone()),
@@ -234,7 +384,12 @@ pub fn choose(
             // deployment, and every self-hosted one — dial what we were given.
             None => {
                 let (node, short) = identify(endpoint, &published);
-                Choice { url: endpoint.to_string(), node, short, reason: Reason::NoWriterPublished }
+                Choice {
+                    url: endpoint.to_string(),
+                    node,
+                    short,
+                    reason: Reason::NoWriterPublished,
+                }
             }
         };
     }
@@ -252,33 +407,35 @@ pub fn choose(
         // One node or none. Note this is NOT an error: it is what every
         // single-node deployment answers, which is every deployment until today.
         let (node, short) = identify(endpoint, &published);
-        return Choice { url: endpoint.to_string(), node, short, reason: Reason::SingleNode };
+        return Choice {
+            url: endpoint.to_string(),
+            node,
+            short,
+            reason: Reason::SingleNode,
+        };
     }
 
-    let mut timed: Vec<(&NodeEntry, u128)> = Vec::new();
-    for n in &nodes {
-        let mut best: Option<u128> = None;
-        for _ in 0..PROBE_ROUNDS {
-            if let Some(d) = probe.ping(&n.url) {
-                let ms = d.as_millis();
-                best = Some(best.map_or(ms, |b: u128| b.min(ms)));
-            }
-        }
-        if let Some(ms) = best {
-            timed.push((n, ms));
-        }
-    }
+    let mut timed = time_nodes_parallel(&nodes, probe);
     if timed.is_empty() {
         let (node, short) = identify(endpoint, &published);
-        return Choice { url: endpoint.to_string(), node, short, reason: Reason::NoneReachable };
+        return Choice {
+            url: endpoint.to_string(),
+            node,
+            short,
+            reason: Reason::NoneReachable,
+        };
     }
     if timed.len() == 1 {
         let (n, ms) = timed[0];
         return Choice {
             url: n.url.clone(),
             node: Some(n.id.clone()),
-                short: n.short.clone(),
-            reason: Reason::Chose { node: n.id.clone(), rtt_ms: ms, margin_ms: 0 },
+            short: n.short.clone(),
+            reason: Reason::Chose {
+                node: n.id.clone(),
+                rtt_ms: ms,
+                margin_ms: 0,
+            },
         };
     }
 
@@ -308,8 +465,11 @@ pub fn choose(
                 return Choice {
                     url: n.url.clone(),
                     node: Some(n.id.clone()),
-                short: n.short.clone(),
-                    reason: Reason::Kept { node: n.id.clone(), rtt_ms: *ms },
+                    short: n.short.clone(),
+                    reason: Reason::Kept {
+                        node: n.id.clone(),
+                        rtt_ms: *ms,
+                    },
                 };
             }
         }
@@ -319,8 +479,12 @@ pub fn choose(
     Choice {
         url: best.url.clone(),
         node: Some(best.id.clone()),
-                short: best.short.clone(),
-        reason: Reason::Chose { node: best.id.clone(), rtt_ms: best_ms, margin_ms: margin },
+        short: best.short.clone(),
+        reason: Reason::Chose {
+            node: best.id.clone(),
+            rtt_ms: best_ms,
+            margin_ms: margin,
+        },
     }
 }
 
@@ -371,9 +535,9 @@ impl HttpProbe {
         reqwest::blocking::Client::builder()
             .timeout(PING_TIMEOUT)
             // 🔴 No connection reuse between probes. A pooled connection would
-            // measure a warm socket for the second and third rounds and a cold
-            // one for the first, which biases toward whichever node happened to
-            // be probed first — the ruler changing between measurements.
+            // measure a warm socket for later rounds and a cold one for the
+            // first, which biases toward whichever node happened to be probed
+            // first — the ruler changing between measurements.
             .pool_max_idle_per_host(0)
             .build()
             .ok()
@@ -391,6 +555,9 @@ impl Probe for HttpProbe {
             .json()
             .ok()?;
         let arr = body.get("nodes")?.as_array()?;
+        // No freshness stamp on this body (`ok`/`node`/`nodes`/`writer?`).
+        // `version` is on `/ping`; the file mtime never leaves the answering
+        // process. Containment in `fetch_published` is the client-side guard.
         let mut out = Vec::new();
         for n in arr {
             let (Some(id), Some(url)) = (n.get("id")?.as_str(), n.get("url")?.as_str()) else {
@@ -400,7 +567,10 @@ impl Probe for HttpProbe {
                 id: id.to_string(),
                 url: url.trim_end_matches('/').to_string(),
                 // Absent means selectable — see node-routes.ts NodeEntry.
-                selectable: n.get("selectable").and_then(|v| v.as_bool()).unwrap_or(true),
+                selectable: n
+                    .get("selectable")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
                 writer: n.get("role").and_then(|v| v.as_str()) == Some("writer"),
                 // Length-checked on the way in: this string goes on a card
                 // beside a machine's name, and a client that trusted a server
@@ -418,7 +588,11 @@ impl Probe for HttpProbe {
 
     fn ping(&self, url: &str) -> Option<Duration> {
         let t0 = std::time::Instant::now();
-        let res = self.client.get(format!("{url}/api/node/ping")).send().ok()?;
+        let res = self
+            .client
+            .get(format!("{url}/api/node/ping"))
+            .send()
+            .ok()?;
         if !res.status().is_success() {
             return None;
         }
@@ -431,233 +605,5 @@ impl Probe for HttpProbe {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-
-    const CANON: &str = "https://flowmic.app";
-
-    struct Fake {
-        nodes: Option<Vec<NodeEntry>>,
-        rtt: HashMap<String, u64>,
-        pings: RefCell<Vec<String>>,
-    }
-    impl Fake {
-        fn new(nodes: &[(&str, &str, u64)]) -> Self {
-            Fake {
-                nodes: Some(nodes.iter().map(|(id, url, _)| NodeEntry {
-                        id: (*id).into(), url: (*url).into(), selectable: true, writer: false, short: None,
-                    }).collect()),
-                rtt: nodes.iter().map(|(_, url, ms)| ((*url).to_string(), *ms)).collect(),
-                pings: RefCell::new(Vec::new()),
-            }
-        }
-    }
-    impl Probe for Fake {
-        fn list(&self, _base: &str) -> Option<Vec<NodeEntry>> { self.nodes.clone() }
-        fn ping(&self, url: &str) -> Option<Duration> {
-            self.pings.borrow_mut().push(url.to_string());
-            self.rtt.get(url).map(|ms| Duration::from_millis(*ms))
-        }
-    }
-
-    fn two_far() -> Fake {
-        Fake::new(&[("srvny", "https://srvny.flowmic.app", 180), ("srvjp", "https://srvjp.flowmic.app", 40)])
-    }
-
-    #[test]
-    fn chooses_the_near_node_when_the_difference_is_real() {
-        let c = choose(CANON, None, false, &two_far());
-        assert_eq!(c.node.as_deref(), Some("srvjp"));
-        assert_eq!(c.url, "https://srvjp.flowmic.app");
-    }
-
-    #[test]
-    fn a_self_hosted_relay_is_never_moved_onto_our_infrastructure() {
-        // 🔴 The worst failure this module could have: taking a self-hoster's
-        // install off their own box. The guard is authority, not recognition —
-        // an endpoint that publishes no node list yields no candidates, so there
-        // is no code path here that could invent one of our URLs.
-        struct SelfHosted;
-        impl Probe for SelfHosted {
-            fn list(&self, _: &str) -> Option<Vec<NodeEntry>> { None }
-            fn ping(&self, _: &str) -> Option<Duration> {
-                panic!("nothing may be probed when the endpoint published no nodes")
-            }
-        }
-        let c = choose("https://relay.example.org", None, false, &SelfHosted);
-        assert_eq!(c.url, "https://relay.example.org");
-        assert_eq!(c.node, None);
-        assert_eq!(c.reason, Reason::SingleNode);
-    }
-
-    #[test]
-    fn candidates_come_only_from_the_endpoint_that_was_asked() {
-        // The positive half of the test above: every URL dialed must be one the
-        // endpoint itself named. If this ever fails, some path is synthesising
-        // node URLs, which is precisely what must not exist.
-        let f = two_far();
-        let c = choose(CANON, None, false, &f);
-        let published: Vec<String> = f.nodes.clone().unwrap().into_iter().map(|n| n.url).collect();
-        assert!(published.contains(&c.url));
-        for dialed in f.pings.borrow().iter() {
-            assert!(published.contains(dialed), "probed a URL nobody published: {dialed}");
-        }
-    }
-
-    #[test]
-    fn below_the_noise_floor_it_makes_no_choice_rather_than_a_confident_one() {
-        // The measured CF artefact: five regions, 3ms apart at the handshake,
-        // 44→279ms in reality. A selector that picked the smallest of these
-        // would be picking noise and would never look broken.
-        let f = Fake::new(&[
-            ("srvny", "https://srvny.flowmic.app", 9),
-            ("srvjp", "https://srvjp.flowmic.app", 10),
-        ]);
-        let c = choose(CANON, None, false, &f);
-        assert_eq!(c.node, None);
-        assert_eq!(c.url, CANON);
-        assert!(matches!(c.reason, Reason::BelowNoiseFloor { spread_ms: 1 }));
-    }
-
-    #[test]
-    fn a_single_published_node_is_not_an_error() {
-        let f = Fake::new(&[("srvny", "https://srvny.flowmic.app", 40)]);
-        let c = choose(CANON, None, false, &f);
-        assert_eq!(c.reason, Reason::SingleNode);
-        assert_eq!(c.url, CANON);
-    }
-
-    #[test]
-    fn an_undialable_fleet_falls_back_to_the_endpoint_rather_than_to_nothing() {
-        struct Dead;
-        impl Probe for Dead {
-            fn list(&self, _: &str) -> Option<Vec<NodeEntry>> {
-                Some(vec![
-                    NodeEntry { id: "a".into(), url: "https://a.flowmic.app".into(), selectable: true, writer: false, short: None },
-                    NodeEntry { id: "b".into(), url: "https://b.flowmic.app".into(), selectable: true, writer: false, short: None },
-                ])
-            }
-            fn ping(&self, _: &str) -> Option<Duration> { None }
-        }
-        let c = choose(CANON, None, false, &Dead);
-        assert_eq!(c.url, CANON);
-        assert_eq!(c.reason, Reason::NoneReachable);
-    }
-
-    #[test]
-    fn stickiness_keeps_the_current_node_when_the_challenger_is_marginal() {
-        // Every switch costs a live socket. Two nodes a few ms apart would
-        // otherwise trade places forever, and a flapping selector is worse than
-        // a wrong one.
-        let f = Fake::new(&[
-            ("srvny", "https://srvny.flowmic.app", 40),
-            ("srvjp", "https://srvjp.flowmic.app", 65),
-        ]);
-        let c = choose(CANON, Some("srvjp"), false, &f);
-        assert_eq!(c.node.as_deref(), Some("srvjp"));
-        assert!(matches!(c.reason, Reason::Kept { .. }));
-    }
-
-    #[test]
-    fn stickiness_yields_when_the_difference_is_large() {
-        // The negative control for the test above: without it, "sticky" and
-        // "never moves" would be indistinguishable, and a PC that flew to Tokyo
-        // would keep dialing New York forever.
-        let c = choose(CANON, Some("srvny"), false, &two_far());
-        assert_eq!(c.node.as_deref(), Some("srvjp"));
-    }
-
-    #[test]
-    fn a_node_marked_not_selectable_is_published_but_never_chosen() {
-        // How an operator drains a node without deleting the row and losing the
-        // record of what its id meant.
-        let mut f = two_far();
-        f.nodes.as_mut().unwrap()[1].selectable = false;
-        let c = choose(CANON, None, false, &f);
-        assert_eq!(c.reason, Reason::SingleNode);
-    }
-
-    #[test]
-    fn a_plaintext_node_url_is_dropped_rather_than_dialed() {
-        let mut f = two_far();
-        f.nodes.as_mut().unwrap()[1].url = "http://srvjp.flowmic.app".into();
-        let c = choose(CANON, None, false, &f);
-        assert_eq!(c.reason, Reason::SingleNode);
-    }
-
-    /// The near node is srvjp; the WRITER is the far one. Any test that passes
-    /// with these swapped is not testing the override.
-    fn two_far_with_writer() -> Fake {
-        let mut f = two_far();
-        f.nodes.as_mut().unwrap()[0].writer = true; // srvny, the 180ms one
-        f
-    }
-
-    #[test]
-    fn registration_goes_to_the_writer_even_when_it_is_the_far_node() {
-        // 🔴 pc:register is seven writes including the pairing code the user is
-        // about to be shown. On a replica all seven vanish at the next
-        // replication pull, with no error at either end.
-        let f = two_far_with_writer();
-        let c = choose(CANON, None, true, &f);
-        assert_eq!(c.node.as_deref(), Some("srvny"));
-        assert_eq!(c.url, "https://srvny.flowmic.app");
-        assert!(matches!(c.reason, Reason::WriterRequired { .. }));
-    }
-
-    #[test]
-    /// The NEAR node — that word is the whole assertion, and it lives here rather
-    /// than in the identifier because clippy (rightly) rejects screaming case in a
-    /// function name.
-    fn negative_control_the_same_fleet_picks_the_near_node_when_not_registering() {
-        // Without this, "always returns srvny" would pass the test above. This is
-        // the assertion that proves must_register is what moved the answer.
-        let c = choose(CANON, None, false, &two_far_with_writer());
-        assert_eq!(c.node.as_deref(), Some("srvjp"));
-    }
-
-    #[test]
-    fn registration_probes_nothing() {
-        // Latency is not the question and a first-run connection must not wait on
-        // measurements whose answer it is going to ignore.
-        let f = two_far_with_writer();
-        let _ = choose(CANON, None, true, &f);
-        assert!(f.pings.borrow().is_empty(), "registration must not measure distance");
-    }
-
-    #[test]
-    fn registration_with_no_writer_published_dials_the_endpoint() {
-        // Every single-node deployment, and every self-hosted one.
-        let c = choose(CANON, None, true, &two_far());
-        assert_eq!(c.url, CANON);
-        assert_eq!(c.reason, Reason::NoWriterPublished);
-    }
-
-    #[test]
-    fn a_plaintext_writer_is_refused_like_any_other_plaintext_node() {
-        let mut f = two_far_with_writer();
-        f.nodes.as_mut().unwrap()[0].url = "http://srvny.flowmic.app".into();
-        let c = choose(CANON, None, true, &f);
-        assert_eq!(c.reason, Reason::NoWriterPublished);
-        assert_eq!(c.url, CANON);
-    }
-
-    #[test]
-    fn every_reason_says_what_was_decided_and_why_in_one_sentence() {
-        for r in [
-            Reason::NoEndpoint,
-            Reason::SingleNode,
-            Reason::BelowNoiseFloor { spread_ms: 3 },
-            Reason::Chose { node: "srvjp".into(), rtt_ms: 40, margin_ms: 140 },
-            Reason::Kept { node: "srvny".into(), rtt_ms: 40 },
-            Reason::NoneReachable,
-            Reason::WriterRequired { node: "srvny".into() },
-            Reason::NoWriterPublished,
-        ] {
-            let s = r.describe();
-            assert!(s.len() > 20, "a reason nobody can read is a reason nobody will check: {s}");
-        }
-    }
-}
+#[path = "node_select_tests.rs"]
+mod tests;

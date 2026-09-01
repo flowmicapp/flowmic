@@ -46,7 +46,7 @@ import '../signaling/http_endpoint.dart';
 import '../signaling/lan_pinning.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/mobile_reconnect_flow.dart';
-import '../signaling/node_follow.dart' show answeringNode, pcHomeNodeOf;
+import '../signaling/node_follow.dart' show answeringNode, pcHomeNodeOf, settledAtHomeNode;
 import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop, planSelfNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
@@ -335,7 +335,7 @@ class PttSession {
   /// wrong, and what it cost, is at the sole-writer site of
   /// [PttSession.noteRoomJoined] in ptt_reconnect_ack.dart.
   final ValueNotifier<int> roomJoins = ValueNotifier<int>(0);
-  void noteRoomJoined() => roomJoins.value++;
+  void noteRoomJoined({required bool atHomeNode}) { reconnect.noteJoinAtHomeNode(atHomeNode); roomJoins.value++; } // P0: the verdict BEFORE the edge — see ReconnectCoordinator.lastJoinAtHomeNode
 
   /// Seam so the channel reading is testable without a network.
   HealthReader healthReader = httpHealthRead;
