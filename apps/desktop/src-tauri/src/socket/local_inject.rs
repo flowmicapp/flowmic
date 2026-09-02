@@ -40,8 +40,14 @@ use crate::socket::wire;
 /// a SECOND injection path — a different SPEAKING-lock answer, a different dedup window
 /// — and therefore a second meaning for `injected`, which the RV-45 ruling forbids
 /// outright.
+// P1-2 (2026-09-02 audit §3-D): `pub(crate)`, not `pub(in crate::socket)` — the
+// shell layer (`shell::reinject`) needs to hold this type by value so it can
+// clone the four Arcs out from behind the `SocketState` mutex and drop the
+// lock BEFORE running the pipeline. The old shape ran the whole pipeline
+// (up to the 1.5s PASTE_HOLD) inside the mutex guard's closure, which froze
+// every OTHER Tauri command that needs `SocketState` for that long.
 #[derive(Clone)]
-pub(in crate::socket) struct InjectHandles {
+pub(crate) struct InjectHandles {
     /// Smoke-safety allowlist (`None` in production).
     pub allowlist: Arc<Option<Vec<String>>>,
     /// The focus FSM — the single source of truth for the inject target.
@@ -54,6 +60,22 @@ pub(in crate::socket) struct InjectHandles {
 }
 
 impl DesktopSocket {
+    /// A cheap clone of the four Arc handles this session's inject decisions run on.
+    ///
+    /// P1-2 (2026-09-02 audit §3-D): this is what `shell::reinject` takes OUT of the
+    /// `SocketState` mutex guard before running the actual pipeline. Cloning four Arcs
+    /// is microseconds; the pipeline it feeds can hold PASTE_HOLD for up to 1.5s, and
+    /// that used to run INSIDE the same lock, freezing every other Tauri command that
+    /// touches `SocketState` (which is most of them) for that long.
+    ///
+    /// `#[cfg(feature = "app")]`: `SocketState`/`shell::reinject` only exist under
+    /// the `app` feature (the audited core here stays tauri-free), so the lean
+    /// `cargo test` build has no caller — gated to match, rather than dead_code.
+    #[cfg(feature = "app")]
+    pub(crate) fn inject_handles(&self) -> InjectHandles {
+        self.inject.clone()
+    }
+
     /// Reinject the row's own text into this machine's focused window, with NO round trip.
     ///
     /// ONE DECISION PATH, THEREFORE ONE MEANING OF `injected`. This calls the very same
@@ -81,40 +103,13 @@ impl DesktopSocket {
     /// (`dedup::skips_the_inj1_byte_window`, ex-`is_bypass_source`, RV-29 round) — and
     /// the forensic line names it if either ever drifts. (The other cause — no resident session at all — is
     /// decided one layer up, in `shell::reinject`.)
+    ///
+    /// Body lives in [`reinject_text_with_handles`] now (P1-2) — this method just hands
+    /// it `self`'s handles, for callers that still hold `&DesktopSocket` (unit tests).
+    /// `shell::reinject` calls the free function directly with a bundle it cloned
+    /// BEFORE dropping the `SocketState` lock.
     pub fn reinject_locally(&self, text: &str, entry_id: &str) -> Option<Value> {
-        let req = wire::local_reinject_request(text, entry_id);
-        let out = run_inject(
-            &req,
-            &self.inject.allowlist,
-            &self.inject.fsm,
-            &self.inject.lock_deadline,
-            &self.inject.deduper,
-            // 🔴 THE ONE PRODUCER OF THIS INTENT IN THE WHOLE BINARY. A human just
-            // clicked a row's re-inject button, so FlowMic is in front BECAUSE of
-            // that click — reading the live foreground here answers a question
-            // nobody asked and makes the act impossible (see [`TargetIntent`]).
-            TargetIntent::BeforeTheClick,
-        );
-        match &out {
-            Some(r) => forensic::record(
-                "timeline",
-                &format!(
-                    "local reinject entry_id={entry_id} chars={} → ok={} mode={:?} (no server round trip)",
-                    text.chars().count(),
-                    r.get("ok").and_then(Value::as_bool).unwrap_or(false),
-                    r.get("mode").and_then(Value::as_str).unwrap_or("?"),
-                ),
-            ),
-            None => forensic::record(
-                "timeline",
-                &format!(
-                    "local reinject entry_id={entry_id} produced NO result — run_inject deduped it \
-                     (source={:?} is expected to bypass dedup; nothing was typed)",
-                    req.source
-                ),
-            ),
-        }
-        out
+        reinject_text_with_handles(&self.inject, text, entry_id)
     }
 
     /// The IMAGE sibling of [`Self::reinject_locally`] (0.3.36 — the 15-vol
@@ -133,39 +128,99 @@ impl DesktopSocket {
     /// window (`dedup::skips_the_inj1_byte_window`) and no `request_id` is
     /// minted, so INJ-3 has no key — two clicks are two deliveries, same as the
     /// text button.
+    ///
+    /// Body lives in [`reinject_image_with_handles`] now (P1-2), same reason as above.
     pub fn reinject_image_locally(&self, image_b64: &str, image_mime: &str, entry_id: &str) -> Option<Value> {
-        let req = wire::local_reinject_image_request(image_b64, image_mime, entry_id);
-        let out = run_inject(
-            &req,
-            &self.inject.allowlist,
-            &self.inject.fsm,
-            &self.inject.lock_deadline,
-            &self.inject.deduper,
-            // Same intent, same producer argument as the text arm above: a human
-            // just clicked this row's button, so the target is the window that
-            // was in front BEFORE the click.
-            TargetIntent::BeforeTheClick,
-        );
-        match &out {
-            Some(r) => forensic::record(
-                "timeline",
-                &format!(
-                    "local reinject IMAGE entry_id={entry_id} mime={image_mime} b64_chars={} → ok={} mode={:?} \
-                     (no server round trip)",
-                    image_b64.chars().count(),
-                    r.get("ok").and_then(Value::as_bool).unwrap_or(false),
-                    r.get("mode").and_then(Value::as_str).unwrap_or("?"),
-                ),
-            ),
-            None => forensic::record(
-                "timeline",
-                &format!(
-                    "local reinject IMAGE entry_id={entry_id} produced NO result — run_inject deduped it \
-                     (source={:?} is expected to bypass dedup; nothing was pasted)",
-                    req.source
-                ),
-            ),
-        }
-        out
+        reinject_image_with_handles(&self.inject, image_b64, image_mime, entry_id)
     }
+}
+
+/// The text-reinject pipeline, decoupled from `&DesktopSocket` (and therefore from any
+/// `SocketState` lock) — see `DesktopSocket::inject_handles` and `shell::reinject`.
+///
+/// P1-2: the old call site ran this whole body — including `run_inject`'s SendInput /
+/// clipboard-paste-and-hold machinery, up to 1.5s of PASTE_HOLD — INSIDE the
+/// `with_socket` closure, which holds the app-wide `SocketState` mutex. Every other
+/// Tauri command that touches `SocketState` (which is most of them: settings, pairing,
+/// the device page, every inbound socket handler) was blocked for that whole run.
+/// Cloning `InjectHandles` out from behind the lock and calling this function AFTER the
+/// lock is dropped removes the hold entirely — the mutex is now held only for the
+/// microseconds it takes to clone four Arcs.
+pub(crate) fn reinject_text_with_handles(handles: &InjectHandles, text: &str, entry_id: &str) -> Option<Value> {
+    let req = wire::local_reinject_request(text, entry_id);
+    let out = run_inject(
+        &req,
+        &handles.allowlist,
+        &handles.fsm,
+        &handles.lock_deadline,
+        &handles.deduper,
+        // 🔴 THE ONE PRODUCER OF THIS INTENT IN THE WHOLE BINARY. A human just
+        // clicked a row's re-inject button, so FlowMic is in front BECAUSE of
+        // that click — reading the live foreground here answers a question
+        // nobody asked and makes the act impossible (see [`TargetIntent`]).
+        TargetIntent::BeforeTheClick,
+    );
+    match &out {
+        Some(r) => forensic::record(
+            "timeline",
+            &format!(
+                "local reinject entry_id={entry_id} chars={} → ok={} mode={:?} (no server round trip)",
+                text.chars().count(),
+                r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                r.get("mode").and_then(Value::as_str).unwrap_or("?"),
+            ),
+        ),
+        None => forensic::record(
+            "timeline",
+            &format!(
+                "local reinject entry_id={entry_id} produced NO result — run_inject deduped it \
+                 (source={:?} is expected to bypass dedup; nothing was typed)",
+                req.source
+            ),
+        ),
+    }
+    out
+}
+
+/// The image-reinject pipeline, decoupled from `&DesktopSocket` — see
+/// [`reinject_text_with_handles`] for why this exists (P1-2).
+pub(crate) fn reinject_image_with_handles(
+    handles: &InjectHandles,
+    image_b64: &str,
+    image_mime: &str,
+    entry_id: &str,
+) -> Option<Value> {
+    let req = wire::local_reinject_image_request(image_b64, image_mime, entry_id);
+    let out = run_inject(
+        &req,
+        &handles.allowlist,
+        &handles.fsm,
+        &handles.lock_deadline,
+        &handles.deduper,
+        // Same intent, same producer argument as the text arm above: a human
+        // just clicked this row's button, so the target is the window that
+        // was in front BEFORE the click.
+        TargetIntent::BeforeTheClick,
+    );
+    match &out {
+        Some(r) => forensic::record(
+            "timeline",
+            &format!(
+                "local reinject IMAGE entry_id={entry_id} mime={image_mime} b64_chars={} → ok={} mode={:?} \
+                 (no server round trip)",
+                image_b64.chars().count(),
+                r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                r.get("mode").and_then(Value::as_str).unwrap_or("?"),
+            ),
+        ),
+        None => forensic::record(
+            "timeline",
+            &format!(
+                "local reinject IMAGE entry_id={entry_id} produced NO result — run_inject deduped it \
+                 (source={:?} is expected to bypass dedup; nothing was pasted)",
+                req.source
+            ),
+        ),
+    }
+    out
 }

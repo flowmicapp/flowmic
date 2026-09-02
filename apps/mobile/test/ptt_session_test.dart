@@ -5,16 +5,35 @@
 // SPEC-REF: docs/rebuild/08-MOBILE-SPEC.md §2-4;
 //           docs/strategy/2026-07-23-relaunch-master-plan.md §4.0 A/B.
 
+import 'dart:async';
+
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/auth/token_storage.dart';
+import 'package:flowmic/src/diag/diag_log.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/instance_probe.dart' show HealthReading;
+import 'package:flowmic/src/signaling/socket_core.dart' show SocketStatus;
 import 'package:flowmic/src/signaling/state_machine.dart';
 import 'package:flowmic/src/signaling/wire_payloads.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
 import 'support/mic_permission_fakes.dart';
+
+/// F1 (2026-09-02 audit) test double — a recorder whose `start()` blocks on a
+/// [gate] the test completes by hand, so a connection drop can be driven
+/// WHILE `pttDown()`'s second await (opening the microphone) is outstanding.
+class _GatedRecorder extends FakeAudioRecorder {
+  final Completer<void> gate = Completer<void>();
+  bool startCalled = false;
+
+  @override
+  Future<void> start({required int sampleRate, required int numChannels}) async {
+    startCalled = true;
+    await gate.future;
+    await super.start(sampleRate: sampleRate, numChannels: numChannels);
+  }
+}
 
 void main() {
   late FakeSocketTransport t;
@@ -198,6 +217,98 @@ void main() {
     expect(session.segments.isEmpty, isTrue);
   });
 
+  test(
+      'F1 (2026-09-02 audit): a connection dropped during the awaits inside '
+      'pttDown stops the microphone instead of leaving it open', () async {
+    final FakeSocketTransport t2 = FakeSocketTransport()..connectSucceeds = true;
+    final _GatedRecorder rec2 = _GatedRecorder();
+    final PttSession s2 = PttSession(
+      transport: t2,
+      audio: AudioCapture(recorder: rec2),
+      stateMachine: FlowmicStateMachine(),
+      tokenStorage: InMemoryTokenStorage(),
+      micPermission: newTestMicPermission(),
+    );
+    s2.healthReader = (Uri url, Duration timeout) async => HealthReading.offline;
+    addTearDown(s2.dispose);
+
+    t2.defaultAck = <String, Object?>{
+      'token': 'tok-abcdefghijklmnopqrstuvwxyz012345',
+      'pairing_id': 'pair-1',
+      'pc_name': 'Studio PC',
+    };
+    final PairResult r = await s2.pair(
+      PairEntry.parse('1234'),
+      endpoint: 'ws://127.0.0.1:41879',
+    );
+    expect(r.ok, isTrue);
+    expect(s2.fsm.connection, ConnectionState.connected);
+
+    // The press begins and blocks inside `AudioCapture.start()` — the SECOND
+    // await `pttDown()` makes, after the connection gate at its top.
+    final Future<bool> pressed = s2.pttDown();
+    await pumpEventQueue();
+    expect(rec2.startCalled, isTrue,
+        reason: 'the press must have reached the recorder before the drop');
+
+    // The link dies WHILE that await is outstanding — the exact shape this
+    // card is about. Nothing has re-checked the gate this function opened
+    // with since it observed CONNECTED.
+    t2.pushStatus(SocketStatus.disconnected);
+    expect(s2.fsm.connection, isNot(ConnectionState.connected));
+
+    // Let `AudioCapture.start()` actually finish now — the microphone opens.
+    rec2.gate.complete();
+    final bool ok = await pressed;
+
+    // 🔴 THE ASSERTIONS THAT MATTER (F1). Before the fix: the FSM's own guard
+    // in `onPttDown()` silently refused the transition (`illegalTransitions`,
+    // which nothing in production listens to) while `pttDown()` itself never
+    // checked that refusal — it went on to emit `audio:start`, start the
+    // heartbeat, and return `true`. Worse, `AudioCapture.start()` above had
+    // ALREADY opened the microphone, and `pttUp()` refuses to stop it outside
+    // RECORDING — so the mic stayed open with no user-reachable way to close
+    // it.
+    expect(ok, isFalse);
+    expect(s2.fsm.session, isNot(SessionState.recording),
+        reason: 'the FSM never entered RECORDING (the drop itself already '
+            'reset the session to disconnected)');
+    expect(rec2.started, isFalse,
+        reason: 'the microphone must be stopped, never left open');
+    expect(t2.emittedNames, isNot(contains('audio:start')));
+  });
+
+  test(
+      'P2-7 (2026-09-02 audit): dispose() releases serverChannel and '
+      'releaseCooldown.tick, not only the notifiers already covered', () async {
+    // A fresh session, disposed exactly once by THIS test — the shared
+    // `session`/tearDown pair is not used here because a second `dispose()`
+    // on notifiers that are now correctly disposed would itself assert.
+    final FakeSocketTransport t2 = FakeSocketTransport()..connectSucceeds = true;
+    final PttSession s2 = PttSession(
+      transport: t2,
+      audio: AudioCapture(recorder: FakeAudioRecorder()),
+      stateMachine: FlowmicStateMachine(),
+      tokenStorage: InMemoryTokenStorage(),
+      micPermission: newTestMicPermission(),
+    );
+    s2.healthReader = (Uri url, Duration timeout) async => HealthReading.offline;
+
+    await s2.dispose();
+
+    // 🔴 THE ASSERTIONS THAT MATTER (P2-7). Before the fix, neither field was
+    // touched by dispose() — a `ValueNotifier` that survives its session is a
+    // leak by the same measure `_pcBusy`/`roomJoins` are already guarded
+    // against a few lines above this fix. `addListener` on a disposed
+    // `ChangeNotifier` throws (`ChangeNotifier.debugAssertNotDisposed`), which
+    // is the only externally observable proof `dispose()` was actually
+    // called on it — reverting the fix makes both of these NOT throw.
+    expect(() => s2.serverChannel.addListener(() {}), throwsFlutterError,
+        reason: 'serverChannel must be disposed with the session');
+    expect(() => s2.releaseCooldown.tick.addListener(() {}), throwsFlutterError,
+        reason: 'releaseCooldown.tick must be disposed with the session');
+  });
+
   test('inbound auth:expired drains the session (paired → false)', () async {
     await pair();
     await session.pttDown();
@@ -258,6 +369,37 @@ void main() {
     expect(stalls, isEmpty);
   });
 
+  test(
+      'P2-4 (2026-09-02 audit): a retryable stt:error is diagnosed, not '
+      'silently dropped', () async {
+    // This arm used to be dropped with NO trace at all: no FSM transition
+    // (correct — the engine is reconnecting, capture continues, as the
+    // sibling test above already pins) but also no diagnostic line. If the
+    // engine never comes back, the only residue left is
+    // state_machine.dart's own 15 s processing watchdog, which stalls with
+    // the generic `SttStallReason.timeout` — the wire told us EXACTLY what
+    // happened (a named, retryable fault) and that fact was thrown away
+    // before the eventual timeout could quote it.
+    DiagLog.instance.clear();
+    await pair();
+    await session.pttDown();
+    t.pushIncoming('stt:error', <String, Object?>{
+      'code': 'STT_NETWORK_DROP',
+      'message': 'engine reconnecting',
+      'retryable': true,
+    });
+    await pumpEventQueue();
+
+    // 🔴 THE ASSERTION THAT MATTERS. Before the fix this diag line does not
+    // exist at all — reverting the ptt_inbound.dart retryable branch to a
+    // bare `break` turns this assertion red.
+    final Iterable<String> trail = DiagLog.instance
+        .snapshot()
+        .where((String l) => l.contains('stt.error.retryable'));
+    expect(trail, hasLength(1));
+    expect(trail.first, contains('code=STT_NETWORK_DROP'));
+  });
+
   // ── ENG-3 (fix-030): the P0 shape, driven through the REAL inbound arm ─────
   // The test that stood here asserted 「a terminal stt:error while RECORDING is
   // also ignored」— which is the measured defect written down as spec: the
@@ -304,23 +446,14 @@ void main() {
   // captured when the pairing was made — the owner's tablet still said
   // 「FlowMic PC」 (an ancient default) while the PC was 「office-pc-windows」.
   group('PC rename reaches the persisted pairing (connections-list truth)', () {
-    test('pc:mobile-joined persists the name, not just the header', () async {
-      await pair();
-      expect(session.connectedDeviceName.value, 'Studio PC');
-
-      t.pushIncoming('pc:mobile-joined', const <String, Object?>{
-        'pc_name': 'office-pc-windows',
-      });
-      await pumpEventQueue();
-
-      expect(session.connectedDeviceName.value, 'office-pc-windows');
-      final MobileSession? stored = await session.tokenStorage.readSession();
-      expect(stored, isNotNull);
-      // THE assertion: the list reads this field, so it must have moved too.
-      expect(stored!.pcName, 'office-pc-windows');
-      expect(pairingDisplayName(stored), 'office-pc-windows');
-    });
-
+    // Card C-1 (2026-09-02, findings-mobile-dead.md) — the test that used to
+    // live here ('pc:mobile-joined persists the name, not just the header')
+    // pinned a frame the wire never actually sends to a phone: the server
+    // only emits `pc:mobile-joined` to the PC's OWN socket
+    // (`mobile.handler.ts`'s `pc?.emit`), and the event's schema carries no
+    // `pc_name` field at all. Deleted along with the dead handler in
+    // ptt_inbound.dart; `settings:updated{device.pc_name}` below is the real
+    // path a rename actually travels.
     test('settings:updated{device.pc_name} persists the rename', () async {
       await pair();
       t.pushIncoming('settings:updated', const <String, Object?>{
@@ -337,8 +470,11 @@ void main() {
       final MobileSession before = (await session.tokenStorage.readSession())!;
       await session.tokenStorage.setPairingAlias(before, '家里那台');
 
-      t.pushIncoming('pc:mobile-joined', const <String, Object?>{
-        'pc_name': 'office-pc-windows',
+      // The real path a freshly-learned PC name travels (see the comment
+      // above this group) — GA-10's own rename event.
+      t.pushIncoming('settings:updated', const <String, Object?>{
+        'key': 'device.pc_name',
+        'value': <String, Object?>{'pc_name': 'office-pc-windows'},
       });
       await pumpEventQueue();
 

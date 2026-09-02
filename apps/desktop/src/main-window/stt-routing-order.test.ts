@@ -41,6 +41,7 @@ import {
 import { resetModelStoreForTest } from '../lib/model-client';
 import { S, setLocale } from '../lib/strings';
 import { FALLBACK_LANG } from '../lib/spoken-langs';
+import { settings } from './store';
 
 const R = (language: string, engine_id: Routing['engine_id'] = 'sherpa-local'): Routing => ({ language, engine_id });
 const langs = (): string[] => model.routings.map((r) => r.language);
@@ -63,6 +64,11 @@ beforeEach(() => {
   setLocale('en');
   resetModelStoreForTest();
   model.routings = [R('zh'), R(FALLBACK_LANG)];
+  // E4: `settings` is a module singleton; `addRouting`/`removeRouting`/
+  // `updateRoutingField` arm a real 200ms debounce that a PRECEDING test can
+  // leave running, which would otherwise make isKeyPending('stt.routings')
+  // true for an unrelated applyServerSettings call in a later test.
+  settings.cancelPendingDebouncesForTest();
 });
 
 describe('§R2-1 the catch-all row is pinned last', () => {

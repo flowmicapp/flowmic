@@ -394,8 +394,16 @@ pub fn apply_swap(job: &SwapJob) -> SwapOutcome {
         // 🔴 The rollback. Not optional, not best-effort-and-shrug: at this exact
         // instant the user has no application.
         return match std::fs::rename(&job.backup_dir, &job.install_dir) {
+            // D4 (2026-09-02 audit §3-D): this prefix MUST be `rolled_back:` — it is
+            // what `update-view.ts`'s `pendingNotice` (`.startsWith('rolled_back')`)
+            // and `breadcrumb.rs`'s own doc comment both already assume. It used to
+            // read `install:{park_err}`, a name nothing downstream recognised, so
+            // "your old copy is back" was never shown to a single user even though
+            // the mover kept doing exactly that. See
+            // `update-view.test.ts`'s "the mechanism it describes is still the
+            // rollback prefix" for the cross-language pin.
             Ok(()) => SwapOutcome::Failed {
-                detail: format!("install:{park_err}"),
+                detail: format!("rolled_back:{park_err}"),
                 rolled_back: true,
             },
             Err(re) => SwapOutcome::Failed {

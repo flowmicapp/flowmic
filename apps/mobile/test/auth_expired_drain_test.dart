@@ -15,6 +15,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
 
+/// P2-7 (2026-09-02 audit) — a storage backend that throws on its FIRST call
+/// only (a transient failure, the realistic shape), to prove `_draining`
+/// unlatches even when the body does not run to completion — and that a
+/// LATER, otherwise-ordinary drain still works once the transient fault is
+/// gone.
+class _ThrowingTokenStorage extends InMemoryTokenStorage {
+  int calls = 0;
+
+  @override
+  Future<void> removeByToken(String token) async {
+    calls++;
+    if (calls == 1) throw StateError('storage exploded (test double)');
+    await super.removeByToken(token);
+  }
+}
+
 void main() {
   test('auth:expired drains PAIRING + SESSION in one step', () async {
     const token = 'tok-abcdefghijklmnopqrstuvwxyz012345';
@@ -91,6 +107,66 @@ void main() {
     final f2 = handler.drain();
     await Future.wait(<Future<void>>[f1, f2]);
     expect(drains, 1);
+    await fsm.dispose();
+    await audio.dispose();
+  });
+
+  test(
+      'P2-7: a throw mid-drain still unlatches _draining — a LATER, unrelated '
+      'auth:expired must not become a permanent no-op', () async {
+    const token = 'tok-abcdefghijklmnopqrstuvwxyz012345';
+    final t = FakeSocketTransport();
+    final fsm = FlowmicStateMachine();
+    final audio = AudioCapture(recorder: FakeAudioRecorder());
+    final store = _ThrowingTokenStorage();
+    await store.addOrUpdatePairing(
+      const MobileSession(token: token, endpoint: 'ws://x'),
+    );
+    final coord = ReconnectCoordinator(
+      transport: t,
+      bufferedChunksProvider: audio.bufferedChunkPayloads,
+      url: 'ws://x',
+      token: token,
+    )..start();
+
+    var drains = 0;
+    final handler = AuthExpiredHandler(
+      transport: t,
+      stateMachine: fsm,
+      audio: audio,
+      reconnect: coord,
+      tokenStorage: store,
+      onDrained: () => drains++,
+    );
+
+    // The first drain throws (the storage backend is wired to explode) —
+    // production reaches this via `unawaited(_authHandler.drain())`, so the
+    // exception becomes an unhandled async error there; this test catches it
+    // directly to observe the one fact that matters afterwards.
+    Object? caught;
+    try {
+      await handler.drain();
+    } on Object catch (e) {
+      caught = e;
+    }
+    expect(caught, isA<StateError>());
+    expect(drains, 0, reason: 'onDrained never ran — the throw pre-empted it');
+
+    // 🔴 THE ASSERTION THAT MATTERS (P2-7). Before the fix, `_draining` was
+    // set back to `false` only on the SUCCESS path (the last line of the old
+    // body), so the throw above left it latched `true` forever and this
+    // second, otherwise-ordinary drain would silently do nothing — SESSION
+    // and PAIRING both stay live for an auth that really did expire.
+    fsm.onSocketStatus(SocketStatus.connected);
+    await audio.start();
+    fsm.onPttDown();
+    await handler.drain();
+    expect(drains, 1,
+        reason: 'a later drain must still run to completion, not be '
+            'swallowed by a stuck latch from the earlier throw');
+    expect(fsm.session, SessionState.disconnected);
+    expect(audio.currentState, RecorderState.stopped);
+
     await fsm.dispose();
     await audio.dispose();
   });

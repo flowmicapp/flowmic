@@ -45,7 +45,7 @@ import CredentialsAtRestNote from './components/CredentialsAtRestNote.vue';
 import CloudSignInGuide from './components/CloudSignInGuide.vue';
 import OfflineSwitch from './components/OfflineSwitch.vue'; // P7: see its header
 import { conn, connByChannel, currentChannel } from './store';
-import { S, SIDECAR_LABEL } from '../lib/strings';
+import { S } from '../lib/strings';
 import {
   CH,
   appendForensic,
@@ -56,7 +56,6 @@ import {
   fetchSidecarState,
   onChannel,
   refreshPairingCode,
-  retrySidecar,
   type SidecarStatus,
 } from '../lib/bridge';
 import {
@@ -67,6 +66,7 @@ import {
   type ChannelId,
   type CloudStatus,
 } from '../lib/channel';
+import { seedThenSubscribe } from '../lib/seed-then-subscribe';
 // REQ-12-10b: the same-machine shell's summary line. Pure, and it reads the two
 // cards' OWN dots — never a second derivation of "whether this channel is up".
 import { summariseChannelGroup } from '../lib/channel-card-state';
@@ -92,6 +92,9 @@ import { cloudPairBlock, formatPcid, initialPairTab, isLoopbackEndpoint, type Pa
 import { mergeWithCache, readPairedCache, writePairedCache, type PairedPresenceView } from '../lib/paired-mobiles';
 import { joinEpochSum, presenceKey } from '../lib/per-channel-presence';
 import { localKv } from '../lib/storage';
+import { singleFlight } from '../lib/single-flight';
+import { shouldFetchCloudPairingInfo } from '../lib/cloud-pairing-info-cache';
+import { useSidecarPanel } from './use-sidecar-panel';
 import {
   applySelectedHost,
   loadSelectedHost,
@@ -191,9 +194,14 @@ async function loadInfo(): Promise<void> {
     cloudPcid.value = rawInfo.value.pcid ?? null;
     cloudNode.value = rawInfo.value.node ?? null;
   } else if (cloud.value.key_set) {
-    const cloudInfo = await fetchPairingInfo('cloud');
-    cloudPcid.value = cloudInfo.pcid ?? null;
-    cloudNode.value = cloudInfo.node ?? null;
+    // P3 #23 (2026-09-02): only pull `pairing_code('cloud')` again when the
+    // cache can actually be stale — see lib/cloud-pairing-info-cache.ts's
+    // header for the IPC traffic this stopped doubling on every 3s tick.
+    if (shouldFetchCloudPairingInfo(pairTarget.value, cloud.value.key_set, cloudPcid.value)) {
+      const cloudInfo = await fetchPairingInfo('cloud');
+      cloudPcid.value = cloudInfo.pcid ?? null;
+      cloudNode.value = cloudInfo.node ?? null;
+    }
   } else {
     cloudPcid.value = null;
     cloudNode.value = null;
@@ -216,8 +224,15 @@ const pairedView = ref<PairedPresenceView | null | undefined>(undefined);
 const pairedLoading = ref(false);
 
 const pairSuccess = usePairingSuccess({ close: closeModal, forensic: (m) => appendForensic('devices', m) }); // card PAIR-SUCCESS
-async function loadPaired(): Promise<void> {
-  if (pairedLoading.value) return;
+// P3 #18 (2026-09-02) — `singleFlight` replaces a plain `if (pairedLoading.value)
+// return;` guard. That guard DROPPED a call that arrived mid-fetch instead of
+// queuing it, and `performRelease` (lib/release-mobile.ts) does
+// `await deps.reload()` right after the server confirms a release/revoke — a
+// reload that lands on a dropped call resolves immediately without having read
+// anything, so the just-released phone can keep showing until an unrelated poll
+// happens to fire later. `singleFlight` makes that `await` genuinely wait for a
+// read that starts after this one, see lib/single-flight.ts's header.
+async function loadPairedOnce(): Promise<void> {
   pairedLoading.value = true;
   try {
     // A failed read is assigned VERBATIM (null) — never coerced to [], which the
@@ -239,6 +254,7 @@ async function loadPaired(): Promise<void> {
     pairedLoading.value = false;
   }
 }
+const loadPaired = singleFlight(loadPairedOnce);
 
 async function openModal(): Promise<void> {
   // N5 — open on the channel that can actually pair: the active one, unless that is
@@ -302,21 +318,10 @@ const lanLoopback = computed(() => isLoopbackEndpoint(lanOwnEndpoint.value));
 const pcName = computed(() => info.value.pc_name || 'FlowMic PC');
 
 // ── sidecar (self-hosted server) status — 07 §5, WP-R2-4 ──
-const sidecar = ref<SidecarStatus | null>(null);
-const retrying = ref(false);
-const sidecarLabel = computed(() => (sidecar.value ? SIDECAR_LABEL[sidecar.value.phase] ?? S.sidecar_starting : S.sidecar_starting));
-const sidecarFailed = computed(() => sidecar.value?.phase === 'failed');
-const sidecarHealthy = computed(() => sidecar.value?.phase === 'healthy' || sidecar.value?.phase === 'adopted_external');
-
-async function doRetrySidecar(): Promise<void> {
-  if (retrying.value) return;
-  retrying.value = true;
-  try {
-    sidecar.value = (await retrySidecar()) ?? sidecar.value;
-  } finally {
-    retrying.value = false;
-  }
-}
+// Moved out whole at the 800-line cap (2026-09-02) — see use-sidecar-panel.ts's
+// header. `sidecar` stays a plain ref: the seedThenSubscribe push below still
+// assigns it directly, unchanged.
+const { sidecar, retrying, sidecarLabel, sidecarFailed, sidecarHealthy, doRetrySidecar } = useSidecarPanel();
 
 // F-2343: while the modal is open and the endpoint is still loopback, re-poll the
 // pairing snapshot every 3 s so a late-resolving LAN IP flips the QR on without a
@@ -464,10 +469,6 @@ function applyCloud(next: CloudStatus): void {
   // now driven by the `endpoint` prop this line feeds.
 }
 
-async function loadCloud(): Promise<void> {
-  applyCloud(await fetchCloudStatus());
-}
-
 // owner 2026-07-27 double confirm: signing out DESTROYS the stored Cloud Key —
 // getting back in needs the key re-pasted or a fresh console login, so this is a
 // delete wearing a logout label. Same inline-confirm shape the revoke row uses.
@@ -510,25 +511,34 @@ async function doClearKey(): Promise<void> {
 let unlistenSidecar: (() => void) | null = null;
 let unlistenCloud: (() => void) | null = null;
 onMounted(async () => {
-  // RV-24: register the listener first, then pull the snapshot — the rule
-  // store.ts spells out at its snapshot seed («register first so a frame
-  // arriving mid-seed is not lost, then ask for the current state»). A
-  // cloud-state / sidecar push that lands between the pull and the listen is
-  // gone for the session; both halves are idempotent.
-  unlistenSidecar = await onChannel<SidecarStatus>(CH.sidecarState, (p) => {
-    sidecar.value = p;
-    // A sidecar that just became healthy → re-read the pairing snapshot (its
-    // endpoint / LAN address may now be available).
-    if (p.phase === 'healthy' || p.phase === 'adopted_external') void loadInfo();
-  });
-  unlistenCloud = await onChannel<unknown>(CH.cloudState, (p) => {
-    // Pushed on every channel switch / key change / relay refusal (the refusal
-    // arrives unprompted — that is how an expired key surfaces without a reload).
-    applyCloud(asCloudStatus(p));
-    void loadInfo();
-  });
-  sidecar.value = await fetchSidecarState();
-  await loadCloud();
+  // RV-24 register-then-pull order, PLUS the E7 guard seedThenSubscribe adds:
+  // a push landing WHILE `fetchSidecarState()`/`fetchCloudStatus()` is still in
+  // flight must not be clobbered once that pull finally resolves. `loadInfo()`
+  // stays a PUSH-ONLY side effect exactly as before — the seed's own
+  // application (inside seedThenSubscribe) never triggers it, matching the
+  // original mount flow where the fetchSidecarState()/fetchCloudStatus() pulls
+  // did not call it either.
+  unlistenSidecar = await seedThenSubscribe<SidecarStatus | null>(
+    (apply) => onChannel<SidecarStatus>(CH.sidecarState, (p) => {
+      apply(p);
+      // A sidecar that just became healthy → re-read the pairing snapshot (its
+      // endpoint / LAN address may now be available).
+      if (p.phase === 'healthy' || p.phase === 'adopted_external') void loadInfo();
+    }),
+    fetchSidecarState,
+    (v) => { sidecar.value = v; },
+  );
+  unlistenCloud = await seedThenSubscribe<CloudStatus>(
+    (apply) => onChannel<unknown>(CH.cloudState, (p) => {
+      // Pushed on every channel switch / key change / relay refusal (the
+      // refusal arrives unprompted — that is how an expired key surfaces
+      // without a reload).
+      apply(asCloudStatus(p));
+      void loadInfo();
+    }),
+    fetchCloudStatus,
+    applyCloud,
+  );
 });
 onUnmounted(() => {
   if (lanPoll !== null) clearInterval(lanPoll);

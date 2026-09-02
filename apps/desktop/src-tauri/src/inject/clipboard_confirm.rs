@@ -62,6 +62,16 @@
 // Gated 2026-08-07: on macOS both paste entry points are RE-EXPORTED from
 // `inject/macos/pasteboard.rs` (NSPasteboard has no delayed-rendering machinery to
 // put here), so no function in this file names `InjectError` on that target.
+//
+// ⚠️ CORRECTED IN PLACE (2026-09-02, B2-Z): `sendinput_fully_sent` used to sit
+// in this same glob import — harmless while the function was ungated, but
+// after this commit's fix (see `inject/sendinput.rs`, `#[cfg(any(test,
+// target_os = "windows"))]`) it would have made this `use` an unresolved
+// import on a plain non-Windows, non-macOS build (Linux — see
+// `inject/sendinput.rs`'s header on why that target must still cargo-check).
+// `mod win` below is already Windows-only, so its one call
+// site now names the function by its full path instead of importing it,
+// exactly like `flow_key.rs::send_chords` already does for the same function.
 #[cfg(not(target_os = "macos"))]
 use crate::inject::sendinput::InjectError;
 use std::time::Duration;
@@ -501,7 +511,12 @@ mod win {
             make(VK_CONTROL, KEYEVENTF_KEYUP),
         ];
         let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-        if sent == 0 {
+        // D3 (2026-09-02 audit §3-D): a partial Ctrl+V (e.g. Ctrl went down but
+        // V never did) is a failure, not a success — same rule as
+        // `sendinput.rs`'s wrappers and `flow_key.rs`'s chord sender. Three
+        // SendInput call sites answering three different questions about what
+        // "sent" means is exactly the shape this repo's #1 bug class takes.
+        if !crate::inject::sendinput::sendinput_fully_sent(sent, inputs.len()) {
             let err = unsafe { windows::Win32::Foundation::GetLastError() };
             return Err(if err.0 == 0 {
                 InjectError::AppRejected

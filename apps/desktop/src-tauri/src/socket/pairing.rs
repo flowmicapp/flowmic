@@ -25,6 +25,13 @@
 //     way: the server answers AUTH_TOKEN_INVALID for BOTH a dead device token
 //     and a garbage jwt (collision pinned by the server test
 //     pc-reconnect-account-auth), so INVALID must keep the recovery meaning.
+//   • `pc:reconnect` ack error `AUTH_TOKEN_UNVERIFIABLE` (A11/F2-a, WP-8,
+//     2026-09-02) → a multi-node replica could not CONFIRM this token either
+//     way (server auth/middleware.ts's `resolveDetailed` branch). NOT the
+//     dead-token branch below: token kept, nothing re-registered, hook stays
+//     silent (no claim about the account OR the device — only about this
+//     node's ability to answer). Marked unconfirmed so the existing register/
+//     reconnect watchdog re-asks later, on the SAME token;
 //   • any other `pc:reconnect` ack error → the DEVICE token is dead → clear it,
 //     re-register (both channels, no hook — normal recovery, not a refusal);
 //   • `pc:register` ack error   → the ACCOUNT identity was refused (saas
@@ -45,50 +52,18 @@ use crate::socket::admission::Admission;
 use crate::socket::channel::Channel;
 use crate::socket::credentials::Credentials;
 use crate::socket::reconcile::Reconciler;
+use crate::socket::refusal::{AuthFailureHook, RefusalAuthority};
 use crate::socket::roster_apply::apply_connected_mobiles;
 use crate::socket::session_gen::{closing_gate, ClosingGate, SessionGenerations};
 use crate::socket::wire;
 
 pub type SharedCreds = Arc<Mutex<Credentials>>;
 
-/// GA-18 — the cached pairing code AND when it dies.
-///
-/// The 5-min TTL is the server's (short-code governor); the desktop must not
-/// re-derive it, or the modal's countdown and the code the phone can actually
-/// use drift apart. So every ack that MINTS a code carries `expires_in_ms`, and
-/// it is converted to a local deadline the moment it lands — a duration parked
-/// in a field would silently keep meaning "5 minutes from now" forever.
-///
-/// `expires_at: None` means the server sent no TTL (pre-GA-18 sidecar): the
-/// modal then shows its static "valid for 5 minutes" line instead of a countdown it
-/// cannot back up.
-#[derive(Clone, Debug)]
-pub struct ShortCodeState {
-    pub code: String,
-    pub expires_at: Option<Instant>,
-}
-
-impl ShortCodeState {
-    pub fn new(code: String, expires_in_ms: Option<u64>) -> Self {
-        Self {
-            code,
-            expires_at: expires_in_ms.map(|ms| Instant::now() + Duration::from_millis(ms)),
-        }
-    }
-
-    /// Milliseconds left at `now`, saturating at 0 (an expired code reports 0,
-    /// never a negative or a wrapped-around huge number).
-    pub fn remaining_ms_at(&self, now: Instant) -> Option<u64> {
-        self.expires_at
-            .map(|deadline| deadline.saturating_duration_since(now).as_millis() as u64)
-    }
-
-    pub fn remaining_ms(&self) -> Option<u64> {
-        self.remaining_ms_at(Instant::now())
-    }
-}
-
-pub type SharedCode = Arc<Mutex<Option<ShortCodeState>>>;
+// `ShortCodeState` / `SharedCode` moved VERBATIM to `socket::short_code` at this
+// file's 800-line cap (2026-09-02). Re-exported here (unlike `RefusalAuthority`'s
+// move, which had one path with no external callers to preserve) because
+// `client.rs` and `outbound.rs` already import both by this path.
+pub use crate::socket::short_code::{SharedCode, ShortCodeState};
 
 /// 0.2.66 — the relay's PUBLIC ADDRESSING id for this PC, cached per SESSION.
 ///
@@ -99,22 +74,8 @@ pub type SharedCode = Arc<Mutex<Option<ShortCodeState>>>;
 /// invent one to carry a PCID home.
 pub type SharedPcid = Arc<Mutex<Option<String>>>;
 
-/// Notified when the SERVER refuses this desktop's identity on a `pc:register`
-/// ack, or when it emits `auth:expired`. The argument is the wire error code
-/// (`AUTH_TOKEN_EXPIRED` / `AUTH_TOKEN_INVALID` / a registry code) or
-/// `"auth:expired"` for the event. Installed ONLY for the cloud channel; LAN
-/// leaves it `None` and keeps the historical behaviour byte for byte.
-pub type AuthFailureHook = Arc<dyn Fn(&str) + Send + Sync>;
-
-/// Codes that mean "the account identity behind this connection is not good"
-/// (04 §3.1 / server `resolveActingUser`), as opposed to a transient or
-/// payload-level registry failure.
-pub fn is_account_auth_failure(code: &str) -> bool {
-    matches!(code, "AUTH_TOKEN_EXPIRED" | "AUTH_TOKEN_INVALID")
-}
-// The WIDER question —「is this a verdict about the ACCOUNT or about the one verb
-// that asked」— is `outbound::is_account_validity_refusal`, deliberately a
-// separate predicate and (this file being at its 800-line cap) a separate home.
+// `RefusalAuthority` / `AuthFailureHook` / `is_account_auth_failure` moved VERBATIM to
+// `socket::refusal` at this file's 800-line cap. Re-exported nowhere: one symbol, one path.
 
 /// Everything the register/reconnect emits share. Bundled so each socket handler
 /// clones ONE Arc instead of four, and so the auth surface has a single owner.
@@ -161,6 +122,14 @@ pub struct Pairing {
     /// W8-2 — how many handshakes the closing latch has swallowed on this session
     /// (forensic evidence + the attempt arm of the release decision).
     suppressed_handshakes: AtomicU32,
+    /// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — the INTENT behind whatever close
+    /// eventually lands on this session. `false` (the default) means "deliberate"
+    /// — matches every existing call site (nobody marks it) and preserves the
+    /// original suppress-forever behaviour on cloud. Set true by
+    /// [`Pairing::mark_transient_close`], which the redial funnels call BEFORE
+    /// emptying a slot they intend to refill — see `session_gen::closing_gate`'s
+    /// `transient` parameter for what this changes.
+    transient_close: AtomicBool,
 }
 
 impl Pairing {
@@ -189,6 +158,7 @@ impl Pairing {
             generation: AtomicU64::new(0),
             closing_since: Mutex::new(None),
             suppressed_handshakes: AtomicU32::new(0),
+            transient_close: AtomicBool::new(false),
         })
     }
 
@@ -267,6 +237,29 @@ impl Pairing {
         self.closing.load(Ordering::SeqCst)
     }
 
+    /// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — mark this session's eventual
+    /// close as a REDIAL ATTEMPT rather than a deliberate teardown.
+    ///
+    /// `pub(crate)` (wider than every other verb here) because the only useful
+    /// call site is BEFORE the slot holding this session is emptied — the shell
+    /// module owns that swap (`channel_session::set_socket`), and `Pairing` is
+    /// reached from there only through `DesktopSocket::mark_transient_close`
+    /// (client.rs), a thin public wrapper for exactly this reason.
+    ///
+    /// Idempotent and safe to call on an already-closing session (the flag is
+    /// read fresh on every [`handshake_gate`](Self::handshake_gate) call, not
+    /// latched at close time) — though every caller marks BEFORE `begin_closing`
+    /// runs, since marking after the session is dropped is too late to matter.
+    ///
+    /// Deliberately opt-IN, not opt-out: the default (`false`) is what every
+    /// existing call site gets for free, and it is the SAFE default — a cloud
+    /// close nobody marked keeps suppressing forever (Cloud Key refused/removed,
+    /// not dialable). Only the recovery funnels that are about to attempt a
+    /// redial (`sidecar_ctl::rebuild_after_heartbeat_death`) call this.
+    pub(crate) fn mark_transient_close(&self) {
+        self.transient_close.store(true, Ordering::SeqCst);
+    }
+
     /// W8-2 — the closing latch's LOCAL WATCHDOG: what the handshake funnel should
     /// do with this emit, given everything the latch can observe locally.
     ///
@@ -300,6 +293,7 @@ impl Pairing {
             self.generations.latest(self.channel),
             self.suppressed_handshakes.load(Ordering::SeqCst),
             closed_for,
+            self.transient_close.load(Ordering::SeqCst),
         );
         if gate == ClosingGate::Suppress {
             self.suppressed_handshakes.fetch_add(1, Ordering::SeqCst);
@@ -409,12 +403,25 @@ impl Pairing {
         }
     }
 
-    /// Report a refusal upward (cloud) — always recorded, hook optional.
+    /// Report a refusal from the IDENTITY HANDSHAKE upward (cloud) — always
+    /// recorded, hook optional. This leg keeps its full authority: it is the
+    /// conversation in which the credential is actually presented and judged.
     pub(super) fn report_refusal(&self, ctx: &str, code: &str) {
+        self.report(ctx, code, RefusalAuthority::IdentityHandshake);
+    }
+
+    /// Report a refusal that came back on a DEVICE-PAGE VERB. Same forensic line, same
+    /// trip to the screen — but it may not cost the Cloud Key or the session. See
+    /// [`RefusalAuthority::DevicePageVerb`] for the four measured sign-outs behind it.
+    pub(super) fn report_verb_refusal(&self, ctx: &str, code: &str) {
+        self.report(ctx, code, RefusalAuthority::DevicePageVerb);
+    }
+
+    fn report(&self, ctx: &str, code: &str, authority: RefusalAuthority) {
         eprintln!("[flowmic] {ctx} REFUSED: {code}");
-        forensic::record("socket", &format!("{ctx} refused: {code}"));
+        forensic::record("socket", &format!("{ctx} refused: {code} (authority={authority:?})"));
         if let Some(hook) = &self.auth_failure {
-            hook(code);
+            hook(code, authority);
         }
     }
 }
@@ -489,76 +496,12 @@ pub(super) fn on_register_ack(obj: &Value, p: &Pairing, rec: &Reconciler) -> Reg
     RegisterAckVerdict::Accepted
 }
 
-/// What a `pc:reconnect` ack decided. Same split as [`RegisterAckVerdict`].
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum ReconnectAckVerdict {
-    /// `{error}` — the DEVICE token is dead. Token cleared + presence reset here;
-    /// the caller emits a fresh `pc:register` on the socket it still holds.
-    DeadToken,
-    /// `{error: AUTH_TOKEN_EXPIRED}` — the ACCOUNT credential lapsed (#6
-    /// zombie-room gate). Refusal reported (hook → shell clears the Cloud Key
-    /// and drops the socket); the pairing credential survives untouched, and
-    /// the caller emits nothing further on a refused identity.
-    AccountRefused,
-    /// Accepted; the caller re-asserts this PC's name.
-    Accepted,
-}
-
-/// The decision half of the `pc:reconnect` ack (see [`ReconnectAckVerdict`]).
-pub(super) fn on_reconnect_ack(obj: &Value, p: &Pairing, rec: &Reconciler) -> ReconnectAckVerdict {
-    if let Some(err) = obj.get("error") {
-        if err.as_str() == Some("AUTH_TOKEN_EXPIRED") {
-            // #6 zombie-room gate: the handshake jwt this socket presented has
-            // lapsed (server pc.handler refuses the reconnect so an expired
-            // login can no longer sit in its room). This is an ACCOUNT refusal,
-            // not a dead device token — clearing the token here would wipe the
-            // cloud pairing and force every phone to re-pair over an account-key
-            // lapse. Only EXPIRED is safely routable (module-note collision).
-            eprintln!("[flowmic] pc:reconnect REFUSED: AUTH_TOKEN_EXPIRED — account credential lapsed, pairing kept");
-            p.clear_handshake_ack("pc:reconnect refused — account credential lapsed");
-            p.report_refusal("pc:reconnect", "AUTH_TOKEN_EXPIRED");
-            return ReconnectAckVerdict::AccountRefused;
-        }
-        // Dead DEVICE token — clear + re-register (never loop a dead token). This is
-        // recovery, not an account refusal: the hook stays out of it, and the
-        // following register carries the verdict if the identity is the problem.
-        eprintln!("[flowmic] pc:reconnect rejected — clearing token, re-registering");
-        forensic::record("socket", "pc:reconnect rejected — clearing token, re-registering");
-        if let Ok(mut c) = p.creds.lock() {
-            c.clear_token();
-            let _ = c.save(&p.path);
-        }
-        // RV-34: the server just said it does not know this token. Whatever this
-        // connection was granted earlier, it is not granted now.
-        p.clear_handshake_ack("pc:reconnect rejected — dead token");
-        rec.reset();
-        return ReconnectAckVerdict::DeadToken;
-    }
-    // RV-34: the reconnect leg gets the same "the server recognized me" stamp as register —
-    // which is what finally puts this leg under the pump's register watchdog.
-    p.mark_handshake_acked("pc:reconnect");
-    // 0.2.66: a token reconnect mints NO code, so this is the ONLY ack a restarted
-    // desktop gets — without it the PCID row would exist only for the session that
-    // first registered.
-    p.adopt_pcid(obj);
-    // Success: reconcile the mobile presence count (07 §6). An empty snapshot within
-    // 2 s of a fresh join is SUPPRESSED so a mobile that joined during the handshake
-    // is not zeroed.
-    apply_connected_mobiles("pc:reconnect", obj, p, rec);
-    let (_t, pc_id, room) = wire::parse_register_ack(obj);
-    if pc_id.is_some() || room.is_some() {
-        if let Ok(mut c) = p.creds.lock() {
-            if pc_id.is_some() {
-                c.pc_id = pc_id;
-            }
-            if room.is_some() {
-                c.room_uuid = room;
-            }
-            let _ = c.save(&p.path);
-        }
-    }
-    ReconnectAckVerdict::Accepted
-}
+// `ReconnectAckVerdict` / `on_reconnect_ack` moved VERBATIM to
+// `reconnect_ack.rs` at this file's 800-line cap (same precedent as
+// `refusal.rs` / `roster_apply.rs` above). Re-exported here so every existing
+// call site (this file's `emit_reconnect`, `pairing_tests.rs`'s `use
+// super::*`) is untouched.
+pub(super) use crate::socket::reconnect_ack::{on_reconnect_ack, ReconnectAckVerdict};
 
 /// How long the register ack is waited for before rust_socketio drops the
 /// callback. Named because RV-26's watchdog has to stay OUTSIDE it: a re-emit
@@ -787,6 +730,11 @@ pub fn emit_reconnect<E: AckEmitter + ?Sized>(
                         // the Cloud Key + drop the socket). Registering on a
                         // refused identity would only be refused again.
                         ReconnectAckVerdict::AccountRefused => {}
+                        // A11/F2-a — same shape as AccountRefused: token kept,
+                        // connection marked unconfirmed already; the register/
+                        // reconnect watchdog re-asks later rather than looping
+                        // the same unanswerable question here.
+                        ReconnectAckVerdict::Unverifiable => {}
                         ReconnectAckVerdict::Accepted => reassert_pc_name(&s, &p),
                     }
                 }

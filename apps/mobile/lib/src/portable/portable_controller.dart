@@ -38,7 +38,6 @@ class PortableController extends ChangeNotifier {
   AssetTally? get tally => _tally;
   AssetTally? _tally;
 
-  bool get loadingTally => _loadingTally;
   bool _loadingTally = false;
 
   /// owner 2026-08-01 ruling 5: 「每次导出时让用户选，默认包含」("let the user

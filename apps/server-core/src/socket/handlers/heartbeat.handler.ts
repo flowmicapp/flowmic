@@ -56,7 +56,7 @@ export interface HeartbeatHandlerDeps {
    * Only the PC branch calls it: the console's device table is about computers,
    * and a phone's `last_seen_at` has no cross-node reader.
    */
-  stampPresence?: (pcId: string, lastSeenAtMs: number) => void;
+  stampPresence?: (pcId: string, isOnline: boolean, lastSeenAtMs: number) => void;
 }
 
 export function registerHeartbeatHandler(socket: Socket, deps: HeartbeatHandlerDeps): void {
@@ -80,7 +80,7 @@ export function registerHeartbeatHandler(socket: Socket, deps: HeartbeatHandlerD
         // local row is erased by the next replication pull, which is exactly why
         // the writer needs its own copy: the console asks the writer, and the
         // writer's RoomStore cannot contain a PC that lives on another node.
-        deps.stampPresence?.(deviceId, Date.parse(when));
+        deps.stampPresence?.(deviceId, true, Date.parse(when));
       };
     } else if (auth.kind === 'mobile' && auth.pairingId) {
       const pairingId = auth.pairingId;

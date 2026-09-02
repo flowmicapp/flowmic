@@ -403,10 +403,20 @@ Connection: close\r\n\r\n",
 /// reaches this code.
 pub fn exchange_url(endpoint: &str) -> Result<String, SignInFailure> {
     let e = endpoint.trim().trim_end_matches('/');
-    if e.len() < 9 || !e[..8].eq_ignore_ascii_case("https://") {
+    // D9 (2026-09-02 audit §3-D): `is_ascii()` FIRST, always. `e[..8]` below is a
+    // BYTE-index slice, and Rust panics if that index does not fall on a char
+    // boundary — which a multi-byte UTF-8 character anywhere in the first 8
+    // bytes guarantees (e.g. "http://é…", where 'é' is two bytes straddling
+    // index 8). `endpoint` comes from the QR code the frontend scanned, i.e. an
+    // untrusted string reaching a `#[tauri::command]` — this used to be a panic
+    // on the main thread from attacker- or typo-controlled input, not a bug that
+    // needed a hostile actor to trigger, just a non-ASCII byte in the wrong spot.
+    // Once ascii-only is confirmed, every subsequent byte index is a char
+    // boundary by construction, so the slice below is safe.
+    if !e.is_ascii() || e.contains(char::is_whitespace) {
         return Err(SignInFailure::BadEndpoint);
     }
-    if e.contains(char::is_whitespace) || !e.is_ascii() {
+    if e.len() < 9 || !e[..8].eq_ignore_ascii_case("https://") {
         return Err(SignInFailure::BadEndpoint);
     }
     Ok(format!("{e}/api/auth/qr-exchange"))

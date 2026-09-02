@@ -91,15 +91,56 @@ describe('loadRoutings honors the switch', () => {
 });
 
 describe('byokProbeEndpointAllowed', () => {
-  it('accepts public http(s)/ws(s) and refuses loopback / metadata / junk', () => {
-    expect(byokProbeEndpointAllowed('https://asr.example.com/v1').ok).toBe(true);
-    expect(byokProbeEndpointAllowed('wss://asr.example.com/ws').ok).toBe(true);
-    expect(byokProbeEndpointAllowed('http://10.0.0.68:10095').ok).toBe(true);
-    expect(byokProbeEndpointAllowed('http://127.0.0.1:9/v1').ok).toBe(false);
-    expect(byokProbeEndpointAllowed('http://localhost/v1').ok).toBe(false);
-    expect(byokProbeEndpointAllowed('http://169.254.169.254/latest').ok).toBe(false);
-    expect(byokProbeEndpointAllowed('file:///etc/passwd').ok).toBe(false);
-    expect(byokProbeEndpointAllowed('not-a-url').ok).toBe(false);
-    expect(byokProbeEndpointAllowed('').ok).toBe(false);
+  // A hostname that is not one of the literal-string refusals resolves through
+  // `deps.resolveHost` in every case below — no real DNS lookup happens in this
+  // suite, so it stays deterministic offline and cannot flake on network access.
+  const resolvesTo = (...addresses: string[]) => ({ resolveHost: async () => addresses });
+
+  it('accepts public http(s)/ws(s) and refuses loopback / metadata / junk (literal-string layer)', async () => {
+    expect((await byokProbeEndpointAllowed('https://asr.example.com/v1', resolvesTo('93.184.216.34'))).ok).toBe(true);
+    expect((await byokProbeEndpointAllowed('wss://asr.example.com/ws', resolvesTo('93.184.216.34'))).ok).toBe(true);
+    expect((await byokProbeEndpointAllowed('http://10.0.0.68:10095')).ok).toBe(true); // literal IP: no DNS involved
+    expect((await byokProbeEndpointAllowed('http://127.0.0.1:9/v1')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('http://localhost/v1')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('http://169.254.169.254/latest')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('file:///etc/passwd')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('not-a-url')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('')).ok).toBe(false);
+  });
+
+  it('REVERSE CONTROL: a hostname is judged by what it resolves to, not by its spelling', async () => {
+    // The literal-string layer alone (the code before this fix) lets this
+    // through: 'asr.attacker.example' is not 'localhost' and not
+    // '169.254.169.254'. Only the resolve-then-check layer catches it.
+    const result = await byokProbeEndpointAllowed('http://asr.attacker.example/v1', resolvesTo('169.254.169.254'));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/not a valid engine endpoint/);
+  });
+
+  it('refuses when ANY resolved address is dangerous, not just the first', async () => {
+    const result = await byokProbeEndpointAllowed('http://asr.example.com/v1', resolvesTo('93.184.216.34', '169.254.169.254'));
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts a hostname that resolves only to a public / RFC1918 address', async () => {
+    expect((await byokProbeEndpointAllowed('http://asr.example.com/v1', resolvesTo('93.184.216.34'))).ok).toBe(true);
+    expect((await byokProbeEndpointAllowed('http://engine.lan/v1', resolvesTo('10.0.0.68'))).ok).toBe(true);
+  });
+
+  it('refuses a literal IPv4-mapped IPv6 spelling of a blocked address', async () => {
+    expect((await byokProbeEndpointAllowed('http://[::ffff:169.254.169.254]/v1')).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('http://asr.example.com/v1', resolvesTo('::ffff:169.254.169.254'))).ok).toBe(false);
+  });
+
+  it('refuses fe80::/10 (IPv6 link-local) and accepts a public IPv6 literal', async () => {
+    expect((await byokProbeEndpointAllowed('http://asr.example.com/v1', resolvesTo('fe80::1'))).ok).toBe(false);
+    expect((await byokProbeEndpointAllowed('http://asr.example.com/v1', resolvesTo('2001:db8::1'))).ok).toBe(true);
+  });
+
+  it('refuses a hostname that fails to resolve, rather than probing an unknown address', async () => {
+    const result = await byokProbeEndpointAllowed('http://nowhere.example/v1', {
+      resolveHost: async () => { throw new Error('ENOTFOUND nowhere.example'); },
+    });
+    expect(result.ok).toBe(false);
   });
 });

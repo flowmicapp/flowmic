@@ -299,12 +299,31 @@ void main() {
   // what the SnackBar actually renders (0.2.53: a 「can the user read this」
   // verdict lands on the rendered result, never on the table it came from).
 
-  group('rendered: the light-record row\'s toast', () {
-    testWidgets('says sign in, and never 「重新配对」', (WidgetTester tester) async {
+  // 🔴🔴 2026-09-02 — THIS GROUP USED TO ASSERT THE NEXT DEFECT AS ITS SPEC, and
+  // that is worth more than the assertion it has now. Its earlier body tapped
+  // the signed-out light-record row and required `cloudError(AUTH_TOKEN_INVALID)`
+  // — 「登录状态无效，请重新登录」 — to be ON SCREEN, with a comment reading
+  // 「signed OUT on purpose: that is the branch where a sentence is spoken at
+  // all」. Every word of that was true. What nobody asked was the question one
+  // line further on: 「and then what does the user press?」 Nothing. `_openCloud`
+  // owns the only `showLoginSheet` call on that page and its card is retired the
+  // moment a saas row exists, so the sentence was an imperative with no landing —
+  // and this test held it in place. owner, on an iPhone, 0.3.55: 「登录失效，请重
+  // 新登录」 that never went anywhere.
+  //
+  // ⇒ 0.2.52's law, third instance: a control pointed the wrong way does not
+  // merely miss a defect, it writes the defect down as the acceptance criterion.
+  // The rewrite below asserts what the screen must now do; the loop itself, its
+  // reverse controls and the LAN row that must NOT be routed to sign-in live in
+  // light_record_signin_reachable_test.dart.
+
+  group('rendered: the signed-out light-record row', () {
+    testWidgets('speaks no sentence at all — it opens the sign-in',
+        (WidgetTester tester) async {
       final _RefusesNextConnect t = _RefusesNextConnect(kHandshakeTokenInvalid)
         ..connectSucceeds = true;
-      // Signed OUT on purpose: that is the branch where a sentence is spoken at
-      // all. Signed in, the row heals itself and there is nothing to read.
+      // Signed OUT on purpose: with no account there is nothing to re-admit
+      // with, which is the branch that used to end in an unanswerable sentence.
       await tester.pumpWidget(await rigWithCloudRow(t));
       await tester.pumpAndSettle();
 
@@ -316,14 +335,20 @@ void main() {
       await tester.tap(find.text(AppStrings(AppLocale.zh).cloudInstance).first);
       await tester.pumpAndSettle();
 
-      expect(t.fired, 1, reason: 'positive control: the tap really was refused');
       final AppStrings zh = AppStrings(AppLocale.zh);
-      // 🔴 The defect, as the owner read it off the screen.
-      expect(find.text(zh.pairError(kHandshakeTokenInvalid)), findsNothing,
-          reason: 'a row with no PC was told the PC cancelled its pairing');
-      // POSITIVE CONTROL — a toast was shown, and it is the right one. Without
-      // this the assertion above passes on a screen with no toast at all.
-      expect(find.text(zh.cloudError(kHandshakeTokenInvalid)), findsOneWidget);
+      // POSITIVE CONTROL first: the sheet really is up, so the two absences
+      // below are about a screen that did something, not about a dead tap.
+      expect(find.byKey(const ValueKey<String>('login.browser.start')), findsOneWidget);
+      // 🔴 The 2026-08-30 defect, still asserted: a row with no PC must never be
+      // told a PC cancelled its pairing.
+      expect(find.text(zh.pairError(kHandshakeTokenInvalid)), findsNothing);
+      // 🔴 And the 2026-09-02 one: the sign-in sentence is not spoken beside the
+      // sign-in screen — one fact, one surface, and this is the surface that can
+      // act on it.
+      expect(find.text(zh.cloudError(kHandshakeTokenInvalid)), findsNothing);
+      // No frame left the device: with no account the refusal was predictable
+      // from here, so nothing was dialled to earn it.
+      expect(t.fired, 0);
     });
   });
 

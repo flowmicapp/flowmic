@@ -63,6 +63,22 @@
 // argument is at the top of billing/service-deadlines.ts. What matters at this
 // surface is that the operator is choosing between two behaviours, not two
 // labels, and the console is required to say so at the moment they choose.
+//
+// ── 🔴 2026-09-02 audit P3: A RACE THE WRITE LOSES MUST NOT LOOK LIKE A RACE
+//    THE WRITE WON ─────────────────────────────────────────────────────────
+//
+// `loadRequestedRefund` checks the state, `auditFirst` writes the business row,
+// THEN `settleOneTimeRefundByHand` / `releaseOneTimeRefundRequest` run their own
+// atomic state test — and that gap is real: another operator tab, or the
+// provider's webhook, can move the row between the check and the write. Before
+// this fix, a race lost there still left the FIRST audit row standing alone,
+// claiming an action ("settled", "released") that the outcome right below it
+// says never happened. Audit rows are append-only (no `update`, no `remove` —
+// ops-audit.repo.ts), so the fix is not to suppress or delete that row, it is
+// to follow it with `PURCHASE_REFUND_SETTLE_NOT_APPLIED_ACTION` /
+// `_RELEASE_NOT_APPLIED_ACTION` (`auditRaceLost`, below) the moment the write
+// answers `'not_requested'`. The reader of this trail a year later then sees
+// both true things in order: we tried, and it did not take effect.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
@@ -107,6 +123,40 @@ export const PURCHASES_REFUND_RELEASE_ROUTE = 'POST /api/ops/purchases/refund/re
  *  questions, which is this repo's number-one defect shape. */
 export const PURCHASE_REFUND_SETTLE_ACTION = 'ops.purchase.refund_settle';
 export const PURCHASE_REFUND_RELEASE_ACTION = 'ops.purchase.refund_release';
+
+/**
+ * 2026-09-02 audit P3 — the other half of the pair above, for the ONE outcome
+ * neither of them named: the atomic write raced and lost AFTER the business
+ * row already went in.
+ *
+ * 🔴 THE GAP THIS CLOSES. `auditFirst` runs before `settleOneTimeRefundByHand`
+ * / `releaseOneTimeRefundRequest`, on purpose — a change must never land
+ * unrecorded (see `auditFirst`'s own comment). But the state test that decides
+ * whether the change actually happens lives INSIDE that later UPDATE
+ * (`one-time-purchase.repo.ts`'s own comment on both methods says so, for the
+ * same reason: only the atomic write can stop two operator tabs racing).
+ * Between those two steps sits a real gap — a second tab, or the webhook,
+ * landing 'refunded' first — and until this fix the FIRST audit row survived
+ * a race it turned out to lose: the trail said "we settled this" or "we
+ * released this" on a row that never moved, and there was nothing beside it
+ * saying so.
+ *
+ * 🔴 THE OPTIONS WERE NOT "SILENCE" OR "DELETE". Audit rows are append-only
+ * (ops-audit.repo.ts's own interface has no `update` and no `remove`, and that
+ * absence IS the enforcement) — the first row cannot be taken back. Reusing
+ * `PURCHASE_REFUND_SETTLE_ACTION`/`_RELEASE_ACTION` for the correction would
+ * repeat the exact defect this file's header names for the outcome pair above:
+ * a value search would then have to read `detail` to learn which of two
+ * opposite facts a row records. So the correction gets its OWN name, matching
+ * the ONE-ACTION-PER-OUTCOME rule those two already follow.
+ *
+ * ⚠️ `ops_audit_log` has no dedicated outcome column (read its DDL) — `detail`
+ * is the only free-text field a caller controls, which is why the outcome is
+ * carried in the ACTION NAME rather than a `detail:'no_change'` convention
+ * that a later reader could miss.
+ */
+export const PURCHASE_REFUND_SETTLE_NOT_APPLIED_ACTION = 'ops.purchase.refund_settle_not_applied';
+export const PURCHASE_REFUND_RELEASE_NOT_APPLIED_ACTION = 'ops.purchase.refund_release_not_applied';
 
 /** Longest external reference this route will store. REFUSED, never truncated —
  *  the same rule as the note, and it bites harder here: half a bank reference
@@ -235,6 +285,51 @@ function auditFirst(
       message: 'the operations audit row could not be written, so the purchase was left unchanged',
     });
     return false;
+  }
+}
+
+/**
+ * 2026-09-02 audit P3 — append the correction row when the write `auditFirst`
+ * preceded turns out to have been a no-op (the atomic UPDATE answered
+ * `'not_requested'`, meaning the row left `refund_requested` between the
+ * pre-check and the write).
+ *
+ * 🔴 BEST-EFFORT, ON PURPOSE, AND NEVER FED BACK INTO THE RESPONSE. The write
+ * genuinely did not happen — the purchase is untouched, and the 409 the caller
+ * sends afterwards is already the true answer. A failure here is a failure to
+ * ANNOTATE a row that already exists, not a failure to protect money, so it
+ * does not get `auditFirst`'s fail-closed treatment (there is nothing left to
+ * fail closed on: the state change this whole file exists to gate never
+ * happened). It is still never silent — a failure here means the FIRST row
+ * goes on claiming an action that did not occur, which is exactly the defect
+ * this function exists to close, so it is logged at ERROR with that stated
+ * out loud.
+ */
+function auditRaceLost(
+  deps: OpsRefundReleaseRoutesDeps,
+  input: { actor: string; action: string; orderId: string; route: string },
+): void {
+  try {
+    deps.audit.append({
+      actor_user_id: input.actor,
+      action: input.action,
+      target_kind: PURCHASE_TARGET_KIND,
+      target_id: input.orderId,
+      detail:
+        "did not take effect: the purchase left 'refund_requested' between the pre-check and the "
+        + 'write (another operator, or the provider webhook, resolved it first)',
+    });
+  } catch (err) {
+    log.error(
+      'ops: could not append the not-applied correction row — the earlier row still claims an action that never happened',
+      {
+        route: input.route,
+        actor: input.actor,
+        target: input.orderId,
+        intent: input.action,
+        reason: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 }
 
@@ -368,6 +463,18 @@ export function tryHandleOpsRefundReleaseRoutes(
         // The row moved between the read above and this write — another operator
         // tab, or the webhook landing at last. 409, same as the read-time
         // refusal: one question, one operator action (go and look at it).
+        //
+        // 🔴 THE ROW `auditFirst` JUST WROTE STILL SAYS "settled" — audit rows are
+        // append-only and this one already landed truthfully at the time it was
+        // written. Correct it with its own row rather than leave it standing
+        // alone as the only trace of an action that, per the outcome below,
+        // never actually happened.
+        auditRaceLost(deps, {
+          actor,
+          action: PURCHASE_REFUND_SETTLE_NOT_APPLIED_ACTION,
+          orderId: row.order_id,
+          route: PURCHASES_REFUND_SETTLE_ROUTE,
+        });
         sendJson(res, 409, {
           error: PURCHASE_TRANSITION_INVALID,
           message: 'the refund stopped being in flight while this request was being handled; nothing was changed',
@@ -484,6 +591,15 @@ export function tryHandleOpsRefundReleaseRoutes(
         nowIso,
       );
       if (outcome === 'not_requested') {
+        // Same correction as the settle route, and for the same reason: the
+        // audit row `auditFirst` just wrote still says "released", and it must
+        // not stand alone as the only trace of an action that did not happen.
+        auditRaceLost(deps, {
+          actor,
+          action: PURCHASE_REFUND_RELEASE_NOT_APPLIED_ACTION,
+          orderId: row.order_id,
+          route: PURCHASES_REFUND_RELEASE_ROUTE,
+        });
         sendJson(res, 409, {
           error: PURCHASE_TRANSITION_INVALID,
           message: 'the refund stopped being in flight while this request was being handled; nothing was changed',

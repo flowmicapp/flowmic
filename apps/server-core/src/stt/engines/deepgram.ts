@@ -117,7 +117,7 @@ export class DeepgramEngine extends EventEmitter implements SttEngine {
 
   push(chunk: Buffer): void {
     if (this._state !== 'open' || !this.ws) {
-      throw new SttEngineError('STT_ENGINE_TIMEOUT', `DeepgramEngine.push: not open (${this._state})`, true);
+      throw new SttEngineError('STT_ENGINE_NOT_OPEN', `DeepgramEngine.push: not open (${this._state})`, true);
     }
     this.ws.send(chunk);
   }

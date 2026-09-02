@@ -67,6 +67,22 @@ pub fn annotate_node_version(node_exe: &str, tail: String) -> String {
 /// signing pass.
 pub const BUNDLED_NODE_NAME: &str = if cfg!(windows) { "node.exe" } else { "node" };
 
+/// P2 (2026-09-02 audit) — `sidecar/portclear.rs`'s `clear_port` used to kill
+/// whatever PID `netstat` named as the `:port` listener, having already
+/// FORENSIC-LOGGED its process name but never actually looked at it. This is
+/// the gate that name should have been for: does it even look like a Node
+/// process, i.e. something that could plausibly BE our own (or a stray
+/// previous run of our own) sidecar, rather than some unrelated program that
+/// happened to be squatting on the port. A substring match against
+/// [`BUNDLED_NODE_NAME`]'s stem, not an exact match: `tasklist`'s CSV column
+/// carries exactly the image name Windows recorded when the process started
+/// (`node.exe`), and case is not guaranteed identical to how this constant
+/// spells it — a case-insensitive "contains" is the honest amount of
+/// confidence to demand, not more.
+pub fn image_name_looks_like_node(process_image_name: &str) -> bool {
+    process_image_name.to_ascii_lowercase().contains("node")
+}
+
 /// Find the Node runtime we shipped, given the directory the exe lives in.
 ///
 /// Layouts, because each installer places resources differently and all are ours:
@@ -305,6 +321,28 @@ pub fn resolve_node_exe() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── P2 (2026-09-02): portclear's kill gate must actually recognise Node ──
+
+    #[test]
+    fn the_exact_bundled_name_is_recognised() {
+        assert!(image_name_looks_like_node("node.exe"));
+    }
+
+    #[test]
+    fn tasklists_case_is_not_guaranteed_and_must_still_match() {
+        assert!(image_name_looks_like_node("Node.exe"));
+        assert!(image_name_looks_like_node("NODE.EXE"));
+    }
+
+    #[test]
+    fn reverse_control_an_unrelated_process_is_refused() {
+        // NEGATIVE CONTROL: without this, a version of the gate that always
+        // returned `true` (i.e. the pre-fix "kill anything" behaviour) would
+        // still pass the two tests above.
+        assert!(!image_name_looks_like_node("chrome.exe"));
+        assert!(!image_name_looks_like_node("<unknown>"));
+    }
 
     /// The host-Node floor (2026-08-03). `db/connection.ts` requires `node:sqlite`
     /// at module top level, and that builtin was flag-gated until v22.13.0 —

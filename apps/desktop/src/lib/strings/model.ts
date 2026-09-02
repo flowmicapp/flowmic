@@ -101,6 +101,18 @@ export const MODEL_KEYS = [
   // for the second — a 404 IS an answer.
   'model_unreachable',
   'model_answered_badly',
+  // E5 (2026-09-02) — a THIRD failure sentence, for a fact `unreachable` cannot
+  // honestly carry: the sidecar's own lifecycle told us `phase === 'failed'`
+  // (a terminal verdict Rust already reached), not merely that one HTTP probe
+  // got no answer. Before this key existed the card had no way to say that and
+  // fell back to `model_connecting_note` — quiet, expected, resolves by
+  // itself — for a state that will never resolve by itself, so the "recheck"
+  // action stayed hidden (its row is gated on knowledge !== 'connecting')
+  // exactly where the reader most needed it. Same reader's-next-move test as
+  // `unreachable`/`answered_badly` above: this one's next move is "press
+  // recheck once you've looked at why (the fold below may carry a detail from
+  // the sidecar itself), or restart the app."
+  'model_sidecar_failed',
   // What `ready` actually certifies — and, in the second sentence, what it does
   // NOT (§3's closing warning: the files being right is not the engine loading).
   // The two halves are one key because a reader who gets only the first half
@@ -130,7 +142,6 @@ export const MODEL_KEYS = [
   // of options, and naming both of them (place the files / choose another
   // engine) is what keeps a failed download from being a dead end.
   'model_manual',
-  'model_dir',
   'model_copy',
   'model_copied',
   // The failure of the copy button says what still works. Same shape as

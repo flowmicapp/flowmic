@@ -25,6 +25,7 @@
 import { reactive } from 'vue';
 import { ERROR_CODES, getErrorMessage, type ErrorCode } from '@flowmic/protocol';
 import { S } from './strings';
+import { getLocale } from './strings/locale';
 
 /** Mirrors apps/server-core/src/http/probe-routes.ts (the wire shape). */
 export type ProbeKind = 'completion' | 'handshake' | 'transcribe' | 'local-model';
@@ -132,9 +133,16 @@ export interface ProbeRowView {
   detail: string;
 }
 
+// P2 #10 (2026-09-02) — `getErrorMessage` is bilingual only (zh-CN | en,
+// packages/protocol/src/error-codes.ts), never all nine UI locales; this used
+// to hardcode 'zh-CN' regardless of the reader's actual UI language, so an
+// English-locale reader testing a connection got a Chinese headline for any
+// error code. The registry cannot answer in a language it does not have, so
+// the honest fallback is 'en' for every UI locale that is not zh-CN — the
+// same base-locale-fallback rule `S`'s own generated catalogue uses.
 function headlineFor(code: string): string {
   if (Object.prototype.hasOwnProperty.call(ERROR_CODES, code)) {
-    return getErrorMessage(code as ErrorCode, 'zh-CN');
+    return getErrorMessage(code as ErrorCode, getLocale() === 'zh-CN' ? 'zh-CN' : 'en');
   }
   return code.length > 0 ? code : S.probe_note_empty;
 }

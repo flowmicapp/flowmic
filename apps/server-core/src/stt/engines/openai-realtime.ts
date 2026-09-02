@@ -98,7 +98,7 @@ export class OpenAiRealtimeEngine extends EventEmitter implements SttEngine {
 
   push(chunk: Buffer): void {
     if (this._state !== 'open' || !this.ws) {
-      throw new SttEngineError('STT_ENGINE_TIMEOUT', `OpenAiRealtimeEngine.push: not open (${this._state})`, true);
+      throw new SttEngineError('STT_ENGINE_NOT_OPEN', `OpenAiRealtimeEngine.push: not open (${this._state})`, true);
     }
     this.ws.send(JSON.stringify({
       type: 'input_audio_buffer.append',

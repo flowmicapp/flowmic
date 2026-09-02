@@ -22,7 +22,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   PLAN_LIMITS,
-  currentPlanLimits,
   installPlanLimits,
   planLimits,
   resetPlanLimits,
@@ -268,7 +267,6 @@ describe('resolvePlanLimits — every malformed override FAILS THE BOOT', () => 
 describe('the installed table is what planLimits() answers with', () => {
   it('defaults until something is installed', () => {
     expect(planLimits('pro').stt_minutes).toBe(900);
-    expect(currentPlanLimits()).toBe(PLAN_LIMITS);
   });
 
   it('installPlanLimits changes every downstream reader in one move', () => {

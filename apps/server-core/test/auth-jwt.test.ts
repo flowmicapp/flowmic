@@ -1,7 +1,9 @@
 // WP-R4-1 ① — the ported HS256 JWT signer/verifier (auth/jwt.ts) + the account
 // credential service (auth/auth-service.ts). Pure unit coverage: sign→verify
-// round-trip, {sub,plan} claims + 7d default TTL, expiry, signature tamper,
-// wrong secret, and the no-password_hash public projection.
+// round-trip, {sub,plan} claims + the default TTL (originally 7d, then 100y
+// per owner ruling 2026-08-27 §R1, now 90d per owner ruling 2026-09-02 问题二
+// — see DEFAULT_TTL_MS), expiry, signature tamper, wrong secret, and the
+// no-password_hash public projection.
 
 import { describe, it, expect } from 'vitest';
 import { signJwt, verifyJwt, JwtError, DEFAULT_TTL_MS } from '../src/auth/jwt';
@@ -36,13 +38,23 @@ function freshUsersDb(): ReturnType<typeof openDatabase> {
 }
 
 describe('auth/jwt HS256 sign + verify', () => {
-  it('round-trips {sub, plan} with a 7-day default TTL', () => {
+  it('round-trips {sub, plan} with the default TTL', () => {
     const nowMs = 1_700_000_000_000;
     const token = signJwt({ sub: 'user-1', plan: 'pro' }, { secret: SECRET, now: () => nowMs });
     const claims = verifyJwt(token, { secret: SECRET, now: () => nowMs });
     expect(claims.sub).toBe('user-1');
     expect(claims.plan).toBe('pro');
     expect(claims.exp - claims.iat).toBe(Math.floor(DEFAULT_TTL_MS / 1000));
+  });
+
+  // 🔴 owner ruling 2026-09-02 (问题二) — pin the ACTUAL number, not just "agrees
+  // with itself": every other assertion in this file reads DEFAULT_TTL_MS back
+  // through the constant, so a regression that silently reverted it to 100
+  // years (or to 7 days) would leave every one of them green. This is the one
+  // test that would catch that.
+  it('🔴 the default TTL is exactly 90 days, not 100 years and not 7 days', () => {
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    expect(DEFAULT_TTL_MS).toBe(NINETY_DAYS_MS);
   });
 
   it('throws JWT_EXPIRED once now passes exp', () => {
@@ -56,9 +68,37 @@ describe('auth/jwt HS256 sign + verify', () => {
     }
   });
 
+  // 🔴 P1-CE6B: this used to tamper by replacing the LAST TWO base64url chars
+  // of the signature (`${token.slice(0, -2)}xx`). That is a probabilistic
+  // tamper, not a guaranteed one: a 32-byte HMAC-SHA256 digest encodes to 43
+  // base64url chars, and the final char carries only the digest's last 4 bits
+  // (the other 2 of its 6 bits are zero-padding from the encoder, RFC 4648
+  // §5) — so overwriting the tail with a FIXED string collides with the real
+  // signature's decoded bytes whenever the digest's last byte and a half
+  // happen to match what that fixed string decodes to. Measured empirically
+  // (2,000,000 trials, decoding both sides and comparing bytes exactly the
+  // way verifyJwt does): the tail-tamper falsely verifies about 1 time in
+  // 1024. `it()` has no fixed `now`, so each CI run signs a different token
+  // and samples this independently — an intermittently RED test with no code
+  // change, which is worse than useless because the fix looks flaky and gets
+  // re-run instead of investigated.
+  //
+  // Fix: tamper a byte from the MIDDLE of the signature instead of the tail.
+  // Middle bytes are covered by two full (non-padded) base64url chars on
+  // either side, so decoding the tampered string always yields a byte that
+  // differs from the real signature by construction (XOR with 0xFF can never
+  // be a no-op) — zero probability of a false pass, not "very low".
   it('rejects a tampered signature and a wrong secret', () => {
     const token = signJwt({ sub: 'u', plan: 'free' }, { secret: SECRET });
-    const tampered = `${token.slice(0, -2)}xx`;
+    const [header, payload, sigB64] = token.split('.') as [string, string, string];
+    const sigBytes = Buffer.from(sigB64, 'base64url');
+    const tamperedBytes = Buffer.from(sigBytes);
+    const MIDDLE_BYTE = 16; // well clear of both encoding-boundary bytes at the tail
+    tamperedBytes[MIDDLE_BYTE] = tamperedBytes[MIDDLE_BYTE]! ^ 0xff;
+    // Reverse control: prove the tamper is real before trusting the rejection
+    // below — otherwise a no-op XOR would make this test pass for no reason.
+    expect(tamperedBytes.equals(sigBytes)).toBe(false);
+    const tampered = `${header}.${payload}.${tamperedBytes.toString('base64url')}`;
     expect(() => verifyJwt(tampered, { secret: SECRET })).toThrow(JwtError);
     expect(() => verifyJwt(token, { secret: Buffer.from('a-different-secret-32-bytes-minimum!', 'utf8') })).toThrow(JwtError);
   });

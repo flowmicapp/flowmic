@@ -26,6 +26,7 @@ import type { AuthContext } from '../../auth/middleware';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
 import type { WriterOnlyGuard } from '../../node/writer-only';
+import type { SettingsUpdateResult } from '../../node/forward-sync-types';
 import { getAuth, safeAck } from '../wire';
 
 export interface SettingsHandlerDeps {
@@ -47,6 +48,32 @@ export interface SettingsHandlerDeps {
    *  anywhere. Required, not optional — an optional gate is one that can be
    *  disabled by forgetting. */
   writerOnly: WriterOnlyGuard;
+  /**
+   * 2026-09-02 (WP-6, B6) — REPLICA ONLY: ask the writer to perform a
+   * `settings:update` this node cannot (the `registry.renamePc`/`repo.write`
+   * rows in node/writer-only.ts — "a setting the user just changed, reverted
+   * silently"). Same family as `PcHandlerDeps.forwardReleaseMobile`.
+   *
+   * Optional for the same reason: absent means "nobody to ask" (the writer,
+   * every single-node deployment), and the caller falls back to the honest
+   * `NODE_IS_REPLICA` refusal — a forgotten wiring restores the
+   * already-documented gap rather than silently disabling a gate.
+   *
+   * See `node/forward-sync.ts` `SettingsUpdateResult` for what each of the
+   * four result variants means and what THIS node still has to do locally
+   * (the fan-out, which only this node can see the sockets for).
+   */
+  forwardSettingsUpdate?: (req: {
+    user_id: string;
+    key: string;
+    value: unknown;
+    updated_at?: string;
+    auth_kind: 'pc' | 'mobile';
+    pc_device_id?: string;
+  }) => Promise<
+    | { status: 'ok'; result: SettingsUpdateResult }
+    | { status: 'refused'; error: string }
+  >;
 }
 
 /** 04 §3.7 F-3101 — the reserved key. Not in the KV namespace and never stored
@@ -178,8 +205,13 @@ export const SETTINGS_STAMP_MAX_SKEW_MS = 5 * 60_000;
  * ⇒ Unparseable is treated as ABSENT, i.e. UNKNOWN, i.e. degrade to today's
  * behaviour (write it). Never as a comparable value, and never as epoch zero:
  * both of those let a malformed stamp decide who wins.
+ *
+ * Exported (WP-6) so node/forward-sync.ts's writer-side settings mutation can
+ * apply the SAME regress rule a forwarded write goes through — a second
+ * definition of "is this stamp usable" is exactly the two-authors shape this
+ * file's own header warns about.
  */
-function stampMs(raw: string | undefined): number | null {
+export function stampMs(raw: string | undefined): number | null {
   if (raw === undefined) return null;
   const t = Date.parse(raw);
   return Number.isNaN(t) ? null : t;
@@ -298,11 +330,58 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     if (!parsed.success) return safeAck(ack, { error: 'SETTINGS_SCHEMA_INVALID' });
     // A replica's write is erased by the next pull, so the user would see the
     // value they just set revert itself and no layer would report anything.
-    // Refused before either branch — the KV write and the reserved-key rename
-    // are both lost, so guarding one of them would fix half a defect.
+    // Computed eagerly — the KV write and the reserved-key rename are both
+    // lost, so guarding one of them would fix half a defect.
     const replica = deps.writerOnly();
-    if (replica) return safeAck(ack, replica);
     const { key, value } = parsed.data;
+
+    if (replica) {
+      // 🔴 2026-09-02 (B6, WP-6) — THE REFUSAL THAT HAD NO WAY OUT, same family
+      // as `pc:release-mobile`'s `forwardReleaseMobile`: a setting the user just
+      // changed (a PC's own name included) reverted itself with no error
+      // anywhere the user could see. Forward the WHOLE mutation to the writer
+      // (node/forward-sync.ts `applySettingsUpdateOnWriter` — the same branches
+      // as the direct path below), then apply the SAME local fan-out this
+      // handler performs for a non-replica caller, using the result it returns.
+      const forward = deps.forwardSettingsUpdate;
+      if (!forward) return safeAck(ack, replica);
+      void forward({
+        user_id: auth.userId,
+        key,
+        value,
+        auth_kind: auth.kind === 'mobile' ? 'mobile' : 'pc',
+        ...(parsed.data.updated_at !== undefined ? { updated_at: parsed.data.updated_at } : {}),
+        ...(auth.kind === 'pc' && auth.deviceId ? { pc_device_id: auth.deviceId } : {}),
+      })
+        .then((outcome) => {
+          if (outcome.status !== 'ok') return safeAck(ack, replica);
+          const result = outcome.result;
+          if (result.kind === 'invalid') return safeAck(ack, { error: result.error });
+          if (result.kind === 'pc_name') {
+            // Same fan-out as the direct path's PC_NAME_KEY branch: THIS PC's
+            // room only, plus peer PCs of the same account.
+            for (const m of deps.store?.getMobiles(result.room_uuid) ?? []) {
+              m.emit('settings:updated', { key, value: { pc_id: result.pc_id, pc_name: result.name } });
+            }
+            broadcastUpdated(io, socket.id, auth.userId, { key, value: { pc_id: result.pc_id, pc_name: result.name } });
+            return safeAck(ack, { ok: true });
+          }
+          if (result.kind === 'regressed') {
+            // Same G2 "tell the loser" as the direct path — the loser is
+            // always THIS socket, always local by construction.
+            const winner: SettingsUpdatedPayload = withStamp({ key: result.key, value: result.value }, result.updated_at);
+            const view = auth.kind === 'mobile' ? mobileView(winner) : winner;
+            if (view !== null) socket.emit('settings:updated', view);
+            return safeAck(ack, { ok: true });
+          }
+          // 'written' — same peer fan-out as the direct path, carrying what was
+          // STORED (the writer's answer), not what was sent.
+          broadcastUpdated(io, socket.id, auth.userId, withStamp({ key: result.key, value: result.value }, result.updated_at));
+          safeAck(ack, { ok: true });
+        })
+        .catch(() => safeAck(ack, replica));
+      return;
+    }
 
     // ── GA-10 reserved key: device.pc_name (04 §3.7 F-3101) ──────────────────
     // owner's 2026-07-26 iron rule: "naming on the PC side can only be

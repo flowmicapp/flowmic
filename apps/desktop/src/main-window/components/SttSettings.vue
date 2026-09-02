@@ -7,7 +7,7 @@ import ProbePanel from './ProbePanel.vue';
 // under the routing table because that table is where the built-in engine is
 // chosen, and the card is the answer to 「I chose it — now what?」.
 import LocalModelCard from './LocalModelCard.vue';
-import { POLISH_STRENGTHS } from '@flowmic/protocol';
+import { DICTIONARY_PACK_MAX_ENTRIES, POLISH_STRENGTHS } from '@flowmic/protocol';
 import { S } from '../../lib/strings';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
 import {
@@ -26,7 +26,7 @@ import {
   type Routing,
 } from '../settings-model';
 import { presetGroupLabel } from '../../lib/preset-group-label';
-import { fetchSidecarState } from '../../lib/bridge';
+import { sidecarBaseUrl } from '../../lib/bridge';
 import {
   createProbeStore, PROBE_STT_PATH, runProbe, toRowView, watchHidden,
   type HiddenWatcher, type ProbeTransport,
@@ -171,7 +171,7 @@ function addTerm(): void {
 // probe tests the resolution as well as the endpoint. What is probed is exactly
 // what the table above shows (the config travels in the request body).
 const transport: ProbeTransport = {
-  baseUrl: async (): Promise<string | null> => (await fetchSidecarState())?.endpoint ?? null,
+  baseUrl: sidecarBaseUrl,
 };
 const probe = createProbeStore(async () => {
   const routings: Routing[] = model.routings.map((r) => ({ ...r }));
@@ -216,8 +216,13 @@ onBeforeUnmount(() => watcher?.disconnect());
 
 <template>
   <div class="set-sec" ref="root">
-    <!-- owner ⑤: scope statement — these settings configure the LAN server only -->
-    <div class="scope-note">{{ S.settings_scope_lan }}</div>
+    <!-- E6 (2026-09-02): this page mixes a LAN-only section (routing table,
+         `stt.routings`) with three both-legs sections since owner 2026-08-24
+         (dictionary/polish/refine) — `S.settings_scope_lan` alone would tell a
+         cloud-relay user their dictionary/polish/refine edits do nothing on the
+         relay, which the wire contradicts (settings_route.rs
+         PREFERENCE_SETTING_KEYS). This note says both facts. -->
+    <div class="scope-note">{{ S.stt_settings_scope_note }}</div>
     <h3>{{ S.stt_title }}</h3>
     <p class="hint">{{ S.stt_hint }}</p>
 
@@ -415,7 +420,7 @@ onBeforeUnmount(() => watcher?.disconnect());
       <div class="sub" style="padding:0 14px 12px">{{ S.refine_precondition }}</div>
     </div>
 
-    <div class="sub-h">{{ S.dict_title }} <span class="muted" style="font-weight:400">{{ SETTINGS_MSG.dictCount(model.dictionary.length, 300) }}</span></div>
+    <div class="sub-h">{{ S.dict_title }} <span class="muted" style="font-weight:400">{{ SETTINGS_MSG.dictCount(model.dictionary.length, DICTIONARY_PACK_MAX_ENTRIES) }}</span></div>
     <div class="card" v-if="model.dictionary.length > 0">
       <div class="dict-row" v-for="d in model.dictionary" :key="d.term">
         <span class="term">{{ d.term }}</span>

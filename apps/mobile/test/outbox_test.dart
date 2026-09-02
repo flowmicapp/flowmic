@@ -20,6 +20,7 @@
 // 🔴 TWO REVERSE CONTROLS live here (marked ⟲). Both were RUN RED before being
 // left green — see the delivery report for the captured output.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -425,6 +426,49 @@ void main() {
       expect(isTerminalRefusalCode('INJECT_PC_OFFLINE'), isFalse);
     });
 
+    test('⟲ Card F12/F1-d: a refusal that NAMES a wait is held out, not retried on every drain', () async {
+      final InMemoryOutboxStore store = InMemoryOutboxStore();
+      final _FakeHost host = _FakeHost(kOnALan);
+      final DeliveryOutbox box = _outbox(host, store: store);
+      await _enqueueOne(box, requestId: 'quota-1');
+      await box.drain();
+      expect(host.sends, hasLength(1));
+      // Same shape as INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED, a non-terminal code
+      // otherwise retried and refused again on every room join for 24h.
+      await box.settle(correlationId: 'quota-1', ok: false,
+          code: 'INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED', retryAfterMs: 50);
+      expect((await store.findByRequestId('quota-1'))!.state,
+          OutboxDeliveryState.queued, reason: 'still owed, not terminal');
+      // Held out: an automatic drain right now must not re-send it.
+      await box.drain();
+      expect(host.sends, hasLength(1), reason: 'hold-out not expired yet');
+
+      // A user-requested resend bypasses the hold-out (L8: manual action is
+      // unconditionally expected) — the button must not silently no-op.
+      await box.drain(userRequestedEntryIds: <String>{'loc_quota-1'});
+      expect(host.sends, hasLength(2), reason: 'manual resend must still go out');
+      expect(host.origins.last, InjectOrigin.live);
+
+      // Put it back on hold; once the window elapses the NEXT automatic
+      // drain goes out on its own.
+      await box.settle(correlationId: 'quota-1', ok: false,
+          code: 'INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED', retryAfterMs: 30);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await box.drain();
+      expect(host.sends, hasLength(3), reason: 'hold-out expired');
+    });
+
+    test('a retryable refusal with retryAfterMs:0 or null is retried immediately, unchanged from before this card', () async {
+      final InMemoryOutboxStore store = InMemoryOutboxStore();
+      final _FakeHost host = _FakeHost(kOnALan);
+      final DeliveryOutbox box = _outbox(host, store: store);
+      await _enqueueOne(box, requestId: 'busy-x');
+      await box.drain();
+      await box.settle(correlationId: 'busy-x', ok: false, code: 'PC_BUSY');
+      await box.drain();
+      expect(host.sends, hasLength(2), reason: 'no measured wait ⇒ no hold-out, exactly as before this card');
+    });
+
     test('watchdog: no receipt ⇒ retreat from inflight to queued, never stop at inflight', () async {
       final InMemoryOutboxStore store = InMemoryOutboxStore();
       final _FakeHost host = _FakeHost(kOnALan);
@@ -482,6 +526,75 @@ void main() {
         ).copyWith(state: OutboxDeliveryState.refused),
         throwsA(isA<AssertionError>()),
       );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  group('Card F2 — a user-requested id that arrives during an in-flight drain must not be dropped', () {
+    test('⟲ a resend that arrives mid roomJoin-drain is folded into a follow-up pass, not lost', () async {
+      final _FakeHost host = _FakeHost(kOnALan)..ensureLinkGate = Completer<void>();
+      final InMemoryOutboxStore store = InMemoryOutboxStore();
+      final DeliveryOutbox box = _outbox(host, store: store);
+      // The background pass (e.g. a roomJoin drain, P1-2) starts while the
+      // item the user is about to resend has not been enqueued yet — this is
+      // the shape that matters: a pass already loaded its `queued` snapshot
+      // before this request existed, so folding the id into THIS run (not
+      // "the next drain, whenever that is") is the only way it goes out now.
+      await _enqueueOne(box, requestId: 'other-1');
+      final Future<OutboxDrainReport> firstPass = box.drain();
+      await Future<void>.delayed(Duration.zero);
+      expect(host.sends, isEmpty, reason: 'first pass must be parked in ensureLink, not past it');
+
+      // Old enough that, absent L8's unconditional "user pressed it" override,
+      // outboxInjectOrigin would call it `deferred` rather than `live`.
+      final DateTime longAgo =
+          DateTime.now().toUtc().subtract(const Duration(hours: 1));
+      await _enqueueOne(box, requestId: 'busy-1', createdAt: longAgo);
+      final OutboxDrainReport busyReport = await box.drain(
+        userRequestedEntryIds: <String>{'loc_busy-1'},
+      );
+      expect(busyReport.busy, isTrue);
+      // `linkOk:null`, not `linkOk:false` — this call never asked the link
+      // anything; answering `false` is the exact conflation (「in flight」 vs
+      // 「no connection」) this card removes. `manual_delivery.dart` must not
+      // read this as `ComposeSendFailure.linkDown`.
+      expect(busyReport.linkOk, isNull);
+
+      // Release the gate: the parked first pass sends `other-1` (the only
+      // item it had loaded), then — per the design comment on
+      // [DeliveryOutbox.drain] — must fold the merged `busy-1` id into a
+      // follow-up pass BEFORE returning, not leave it for whatever unrelated
+      // drain happens to run next.
+      host.ensureLinkGate!.complete();
+      final OutboxDrainReport finalReport = await firstPass;
+      expect(host.sends.map((_Sent s) => s.item.requestId),
+          <String>['other-1', 'busy-1'],
+          reason: 'the merged item must go out in a follow-up pass of the SAME drain() call');
+      // `firstPass` is answering about ITS OWN item (`other-1`) — the
+      // follow-up pass for the merged `busy-1` id is not this call's report to
+      // hand back (see the comment on `drain()`); this is the guard against
+      // the conflation moving up one level instead of disappearing.
+      expect(finalReport.sent, 1);
+      expect(finalReport.held, isEmpty);
+      expect(finalReport.refused, isEmpty);
+      // The proof it is not a mislabeled backfill: `other-1` (never
+      // user-requested, `kSpokenAt` is long past) is `deferred`, while
+      // `busy-1` is `live` — L8 makes a user-requested id `live`
+      // unconditionally, regardless of age.
+      expect(host.origins, <InjectOrigin>[InjectOrigin.deferred, InjectOrigin.live]);
+      expect((await store.findByRequestId('busy-1'))!.state,
+          OutboxDeliveryState.inflight);
+    });
+
+    test('an id that never gets merged (no drain in flight) still just runs normally', () async {
+      final _FakeHost host = _FakeHost(kOnALan);
+      final DeliveryOutbox box = _outbox(host);
+      await _enqueueOne(box, requestId: 'idle-1');
+      final OutboxDrainReport r =
+          await box.drain(userRequestedEntryIds: <String>{'loc_idle-1'});
+      expect(r.busy, isFalse);
+      expect(r.linkOk, isTrue);
+      expect(r.sent, 1);
     });
   });
 

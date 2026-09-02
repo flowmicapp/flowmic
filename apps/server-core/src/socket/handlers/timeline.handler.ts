@@ -116,7 +116,18 @@ export function registerTimelineHandlers(socket: Socket, deps: TimelineHandlerDe
       next_seq,
     };
     safeAck(ack, result);
-    socket.emit('timeline:pull-result', result);
+    // 🔴 G2 (WP-8, 2026-09-02) — the `timeline:pull-result` mirror emit that
+    // used to fire here is REMOVED. The ack two lines up already carries this
+    // exact `result` object to the caller of `timeline:pull`; this line sent
+    // the SAME ciphertext page a second time, as a bare socket event, to
+    // whoever happened to be listening. A repo-wide grep (protocol, three
+    // client trees) found zero listeners: the phone reads the ack, and
+    // nothing — mobile, desktop, or web — has an `on('timeline:pull-result',
+    // …)` handler. Every pull therefore doubled its ciphertext bytes on the
+    // wire for no reader. The wire EVENT and its schema stay registered in
+    // `packages/protocol` (deleting a protocol event is a bigger, owner-gated
+    // move than deleting an unused emit call — see CLAUDE.md "删事件比加事件
+    // 贵"); only the server's redundant SEND of it is gone.
   });
 
   socket.on('timeline:tombstone', (payload: unknown, ack: unknown) => {

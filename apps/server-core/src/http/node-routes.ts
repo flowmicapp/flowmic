@@ -16,6 +16,8 @@
 //   GET  /api/node/snapshot — the writer's database, for the replication pull
 //   POST /api/node/mint-code — the ONE write a replica may ask for SYNCHRONOUSLY
 //   POST /api/node/resolve-token — the ONE row read a replica may not answer itself
+//   POST /api/node/forward-sync — the GENERIC form of the above two, for every
+//     writer-only mutation added since (node/forward-sync.ts has the table)
 //
 // The first three are PUBLIC — a client must choose a node before it has
 // anywhere to authenticate. The rest are the NODE-TO-NODE channel: all of them
@@ -56,6 +58,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { nodeIdForHost, requestHost, type NodeHostMap } from '../node/node-identity';
 import { isValidTokenShape } from '../auth/token';
 import type { TokenResolution } from '../node/token-rows';
+import { handleForwardSyncRoute } from './node-routes-forward-sync';
 
 /** What a node calls itself. Matches the subdomain: `srvny`, `srvjp`. */
 export type NodeId = string;
@@ -217,6 +220,22 @@ export interface NodeRoutesDeps {
    * route turns it into a 404 the replica can tell apart from an outage.
    */
   resolveToken?: (token: string) => TokenResolution | null;
+  /**
+   * Writer only. The generic replica→writer handoff — one dispatch point for
+   * every small, synchronous writer-only mutation that follows `mint-code` and
+   * `resolve-token`'s pattern, so the fourth such event is a table entry in
+   * `node/forward-sync.ts` instead of a fifth hand-rolled route.
+   *
+   * `verb` arrives as a plain string (off the wire) and `payload` as an
+   * unvalidated JSON value; this function shape-checks both — see
+   * `node/forward-sync.ts` for why the route itself cannot, and its own header
+   * for why the mutation is written again here rather than shared with the
+   * handlers' non-replica code path.
+   *
+   * `{ok:false}` is a STRUCTURAL refusal (route → 409), never a transport
+   * problem (those throw and become a 500, same split `receiveForward` draws).
+   */
+  forwardSync?: (verb: string, payload: unknown) => { ok: true; result: unknown } | { ok: false; error: string };
 }
 
 const JSON_HEADERS = {
@@ -256,7 +275,9 @@ export const FORWARD_RECORDS_MAX = 500;
  *  would leak it into places nobody is guarding. Restated rather than left to
  *  quietly become false — a comment that explains a rule by a property the rule
  *  no longer has is worse than no comment. */
-const POST_PATHS = new Set(['/api/node/forward', '/api/node/mint-code', '/api/node/resolve-token']);
+const POST_PATHS = new Set([
+  '/api/node/forward', '/api/node/mint-code', '/api/node/resolve-token', '/api/node/forward-sync',
+]);
 
 /** Shared empty mapping, so a single-name deployment allocates nothing per request. */
 const EMPTY_HOSTS: NodeHostMap = new Map<string, string>();
@@ -277,9 +298,12 @@ function secretMatches(expected: string, offered: string): boolean {
  *  rather than buffering the whole request first: the ceiling has to bite BEFORE
  *  the bytes are in memory, or it is decoration.
  *
- *  Shared by /forward and /mint-code. The ceiling is sized for the former (a
- *  batch of records); the latter sends one id and is nowhere near it. */
-async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; pc_id?: unknown; token?: unknown }> {
+ *  Shared by /forward, /mint-code and /forward-sync. The ceiling is sized for
+ *  the first (a batch of records); the others send far less and are nowhere
+ *  near it. */
+async function readJsonBody(
+  req: IncomingMessage,
+): Promise<{ records?: unknown; pc_id?: unknown; token?: unknown; verb?: unknown; payload?: unknown }> {
   const MAX_BYTES = 4 * 1024 * 1024;
   let size = 0;
   const chunks: Buffer[] = [];
@@ -291,7 +315,7 @@ async function readJsonBody(req: IncomingMessage): Promise<{ records?: unknown; 
   }
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
   if (!parsed || typeof parsed !== 'object') throw new Error('node body must be an object');
-  return parsed as { records?: unknown; pc_id?: unknown; token?: unknown };
+  return parsed as { records?: unknown; pc_id?: unknown; token?: unknown; verb?: unknown; payload?: unknown };
 }
 
 /** Parse defensively: an operator edits this file by hand on a live box, and a
@@ -734,6 +758,15 @@ export function makeNodeRoutes(
           });
         }
       })();
+      return true;
+    }
+
+    // ── POST /api/node/forward-sync ─────────────────────────────────────────
+    // Extracted to node-routes-forward-sync.ts (this file was at the 800-line
+    // cap when this route landed — verify/lint/file-size.mjs) rather than
+    // inlined like /mint-code and /resolve-token above; see that file's header.
+    if (path === '/api/node/forward-sync') {
+      handleForwardSyncRoute(req, res, deps, { readJsonBody, secretMatches, sendJson });
       return true;
     }
 

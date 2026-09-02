@@ -123,14 +123,16 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   AUTH_TOKEN_INVALID: 'none',
   AUTH_TOKEN_EXPIRED: 'none',
   AUTH_LOGIN_FAILED: 'none',
-  AUTH_USE_REST_LOGIN: 'none',
+  // AUTH_TOKEN_UNVERIFIABLE · 2026-09-02 (WP-8). Rides `auth/middleware.ts`'s
+  // handshake refusal and `mobile.handler.ts`'s `mobile:reconnect` ack on a
+  // multi-node replica, never `inject:result` — a token this node could not
+  // confirm never reaches the injection pipeline at all.
+  AUTH_TOKEN_UNVERIFIABLE: 'none',
   REGISTER_RATE_LIMITED: 'none',
   PAIR_INVALID_CODE: 'none',
   PAIR_INVALID_PAYLOAD: 'none',
   PAIR_EXPIRED_CODE: 'none',
   PAIR_PC_OFFLINE: 'none',
-  PC_MOBILE_SLOT_BUSY: 'none',
-  PAIR_NOT_CONNECTED: 'none',
   PAIR_RATE_LIMITED: 'none',
   PAIR_RELEASED: 'none',
   // 0.2.66 · PCID addressing. Both ride the `mobile:pair` ack, never
@@ -144,14 +146,22 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   // delivery surface are `INJECT_NOT_PRIMARY` (direct desktop refusal) and
   // `INJECT_NOT_IN_ROOM` (after being kicked from the room).
   PC_BUSY: 'none',
+  // `PC_HANDSHAKE_PENDING` rides identity-required PC verb acks (today only
+  // `pc:list-mobiles`), never `inject:result`: an injection frame cannot reach a
+  // handler at all before the pairing handshake has landed, so this code has no
+  // way onto the delivery surface.
+  PC_HANDSHAKE_PENDING: 'none',
   STT_CONFIG_MISSING: 'none',
   STT_ENGINE_AUTH_FAIL: 'none',
   STT_ENGINE_RATE_LIMITED: 'none',
   STT_ENGINE_TIMEOUT: 'none',
+  // Same family as the rest of the `STT_*` block — rides `stt:error`, never
+  // `inject:result` (card B2-G, 2026-09-02; see error-codes.ts for why this
+  // replaces `STT_ENGINE_TIMEOUT` at the eight `push()`-while-not-open sites).
+  STT_ENGINE_NOT_OPEN: 'none',
   STT_NETWORK_DROP: 'none',
   STT_PROBE_FAIL: 'none',
   STT_PROBE_SCHEME_MISMATCH: 'none',
-  STT_HARD_LIMIT_REACHED: 'none',
   LLM_TIMEOUT: 'none',
   LLM_AUTH_FAIL: 'none',
   LLM_RATE_LIMITED: 'none',
@@ -159,8 +169,9 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   LLM_INVALID_MODEL: 'none',
   /**
    * Error code 62 (owner-approved 2026-08-07). The reason for `'none'` here is the
-   * same as the entries above, but **differs** from the `INJECT_TAURI_MISSING` entry,
-   * and the distinction is worth a line: it is `'none'` **not because it has no
+   * same as the entries above, but **differs** from a genuinely zero-producer
+   * `'none'` (the shape the six codes retired 2026-09-02, WP-8, used to be), and
+   * the distinction is worth a line: it is `'none'` **not because it has no
    * producer** (it has one, a newly built runtime-output gate), but because **it is
    * simply not on the injection surface at all** — it only rides `compose:error`,
    * never appears on `inject:result`, so it says **not a single word** about
@@ -233,18 +244,12 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    * there is not even a room yet, let alone an `inject:request` to answer.
    */
   REGISTER_EMAIL_INVALID: 'none',
-  /**
-   * LAN certificate pinning mismatch (Card fix-024). **It never even crosses the
-   * wire**: the verdict is made by the phone itself at the TLS handshake layer
-   * (`lan_pinning.dart`), at which point that connection was never established at all
-   * ⇒ there is no frame that could carry it back.
-   * ⚠️ Precisely because of that, its user-visible copy is rendered by **the phone's
-   * own string table**, not the inline-note pipeline this table serves — don't add a
-   * `case` to `deliveryRefusalNote` for it just because 「它是个协议码」("it's a
-   * protocol code"): that table only answers delivery-segment verdicts the relay
-   * itself refused, and this one doesn't involve the relay at all.
-   */
-  LAN_CERT_PIN_MISMATCH: 'none',
+  // LAN_CERT_PIN_MISMATCH retired 2026-09-02 (WP-8 registry hygiene, see the
+  // matching note in error-codes.ts) — it never landed the producer fix-024
+  // was carded for, and the INJECT_TAURI_MISSING precedent this round also
+  // retires (was: a code with zero producers should be retired along with
+  // its producer, not left as one someone may reuse for a different
+  // question) applies the same way here.
   /**
    * No engine ever heard this audio (Card fix-022). It rides `stt:error`, the same
    * path as the `STT_NETWORK_DROP` it replaces ⇒ `'none'`, same as the rest of the
@@ -450,6 +455,16 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    * is permanently 「待投递」("pending delivery") from a closed set that does not
    * recognise the code).
    *
+   * 🔴 CORRECTION (WP-8, 2026-09-02) — the open account above is closed. The
+   * missing dimension is declared at `TRANSIENT_INJECT_VERDICT_CODES` (this
+   * file, below the three authorship sets), with a Dart mirror test the same
+   * shape as `inject_verdict_authorship_mirror_test.dart`'s existing three.
+   * The original paragraph is left verbatim above it: it correctly explains
+   * WHY authorship itself could not carry the distinction, and that argument
+   * did not change — only the "declaring it is a protocol-surface change
+   * nobody has cleared yet" half did (the 2026-08-12 "敏感面先做后审" ruling).
+   *
+
    * ── WHAT DOES CARRY THE DISTINCTION TODAY ──────────────────────────────────
    * The copy, which is where it changes what anybody does: 64 names 「系统设置 ▸
    * 隐私与安全性 ▸ 辅助功能」("System Settings ▸ Privacy & Security ▸ Accessibility"),
@@ -536,17 +551,25 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   /** `socket/cloud-image-policy.ts`, the `error: 'INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED'` verdict → same as above. */
   INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED: 'relay',
 
+  // INJECT_TAURI_MISSING retired 2026-09-02 (WP-8 registry hygiene). The
+  // account this entry used to keep open ("removing a code touches the count
+  // guard and is the window lead's call to make") is closed: it is the fourth
+  // instance of the INJECT_NO_RECEIPT / CLOUD_SESSION_NO_HISTORY precedent,
+  // and, like PC_MOBILE_SLOT_BUSY, PAIR_NOT_CONNECTED, AUTH_USE_REST_LOGIN and
+  // STT_HARD_LIMIT_REACHED (this same round), a repo-wide grep found it with
+  // zero producers on any of the three ends.
   /**
-   * ⚠️ **Zero producers** (2026-08-02 repo-wide grep: `INJECT_TAURI_MISSING` only hits
-   * `error-codes.ts`'s own line here, no second occurrence outside `docs/`). `'none'`
-   * is **honestly recording today's fact**, not a judgement of which category it
-   * 「should」 belong to. ⇒ It is the third instance of the `INJECT_NO_RECEIPT` /
-   * `CLOUD_SESSION_NO_HISTORY` documented precedent (a user-visible string with no
-   * producer should be retired along with its producer); **removing a code touches
-   * the count guard and is the window lead's call to make** — this card only records
-   * the account, it does not act on it.
+   * `http/inject-routes.ts`'s image-ingress waiter gave up before an
+   * `inject:result` arrived (`socket/inject-pending.ts`'s `TIMEOUT` outcome).
+   * `'none'`, not `'relay'` — that value means "this frame never reached any
+   * PC" (see its own doc, just above), and here the opposite fact holds: the
+   * frame WAS relayed (`relayed:true` on the same ack), the PC may simply not
+   * have answered inside the window yet. It also never rides the
+   * `inject:result` SOCKET event at all — it is an HTTP JSON ack field on a
+   * different route — so it could not be `'relay'` even by that table's
+   * broader "answered instead of the PC" reading.
    */
-  INJECT_TAURI_MISSING: 'none',
+  INJECT_RESULT_TIMEOUT: 'none',
 
   CONTROL_UNKNOWN_KIND: 'none',
   SETTINGS_SYNC_FAIL: 'none',
@@ -563,6 +586,12 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   TIMELINE_RATE_LIMITED: 'none',
   HISTORY_SYNC_RETIRED: 'none',
   PASSWORD_RESET_INVALID: 'none',
+  // EMAIL_VERIFY_GRACE_EXPIRED · 2026-09-02 (WP-8, promoted from shadow-code
+  // status — see the matching note in error-codes.ts). `'none'` because it
+  // rides `audio:start` / `compose:start` acks and `compose:error`, refused
+  // before any utterance exists — same reasoning as NODE_IS_REPLICA directly
+  // below, which is refused even earlier, at the admission events.
+  EMAIL_VERIFY_GRACE_EXPIRED: 'none',
   // 2026-08-29 multi-node. `'none'` because it is not an inject verdict at all:
   // it is refused at the ADMISSION events (pc:register, mobile:pair, and their
   // four siblings — see server-core node/writer-only.ts), long before any
@@ -611,3 +640,36 @@ export const PC_ADMISSION_REFUSAL_CODES: readonly ErrorCode[] = (
 export const RELAY_AUTHORED_INJECT_RESULT_CODES: readonly ErrorCode[] = (
   Object.keys(INJECT_VERDICT_AUTHORSHIP) as ErrorCode[]
 ).filter((c) => INJECT_VERDICT_AUTHORSHIP[c] === 'relay');
+
+// ── SECOND DIMENSION (card fix-018, closed 2026-09-02 / WP-8) ────────────────
+//
+// 「will the cause of this refusal go away on its own」 — a question orthogonal
+// to authorship above, ruled on by owner 2026-08-07
+// (docs/decisions/2026-08-07-owner-grants-mac-injection-refusal-codes-63-64.md):
+// `INJECT_SECURE_INPUT_ACTIVE` is transient (the next drain should retry),
+// `INJECT_NO_ACCESSIBILITY` is standing (no unlimited resends). The long note at
+// `INJECT_NO_ACCESSIBILITY`'s entry above explains why this could not be folded
+// into `InjectVerdictAuthor` itself (both codes are authored at the SAME
+// segment, so a fourth authorship value would make one field answer two
+// questions — this repo's #1 bug shape).
+//
+// This was landed Dart-only by fix-018 (`outbox_inject_authorship.dart`'s
+// `kTransientInjectionVerdictCodes`), with a comment recording the gap
+// verbatim: "NO CROSS-LANGUAGE MIRROR GUARD EXISTS FOR THIS SET... declaring
+// it on the TS side is a protocol-surface change (a human-review gate)." The
+// 2026-08-12 ruling ("敏感面先做后审") removed that gate for exactly this shape
+// of change, which is what closes the account here: a TS source of truth, plus
+// `apps/mobile/test/inject_verdict_authorship_mirror_test.dart` reading this
+// file the same way it already does for the three authorship sets above.
+export const TRANSIENT_INJECT_VERDICT_CODES: readonly ErrorCode[] = ['INJECT_SECURE_INPUT_ACTIVE'] as const;
+
+/** `code` is a `pc-injection` verdict whose cause may clear on its own — the
+ *  ONLY question this predicate answers. Never call it on a code that is not
+ *  already `isPcInjectionVerdictCode`; a `pc-admission`/`relay`/`none` code
+ *  cannot be "transient in the queue sense" this set describes. Unknown codes
+ *  are `false` — the same failure direction as `isPcInjectionVerdictCode`,
+ *  for the same reason: a wrong `true` re-sends a frame the PC already has,
+ *  on a schedule nobody asked for. */
+export function isTransientInjectVerdictCode(code: string): boolean {
+  return (TRANSIENT_INJECT_VERDICT_CODES as readonly string[]).includes(code);
+}

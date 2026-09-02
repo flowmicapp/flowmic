@@ -88,9 +88,15 @@ beforeEach(() => {
   setLocale('zh-CN');
   model.llm = { preset_id: 'x', protocol: 'openai-compatible', endpoint: LAN, api_key: '', model: 'q' };
   model.inferenceConsent = null;
+  // E4: `settings` is a module singleton and several cases below call
+  // setScenarioInferenceGranted without awaiting its 200ms debounce — without
+  // this, isKeyPending('scenario.inference') can still read true (armed by a
+  // PRECEDING test) when a later test calls applyServerSettings for that key.
+  settings.cancelPendingDebouncesForTest();
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  settings.cancelPendingDebouncesForTest();
 });
 
 describe('the row that actually goes out on the wire', () => {

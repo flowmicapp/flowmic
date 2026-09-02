@@ -388,6 +388,31 @@ describe('the built-in speech model card', () => {
     expect(html).not.toContain('Download the model');
   });
 
+  // E5 (2026-09-02) — before `modelStore.sidecarPhase` existed, this exact
+  // fixture (`status: null, reach: 'unknown', sidecarPhase: 'failed'`) rendered
+  // the QUIET connecting sentence forever (reach never had reason to leave
+  // 'unknown': `refreshModelStatus`'s `no-endpoint` branch only sets `reach` once
+  // a status had already been read once) and hid the recheck button, which is
+  // gated on `knowledge !== 'connecting'`.
+  it('🔴 sidecar failed — its own sentence, not the quiet connecting one, and recheck is visible', async () => {
+    const html = await render({ status: null, reach: 'unknown', sidecarPhase: 'failed' });
+    expect(html).toContain('failed to start, so the model status cannot be read');
+    expect(html).not.toContain('starting up — the model status will appear in a moment');
+    expect(html).toContain('class="sub warn"'); // it is a loud fact, not the quiet one
+    expect(buttons(html).some((b) => b.inner.includes('Check the files again'))).toBe(true);
+  });
+
+  it('a failed sidecar detail lands in the technical fold, same sink as any other reachReason', async () => {
+    const html = await render({
+      status: null,
+      reach: 'unknown',
+      sidecarPhase: 'failed',
+      reachReason: 'listen EADDRINUSE: address already in use 127.0.0.1:34567',
+    });
+    expect(html).toContain('Technical detail');
+    expect(html).toContain('listen EADDRINUSE: address already in use 127.0.0.1:34567');
+  });
+
   it('🔴 answered-badly is its own sentence — a 404 is an answer, not silence', async () => {
     const html = await render({
       status: null,

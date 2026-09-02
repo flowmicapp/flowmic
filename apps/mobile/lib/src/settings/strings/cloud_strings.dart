@@ -302,6 +302,4 @@ mixin CloudStrings on AppStringsLeaves {
   String quotaContextUsed(Object? used, Object? limit) =>
       _lfQuotaContextUsed(used, limit);
 
-  /// Shown when a stored JWT expires — the fail-loud re-login prompt.
-  String get reloginRequired => _lfReloginRequired;
 }

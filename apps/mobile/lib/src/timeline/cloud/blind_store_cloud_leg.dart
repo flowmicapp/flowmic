@@ -62,6 +62,13 @@ class BlindStoreCloudLeg {
   /// to the user is copy, and copy is another lane's this wave.
   BlindStoreSyncReport? lastReport;
 
+  /// 🔴 Restored (card B2-O, 2026-09-02) — batch-1's merge into `main` dropped
+  /// this getter relative to both its own merge-base (task/wp3-mobile-...) and
+  /// task/b2c-mobile-keyring-and-strings (which added [detachForAccountChange]
+  /// and still calls this in its own test, blind_store_cloud_leg_detach_test
+  /// .dart). A 3-way merge with `main`'s side deleting a line neither branch
+  /// touched again is silent by construction; there is no reasoning to restore
+  /// beyond "this line existed on both branches this repo actually shipped".
   bool get isAttached => _attached;
 
   /// Subscribe to the admission edge and try once for the current link.
@@ -115,5 +122,32 @@ class BlindStoreCloudLeg {
     if (!_attached) return;
     _roomJoins.removeListener(_onRoomJoined);
     _attached = false;
+  }
+
+  /// AUD-D P2-5/F9 — call this the moment the signed-in account stops being
+  /// the one this leg was serving (logout, or the auth watchdog clearing a
+  /// dead JWT). Locks the keyring — drops the cached MasterKey from memory —
+  /// and stops the room-join subscription, so no residual key from the
+  /// PREVIOUS account's session can seal or open a blob under whatever
+  /// account turns out to be signed in next.
+  ///
+  /// 🔴 [BlindStoreKeyring.lock] only drops the in-memory key; it does not
+  /// touch persisted material (that would be [BlindStoreKeyring.discardKeyMaterial],
+  /// which is destructive and belongs to the 409-race-loser path only — see
+  /// its own doc comment). Locking is exactly what "no longer this leg's
+  /// account" needs: the NEXT account's own material (its own slot, per
+  /// [AccountScopedBlindStoreKeyStore]) is untouched and can still be read the
+  /// next time this leg is reattached.
+  ///
+  /// Whoever signs back in — the SAME account or a different one — must call
+  /// [attach] again to reopen (now correctly-scoped) key material; this
+  /// method deliberately does not attempt that itself, so a caller cannot be
+  /// surprised by a re-attach happening as a side effect of signing out.
+  void detachForAccountChange() {
+    _keyring.lock();
+    if (_attached) {
+      _roomJoins.removeListener(_onRoomJoined);
+      _attached = false;
+    }
   }
 }

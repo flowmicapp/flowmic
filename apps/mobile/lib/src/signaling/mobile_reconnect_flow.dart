@@ -206,7 +206,20 @@ String? restrictionReasonOfAck(Object? ack) {
 /// — this is the entire reason [ReconnectRefusal.code] exists.
 ReconnectRefusal? handshakeRefusal(SocketTransport transport) {
   final String? raw = transport.lastConnectError;
-  if (raw == null || !raw.contains('AUTH_TOKEN_INVALID')) return null;
+  if (raw == null) return null;
+  // 🔴 A11/F2-a (WP-8, 2026-09-02) — checked FIRST and returned as its OWN
+  // code, never folded into the AUTH_TOKEN_INVALID branch below. A
+  // multi-node replica now answers this handshake-level refusal honestly
+  // when it could not confirm the token (writer unreachable, its own budget
+  // spent, or the writer's rows would not land) — see
+  // apps/server-core/src/auth/middleware.ts's `resolveDetailed` branch. The
+  // caller (`runMobileReconnect`) must never treat this as evidence the
+  // pairing is dead: unlike AUTH_TOKEN_INVALID, a server that emits this code
+  // is EXPLICITLY not making a claim about the credential.
+  if (raw.contains('AUTH_TOKEN_UNVERIFIABLE')) {
+    return const ReconnectRefusal(code: 'AUTH_TOKEN_UNVERIFIABLE');
+  }
+  if (!raw.contains('AUTH_TOKEN_INVALID')) return null;
   return const ReconnectRefusal(code: 'AUTH_TOKEN_INVALID');
 }
 
@@ -261,17 +274,38 @@ Future<bool> runMobileReconnect({
     ok = false;
   }
   if (!ok) {
+    // 🔴 A11/F2-a (WP-8, 2026-09-02) — checked BEFORE `refusedToken` below and
+    // kept a SEPARATE fact, never folded into it. A multi-node replica that
+    // could not confirm this token (writer unreachable, its own budget spent,
+    // rows that would not land) now says so honestly with this code instead
+    // of guessing AUTH_TOKEN_INVALID — see apps/server-core/src/auth/
+    // middleware.ts's `resolveDetailed` branch. It is BOTH shapes too (ack-
+    // level and handshake-level), same reason the comment below explains for
+    // AUTH_TOKEN_INVALID.
+    final bool tokenUnverifiable =
+        (ack is Map && ack['error'] == 'AUTH_TOKEN_UNVERIFIABLE') ||
+        (transport.currentStatus == SocketStatus.error &&
+            (transport.lastConnectError?.contains('AUTH_TOKEN_UNVERIFIABLE') ??
+                false));
     // 🔴 BOTH SHAPES OF THE SAME REFUSAL, and the P0 needed both: the ack-level
     // one (socket up, `mobile:reconnect` refused by name) and the
     // handshake-level one (the middleware refused the token before the frame
     // could go out, so there is no ack at all and the code is on
     // `lastConnectError`). A replica that has not pulled our row yet can produce
     // EITHER, depending on whether it refuses at admission or at the handler.
+    //
+    // 🔴 `!tokenUnverifiable &&` GUARDS THIS FROM THE START, not as an
+    // afterthought: an old (pre-A11) replica that has not yet learned to say
+    // AUTH_TOKEN_UNVERIFIABLE would never set `tokenUnverifiable` true in the
+    // first place, so this line's behaviour is UNCHANGED for a server that has
+    // not deployed the split — the guard only ever fires against a server that
+    // deliberately said "not this one".
     final bool refusedToken =
-        (ack is Map && ack['error'] == 'AUTH_TOKEN_INVALID') ||
-        (transport.currentStatus == SocketStatus.error &&
-            (transport.lastConnectError?.contains('AUTH_TOKEN_INVALID') ??
-                false));
+        !tokenUnverifiable &&
+        ((ack is Map && ack['error'] == 'AUTH_TOKEN_INVALID') ||
+            (transport.currentStatus == SocketStatus.error &&
+                (transport.lastConnectError?.contains('AUTH_TOKEN_INVALID') ??
+                    false)));
     // 🔴 P0 (owner 2026-09-01) — 「pairing must succeed ONCE」. `mobile:pair` is
     // writer-only, so a fresh token exists on the writer and nowhere else until
     // a replica's next 30 s pull; the phone then FOLLOWS ITS PC to that replica
@@ -301,9 +335,18 @@ Future<bool> runMobileReconnect({
     // Card L7 — the ack's own `error`, verbatim. A throw / timeout leaves `ack`
     // non-Map ⇒ null: 「我们没问到」("we didn't get an answer") and 「服务器说了 X」
     // ("the server said X") must not read alike.
+    //
+    // 🔴 A11/F2-a's ONE exception to "only the ack, verbatim": on the
+    // HANDSHAKE-level shape of this refusal there never is an ack (the
+    // middleware refused before `mobile:reconnect` could even be sent), so
+    // `ack is Map` is false and this would otherwise report `null` — losing
+    // the one fact `tokenUnverifiable` above just proved TRUE. This does not
+    // widen "only what was said": `tokenUnverifiable` already re-derives the
+    // same string from `lastConnectError`, so surfacing it here names the
+    // fact rather than inventing one.
     final String? rawError = (ack is Map && ack['error'] is String)
         ? ack['error'] as String
-        : null;
+        : (tokenUnverifiable ? 'AUTH_TOKEN_UNVERIFIABLE' : null);
     // 🔴 Q2 (2026-08-12) — the enumerated restriction reason rides along with
     // its code, read the same way and with the same rule: only what the ack
     // actually said. Without this the server's `reason` is read off the wire and

@@ -477,6 +477,48 @@ export const InjectResultSchema     = z.object({
    *  (role=ROLE_SYSTEM_TEXT, not the window shell); a shell, a read-only DOCUMENT
    *  (default Chrome with renderer a11y off), or no answer still reads `unknown`. */
   focus_evidence: z.enum(['editable', 'not_editable', 'unknown']).optional(),
+  /**
+   * B3 (2026-09-02, WP-6) — carried ONLY on a server-authored `INJECT_PC_OFFLINE`
+   * (the `mode:'cached'` frame relay.handler.ts's `answerReject` mints when a
+   * frame's target PC has no live socket in THIS node's room — NOT the
+   * standalone-only HTTP image ingress in inject-routes.ts, which never sees a
+   * multi-node deployment and so never has a second `node` to name). `node` is
+   * which process answered; `home_node` is what that same process's OWN,
+   * possibly stale, copy of `pc_devices.home_node` says right now.
+   *
+   * 🔴 WHY THIS EXISTS: today's `INJECT_PC_OFFLINE` is authored from "this
+   * node's room is empty", never from PC presence — on a multi-node deployment
+   * that is the WRONG question when the PC simply lives on a DIFFERENT node
+   * (findings-crossend-multinode.md B3). The phone's OWN presence poll
+   * (`ptt_presence_poll.dart`) already has a wrong-node gate for exactly this
+   * distinction; the inject-result path had none, so a perfectly reachable PC
+   * got painted offline by a stale reading on the node the phone happened to
+   * be talking to.
+   *
+   * ⚠️ ADVISORY, NOT AUTHORITATIVE — `home_node` is a LOCAL READ (this node's
+   * own database row, which may itself be a replica's copy, current to its
+   * last pull). It answers "where do I currently believe the PC lives", not "I
+   * have verified it is there" — the phone must not treat its absence, or
+   * `node === home_node`, as proof the PC is genuinely gone; both fields are
+   * omitted rather than sent as `null` when either is unknown, so their mere
+   * presence never overstates what was actually checked. */
+  node: NonEmpty.optional(),
+  home_node: NonEmpty.optional(),
+  /**
+   * 2026-09-02 (WP-6, item 5) — the cloud relay's own 24h picture budget
+   * (`cloud-image-policy.ts` `judge()`) has computed this number since RV-87
+   * shipped; until now it stayed in the server's forensic log ("never sent on
+   * the wire") while `INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED` reached the phone
+   * bare. The mobile reader (`InjectResult.tryFromJson`) has been parsing this
+   * key defensively since Card F12/F1-d, for exactly this day — see that
+   * field's own doc for why an absent value is never defaulted to 0.
+   *
+   * Carried on `INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED` only. `PC_BUSY` and
+   * `PAIR_RELEASED` already send their own `retry_after_ms` on THEIR OWN wire
+   * shapes (`MobileReconnectAckSchema` et al.) — this is the inject-result
+   * frame's first use of the same name for the same kind of fact, not a
+   * second definition of it. */
+  retry_after_ms: z.number().int().nonnegative().optional(),
 });
 // WP-R0-1: renamed from FlowMessageSchema. An out-of-whitelist kind is rejected
 // at the server boundary by zod.

@@ -15,7 +15,6 @@ export const DEVICES_KEYS = [
   // surface, Msg::TrayGoOffline family). `dev_offline_active` is the on-state
   // truth line: while the switch is on, both sockets are down and the stale
   // channel chips must not be the only thing on screen.
-  'dev_offline_toggle',
   'dev_offline_hint',
   'dev_offline_active',
   // ④ (owner 2026-08-21): the switch label follows the FACT — 'Online' while
@@ -147,7 +146,6 @@ export const DEVICES_KEYS = [
   'dev_release_cancel',
   'dev_release_failed',
   'dev_self',
-  'dev_rename_sync',
   /** GA-21: the endpoint picker beside the LAN card's address. Multi-NIC hosts
    *  (VPN, WSL, an office segment) offer several, and only the owner knows which
    *  one the phone shares. */

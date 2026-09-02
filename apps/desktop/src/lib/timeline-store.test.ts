@@ -1149,3 +1149,33 @@ d3('timeline cache — legacy/foreign row shapes cannot blank the page', () => {
     e3(row!.target).toBeNull();
   });
 });
+
+// P2 #21 (2026-09-02) — an ok:true verdict with no `inject_target` must clear
+// the row's target, not leave a PREVIOUS verdict's target sitting on it.
+describe('TimelineStore — onInjectResult never lets a stale target survive a target-less ok:true', () => {
+  it('a later target-less ok:true verdict clears an earlier real target', () => {
+    const { store } = fresh();
+    seed(store, [item('1')]);
+
+    store.onInjectResult(verdict('1', {
+      inject_target: { window_title: 'Untitled - Notepad', process_name: 'notepad', injected_at: '2026-08-01T00:00:00.000Z' },
+    }));
+    expect(store.entries()[0]!.target?.process_name).toBe('notepad');
+
+    // A LATER verdict on the same row (RV-72: onInjectResult is the only writer
+    // of `target`, and a row can receive more than one over its lifetime via
+    // reInject) — ok:true, but this time with no inject_target: the
+    // self-window-injection / RV-83-disk-replay shape capsule/controller.ts's
+    // own onInjectResult names for the identical reason it refuses to fall
+    // back to a stale target.
+    store.onInjectResult(verdict('1'));
+    expect(store.entries()[0]!.target).toBeNull();
+  });
+
+  it('a target-less ok:true on a row that never had a target stays null (not a regression the other way)', () => {
+    const { store } = fresh();
+    seed(store, [item('1')]);
+    store.onInjectResult(verdict('1'));
+    expect(store.entries()[0]!.target).toBeNull();
+  });
+});

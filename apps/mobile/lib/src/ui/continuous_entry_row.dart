@@ -78,6 +78,12 @@ class ContinuousEntryRow extends StatelessWidget {
     if (reason != null) {
       return Text(
         switch (reason) {
+          // Owner ruling (2026-09-02) — scope breach flagged in the B2-N
+          // report: this file is not in that task's file list, but the new
+          // `ContinuousBlock.notSignedIn` member makes this `switch`
+          // non-exhaustive without a case for it, so the minimum edit to keep
+          // the build green is one line here.
+          ContinuousBlock.notSignedIn => strings.continuousEntrySignInNote,
           ContinuousBlock.modeNotRealtime => strings.continuousEntryModeNote,
           ContinuousBlock.ceilingUnknown => strings.continuousEntryNoCeilingNote,
           ContinuousBlock.quotaSpent => strings.continuousEntryQuotaSpentNote,

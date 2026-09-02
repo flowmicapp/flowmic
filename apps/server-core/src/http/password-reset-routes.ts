@@ -37,6 +37,18 @@
 //     so nothing in this repo has ever talked to api.resend.com. Do not read the
 //     green tests as 「password reset works in production」 — they prove every
 //     layer up to the vendor boundary and nothing across it.
+//
+// 🔴 2026-09-02 — `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO`, mentioned all over this
+// file's comments below, IS DELETED. It read per request with no mode gate at
+// all (unlike FLOWMIC_MOCK_BILLING's assertMockBillingMountable), so a single
+// misconfigured `=1` in a production env file let anyone who knew a
+// registered email take the account over with two anonymous requests — owner
+// ordered it removed (docs/decisions/2026-09-02-owner-plain-language-lan-ci-
+// and-two-security-questions.md §3, problem 1), not merely defaulted dark.
+// Every comment below that still narrates "the flag" is describing the state
+// BEFORE this line and is kept for the history; the code itself has no flag
+// left to read. Its replacement for reading a token in a test with no real
+// mailbox is mail/file.ts (FLOWMIC_MAIL_PROVIDER=file).
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -52,17 +64,6 @@ import { log } from '../log';
 /** The user_settings KV key holding the pending reset (05 §5). account.* is on
  *  the mobile-broadcast deny-list, so writing it here never leaks to a phone. */
 export const PASSWORD_RESET_KEY = 'account.password_reset';
-
-/** 0.3.0 M1 — the flag that turns the forgot-route reset_token echo back on.
- *  STRICT '1'/'true' only; every other value (unset, '0', 'TRUE', 'yes', …) is
- *  OFF, so a mangled env line fails toward the safe side. Read per request, not
- *  at module load: tests flip it, and a server must not need a restart to go
- *  dark. */
-const RESET_TOKEN_ECHO_ENV = 'FLOWMIC_INTERNAL_RESET_TOKEN_ECHO';
-function resetTokenEchoEnabled(): boolean {
-  const v = process.env[RESET_TOKEN_ECHO_ENV];
-  return v === '1' || v === 'true';
-}
 
 /** Reset-token time-to-live (05 §5: 30 minutes). */
 const RESET_TTL_MS = 30 * 60 * 1000;
@@ -117,8 +118,8 @@ function clientIp(req: IncomingMessage): string {
 /** Constant-time string compare (equal-length only; unequal lengths short-circuit
  *  false without a timing tell beyond length — and length is public: every minted
  *  token is randomBytes(18) → 24 base64url chars). Used for the reset-token
- *  check; since 0.3.0 M1 darkened the echo by default this is no longer merely
- *  defence-in-depth. */
+ *  check; since 2026-09-02 there is no echo of any kind to darken — this is
+ *  the only way a reset token ever reaches a comparison. */
 function safeStrEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a, 'utf8');
   const bb = Buffer.from(b, 'utf8');
@@ -223,23 +224,20 @@ export function tryHandlePasswordResetRoutes(
       if (email.trim() === '') return sendJson(res, 400, { error: 'SETTINGS_SCHEMA_INVALID', message: 'email required' });
       const user = deps.auth.findByEmail(email);
       // Constant response SHAPE for the unknown-email path (ok:true, no token) so
-      // HTTP status never distinguishes existence. With the echo flag OFF (the
-      // default since 0.3.0 M1) the known-email path answers the SAME bytes —
-      // full anti-enumeration; console-routes.test.ts pins the two raw bodies
-      // equal. With the flag ON the old internal trade-off returns: token-present
-      // ⇔ email-exists, acceptable only on the private line and still behind the
-      // per-IP limiter above.
+      // HTTP status never distinguishes existence. The known-email path below
+      // answers the SAME bytes — full anti-enumeration, unconditionally, since
+      // 2026-09-02 (owner ordered the internal echo flag that used to let this
+      // branch answer differently DELETED — see the 🔴 note further down —
+      // rather than merely defaulted dark); console-routes.test.ts pins the two
+      // raw bodies equal.
       if (!user || user.email === null) return sendJson(res, 200, { ok: true });
       const reset_token = randomBytes(18).toString('base64url');
       const expires_at = new Date(now() + RESET_TTL_MS).toISOString();
       deps.settings.write(user.id, PASSWORD_RESET_KEY, { reset_token, expires_at });
-      // 🔴 MAIL-1 — DELIVERY, and it happens on BOTH branches below.
-      //
-      // Unconditional on purpose: the echo flag is a developer affordance for
-      // reading the token off the wire on a private line, NOT a switch that means
-      // 「do not mail this」. Making delivery conditional on it would create a
-      // configuration in which the route mints a token and nothing carries it —
-      // which is the precise state this card closed, rebuilt behind a flag.
+      // 🔴 MAIL-1 — DELIVERY, unconditional. There is nothing left in this
+      // route that could make it conditional: the only thing that ever
+      // competed with "always mail it" was the echo flag below, and it is
+      // deleted.
       //
       // Not awaited: see dispatchResetMail's header (awaiting would turn the
       // anti-enumeration property into a timing oracle). It never rejects, so
@@ -255,18 +253,19 @@ export function tryHandlePasswordResetRoutes(
       // `checkDeleteConfirmation` uses to keep a confirmation from becoming a
       // selector.
       void dispatchResetMail(deps.mail, user.id, user.email, reset_token, expires_at);
-      if (resetTokenEchoEnabled()) {
-        // FLAG-GATED INTERNAL ECHO (see console-routes.ts file-head redline):
-        // return the token directly. Private-internal affordance only — the flag
-        // must never be set on a deployment a stranger can reach.
-        // BYTE-IDENTICAL to what this branch answered before MAIL-1; g11 step 6
-        // drives it and console-routes.test.ts pins both halves of the flag.
-        return sendJson(res, 200, { ok: true, reset_token, expires_at });
-      }
-      // Echo dark (default): the response says nothing about whether this address
-      // exists, whether a token was minted, or whether the mail went out. All
-      // three answers live in the log line dispatchResetMail writes — see its
-      // header for why the wire cannot carry them without becoming an oracle.
+      // 🔴 2026-09-02 — THE ECHO BRANCH THAT USED TO LIVE HERE IS DELETED, NOT
+      // DARKENED. `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` read per request with no
+      // mode gate at all (unlike FLOWMIC_MOCK_BILLING's assertMockBillingMountable):
+      // a single misconfigured `=1` in a production env file let anyone who
+      // knew a registered email take the account over with two anonymous
+      // requests — owner ordered it removed rather than defaulted off
+      // (docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+      // questions.md §3, problem 1). The capability it existed for — reading a
+      // minted token in a test without a real mailbox — is now
+      // mail/file.ts (FLOWMIC_MAIL_PROVIDER=file): the token is IN the mail
+      // dispatchResetMail just sent, on disk, for a test to read the same way a
+      // real recipient reads their inbox. There is no code path left in this
+      // repo that can put a reset token on this wire.
       //
       // BYTE-IDENTICAL to the unknown-email response above — same status, same
       // single-key body — so this route is not an existence oracle.

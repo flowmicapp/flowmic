@@ -54,9 +54,19 @@ mixin UpdateStrings on AppStringsLeaves {
   /// compare against. **Must not say 「up to date」.**
   String get updateOwnVersionUnknown => _lfUpdateOwnVersionUnknown;
 
-  /// Design §3 row 4: a missing field / missing sha256 / an invalid url ⇒
+  /// Design §3 row 4, second half: this platform HAS an entry, but a missing
+  /// field / missing sha256 / an invalid url means it cannot be verified ⇒
   /// **do not download**.
   String get updateIncompleteInfo => _lfUpdateIncompleteInfo;
+
+  /// 🔴 Card (2026-09-02, findings-crossend-update.md item 1) — design §3 row
+  /// 4, first half: this manifest does not mention this platform AT ALL.
+  /// Deliberately a DIFFERENT sentence from [updateIncompleteInfo]: nothing
+  /// was verified and failed here — nothing was even attempted, because
+  /// there is no entry to check. Saying "cannot be verified" would claim a
+  /// check ran and found a problem; the honest sentence says the deployment
+  /// simply does not know about this platform yet.
+  String get updatePlatformNotCovered => _lfUpdatePlatformNotCovered;
 
   /// Design §3 row 2: the endpoint 404s — 「**this deployment**」 has no
   /// update manifest.

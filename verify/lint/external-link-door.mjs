@@ -69,13 +69,19 @@ const ALLOW = [
   'main-window/data-flow-disclosure.test.ts',
 ];
 
-export default async function externalLinkDoor() {
-  const files = (await walk(FACE)).filter((f) => /\.(vue|ts)$/.test(f) && !f.endsWith('.d.ts'));
+// `face` defaults to the real desktop webview tree (added 2026-09-02, B2-A) so
+// a drill can point this at a disposable fixture directory instead — same
+// walk, same ALLOW list, same blind-scan control. The real ALLOW list names
+// files that only exist under the real FACE, so a fixture drill has to mirror
+// their relative names if it wants the allowlist-staleness check to pass; a
+// fixture without them exercises that check's positive path instead.
+export default async function externalLinkDoor(face = FACE) {
+  const files = (await walk(face)).filter((f) => /\.(vue|ts)$/.test(f) && !f.endsWith('.d.ts'));
   // 🔴 An allowlist entry naming a file that no longer exists is a hole nobody
   // can see — the gate would keep passing while its exemptions drifted off the
   // tree. Checked here for the same reason the coordinate-anchors baseline
   // checks its own referrers.
-  const present = new Set(files.map((f) => path.relative(FACE, f).replace(/\\/g, '/')));
+  const present = new Set(files.map((f) => path.relative(face, f).replace(/\\/g, '/')));
   const stale = ALLOW.filter((a) => !present.has(a));
   if (stale.length > 0) {
     return {
@@ -91,7 +97,7 @@ export default async function externalLinkDoor() {
   let doorSeen = 0;
 
   for (const file of files) {
-    const rel = path.relative(FACE, file).replace(/\\/g, '/');
+    const rel = path.relative(face, file).replace(/\\/g, '/');
     const text = await readFile(file, 'utf8');
     scanned += 1;
     if (text.includes('openExternalUrl')) doorSeen += 1;

@@ -235,8 +235,16 @@ void main() {
     await h.dispose();
   });
 
-  test('a wire failure settles the rows THIS send covered — the row folded in '
-      'during the window is not sentenced with them', () async {
+  // 🔴 Card B2-M — CORRECTED (this test used to assert the pre-fix shape:
+  // an unconditional fail-settle on ANY wire miss). The outbox still holds
+  // the covered row `queued` for its own next drain — same shape card B2-H
+  // closed on the direct-send path (session/chat_utterance.dart
+  // `_deliverDirect`) — so `deliverText` must not duplicate that verdict by
+  // painting the row ✗ `failed` itself; see manual_delivery.dart `deliverText`
+  // for the full argument.
+  test('a wire failure leaves the rows THIS send covered queued (the outbox '
+      'still owes them) — the row folded in during the window is not '
+      'sentenced with them either', () async {
     final _Harness h = _Harness();
     await h.controller.loadSendPolicy();
     h.connect();
@@ -246,27 +254,74 @@ void main() {
     await pumpEventQueue();
     await h.speak('第二句');
     // The link answers the probe, then the frame is refused: exactly the
-    // "probe passed, emit never left" shape ManualDelivery calls wireFailed.
+    // "probe passed, emit never left" shape that puts the item back to
+    // `queued` in the outbox (delivery_outbox_attempt.dart's `!ok` branch).
     h.transport.failEmits = true;
     await h.releaseProbe();
-    expect(await sending, ComposeSendFailure.wireFailed);
+    expect(await sending, isNull);
     h.transport.failEmits = false;
 
-    expect(h.rowOf('第一句').status, EntryStatus.failed);
+    // POSITIVE CONTROL — the outbox really did keep the covered row queued:
+    // this is what makes the "still owed" branch the one under test.
+    expect(
+      h.controller.outbox.queuedEntryIds.contains(h.rowOf('第一句').id),
+      isTrue,
+      reason: 'positive control: the outbox must actually hold this row, or '
+          'the assertion below proves nothing about the queued branch',
+    );
+    expect(h.rowOf('第一句').status, isNot(EntryStatus.failed));
+    expect(h.rowOf('第一句').status, EntryStatus.cached);
     expect(
       h.rowOf('第二句').status,
       EntryStatus.cached,
       reason: 'never covered, never settled — guilt by association is a lie',
     );
-    // …and it is still pending, so a discard is what finally settles it.
-    // (PROBE — re-pointed from ✕ to the local discard by T-1; see the first
-    // case in this file.)
+    // …and IT is still pending (never sent at all), so a discard is what
+    // finally settles it. (PROBE — re-pointed from ✕ to the local discard by
+    // T-1; see the first case in this file.)
     h.controller.discardBuffer();
     expect(h.rowOf('第二句').status, EntryStatus.noted);
     expect(
       h.rowOf('第一句').status,
+      EntryStatus.cached,
+      reason: 'discarding the BUFFER must not touch a row an earlier send '
+          'already covered and the outbox still owns',
+    );
+    await h.dispose();
+  });
+
+  test('B2-M reverse control: fail-settling the covered row the way the old '
+      'code did (unconditionally, on any held wire miss) DOES paint it '
+      'failed — proving the assertions above are not vacuously true',
+      () async {
+    final _Harness h = _Harness();
+    await h.controller.loadSendPolicy();
+    h.connect();
+    await h.speak('第一句');
+
+    final Future<ComposeSendFailure?> sending = h.sendAndHold();
+    await pumpEventQueue();
+    h.transport.failEmits = true;
+    await h.releaseProbe();
+    await sending;
+    h.transport.failEmits = false;
+    final TimelineEntry row = h.rowOf('第一句');
+
+    // Re-run the PRE-FIX behaviour directly against the same row+outbox
+    // state this test just produced (the old `deliverText`'s own
+    // unconditional call), without hand-editing production source, per the
+    // common contract's reverse-control note.
+    h.controller.delivery.failSettled(
+      <String>[row.id],
+      ComposeSendFailure.wireFailed,
+    );
+
+    expect(
+      h.rowOf('第一句').status,
       EntryStatus.failed,
-      reason: 'a settled delivery truth is never rewritten (§4.0 D)',
+      reason: 'seen red: this is exactly the shape the old `deliverText` '
+          'produced by calling failSettled unconditionally on a held wire '
+          'miss',
     );
     await h.dispose();
   });

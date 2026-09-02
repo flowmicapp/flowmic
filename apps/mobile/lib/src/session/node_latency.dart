@@ -77,21 +77,6 @@ class NodeLatency {
 typedef NodePinger = Future<NodeLatency> Function(
     String id, String url, Duration timeout);
 
-/// The median of the samples that answered, per node. Kept as a helper for
-/// tests of that aggregation; the panel's headline is [hotOf], not this.
-NodeLatency medianOf(String id, String url, List<NodeLatency> samples) {
-  final List<NodeLatency> good = samples.where((NodeLatency s) => s.ok).toList()
-    ..sort((NodeLatency a, NodeLatency b) => a.totalMs!.compareTo(b.totalMs!));
-  if (good.isEmpty) {
-    return NodeLatency(
-      id: id,
-      url: url,
-      miss: samples.isEmpty ? 'unmeasured' : (samples.first.miss ?? 'unexpected'),
-    );
-  }
-  return good[good.length ~/ 2];
-}
-
 /// Headline aggregation: first success is connect, the rest are hot, the
 /// reported latency is the **minimum** of the hot set.
 ///

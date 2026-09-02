@@ -75,14 +75,15 @@ describe('the presence facts reach the handlers that need them', () => {
   });
 
   it('no phone-facing surface computes presence for itself any more', () => {
-    // The old expression, verbatim. It is still correct for `mobile:list-pcs`
-    // (see that handler) — what must not come back is a second copy on a
-    // surface a phone reads to decide whether its own computer is there.
+    // F7 (2026-09-02 audit) — the old expression's ONE exception is gone: the
+    // `mobile:list-pcs` handler that carried it (no phone ever emitted the
+    // event; grep across apps/mobile found no producer) was deleted along with
+    // its sole caller. The exception this comment used to name no longer
+    // exists, so the assertion is now unconditional rather than scoped to
+    // `pc_online:` lines — a second copy anywhere in this file is exactly the
+    // regression this test exists to catch.
     const OLD = 'store.getPc(pc.room_uuid) !== null';
     expect(code('http/presence-routes.ts')).not.toContain(OLD);
-    const mobile = code('socket/handlers/mobile.handler.ts');
-    for (const line of mobile.split('\n')) {
-      if (line.includes('pc_online:')) expect(line).not.toContain('store.getPc(');
-    }
+    expect(code('socket/handlers/mobile.handler.ts')).not.toContain(OLD);
   });
 });

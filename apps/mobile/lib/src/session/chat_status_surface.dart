@@ -86,6 +86,17 @@ extension ChatStatusSurface on ChatController {
 
   void dismissUtteranceFailure() => dismissUtteranceFailureRouted(this);
 
+  /// AUD-D F6 / P1-6 (2026-09-02) — the stable [RetainedAudioNotice.code] of
+  /// the most recent retention event nobody has dismissed yet, or null for
+  /// none. Deliberately NOT gated on [_noticeOnScreen] like the three above:
+  /// see the field's own doc in chat_controller.dart for why this one is not
+  /// per-instance.
+  String? get retainedAudioNotice => _retainedAudioNoticeCode;
+
+  /// Dismiss the retained-audio banner (user tapped ✕, or the auto-hide
+  /// reconciler fires it — same callback either way). Body: chat_notices.dart.
+  void dismissRetainedAudioNotice() => dismissRetainedAudioNoticeRouted(this);
+
   // ── window B3-2b: the queue's USER-VISIBLE surface ───────────────────────────
   // Re-exposed here (not reached into from the page) for the same reason
   // `sendFailure` / `imageFailure` are: the page reads ONE object, and all of

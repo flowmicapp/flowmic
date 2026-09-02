@@ -147,6 +147,16 @@ const SSOT = {
   USAGE_EVENTS_PAGE_DEFAULT: 'apps/server-core/src/db/repos/usage-events.repo.ts',
   USAGE_EVENTS_PAGE_MAX: 'apps/server-core/src/db/repos/usage-events.repo.ts',
   PURCHASE_EXTERNAL_REFERENCE_MAX: 'apps/server-core/src/http/ops-refund-release-routes.ts',
+  // `GET /api/ops/users` — the ops user-list console page (card B2-O found
+  // this lint FAILing on a mirror the console's own commit added without
+  // registering; values confirmed identical on both sides before adding:
+  // 50/200/200/500). Registered independently four more times the same day,
+  // same four names and values, by WP-6, B2-Q, B2-R and this reconcile pass —
+  // several branches racing to unblock the same repo-wide pre-commit gate.
+  OPS_USER_PAGE_DEFAULT: 'apps/server-core/src/db/repos/user.repo.ts',
+  OPS_USER_PAGE_MAX: 'apps/server-core/src/db/repos/user.repo.ts',
+  OPS_USER_Q_MAX: 'apps/server-core/src/http/ops-user-routes.ts',
+  RESTRICT_REASON_MAX: 'apps/server-core/src/http/account-restriction-routes.ts',
 };
 
 /** Every hand-written copy in the admin repo that is tied to one of the above.
@@ -169,6 +179,16 @@ const MIRRORS = [
   // if the two numbers ever diverge the console accepts a paste the server will
   // reject, and the operator learns that from a 400 instead of from the field.
   { rel: 'equals', ssot: 'PURCHASE_EXTERNAL_REFERENCE_MAX', file: 'src/lib/api.ts', decl: 'PURCHASE_EXTERNAL_REFERENCE_MAX' },
+  // `GET /api/ops/users` — the ops user list page's own paging + query-length
+  // ceilings (search/detail/restrict), hand-copied by the admin console the
+  // day it grew that page (see the SSOT dict's own note for why this is
+  // registered more than once).
+  { rel: 'equals', ssot: 'OPS_USER_PAGE_DEFAULT', file: 'src/lib/api.ts', decl: 'OPS_USER_PAGE_DEFAULT' },
+  { rel: 'equals', ssot: 'OPS_USER_PAGE_MAX', file: 'src/lib/api.ts', decl: 'OPS_USER_PAGE_MAX' },
+  { rel: 'equals', ssot: 'OPS_USER_Q_MAX', file: 'src/lib/api.ts', decl: 'OPS_USER_Q_MAX' },
+  // `POST /api/ops/users/:id/restrict` — the longest restriction reason the
+  // server will store; both sides refuse past it rather than truncate.
+  { rel: 'equals', ssot: 'RESTRICT_REASON_MAX', file: 'src/lib/api.ts', decl: 'RESTRICT_REASON_MAX' },
 ];
 
 /** `const NAME = <int>;` / `export const NAME = <int>;`, optionally `: number`. */

@@ -42,6 +42,30 @@ import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import { getAuth, getRoomUuid, safeAck } from '../wire';
 import { markAudioStop } from '../../obs/latency';
 import { log } from '../../log';
+import { hashedRoomId } from '../../http/presence-routes';
+
+/**
+ * 🔴 card P0-1 (fallback half) — `audio:stop`'s happy path is
+ * `finish().finally(() => dispose())`, and `finish()` awaits
+ * `orchestrator.stop()`, which can itself be waiting on an engine spawn or
+ * close that never settles. The spawn half is now bounded by
+ * `engineSpawnTimeoutMs` (see orchestrator-core.ts `spawnRolloverEngine`), but
+ * this handler has no way to know that every future hang in `finish()` will
+ * stay bounded too — and an unbounded `finish()` means the `.finally(dispose)`
+ * NEVER RUNS: the registry slot stays detached forever (no later audio:stop can
+ * find it to retry), the ring's retention pin stays pinned, nothing bills, and
+ * the socket leaks. `dispose()` is written to be safe to call while `finish()`
+ * is still in flight — its own header lists six production paths that already
+ * do exactly that, and it double-latches on `disposed`/`billed` — so racing a
+ * generous timer against `finish()` and calling `dispose()` on expiry is a
+ * pure safety net, never a second teardown path.
+ *
+ * Generous on purpose: comfortably above the sum of every bounded wait finish()
+ * can go through today (engine spawn 5s + flush 3s + the reconnect ladder's own
+ * 1s/2s/4s backoff, per orchestrator-types.ts DEFAULT_*), so this fires only
+ * when something is ACTUALLY stuck, never on a slow-but-alive vendor round trip.
+ */
+const AUDIO_STOP_FINISH_WATCHDOG_MS = 20_000;
 
 export interface SttStartArgs {
   userId: string;
@@ -177,7 +201,20 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     const roomUuid = getRoomUuid(socket);
     if (!roomUuid) return;
     const pc = store.getPc(roomUuid);
-    if (pc) send(pc);
+    if (pc) {
+      send(pc);
+      return;
+    }
+    // B2 (2026-09-02 audit) — this branch used to be silent: the phone hears
+    // itself fine, this node's RoomStore has no PC (the pairing's home_node is
+    // a DIFFERENT process — replica or a plain disconnect race), and nothing
+    // anywhere records that the lifecycle edge died here. Both ends read
+    // green. This is diagnostics only (no ack channel exists on this path to
+    // tell the phone by name without a protocol change — flagged, not built,
+    // this round); it turns an invisible drop into a grep-able one.
+    log.warn('mirrorToPc: fanned-out utterance has no PC in this room — the edge was dropped', {
+      room: hashedRoomId(roomUuid),
+    });
   }
 
   /** Mirror a PHONE-lifecycle edge (pause/resume) to the paired PC. Two cases,
@@ -275,6 +312,12 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       code: e.error,
       message: e.message ?? 'audio:start refused',
       retryable: false,
+      // WP-9 (findings-crossend-quota.md #3) — additive, and only meaningful
+      // for QUOTA_EXCEEDED: `at.gate === 'pc_owner'` is set ONLY when the
+      // quota try-block above judged the PC OWNER's ledger (QTA-2), never the
+      // acting phone's own. Omitted for every other refusal so nothing about
+      // this frame changes for a code the field was not built for.
+      ...(e.error === 'QUOTA_EXCEEDED' ? { judged_account: at.gate === 'pc_owner' ? 'pc_owner' : 'self' } : {}),
     });
   }
 
@@ -453,7 +496,22 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // reads it below.
     let state: AudioSessionState | null = null;
     try {
-      if (fannedOut && roomUuid) store.getPc(roomUuid)?.emit('audio:start', parsed.data);
+      if (fannedOut && roomUuid) {
+        const startPc = store.getPc(roomUuid);
+        if (startPc) {
+          startPc.emit('audio:start', parsed.data);
+        } else {
+          // B2 (2026-09-02 audit) — the same silent shape as mirrorToPc's own
+          // no-PC branch, at the FIRST fan-out rather than a later mirror: the
+          // phone's utterance begins fanned-out, this node's RoomStore has no
+          // PC to tell, and every mirror after this one (pause/resume/stop)
+          // will find the same absence and log it again — this line is what
+          // lets an operator tell "never had a PC" from "the PC left partway".
+          log.warn('audio:start: fanned-out utterance has no PC in this room at the very first edge', {
+            room: hashedRoomId(roomUuid),
+          });
+        }
+      }
 
       // Install the session slot BEFORE building the engine: a same-key survivor
       // (previous utterance, or a session still inside its grace window) is
@@ -614,7 +672,17 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         } else {
           // finish() flushes the terminal final (+ the single recordSttUsage) THEN
           // dispose() tears down — never dispose mid-flush (would drop the final).
-          void s.finish().catch((err) => console.error('[audio.handler] finish error:', err)).finally(() => s.dispose());
+          //
+          // 🔴 P1-1 fallback: a watchdog races `finish()` and forces `dispose()`
+          // if it never settles (see AUDIO_STOP_FINISH_WATCHDOG_MS) — otherwise a
+          // stuck finish() means `.finally(dispose)` never runs at all.
+          const watchdog = setTimeout(() => {
+            console.error('[audio.handler] finish() did not settle within the fallback window — disposing anyway');
+            s.dispose();
+          }, AUDIO_STOP_FINISH_WATCHDOG_MS);
+          void s.finish()
+            .catch((err) => console.error('[audio.handler] finish error:', err))
+            .finally(() => { clearTimeout(watchdog); s.dispose(); });
         }
       }
     }

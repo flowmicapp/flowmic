@@ -206,7 +206,12 @@ pub fn send_chords(chords: &[KeyChord]) -> Result<(), FlowKeyError> {
 
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 
-    if sent as usize != inputs.len() {
+    // D3 (2026-09-02 audit §3-D): this comparison was already right — it is the
+    // one `sendinput.rs`'s two wrappers and `clipboard_confirm.rs`'s Ctrl+V
+    // sender were fixed to match. Routed through the shared predicate now so
+    // all three call sites use the SAME rule instead of three copies that can
+    // drift again later.
+    if !crate::inject::sendinput::sendinput_fully_sent(sent, inputs.len()) {
         let err = unsafe { windows::Win32::Foundation::GetLastError() };
         if err.0 == 0 {
             return Err(FlowKeyError::Rejected);

@@ -13,6 +13,11 @@ mixin SettingsStrings on AppStringsLeaves {
     required String en,
     required String ja,
     required String ko,
+    required String zhTw,
+    required String fr,
+    required String es,
+    required String de,
+    required String ru,
   });
   // The ONE translation of the 「仅记录」("record only") term lives in
   // ChatStrings.recordOnly (later than this mixin in the `with` order) —
@@ -174,17 +179,77 @@ mixin SettingsStrings on AppStringsLeaves {
   String packLabel(String id, String englishLabel) {
     switch (id) {
       case 'tech-dev':
-        return _t(zh: '编程 / 开发术语', en: englishLabel, ja: 'プログラミング / 開発用語', ko: '프로그래밍 / 개발 용어');
+        return _t(
+          zh: '编程 / 开发术语',
+          zhTw: '程式設計 / 開發術語',
+          en: englishLabel,
+          ja: 'プログラミング / 開発用語',
+          ko: '프로그래밍 / 개발 용어',
+          fr: 'Termes de programmation / développement',
+          es: 'Términos de programación / desarrollo',
+          de: 'Programmier-/Entwicklungsbegriffe',
+          ru: 'Термины программирования / разработки',
+        );
       case 'medical':
-        return _t(zh: '医学术语', en: englishLabel, ja: '医学用語', ko: '의학 용어');
+        return _t(
+          zh: '医学术语',
+          zhTw: '醫學術語',
+          en: englishLabel,
+          ja: '医学用語',
+          ko: '의학 용어',
+          fr: 'Termes médicaux',
+          es: 'Términos médicos',
+          de: 'Medizinische Begriffe',
+          ru: 'Медицинские термины',
+        );
       case 'legal':
-        return _t(zh: '法律术语', en: englishLabel, ja: '法律用語', ko: '법률 용어');
+        return _t(
+          zh: '法律术语',
+          zhTw: '法律術語',
+          en: englishLabel,
+          ja: '法律用語',
+          ko: '법률 용어',
+          fr: 'Termes juridiques',
+          es: 'Términos legales',
+          de: 'Rechtsbegriffe',
+          ru: 'Юридические термины',
+        );
       case 'finance':
-        return _t(zh: '金融术语', en: englishLabel, ja: '金融用語', ko: '금융 용어');
+        return _t(
+          zh: '金融术语',
+          zhTw: '金融術語',
+          en: englishLabel,
+          ja: '金融用語',
+          ko: '금융 용어',
+          fr: 'Termes financiers',
+          es: 'Términos financieros',
+          de: 'Finanzbegriffe',
+          ru: 'Финансовые термины',
+        );
       case 'proper-noun':
-        return _t(zh: '产品 / 品牌名', en: englishLabel, ja: '製品 / ブランド名', ko: '제품 / 브랜드명');
+        return _t(
+          zh: '产品 / 品牌名',
+          zhTw: '產品 / 品牌名',
+          en: englishLabel,
+          ja: '製品 / ブランド名',
+          ko: '제품 / 브랜드명',
+          fr: 'Noms de produits / marques',
+          es: 'Nombres de productos / marcas',
+          de: 'Produkt-/Markennamen',
+          ru: 'Названия продуктов / брендов',
+        );
       case 'code-switch':
-        return _t(zh: '中英混用词', en: englishLabel, ja: '中英混在語', ko: '중영 혼용어');
+        return _t(
+          zh: '中英混用词',
+          zhTw: '中英混用詞',
+          en: englishLabel,
+          ja: '中英混在語',
+          ko: '중영 혼용어',
+          fr: 'Termes mixtes chinois-anglais',
+          es: 'Términos mixtos chino-inglés',
+          de: 'Chinesisch-Englisch gemischte Begriffe',
+          ru: 'Смешанные китайско-английские термины',
+        );
       default:
         return englishLabel;
     }
@@ -542,9 +607,22 @@ mixin SettingsStrings on AppStringsLeaves {
       parts.add(
         _t(
           zh: '有 ${r.refusedCount} 行没能导入：${reasons.join('、')}',
+          zhTw: '有 ${r.refusedCount} 行未能匯入：${reasons.join('、')}',
           en: '${r.refusedCount} lines could not be imported: ${reasons.join('; ')}',
           ja: '${r.refusedCount} 行を取り込めませんでした：${reasons.join('、')}',
           ko: '${r.refusedCount}줄을 가져오지 못했습니다: ${reasons.join(', ')}',
+          fr: "${r.refusedCount} lignes n'ont pas pu être importées : "
+              "${reasons.join('; ')}",
+          es: '${r.refusedCount} líneas no se pudieron importar: '
+              '${reasons.join('; ')}',
+          de: '${r.refusedCount} Zeilen konnten nicht importiert werden: '
+              '${reasons.join('; ')}',
+          // AUD-D P1-4: sidesteps Russian's count-noun agreement (「строка」
+          // inflects differently for 1 / 2-4 / 5+, same family as
+          // [_ruMatchesWord] two mixins over) by naming the count once, as a
+          // label, rather than inflecting a noun around it.
+          ru: 'Не удалось импортировать строк: ${r.refusedCount} — '
+              '${reasons.join('; ')}',
         ),
       );
     }
@@ -575,18 +653,31 @@ mixin SettingsStrings on AppStringsLeaves {
     final String contents = _t(
       zh: 'records.jsonl —— 每行一条 JSON，第一行说明这份文件是什么。'
           '${hasAttachments ? '\natt/ —— 记录里引用的图片（文件名是内容哈希）。' : ''}',
+      zhTw: 'records.jsonl —— 每行一條 JSON，第一行說明這份檔案是什麼。'
+          '${hasAttachments ? '\natt/ —— 記錄裡引用的圖片（檔名是內容雜湊）。' : ''}',
       en: 'records.jsonl — one JSON object per line; the first line says what this file is.'
           '${hasAttachments ? '\natt/ — the pictures the records point at (file names are content hashes).' : ''}',
       ja: 'records.jsonl —— 1 行 1 件の JSON。先頭行がこのファイルの説明です。'
           '${hasAttachments ? '\natt/ —— 記録が参照する画像（ファイル名は内容のハッシュ）。' : ''}',
       ko: 'records.jsonl — 한 줄에 하나의 JSON. 첫 줄이 이 파일의 설명입니다.'
           '${hasAttachments ? '\natt/ — 기록이 가리키는 사진(파일 이름은 내용 해시).' : ''}',
+      fr: "records.jsonl — un objet JSON par ligne ; la première ligne indique ce qu'est ce fichier."
+          "${hasAttachments ? '\natt/ — les images référencées par les enregistrements (les noms de fichiers sont des empreintes du contenu).' : ''}",
+      es: 'records.jsonl — un objeto JSON por línea; la primera línea indica qué es este archivo.'
+          '${hasAttachments ? '\natt/ — las imágenes a las que apuntan los registros (los nombres de archivo son hashes del contenido).' : ''}',
+      de: 'records.jsonl — ein JSON-Objekt pro Zeile; die erste Zeile beschreibt, was diese Datei ist.'
+          '${hasAttachments ? '\natt/ — die Bilder, auf die die Einträge verweisen (Dateinamen sind Inhalts-Hashes).' : ''}',
+      ru: 'records.jsonl — по одному объекту JSON на строку; первая строка описывает, что это за файл.'
+          '${hasAttachments ? '\natt/ — изображения, на которые ссылаются записи (имена файлов — это хеши содержимого).' : ''}',
     );
     final String howBack = _lfPortableReadme__3;
     final String counts = _t(
       zh: '导出时间：$exportedAt\n条数：$entryCount'
           '${hasAttachments ? '\n图片：$attachmentCount 张' : '\n图片：未包含'}'
           '${appVersion == null ? '' : '\n导出时的应用版本：$appVersion'}',
+      zhTw: '匯出時間：$exportedAt\n筆數：$entryCount'
+          '${hasAttachments ? '\n圖片：$attachmentCount 張' : '\n圖片：未包含'}'
+          '${appVersion == null ? '' : '\n匯出時的應用程式版本：$appVersion'}',
       en: 'Exported at: $exportedAt\nRecords: $entryCount'
           '${hasAttachments ? '\nPictures: $attachmentCount' : '\nPictures: not included'}'
           '${appVersion == null ? '' : '\nApp version at export: $appVersion'}',
@@ -596,6 +687,18 @@ mixin SettingsStrings on AppStringsLeaves {
       ko: '내보낸 시각: $exportedAt\n건수: $entryCount'
           '${hasAttachments ? '\n사진: $attachmentCount장' : '\n사진: 포함되지 않음'}'
           '${appVersion == null ? '' : '\n내보낼 때의 앱 버전: $appVersion'}',
+      fr: 'Exporté le : $exportedAt\nEnregistrements : $entryCount'
+          "${hasAttachments ? '\nImages : $attachmentCount' : '\nImages : non incluses'}"
+          "${appVersion == null ? '' : "\nVersion de l'application à l'export : $appVersion"}",
+      es: 'Exportado el: $exportedAt\nRegistros: $entryCount'
+          '${hasAttachments ? '\nImágenes: $attachmentCount' : '\nImágenes: no incluidas'}'
+          '${appVersion == null ? '' : '\nVersión de la app al exportar: $appVersion'}',
+      de: 'Exportiert am: $exportedAt\nEinträge: $entryCount'
+          '${hasAttachments ? '\nBilder: $attachmentCount' : '\nBilder: nicht enthalten'}'
+          '${appVersion == null ? '' : '\nApp-Version beim Export: $appVersion'}',
+      ru: 'Экспортировано: $exportedAt\nЗаписей: $entryCount'
+          '${hasAttachments ? '\nИзображений: $attachmentCount' : '\nИзображения: не включены'}'
+          '${appVersion == null ? '' : '\nВерсия приложения при экспорте: $appVersion'}',
     );
     return <String>[
       'FlowMic',

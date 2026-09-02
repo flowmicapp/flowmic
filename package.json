@@ -1,6 +1,6 @@
 {
   "name": "flowmic",
-  "version": "0.3.55",
+  "version": "0.3.58",
   "private": true,
   "description": "FlowMic — speak on your phone, type on your PC. Open-source cross-device voice input.",
   "license": "AGPL-3.0-only",
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "prepare": "husky",
-    "i18n:gen": "node scripts/i18n/gen-desktop-rust.mjs && node scripts/i18n/gen-desktop-ts.mjs && node scripts/i18n/gen-web-locale-snapshot.mjs --skip-missing && node scripts/i18n/gen-mobile-dart.mjs && node scripts/i18n/snapshot-rendered.mjs --emit-test",
+    "i18n:gen": "node scripts/i18n/gen-desktop-rust.mjs && node scripts/i18n/gen-desktop-ts.mjs && node scripts/i18n/gen-web-locale-snapshot.mjs --skip-missing && node scripts/i18n/gen-mobile-dart.mjs && node scripts/i18n/gen-protocol-error-sentences-dart.mjs && node scripts/i18n/snapshot-rendered.mjs --emit-test",
     "verify:preflight": "node scripts/preflight-toolchain.mjs && node scripts/gate-receipt.mjs --begin",
     "verify:receipt": "node scripts/gate-receipt.mjs --end",
     "verify:lint": "node verify/lint/run-all.mjs",
@@ -27,6 +27,7 @@
     "verify:mobile-tests": "make -C apps/mobile gate-test",
     "golden": "node verify/golden/run-golden.mjs",
     "verify:scripts": "node scripts/run-script-tests.mjs",
+    "copy:receipt": "node scripts/copy-scent-receipt.mjs",
     "verify:delivery": "pnpm verify:preflight && pnpm verify:protocol-dist && pnpm verify:lint && pnpm verify:types && pnpm verify:clippy && pnpm verify:rust-tests && pnpm verify:doctests && pnpm verify:scripts && pnpm golden && pnpm verify:protocol-tests && pnpm verify:server-tests && pnpm verify:desktop-tests && pnpm verify:types:desktop && pnpm verify:mobile-tests && pnpm verify:receipt",
     "install:local": "node scripts/install-local.mjs",
     "test": "pnpm -r --if-present test",

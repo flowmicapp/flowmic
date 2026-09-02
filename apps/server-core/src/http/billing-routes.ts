@@ -78,6 +78,12 @@ export const BILLING_PADDLE_REJECTED = 'BILLING_PADDLE_REJECTED';
  *  would be us asserting something we do not know, about a legal right. */
 export const BILLING_WITHDRAWAL_WINDOW_CLOSED = 'BILLING_WITHDRAWAL_WINDOW_CLOSED';
 export const BILLING_WITHDRAWAL_WINDOW_UNKNOWN = 'BILLING_WITHDRAWAL_WINDOW_UNKNOWN';
+/** 2026-09-02 (audit F4) — the LOCAL claim (`claimWithdrawal`) lost the race, not
+ *  a legal-window refusal. Deliberately its own code rather than reusing either
+ *  `_CLOSED` or `_UNKNOWN`: both of those describe THE DATE, and this describes
+ *  a DIFFERENT REQUEST for the SAME subscription having already been accepted —
+ *  a true statement even while the window is wide open. */
+export const BILLING_WITHDRAWAL_ALREADY_REQUESTED = 'BILLING_WITHDRAWAL_ALREADY_REQUESTED';
 
 export interface BillingRoutesDeps {
   auth: AuthService;
@@ -113,8 +119,19 @@ export interface BillingRoutesDeps {
   mailer: SubscriptionMailer;
   /** 0.3.25 B3 — where a withdrawal is written down. REQUIRED. A withdrawal we
    *  executed but did not record is a conversation that starts with us saying
-   *  「we have no record of that」 to a person who is right. */
-  refunds: Pick<BillingRepo, 'recordRefundRequest'>;
+   *  「we have no record of that」 to a person who is right.
+   *
+   *  🔴 2026-09-02 (audit F4) — `claimWithdrawal`/`releaseWithdrawalClaim` ADDED,
+   *  and the header comment on `billing` above still holds: neither is a second
+   *  author for the facts Paddle owns (status/tier/period), only for
+   *  `withdrawal_claimed_at`, a marker this route itself claims/releases and
+   *  nothing else ever reads or writes. Without the claim, two withdraw clicks
+   *  a moment apart both call the provider — see the pair's own doc on
+   *  `db/repos/withdrawal-claim.repo.ts`. */
+  refunds: Pick<
+    BillingRepo,
+    'recordRefundRequest' | 'claimWithdrawal' | 'releaseWithdrawalClaim' | 'findSubmittedRefundForTransaction'
+  >;
   /** ms clock, injectable so the window boundary is testable at all. */
   now?: () => number;
   /** Mints refund-record ids. Injected so a test can assert the exact row. */
@@ -192,8 +209,12 @@ function refuseFromProvider(res: ServerResponse, code: string, detail: string): 
  * share for service already supplied — but only where the consumer expressly
  * asked for performance to begin during the withdrawal period AND was told they
  * would owe it. We have never asked for that consent (there is no checkout yet).
- * Art. 14(4)(a) then says the consumer bears NO cost. `retainableFraction()`
- * returns 0 and says why; the missing piece is the consent, not the arithmetic.
+ * Art. 14(4)(a) then says the consumer bears NO cost — the retention is
+ * NOTHING, always, today, and that is the law working, not a stub. The missing
+ * piece is the consent, not the arithmetic (billing/withdrawal.ts used to carry
+ * a `retainableFraction()` function saying exactly this and returning 0; it had
+ * zero callers — this route always issues a full refund directly — and was
+ * deleted 2026-09-02 audit F9, this paragraph is where the argument lives now).
  *
  * ⚠️ PARTIAL WITHDRAWAL (art. 11a) TAKES NO PARAMETER TODAY, and the reason is
  * measured rather than assumed: this product sells exactly one subscription per
@@ -224,6 +245,20 @@ async function handleWithdraw(
     return;
   }
 
+  // ── ⓪ CLAIM THE ROW, before calling anyone (2026-09-02, audit F4) ─────────
+  // Same order `service-refund.ts` uses for the one-time-purchase path, and for
+  // the same reason: `ctx.view` was read at the top of the request, and Paddle's
+  // OWN record of the cancellation only reaches `paddle_subscriptions` LATER,
+  // via the webhook — so two withdraw clicks a moment apart both pass the
+  // window check above having both read 'active'. The conditional UPDATE lets
+  // exactly one of them proceed; the loser is refused here, before it can ever
+  // reach the provider, rather than relying on Paddle to reject a double cancel.
+  if (!deps.refunds.claimWithdrawal(ctx.subId, new Date(nowMs).toISOString())) {
+    log.info('billing: withdrawal already claimed, refusing the race loser', { user_id: ctx.userId, sub_id: ctx.subId });
+    sendJson(res, 409, { error: BILLING_WITHDRAWAL_ALREADY_REQUESTED });
+    return;
+  }
+
   // ── ① the service stops NOW ───────────────────────────────────────────────
   // `immediately`, unlike /cancel. A withdrawal unwinds the contract rather than
   // declining to renew it, so leaving the service running to period end would be
@@ -231,6 +266,12 @@ async function handleWithdraw(
   const cancelled = await ctx.writer.cancelSubscription(ctx.subId, 'immediately');
   if (!cancelled.ok) {
     log.warn('billing: withdrawal could not cancel at paddle', { user_id: ctx.userId, code: cancelled.code });
+    // 🔴 RELEASE THE CLAIM: nothing changed at Paddle (the call was refused or
+    // could not be made at all), so this is NOT the ambiguous "already gone but
+    // unrecorded" shape `service-refund.ts` guards against by never releasing —
+    // a normal retry (a transient network blip, a stale sandbox key) must not
+    // be permanently blocked by a claim that never became a real cancellation.
+    deps.refunds.releaseWithdrawalClaim(ctx.subId);
     refuseFromProvider(res, cancelled.code, cancelled.detail);
     return;
   }
@@ -267,28 +308,57 @@ async function handleWithdraw(
     };
   } else {
     const txn = found.data.found;
-    // 🔴 `reason` is OURS, a fixed string. Never anything the user typed: this
-    // field lands in a vendor's dashboard and a free-text box is how a customer's
-    // own words end up somewhere they never agreed to send them.
-    const refund = await ctx.writer.createRefund({ transaction_id: txn.id, reason: 'statutory_withdrawal' });
-    record = refund.ok
-      ? {
-          id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
-          kind: 'statutory_withdrawal', state: 'submitted',
-          amount_minor: txn.amount_minor, currency: txn.currency,
-          paddle_adjustment_id: refund.data.id,
-          // Paddle's word, verbatim, all the way to the surface — usually
-          // `pending_approval`. Nothing between here and the user may round it
-          // up to 「refunded」.
-          paddle_status: refund.data.status, detail: null, created_at: createdAt,
-        }
-      : {
-          id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
-          kind: 'statutory_withdrawal', state: 'failed',
-          amount_minor: txn.amount_minor, currency: txn.currency,
-          paddle_adjustment_id: null, paddle_status: null,
-          detail: `${refund.code} ${refund.detail}`, created_at: createdAt,
-        };
+    // 🔴 2026-09-02 (AUD-2 addendum to audit F4) — REFUSE TO ASK PADDLE AGAIN.
+    // `findRefundableTransaction` names the most recently BILLED completed
+    // transaction and has no notion of "already adjusted" (paddle/client.ts's
+    // `readTransactionList`, unlike the Creem client's `subscription-client.ts`
+    // equivalent, does not filter on this) — this is the local backstop for
+    // it. Reached today only if `withdrawal_claimed_at` above was somehow
+    // bypassed — that claim is the FIRST line of defence, this is the second,
+    // for the one step that actually spends money — see
+    // `db/repos/refund-request.repo.ts`'s doc on
+    // `findSubmittedRefundForTransaction` for why the two checks are separate.
+    const already = deps.refunds.findSubmittedRefundForTransaction(txn.id);
+    if (already !== null) {
+      log.warn('billing: withdrawal refused — this transaction already has a submitted refund', {
+        user_id: ctx.userId, transaction_id: txn.id, prior_refund_id: already.id,
+      });
+      // A fresh row: every withdrawal ATTEMPT is its own event (the table's own
+      // header argues this), but `createRefund` is never called a second time —
+      // amount/currency/adjustment id/status are COPIED from the prior
+      // submission, verbatim, never re-derived from a second Paddle call.
+      record = {
+        id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
+        kind: 'statutory_withdrawal', state: already.state,
+        amount_minor: already.amount_minor, currency: already.currency,
+        paddle_adjustment_id: already.paddle_adjustment_id, paddle_status: already.paddle_status,
+        detail: `refused locally — transaction already has a submitted refund (${already.id})`,
+        created_at: createdAt,
+      };
+    } else {
+      // 🔴 `reason` is OURS, a fixed string. Never anything the user typed: this
+      // field lands in a vendor's dashboard and a free-text box is how a customer's
+      // own words end up somewhere they never agreed to send them.
+      const refund = await ctx.writer.createRefund({ transaction_id: txn.id, reason: 'statutory_withdrawal' });
+      record = refund.ok
+        ? {
+            id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
+            kind: 'statutory_withdrawal', state: 'submitted',
+            amount_minor: txn.amount_minor, currency: txn.currency,
+            paddle_adjustment_id: refund.data.id,
+            // Paddle's word, verbatim, all the way to the surface — usually
+            // `pending_approval`. Nothing between here and the user may round it
+            // up to 「refunded」.
+            paddle_status: refund.data.status, detail: null, created_at: createdAt,
+          }
+        : {
+            id: mint(), user_id: ctx.userId, subscription_id: ctx.subId, transaction_id: txn.id,
+            kind: 'statutory_withdrawal', state: 'failed',
+            amount_minor: txn.amount_minor, currency: txn.currency,
+            paddle_adjustment_id: null, paddle_status: null,
+            detail: `${refund.code} ${refund.detail}`, created_at: createdAt,
+          };
+    }
   }
   deps.refunds.recordRefundRequest(record);
 

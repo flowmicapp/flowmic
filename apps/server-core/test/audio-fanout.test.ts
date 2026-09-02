@@ -3,7 +3,8 @@
 // so the desktop can drive its SPEAKING lock. No new event name, no schema
 // change — this asserts the ROUTING: PC receives it, the mobile does not get it
 // echoed back, record-only (delivery:'none') is never mirrored, and an empty
-// room (no PC) does not throw. Mirrors relay.handler's inject:request forward.
+// room (no PC) does not throw, and (B2, 2026-09-02 audit) is no longer silent
+// about it either. Mirrors relay.handler's inject:request forward.
 
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { Socket } from 'socket.io';
@@ -91,13 +92,37 @@ describe('WP-R2-1b audio:start/stop S→PC fan-out (F-2375)', () => {
     expect(mobile.received('audio:start')).toHaveLength(0);
   });
 
-  it('does not throw when the room has no PC (empty-room fan-out is a no-op)', () => {
+  it('🔴 B2 (2026-09-02 audit): an empty-room fan-out no longer drops SILENTLY', () => {
+    // Before this card this test's own title called the drop "a no-op" — the
+    // phone hears itself fine, the PC gets nothing, and NOTHING recorded that
+    // the edge died here. That is the exact shape the finding names: both ends
+    // read green. This does not throw either (the behaviour is unchanged),
+    // but it must now leave a grep-able trace.
+    const warns = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const { mobile, pc } = wire(false);
     let ackOk = false;
     expect(() => mobile.fire('audio:start', START, (r) => { ackOk = (r as { ok?: boolean }).ok === true; })).not.toThrow();
     expect(ackOk).toBe(true); // session still accepted
     expect(pc.received('audio:start')).toHaveLength(0);
     expect(() => mobile.fire('audio:stop', {}, () => {})).not.toThrow();
+
+    // One line at the very first fan-out (audio:start itself), one more at the
+    // mirror (audio:stop going through mirrorToPc) — two distinct silent
+    // shapes this card closes, both now audible.
+    const messages = warns.mock.calls.map(([m]) => String(m));
+    expect(messages.some((m) => m.includes('audio:start') && m.includes('no PC'))).toBe(true);
+    expect(messages.some((m) => m.includes('mirrorToPc') && m.includes('no PC'))).toBe(true);
+    warns.mockRestore();
+  });
+
+  it('REVERSE CONTROL — a room that DOES have a PC logs neither warning', () => {
+    const warns = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const { mobile } = wire(true);
+    mobile.fire('audio:start', START, () => {});
+    mobile.fire('audio:stop', {}, () => {});
+    const messages = warns.mock.calls.map(([m]) => String(m));
+    expect(messages.some((m) => m.includes('no PC'))).toBe(false);
+    warns.mockRestore();
   });
 
   it('rejects a non-mobile / unauthed audio:start before any fan-out', () => {

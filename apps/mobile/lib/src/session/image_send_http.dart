@@ -54,9 +54,19 @@ Future<ImageSendFailure?> imageSendViaHttp(
   // raised below carries them, so the one thing that can prove the banner
   // wrong — the PC saying it pasted the picture — retires it.
   final Set<String> covers = <String>{?correlation, entry.id};
-  Future<void> settleQueued({required bool ok, String? code}) async {
+  Future<void> settleQueued({
+    required bool ok,
+    String? code,
+    // Card F12/F1-d — see DeliveryOutbox.settle's own doc.
+    int? retryAfterMs,
+  }) async {
     if (correlation == null || correlation.isEmpty) return;
-    await c._host.outbox.settle(correlationId: correlation, ok: ok, code: code);
+    await c._host.outbox.settle(
+      correlationId: correlation,
+      ok: ok,
+      code: code,
+      retryAfterMs: retryAfterMs,
+    );
   }
   ImageUploadResult result = const ImageUploadResult(ImageUploadStatus.unreachable);
   // One immediate retry on a fresh connection: the first attempt after the
@@ -119,7 +129,11 @@ Future<ImageSendFailure?> imageSendViaHttp(
       if (verdict != null) {
         final int t0 = DateTime.now().millisecondsSinceEpoch;
         c._delivery.applyInjectResult(verdict, c._host.store);
-        await settleQueued(ok: verdict.ok, code: verdict.error);
+        await settleQueued(
+          ok: verdict.ok,
+          code: verdict.error,
+          retryAfterMs: verdict.retryAfterMs,
+        );
         // F3: same counter-name as the socket path — HTTP's response body IS
         // the inject:result equivalent on this ingress.
         diag('latency.ack_to_visible_ms', <String, Object?>{
@@ -157,10 +171,21 @@ Future<ImageSendFailure?> imageSendViaHttp(
       // out of. The user-visible half is untouched and is the half that
       // mattered: the row still says ✗ with the server's own code, and the
       // resend (重发) button is still there.
+      //
+      // 🔴 Card F7 (2026-09-02) — `result.error` used to fall back to a
+      // HARD-CODED `'PC_BUSY'` when the server sent `retryable:true` with no
+      // `error` string. That invented a specific claim ("another phone is
+      // occupying this PC") the server never made — this route classifies by
+      // the `retryable` flag precisely so an unrecognised code is still
+      // handled correctly (see the comment on that flag above), and a MISSING
+      // code deserves the same honesty, not a guessed one. `null` degrades to
+      // the same honest-if-vague rendering every other unrecognised code
+      // already gets (pc_presence.dart's `PcAbsentReason.parse` documents the
+      // same rule for the same reason).
       c._host.store.applyInjectResult(
         correlationId: entry.id,
         ok: false,
-        failureReason: result.error ?? 'PC_BUSY',
+        failureReason: result.error,
       );
       return c._raise(
         ImageSendFailure.serverRefused,

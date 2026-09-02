@@ -131,7 +131,23 @@ class RealAudioRecorder implements AudioRecorder {
 
   @override
   Future<void> stop() async {
+    // 🔴 F5 (2026-09-02 audit) — CAPTURE THE INSTANCE THIS CALL OWNS BEFORE
+    // THE AWAIT BELOW, NOT AFTER.
+    //
+    // `recorder.stop()` is a real platform round trip and can outlast a fast
+    // re-press: if `start()` runs again while this call is still awaiting it,
+    // `start()` overwrites `_platformSub`/`_stateSub`/`_pcmCtl` with the NEW
+    // press's instances. Reading those FIELDS after the await — what this
+    // used to do — then cancels and CLOSES the new press's subscription and
+    // stream controller instead of this (now stale) one: the fast re-press's
+    // microphone keeps recording natively, but every byte it produces is
+    // piped into a controller this call just closed out from under it, and
+    // the phone reads that as a false 「没有听到语音」 for a press that really
+    // did capture audio.
     final rec.AudioRecorder? recorder = _recorder;
+    final StreamSubscription<Uint8List>? platformSub = _platformSub;
+    final StreamSubscription<rec.RecordState>? stateSub = _stateSub;
+    final StreamController<Uint8List>? ctl = _pcmCtl;
     if (recorder != null) {
       try {
         await recorder.stop();
@@ -140,13 +156,14 @@ class RealAudioRecorder implements AudioRecorder {
         // "stream has ended either way".
       }
     }
-    await _platformSub?.cancel();
-    _platformSub = null;
-    await _stateSub?.cancel();
-    _stateSub = null;
-    final StreamController<Uint8List>? ctl = _pcmCtl;
+    await platformSub?.cancel();
+    // Only clear the FIELD if a newer `start()` has not already replaced it —
+    // clearing unconditionally would erase the instance the newer press owns.
+    if (identical(_platformSub, platformSub)) _platformSub = null;
+    await stateSub?.cancel();
+    if (identical(_stateSub, stateSub)) _stateSub = null;
     if (ctl != null && !ctl.isClosed) await ctl.close();
-    _pcmCtl = null;
+    if (identical(_pcmCtl, ctl)) _pcmCtl = null;
   }
 
   /// Test-visible disposal so the platform recorder (and any open stream

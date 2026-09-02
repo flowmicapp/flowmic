@@ -17,6 +17,8 @@ import 'package:flowmic/src/timeline/cloud/blind_store_cloud_client.dart'
     show BlindStoreCloudRefusal, BlindStoreCloudUnreachable;
 import 'package:flowmic/src/timeline/cloud/blind_store_key_provisioner.dart';
 import 'package:flowmic/src/timeline/cloud/blind_store_keymeta_client.dart';
+import 'package:flowmic/src/timeline/cloud/blind_store_secure_key_store.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Real Argon2id, small parameters — the keyring test's own reduced-cost
@@ -133,6 +135,8 @@ Future<({BlindStoreKeyring ring, Uint8List salt, String sentinel})> _otherDevice
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('outcome: confirmed', () {
     test('first device, empty account: enroll → PUT created → confirmed', () async {
       final Rig rig = Rig();
@@ -399,5 +403,198 @@ void main() {
 
     expect(again.outcome, BlindStoreProvisionOutcome.confirmed);
     expect(rig.client.puts, puts);
+  });
+
+  // ── AUD-D P1-1 — the account-partitioned slot + proof-gated legacy migration.
+  //
+  // These run against the REAL production stores (`AccountScopedBlindStoreKeyStore`
+  // / `SecureBlindStoreKeyStore`), not `InMemoryBlindStoreKeyStore`, because the
+  // bug this closes lived IN the storage layer: a single fixed platform-keystore
+  // slot shared by every account. `FlutterSecureStorage.setMockInitialValues`
+  // backs every store instance below with the SAME in-memory "disk" map, which
+  // is what lets two SEPARATE `BlindStoreKeyring`/provisioner pairs (one per
+  // account, exactly like two logins on one physical phone) actually share a
+  // device the way production does.
+  group('🔴 AUD-D P1-1: the account-scoped store never lets two accounts '
+      'share one key slot', () {
+    setUp(() => FlutterSecureStorage.setMockInitialValues(<String, String>{}));
+
+    /// One "account" on this one physical device: its own scoped store, its
+    /// own keyring, its own provisioner — talking to the SAME [client] (the
+    /// one server every account on this phone would actually reach).
+    ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+    accountOn(FakeKeymetaClient client, String email) {
+      final BlindStoreKeyring keyring = BlindStoreKeyring(
+        store: AccountScopedBlindStoreKeyStore(accountKey: () => email),
+        cost: kFast,
+      );
+      final BlindStoreKeyProvisioner provisioner = BlindStoreKeyProvisioner(
+        keyring: keyring,
+        client: client,
+        accountKey: () => email,
+        legacyStore: const SecureBlindStoreKeyStore(),
+      );
+      return (keyring: keyring, provisioner: provisioner);
+    }
+
+    test('the A-then-B scenario: A enrolls, B logs in on the SAME phone — B '
+        'gets NOTHING of A\'s, and A survives untouched', () async {
+      final FakeKeymetaClient client = FakeKeymetaClient();
+      final ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+      a = accountOn(client, 'alice@example.com');
+
+      final BlindStoreProvisionResult aResult =
+          await a.provisioner.provision(passphrase: 'alice-words');
+      expect(aResult.outcome, BlindStoreProvisionOutcome.confirmed);
+      final ({Uint8List salt, String sentinel}) aMaterial =
+          (await a.keyring.sharedKeyMaterial())!;
+
+      // B logs in on the same phone. A FRESH keyring/provisioner pair — this
+      // is exactly what main.dart's single long-lived `BlindStoreKeyring`
+      // does NOT give you (its `_key` would still be A's in memory), which is
+      // why `LoginController.onSignedOut` / `detachForAccountChange` exist —
+      // but the STORAGE half, tested here, is safe even without that: B's
+      // account-scoped slot is physically a different keystore entry.
+      final ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+      b = accountOn(client, 'bob@example.com');
+      expect(await b.keyring.sharedKeyMaterial(), isNull,
+          reason: "B's slot must start empty — A's enrolment must not have "
+              'leaked into it');
+
+      final BlindStoreProvisionResult bResult = await b.provisioner.ensureConfirmed();
+      // B has no material and the server has no row for B ⇒ B needs a
+      // passphrase of THEIR OWN. The bug this closes would instead have seen
+      // A's leftover material in the (formerly shared) slot and silently
+      // registered it as B's — never asking B for anything.
+      expect(bResult.outcome, BlindStoreProvisionOutcome.needsPassphrase);
+      expect(client.puts, 1, reason: "only A's enrolment ever PUT anything");
+
+      // A is completely unaffected by B having logged in on the same phone.
+      final ({Uint8List salt, String sentinel}) aStill =
+          (await a.keyring.sharedKeyMaterial())!;
+      expect(_sameBytes(aStill.salt, aMaterial.salt), isTrue);
+      expect(aStill.sentinel, aMaterial.sentinel);
+    });
+
+    test('REVERSE CONTROL: the OLD single fixed slot really does leak — same '
+        'script, the pre-fix store class, A\'s material appears under B\'s '
+        'name', () async {
+      // `SecureBlindStoreKeyStore` is kept in the tree on purpose (as the
+      // migration SOURCE — see its own file header). Constructing it TWICE,
+      // once "as" each account, is exactly what the pre-fix `main.dart` did:
+      // one keyring, one fixed slot, no account in the picture at all.
+      final BlindStoreKeyring sharedRing = BlindStoreKeyring(
+        store: const SecureBlindStoreKeyStore(),
+        cost: kFast,
+      );
+      await sharedRing.enroll('alice-words');
+      final ({Uint8List salt, String sentinel}) aMaterial =
+          (await sharedRing.sharedKeyMaterial())!;
+
+      // "B logs in" — but the pre-fix code hands B the SAME store, so B's
+      // "local material" IS A's.
+      final BlindStoreKeyring bAsSeenByOldCode = BlindStoreKeyring(
+        store: const SecureBlindStoreKeyStore(),
+        cost: kFast,
+      );
+      final ({Uint8List salt, String sentinel})? whatBSees =
+          await bAsSeenByOldCode.sharedKeyMaterial();
+      expect(whatBSees, isNotNull,
+          reason: 'this is the defect: B sees SOMETHING, and it is not B\'s');
+      expect(_sameBytes(whatBSees!.salt, aMaterial.salt), isTrue,
+          reason: "the 'something' B sees is byte-for-byte A's salt");
+      expect(whatBSees.sentinel, aMaterial.sentinel);
+    });
+
+    test('legacy migration ADOPTS when the account\'s OWN server row proves '
+        'the bytes — the honest half of the passive recovery path', () async {
+      // Simulate a device that enrolled BEFORE this fix (material lives in
+      // the old shared slot) and whose PUT already reached the server under
+      // account alice — design §3.2 step d's ordinary "PUT succeeded, but we
+      // have not re-verified it locally yet" state.
+      final BlindStoreKeyring legacyRing = BlindStoreKeyring(
+        store: const SecureBlindStoreKeyStore(),
+        cost: kFast,
+      );
+      await legacyRing.enroll('alice-words');
+      final ({Uint8List salt, String sentinel}) legacyMaterial =
+          (await legacyRing.sharedKeyMaterial())!;
+      final FakeKeymetaClient client = FakeKeymetaClient()
+        ..row = (salt: legacyMaterial.salt, sentinel: legacyMaterial.sentinel);
+
+      final ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+      alice = accountOn(client, 'alice@example.com');
+      expect(await alice.keyring.sharedKeyMaterial(), isNull,
+          reason: "alice's OWN scoped slot starts empty (only the legacy "
+              'slot holds anything)');
+
+      final BlindStoreProvisionResult r = await alice.provisioner.ensureConfirmed();
+
+      expect(r.outcome, BlindStoreProvisionOutcome.confirmed);
+      expect(client.puts, 0, reason: 'a proven match adopts — it never re-PUTs');
+      final ({Uint8List salt, String sentinel}) migrated =
+          (await alice.keyring.sharedKeyMaterial())!;
+      expect(_sameBytes(migrated.salt, legacyMaterial.salt), isTrue);
+      expect(migrated.sentinel, legacyMaterial.sentinel);
+      // First prover wins: the shared slot is retired so nobody else can also
+      // claim these bytes later.
+      expect(await const SecureBlindStoreKeyStore().read(), isNull);
+    });
+
+    test('legacy migration REFUSES when there is no server row at all — "no '
+        'row" is not proof, it is exactly the gap this fix closes', () async {
+      final BlindStoreKeyring legacyRing = BlindStoreKeyring(
+        store: const SecureBlindStoreKeyStore(),
+        cost: kFast,
+      );
+      await legacyRing.enroll('orphaned-words');
+      final ({Uint8List salt, String sentinel}) orphan =
+          (await legacyRing.sharedKeyMaterial())!;
+      final FakeKeymetaClient client = FakeKeymetaClient(); // no row anywhere
+
+      final ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+      bob = accountOn(client, 'bob@example.com');
+
+      final BlindStoreProvisionResult r = await bob.provisioner.ensureConfirmed();
+
+      expect(r.outcome, BlindStoreProvisionOutcome.needsPassphrase);
+      expect(client.puts, 0, reason: 'unproven material must never be PUT '
+          'under a name it was never shown to belong to');
+      expect(await bob.keyring.sharedKeyMaterial(), isNull,
+          reason: "bob's own slot must stay empty");
+      // The orphaned material is left exactly where it was — "kept aside",
+      // not deleted, not adopted, still readable by whoever CAN prove it.
+      final BlindStoreKeyMaterial? stillThere =
+          await const SecureBlindStoreKeyStore().read();
+      expect(stillThere, isNotNull);
+      expect(_sameBytes(stillThere!.salt, orphan.salt), isTrue);
+    });
+
+    test('legacy migration REFUSES when the server row belongs to someone '
+        'else', () async {
+      final BlindStoreKeyring legacyRing = BlindStoreKeyring(
+        store: const SecureBlindStoreKeyStore(),
+        cost: kFast,
+      );
+      await legacyRing.enroll('legacy-words');
+      final ({Uint8List salt, String sentinel}) legacyMaterial =
+          (await legacyRing.sharedKeyMaterial())!;
+      final ({BlindStoreKeyring ring, Uint8List salt, String sentinel})
+      someoneElse = await _otherDevice('someone elses words');
+      final FakeKeymetaClient client = FakeKeymetaClient()
+        ..row = (salt: someoneElse.salt, sentinel: someoneElse.sentinel);
+
+      final ({BlindStoreKeyring keyring, BlindStoreKeyProvisioner provisioner})
+      carol = accountOn(client, 'carol@example.com');
+
+      final BlindStoreProvisionResult r = await carol.provisioner.ensureConfirmed();
+
+      expect(r.outcome, BlindStoreProvisionOutcome.needsPassphrase);
+      expect(await carol.keyring.sharedKeyMaterial(), isNull);
+      final BlindStoreKeyMaterial? stillThere =
+          await const SecureBlindStoreKeyStore().read();
+      expect(_sameBytes(stillThere!.salt, legacyMaterial.salt), isTrue,
+          reason: 'untouched — carol proved nothing about it');
+    });
   });
 }

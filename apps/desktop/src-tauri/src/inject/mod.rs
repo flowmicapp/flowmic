@@ -2,8 +2,15 @@
 //
 // Injection layer. Three-stage pipeline (pipeline.rs) over the primary
 // SendInput path (sendinput.rs), the clipboard fallback (clipboard_paste.rs +
-// clipboard_snapshot.rs), streaming correction (correction.rs), the six-key
-// control map (flow_key.rs), and per-app learning (app_learning.rs).
+// clipboard_snapshot.rs), the six-key control map (flow_key.rs), and per-app
+// learning (app_learning.rs).
+//
+// P1 (2026-09-02 audit §3-D): streaming correction (correction.rs —
+// `diff_correction` / `CorrectionOps` / `SendInputClient::apply_correction`)
+// was DELETED here. Grepped across `apps/desktop/src` and `src-tauri/src`:
+// every hit was the feature's own definition or its own tests, zero
+// production callers. It implemented backspace-and-retype for a realtime
+// correction feature that was never wired into the inject pipeline.
 //
 // R6 T-4 adds the IMAGE half: image.rs turns an `inject:request.image_b64` into
 // a Windows clipboard format table (WIC decode → CF_DIB / CF_BITMAP /
@@ -22,7 +29,6 @@ pub mod clipboard_hold;
 pub mod clipboard_outcome;
 pub mod clipboard_paste;
 pub mod clipboard_snapshot;
-pub mod correction;
 pub mod flow_key;
 pub mod gate;
 pub mod image;
@@ -81,7 +87,6 @@ pub use app_learning::AppLearningStore;
 pub use clipboard_confirm::ConfirmOutcome;
 pub use clipboard_paste::{ClipboardFallbackClient, PasteOutcome};
 pub use clipboard_snapshot::ClipboardSnapshot;
-pub use correction::{diff_correction, CorrectionOps};
 pub use flow_key::{key_sequence_for, punctuation_for, send_chords, FlowKeyError, KeyChord};
 pub use image::{ImageError, ImageMime, INJECT_IMAGE_B64_MAX};
 // 🔴 DELIBERATELY NOT RE-EXPORTED (adversarial review, 2026-08-08). This line used
@@ -124,3 +129,10 @@ mod msaa_focus_tests;
 #[cfg(test)]
 #[path = "focus_evidence_tests.rs"]
 mod focus_evidence_tests;
+
+/// G7 (WP-8, 2026-09-02) — `INJECT_TEXT_MAX_CHARS` pinned against the
+/// protocol source. Declared here rather than from `pipeline.rs` or folded
+/// into `pipeline_tests.rs`, both of which are at the 800-line src cap.
+#[cfg(test)]
+#[path = "text_cap_mirror_tests.rs"]
+mod text_cap_mirror_tests;

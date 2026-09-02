@@ -60,6 +60,32 @@ Future<TimelinePersistence> _open() async {
 List<String> _ids(List<TimelineEntry> rows) =>
     rows.map((TimelineEntry e) => e.id).toList(growable: false);
 
+/// Card P2-9 — an article head OR member row, same field shape [_entry]
+/// builds but with the two fields that put a row inside an article.
+/// [entryType] defaults to an ordinary member; pass `TimelineEntry.kArticle`
+/// for the head.
+TimelineEntry _articleEntry(
+  String id, {
+  required String origin,
+  required String text,
+  required DateTime at,
+  required String articleId,
+  String entryType = TimelineEntry.kTranscript,
+}) => TimelineEntry(
+  id: id,
+  clientId: id,
+  mode: FlowMode.realtime,
+  delivery: Delivery.none,
+  sourceText: text,
+  outputText: text,
+  status: EntryStatus.noted,
+  createdAt: at,
+  updatedAt: at,
+  origin: origin,
+  articleId: articleId,
+  entryType: entryType,
+);
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -88,6 +114,45 @@ void main() {
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
     expect(_ids(await q.all()), <String>['cloud-new', 'cloud-old']);
+  });
+
+  test('⟲ Card P2-9: all() shares collapseArticles — live members stay, a headless member is not dropped', () async {
+    final TimelinePersistence p = await _open();
+    // A FINISHED article: head + one member. Collapsed to just the head.
+    await p.upsert(_articleEntry('finished-head',
+        origin: 'cloud', text: '完成的录音', at: DateTime.utc(2026, 8, 1),
+        articleId: 'art-finished', entryType: TimelineEntry.kArticle));
+    await p.upsert(_articleEntry('finished-member',
+        origin: 'cloud', text: '这是内容', at: DateTime.utc(2026, 8, 1),
+        articleId: 'art-finished'));
+    // A LIVE article (still recording): head + one member. The OLD
+    // hand-rolled collapse dropped the member unconditionally — the exact
+    // "card whose word count ticks upward instead of the words themselves"
+    // article_view.dart's own header argues against.
+    await p.upsert(_articleEntry('live-head',
+        origin: 'cloud', text: '进行中的录音', at: DateTime.utc(2026, 8, 2),
+        articleId: 'art-live', entryType: TimelineEntry.kArticle));
+    await p.upsert(_articleEntry('live-member',
+        origin: 'cloud', text: '正在说的话', at: DateTime.utc(2026, 8, 2),
+        articleId: 'art-live'));
+    // A HEADLESS member (its head was deleted, or is a page away): the OLD
+    // collapse dropped it too — words gone with nothing left to open.
+    await p.upsert(_articleEntry('orphan-member',
+        origin: 'cloud', text: '孤儿段落', at: DateTime.utc(2026, 8, 3),
+        articleId: 'art-gone'));
+
+    final LightRecordQuery q = LightRecordQuery(persistence: p);
+    final List<String> collapsed =
+        _ids(await q.all(liveArticleId: 'art-live'));
+    expect(collapsed, contains('finished-head'));
+    expect(collapsed, isNot(contains('finished-member')),
+        reason: 'a finished article collapses its member into the head');
+    expect(collapsed, isNot(contains('live-head')),
+        reason: 'the live article\'s OWN head is hidden while it records');
+    expect(collapsed, contains('live-member'),
+        reason: 'the live article\'s member stays on screen while it records');
+    expect(collapsed, contains('orphan-member'),
+        reason: 'a headless member is left alone, never silently dropped');
   });
 
   test('search() returns light-record hits only — a paired row containing the '

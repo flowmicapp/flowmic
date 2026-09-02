@@ -244,6 +244,12 @@ fn a_failure_after_the_first_rename_puts_the_old_tree_back() {
         SwapOutcome::Failed { rolled_back, ref detail } => {
             assert!(rolled_back, "the old tree must be restored; detail was {detail}");
             assert!(!detail.starts_with("rollback_failed"), "detail was {detail}");
+            // D4: this exact prefix is what `update-view.ts`'s `pendingNotice` looks
+            // for to decide whether to tell the user their old copy came back. It
+            // used to be `install:` here, which nothing downstream recognised —
+            // reverse control: put `install:` back and this line goes red while the
+            // three assertions above it stay green.
+            assert!(detail.starts_with("rolled_back:"), "detail was {detail}");
         }
         SwapOutcome::Swapped => panic!("a swap with no staged tree must not report success"),
     }

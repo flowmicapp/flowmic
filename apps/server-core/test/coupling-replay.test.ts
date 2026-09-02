@@ -20,7 +20,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { startServer, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
-import { DEFAULT_ENGINE_SPAWN_TIMEOUT_MS } from '../src/stt/orchestrator-types';
 
 let server: BootstrapHandle;
 let url: string;
@@ -79,11 +78,28 @@ function neverWithin(socket: ClientSocket, event: string, ms: number): Promise<b
 
 const AUDIO_START = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh' };
 
-async function pairMobile(): Promise<{ pc: ClientSocket; mobile: ClientSocket; token: string; roomUuid: string; pairingId: string }> {
+/**
+ * 🔴 card P1-CE6B (2026-09-02) — EVERY TEST IN THIS FILE MUST PASS ITS OWN
+ * INSTANCE ID, and that is isolation, not decoration.
+ *
+ * All four tests used to register as `inst-couplingedge012`, so all four landed
+ * in the SAME room, and `makeSttEmitter` resolves the PC leg through
+ * `store.getPc(roomUuid)` — i.e. whichever PC socket registered into that room
+ * LAST. CE-6 leaves a `delivery:'inject'` session whose engine spawn is still
+ * hanging when it returns; five seconds later that session's engine-status and
+ * its stop-time final were delivered to CE-6b's PC socket, in CE-6b's window,
+ * looking exactly like the privacy leak CE-6b exists to catch.
+ *
+ * MEASURED: with one shared id, CE-6b's whole-test PC record reads
+ * `['stt:engine-status','stt:final']` — frames from the PREVIOUS test. Nothing
+ * saw it before, because the old probes had closed long before they arrived.
+ * A shared room is a shared destination; give each test its own.
+ */
+async function pairMobile(instanceId: string): Promise<{ pc: ClientSocket; mobile: ClientSocket; token: string; roomUuid: string; pairingId: string }> {
   const pc = await connect();
   const reg = await ack<{ token: string; short_code: string; room_uuid: string; pc_id: string }>(pc, 'pc:register', {
     device_name: 'PC',
-    client_instance_id: 'inst-couplingedge012',
+    client_instance_id: instanceId,
   });
   const mobile = await connect();
   const joinedP = once(pc, 'pc:mobile-joined');
@@ -104,7 +120,7 @@ afterAll(async () => {
 
 describe('WP-R3.5 server-authoritative coupling edges (real in-process server)', () => {
   it('CE-1 (pairing drain): a mobile BLIP drains the slot at GRACE EXPIRY, not on the transport edge', async () => {
-    const { pc, mobile, token, roomUuid, pairingId } = await pairMobile();
+    const { pc, mobile, token, roomUuid, pairingId } = await pairMobile('inst-couplingedge-ce1');
     // A blip is the transport dying UNANNOUNCED (server reason `transport close`).
     // It must be killed at the engine, not via socket.disconnect(): the latter
     // sends a namespace DISCONNECT packet first, which the server now reads as a
@@ -132,7 +148,7 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
     // late, because a deliberate exit was being treated as a blip. The phone's
     // leaveRoom() calls socket.disconnect() → `client namespace disconnect`,
     // and that reason collapses the window instead of arming it.
-    const { pc, mobile, pairingId } = await pairMobile();
+    const { pc, mobile, pairingId } = await pairMobile('inst-couplingedge-ce1b');
     const leftP = once<{ mobile_id: string }>(pc, 'pc:mobile-left');
     mobile.disconnect();
     expect((await leftP).mobile_id).toBe(pairingId); // ← no expireServerTimers()
@@ -140,7 +156,7 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
   });
 
   it("CE-6 (fan-out): delivery:'inject' fans audio:start to the PC; delivery:'none' does NOT", async () => {
-    const { pc, mobile } = await pairMobile();
+    const { pc, mobile } = await pairMobile('inst-couplingedge-ce6');
     // delivery:'inject' → the PC receives the S→PC audio:start fan-out (drives its lock).
     const fannedP = once<Record<string, unknown>>(pc, 'audio:start');
     await ack(mobile, 'audio:start', { ...AUDIO_START, delivery: 'inject' }).catch(() => {}); // ack errors (no engine) — fan-out is independent
@@ -153,7 +169,7 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
     expect(await pcQuiet).toBe(true);
   });
 
-  // 🔴 EXPLICIT TIMEOUT, and it is the whole reason the previous window was 2500 ms.
+  // 🔴 EXPLICIT TIMEOUT, and since 2026-09-02 it is the ONLY deadline in this test.
   //
   // vitest's default per-test timeout is 5000 ms — the SAME number as
   // DEFAULT_ENGINE_SPAWN_TIMEOUT_MS. So a test that legitimately waits for the
@@ -167,50 +183,82 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
   // looked arbitrary and the constraint it encoded was invisible — and the same
   // hidden ceiling is waiting for every other test in this repo that wants to
   // observe a product deadline of 5 s or more.
+  //
+  // 🔴🔴 CARD P1-CE6B (2026-09-02) — AND 5000+2000 WAS STILL A RACE, because the
+  // frame it waits for IS the 5000 ms deadline firing. MEASURED here (worktree
+  // p1-ce6b @ 7dd16640, 4 full-suite runs): sherpa-local's open() does not fail
+  // fast on a box with no model — it hangs, so the ONLY thing that ever produces
+  // a frame is `raceSpawnTimeout` rejecting with `engine spawn timeout after
+  // 5000ms`. The mobile heard it at 6144 / 6449 / 6717 / 6959 ms against a
+  // 7000 ms window: 40–856 ms of slack for scheduling jitter in a worker that is
+  // also running 3,400 other tests. It lost 6 of 7 `verify:delivery` runs the day
+  // the suite grew, with `expected false to be true` — and the number was never
+  // the bug: A TEST THAT WAITS `product deadline + ε` IS A STOPWATCH RACING A
+  // STOPWATCH, and widening ε only moves the day it loses.
+  //
+  // ⇒ THE WAIT IS NOW EVENT-DRIVEN AND HAS NO CLOCK OF ITS OWN. The explicit
+  // 20_000 above is the single deadline; if the mobile is never told, this fails
+  // as `Test timed out in 20000ms` at the `await mobileHeard` line, which is 4×
+  // the product's cap instead of 1.4× and is not a number any load can beat.
+  //
+  // 🔴 THE PC HALF WAS WORSE THAN FLAKY, IT WAS VACUOUS. It used five 1200 ms
+  // `neverWithin` probes started before audio:start — every one of them closed
+  // about five seconds BEFORE the only frames this session ever emits. It was
+  // asserting that nothing arrived during a stretch in which nothing could have
+  // arrived.
+  //
+  // REVERSE CONTROL, measured 2026-09-02, three runs that separate the two
+  // variables (delete the delivery gate in `engine/stt-factory.ts` —
+  // `fanOutToPc = args.roomUuid !== null` — so the PC really does receive the
+  // whole content leg):
+  //   · old probes + shared room  → RED, but on `stt:engine-status` + `stt:final`
+  //     belonging to CE-6's session, not to CE-6b's;
+  //   · old probes + isolated room → GREEN. The gate is gone, the PC is receiving
+  //     a record-only utterance, and the test says nothing. That is the number
+  //     this whole edge is worth;
+  //   · whole-test record + isolated room → RED on CE-6b's OWN frame.
+  // So the old green was two defects cancelling: probes that could not see this
+  // utterance, in a room where they could see somebody else's.
+  //
+  // The PC's record is therefore kept for the WHOLE test and read after the
+  // mobile's frame is in hand, with a round trip on the PC's own socket as the
+  // ordering barrier — socket.io preserves order per connection, so anything the
+  // server already wrote to that socket is delivered before the ack of a request
+  // we sent afterwards. No window, no sleep.
   it("CE-6b (content leg): delivery:'none' sends the PC no stt:* while the mobile still hears its session", { timeout: 20_000 }, async () => {
-    const { pc, mobile } = await pairMobile();
+    const { pc, mobile } = await pairMobile('inst-couplingedge-ce6b');
     // No STT endpoint is reachable from a test box, so the engine layer runs its
     // connect ladder and narrates it on stt:engine-status — a REAL frame through
     // the REAL emitter. That is what makes this edge non-vacuous: the frames
     // genuinely fly, and the assertion is about WHERE they land.
-    const mobileHeard = new Promise<boolean>((resolve) => {
-      // 🔴 SIZED FROM THE PRODUCT'S OWN DEADLINE, not from how fast this machine
-      // happens to be (§1-bis-18). The first frame the mobile can hear here is
-      // the engine layer narrating a connect it cannot complete — and the
-      // orchestrator gives that connect DEFAULT_ENGINE_SPAWN_TIMEOUT_MS before
-      // it says anything. A hard-coded 2500 ms was therefore HALF the product's
-      // own cap, and it passed here only because a local box refuses the
-      // connection instantly (ECONNREFUSED) instead of hanging.
+    //
+    // 🔴 [measured 2026-09-02] what actually flies here is engine-status{failed}
+    // + stt:error{'engine spawn timeout after 5000ms'}, emitted together when
+    // `raceSpawnTimeout` gives up on sherpa-local's open(). That is WHY the PC's
+    // record below has to outlive a fixed window: nothing at all crosses this
+    // wire for the first five seconds.
+    const CONTENT_EVENTS = ['stt:interim', 'stt:final', 'stt:level', 'stt:error', 'stt:engine-status'] as const;
+    const pcSaw: string[] = [];
+    for (const e of CONTENT_EVENTS) pc.on(e, () => pcSaw.push(e));
+    const mobileHeard = new Promise<string>((resolve) => {
+      // 🔴 SIZED FROM NOTHING — see the header. The product's own deadline is
+      // what produces this frame, so any window derived from it is a race with
+      // it. The only deadline is the explicit per-test timeout.
       //
-      // MEASURED 2026-08-08: the first complete nine-stage CI run went red on
-      // exactly this line — `expected false to be true` — on a runner where the
-      // connect does not fail fast. That is the SAME shape the golden suite was
-      // fixed for the day before (G2/G3/G10 waited 2500 ms for frames the
-      // product emits at its own caps); this test was the member of that class
-      // nobody scanned for. A red-list is also a sample.
-      //
-      // ⚠️ [CI unproven] THIS FIX HAS NO LOCAL REVERSE CONTROL, and that is a fact
-      // about the machine, not an omission. Shrinking the window to 300 ms here
-      // still passes (measured): a local box answers the doomed connect with an
-      // instant ECONNREFUSED, so the frame arrives long before any window
-      // expires. ⇒ the local green proves the test is not broken; it CANNOT
-      // prove the CI red is fixed. That verdict belongs to the next CI run.
       // 🔴 The general shape is worth more than this line: a deadline defect
       // is STRUCTURALLY INVISIBLE on the fast machine that authored it — the
       // same reason the bundled-Node mismatch and the MSI host-Node dependency
       // were both green here and red everywhere else.
-      const t = setTimeout(() => resolve(false), DEFAULT_ENGINE_SPAWN_TIMEOUT_MS + 2_000);
-      const done = (): void => { clearTimeout(t); resolve(true); };
-      mobile.once('stt:engine-status', done);
-      mobile.once('stt:error', done);
+      mobile.once('stt:engine-status', () => resolve('stt:engine-status'));
+      mobile.once('stt:error', () => resolve('stt:error'));
     });
-    const pcLeaks = Promise.all(
-      (['stt:interim', 'stt:final', 'stt:level', 'stt:error', 'stt:engine-status'] as const)
-        .map((e) => neverWithin(pc, e, 1200).then((quiet) => (quiet ? null : e))),
-    );
     await ack(mobile, 'audio:start', { ...AUDIO_START, delivery: 'none' }).catch(() => {});
-    expect((await pcLeaks).filter(Boolean)).toEqual([]); // the content never went to the PC at all
-    expect(await mobileHeard).toBe(true); // …but nothing was swallowed either
+    expect(await mobileHeard).toMatch(/^stt:(engine-status|error)$/); // …nothing was swallowed
+    // ORDERING BARRIER, not a settle: `pc:list-mobiles` is read-only and always
+    // acks (`PcListMobilesSchema = z.object({})`), and its reply is written
+    // after any leaked frame was, on the same connection.
+    await ack(pc, 'pc:list-mobiles', {});
+    expect(pcSaw).toEqual([]); // the content never went to the PC at all
     await ack(mobile, 'audio:stop', {}).catch(() => {});
   });
 });

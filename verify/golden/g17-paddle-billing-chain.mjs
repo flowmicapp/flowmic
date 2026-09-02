@@ -56,7 +56,7 @@ import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, PASS, FAIL } from './harness.mjs';
+import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, mailFileEnv, PASS, FAIL } from './harness.mjs';
 
 // ── the numbers, written as LITERALS on purpose ─────────────────────────────
 //
@@ -164,7 +164,18 @@ export function subscriptionFrame({
       customer_id,
       items: [{ price: { id: price_id } }],
       billing_cycle,
-      current_billing_period: { starts_at: '2026-08-01T00:00:00.000000Z', ends_at: period_end },
+      // 🔴 2026-09-02 (B2-I) — `period_end: null` now produces
+      // `current_billing_period: null`, THE WHOLE FIELD, not an object whose
+      // `ends_at` happens to be null. Paddle's own docs (get-subscription) say
+      // the field itself is 「null for paused and canceled subscriptions」, and
+      // envelope.ts's `periodEndIn` already special-cases that exact shape
+      // (`asObject(data.current_billing_period) === null` after checking the
+      // key is present). Before this, the fixture could only ever send an
+      // OBJECT with a null `ends_at` inside it — a shape Paddle never actually
+      // sends — so the P0-2 fix (fromPaddle treating a null period on a
+      // terminal status as "already ended") had unit coverage but no coverage
+      // through the real webhook wire (audit follow-up on g17).
+      current_billing_period: period_end === null ? null : { starts_at: '2026-08-01T00:00:00.000000Z', ends_at: period_end },
       custom_data: { flowmic_user_id: user_id },
       ...(canceled_at === null ? {} : { canceled_at }),
     },
@@ -234,6 +245,7 @@ export const G17 = {
 
       dir = mkdtempSync(path.join(tmpdir(), 'flowmic-g17-'));
       const dbPath = path.join(dir, 'g17.sqlite');
+      const mailDir = path.join(dir, 'mail');
       try {
         saas = await startSaasServer({
           FLOWMIC_DB_PATH: dbPath,
@@ -245,10 +257,11 @@ export const G17 = {
           // gateway off, `source:'none'` cannot be a mock artefact.
           FLOWMIC_MOCK_BILLING: '',
           // VERIFY-1 (2026-08-11): the console reads below (subscription/summary/
-          // billing-events) now sit behind the email-verification gate; the
-          // internal code echo (M1 reset-echo precedent) is how a spawned dist
-          // server with no mail channel lets signup() pass it.
-          FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO: '1',
+          // billing-events) now sit behind the email-verification gate.
+          // 2026-09-02 — the code is read from the file-mail fixture
+          // (`mailFileEnv`), not the deleted `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO`
+          // (owner ordered it removed; see harness.mjs for the full account).
+          ...mailFileEnv(mailDir),
         });
       } catch (e) {
         return FAIL(`saas server failed to start: ${e.message}`);
@@ -301,9 +314,10 @@ export const G17 = {
         if (res.status !== 201 || typeof body?.token !== 'string' || typeof body?.user?.id !== 'string') {
           throw new Error(`/api/register ${email} → ${res.status} ${JSON.stringify(body).slice(0, 160)}`);
         }
-        // VERIFY-1: pass the verification gate (send→confirm, code echoed) —
-        // every console read below would otherwise honestly 403.
-        await verifyRegisteredEmail(url, body.token);
+        // VERIFY-1: pass the verification gate (send→confirm, code read from
+        // the file-mail fixture) — every console read below would otherwise
+        // honestly 403.
+        await verifyRegisteredEmail(url, body.token, mailDir, email);
         return { id: body.user.id, token: body.token };
       };
       const planOf = async (token) => {
@@ -562,6 +576,50 @@ export const G17 = {
         return FAIL(`an expired subscriber still enforces a paid quota: ${JSON.stringify(expiredQuota)}`);
       }
 
+      // ══ ⑦-bis 🔴 THE REAL WIRE SHAPE: canceled with a null `current_billing_period` ═
+      //
+      // Step ⑦ above proves the DECISION (fromPaddle reading a null column) by
+      // reaching into the sqlite file directly — cheap, but it cannot tell "the
+      // fix reads a null column correctly" from "nothing ever sends Paddle's
+      // actual null-period shape through the real webhook wire, so the fix's
+      // branch is unreachable in production". Paddle's own spelling of "this
+      // subscription's period already ended" is `current_billing_period: null`
+      // — THE WHOLE FIELD null, not an object with a null `ends_at` inside it
+      // (get-subscription docs; envelope.ts's `periodEndIn` special-cases that
+      // exact shape). `subscriptionFrame({period_end:null})` above now emits
+      // it; before 2026-09-02 (audit B2-I) it could not.
+      const nullPeriodUser = await signup('g17-nullperiod@flowmic.test', 'G17 null-period');
+      const npActivate = subscriptionFrame({
+        event_id: 'evt_g17_np_activate', occurred_at: T_ACTIVATE, notification_id: 'ntf_g17_np_activate',
+        subscription_id: 'sub_g17_np', price_id: PRICE_PRO, user_id: nullPeriodUser.id, period_end: FUTURE_END,
+      });
+      const npAct = await post(npActivate, signature(npActivate, nowSec()));
+      if (npAct.status !== 200 || npAct.body?.outcome !== 'applied') {
+        return FAIL(`the null-period control's own activation failed (${npAct.status} ${JSON.stringify(npAct.body)}) — the assertion below would be vacuous`);
+      }
+      const npPro = await planOf(nullPeriodUser.token);
+      if (npPro?.plan !== 'pro') return FAIL(`the null-period control did not even reach pro: ${JSON.stringify(npPro)}`);
+      const npCancel = subscriptionFrame({
+        event_id: 'evt_g17_np_cancel', event_type: 'subscription.canceled', occurred_at: T_CANCEL,
+        notification_id: 'ntf_g17_np_cancel', subscription_id: 'sub_g17_np', price_id: PRICE_PRO,
+        status: 'canceled', user_id: nullPeriodUser.id, period_end: null, canceled_at: T_CANCEL,
+      });
+      const npCancelRes = await post(npCancel, signature(npCancel, nowSec()));
+      if (npCancelRes.status !== 200 || npCancelRes.body?.outcome !== 'applied') {
+        return FAIL(`a canceled event with a real null current_billing_period was not applied (${npCancelRes.status} ${JSON.stringify(npCancelRes.body)})`);
+      }
+      const npAfterCancel = await planOf(nullPeriodUser.token);
+      const dNp = diff(npAfterCancel, {
+        plan: 'free', source: 'paddle', state: 'expired', expires_at: null, paddle_subscription_id: 'sub_g17_np',
+      });
+      // 🔴 THE ASSERTION P0-2 EXISTS FOR: without the fix, a null period on a
+      // canceled row read as `expired:false` and this stayed 'pro' forever.
+      if (dNp) return FAIL(`canceled + a real null current_billing_period must read 「free, already ended」 immediately — ${dNp}`);
+      const npQuota = await quotaOf(nullPeriodUser.token);
+      if (npQuota?.stt?.limit_min !== FREE_STT_MIN) {
+        return FAIL(`a canceled subscription with a null current_billing_period still enforces a paid quota: ${JSON.stringify(npQuota)}`);
+      }
+
       // ══ ⑧ permanent_free outranks everything, and it is an EXEMPTION ══════
       const ownerAcct = await signup('g17-permafree@flowmic.test', 'G17 owner');
       // The same UPDATE `UserRepo.setPermanentFree` runs. There is no route for
@@ -689,6 +747,7 @@ export const G17 = {
         + `${MAX_STT_MIN} min/${MAX_LLM} (the only difference between the refused and accepted request was the signature, so the probes are provably not blind); `
         + '🔴 reverse ②: a correctly-signed frame an hour old → 401 with reason 「expired」 specifically (not mismatch — two different repairs), zero side effects, then the same bytes with a fresh ts → applied; '
         + 'cancellation keeps the tier to current_period_end, and once that date passes the plan drops to free while source STAYS paddle (「来自那条订阅，已过期」); '
+        + `a SEPARATE account canceled with Paddle's real null-period shape (current_billing_period: null, not an object with a null ends_at) drops to free/expired immediately, enforcing ${FREE_STT_MIN} min (P0-2 proven through the real wire, not just the DB column); `
         + `permanent_free reads {plan:free, source:permanent_free, quota_exempt:true} and is CAPPED AT THE MAX TIER's line (${MAX_STT_MIN} min/${MAX_LLM}, owner 2026-08-07 — label and enforced number checked separately, and proven not to be free's ${FREE_STT_MIN}), and it OUTRANKS a real max row that was proven to be written (precedence evidenced by source/paddle_subscription_id, not by the quota — the two now yield the same numbers); `
         + 'an unmapped price is recorded as `unmapped` naming the price id and moves nobody\'s tier or quota; the ledger answers only the account that owns it. '
         + 'NOT covered here: Paddle itself (no sandbox delivery — the payload shape is pinned by apps/server-core/test/paddle-webhook-handler.test.ts), the ordering guard and h1 rotation (fake-clock unit tests, `requires`d above), the web console rendering (web repo), and any public network (loopback — deploy/cloud-chain.mjs §8 does the refusals against production).',

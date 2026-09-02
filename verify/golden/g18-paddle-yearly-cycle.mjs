@@ -48,7 +48,7 @@
 //     repo; that is a grep in the Lane H report.
 
 import path from 'node:path';
-import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, PASS, FAIL } from './harness.mjs';
+import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, mailFileDir, mailFileEnv, PASS, FAIL } from './harness.mjs';
 import { paddleSignature, subscriptionFrame, diff } from './g17-paddle-billing-chain.mjs';
 
 // ── the numbers, as LITERALS (same reasoning as G17/G15) ────────────────────
@@ -113,8 +113,12 @@ export const G18 = {
   async fn() {
     const servers = [];
     try {
-      /** Boot a saas instance whose Paddle block knows exactly `priceTiers`. */
+      /** Boot a saas instance whose Paddle block knows exactly `priceTiers`.
+       *  Each call gets its OWN mail directory (`mailFileDir()`) — two
+       *  servers means two file-mail fixtures, since `readLatestMail` has no
+       *  server identity to disambiguate by beyond the directory it reads. */
       const boot = async (priceTiers) => {
+        const mailDir = mailFileDir();
         const s = await startSaasServer({
           FLOWMIC_PADDLE_ENABLED: '1',
           FLOWMIC_PADDLE_WEBHOOK_SECRET: WEBHOOK_SECRET,
@@ -123,12 +127,15 @@ export const G18 = {
           // alternative explanation for every `source` below: with the mock
           // gateway off, `source:'none'` cannot be a mock artefact.
           FLOWMIC_MOCK_BILLING: '',
-          // VERIFY-1 (2026-08-11): same gate + same internal code echo as G17's
-          // note — signup() verifies each account through the real routes.
-          FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO: '1',
+          // VERIFY-1 (2026-08-11): same gate as G17's note — signup() verifies
+          // each account through the real routes. 2026-09-02 — the code is
+          // read from the file-mail fixture, not the deleted
+          // `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO` (owner ordered it
+          // removed; see harness.mjs for the full account).
+          ...mailFileEnv(mailDir),
         });
         servers.push(s);
-        return `http://127.0.0.1:${s.port}`;
+        return { url: `http://127.0.0.1:${s.port}`, mailDir };
       };
 
       const post = async (url, rawBody) => {
@@ -152,7 +159,7 @@ export const G18 = {
        *  it counts MINTS — and this case mints three against its first server.
        *  Answered once in the harness via `FLOWMIC_REGISTER_DAILY_CAP`; G17's
        *  note carries the whole argument. */
-      const signup = async (url, email) => {
+      const signup = async (url, mailDir, email) => {
         const res = await fetch(`${url}/api/register`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -162,8 +169,9 @@ export const G18 = {
         if (res.status !== 201 || typeof body?.token !== 'string' || typeof body?.user?.id !== 'string') {
           throw new Error(`/api/register ${email} → ${res.status} ${JSON.stringify(body).slice(0, 160)}`);
         }
-        // VERIFY-1: pass the verification gate (send→confirm, code echoed).
-        await verifyRegisteredEmail(url, body.token);
+        // VERIFY-1: pass the verification gate (send→confirm, code read from
+        // the file-mail fixture).
+        await verifyRegisteredEmail(url, body.token, mailDir, email);
         return { id: body.user.id, token: body.token };
       };
       const planOf = async (url, token) => {
@@ -189,14 +197,14 @@ export const G18 = {
       // ════════════════════════════════════════════════════════════════════════
       // The instance that DOES sell annual plans — all four of owner's prices.
       // ════════════════════════════════════════════════════════════════════════
-      const openUrl = await boot({
+      const { url: openUrl, mailDir: openMailDir } = await boot({
         [PRICE_PRO_MONTHLY]: 'pro',
         [PRICE_PRO_YEARLY]: 'pro',
         [PRICE_MAX_YEARLY]: 'max',
       });
 
       // ══ ① Pro ANNUAL: the tier, the cycle, the date — and the GATE ═══════════
-      const proY = await signup(openUrl, 'g18-pro-yearly@flowmic.test');
+      const proY = await signup(openUrl, openMailDir, 'g18-pro-yearly@flowmic.test');
       const beforeQuota = await quotaOf(openUrl, proY.token);
       if (beforeQuota?.stt?.limit_min !== FREE_STT_MIN) {
         // The "it moved" claims below are only worth anything if it started
@@ -234,7 +242,7 @@ export const G18 = {
       }
 
       // ══ ② Max ANNUAL: a different price, a different tier, same cycle ═══════
-      const maxY = await signup(openUrl, 'g18-max-yearly@flowmic.test');
+      const maxY = await signup(openUrl, openMailDir, 'g18-max-yearly@flowmic.test');
       const maxYearFrame = subscriptionFrame({
         event_id: 'evt_g18_max_year', occurred_at: T2, notification_id: 'ntf_g18_max_year',
         subscription_id: 'sub_g18_max_year', price_id: PRICE_MAX_YEARLY, user_id: maxY.id,
@@ -265,7 +273,7 @@ export const G18 = {
       // Without this, every assertion above is also true of a build that answers
       // "yearly" to everything — including one that ignores `billing_cycle`
       // entirely and hard-codes the word.
-      const proM = await signup(openUrl, 'g18-pro-monthly@flowmic.test');
+      const proM = await signup(openUrl, openMailDir, 'g18-pro-monthly@flowmic.test');
       const proMonthFrame = subscriptionFrame({
         event_id: 'evt_g18_pro_month', occurred_at: T3, notification_id: 'ntf_g18_pro_month',
         subscription_id: 'sub_g18_pro_month', price_id: PRICE_PRO_MONTHLY, user_id: proM.id,
@@ -292,8 +300,8 @@ export const G18 = {
       // into a tested fact: on an instance configured with the monthly price
       // ALONE, an annual event is recorded and changes nothing.
       // ════════════════════════════════════════════════════════════════════════
-      const closedUrl = await boot({ [PRICE_PRO_MONTHLY]: 'pro' });
-      const holdout = await signup(closedUrl, 'g18-holdout@flowmic.test');
+      const { url: closedUrl, mailDir: closedMailDir } = await boot({ [PRICE_PRO_MONTHLY]: 'pro' });
+      const holdout = await signup(closedUrl, closedMailDir, 'g18-holdout@flowmic.test');
 
       const holdoutYear = subscriptionFrame({
         event_id: 'evt_g18_holdout_year', occurred_at: T1, notification_id: 'ntf_g18_holdout_year',

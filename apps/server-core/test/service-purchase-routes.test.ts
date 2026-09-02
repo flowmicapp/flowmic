@@ -258,7 +258,7 @@ describe('⑤ the list serves the promise from the constant', () => {
     });
     db.billing.advanceOneTimePurchase(
       'ord_2',
-      { state: 'delivered', scheduled_at: null, started_at: null, delivered_at: NOW_ISO, completion_notice_at: null, refunded_at: null },
+      { expected_state: 'paid', state: 'delivered', scheduled_at: null, started_at: null, delivered_at: NOW_ISO, completion_notice_at: null, refunded_at: null },
       NOW_ISO,
     );
 

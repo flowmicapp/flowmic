@@ -160,6 +160,23 @@ export interface GoogleAuthRoutesDeps {
    */
   surgeGate?: RegistrationSurgeGate;
   /**
+   * P2-5 (2026-09-01 audit) — the SAME per-IP DAILY mint cap `/api/register`
+   * holds (`AuthRoutesDeps.mintLimiter`, auth/register-rate-limit.ts).
+   *
+   * 🔴 THIS ROUTE IS A MINT PATH TWICE OVER: it was already the surge gate's
+   * own bypass (the field above closes that), and it was ALSO the per-IP
+   * daily-cap's bypass — an address that spent its two register-route mints
+   * could keep minting accounts through Google all day, on a budget that read
+   * as untouched. Same split as the surge gate: gated on every request once
+   * the cap is spent, recorded only when `created`, checked BEFORE the body
+   * is read (IP-only, no reason to wait).
+   *
+   * Absent (unit tests that predate the card, or a deployment with no cap
+   * configured) ⇒ unchanged behaviour — the account layer is not gated by
+   * something that does not exist.
+   */
+  mintLimiter?: RegisterRateLimiter;
+  /**
    * The token verifier. REQUIRED, and never nullable.
    *
    * An unconfigured deployment passes the LOUD unconfigured verifier
@@ -338,6 +355,19 @@ export function tryHandleGoogleAuthRoutes(
     }
     deps.limiter.record(ip);
 
+    // P2-5 — the SAME per-IP daily mint cap /api/register enforces, checked
+    // BEFORE the body is read (IP-only) and BEFORE the outbound round trip to
+    // Google's key endpoint: refusing here costs nothing this route would
+    // otherwise have to pay to reach the same refusal later.
+    const dailyMint = deps.mintLimiter?.check(ip);
+    if (dailyMint && !dailyMint.allowed) {
+      log.warn('google login: account creation refused — this address is past its daily account cap', {
+        ip,
+        retry_after_ms: dailyMint.retryAfterMs,
+      });
+      return sendJson(res, 429, { error: 'REGISTER_RATE_LIMITED', retry_after_ms: dailyMint.retryAfterMs });
+    }
+
     const body = await readJsonBody(req);
     // 2026-08-27 batch-2 item 4 — the GLOBAL surge gate, the SAME function
     // /api/register runs, on the SAME counter. Placed BEFORE the credential is
@@ -435,7 +465,14 @@ export function tryHandleGoogleAuthRoutes(
     // 「how many 201s this route answered」can never disagree. A sign-in by an
     // existing account is not an account creation and must not push a calm day
     // towards the threshold.
-    if (resolution.created) deps.surgeGate?.counter.record();
+    if (resolution.created) {
+      deps.surgeGate?.counter.record();
+      // P2-5 — the daily budget is spent HERE, after the account really
+      // exists, same reasoning as auth-routes.ts's mintLimiter doc: an
+      // attempt that resolved to an existing user's sign-in must not cost
+      // that address one of its two daily mints.
+      deps.mintLimiter?.record(ip);
+    }
 
     log.info('google login: session issued', {
       user_id: resolution.user.id,

@@ -7,6 +7,13 @@
 part of '../app_strings.dart';
 
 mixin RecordingStrings on AppStringsLeaves {
+  // WP-8 — the signature this mixin resolves against for the generated
+  // protocol-sentence fallback (same cross-shard pattern as `_t`'s own
+  // signature two shards over: `AppStrings.locale` lives on the concrete
+  // class this mixin is applied to, not on [AppStringsLeaves], and a field
+  // there satisfies an abstract getter of the same name declared here).
+  AppLocale get locale;
+
   // The sole translation of the 「仅记录」("record only") term lives in
   // ChatStrings.recordOnly (later than this mixin in the `with` order) — this
   // only declares the signature (the same cross-shard pattern as pairError).
@@ -321,6 +328,27 @@ mixin RecordingStrings on AppStringsLeaves {
   /// calendar month — so a new month is a fresh row and a fresh budget.
   String get sttStallQuotaExceeded => _lfSttStallQuotaExceeded;
 
+  /// WP-9 (2026-09-02, findings-crossend-quota.md #3) — the SAME `QUOTA_EXCEEDED`
+  /// refusal, but for the OTHER account: card QTA-2 checks two ledgers (the
+  /// acting phone's own, and — for a delivery that targets a PC — that PC
+  /// owner's), and until this card `audio.handler.ts`'s `refuseStart` dropped
+  /// WHICH one was judged before the frame left the server. A phone signed into
+  /// account A, paired to a PC signed into account B, whose recording was
+  /// refused because B's month is spent, used to read [sttStallQuotaExceeded]
+  /// — "the monthly transcription quota is used up" — which the user reads as
+  /// THEIR OWN quota. It is not; nothing they buy fixes it.
+  ///
+  /// Selected when the wire's additive `judged_account` field reads
+  /// `'pc_owner'` (`SttErrorSchema`, `packages/protocol/src/protocol-schemas-
+  /// audio.ts`) — see [SttStall.judgedAccount] for where that field lands on
+  /// this phone. Absent on every build that predates this card, so old servers
+  /// and old refusals keep [sttStallQuotaExceeded] exactly as before (additive
+  /// field, no protocol bump).
+  ///
+  /// ⚠️ Same restraint as its sibling: no upgrade CTA, because upgrading THIS
+  /// account would not touch the ceiling that was actually hit.
+  String get sttStallQuotaExceededPcOwner => _lfSttStallQuotaExceededPcOwner;
+
   /// `SETTINGS_SCHEMA_INVALID` — a stored settings ROW failed validation while
   /// the server was setting this utterance up, so the press was refused at
   /// `audio:start` and no engine was ever asked.
@@ -363,10 +391,20 @@ mixin RecordingStrings on AppStringsLeaves {
   /// is that hunting through their own settings will not help.
   String get sttStallServerFault => _lfSttStallServerFault;
 
-  /// An engine error whose code this build has no sentence for. States what
-  /// the frame itself proves (the engine reported an error) and shows the raw
-  /// identifier — never a confident cause nobody verified (0.2.53 rule), and a
-  /// build that has fallen behind the protocol should LOOK like it has.
+  /// An engine error whose code this build has no BESPOKE sentence for, and
+  /// whose code the protocol registry ALSO does not recognise (a phone-local
+  /// code, or a build that has fallen behind the protocol). States what the
+  /// frame itself proves (the engine reported an error) and shows the raw
+  /// identifier — never a confident cause nobody verified (0.2.53 rule).
+  ///
+  /// 🔴 WP-8 (2026-09-02) — this is now the SECOND fallback, not the only one.
+  /// `sttStallBannerMessage`'s caller tries [protocolErrorSentence] first: a
+  /// code the SERVER registered (`packages/protocol/src/error-codes.ts`) but
+  /// nobody wrote phone copy for — `STT_ENGINE_AUTH_FAIL` /
+  /// `STT_ENGINE_RATE_LIMITED` / `STT_ENGINE_TIMEOUT` / `STT_NETWORK_DROP` all
+  /// measured this way (F1-b) — gets the registry's own zh_CN/en sentence
+  /// instead of a labelled identifier. This raw-identifier form is what is
+  /// left for a code NEITHER end recognises.
   String sttStallEngineErrorCoded(String code) => _lfSttStallEngineErrorCoded(code);
 
   /// 🔴 `AUTH_TOKEN_INVALID` on `audio:start` — 「this phone is not signed in to
@@ -412,7 +450,13 @@ mixin RecordingStrings on AppStringsLeaves {
       // this list matches the order of the questions: is anything configured,
       // did the platform give us a line, can what we got do the job.
       if (code == 'STT_LANGUAGE_UNSUPPORTED') return sttStallLanguageUnsupported;
-      if (code == 'QUOTA_EXCEEDED') return sttStallQuotaExceeded;
+      if (code == 'QUOTA_EXCEEDED') {
+        // WP-9 — see [sttStallQuotaExceededPcOwner]: same code, two possible
+        // accounts, and the wire now says which one was judged.
+        return stall.judgedAccount == 'pc_owner'
+            ? sttStallQuotaExceededPcOwner
+            : sttStallQuotaExceeded;
+      }
       // Two ACCOUNT verdicts, ordered before the engine-flavoured arms below
       // because neither is an engine speaking and neither has an engine remedy.
       // Owner ruling 2026-08-27 §R1 追加: the relay's per-call verdict is now the
@@ -441,6 +485,14 @@ mixin RecordingStrings on AppStringsLeaves {
       if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;
       if (code == 'SETTINGS_SYNC_FAIL') return sttStallServerFault;
       if (code != null && code.isNotEmpty) {
+        // WP-8 (2026-09-02, F1-b) — a code with no BESPOKE sentence above may
+        // still be one the protocol registry has real copy for
+        // (STT_ENGINE_AUTH_FAIL / STT_ENGINE_RATE_LIMITED /
+        // STT_ENGINE_TIMEOUT / STT_NETWORK_DROP measured this way). Try that
+        // before falling all the way to the labelled raw identifier.
+        final String? fromRegistry =
+            protocolErrorSentence(code, preferZh: locale == AppLocale.zh);
+        if (fromRegistry != null) return fromRegistry;
         return sttStallEngineErrorCoded(code);
       }
     }
@@ -604,4 +656,64 @@ mixin RecordingStrings on AppStringsLeaves {
   /// the condition and
   /// what becomes possible when it clears.
   String get pttSubDisabled => _lfPttSubDisabled;
+
+  // ── F6 (2026-09-02 audit): retained-audio eviction/TTL notices ───────────
+  //
+  // `RetainedAudioStore` (audio/retained_audio_store.dart) already refuses to
+  // drop a segment silently — every eviction and every TTL expiry is
+  // announced on its `notices` stream — but until this shard the ONLY
+  // listener was the diagnostics log (`retained_audio_boot.dart`). "No
+  // silent failure" runs in both directions: a store that told a user their
+  // audio was "留存" ("retained") and then discarded it with nothing but a
+  // diag line is the exact unbacked-promise shape volume 15 §2.0-b bans, just
+  // moved one step later than the original defect these words were coined
+  // to fix.
+  //
+  // ⚠️ NOT ONE BYTE OR HOUR COUNT, on the same principle as
+  // [recordingStoppedContinuousCap]: `kDefaultCapBytes` / `kDefaultTtl` are
+  // compile-time constants that this store's own header says to expect to
+  // move (「IF THE TIER CEILING EVER RISES AGAIN, COME BACK HERE」), and a
+  // sentence that quotes today's number becomes nine translations of a wrong
+  // fact the day either constant changes.
+
+  /// [RetainedAudioNotice.codeDroppedOldest] — the store gave up an OLDER
+  /// segment (this run's or an orphaned previous run's) to make room for new
+  /// audio. The segment that was kept is unaffected; this states only what
+  /// was lost.
+  String get retainedAudioNoticeDroppedOldest =>
+      _lfRetainedAudioNoticeDroppedOldest;
+
+  /// [RetainedAudioNotice.codeCapReached] — nothing older was left to give
+  /// up, so the segment being written to RIGHT NOW is the one that stopped
+  /// growing. Distinct from the sentence above because the two name opposite
+  /// halves of a recording (the beginning vs. the end) — collapsing them
+  /// would tell the user the wrong part of what they said is missing.
+  String get retainedAudioNoticeCapReached => _lfRetainedAudioNoticeCapReached;
+
+  /// [RetainedAudioNotice.codeExpired] — the TTL backstop reaped audio nobody
+  /// ever claimed (typically an app restart that orphaned it — see the
+  /// store's own header). This is the one notice that can fire with no
+  /// recording in progress at all.
+  String get retainedAudioNoticeExpired => _lfRetainedAudioNoticeExpired;
+
+  /// Selector for [RetainedAudioNotice.code]. Keyed on the store's own named
+  /// constants (never re-typed literals) — same discipline as
+  /// [recordingAutoStoppedMessage]. The default arm exists only so a future
+  /// fourth code added to the store without a matching sentence here fails
+  /// visibly (an unrecognised identifier survives to the diag line already
+  /// written by the caller) rather than throwing past a `switch` that never
+  /// expected to see one; today's three codes are the store's whole
+  /// contract and this is a closed set, not open wire data.
+  String retainedAudioNoticeMessage(String code) {
+    switch (code) {
+      case RetainedAudioNotice.codeDroppedOldest:
+        return retainedAudioNoticeDroppedOldest;
+      case RetainedAudioNotice.codeCapReached:
+        return retainedAudioNoticeCapReached;
+      case RetainedAudioNotice.codeExpired:
+        return retainedAudioNoticeExpired;
+      default:
+        return code;
+    }
+  }
 }

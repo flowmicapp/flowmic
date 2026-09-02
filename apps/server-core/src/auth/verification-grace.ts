@@ -71,9 +71,21 @@ export const VERIFICATION_GRACE_EPOCH_ENV = 'FLOWMIC_VERIFY_GRACE_EPOCH';
  * out.
  *
  * An HTTP-LOCAL / ACK-LOCAL string on the precedent set by the refusal name
- * auth/email-verification.ts owns, NOT a protocol `ErrorCode` — this card moves
- * the owner-gated `ERROR_CODES` table by exactly nothing
- * (test/verification-grace.test.ts pins that absence).
+ * auth/email-verification.ts owns.
+ *
+ * 🔴 CORRECTION (WP-8, 2026-09-02): the two paragraphs below described a real
+ * gap that is now closed — this name IS a protocol `ErrorCode` as of this
+ * round (`packages/protocol/src/error-codes.ts`), registered under the exact
+ * same string this constant holds (pinned by
+ * `test/verification-grace.test.ts`'s "pins" describe block, which used to
+ * assert the opposite). The phone already had bespoke sentences for it before
+ * today (`recording_strings.dart` `sttStallVerifyEmail`,
+ * `compose_strings.dart` `case 'EMAIL_VERIFY_GRACE_EXPIRED'`) — what it lacked
+ * was a row in the registry, which is what the count guard, the
+ * i18n-error-keys lint and `inject-verdict-authorship.ts`'s exhaustive
+ * `satisfies` all actually read. Original paragraphs kept verbatim below: they
+ * were true when written, and they are the reason this correction exists
+ * rather than a silent edit.
  *
  * ⚠️ THE SIBLING'S NAME IS DELIBERATELY NOT SPELLED OUT ANYWHERE IN THIS FILE.
  * test/email-verification.test.ts runs a source-tree CENSUS of which files name

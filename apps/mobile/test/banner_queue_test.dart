@@ -5,6 +5,8 @@
 
 import 'package:flowmic/src/session/compose_gate.dart'
     show AiComposeFailure, AiComposeOutcome, ComposeSendFailure;
+import 'package:flowmic/generated/protocol_error_sentences.g.dart'
+    show protocolErrorSentence;
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
@@ -206,6 +208,56 @@ void main() {
       expect(q.top?.dismissible, isTrue);
       q.top!.onAction!();
       expect(dismissed, 1);
+    });
+
+    test('no retained-audio notice = no banner (the ordinary, silent case)', () {
+      final BannerQueue q = buildChatBanners(
+        connection: ConnectionState.connected,
+        autoStopped: false,
+        strings: zh,
+        retainedAudioNotice: null,
+      );
+      expect(q.isEmpty, isTrue);
+    });
+
+    test('AUD-D F6: a retained-audio notice is a dismissible DEGRADED banner '
+        'carrying the store\'s own sentence for its code, and fires the '
+        'controller callback on dismiss', () {
+      int dismissed = 0;
+      final BannerQueue q = buildChatBanners(
+        connection: ConnectionState.connected,
+        autoStopped: false,
+        strings: zh,
+        retainedAudioNotice: 'retained-audio-dropped-oldest',
+        onDismissRetainedAudioNotice: () => dismissed++,
+      );
+      expect(q.top?.id, BannerIds.retainedAudioNotice);
+      expect(q.top?.severity, BannerSeverity.degraded);
+      expect(q.top?.dismissible, isTrue);
+      expect(q.top?.message, zh.retainedAudioNoticeDroppedOldest);
+      q.top!.onAction!();
+      expect(dismissed, 1);
+    });
+
+    test('AUD-D F6: each store code selects its OWN sentence, not a shared '
+        'generic one', () {
+      final Map<String, String> expected = <String, String>{
+        'retained-audio-dropped-oldest': zh.retainedAudioNoticeDroppedOldest,
+        'retained-audio-cap-reached': zh.retainedAudioNoticeCapReached,
+        'retained-audio-expired': zh.retainedAudioNoticeExpired,
+      };
+      final Set<String> messages = <String>{};
+      for (final MapEntry<String, String> e in expected.entries) {
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: zh,
+          retainedAudioNotice: e.key,
+        );
+        expect(q.top?.message, e.value, reason: e.key);
+        messages.add(q.top!.message);
+      }
+      expect(messages.length, 3, reason: 'three codes, three distinct sentences');
     });
 
     test('GA-01: a failed utterance transform is a BLOCKING, dismissible banner '
@@ -415,6 +467,47 @@ void main() {
       expect(q.top!.message, contains('STT_SOMETHING_FROM_THE_FUTURE'));
       expect(q.top!.message, contains('转写引擎报错'));
     });
+
+    // ── WP-8 F1-b (2026-09-02): the SERVER registered these, phone did not ──
+    //
+    // packages/protocol/src/error-codes.ts has real bilingual copy for all
+    // four codes below (stt-session.ts:258 passes them through verbatim), but
+    // no recording_strings.dart case ever rendered it — each one fell to the
+    // generic 「转写引擎报错（CODE）」/"Speech engine reported an error (CODE)"
+    // fallback, a raw identifier reaching the user for a code the registry
+    // already had a real sentence for. gen-protocol-error-sentences-dart.mjs's
+    // generated fallback closes that gap without hand-writing bespoke copy for
+    // each — see recording_strings.dart's sttStallBannerMessage.
+    for (final String code in <String>[
+      'STT_ENGINE_AUTH_FAIL',
+      'STT_ENGINE_RATE_LIMITED',
+      'STT_ENGINE_TIMEOUT',
+      'STT_NETWORK_DROP',
+    ]) {
+      test('WP-8 F1-b: $code renders the registry\'s own sentence, not a bare '
+          'identifier', () {
+        for (final AppLocale locale in <AppLocale>[AppLocale.zh, AppLocale.en]) {
+          final AppStrings s = AppStrings.of(locale);
+          final BannerQueue q = buildChatBanners(
+            connection: ConnectionState.connected,
+            autoStopped: false,
+            strings: s,
+            sttStalled: SttStall(SttStallReason.engineError, code: code),
+          );
+          expect(q.top!.message, isNot(contains(code)), reason: '$locale');
+          expect(
+            q.top!.message,
+            isNot(s.sttStallEngineErrorCoded(code)),
+            reason: '$locale: must not be the labelled-identifier fallback',
+          );
+          expect(
+            q.top!.message,
+            protocolErrorSentence(code, preferZh: locale == AppLocale.zh),
+            reason: '$locale: must be exactly the registry\'s own sentence',
+          );
+        }
+      });
+    }
 
     // ── 2026-08-16: two codes that reach this banner without an engine ─────
     //

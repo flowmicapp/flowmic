@@ -17,10 +17,19 @@
 // mode-gating as auth-routes.ts). Every response body carries an explicit code —
 // no silent failure. Bearer auth reuses the account AuthService verbatim; the
 // public shapes NEVER expose a secret (password_hash, device_token, mobile_token,
-// reset_token — except the FLAG-GATED internal forgot echo below, OFF by
-// default).
+// reset_token).
 //
-// 0.3.0 M1 — the redline below is CLOSED BY DEFAULT. Echoing reset_token to an
+// 🔴 2026-09-02 — THE FLAG-GATED ECHO THE NEXT PARAGRAPH DESCRIBES IS DELETED,
+// NOT MERELY DEFAULT-OFF. `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` read per request
+// with no mode gate at all, so a single misconfigured `=1` in a production
+// env file was a 2-request account takeover of any known email — owner
+// ordered it removed (docs/decisions/2026-09-02-owner-plain-language-lan-ci-
+// and-two-security-questions.md §3, problem 1). Its replacement for reading a
+// token in a test with no real mailbox is mail/file.ts
+// (FLOWMIC_MAIL_PROVIDER=file). The paragraph below is kept for the record —
+// it describes a mechanism that no longer exists in the code.
+//
+// 0.3.0 M1 (historical) — the redline below was CLOSED BY DEFAULT. Echoing reset_token to an
 // anonymous caller is a 2-request account takeover of any KNOWN email, so the
 // echo is now dark unless `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` is set to a
 // strict '1'/'true' (anything else, including unset, means OFF — a fat-fingered
@@ -46,7 +55,8 @@
 // current status of the mail channel, and the redline paragraph two paragraphs
 // up (the echo flag) is still enforced by that file.
 
-import { isRealPc } from '../room/registry';
+import { countMobileDevices, isRealPc } from '../room/registry';
+import { CloudSummarySchema } from '@flowmic/protocol';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
 import { pcPresence } from '../room/pc-presence';
@@ -395,7 +405,13 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
     // excludes its auto-pairing — which is what the quota already does, and the
     // two numbers must not be able to disagree.
     const pcs = deps.pcs.listByUser(who.userId).filter(isRealPc);
-    const mobileCount = pcs.reduce((n, pc) => n + deps.mobiles.listByPc(pc.id).length, 0);
+    // WP-9 (findings-crossend-quota.md #4) — the SAME dedup-by-handset
+    // registry.ts's `ensureMobileSlot` enforces, not a second `.length` sum:
+    // the two used to disagree (this one counted pairing ROWS, the limit
+    // dedupes by `device_uid`), so the card could say "2 phones" for one
+    // physical handset paired to two of the user's PCs — a number the ceiling
+    // right next to it was not actually judging against.
+    const mobileCount = countMobileDevices(pcs, deps.mobiles);
     // 🔴 0.2.49 (owner 2026-08-02, PC instance limit 2/3/10): the LIMITS ride along with the
     // COUNTS, out of the SAME solver room/registry.ts enforces with
     // (`billing.effectiveLimits`). registry.ts:82 already logs the rule this
@@ -422,7 +438,13 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
     // users.plan on the way through — fine per request, a defect per row).
     const limits = deps.billing.effectiveLimits(who.userId);
     const finiteOrNull = (n: number): number | null => (Number.isFinite(n) ? n : null);
-    sendJson(res, 200, {
+    // WP-9 — this body IS `CloudSummarySchema` (packages/protocol), and this
+    // route VALIDATES ITS OWN OUTPUT against it before it leaves the server:
+    // a schema nothing checks is a comment, not a contract (rule ④). See that
+    // file's header for why `plan`/`quota` stay loose while `devices` /
+    // `continuous_minutes` — the two fields three ends have already disagreed
+    // about (findings-crossend-quota.md #4/#5) — are exact.
+    const summaryBody = CloudSummarySchema.parse({
       plan: deps.billing.getPlan(who.userId),
       quota: deps.billing.getQuota(who.userId),
       devices: {
@@ -452,6 +474,7 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       // INFINITY_ALLOWED, so in practice this is always a number.
       continuous_minutes: finiteOrNull(limits.continuous_minutes),
     });
+    sendJson(res, 200, summaryBody);
     return true;
   }
 
@@ -528,6 +551,34 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       return true;
     }
     sendJson(res, 200, { events: deps.billingLedger.listEventsForUser(who.userId, parsed.limit) });
+    return true;
+  }
+
+  // ── 2026-09-02 audit F9/F3 · GET /api/cloud/billing/refunds?limit=20 ───────
+  //
+  // 🔴 `BillingRepo.listRefundRequests` HAD ZERO PRODUCTION CALLERS before this
+  // route — its own doc comment claimed "Read by the console", which was not
+  // true (2026-09-02 audit F3/F9). Same shape as the events ledger above: "did
+  // I ask for a withdrawal, and what did Paddle say" is exactly the question a
+  // user opens the billing page to answer, and until this route existed the
+  // only way to answer it was to open the database.
+  //
+  // Same auth/scope discipline as `/billing/events`: own rows only, keyed off
+  // the Bearer-proven user id, never a query parameter.
+  if (method === 'GET' && (url === '/api/cloud/billing/refunds' || url.startsWith('/api/cloud/billing/refunds?'))) {
+    const who = authUser(req, deps);
+    if (!who.ok) {
+      sendJson(res, 401, { error: who.error });
+      return true;
+    }
+    if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
+    if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3 (feature gate)
+    const parsed = parseLimit(url);
+    if (!parsed.ok) {
+      sendJson(res, 400, { error: 'SETTINGS_SCHEMA_INVALID', message: parsed.message });
+      return true;
+    }
+    sendJson(res, 200, { refunds: deps.billingLedger.listRefundRequests(who.userId, parsed.limit) });
     return true;
   }
 

@@ -83,10 +83,14 @@ pub fn read_shape(archive: &Path) -> Result<ArchiveShape, UpdateFailure> {
             ZipError::NotAZip => "not_a_zip".to_string(),
             ZipError::Corrupt(what) => format!("corrupt:{what}"),
             ZipError::Io(_) => "io".to_string(),
-            // These two cannot arise from `open`, but naming them beats a
+            // These cannot arise from `open` (they are write-path-only, or
+            // read-path-but-not-`open` refusals), but naming them beats a
             // wildcard that would silently absorb a future variant.
             ZipError::Compressed(_) => "compressed".to_string(),
             ZipError::UnsafeName(_) | ZipError::NoSuchEntry(_) => "entry".to_string(),
+            // P2 (2026-09-02): new — `ZipWriter` refuses a >4 GiB field
+            // (no ZIP64); `ZipReader::open` never produces it.
+            ZipError::TooLarge(_) => "too_large".to_string(),
         },
     })?;
 

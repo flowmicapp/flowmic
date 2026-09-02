@@ -133,6 +133,28 @@ pub fn clear_port(port: u16) -> Result<(), String> {
     {
     let pid = locate_listener_pid(port).ok_or_else(|| format!("no LISTENING pid on :{port}"))?;
     let name = process_name(pid).unwrap_or_else(|| "<unknown>".to_string());
+    // P2 (2026-09-02 audit): "kills by port only" — the name above was
+    // computed and FORENSIC-LOGGED but never actually gated anything, so a
+    // completely unrelated process that happened to be squatting on :41879
+    // (another app, a leftover from something else entirely) would be
+    // `taskkill /F`'d exactly as readily as a stray copy of our own sidecar.
+    // The adopt probe already established "this listener answers foreign or
+    // is dead" (lead-controller ruling #1 step 1); it never established
+    // "this listener is even a Node process" — that is what this name check
+    // adds, using the SAME name this crate spawns its own sidecar under
+    // (`BUNDLED_NODE_NAME`) so there is exactly one place that name is spelled.
+    if !crate::sidecar::node_runtime::image_name_looks_like_node(&name) {
+        forensic::record(
+            "sidecar",
+            &format!(
+                "[KILL] REFUSED — pid={pid} name={name} on :{port} does not look like a Node \
+                 process; refusing to kill a stranger blind (adopt probe only proved 'foreign or dead', not 'ours')"
+            ),
+        );
+        return Err(format!(
+            "refusing to kill pid={pid} name={name} on :{port} — not a recognisable Node process"
+        ));
+    }
     // The audited line: record WHO we are about to kill, before doing it.
     forensic::record(
         "sidecar",

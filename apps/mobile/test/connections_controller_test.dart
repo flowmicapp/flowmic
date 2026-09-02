@@ -549,6 +549,23 @@ void main() {
         expect(boom.reachOf('http://192.168.1.5:41879'), InstanceReach.offline);
         boom.dispose();
       });
+
+      test('⟲ Card P2-9: a probe that throws an Error (not an Exception) also reads as offline, not as a crash', () async {
+        // The 0.2.35 shape (CLAUDE.md): `on Exception` does not match `Error`
+        // subclasses, so this would previously propagate uncaught out of
+        // refreshReachability instead of degrading like every other failure.
+        await session.tokenStorage.addOrUpdatePairing(seededPairing());
+        final ConnectionsController boom = ConnectionsController(
+          session: session,
+          login: login,
+          saasEndpoint: 'https://saas.test:443',
+          healthReader: (Uri url, Duration timeout) async => throw StateError('not an Exception'),
+        );
+        await boom.load();
+        await boom.refreshReachability();
+        expect(boom.reachOf('http://192.168.1.5:41879'), InstanceReach.offline);
+        boom.dispose();
+      });
     });
   });
 

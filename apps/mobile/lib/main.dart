@@ -54,6 +54,7 @@ import 'src/session/instance_machine_map.dart';
 import 'src/session/outbox_store.dart';
 import 'src/session/connections_controller.dart';
 import 'src/session/instance_probe.dart' show ServerChannel;
+import 'src/session/session_instance_owner.dart';
 import 'src/timeline/cloud/blind_store_cloud_client.dart';
 import 'src/timeline/cloud/blind_store_cloud_leg.dart';
 import 'src/timeline/cloud/blind_store_cloud_state.dart';
@@ -307,7 +308,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // still compile, still pass its unit tests, and quietly record nothing,
       // which is the exact shape of the defect that left the microphone
       // unopened for a whole rewrite (Book 13 §7 F1).
-      owner: _SessionInstanceOwner(_session),
+      owner: SessionInstanceOwner(_session),
     );
     _destination = DestinationController();
     // 0.2.27: two constructor arguments left with the history uplink (owner's
@@ -326,6 +327,9 @@ class _FlowMicAppState extends State<FlowMicApp> {
     _login = LoginController(
       transport: _session.transport,
       accountStore: SecureAccountStore(),
+      // AUD-D P2-5/F9 — see LoginController's `_onSignedOut` doc. `_blindStore`
+      // is assigned further down in this same method before any real logout.
+      onSignedOut: () => _blindStore?.detachForAccountChange(),
     );
     // No `fetcher:` ⇒ the REAL http read (`httpCloudSummaryFetch`). The
     // production default is deliberately not a friendly empty implementation
@@ -428,8 +432,10 @@ class _FlowMicAppState extends State<FlowMicApp> {
     final SqfliteBlindStoreCloudStateStore? cloudState =
         widget.storage.cloudState;
     if (cloudState != null) {
+      // AUD-D P1-1 — see blind_store_secure_key_store.dart's file header:
+      // account-scoped, not one fixed slot shared by every account.
       final BlindStoreKeyring keyring = BlindStoreKeyring(
-        store: const SecureBlindStoreKeyStore(),
+        store: AccountScopedBlindStoreKeyStore(accountKey: () => _login.email),
       );
       // SALT-2 — the keymeta provisioner (design 2026-08-11 §3.2). The single
       // enrolment entry E-B2 will call, AND the confirmation authority the
@@ -446,6 +452,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
               bearer: () => _login.jwt,
             ),
             accountKey: () => _login.email,
+            // AUD-D P1-1 migration source — see `_migrateLegacyIfProven`'s doc.
+            legacyStore: const SecureBlindStoreKeyStore(),
           );
       _blindStore = BlindStoreCloudLeg(
         keyring: keyring,
@@ -780,21 +788,4 @@ class _FlowMicAppState extends State<FlowMicApp> {
       ),
     );
   }
-}
-
-/// V2-06a-1 — reads the live session so a row is stamped with whoever the phone
-/// was actually connected to when it was spoken.
-///
-/// Reads on EVERY call rather than caching: the connection changes under the
-/// store's feet (pair / resume / leave), and a cached identity is how rows end
-/// up attributed to the previous machine.
-class _SessionInstanceOwner implements InstanceOwnerProbe {
-  const _SessionInstanceOwner(this._session);
-  final PttSession _session;
-
-  @override
-  String? get instanceId => _session.connectedInstanceId;
-
-  @override
-  String? get instanceName => _session.pcDisplayName;
 }

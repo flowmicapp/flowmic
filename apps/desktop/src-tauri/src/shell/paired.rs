@@ -73,7 +73,7 @@ pub struct PairedMobilesView {
     unreachable: Vec<&'static str>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_paired_mobiles(
     state: State<'_, SocketState>,
     cloud: State<'_, cloud::CloudState>,

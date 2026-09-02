@@ -132,9 +132,6 @@ export class SttConfigMissingError extends Error {
 }
 
 export interface EngineRouterDeps {
-  /** Returns true if the engine id is eligible to serve a new session.
-   *  Defaults to `() => true`. */
-  engineHealthy?: (id: SttEngineId) => boolean;
   /** Platform-managed default routing (env-gated). null/absent ⇒ no managed
    *  default (preserves the §4 "no silent fallback" behaviour).
    *
@@ -244,27 +241,32 @@ export interface SelectedRouting {
  * confident, wrong text from an engine that cannot hear their language, instead
  * of an error that names the problem. `zh-TW` meeting `zh-CN` is the owner's
  * explicit intent (簡體/繁體 is one SPOKEN language), not a side effect.
+ *
+ * 🔴 card P2-5/WP-1 (2026-09-02) — a fourth per-candidate `engineHealthy`
+ * predicate used to sit here too. DELETED: the only production call site
+ * (`engine-factory.ts` `makeEngineRouter({ managedDefault })`) never supplied
+ * one, so it was permanently `() => true` in every real session — a health
+ * check nobody wired, this repo's #1 historical bug shape (「定义了没人调用的能力」).
+ * Route-level health is a SOLVED, DIFFERENT problem: `pool-routing.ts`
+ * `resolve()` already filters candidates through `RouteHealthRegistry` before
+ * a `Routing` ever reaches this function, so a genuinely unhealthy managed
+ * route is excluded upstream, not here. This parameter was a second, orphaned
+ * answer to a question `pool-health.ts` already owns.
  */
 export function selectRoutingWithSource(
   language: string,
   userConfig: readonly Routing[],
   managedDefault?: (language: string) => Routing | null,
-  engineHealthy: (id: SttEngineId) => boolean = () => true,
 ): SelectedRouting | null {
   const wanted = toShortLang(language.trim());
-  const pick = (rows: readonly Routing[]): Routing | undefined => {
-    const healthy = (c: Routing | undefined): Routing | undefined =>
-      c && engineHealthy(c.engine_id) ? c : undefined;
-    return (
-      healthy(rows.find((c) => c.language === language)) ??
-      healthy(rows.find((c) => c.language !== WILDCARD_LANGUAGE && toShortLang(c.language.trim()) === wanted)) ??
-      healthy(rows.find((c) => c.language === WILDCARD_LANGUAGE))
-    );
-  };
+  const pick = (rows: readonly Routing[]): Routing | undefined =>
+    rows.find((c) => c.language === language) ??
+    rows.find((c) => c.language !== WILDCARD_LANGUAGE && toShortLang(c.language.trim()) === wanted) ??
+    rows.find((c) => c.language === WILDCARD_LANGUAGE);
   const authored = pick(userConfig.filter((c) => !isSeedMarked(c)));
   if (authored) return { routing: authored, source: 'user' };
   const managed = managedDefault?.(language);
-  if (managed && engineHealthy(managed.engine_id)) return { routing: managed, source: 'managed-default' };
+  if (managed) return { routing: managed, source: 'managed-default' };
   const seeded = pick(userConfig.filter((c) => isSeedMarked(c)));
   if (seeded) return { routing: seeded, source: 'seed' };
   return null;
@@ -280,9 +282,8 @@ export function selectRouting(
   language: string,
   userConfig: readonly Routing[],
   managedDefault?: (language: string) => Routing | null,
-  engineHealthy: (id: SttEngineId) => boolean = () => true,
 ): Routing | null {
-  return selectRoutingWithSource(language, userConfig, managedDefault, engineHealthy)?.routing ?? null;
+  return selectRoutingWithSource(language, userConfig, managedDefault)?.routing ?? null;
 }
 
 /** Build the engine config handed to the factory. Stamps the requested language
@@ -299,10 +300,9 @@ export function configFromRouting(routing: Routing, language: string): SttEngine
  *  against the supplied `userConfig` snapshot — settings are re-resolved per
  *  session so updates take effect on the next audio:start. */
 export function makeEngineRouter(deps: EngineRouterDeps = {}): EngineRouter {
-  const engineHealthy = deps.engineHealthy ?? (() => true);
   return {
     pickEngine(language, userConfig, factory): SttEngine {
-      const routing = selectRouting(language, userConfig, deps.managedDefault, engineHealthy);
+      const routing = selectRouting(language, userConfig, deps.managedDefault);
       if (!routing) throw new SttConfigMissingError(language);
       return factory(routing.engine_id, configFromRouting(routing, language));
     },

@@ -265,7 +265,41 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // ⚠️ Name is 15 characters, inside the phone's 28-char raw-code slot, and it is
 // the SAME word http/router.ts already answers 421 with — one fact, one name, now
 // imported rather than spelled twice.
-const EXPECTED_ERROR_CODE_COUNT = 74;
+// 🔴 74 → 75 on 2026-09-01: `PC_HANDSHAKE_PENDING`. Owner approved minting it. An
+// identity-required verb reaching a socket whose `pc:register` / `pc:reconnect`
+// ack has not landed yet was answered with AUTH_TOKEN_INVALID — a sentence about
+// a bad credential, on a connection whose credential was accepted milliseconds
+// later. The desktop read it as an account verdict and deleted the Cloud Key, so
+// a healthy PC signed itself out on a race. Full argument at the entry in
+// src/error-codes.ts; the short form is that every candidate code either asserts
+// a broken credential (there is none) or invents an actor (there is none).
+// 🔴 75 → 69 on 2026-09-02 (WP-8, registry hygiene): six codes retired, all with
+// MEASURED zero producers on every one of the three ends (grepped, not
+// assumed) — `AUTH_USE_REST_LOGIN`, `PC_MOBILE_SLOT_BUSY`,
+// `PAIR_NOT_CONNECTED`, `LAN_CERT_PIN_MISMATCH`, `STT_HARD_LIMIT_REACHED`,
+// `INJECT_TAURI_MISSING`. Each retirement is argued at the code's former entry
+// in src/error-codes.ts (the comment stays where the code used to be, per this
+// file's own established practice for INJECT_NO_RECEIPT / CLOUD_SESSION_NO_
+// HISTORY). This is a REMOVAL, not a ratchet violation — the guard here has
+// always been against drift in either direction (see the 56 → 55 note above).
+// 69 → 71 same round: two long-standing SHADOW codes promoted into the
+// registry proper (both already had real producers and real phone-side
+// sentences; what they lacked was a row here) — `INJECT_RESULT_TIMEOUT`
+// (`http/inject-routes.ts`'s image-ingress wait-timeout ack) and
+// `EMAIL_VERIFY_GRACE_EXPIRED` (`auth/verification-grace.ts`'s 3-day
+// unverified-email gate). Argued in full at each entry in src/error-codes.ts.
+// 71 → 72 same round (A11/F2-a): `AUTH_TOKEN_UNVERIFIABLE`. The multi-node
+// replica's token read-through (2026-08-29 design) could not get a
+// definitive answer from the writer — unreachable, throttled, or rows that
+// would not land locally yet — and every one of those used to be folded into
+// `AUTH_TOKEN_INVALID`, which both the phone and the desktop treat as
+// licence to delete a credential the user never revoked. Full argument at
+// the entry in src/error-codes.ts.
+// 72 → 73 (B2-G, 2026-09-02): `STT_ENGINE_NOT_OPEN` replaces `STT_ENGINE_TIMEOUT`
+// as the code all eight bundled STT adapters throw from `push()` when called
+// while the engine is not `'open'` — that call never reaches a vendor, so it
+// cannot have timed out. Full argument at the entry in src/error-codes.ts.
+const EXPECTED_ERROR_CODE_COUNT = 73;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {

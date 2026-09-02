@@ -401,21 +401,38 @@ describe('pool-health: an in-band refusal must not read as a healthy handshake',
     expect(ROUTE_FATAL_CODES.has('STT_ENGINE_RATE_LIMITED')).toBe(false);
 
     const reg = makeRouteHealthRegistry({ factory });
-    reg.record('cloud-primary', v);
-    expect(reg.isAvailable({ id: 'cloud-primary' } as never)).toBe(true);
+    reg.record('cloud-primary', 'zh', v);
+    expect(reg.isAvailable({ id: 'cloud-primary' } as never, 'zh')).toBe(true);
   });
 
   it('a fatal verdict evicts the route and says so', async () => {
     const reg = makeRouteHealthRegistry({ factory: (() => { throw new Error('unused'); }) as EngineFactory });
-    reg.record('cloud-primary', { ok: false, code: 'STT_ENGINE_AUTH_FAIL', message: 'x', fatal: true, elapsed_ms: 1 });
-    expect(reg.isAvailable({ id: 'cloud-primary' } as never)).toBe(false);
-    reg.record('cloud-primary', { ok: true, code: null, message: '', fatal: false, elapsed_ms: 1 });
-    expect(reg.isAvailable({ id: 'cloud-primary' } as never)).toBe(true);
+    reg.record('cloud-primary', 'zh', { ok: false, code: 'STT_ENGINE_AUTH_FAIL', message: 'x', fatal: true, elapsed_ms: 1 });
+    expect(reg.isAvailable({ id: 'cloud-primary' } as never, 'zh')).toBe(false);
+    reg.record('cloud-primary', 'zh', { ok: true, code: null, message: '', fatal: false, elapsed_ms: 1 });
+    expect(reg.isAvailable({ id: 'cloud-primary' } as never, 'zh')).toBe(true);
   });
 
   it('an unmeasured route is available — 「unmeasured」is not「broken」', () => {
     const reg = makeRouteHealthRegistry({ factory: (() => { throw new Error('unused'); }) as EngineFactory });
-    expect(reg.isAvailable({ id: 'never-probed' } as never)).toBe(true);
+    expect(reg.isAvailable({ id: 'never-probed' } as never, 'zh')).toBe(true);
+  });
+
+  // Card B2-G (2026-09-02) — the actual bug: `stt-cloud`'s Soniox adapter
+  // classifies at least one real vendor refusal (`invalid_request`, measured
+  // for a `zh-TW` language hint, WP3 2026-08-18) as `STT_CONFIG_MISSING`,
+  // a `ROUTE_FATAL_CODES` member — and that refusal is about the LANGUAGE
+  // requested, not about the route's credential or model. Before this card,
+  // health was keyed by route id alone, so probing this route for `zh-TW`
+  // took it down for every other language sharing it too.
+  it('a fatal verdict for one language does not evict the route for a different language', () => {
+    const reg = makeRouteHealthRegistry({ factory: (() => { throw new Error('unused'); }) as EngineFactory });
+    reg.record('cloud-primary', 'zh-TW', { ok: false, code: 'STT_CONFIG_MISSING', message: 'invalid_request', fatal: true, elapsed_ms: 1 });
+    expect(reg.isAvailable({ id: 'cloud-primary' } as never, 'zh-TW')).toBe(false);
+    // The reverse control for this fix: before keying by (route, language),
+    // this next assertion failed — the zh-TW eviction above took `en` down
+    // with it on the very same route.
+    expect(reg.isAvailable({ id: 'cloud-primary' } as never, 'en')).toBe(true);
   });
 });
 

@@ -46,7 +46,6 @@ export const STATS_KEYS = [
   'st_words',
   'st_text_size',
   'st_picture_size',
-  'st_range',
   'st_range_to',
   'st_duration',
   'st_duration_missing',

@@ -59,6 +59,7 @@ ContinuousOffer _offer({
   recordOnly: true,
   mode: mode,
   linkUp: linkUp,
+  signedIn: true,
   summary: CloudSummary(
     minutes: noMeter ? null : CloudMeter(used: usedMin, limit: limitMin),
     tokens: const CloudMeter(used: 1, limit: 20000000),

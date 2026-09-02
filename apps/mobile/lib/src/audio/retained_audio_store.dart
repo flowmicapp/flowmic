@@ -199,6 +199,31 @@ class RetainedAudioStore {
   final StreamController<RetainedAudioNotice> _notices =
       StreamController<RetainedAudioNotice>.broadcast();
 
+  /// F6 (2026-09-02 audit) — the SAME facts [notices] carries, also held as a
+  /// value.
+  ///
+  /// Before this, the only way to hear about an eviction or a TTL expiry was
+  /// a broadcast-stream event, and the store's own header already says
+  /// "callers MUST surface these" — but a stream event delivered to no
+  /// listener is exactly as gone as one this class never raised, and the
+  /// production listener (`retained_audio_boot.dart`) wrote it to the
+  /// diagnostics log only. A `ValueListenable` lets a widget bind to "the
+  /// most recent retention event" the same way [BackfillRunner.progress] is
+  /// already read by the article/composer UI, with no risk of a listener
+  /// attaching a beat too late and missing the one event that mattered.
+  ///
+  /// ⚠️ STILL A MECHANISM, NOT YET A SCREEN. Wiring this into an on-screen
+  /// notice belongs to whoever owns the banner-queue plumbing
+  /// (`session/chat_notices.dart`, `ui/banner_queue.dart`) — outside this
+  /// file's reach. What was missing was never a way to LISTEN; both
+  /// [notices] and this existed in spirit already. What is added here is the
+  /// localised sentence for each code ([RecordingStrings
+  /// .retainedAudioNoticeMessage]) and a value a UI layer can bind to without
+  /// first subscribing to a stream — the two pieces a future caller needs
+  /// and did not have.
+  final ValueNotifier<RetainedAudioNotice?> lastNotice =
+      ValueNotifier<RetainedAudioNotice?>(null);
+
   /// Running total, seeded by [open] and maintained on every mutation so the
   /// cap check does not stat the directory on every 200 ms chunk.
   int _retainedBytes = 0;
@@ -435,6 +460,7 @@ class RetainedAudioStore {
 
   Future<void> dispose() async {
     _closed = true;
+    lastNotice.dispose();
     await _notices.close();
   }
 
@@ -475,6 +501,7 @@ class RetainedAudioStore {
 
   void _announce(RetainedAudioNotice n) {
     debugPrint('[flowmic.audio] retained-audio: $n');
+    lastNotice.value = n;
     if (!_notices.isClosed) _notices.add(n);
   }
 

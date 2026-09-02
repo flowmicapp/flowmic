@@ -128,7 +128,12 @@ describe('server-authored reject verdicts', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
   let mobile: FakeSocket;
 
-  function wire(withPc: boolean): void {
+  function wire(
+    withPc: boolean,
+    // B3 (2026-09-02, WP-6) — optional so every EXISTING call site (asserting
+    // the pre-B3 shape) is untouched; only the two new tests below pass these.
+    relayDeps?: { nodeId?: string; pcHomeNode?: (pcId: string) => string | null },
+  ): void {
     pcEmits = [];
     const pc = { id: 'pc', emit: (event: string, payload: unknown) => pcEmits.push({ event, payload }) };
     const store: RoomStore<Socket> = {
@@ -136,7 +141,7 @@ describe('server-authored reject verdicts', () => {
       getMobiles: () => [],
     } as unknown as RoomStore<Socket>;
     mobile = fakeSocket('m1', 'mobile');
-    registerRelayHandlers(mobile as unknown as Socket, { store });
+    registerRelayHandlers(mobile as unknown as Socket, { store, ...relayDeps });
   }
 
   beforeEach(() => {
@@ -203,6 +208,49 @@ describe('server-authored reject verdicts', () => {
       entry_id: 'loc_dev_i2-1',
     });
     expect(warnSpy).toHaveBeenCalledTimes(1);
+    // B3 (2026-09-02, WP-6) — no `nodeId`/`pcHomeNode` wired here (the
+    // pre-existing, single-node shape), so neither field appears at all: this
+    // repo's own rule that an additive field must be ABSENT rather than
+    // `null`/empty when its producer is not configured.
+    expect(mobile.emits[0]!.payload).not.toHaveProperty('node');
+    expect(mobile.emits[0]!.payload).not.toHaveProperty('home_node');
+  });
+
+  it('B3: a multi-node deployment names WHICH node answered and where the PC is believed to live', () => {
+    wire(false, { nodeId: 'srvjp', pcHomeNode: (pcId) => (pcId === BOUND_PC ? 'srvny' : null) });
+    mobile.fire('inject:request', {
+      text: '',
+      source: 'image',
+      request_id: 'i2-2',
+      entry_id: 'loc_dev_i2-2',
+      target_pc_id: BOUND_PC,
+      image_b64: PNG_B64,
+      image_mime: 'image/png',
+    });
+    expect(pcEmits).toHaveLength(0);
+    // The phone can now tell "srvjp doesn't have it" from "its home is srvny" —
+    // the same distinction ptt_presence_poll.dart already draws for presence,
+    // now available on the inject-result path too.
+    expect(mobile.emits[0]!.payload).toMatchObject({
+      ok: false,
+      error: 'INJECT_PC_OFFLINE',
+      node: 'srvjp',
+      home_node: 'srvny',
+    });
+  });
+
+  it('B3: an unknown home_node is OMITTED, never sent as null', () => {
+    wire(false, { nodeId: 'srvjp', pcHomeNode: () => null });
+    mobile.fire('inject:request', {
+      text: '',
+      source: 'image',
+      request_id: 'i2-3',
+      target_pc_id: BOUND_PC,
+      image_b64: PNG_B64,
+      image_mime: 'image/png',
+    });
+    expect(mobile.emits[0]!.payload).toMatchObject({ error: 'INJECT_PC_OFFLINE', node: 'srvjp' });
+    expect(mobile.emits[0]!.payload).not.toHaveProperty('home_node');
   });
 
   it('every reject verdict is itself a schema-legal inject:result', () => {

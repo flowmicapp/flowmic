@@ -95,7 +95,6 @@ const tmp = mkdtempSync(join(tmpdir(), 'flowmic-verify1-'));
 
 afterEach(async () => {
   NOW = T0;
-  delete process.env.FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO;
   for (const s of sockets.splice(0)) s.disconnect();
   if (server) await server.close();
   server = null;
@@ -245,7 +244,7 @@ describe('happy path: send → mail carries the code → confirm → the product
     expect(walled.status).toBe(403);
     expect(walled.json).toEqual({ error: EMAIL_NOT_VERIFIED });
 
-    // Send: 200, and the response NEVER carries the code (echo flag dark).
+    // Send: 200, and the response NEVER carries the code (no echo of any kind).
     const s = await send(url, token);
     expect(s.status).toBe(200);
     expect(s.json).toEqual({
@@ -419,8 +418,19 @@ describe('send: transport failure is a NAMED failure — never a silent 200', ()
   });
 });
 
-describe('the internal code echo (the goldens\' fixture) — dark by default, named when lit', () => {
-  it('OFF (default): the send body carries NO code key — pinned against the exact key set', async () => {
+// 🔴 2026-09-02 — `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO` IS DELETED, not
+// merely defaulted off (owner ordered it removed —
+// docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+// questions.md §3, problem 1). There is exactly ONE shape the send response
+// has now, and this suite already covers what the deleted flag's "ON" branch
+// used to prove without any echo at all: `codeFromMail()` reads the code out
+// of the injected fake provider's recorded message (used throughout this
+// file, e.g. the enforcement-matrix test below), and the throwing-provider
+// case is `'a throwing provider → 502 VERIFY_SEND_FAILED, …'` above — that IS
+// what the old "ON" test's failure branch measured, with no code on the wire
+// either way.
+describe('the code response shape — one shape, always', () => {
+  it('the send body carries NO code key, ever — pinned against the exact key set', async () => {
     const { provider } = recordingProvider();
     const url = await saas(provider);
     const { token } = await registerUser(url, 'dark@v.co');
@@ -429,16 +439,21 @@ describe('the internal code echo (the goldens\' fixture) — dark by default, na
     expect(Object.keys(s.json).sort()).toEqual(['expires_in_ms', 'ok', 'resend_cooldown_ms']);
   });
 
-  it('ON: the code is echoed, works, and a failed dispatch says dispatched:false instead of lying', async () => {
+  // 🔴 REGRESSION GUARD — the old env var name is now INERT. If a future
+  // change ever reads `process.env.FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO`
+  // again by any name, this is the test that turns red.
+  it('setting the deleted flag by its old name changes NOTHING — still no code key', async () => {
     process.env.FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO = '1';
-    const url = await saas(failingProvider());
-    const { token } = await registerUser(url, 'echo@v.co');
-    const s = await send(url, token);
-    expect(s.status).toBe(200);
-    expect(s.json.code).toMatch(/^\d{6}$/);
-    expect(s.json.dispatched).toBe(false); // the transport DID fail, and the body says so
-    expect((await confirm(url, token, s.json.code)).status).toBe(200);
-    expect((await me(url, token)).email_verified).toBe(true);
+    try {
+      const { provider } = recordingProvider();
+      const url = await saas(provider);
+      const { token } = await registerUser(url, 'still-dark@v.co');
+      const s = await send(url, token);
+      expect(s.status).toBe(200);
+      expect(Object.keys(s.json).sort()).toEqual(['expires_in_ms', 'ok', 'resend_cooldown_ms']);
+    } finally {
+      delete process.env.FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO;
+    }
   });
 });
 

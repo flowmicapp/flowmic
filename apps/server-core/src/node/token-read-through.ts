@@ -91,6 +91,29 @@ export interface TokenReadThroughDeps {
   maxCallsPerWindow?: number;
 }
 
+/**
+ * 🔴 A11/F2-a (WP-8, 2026-09-02) — the fact `resolve()` used to collapse into a
+ * single `false`, now named. Three DIFFERENT things could make a read-through
+ * miss, and only one of them licenses `authMiddleware` answering
+ * `AUTH_TOKEN_INVALID` (a claim strong enough that both the phone
+ * (`mobile_reconnect_flow.dart`) and the desktop (`socket/pairing.rs`) delete
+ * the credential over it):
+ *
+ *   · `'landed'` — the rows are now local; the caller's ordinary local lookup
+ *     will find them.
+ *   · `'writer-confirmed-absent'` — `askWriter` reached the writer and the
+ *     writer itself does not know this token (`askAndApply`'s own words: "the
+ *     writer IS the authority"). This is the ONLY outcome that is actually a
+ *     statement about the credential.
+ *   · `'unverifiable'` — nothing was learned either way: the writer was
+ *     unreachable, the budget was already spent, or the writer answered but
+ *     its rows would not land locally (a fault on THIS node, not evidence
+ *     about the token). A caller that treats this the same as
+ *     `'writer-confirmed-absent'` deletes a credential the user never
+ *     revoked, on a node that simply could not check.
+ */
+export type TokenReadThroughOutcome = 'landed' | 'writer-confirmed-absent' | 'unverifiable';
+
 export interface TokenReadThrough {
   /**
    * `true` ⇔ rows for this token are now in the LOCAL database and the caller
@@ -103,8 +126,18 @@ export interface TokenReadThrough {
    * one of them.
    *
    * NEVER rejects. Every failure is `false`, which is the pre-existing refusal.
+   * ⚠️ Kept byte-for-byte for existing callers (`mobile.handler.ts`'s
+   * `mobile:reconnect`) that only ever needed the yes/no answer; a caller
+   * that needs to tell WHY it was `false` uses [resolveDetailed] instead —
+   * both share the same budget and single-flight table, so calling one does
+   * not spend a second writer call the other could have reused.
    */
   resolve(token: string): Promise<boolean>;
+  /** The A11/F2-a tri-state form of [resolve] — see [TokenReadThroughOutcome].
+   *  `authMiddleware` is the first consumer; new callers should prefer this
+   *  over `resolve` so a future one does not have to relearn the distinction
+   *  the hard way (a real sign-out on a healthy credential). */
+  resolveDetailed(token: string): Promise<TokenReadThroughOutcome>;
   /** How many asks were turned away by the budget. Monotonic. The pull half of
    *  the push/pull pair — a counter nobody can read is the mirror image of this
    *  repo's #1 structural defect (a pushed state with no reader). */
@@ -122,8 +155,10 @@ export function makeTokenReadThrough(deps: TokenReadThroughDeps): TokenReadThrou
   let calls: number[] = [];
   /** Token → the flight already in progress for it. THE single-flight table: a
    *  phone whose ladder fires two handshakes 200 ms apart, or a PC and its
-   *  reconnect racing, must cost the writer ONE request and not two. */
-  const inFlight = new Map<string, Promise<boolean>>();
+   *  reconnect racing, must cost the writer ONE request and not two. Keyed to
+   *  the DETAILED outcome so `resolve()` and `resolveDetailed()` can share one
+   *  flight per token regardless of which one a caller asks first. */
+  const inFlight = new Map<string, Promise<TokenReadThroughOutcome>>();
   let throttled = 0;
   let throttledAtLastWarn = 0;
   let lastWarnAt = Number.NEGATIVE_INFINITY;
@@ -147,7 +182,7 @@ export function makeTokenReadThrough(deps: TokenReadThroughDeps): TokenReadThrou
     lastWarnAt = t;
   };
 
-  const askAndApply = async (token: string): Promise<boolean> => {
+  const askAndApply = async (token: string): Promise<TokenReadThroughOutcome> => {
     let rows: TokenResolution | null;
     try {
       rows = await deps.askWriter(token);
@@ -157,12 +192,12 @@ export function makeTokenReadThrough(deps: TokenReadThroughDeps): TokenReadThrou
       deps.log.warn('node.token_read_through could not reach the writer — refusing as before', {
         reason: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return 'unverifiable';
     }
     // The writer IS the authority. A null here is the one case where a replica's
     // AUTH_TOKEN_INVALID is a statement about the product rather than about this
     // node's copy of the database.
-    if (!rows) return false;
+    if (!rows) return 'writer-confirmed-absent';
     try {
       deps.apply(rows);
     } catch (err) {
@@ -170,46 +205,62 @@ export function makeTokenReadThrough(deps: TokenReadThroughDeps): TokenReadThrou
       // FK on a user this node has not pulled yet). Loud, because it is the one
       // failure here that is OURS rather than the network's, and it will keep
       // happening for this device until the next pull reconciles the table.
+      // 'unverifiable', NOT 'writer-confirmed-absent': the writer just said
+      // this token IS real. The fault is this node's inability to land it, and
+      // deleting the credential over a local write error would blame the user
+      // for a bug in our own replication.
       deps.log.warn('node.token_read_through resolved a token but could not land its rows', {
         kind: rows.kind,
         reason: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return 'unverifiable';
     }
     deps.log.info('node.token_read_through landed rows ahead of the replication pull', {
       kind: rows.kind,
       pc_id: rows.pc.id,
     });
-    return true;
+    return 'landed';
+  };
+
+  /** Shared by both public methods so a single flight (and a single writer
+   *  call, and a single budget spend) serves whichever one a caller reaches
+   *  for first, and a second caller racing the first. */
+  const resolveDetailed = (token: string): Promise<TokenReadThroughOutcome> => {
+    // 🔴 SHAPE FIRST, BEFORE ANYTHING ELSE COSTS ANYTHING. `authMiddleware`
+    // already refuses a malformed token before it reaches a lookup, so in
+    // production this is the second check — deliberately. This module is the
+    // thing that turns an unauthenticated string into a request at the writer,
+    // and it must not depend on a caller elsewhere having been careful.
+    // A malformed token is 'unverifiable', not 'writer-confirmed-absent': this
+    // node refused to even ASK, so nothing was learned about the writer's
+    // opinion of it — `authMiddleware`'s OWN shape check ahead of this call is
+    // what turns a malformed token into the permanent refusal in production.
+    if (!isValidTokenShape(token)) return Promise.resolve('unverifiable');
+    const existing = inFlight.get(token);
+    if (existing) return existing;
+    const t = now();
+    if (!budgetAvailable(t)) {
+      noteThrottled(t);
+      return Promise.resolve('unverifiable');
+    }
+    calls.push(t);
+    const flight = askAndApply(token).finally(() => {
+      // Cleared on EVERY outcome and cleared unconditionally: a flight left in
+      // this map would be a permanent cached answer for that token, and a
+      // cached miss is a valid pairing that never recovers.
+      inFlight.delete(token);
+    });
+    inFlight.set(token, flight);
+    return flight;
   };
 
   return {
     get throttledCount(): number {
       return throttled;
     },
+    resolveDetailed,
     resolve(token: string): Promise<boolean> {
-      // 🔴 SHAPE FIRST, BEFORE ANYTHING ELSE COSTS ANYTHING. `authMiddleware`
-      // already refuses a malformed token before it reaches a lookup, so in
-      // production this is the second check — deliberately. This module is the
-      // thing that turns an unauthenticated string into a request at the writer,
-      // and it must not depend on a caller elsewhere having been careful.
-      if (!isValidTokenShape(token)) return Promise.resolve(false);
-      const existing = inFlight.get(token);
-      if (existing) return existing;
-      const t = now();
-      if (!budgetAvailable(t)) {
-        noteThrottled(t);
-        return Promise.resolve(false);
-      }
-      calls.push(t);
-      const flight = askAndApply(token).finally(() => {
-        // Cleared on BOTH outcomes and cleared unconditionally: a flight left in
-        // this map would be a permanent cached answer for that token, and a
-        // cached `false` is a valid pairing that never recovers.
-        inFlight.delete(token);
-      });
-      inFlight.set(token, flight);
-      return flight;
+      return resolveDetailed(token).then((outcome) => outcome === 'landed');
     },
   };
 }

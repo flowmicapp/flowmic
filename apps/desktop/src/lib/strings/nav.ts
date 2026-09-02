@@ -11,7 +11,6 @@ export const NAV_KEYS = [
   'nav_devices',
   'nav_timeline',
   'nav_settings',
-  'app_name',
   // Custom titlebar window controls (owner 2026-08-21: the native Windows
   // titlebar is hidden; these are the aria-labels/tooltips of our own buttons).
   'win_minimize',

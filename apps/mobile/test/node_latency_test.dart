@@ -31,41 +31,6 @@ void main() {
     expect(_s(40, 38).originMs, 0);
   });
 
-  test('median, not mean and not best-of', () {
-    // One cold connection is normal and would drag a mean; a best-of would
-    // flatter a node that is usually slow. The desktop selector takes the
-    // median too — the panel and the selector must not be able to disagree
-    // about what a node's latency IS.
-    final NodeLatency m = medianOf('srvjp', 'https://srvjp.flowmic.app',
-        <NodeLatency>[_s(20, 900), _s(20, 100), _s(20, 120)]);
-    expect(m.totalMs, 120);
-  });
-
-  test('samples that failed are ignored, and the survivors still answer', () {
-    final NodeLatency m = medianOf('srvjp', 'https://srvjp.flowmic.app',
-        <NodeLatency>[_s(null, null, miss: 'timeout'), _s(20, 100), _s(20, 140)]);
-    expect(m.totalMs, 140, reason: 'two survivors ⇒ the upper middle');
-    expect(m.ok, isTrue);
-  });
-
-  test('🔴 a node that never answered is NAMED, not given a huge number', () {
-    // A row reading 「9999 ms」 would be sortable, comparable and wrong: that
-    // node is not slow, it did not answer, and the two have different answers
-    // for the person reading the panel.
-    final NodeLatency m = medianOf('srvjp', 'https://srvjp.flowmic.app',
-        <NodeLatency>[_s(null, null, miss: 'timeout')]);
-    expect(m.ok, isFalse);
-    expect(m.totalMs, isNull);
-    expect(m.miss, 'timeout');
-  });
-
-  test('no samples at all is its own named state', () {
-    final NodeLatency m =
-        medianOf('srvjp', 'https://srvjp.flowmic.app', const <NodeLatency>[]);
-    expect(m.miss, 'unmeasured',
-        reason: '「never asked」 is not 「asked and got nothing」');
-  });
-
   test('hotOf: headline is the min of samples AFTER the first success', () {
     // Card 1: 836 ms was handshake + cold origin; 67 ms is the hot RTT.
     final NodeLatency h = hotOf('srvjp', 'https://srvjp.flowmic.app',

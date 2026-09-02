@@ -58,9 +58,29 @@ class _ReplyingTransport extends FakeSocketTransport {
   /// stop (a live release, say) is answered by the test as before.
   List<Map<String, Object?>> replyToNextStop = <Map<String, Object?>>[];
 
+  /// P0-1 (2026-09-02 audit) — a terminal `stt:error` frame to answer the
+  /// NEXT `audio:start` with, delivered SYNCHRONOUSLY inside the very call to
+  /// [emit] that sends it.
+  ///
+  /// Deliberately synchronous, unlike [replyToNextStop]'s own answer: this
+  /// models the measured P0 shape (a cold-open engine fault arriving moments
+  /// into the press, while the FSM is still RECORDING and `onSttTerminalError`
+  /// LATCHES rather than acts) — the fault is fully resolved and its own
+  /// `sttStalled` event already fired before `beginBackfill`/`endBackfill`
+  /// ever return control to `_awaitSettled`. An async answer here would prove
+  /// a different, easier case (the fault arriving while something is already
+  /// listening), which is not the one that deleted a stretch of audio.
+  Map<String, Object?>? replyToNextStartWithTerminalError;
+
   @override
   void emit(String event, Object? payload) {
     super.emit(event, payload);
+    if (event == FlowMicEvents.audioStart &&
+        replyToNextStartWithTerminalError != null) {
+      final Map<String, Object?> frame = replyToNextStartWithTerminalError!;
+      replyToNextStartWithTerminalError = null;
+      pushIncoming(FlowMicEvents.sttError, frame);
+    }
     if (event != 'audio:stop' || replyToNextStop.isEmpty) return;
     final List<Map<String, Object?>> finals = replyToNextStop;
     replyToNextStop = <Map<String, Object?>>[];
@@ -351,6 +371,87 @@ void main() {
     expect(r.transport.emittedNames, isNot(contains('audio:start')));
     // The debt is still owed, and the face still says so.
     expect(await r.store.bytesForSession('a0-1'), 6400);
+  });
+
+  test(
+      'P0-1: a terminal engine stall during recovery keeps the retained bytes, '
+      'never deletes them', () async {
+    // 🔴 A BESPOKE, MINIMAL RIG — DELIBERATELY WITHOUT A ChatController.
+    //
+    // `_Rig` wires one up, and `ChatController.onFsmChangeRouted`'s CR-5 EDGE 2
+    // ("a recording just ended") reacts to EVERY session transition away from
+    // RECORDING by calling `backfill.sweep()` again — including the one THIS
+    // test's own probe causes. With nothing ever answering that second probe
+    // (this test intentionally leaves only ONE synthetic reply queued), each
+    // retry would sit out a REAL 15 s processing watchdog and the retries
+    // never stop as long as the bytes stay pending, which is exactly what a
+    // stalled stretch does. That is realistic production behaviour (and
+    // correct — a broken engine should keep getting retried) but it makes
+    // `isBusy` a moving target no bounded test wait can observe, in test
+    // AND in `_Rig.dispose()`'s own teardown wait. Talking to [BackfillRunner]
+    // directly, with no controller subscribed to the FSM, tests the one
+    // question this case is about — did THIS pass delete the bytes — without
+    // that unrelated cascade.
+    final Directory tmp =
+        await Directory.systemTemp.createTemp('flowmic-backfill-stall-');
+    final RetainedAudioStore store =
+        RetainedAudioStore(dir: tmp, clock: () => 0);
+    await store.open();
+    final RetainedAudioSpill spill = RetainedAudioSpill(store: store);
+    final _ReplyingTransport transport = _ReplyingTransport();
+    final PttSession session = newTestSession(
+      transport: transport,
+      audio: AudioCapture(recorder: FakeAudioRecorder(), spill: spill),
+      stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
+    );
+    giveSessionAPairedIdentity(session);
+    final TimelineStore timeline = newTestStore();
+    final BackfillRunner runner = BackfillRunner(
+      session: session,
+      store: timeline,
+      storeOf: () => store,
+    );
+    transport.pushStatus(SocketStatus.connected);
+    addTearDown(() async {
+      runner.dispose();
+      timeline.dispose();
+      await session.dispose();
+      await store.dispose();
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    spill.beginSession('a0-1');
+    spill.noteUplinkDown();
+    spill.onEvicted(BufferedChunk(seq: 0, tsMs: 0, payload: Uint8List(6400)));
+    await spill.flush();
+    spill.endSession();
+    expect(await store.bytesForSession('a0-1'), 6400,
+        reason: 'positive control: the outage really was retained');
+
+    // The engine answers the recovery's OWN `audio:start` with a terminal
+    // fault — arriving while the FSM is still RECORDING, exactly the shape
+    // `onSttTerminalError`'s RECORDING branch exists for (a cold-open failure
+    // moments into the press). No terminal `stt:final` will ever follow:
+    // nothing was transcribed, so nothing may be deleted.
+    transport.replyToNextStartWithTerminalError = <String, Object?>{
+      'code': 'STT_CONFIG_MISSING',
+      'message': 'sherpa addon missing',
+      'retryable': false,
+    };
+
+    await runner.sweep(sourceLang: 'zh');
+
+    // 🔴 THE ASSERTION THAT MATTERS (P0-1). Before the fix, `_awaitSettled`
+    // judged completion by `sessionAcceptsPttDown`, which is true for BOTH "a
+    // real final arrived" (JUST_DONE) and "the engine stalled back to IDLE"
+    // (state_machine.dart's own processing watchdog / terminal-error stall) —
+    // so a stall was read as "done" and the caller deleted a stretch of
+    // audio that had never been transcribed (reverting `_awaitSettled` to
+    // that predicate turns this assertion red).
+    expect(await store.bytesForSession('a0-1'), 6400,
+        reason: 'no terminal stt:final ever arrived — a stalled stretch is '
+            'retried on the next sweep, not destroyed');
+    expect(runner.progress.value.pendingMs, greaterThan(0));
   });
 
   test('progress is measured in bytes on disk, not guessed', () async {

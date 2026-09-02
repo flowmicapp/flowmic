@@ -17,7 +17,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   selectRoute,
   resolveGroup,
-  auditRoleConsistency,
   LANGUAGE_ANY,
   REGION_ANY,
   type PoolRoute,
@@ -296,6 +295,62 @@ describe("🔴 Q4 — an exact language match beats the '*' wildcard, unconditio
   });
 });
 
+// Card B2-G (2026-09-02) — `tierOf` used to have only two rungs (exact, then
+// straight to the `'*'` wildcard), while `stt/engine-router.ts`
+// `selectRoutingWithSource` one layer up already matched on a THIRD, middle
+// rung: the same base subtag (`zh-TW` meeting a `zh-CN` row). A pool route
+// curated as `zh-CN` could not be reached by a `zh-TW` request at all except
+// through the wildcard tier — the two selection systems disagreed, silently,
+// about what "this route serves this language" means.
+describe('🔴 B2-G — a shared base subtag is a real (lower) tier, not a miss straight to the wildcard', () => {
+  const wildcard = route({ id: 'wild-1', languages: [LANGUAGE_ANY], priority: 1, unit_price: 0 });
+  const familyZhCn = route({ id: 'family-zh-cn', languages: ['zh-CN'], priority: 99, unit_price: 9 });
+  const exactZhTw = route({ id: 'exact-zh-tw', languages: ['zh-TW'], region: 'cn', priority: 50 });
+
+  it('a zh-TW request reaches a zh-CN route on the family tier, beating the wildcard', () => {
+    const r = selected(
+      selectRoute({ credential: prodCredential, request: { language: 'zh-TW', region: 'cn' }, pool: [wildcard, familyZhCn] }),
+    );
+    expect(r.route.id).toBe('family-zh-cn');
+    expect(r.tier).toBe('language-family/region-any');
+    expect(r.ranked_route_ids).toEqual(['family-zh-cn', 'wild-1']);
+  });
+
+  it('exact still beats family — reading a route through the coarser (family) lens must not let a real exact match lose', () => {
+    const r = selected(
+      selectRoute({
+        credential: prodCredential,
+        request: { language: 'zh-TW', region: 'cn' },
+        pool: [familyZhCn, exactZhTw],
+      }),
+    );
+    expect(r.route.id).toBe('exact-zh-tw');
+    expect(r.tier).toBe('language-exact/region-exact');
+  });
+
+  it('is NOT fuzzier than the same algorithm one layer up — ja does not reach a zh row here either', () => {
+    const r = selected(
+      selectRoute({ credential: prodCredential, request: { language: 'ja', region: 'cn' }, pool: [wildcard, familyZhCn] }),
+    );
+    expect(r.route.id).toBe('wild-1');
+    expect(r.tier).toBe('language-any/region-any');
+  });
+
+  it('the family tier itself yields to the wildcard when exhausted, same shape as Q4', () => {
+    const r = selected(
+      selectRoute({
+        credential: prodCredential,
+        request: { language: 'zh-TW', region: 'cn' },
+        pool: [wildcard, familyZhCn],
+        isAvailable: (x) => x.id !== 'family-zh-cn',
+      }),
+    );
+    expect(r.route.id).toBe('wild-1');
+    expect(r.tier).toBe('language-any/region-any');
+    expect(r.failover?.intended_route_id).toBe('family-zh-cn');
+  });
+});
+
 // ⚠️ What these tests pin is the SETTLED half only: `region` filters the
 // candidate set and never ranks (§-0f tail). B17 Q2 — what `region` MEANS —
 // is still unruled by the owner, and none of these assertions depends on the
@@ -352,22 +407,12 @@ describe('Q1 — priority is the only ordering truth source; role is a label', (
     expect(selected(flipped).ranked_route_ids).toEqual(selected(base).ranked_route_ids);
   });
 
-  it('auditRoleConsistency surfaces a stored role that disagrees with the ordering', () => {
-    const conflicts = auditRoleConsistency([
-      { ...CLOUD, role: 'backup' }, // priority 10 ⇒ derived primary
-      { ...LOCAL, role: 'primary' }, // priority 20 ⇒ derived backup
-    ]);
-    expect(conflicts).toEqual([
-      { group_id: PROD, route_id: CLOUD.id, stored_role: 'backup', derived_role: 'primary' },
-      { group_id: PROD, route_id: LOCAL.id, stored_role: 'primary', derived_role: 'backup' },
-    ]);
-  });
-
-  it('a consistent table produces no conflicts, and groups are audited independently', () => {
-    expect(
-      auditRoleConsistency([CLOUD, LOCAL, route({ id: 'dev-1', group_id: DEV, role: 'primary', priority: 5 })]),
-    ).toEqual([]);
-  });
+  // `auditRoleConsistency` / `RoleConflict` were deleted (card B2-G,
+  // 2026-09-02): grepping every `.ts`/`.rs`/`.dart` file in the repo found
+  // zero callers besides these two test cases — no ops-console endpoint ever
+  // wired the check in, despite the function's own doc comment saying "an ops
+  // console can run it". See the note now at `RouteRole`'s declaration in
+  // src/pool/select-route.ts.
 });
 
 describe('unit_price orders only within an equivalent tier', () => {
@@ -454,5 +499,34 @@ describe('determinism', () => {
   it('repeats exactly for the same input (no clock, no randomness)', () => {
     const args = { credential: prodCredential, request: zhCn, pool: [CLOUD, LOCAL] };
     expect(selectRoute(args)).toEqual(selectRoute(args));
+  });
+});
+
+// Card B2-G (2026-09-02) — `PoolRoute.capacity` used to carry a doc comment
+// claiming "callers fold it into `isAvailable`". Nothing does: grep found the
+// field written in `stt/pool-config.ts` and nowhere read. This test pins that
+// as a measured fact rather than a comment nobody re-checks, so the day a
+// caller starts reading it, this test (not a stale sentence) is what has to
+// change.
+describe('🔴 capacity is carried through the pool but consulted by nothing (B2-G)', () => {
+  it('a route out of capacity is selected exactly the same as one with headroom', () => {
+    const starved = route({ id: 'r-starved', languages: ['zh'], priority: 10, capacity: 0 });
+    const roomy = route({ id: 'r-roomy', languages: ['zh'], priority: 20, capacity: 10_000 });
+    // No `isAvailable` seam supplied — `selectRoute`'s own default is
+    // "everything is available" (see its `isAvailable = input.isAvailable ??
+    // (() => true)"). If anything anywhere folded `capacity` into
+    // availability, the zero-capacity route below would lose to `roomy`
+    // despite its lower (better) priority; it does not.
+    const r = selected(selectRoute({ credential: prodCredential, request: zhCn, pool: [starved, roomy] }));
+    expect(r.route.id).toBe('r-starved');
+  });
+
+  it("selectRoute's own default isAvailable seam does not consult capacity either", () => {
+    // Exercises the exact default the function falls back to when the caller
+    // supplies no `isAvailable` at all — the seam the deleted doc comment
+    // pointed at.
+    const starved = route({ id: 'r-starved-2', languages: ['zh'], priority: 5, capacity: 0 });
+    const outcome = selectRoute({ credential: prodCredential, request: zhCn, pool: [starved] });
+    expect(outcome.outcome).toBe('selected');
   });
 });

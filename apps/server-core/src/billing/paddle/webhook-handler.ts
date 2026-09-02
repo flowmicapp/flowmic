@@ -334,6 +334,24 @@ export function handlePaddleWebhook(
       return conclude('unmapped', 'refund event carries no readable order id — nothing to key it on');
     }
     const at = new Date(nowMs).toISOString();
+    // 🔴 2026-09-02 audit F3 — CHECKED BEFORE `confirmOneTimeRefund`, not after
+    // and not instead of. `refund.order_id` is Paddle's `transaction_id`, which
+    // names either a one-time purchase OR a subscription charge — the two live
+    // in different tables (`one_time_purchases` vs `refund_requests`), and
+    // nothing upstream can say which one this adjustment is for. Before this,
+    // the ONLY path tried was `confirmOneTimeRefund`, so every subscription
+    // refund (submitted by the withdrawal route in billing-routes.ts, which
+    // stamps `transaction_id` on its `refund_requests` row for exactly this
+    // moment) missed and fell all the way to 'unmapped' — `paddle_status`
+    // stayed frozen at `pending_approval` forever, even once Paddle paid it.
+    const subscriptionRefund = deps.repo.confirmRefundRequest(refund.order_id, refund.provider_status);
+    if (subscriptionRefund === 'confirmed') {
+      return conclude(
+        'applied',
+        `subscription refund for transaction ${refund.order_id} confirmed (paddle_status=${refund.provider_status ?? 'unknown'})`,
+        { user_id: userId },
+      );
+    }
     const out = deps.repo.confirmOneTimeRefund(
       refund.order_id,
       { refunded_at: at, provider_id: refund.provider_id, provider_status: refund.provider_status },

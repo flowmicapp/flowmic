@@ -102,4 +102,20 @@ describe('usage repo — monthly UPSERT accumulation', () => {
     expect(rec.llm_tokens_in).toBe(100);
     db.close();
   });
+
+  // 2026-09-02 (audit F15) — `updated_at` used to be a hardcoded `new Date()`
+  // three layers under any test, so nothing could ever assert its value
+  // deterministically. `createDbConnection({ now })` is the seam now: this
+  // drives it through the PUBLIC constructor a real bootstrap would use, not
+  // by reaching into `makeUsageRepo` directly.
+  it('🔴 `updated_at` follows the injected clock, not the wall clock', () => {
+    const FIXED = Date.UTC(2026, 0, 15, 3, 4, 5);
+    const db = createDbConnection({
+      dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx'), now: () => FIXED,
+    });
+    db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
+    const rec = db.usage.increment('u1', '2026-01', { stt_minutes: 1 });
+    expect(rec.updated_at).toBe(new Date(FIXED).toISOString());
+    db.close();
+  });
 });

@@ -41,161 +41,8 @@ import { planLimits, type PlanLimits } from './plans';
 import { withdrawalDeadline } from './withdrawal';
 import { ServerError } from '../errors';
 
-export type Cycle = 'monthly' | 'yearly';
-/** D1 §6.1 — "what makes this tier this tier". A SEPARATE field from `plan` on purpose:
- *  merging them is how a console ends up showing "you are Pro" with no way to say
- *  where that came from, which is this repo's #1 bug shape. */
-export type PlanSource = 'permanent_free' | 'paddle' | 'mock' | 'none';
-/** The mock machine's five states plus the two Paddle adds. `past_due` and
- *  `paused` are Paddle-only and deliberately NOT collapsed into `canceled`:
- *  "Paddle is still retrying the charge" and "the user paused it themselves" are
- *  different facts and produce different console copy, even though today neither
- *  one drops the tier (§5). */
-export type SubState = 'none' | 'pending' | 'active' | 'canceled' | 'expired' | 'past_due' | 'paused';
-
-export interface PlanView {
-  /** The tier in force. 🔴 For a permanent_free account this stays `'free'` —
-   *  owner bought nothing, and writing 'pro'/'max' there would be a lie. The
-   *  "unlimited quota" face is driven by `source` + `quota_exempt`, never by `plan`. */
-  plan: Plan;
-  /** 🔴 Why `plan` is what it is. */
-  source: PlanSource;
-  /** D1 §6.1-bis — the exemption, surfaced so a UI can say where this account's
-   *  numbers come from. Its ONE producer is the `users.permanent_free` branch
-   *  below.
-   *
-   *  🔴 2026-08-07 — IT NO LONGER MEANS "unlimited quota". It means "the quota
-   *  does not come from the `plan` table": an exempt account is now capped at
-   *  MAX's numbers (see [EXEMPT_LIMITS]), so a limit IS being enforced. A surface
-   *  that renders "unlimited"/"no cap" off this flag now states something false —
-   *  the exact "label doesn't match the number actually in force" shape D1 and
-   *  R11 exist to stop.
-   *
-   *  ⚠️ 2026-08-09 CORRECTION (card BILL-1, measured). This paragraph used to end:
-   *  「Known consumer still doing it: `cloud_usage_minutes_exempt` … an OPEN
-   *  follow-up owned outside apps/server-core, not something this file fixed.」
-   *  It was FALSE THE DAY IT WAS WRITTEN. The same commit that wrote it (92a4289)
-   *  also rewrote all four locales of that exact string — 不限额/unlimited/無制限/
-   *  무제한 → 不计费/not billed/請求なし/청구 없음 — plus `usageLine` around it.
-   *  Nobody re-read the desktop afterwards, so the sentence was carried forward
-   *  into the 0.3.0 ledger as card BILL-1 and booked as a live R11 violation
-   *  against a tree that no longer had one.
-   *  ⇒ anti-façade ④ in its worst form: an assertion about ANOTHER file's behaviour,
-   *  with no grep anchor and no test holding it, so nothing could turn red when it
-   *  became wrong — and it was wrong immediately, not merely later.
-   *  ⇒ The claim is now PINNED rather than asserted: cloud-account.test.ts
-   *  describe ⑤ drives this flag through `usageLine` in all four UI locales and
-   *  fails if any locale claims boundlessness or drops the server's number. Change
-   *  that string in one locale and that test — not this comment — is what tells you. */
-  quota_exempt: boolean;
-  cycle: Cycle | null;
-  state: SubState;
-  expires_at: string | null;
-  /**
-   * 0.3.25 B1 — a change Paddle has SCHEDULED but not yet applied, or null.
-   *
-   * 🔴 A SEPARATE FIELD FROM `state`, and this is the R11 case the 0.3.25 round
-   * exists for. A subscription scheduled to cancel at period end is `active` at
-   * Paddle — because it is — so `state` alone gave the console ONE word for TWO
-   * facts: 「active」 and 「active, and will not renew」. Folding the second into
-   * `state:'canceled'` would be worse, not better: the tier IS still granted and
-   * the service IS still running, so that word would be false in the direction
-   * that matters — a user reading 「canceled」 stops using something they paid for.
-   *
-   * ⚠️ `action` is Paddle's RAW word, not a narrowed union, for the same reason
-   * `status` is stored raw: cancel / pause / resume is what Paddle documents
-   * today, and a fourth value must reach the console as itself rather than be
-   * rounded into one of the three we knew about. The console renders copy for
-   * the actions it recognises and says nothing for one it does not.
-   *
-   * ⚠️ `effective_at` can be null while `action` is set: the payload stated a
-   * change without a readable date. 「Something is scheduled, we cannot say when」
-   * is the truth in that case, and it is not the same fact as no change at all.
-   */
-  scheduled_change: { action: string; effective_at: string | null } | null;
-  /**
-   * 0.3.25 B1 — 「you will be charged again on」, or null when no charge is
-   * scheduled (Paddle nulls it once a cancellation is pending).
-   *
-   * 🔴 NOT the same question as `expires_at`. That one answers 「how long you
-   * have paid for」 and survives a cancellation; this one answers 「will money
-   * move again, and when」 and disappears. On a live subscription the two hold
-   * the same date and the temptation is to keep only one field; on a cancelled
-   * one they differ, and that is exactly the state a user opens this page to
-   * understand.
-   */
-  next_billed_at: string | null;
-  /**
-   * 0.3.25 B3 — the end of the EU statutory withdrawal period (CRD art. 9),
-   * or null when there is none to state.
-   *
-   * 🔴 IT IS ON THE PLAN VIEW, not computed in the browser, because the console
-   * and the server must not be able to disagree about it. A page that offers a
-   * legal right the server then refuses — or hides one the server would have
-   * honoured — is worse than not having the feature: the user is told, by us,
-   * something about their rights that is false. `billing/withdrawal.ts` is the
-   * single decider and both sides read this field.
-   *
-   * ⚠️ null carries TWO facts on purpose collapsed here and separated at the
-   * route: 「the period has passed」 and 「we cannot compute it」. The console does
-   * the same thing with both (offer nothing, which is correct either way), while
-   * the route names them apart — because 「your period has ended」 is a claim we
-   * cannot support for a subscription whose start we never recorded.
-   */
-  withdrawal_deadline: string | null;
-  /**
-   * 0.3.25 B3 — when the contract was concluded, or null if we never recorded it.
-   *
-   * 🔴 IT IS NOT A DUPLICATE OF THE DEADLINE. The deadline answers 「until when
-   * may I withdraw」 and is what both sides branch on; this answers 「which
-   * contract am I withdrawing from」, which CRD art. 11(3) requires the confirmation
-   * step to state. Deriving one from the other in the browser would put a second
-   * computation of a legal date in the UI — the thing `withdrawal_deadline`
-   * exists on the wire to prevent.
-   */
-  contract_concluded_at: string | null;
-  /** sub_xxx when `source === 'paddle'`, else null — the reconciliation handle
-   *  that lets a human match this readout against Paddle's own dashboard. */
-  paddle_subscription_id: string | null;
-  /**
-   * WHICH merchant of record that subscription lives at.
-   *
-   * 🔴 THE FIELD NAME ABOVE IS NOW A HISTORICAL ONE, AND THIS IS THE
-   * CORRECTION. `paddle_subscription_id` holds a CREEM id for a Creem
-   * subscription — the column is shared, and renaming it would move a wire
-   * format the console and the desktop already read. So the id alone stopped
-   * being enough to say where to send a cancellation, and this answers that
-   * separately rather than letting the old name go on implying an answer it no
-   * longer has.
-   *
-   * ⚠️ `null` WHEN THERE IS NO SUBSCRIPTION, and — importantly — also for rows
-   * written before the `provider` column existed. Those are Paddle's by
-   * construction (it was the only writer), but that is an INFERENCE, and
-   * http/billing-routes.ts is the one place allowed to make it, out loud, once.
-   * Defaulting it here would spread a guess into every reader.
-   */
-  billing_provider: string | null;
-}
-export interface QuotaView {
-  /** ⚠️ 2026-08-07 CORRECTION — these used to be `Number.POSITIVE_INFINITY` for a
-   *  quota-exempt account, and this note used to explain that ∞ serializes to
-   *  `null`. Both meters are FINITE for every account now, exempt included (owner's
-   *  ruling ①; see [EXEMPT_LIMITS]) ⇒ nothing here reaches the wire as `null` any
-   *  more, and a `null` that does show up means we failed to compute it. Still do
-   *  NOT read "unlimited" off these numbers — nobody is unlimited; read
-   *  `PlanView.quota_exempt` for "what makes these numbers these numbers" and nothing else. */
-  stt: { used_min: number; limit_min: number };
-  /** owner 2026-08-14 — `used` is the ENFORCED number: OUTPUT tokens only, the
-   *  same quantity quota-guard.ts reads. `used_in` is the reference meter —
-   *  recorded and shown, never charged against `limit`. Two fields on purpose:
-   *  until 2026-08-14 `used` was `in + out`, i.e. one value answering both
-   *  "how much quota is left" and "how much has been processed in total", and
-   *  the ruling split them. `used_in`
-   *  is ADDITIVE on the wire; older clients that only read `used`/`limit` keep
-   *  working and now see the enforced number instead of the sum. */
-  llm: { used: number; used_in: number; limit: number };
-  month: string;
-}
+import type { Cycle, SubState, PlanView, QuotaView } from './billing-service-types';
+export type { Cycle, PlanSource, SubState, PlanView, QuotaView } from './billing-service-types';
 
 /** The mock machine's own record. Its `state` can only ever be one of the five
  *  mock values — the two Paddle-only ones are never written here. */
@@ -538,8 +385,24 @@ export class BillingService {
       };
     }
     // ── ② paddle ──────────────────────────────────────────────────────────────
-    const row = this.deps.billing.latestForUser(userId);
-    if (row) return this.fromPaddle(row);
+    // 🔴 2026-09-02 audit F2/C1 — NOT `latestForUser`. That repo method answers
+    // 「the row with the most recent `last_occurred_at`」, and it is right for
+    // what IT documents itself as answering (repo-level reconciliation). But
+    // computeView's question is different: 「what does this user have RIGHT
+    // NOW」. Those two questions coincide unless a user has more than one
+    // `subscription_id` on file, which happens exactly on a swap — cancel an
+    // old plan, buy a new one. A late-arriving webhook for the OLD
+    // subscription's cancellation can carry a NEWER `last_occurred_at` than the
+    // new subscription's own last event, so `latestForUser` would hand back the
+    // stale, terminal row and (after the P0-2 fix) drop an actively-paying user
+    // to free. `listForUser` returns every row for the user in the same
+    // newest-first order; `selectPaddleView` picks the newest row that still
+    // GRANTS something over a newer but terminal one, and only falls back to
+    // the plain newest-row-wins rule when nothing grants (matching the old,
+    // pre-swap behaviour for an account with a single, or all-expired, row).
+    const rows = this.deps.billing.listForUser(userId);
+    const paddleView = this.selectPaddleView(rows);
+    if (paddleView) return paddleView;
     // ── ③ mock ────────────────────────────────────────────────────────────────
     if (this.deps.unlockAll) {
       // Mutates nothing (mock-billing §1): no account.subscription row is written.
@@ -617,6 +480,35 @@ export class BillingService {
     };
   }
 
+  /**
+   * 2026-09-02 audit F2/C1 — chooses WHICH of a user's `paddle_subscriptions`
+   * rows answers "what do they have right now", for a user who has more than
+   * one row on file (a subscription swap: the old one canceled, a new one
+   * bought). `rows` is newest-first by `last_occurred_at` (repo's order).
+   *
+   * The newest row that still GRANTS something (state !== 'expired' once
+   * translated) wins, however much older it is than a newer but already-
+   * terminal row — a late-arriving cancellation for a REPLACED subscription
+   * must not outrank the replacement that is still being paid for. Only when
+   * NOTHING grants does this fall back to the newest row overall, which
+   * reproduces the pre-fix behaviour for the common case (one row, or every
+   * row expired) and keeps answering "most recent" for support/reconciliation.
+   */
+  private selectPaddleView(rows: readonly PaddleSubRow[]): PlanView | null {
+    // Loop rather than `.map(...).find(...)` + `views[0]` so the "newest row,
+    // whatever its state" fallback never needs an unchecked array index —
+    // `rows` is newest-first, so the FIRST view built here already is that
+    // fallback. Returns null only for an empty `rows`, which the caller never
+    // passes (see the `rows.length > 0` guard at the call site).
+    let fallback: PlanView | null = null;
+    for (const row of rows) {
+      const view = this.fromPaddle(row);
+      fallback ??= view;
+      if (view.state !== 'expired') return view;
+    }
+    return fallback;
+  }
+
   /** One `paddle_subscriptions` row → a PlanView. The grant rule is uniform and
    *  comes straight from D1 §5's event table: canceled keeps benefits to
    *  `current_period_end`, past_due does NOT drop the tier (Paddle is still
@@ -626,12 +518,35 @@ export class BillingService {
    *  LABEL. */
   private fromPaddle(row: PaddleSubRow): PlanView {
     const endMs = row.current_period_end === null ? null : Date.parse(row.current_period_end);
-    // null  = no period end recorded (a `subscription.created` that carried none)
-    //         ⇒ not expired; refusing a signed, active subscription because Paddle
-    //         omitted a field would be the wrong direction of failure.
+    // null  = no period end recorded.
+    //   Paddle's own docs (get-subscription) say `current_billing_period` is
+    //   「null for paused and canceled subscriptions」 — i.e. a null period on a
+    //   TERMINAL status is not a missing field, it is Paddle's spelling of
+    //   「this already ended」. Reading it as 「not expired」 there means a
+    //   canceled subscription keeps its paid tier forever (2026-09-02 audit
+    //   P0-2), because nothing else in this row ever flips `expired` back to
+    //   true once the period column goes null.
+    //   For every OTHER status (active/trialing/past_due/an unrecognised sixth
+    //   value) a null period still means 「omitted, not concluded」 — refusing a
+    //   signed subscription because Paddle left a field blank would be the
+    //   wrong direction of failure, so those keep the pre-existing `false`.
     // NaN   = the column holds something that is not a date ⇒ treat as EXPIRED.
     //         Fail-CLOSED on garbage: an unparseable date must not grant forever.
-    const expired = endMs === null ? false : !Number.isFinite(endMs) || this.now() >= endMs;
+    const terminalStatusWithNoPeriod =
+      endMs === null && (row.status === 'canceled' || row.status === 'paused');
+    // No `paused_at` column exists (only `canceled_at`), so a paused row falls
+    // back to `last_occurred_at` — the out-of-order guard's own ruler for "when
+    // did we learn this", already NOT NULL on every row. Comparing against now,
+    // rather than hardcoding `true`, keeps this one rule (endMs-or-fallback vs
+    // now) instead of a second, un-testable "terminal ⇒ always expired" branch.
+    const occurredMs = terminalStatusWithNoPeriod
+      ? Date.parse(row.canceled_at ?? row.last_occurred_at)
+      : null;
+    const expired = terminalStatusWithNoPeriod
+      ? !Number.isFinite(occurredMs) || this.now() >= (occurredMs as number)
+      : endMs === null
+        ? false
+        : !Number.isFinite(endMs) || this.now() >= endMs;
     // `PaddleSubRow.tier` is typed `Plan` by an unchecked cast in the repo (the
     // column is free text). Re-narrowing by TEST here is the fail-closed reading:
     // a tier this build does not know must resolve to free, never to a paid one.

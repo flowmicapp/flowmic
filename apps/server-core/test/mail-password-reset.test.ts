@@ -42,7 +42,6 @@ let server: BootstrapHandle | null = null;
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  delete process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO;
   if (server) await server.close();
   server = null;
 });
@@ -333,30 +332,53 @@ describe('MAIL-1 ③: the response is BYTE-IDENTICAL whatever happened', () => {
   });
 });
 
-describe('MAIL-1 ④: the echo flag is untouched, and delivery is NOT conditional on it', () => {
-  it('with FLOWMIC_INTERNAL_RESET_TOKEN_ECHO=1 the body still echoes AND the mail still goes', async () => {
-    // The flag is a developer affordance for reading the token off the wire on a
-    // private line. It is not a switch that means 「do not mail this」 — if it
-    // were, there would be a configuration in which a token is minted and
-    // nothing carries it, which is the exact state this card closed.
-    // g11 (verify/golden/g11-console-surface.mjs step 6) drives the echo-ON path
-    // against a real server; this pins the half g11 cannot see.
-    process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO = '1';
+describe('MAIL-1 ④: delivery is UNCONDITIONAL — there is nothing left to condition it on', () => {
+  // 🔴 2026-09-02 — `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` IS DELETED, not merely
+  // defaulted off (owner ordered it removed — docs/decisions/2026-09-02-owner-
+  // plain-language-lan-ci-and-two-security-questions.md §3, problem 1). This
+  // test used to set that flag to check the response body against the mailed
+  // token; now the ONLY way to read a minted token without a real mailbox is
+  // the persisted `account.password_reset` row (the same one a mail channel
+  // reads to build the link), which is what it checks instead — the response
+  // body plays no part any more, in any configuration.
+  it('the persisted token and the mailed token are the same one, and the response never carries either', async () => {
     const { provider, sent } = recordingProvider();
     const url = await saasServer(provider);
     await register(url, 'echo@mail.test');
+    const userId = server?.db.users.findByEmail('echo@mail.test')?.id;
+    expect(typeof userId).toBe('string');
 
     const res = await postRaw(`${url}/api/password/forgot`, { email: 'echo@mail.test' });
     expect(res.status).toBe(200);
-    const body = JSON.parse(res.raw) as { ok: boolean; reset_token?: string; expires_at?: string };
-    expect(body.ok).toBe(true);
-    expect(typeof body.reset_token).toBe('string');
-    expect(typeof body.expires_at).toBe('string');
+    // BYTE-IDENTICAL to the unknown-email shape — the response carries nothing.
+    expect(res.raw).toBe(JSON.stringify({ ok: true }));
 
     await waitFor('a dispatched message', () => sent.length > 0);
-    // The echoed token and the mailed token are the same one — one mint, two
-    // readers, not two mints.
-    expect((sent[0] as MailMessage).text).toContain(encodeURIComponent(body.reset_token as string));
+    const stored = server?.db.settings.read(userId as string, 'account.password_reset')?.value as
+      | { reset_token: string; expires_at: string }
+      | undefined;
+    expect(typeof stored?.reset_token).toBe('string');
+    // One mint, two readers (the persisted row and the mailed link), not two
+    // mints that could disagree.
+    expect((sent[0] as MailMessage).text).toContain(encodeURIComponent(stored?.reset_token as string));
+  });
+
+  // 🔴 REGRESSION GUARD — the old env var name is now INERT, not just unread
+  // by the code path this test exercises. If a future change ever reads
+  // `process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` again by any name, this is
+  // the test that turns red.
+  it('setting the deleted flag by its old name changes NOTHING — the response is still byte-identical', async () => {
+    process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO = '1';
+    try {
+      const { provider } = recordingProvider();
+      const url = await saasServer(provider);
+      await register(url, 'still-dark@mail.test');
+      const res = await postRaw(`${url}/api/password/forgot`, { email: 'still-dark@mail.test' });
+      expect(res.status).toBe(200);
+      expect(res.raw).toBe(JSON.stringify({ ok: true }));
+    } finally {
+      delete process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO;
+    }
   });
 });
 

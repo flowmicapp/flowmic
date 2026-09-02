@@ -85,6 +85,18 @@ export const SNAPSHOT_TIMEOUT_MS = 120_000;
  *  user's connect button for that long. */
 export const RESOLVE_TOKEN_TIMEOUT_MS = 3_000;
 
+/** `forwardSync`'s budget — the SAME 3-second reasoning as
+ *  `RESOLVE_TOKEN_TIMEOUT_MS` (a user's own ack is waiting on it, sized against
+ *  the measured cross-ocean RTT), given its own named constant rather than
+ *  reusing that one so the two can diverge later without one comment lying
+ *  about the other's number. */
+export const FORWARD_SYNC_TIMEOUT_MS = 3_000;
+
+/** The result of a generic replica→writer handoff. See `WriterClient.forwardSync`. */
+export type ForwardSyncOutcome =
+  | { status: 'ok'; result: unknown }
+  | { status: 'refused'; error: string };
+
 /** What the writer minted, as the replica hands it back to the desktop. */
 export interface MintedCode {
   short_code: string;
@@ -132,6 +144,24 @@ export interface WriterClient {
    * region holding a connection open.
    */
   resolveToken(token: string): Promise<TokenResolution | null>;
+  /**
+   * The generic replica→writer handoff (`node/forward-sync.ts` has the writer
+   * side, `node/forward-sync-types.ts` the per-verb shapes). One route rather
+   * than a new hand-rolled one per writer-only event — see that file's header.
+   *
+   * Two outcomes, kept structurally apart the same way `mintShortCode`'s are:
+   *   · `{status:'ok', result}`     — the writer performed the mutation.
+   *   · `{status:'refused', error}` — a STRUCTURAL refusal (e.g. the payload's
+   *     `pc_id`/`user_id`/`room_uuid` do not agree with the writer's own rows),
+   *     never a transport problem — those throw WriterUnreachable instead, the
+   *     same split `mintShortCode`'s 404-vs-throw draws.
+   *
+   * ⚠️ NEVER RETRIED HERE, for the same reason as the other two: each of the
+   * three verbs this carries changes state on one call (revoke a pairing,
+   * retire a pairing, write a settings row), so a blind retry after a timeout
+   * could double-apply a write whose first attempt actually landed.
+   */
+  forwardSync(verb: string, payload: Record<string, unknown>): Promise<ForwardSyncOutcome>;
   /** The writer's whole database, gzipped. Its own timeout, an order of
    *  magnitude longer than the others: this transfers a file across an ocean
    *  (154 ms RTT NY↔Tokyo, measured), and giving it the 8-second budget meant
@@ -278,6 +308,42 @@ export function makeWriterClient(opts: WriterClientOptions): WriterClient {
       // valid pairing in the region into a permanent AUTH_TOKEN_INVALID.
       if (!rows) throw new WriterUnreachable('writer answered 200 with no usable rows');
       return rows;
+    },
+
+    async forwardSync(verb: string, payload: Record<string, unknown>): Promise<ForwardSyncOutcome> {
+      const res = await call(
+        '/api/node/forward-sync',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ verb, payload }),
+        },
+        FORWARD_SYNC_TIMEOUT_MS,
+      );
+      // A structural refusal (node-routes.ts: the writer's own rows disagree
+      // with what this replica sent, or the verb/payload was malformed). Never
+      // a transport problem — those are the `!res.ok` branch below.
+      if (res.status === 409 || res.status === 400) {
+        let parsed: { error?: unknown };
+        try {
+          parsed = (await res.json()) as { error?: unknown };
+        } catch (err) {
+          throw new WriterUnreachable(`unreadable response: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return { status: 'refused', error: typeof parsed.error === 'string' ? parsed.error : 'refused' };
+      }
+      if (!res.ok) throw new WriterUnreachable(`HTTP ${res.status}`);
+      let parsed: { result?: unknown };
+      try {
+        parsed = (await res.json()) as { result?: unknown };
+      } catch (err) {
+        throw new WriterUnreachable(`unreadable response: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      // 🔴 `'result' in parsed`, not a truthiness check: `null`/`false`/`0` are
+      // all legitimate results a verb could return, and a truthiness check
+      // would misread any of them as「the writer answered 200 with nothing」.
+      if (!('result' in parsed)) throw new WriterUnreachable('writer answered 200 with no usable result');
+      return { status: 'ok', result: parsed.result };
     },
 
     async authoritativeRead<T>(path: string): Promise<T> {

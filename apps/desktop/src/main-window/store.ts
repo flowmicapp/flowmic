@@ -34,6 +34,7 @@ import {
   type TimelineOpFailure,
 } from '../lib/timeline-store';
 import { CH, appendForensic, fetchConnectionSnapshot, fetchOfflineState, fetchPairedMobiles, onChannel, settingsTransport, timelineTransport } from '../lib/bridge';
+import { seedThenSubscribe } from '../lib/seed-then-subscribe';
 import { serveRowReinject } from '../lib/bridge-reinject';
 import { localKv } from '../lib/storage';
 import type { ChannelTag, ConnectionState, InjectResult, TimelineRow, WireHistoryItem } from '../lib/types';
@@ -226,6 +227,16 @@ export function isKeyPending(key: string): boolean {
 
 let lastConnected = false;
 let lastMobiles = 0;
+/** E7 — counts every CONNECTION push, so the snapshot seed below can tell
+ *  whether one landed while `fetchConnectionSnapshot()` was still in flight.
+ *  Not routed through `seedThenSubscribe` directly: that helper's `apply`
+ *  takes ONE shared shape for both the push and the seed, and here they are
+ *  not the same shape — the push applies ONE row plus side effects
+ *  (forensic logging, refreshMobileNames) that have no batch equivalent,
+ *  while the seed applies a whole snapshot array through `applyConnectionRows`.
+ *  This counter implements the identical guard (discard a pull that a push
+ *  has already overtaken) without forcing the two into one signature. */
+let connectionPushCount = 0;
 
 /** owner 2026-07-27: pairing_id → mobile name, so a timeline row can say WHICH
  *  phone sent it. Resolved at render time from this map rather than stamped
@@ -266,6 +277,9 @@ export async function initBridge(): Promise<void> {
   // every forensic line in the file came from the capsule.
   appendForensic('bridge', 'initBridge: wiring…');
   await onChannel<ConnectionState>(CH.connection, (p) => {
+    // E7 — see connectionPushCount's own doc: this is the ONE line the
+    // snapshot seed below needs to know a live frame overtook it.
+    connectionPushCount += 1;
     // Per-channel first (the device page's two cards read this), then the global
     // view — but ONLY from the channel that is primary. A presence channel's
     // "0 phones" must never overwrite what the phone on the other channel is doing.
@@ -306,38 +320,49 @@ export async function initBridge(): Promise<void> {
   // disconnected: their producers (the pumps) are joined by the teardown, so
   // without this the chips would freeze on their last connected words — a
   // status word with nothing behind it (R11).
-  await onChannel<{ offline: boolean }>(CH.offlineState, (p) => {
-    const off = p.offline === true;
-    offlineMode.value = off;
-    appendForensic('bridge', `OFFLINE_STATE ← ui (offline=${off})`);
-    if (off) {
-      for (const ch of Object.keys(connByChannel)) {
-        const row = connByChannel[ch];
-        if (row === undefined) continue;
-        connByChannel[ch] = {
-          ...row,
+  // E7 — seedThenSubscribe's guard: a push landing while `fetchOfflineState()`
+  // is still in flight must not be clobbered once that pull resolves. The
+  // side effect below (rewriting connByChannel/conn to disconnected) stays
+  // PUSH-ONLY, same reasoning as DevicesPage.vue's loadInfo() split — at mount
+  // there is nothing live in those stores yet for a seed to rewrite, and if
+  // the machine really is offline the CONNECTION seed below reads that from
+  // the (absent) live pumps directly.
+  await seedThenSubscribe<boolean | null>(
+    (apply) => onChannel<{ offline: boolean }>(CH.offlineState, (p) => {
+      const off = p.offline === true;
+      apply(off);
+      appendForensic('bridge', `OFFLINE_STATE ← ui (offline=${off})`);
+      if (off) {
+        for (const ch of Object.keys(connByChannel)) {
+          const row = connByChannel[ch];
+          if (row === undefined) continue;
+          connByChannel[ch] = {
+            ...row,
+            connected: false,
+            registered: false,
+            mobiles: 0,
+            reason: 'manual-offline',
+          };
+        }
+        Object.assign(conn, {
           connected: false,
           registered: false,
           mobiles: 0,
           reason: 'manual-offline',
-        };
+        });
       }
-      Object.assign(conn, {
-        connected: false,
-        registered: false,
-        mobiles: 0,
-        reason: 'manual-offline',
-      });
-    }
-    // offline:false needs no synthetic rows — the redial's fresh pumps push
-    // real CONNECTION frames within their first tick.
-  });
-  const offSeed = await fetchOfflineState();
-  if (offSeed !== null) offlineMode.value = offSeed;
+      // offline:false needs no synthetic rows — the redial's fresh pumps push
+      // real CONNECTION frames within their first tick.
+    }),
+    fetchOfflineState,
+    // `null` means "could not ask" — leave `offlineMode` at whatever it is
+    // (same as the original `if (offSeed !== null)` guard).
+    (v) => { if (v !== null) offlineMode.value = v; },
+  );
 
   // Seed from a PULL, AFTER the listener is registered.
   //
-  // Order matters and is the whole fix: register first so a frame arriving
+  // Order matters and is half the fix: register first so a frame arriving
   // mid-seed is not lost, then ask for the current state so a frame that
   // already fired before we existed is not lost either. Both halves are
   // idempotent — the snapshot and the push carry the same fields, so a
@@ -347,13 +372,26 @@ export async function initBridge(): Promise<void> {
   // AFTER it mounted, and on this machine nothing ever did: Rust had both
   // sockets up 1.1 s before the WebView finished booting, and the device page
   // then showed "connecting…" for the entire session (owner 2026-07-29).
+  //
+  // E7 — the OTHER half. Registering first only protects the window BEFORE
+  // this seed's own `fetchConnectionSnapshot()` call; a push landing WHILE
+  // that await is in flight would previously be overwritten the instant the
+  // (now-stale) snapshot resolved and `applyConnectionRows` ran. Same guard
+  // `seedThenSubscribe` implements, expressed with `connectionPushCount`
+  // because this seed applies a whole ARRAY through a different function than
+  // the push applies a single row through (see that counter's own doc).
+  const pushCountBeforeSeed = connectionPushCount;
   try {
     const snap = await fetchConnectionSnapshot();
-    applyConnectionRows(snap);
-    appendForensic(
-      'bridge',
-      `seeded from snapshot: ${snap.length === 0 ? '(no resident channel)' : snap.map((r) => `${r.channel}=${r.connected}`).join(' ')}`,
-    );
+    if (connectionPushCount !== pushCountBeforeSeed) {
+      appendForensic('bridge', 'snapshot seed discarded — a live CONNECTION frame arrived while it was in flight');
+    } else {
+      applyConnectionRows(snap);
+      appendForensic(
+        'bridge',
+        `seeded from snapshot: ${snap.length === 0 ? '(no resident channel)' : snap.map((r) => `${r.channel}=${r.connected}`).join(' ')}`,
+      );
+    }
   } catch (e) {
     // A seed that failed is stated, not swallowed — otherwise this degrades
     // silently back to the exact push-only behaviour it replaces.

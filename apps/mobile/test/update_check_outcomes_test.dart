@@ -168,14 +168,18 @@ void main() {
       expect(r.comparedAt, isNull);
     });
 
-    test('row 4 first half: the manifest has no android entry ⇒ "update information is incomplete"', () async {
+    test('⟲ Card: row 4 first half: the manifest has no android entry ⇒ platformNotCovered, NOT the "cannot verify" sentence', () async {
       const String onlyWindows = '''
 {"manifest_version":1,"generated_at":"x","platforms":{
   "windows-x64":{"version":"9.9.9","notes_url":null,"artifacts":[
     {"kind":"msi","locale":"zh-CN","filename":"a.msi","url":"http://x/a.msi",
      "sha256":"$kGoodSha","size":1}]}}}''';
       final UpdateCheckResult r = await _check(_Fetcher(200, onlyWindows));
-      expect(r.outcome, UpdateCheckOutcome.incompleteInfo);
+      // Nothing was verified and failed here — no android entry exists to
+      // check — so this must NOT share a sentence with the artifact-missing
+      // case below (which genuinely tried and failed to verify).
+      expect(r.outcome, UpdateCheckOutcome.platformNotCovered);
+      expect(r.detail, 'platform_absent');
       expect(r.comparedAt, isNull);
     });
 
@@ -314,13 +318,14 @@ void main() {
       expect(r.didCompare, isTrue);
     });
 
-    test('🔴 a manifest with no store block (an OLD deployed server strips it) ⇒ "incomplete", never "up to date"', () async {
+    test('🔴 a manifest with no store block (an OLD deployed server strips it) ⇒ platformNotCovered, never "up to date"', () async {
       // The deployed 0.3.11 relay validator rebuilds the manifest from the keys
       // it knows, so an iOS phone asking it lands exactly here until the relay
       // is redeployed. The honest answer is 「this deployment doesn't mention my
-      // platform」 — degrading to the status quo, claiming nothing.
+      // platform」 — degrading to the status quo, claiming nothing. It shares
+      // no sentence with incompleteInfo: no verification was even attempted.
       final UpdateCheckResult r = await checkIos(manifestJson());
-      expect(r.outcome, UpdateCheckOutcome.incompleteInfo);
+      expect(r.outcome, UpdateCheckOutcome.platformNotCovered);
       expect(r.detail, 'platform_absent');
       expect(r.didCompare, isFalse);
     });

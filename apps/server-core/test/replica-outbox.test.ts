@@ -101,6 +101,43 @@ describe('ReplicaOutbox: delivery', () => {
     expect(ob.stats().failed).toBeGreaterThan(0);
   });
 
+  it('🔴 F1: `failed` counts a parked record ONCE, not once per tick forever', async () => {
+    // Before this card, every drain cycle after parking re-entered the parking
+    // branch (a frozen `tries` is never NOT over the limit again) and
+    // incremented `failed` again — a metric that grew without bound for the
+    // rest of the process's life over a SINGLE poison record.
+    const ob = new ReplicaOutbox(file);
+    ob.enqueue(usage('a'));
+    for (let i = 0; i <= MAX_TRIES + 1; i++) await ob.drain(async () => false);
+    expect(ob.stats().failed).toBe(1);
+    // Ten MORE drain cycles on the same already-parked record.
+    for (let i = 0; i < 10; i++) await ob.drain(async () => false);
+    expect(ob.stats().failed, 'failed must not grow past the ONE real failure').toBe(1);
+  });
+
+  it('🔴 F1: a parked record is excluded from pending/oldest_pending_ms and counted in `parked`', async () => {
+    // outbox-drainer.ts's stuck-queue alarm reads `oldest_pending_ms` as "is the
+    // ACTIVE queue draining". Before this card a permanently-parked record's
+    // age stayed IN that number forever, so the alarm could never clear again
+    // even while every other record flowed normally.
+    const ob = new ReplicaOutbox(file);
+    ob.enqueue({ ...usage('poison'), at: Date.now() - 20 * 60_000 }); // old — would read as "stuck" if counted
+    for (let i = 0; i <= MAX_TRIES + 1; i++) await ob.drain(async () => false);
+
+    const parkedOnly = ob.stats();
+    expect(parkedOnly.pending, 'the parked record must not count as pending').toBe(0);
+    expect(parkedOnly.oldest_pending_ms, 'no ACTIVE record ⇒ null, not the poison record\'s age').toBeNull();
+    expect(parkedOnly.parked).toBe(1);
+
+    // A fresh, healthy record now shares the file with the permanently parked
+    // one. It must read as a fast-draining queue on its own merits.
+    ob.enqueue({ ...usage('fresh'), at: Date.now() });
+    const mixed = ob.stats();
+    expect(mixed.pending).toBe(1);
+    expect(mixed.oldest_pending_ms, 'must be the FRESH record\'s age, not the poison record\'s').toBeLessThan(5_000);
+    expect(mixed.parked).toBe(1);
+  });
+
   it('retries deliver at-least-once rather than at-most-once', async () => {
     const ob = new ReplicaOutbox(file);
     ob.enqueue(usage('a'));

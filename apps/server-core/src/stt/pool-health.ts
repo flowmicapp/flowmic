@@ -179,14 +179,30 @@ interface HealthEntry {
 
 export interface RouteHealthRegistry {
   /** The `selectRoute` seam. SYNCHRONOUS — selection must not await I/O on the
-   *  audio:start path (A6 §4a: zero extra latency). */
-  isAvailable(route: PoolRoute): boolean;
-  /** Fold in a verdict (probe or a live session's terminal error). Logged BOTH
-   *  ways: a route coming back is as much news as one going down. */
-  record(routeId: string, verdict: LivenessVerdict): void;
-  /** Kick an async refresh if this route's entry is missing or stale. Fire and
-   *  forget — never awaited by selection. */
+   *  audio:start path (A6 §4a: zero extra latency).
+   *
+   *  🔴 card B2-G (2026-09-02) — `language` was ADDED here. Health used to be
+   *  keyed by route id alone, so a FATAL verdict measured for one language
+   *  evicted the route for every language. That is not hypothetical: Soniox
+   *  answers `invalid_request` (→ `STT_CONFIG_MISSING`, a `ROUTE_FATAL_CODES`
+   *  member) for at least one real language hint it does not accept
+   *  (`zh-TW`, measured WP3 2026-08-18) while transcribing every other
+   *  configured language on the same route without complaint — "this route
+   *  cannot serve THIS language" is a different fact from "this route is
+   *  broken", and folding them into one boolean per route was reporting the
+   *  wrong one to every OTHER language sharing that route. See
+   *  {@link healthKey} for the composite key this keys by instead. */
+  isAvailable(route: PoolRoute, language: string): boolean;
+  /** Fold in a verdict (probe or a live session's terminal error) for one
+   *  (route, language) pair. Logged BOTH ways: a route coming back is as much
+   *  news as one going down. */
+  record(routeId: string, language: string, verdict: LivenessVerdict): void;
+  /** Kick an async refresh if this (route, language) entry is missing or
+   *  stale. Fire and forget — never awaited by selection. */
   refresh(route: PoolRoute, routing: Routing, language: string): void;
+  /** Keyed by {@link healthKey}(route_id, language) — NOT by route id alone
+   *  (see the note on `isAvailable` above). Consumers that used to expect a
+   *  bare route id as the key must split on the last `::`. */
   snapshot(): Readonly<Record<string, HealthEntry>>;
 }
 
@@ -202,14 +218,28 @@ export interface HealthRegistryDeps {
 
 const DEFAULT_TTL_MS = 60_000;
 
+/**
+ * The composite key health is stored under: a route is healthy or not FOR A
+ * GIVEN LANGUAGE, never for all languages at once (see the doc on
+ * {@link RouteHealthRegistry.isAvailable}). `route_id`s come from
+ * `stt/pool-config.ts`'s parsed rows (operator-chosen slugs) and languages are
+ * BCP-47 tags — neither is expected to contain `::`, so a plain join is
+ * readable in logs without a real collision risk; nothing downstream parses
+ * the key back apart except `snapshot()`'s doc comment, which says so.
+ */
+function healthKey(routeId: string, language: string): string {
+  return `${routeId}::${language}`;
+}
+
 export function makeRouteHealthRegistry(deps: HealthRegistryDeps): RouteHealthRegistry {
   const now = deps.now ?? Date.now;
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
   const entries = new Map<string, HealthEntry>();
   const inFlight = new Set<string>();
 
-  function record(routeId: string, verdict: LivenessVerdict): void {
-    const prev = entries.get(routeId);
+  function record(routeId: string, language: string, verdict: LivenessVerdict): void {
+    const key = healthKey(routeId, language);
+    const prev = entries.get(key);
     // 🔴 A non-fatal failure does NOT evict the route. Otherwise one 500 from
     // the provider takes the platform's primary out for the whole TTL.
     const available = verdict.ok || !verdict.fatal;
@@ -219,12 +249,12 @@ export function makeRouteHealthRegistry(deps: HealthRegistryDeps): RouteHealthRe
       message: verdict.message,
       checked_at: now(),
     };
-    entries.set(routeId, entry);
+    entries.set(key, entry);
     if (prev?.available === available) return;
     // Leave a trace (A6 §3-3). Both directions, at a level someone actually reads.
     if (!available) {
-      log.error('stt.pool route marked UNAVAILABLE', {
-        route_id: routeId, code: verdict.code, provider_said: verdict.message, elapsed_ms: verdict.elapsed_ms,
+      log.error('stt.pool route marked UNAVAILABLE for this language', {
+        route_id: routeId, language, code: verdict.code, provider_said: verdict.message, elapsed_ms: verdict.elapsed_ms,
       });
       return;
     }
@@ -234,13 +264,13 @@ export function makeRouteHealthRegistry(deps: HealthRegistryDeps): RouteHealthRe
     // happened. Found in the live drill 2026-08-02.
     log.info(
       prev === undefined ? 'stt.pool route measured healthy (first probe)' : 'stt.pool route is available again',
-      { route_id: routeId, elapsed_ms: verdict.elapsed_ms },
+      { route_id: routeId, language, elapsed_ms: verdict.elapsed_ms },
     );
   }
 
   return {
-    isAvailable(route): boolean {
-      const e = entries.get(route.id);
+    isAvailable(route, language): boolean {
+      const e = entries.get(healthKey(route.id, language));
       // Unknown ⇒ optimistic. A route nobody has measured yet must not be
       // treated as dead: that would refuse traffic on boot, before any probe has
       // had a chance to run, and "not yet measured" is not "broken".
@@ -248,18 +278,19 @@ export function makeRouteHealthRegistry(deps: HealthRegistryDeps): RouteHealthRe
     },
     record,
     refresh(route, routing, language): void {
-      const e = entries.get(route.id);
+      const key = healthKey(route.id, language);
+      const e = entries.get(key);
       if (e !== undefined && now() - e.checked_at < ttlMs) return;
-      if (inFlight.has(route.id)) return;
-      inFlight.add(route.id);
+      if (inFlight.has(key)) return;
+      inFlight.add(key);
       void probeRouteLiveness(deps.factory, routing, language, deps.liveness ?? {})
-        .then((v) => record(route.id, v))
+        .then((v) => record(route.id, language, v))
         .catch((err) => {
           // A probe that itself threw says nothing about the route — record
           // nothing rather than invent a verdict.
-          log.warn('stt.pool liveness probe threw', { route_id: route.id, error: messageOf(err) });
+          log.warn('stt.pool liveness probe threw', { route_id: route.id, language, error: messageOf(err) });
         })
-        .finally(() => { inFlight.delete(route.id); });
+        .finally(() => { inFlight.delete(key); });
     },
     snapshot(): Readonly<Record<string, HealthEntry>> {
       return Object.fromEntries([...entries].map(([k, v]) => [k, { ...v }]));

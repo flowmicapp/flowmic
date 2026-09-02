@@ -274,6 +274,27 @@ void main() {
       }
     });
 
+    test('⟲ Card F7/F1-a: INJECT_NOT_IN_ROOM is testimony about THIS SOCKET, not the PC — must not flip the header offline', () {
+      final FakeSocketTransport t = FakeSocketTransport();
+      final PttSession s = newTestSession(transport: t);
+      addTearDown(s.dispose);
+      t.pushIncoming('focus:state', <String, Object?>{'process_name': 'x.exe'});
+      expect(s.pcPresence.value, PcPresence.online);
+
+      // The error-codes.ts sentence is "Connection not ready (not in a
+      // session yet); retry shortly" — the phone's OWN room membership, not
+      // any fact about the computer. It fires on the phone's own reconnect
+      // edge, which is exactly the moment a false "PC offline" flash would be
+      // most visible and most wrong.
+      t.pushIncoming('inject:result', <String, Object?>{
+        'ok': false,
+        'mode': 'sendinput',
+        'error': 'INJECT_NOT_IN_ROOM',
+      });
+      expect(s.pcPresence.value, PcPresence.online,
+          reason: 'INJECT_NOT_IN_ROOM answers "is this socket in the room", not "is the PC here"');
+    });
+
     test('🔴 R3 local watchdog: a sentence the remote once said must not outlive the connection that said it', () {
       final FakeSocketTransport t = FakeSocketTransport();
       final PttSession s = newTestSession(transport: t);

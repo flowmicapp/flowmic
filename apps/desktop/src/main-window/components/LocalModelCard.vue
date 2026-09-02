@@ -58,9 +58,27 @@ const status = computed(() => modelStore.status);
 /** The knowledge faces (unchanged rules from the single-model card): never
  *  been able to ask ⇒ `connecting` (quiet); asked and failed ⇒ `unknown`
  *  (orange line underneath says which failure). A status we DID get stays on
- *  screen when one poll misses, with `stale` beside it. */
+ *  screen when one poll misses, with `stale` beside it.
+ *
+ *  E5 (2026-09-02) — a FOURTH face, `sidecar_failed`, checked before
+ *  `connecting`. Without it, a sidecar the Rust supervisor had already given
+ *  up on (`SidecarStatus.phase === 'failed'`) fell into `connecting` purely
+ *  because `status` was still null and `reach` had never had reason to leave
+ *  `'unknown'` (every HTTP probe against a dead sidecar answers `no-endpoint`,
+ *  which `refreshModelStatus` only turns into `reach = 'unreachable'` once a
+ *  status had ALREADY been read once — see that function's own `no-endpoint`
+ *  branch). `connecting` is deliberately quiet and hides the recheck action
+ *  (the row below is gated on `knowledge !== 'connecting'`) because it is
+ *  meant to resolve on its own within seconds — a terminal `failed` verdict
+ *  never will, so it needs both its own sentence and the action visible. */
 const knowledge = computed(() =>
-  status.value !== null ? 'ok' : modelStore.reach === 'unknown' ? 'connecting' : 'unknown',
+  status.value !== null
+    ? 'ok'
+    : modelStore.sidecarPhase === 'failed'
+      ? 'sidecar_failed'
+      : modelStore.reach === 'unknown'
+        ? 'connecting'
+        : 'unknown',
 );
 const stale = computed(() => modelStore.reach === 'unreachable');
 const answeredBadly = computed(() => modelStore.reach === 'answered_unusable');
@@ -283,8 +301,11 @@ const rowErrors = computed(() =>
     <p class="sub why">{{ S.model_why }}</p>
     <p class="sub why">{{ S.model_pick_note }}</p>
 
-    <!-- The reading's health, one line, three different sentences. -->
-    <p v-if="knowledge === 'connecting'" class="sub">{{ S.model_connecting_note }}</p>
+    <!-- The reading's health, one line, four different sentences (E5 adds
+         sidecar_failed — checked first, since it is the one honest verdict
+         Rust already reached rather than one this store infers from silence). -->
+    <p v-if="knowledge === 'sidecar_failed'" class="sub warn">{{ S.model_sidecar_failed }}</p>
+    <p v-else-if="knowledge === 'connecting'" class="sub">{{ S.model_connecting_note }}</p>
     <p v-else-if="stale" class="sub warn">{{ S.model_unreachable }}</p>
     <p v-else-if="answeredBadly" class="sub warn">{{ S.model_answered_badly }}</p>
     <p v-else-if="knowledge === 'unknown'" class="sub warn">{{ S.model_state_unknown }}</p>

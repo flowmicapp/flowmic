@@ -29,7 +29,7 @@
 // two share the PREDICATE ([isLightRecord]) rather than the object.
 
 import '../../ui/plus_panel_selection.dart' show joinSelectedTexts;
-import '../article_view.dart' show articleMembersIn;
+import '../article_view.dart' show articleMembersIn, collapseArticles;
 import '../timeline_entry.dart';
 import '../timeline_persistence.dart';
 import 'blind_store_timeline_bridge.dart';
@@ -62,17 +62,33 @@ class LightRecordQuery {
   /// did. The head stands for its members here and the members are read
   /// through [membersOf] when one is opened.
   ///
-  /// ⚠️ THE COLLAPSE IS **ONLY** HERE, and that is deliberate. Blind-store sync
-  /// (`BlindStoreTimelineBridge.lightRecords`) must still see every member:
-  /// they are the rows that carry the words, and a sync that uploaded a cover
-  /// instead would back up a title. Two readers, two questions, one predicate
-  /// ([isLightRecord]) shared between them.
-  Future<List<TimelineEntry>> all() async {
+  /// 🔴 Card P2-9 (2026-09-02, findings-mobile-dead.md) — **this used to be a
+  /// SECOND, hand-rolled collapse** (`if (isLightRecord(e) && !e.isInArticle)`),
+  /// diverged from [collapseArticles] in two ways that were never reconciled:
+  /// it dropped EVERY member unconditionally, so (a) a recording still being
+  /// recorded lost its members here too — the exact "card whose word count
+  /// ticks upward instead of the words themselves" article_view.dart's own
+  /// header argues against — and (b) a headless member (its head deleted, or
+  /// paged out of view) vanished instead of staying a plain row. Both are now
+  /// answered by [collapseArticles], the one function every screen shares.
+  /// [liveArticleId] carries [collapseArticles]'s own live exception through;
+  /// callers with no live-recording concept (tests, non-owner screens) pass
+  /// nothing and get today's behaviour for a finished article unchanged.
+  ///
+  /// ⚠️ Blind-store sync (`BlindStoreTimelineBridge.lightRecords`) must still
+  /// see every member regardless of this collapse: they are the rows that
+  /// carry the words, and a sync that uploaded a cover instead would back up a
+  /// title. Two readers, two questions, one predicate ([isLightRecord]) shared
+  /// between them.
+  Future<List<TimelineEntry>> all({String? liveArticleId}) async {
     final List<TimelineEntry> rows = await _persistence.loadAll();
-    return _newestFirst(<TimelineEntry>[
+    final List<TimelineEntry> lightRecordRows = <TimelineEntry>[
       for (final TimelineEntry e in rows)
-        if (isLightRecord(e) && !e.isInArticle) e,
-    ]);
+        if (isLightRecord(e)) e,
+    ];
+    return _newestFirst(
+      collapseArticles(lightRecordRows, liveArticleId: liveArticleId),
+    );
   }
 
   /// The rows of one article, OLDEST FIRST — the transcript order.
@@ -144,11 +160,11 @@ class LightRecordQuery {
   /// COST, stated rather than hidden: this decodes every row, which is the same
   /// scan [all] already is. If it ever stops being milliseconds the fix is the
   /// projected `origin` column and its migration — not a limit.
-  Future<List<TimelineEntry>> search(String query) async {
+  Future<List<TimelineEntry>> search(String query, {String? liveArticleId}) async {
     final String needle = query.trim().toLowerCase();
     if (needle.isEmpty) return const <TimelineEntry>[];
     // Narrow to light records FIRST (unbounded), match SECOND. See above.
-    final List<TimelineEntry> notes = await all();
+    final List<TimelineEntry> notes = await all(liveArticleId: liveArticleId);
     return <TimelineEntry>[
       for (final TimelineEntry e in notes)
         if (timelineSearchText(e).contains(needle)) e,
@@ -164,8 +180,12 @@ class LightRecordQuery {
 /// would give the panel a list whose order depends on which store managed to
 /// open — visible only on the fallback, which is the worst place to find it.
 List<TimelineEntry> _newestFirst(List<TimelineEntry> rows) {
-  rows.sort(
+  // Card P2-9 — `rows` may now be [collapseArticles]'s own return value,
+  // which is `List.unmodifiable`. A growable copy first, or `.sort()` throws
+  // on an input this function used to always be handed freshly built.
+  final List<TimelineEntry> sortable = List<TimelineEntry>.of(rows);
+  sortable.sort(
     (TimelineEntry a, TimelineEntry b) => b.createdAt.compareTo(a.createdAt),
   );
-  return List<TimelineEntry>.unmodifiable(rows);
+  return List<TimelineEntry>.unmodifiable(sortable);
 }

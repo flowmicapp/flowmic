@@ -201,11 +201,25 @@ describe('pc:list-mobiles — the paired-phone table', () => {
     expect((ack.mobiles as { mobile_name: string }[]).map((m) => m.mobile_name)).toEqual(['Phone-A']);
   });
 
-  it('② refuses an unauthenticated socket and a MOBILE-kind socket', async () => {
-    const { pc } = pcWithMobiles('default', 'PC-A', ['Phone-A']);
+  // ⚠️ 2026-09-01 — THIS ASSERTION USED TO PIN THE DEFECT AS THE SPEC. It read
+  // `anon → AUTH_TOKEN_INVALID`, and it was green for the same reason the bug
+  // existed: one code answered two questions. A socket with no auth is not a bad
+  // credential, it is a credential that has not been presented yet, and telling
+  // the desktop otherwise made it delete the user's Cloud Key on a cold-start
+  // race (four measured sign-outs, 2026-08-30 → 2026-09-01; the pc:reconnect ack
+  // landed 56–335 ms after the refusal every time). A negative assertion that
+  // points the wrong way does not miss a defect — it makes the defect the
+  // acceptance criterion, and it goes red on the day someone fixes it (0.2.52).
+  it('② an un-handshaked socket is told to ask again, NOT that its token is bad', async () => {
     const anon = wire(fakeSocket('s-anon', null));
-    expect(await anon.invoke('pc:list-mobiles', {})).toEqual({ error: 'AUTH_TOKEN_INVALID' });
+    expect(await anon.invoke('pc:list-mobiles', {})).toEqual({ error: 'PC_HANDSHAKE_PENDING' });
+  });
 
+  it('② a MOBILE-kind socket is still a credential refusal', async () => {
+    // The positive control for the split above: `!auth` and 「authenticated as
+    // something that is not this PC」 are different facts and must stay different
+    // answers. Collapsing them back into one code is the defect returning.
+    const { pc } = pcWithMobiles('default', 'PC-A', ['Phone-A']);
     const asMobile = wire(fakeSocket('s-m', { userId: 'default', deviceId: pc.id, pairingId: 'p1', kind: 'mobile' }));
     expect(await asMobile.invoke('pc:list-mobiles', {})).toEqual({ error: 'AUTH_TOKEN_INVALID' });
   });

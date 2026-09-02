@@ -149,6 +149,60 @@ describe('D1 §6.1 ② — a paddle subscription', () => {
     }
   });
 
+  // 🔴 2026-09-02 audit P0-2 — Paddle's own docs (get-subscription) say
+  // `current_billing_period` is 「null for paused and canceled subscriptions」.
+  // A null period on those two statuses is Paddle's spelling of 「this already
+  // ended」, not a field it forgot to fill in. Before this fix `fromPaddle`
+  // read null-period as `expired:false` unconditionally, so a canceled
+  // subscription kept its paid tier forever once Paddle nulled the period.
+  describe('🔴 P0-2 — status × null-period truth table (fail-CLOSED on the two terminal statuses)', () => {
+    it('canceled + null period ⇒ expired (Paddle already ended it)', () => {
+      db.billing.upsertSubscription(paddleRow({ status: 'canceled', current_period_end: null }));
+      expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'free', state: 'expired' });
+    });
+
+    it('paused + null period ⇒ expired, using last_occurred_at (no paused_at column)', () => {
+      db.billing.upsertSubscription(paddleRow({ status: 'paused', current_period_end: null }));
+      expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'free', state: 'expired' });
+    });
+
+    it('active + null period is still NOT expired — a null period there means omitted, not concluded', () => {
+      // Positive control for the two above: same null period, non-terminal
+      // status. If the fix collapsed to "null period ⇒ always expired" this
+      // would wrongly strip a signed, currently-paying subscriber.
+      db.billing.upsertSubscription(paddleRow({ status: 'active', current_period_end: null }));
+      expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'pro', state: 'active' });
+    });
+
+    it('past_due + null period is still NOT expired (Paddle is mid-retry, not concluded)', () => {
+      db.billing.upsertSubscription(paddleRow({ status: 'past_due', current_period_end: null }));
+      expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'pro', state: 'past_due' });
+    });
+
+    it('canceled + null period + garbage canceled_at falls back to last_occurred_at, not to "not expired"', () => {
+      db.billing.upsertSubscription(
+        paddleRow({ status: 'canceled', current_period_end: null, canceled_at: 'not-a-date' }),
+      );
+      expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'free', state: 'expired' });
+    });
+
+    // `fromPaddle` is the ONE reader for BOTH providers — `paddle_subscriptions`
+    // has no per-provider branch, and creem/envelope.ts (2026-08-29) can
+    // likewise leave `current_period_end` null on a canceled row (Creem's
+    // `subscription.canceled` payload). The fix must not be "true for Paddle's
+    // shape only"; the row's `provider` column is the only thing that differs.
+    it('a Creem-provider row, canceled + null period, is ALSO expired (fromPaddle serves both providers)', () => {
+      db.billing.upsertSubscription(
+        paddleRow({ provider: 'creem', status: 'canceled', current_period_end: null }),
+      );
+      expect(makeBilling().getPlan(USER)).toMatchObject({
+        plan: 'free',
+        state: 'expired',
+        billing_provider: 'creem',
+      });
+    });
+  });
+
   it('an unknown Paddle status neither grants a lie nor strips a payer', () => {
     // Paddle inventing a sixth status must not silently downgrade someone who is
     // inside their paid period; it must also not be reported as 'active', which
@@ -178,6 +232,85 @@ describe('D1 §6.1 ② — a paddle subscription', () => {
     db.billing.upsertSubscription(paddleRow({ user_id: OTHER }));
     expect(makeBilling().getPlan(USER)).toMatchObject({ plan: 'free', source: 'none' });
     expect(makeBilling().getPlan(OTHER)).toMatchObject({ plan: 'pro', source: 'paddle' });
+  });
+});
+
+// ── 🔴 2026-09-02 audit F2/C1 — swapping subscriptions leaves TWO rows ──────
+//
+// `paddle_subscriptions` is keyed by `subscription_id`, so a user who cancels
+// an old plan and buys a new one has two rows on file, not one overwritten
+// row. Before this fix, `computeView` asked `latestForUser` — "the row with
+// the newest `last_occurred_at`" — which is the WRONG question once a late
+// webhook can make the OLD, now-terminal row look newer than the new,
+// currently-paying one.
+describe('🔴 F2/C1 — swap subscription, late canceled (two rows, right one must win)', () => {
+  it('a late-arriving cancel for the OLD subscription must not outrank the NEW active one', () => {
+    // sub_A: the user's original subscription, already canceled+expired well
+    // before sub_B existed.
+    db.billing.upsertSubscription(
+      paddleRow({
+        subscription_id: 'sub_A',
+        status: 'canceled',
+        current_period_end: null,
+        canceled_at: new Date(NOW - 10 * 86_400_000).toISOString(),
+        last_occurred_at: new Date(NOW - 10 * 86_400_000).toISOString(),
+      }),
+    );
+    // sub_B: the replacement, bought and still active.
+    db.billing.upsertSubscription(
+      paddleRow({
+        subscription_id: 'sub_B',
+        tier: 'max',
+        status: 'active',
+        current_period_end: new Date(NOW + 20 * 86_400_000).toISOString(),
+        last_occurred_at: new Date(NOW - 5 * 86_400_000).toISOString(),
+      }),
+    );
+    // Now a redelivered / out-of-order webhook restates sub_A's cancellation
+    // with a `last_occurred_at` AFTER sub_B's own last event — a plain
+    // "newest row wins" read would pick sub_A (expired ⇒ free) over sub_B
+    // (still active), dropping a currently-paying user to free.
+    db.billing.upsertSubscription(
+      paddleRow({
+        subscription_id: 'sub_A',
+        status: 'canceled',
+        current_period_end: null,
+        canceled_at: new Date(NOW - 10 * 86_400_000).toISOString(),
+        last_occurred_at: new Date(NOW + 1000).toISOString(),
+      }),
+    );
+    expect(makeBilling().getPlan(USER)).toMatchObject({
+      plan: 'max',
+      source: 'paddle',
+      state: 'active',
+      paddle_subscription_id: 'sub_B',
+    });
+  });
+
+  it('if EVERY row is expired, the newest one is still reported (support/reconciliation, unchanged)', () => {
+    db.billing.upsertSubscription(
+      paddleRow({
+        subscription_id: 'sub_A',
+        status: 'canceled',
+        current_period_end: null,
+        canceled_at: new Date(NOW - 20 * 86_400_000).toISOString(),
+        last_occurred_at: new Date(NOW - 20 * 86_400_000).toISOString(),
+      }),
+    );
+    db.billing.upsertSubscription(
+      paddleRow({
+        subscription_id: 'sub_B',
+        status: 'canceled',
+        current_period_end: null,
+        canceled_at: new Date(NOW - 5 * 86_400_000).toISOString(),
+        last_occurred_at: new Date(NOW - 5 * 86_400_000).toISOString(),
+      }),
+    );
+    expect(makeBilling().getPlan(USER)).toMatchObject({
+      plan: 'free',
+      state: 'expired',
+      paddle_subscription_id: 'sub_B',
+    });
   });
 });
 

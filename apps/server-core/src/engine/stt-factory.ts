@@ -24,8 +24,8 @@ import { getRoomUuid } from '../socket/wire';
 import type { SttStartArgs } from '../socket/handlers/audio.handler';
 import type { SttOrchestrator } from './orchestrator';
 import { SttSessionBridge, type SttEmitter, type SttSessionDeps } from './stt-session';
-import { loadRoutings, makeSttOrchestratorFactory } from '../stt/engine-factory';
-import { configFromRouting, selectRouting } from '../stt/engine-router';
+import { loadRoutings, makeSttOrchestratorFactory, makeManagedDefaultResolver } from '../stt/engine-factory';
+import { configFromRouting, selectRouting, type Routing } from '../stt/engine-router';
 import { DEFAULT_POLISH_STRENGTH, type SttRefine } from '@flowmic/protocol';
 import { log } from '../log';
 import { readOrchestratorTuningFromEnv, assertSttTuningEnv } from '../stt/tuning-env';
@@ -197,6 +197,12 @@ export function makeSttSessionFactory(
     mode: deps.mode,
     orchestratorOptions: readOrchestratorTuningFromEnv(),
   });
+  // card A7 — built once, reused by BOTH the refine second pass and the
+  // pipeline trace below, so neither one silently falls through the managed
+  // pool tier the live session actually used. See the export's own header in
+  // stt/engine-factory.ts for why this is a fresh resolver, not the live
+  // session's own instance.
+  const managedDefault = makeManagedDefaultResolver();
   return (socket, args) => {
     // The room is resolved ONCE here (audio:start time), not per frame: the
     // delivery intent is fixed for the utterance, so the fan-out decision is
@@ -248,7 +254,7 @@ export function makeSttSessionFactory(
     // invented — the dep is simply absent and the reason is LOGGED, because a
     // switch that is on and does nothing must at least be explainable.
     const refineSetting = readSttRefine(deps.settings, args.userId);
-    const refine = refineSetting.enabled ? resolveRefine(deps, args, refineSetting) : undefined;
+    const refine = refineSetting.enabled ? resolveRefine(deps, args, refineSetting, managedDefault) : undefined;
     // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
     // Everything below is gathered ONLY when tracing is on, so the untraced path
     // pays nothing: `selectRouting` re-reads settings, and doing that on every
@@ -262,7 +268,7 @@ export function makeSttSessionFactory(
     // consumed it was never armed.
     const traceId = newTraceId();
     if (traceEnabled()) {
-      const tracedRouting = selectRouting(args.sourceLang, loadRoutings(deps.settings, args.userId));
+      const tracedRouting = selectRouting(args.sourceLang, loadRoutings(deps.settings, args.userId), managedDefault);
       const engineId = tracedRouting?.engine_id;
       trace('session.start', traceId, {
         user_id: args.userId,
@@ -600,15 +606,23 @@ export function resolvePolishDep(
 
 /** Build the GA-14 refine dep, or `undefined` when this routing cannot do a
  *  second pass. Every `undefined` here is logged with its reason. */
-function resolveRefine(
+// Exported (not just internal) so card A7's fix can be pinned directly: the
+// routing decision is fully observable through the WARN it logs (below) and
+// whether it returns `undefined`, with no need to invoke `transcribe` and
+// therefore no need to fake a real vendor connection in a test.
+export function resolveRefine(
   deps: SttFactoryDeps,
   args: SttStartArgs,
   cfg: SttRefine,
+  managedDefault: (language: string) => Routing | null,
 ): { cfg: SttRefine; transcribe: (pcm: Buffer) => Promise<string> } | undefined {
   const routings = loadRoutings(deps.settings, args.userId);
   // The SAME selection the live session used — refine must not quietly pick a
-  // different engine than the one that produced the first pass.
-  const routing = selectRouting(args.sourceLang, routings);
+  // different engine than the one that produced the first pass. card A7: this
+  // MUST include managedDefault, or tier 3 (the platform pool — what almost
+  // every production session actually runs on) is unreachable here and refine
+  // silently re-transcribes with a SEEDED fallback engine instead.
+  const routing = selectRouting(args.sourceLang, routings, managedDefault);
   if (routing === null) {
     log.warn('stt.refine is ON but no routing matches — no second pass', { language: args.sourceLang });
     return undefined;

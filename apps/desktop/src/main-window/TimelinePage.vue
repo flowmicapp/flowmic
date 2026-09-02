@@ -426,9 +426,22 @@ const batchMsgKind = ref<'ok' | 'warn'>('ok');
 
 /** Selected rows in DISPLAY order (see selectedInOrder). The count and the
  *  copy only ever cover rows that still exist — a row deleted by a refresh
- *  simply leaves the tally instead of being silently promised. */
+ *  simply leaves the tally instead of being silently promised.
+ *
+ *  E8 (2026-09-02) — `filtered`, not `entries`. `selectedInOrder`'s own doc
+ *  says its first argument "is the list the page renders," but this call site
+ *  passed the FULL unfiltered list: `toggleOne` only ever adds a key while its
+ *  row is visible in `filtered` (the click handler is inside `v-for="e in
+ *  filtered"`), but nothing removed a key when a later filter-chip change hid
+ *  that row again. `selectedKeys` kept it, and reading against `entries`
+ *  resolved it anyway — a batch copy could carry rows the selection bar, the
+ *  checkboxes and the chip strip all agreed were off-screen. Reading against
+ *  `filtered` instead means a hidden row's key still SITS in `selectedKeys`
+ *  (switching the chip back re-selects it, which matches "I picked these
+ *  rows" rather than "I picked these rows in this one filter view") but no
+ *  longer counts or copies while it is hidden. */
 const selectedRows = computed<TimelineRow[]>(() =>
-  selectedInOrder(entries.value, selectedKeys.value, rowKey),
+  selectedInOrder(filtered.value, selectedKeys.value, rowKey),
 );
 /** ③before: non-null while the selection holds a picture — shown on the bar. */
 const selHint = computed(() => preCopyHint(selectedRows.value));

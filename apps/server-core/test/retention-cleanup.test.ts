@@ -21,6 +21,7 @@ import type { Plan } from '@flowmic/protocol';
 import { createDbConnection, type DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 import { startRetentionSweeper, RETENTION_SWEEP_INTERVAL_MS, USAGE_EVENTS_RETENTION_DAYS } from '../src/db/retention';
+import { REAPER_SWEEP_INTERVAL_MS } from '../src/db/reaper';
 import { startServer, STANDALONE_USER_ID, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import { planLimits } from '../src/billing/plans';
@@ -501,9 +502,12 @@ describe('GA-06 bootstrap wiring', () => {
     });
     server = boot;
 
-    // The interval is the sweep's, at the daily cadence, and boot did NOT sweep.
-    expect(sched.timers).toHaveLength(1);
+    // The intervals are the two daily sweeps' (retention, and P2-6's growth
+    // reaper — bootstrap-sweeps.ts arms both through this same override), and
+    // boot did NOT sweep either one.
+    expect(sched.timers).toHaveLength(2);
     expect(sched.timers[0]?.ms).toBe(RETENTION_SWEEP_INTERVAL_MS);
+    expect(sched.timers[1]?.ms).toBe(REAPER_SWEEP_INTERVAL_MS);
 
     boot.db.pcs.insert({
       id: `pc-${STANDALONE_USER_ID}`,
@@ -524,5 +528,42 @@ describe('GA-06 bootstrap wiring', () => {
     server = null; // close() below is the assertion; skip the afterEach safety net
     await boot.close();
     expect(sched.timers[0]?.cleared).toBe(true);
+    expect(sched.timers[1]?.cleared).toBe(true);
+  });
+
+  // P2-6 (2026-09-02) — the growth reaper's OWN sweep, driven end to end
+  // through a real boot: `startGrowthReaper` had a full unit-test suite
+  // (test/reaper.test.ts) since D11 and was never once CALLED outside a test,
+  // so every one of those tests proved the mechanism worked and none of them
+  // could have caught the wiring gap. This is the wiring gap's own test.
+  it('🔴 a stale PC is reaped on the real boot\'s own timer, and a fresh one is not', async () => {
+    const config = loadConfig({ port: 0, dbPath: ':memory:', secret: 'reaper-boot-secret-32-bytes-long!' });
+    const boot = await startServer(config, {
+      now: () => T0,
+      setIntervalFn: sched.setIntervalFn,
+      clearIntervalFn: sched.clearIntervalFn,
+    });
+    server = boot;
+
+    boot.db.pcs.insert({
+      id: 'pc-stale', user_id: STANDALONE_USER_ID, device_name: 'Old PC',
+      device_token: `tok-stale-${'x'.repeat(32)}`, room_uuid: 'room-stale', short_code: '1111',
+    });
+    boot.db.pcs.setOnline('pc-stale', false);
+    boot.db.pcs.touchLastSeen('pc-stale', new Date(T0 - 91 * DAY_MS).toISOString());
+    boot.db.pcs.insert({
+      id: 'pc-fresh', user_id: STANDALONE_USER_ID, device_name: 'New PC',
+      device_token: `tok-fresh-${'x'.repeat(32)}`, room_uuid: 'room-fresh', short_code: '2222',
+    });
+    boot.db.pcs.setOnline('pc-fresh', false);
+    boot.db.pcs.touchLastSeen('pc-fresh', new Date(T0 - 1 * DAY_MS).toISOString());
+
+    sched.tick(); // fires BOTH daily sweeps; only the reaper touches pc_devices
+
+    expect(boot.db.pcs.findById('pc-stale')).toBeNull();
+    expect(boot.db.pcs.findById('pc-fresh')).not.toBeNull();
+
+    server = null;
+    await boot.close();
   });
 });

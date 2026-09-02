@@ -494,6 +494,59 @@ describe('the event table — what each family does to the row', () => {
     expect(rows.filter((r) => r.user_id === 'u1')).toHaveLength(3);
   });
 
+  // 🔴 2026-09-02 audit F3 — the ONLY existing refund path (`confirmOneTimeRefund`)
+  // matches against `one_time_purchases`, so a subscription refund — which only
+  // ever lands a row in `refund_requests` (via the withdrawal route) — could
+  // never be confirmed by the webhook. It fell through to `outcome:'unmapped'`
+  // and `paddle_status` stayed at whatever it was when submitted, forever.
+  it('an approved adjustment.updated confirms a SUBSCRIPTION refund_requests row, by transaction_id', () => {
+    const { db, deps } = world();
+    deliver(deps, frame()); // sub_A exists and belongs to u1
+    // The withdrawal route's own write, reproduced directly (billing-routes.ts
+    // stamps this row at submission time, before Paddle ever answers).
+    db.billing.recordRefundRequest({
+      id: 'rr_1',
+      user_id: 'u1',
+      subscription_id: 'sub_A',
+      transaction_id: 'txn_sub_refund_1',
+      kind: 'statutory_withdrawal',
+      state: 'submitted',
+      amount_minor: 600,
+      currency: 'USD',
+      paddle_adjustment_id: 'adj_1',
+      paddle_status: 'pending_approval',
+      detail: null,
+      created_at: '2026-08-01T12:00:00.000Z',
+    });
+    const out = deliver(deps, frame({
+      event_id: 'evt_adj_approved',
+      event_type: 'adjustment.updated',
+      occurred_at: '2026-08-01T13:00:00.000000Z',
+      data: { id: 'adj_1', transaction_id: 'txn_sub_refund_1', action: 'refund', status: 'approved' },
+    }));
+    expect(out.body).toMatchObject({ outcome: 'applied' });
+    const row = db.billing.listRefundRequests('u1', 10).find((r) => r.id === 'rr_1');
+    // 🔴 THE FIX: paddle_status moved off the frozen submission-time value.
+    expect(row?.paddle_status).toBe('approved');
+    // `state` stays 'submitted' — verbatim `paddle_status` is what answers
+    // "did the money move", per the column's own documented contract.
+    expect(row?.state).toBe('submitted');
+    // The one-time-purchase table must NOT have gained a phantom row: this
+    // transaction id was never a purchase.
+    expect(db.billing.getOneTimePurchase('txn_sub_refund_1')).toBeNull();
+  });
+
+  it('an adjustment.updated for a transaction with NO refund_requests row still falls through to one-time (unmapped, not a crash)', () => {
+    const { db, deps } = world();
+    const out = deliver(deps, frame({
+      event_id: 'evt_adj_orphan',
+      event_type: 'adjustment.updated',
+      occurred_at: '2026-08-01T13:00:00.000000Z',
+      data: { id: 'adj_2', transaction_id: 'txn_nobody_knows', action: 'refund', status: 'approved' },
+    }));
+    expect(out.body).toMatchObject({ outcome: 'unmapped' });
+  });
+
   it('records the cycle Paddle actually sent, and does not round an odd one into monthly', () => {
     const { db, deps } = world();
     deliver(deps, frame({ data: subscriptionData({ billing_cycle: { interval: 'year', frequency: 1 } }) }));

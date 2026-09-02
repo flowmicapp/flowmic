@@ -16,7 +16,7 @@ use crate::socket::node_probe_surface::{self, RelayLatencyDto, SurfaceHttp};
 
 use super::{cloud, sidecar_ctl};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn relay_latency_check(app: AppHandle) -> RelayLatencyDto {
     let endpoint = cloud::snapshot(&app).endpoint;
     let current = sidecar_ctl::current_node_id();

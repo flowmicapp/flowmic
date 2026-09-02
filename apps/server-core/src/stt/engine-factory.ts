@@ -377,6 +377,38 @@ export interface SttOrchestratorFactoryDeps {
  * a MANAGED (non-BYOK) STREAMING engine, the orchestrator only feeds the engine
  * while the gate is open — silence never accrues billed session time (§2.3).
  */
+/**
+ * 🔴 card A7 — the SAME managed-default resolver `makeSttOrchestratorFactory`
+ * builds internally, exposed for callers OUTSIDE a live session's orchestrator
+ * that must not silently disagree with what the live session actually used.
+ *
+ * GA-14 refine and the pipeline trace (`engine/stt-factory.ts` — outside this
+ * file's own directory, so this export is the seam between them) both used to
+ * call `selectRouting(language, routings)` with NO managedDefault at all: tier
+ * 3 of the §4 algorithm (the platform's managed/pool route — the one virtually
+ * every production session actually runs on) was structurally unreachable from
+ * there. Refine did not merely go silent about it (the honest failure already
+ * logged one line up) — it fell through to a SEEDED fallback row and
+ * re-transcribed the whole utterance with `sherpa-local` while the live
+ * utterance had been heard by Soniox, producing a "second pass" whose quality
+ * verdict is worthless because it graded a different engine.
+ *
+ * ⚠️ NOT the live session's own instance — refine/trace run on their own
+ * schedule (refine after the fact, trace only when enabled), by which point the
+ * orchestrator that made the live pick may already be gone. This builds a
+ * FRESH resolver against the SAME configuration (env/pool file), so it agrees
+ * with the live session on ANY given health state but does not share its
+ * running health registry. That is the honest limit, not a shortcut: sharing a
+ * gone orchestrator's registry is not available, and disagreeing about "which
+ * routing" is a strictly worse defect than disagreeing about "was route X
+ * still healthy 10 seconds ago".
+ */
+export function makeManagedDefaultResolver(
+  engineFactory: EngineFactory = defaultEngineFactory,
+): (language: string) => Routing | null {
+  return makePoolManagedDefault({ factory: engineFactory }).resolve;
+}
+
 export function makeSttOrchestratorFactory(
   deps: SttOrchestratorFactoryDeps,
 ): (session: AudioSession, language: string, userId: string, vad?: VadGate) => BuiltOrchestrator {

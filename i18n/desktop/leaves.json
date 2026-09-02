@@ -19,12 +19,6 @@
       "name": "nav_settings"
     },
     {
-      "key": "app_name",
-      "shard": "nav",
-      "kind": "string",
-      "name": "app_name"
-    },
-    {
       "key": "win_minimize",
       "shard": "nav",
       "kind": "string",
@@ -65,12 +59,6 @@
       "shard": "devices",
       "kind": "string",
       "name": "dev_add_phone"
-    },
-    {
-      "key": "dev_offline_toggle",
-      "shard": "devices",
-      "kind": "string",
-      "name": "dev_offline_toggle"
     },
     {
       "key": "dev_offline_hint",
@@ -389,12 +377,6 @@
       "shard": "devices",
       "kind": "string",
       "name": "dev_self"
-    },
-    {
-      "key": "dev_rename_sync",
-      "shard": "devices",
-      "kind": "string",
-      "name": "dev_rename_sync"
     },
     {
       "key": "dev_lan_pick",
@@ -1327,12 +1309,6 @@
       "name": "stt_preset"
     },
     {
-      "key": "stt_routings",
-      "shard": "settings",
-      "kind": "string",
-      "name": "stt_routings"
-    },
-    {
       "key": "stt_add_lang",
       "shard": "settings",
       "kind": "string",
@@ -1379,12 +1355,6 @@
       "shard": "settings",
       "kind": "string",
       "name": "col_language"
-    },
-    {
-      "key": "col_engine",
-      "shard": "settings",
-      "kind": "string",
-      "name": "col_engine"
     },
     {
       "key": "col_endpoint",
@@ -1463,6 +1433,12 @@
       "shard": "settings",
       "kind": "string",
       "name": "settings_scope_lan"
+    },
+    {
+      "key": "stt_settings_scope_note",
+      "shard": "settings",
+      "kind": "string",
+      "name": "stt_settings_scope_note"
     },
     {
       "key": "refine_title",
@@ -2325,12 +2301,6 @@
       "name": "cap_session_default"
     },
     {
-      "key": "cap_reconnect",
-      "shard": "capsule",
-      "kind": "string",
-      "name": "cap_reconnect"
-    },
-    {
       "key": "cap_diag",
       "shard": "capsule",
       "kind": "string",
@@ -3185,12 +3155,6 @@
       "name": "st_picture_size"
     },
     {
-      "key": "st_range",
-      "shard": "stats",
-      "kind": "string",
-      "name": "st_range"
-    },
-    {
       "key": "st_range_to",
       "shard": "stats",
       "kind": "string",
@@ -3417,12 +3381,6 @@
       "shard": "disclosure",
       "kind": "string",
       "name": "disc_nav"
-    },
-    {
-      "key": "disc_entry",
-      "shard": "disclosure",
-      "kind": "string",
-      "name": "disc_entry"
     },
     {
       "key": "disc_entry_sub",
@@ -3675,12 +3633,6 @@
       "shard": "update",
       "kind": "string",
       "name": "upd_dismiss"
-    },
-    {
-      "key": "upd_retry",
-      "shard": "update",
-      "kind": "string",
-      "name": "upd_retry"
     },
     {
       "key": "upd_loading",
@@ -4171,6 +4123,12 @@
       "name": "model_unreachable"
     },
     {
+      "key": "model_sidecar_failed",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_sidecar_failed"
+    },
+    {
       "key": "model_verified",
       "shard": "model",
       "kind": "string",
@@ -4229,12 +4187,6 @@
       "shard": "model",
       "kind": "string",
       "name": "model_manual"
-    },
-    {
-      "key": "model_dir",
-      "shard": "model",
-      "kind": "string",
-      "name": "model_dir"
     },
     {
       "key": "model_copy",

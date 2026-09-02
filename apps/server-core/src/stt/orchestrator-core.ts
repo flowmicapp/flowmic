@@ -36,6 +36,7 @@ import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, isFunasrF
 import { noEngineTerminalText } from './terminal-final-text';
 import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
 import { coldOpenErrorVerdict } from './cold-open-verdict';
+import { segmentDurationMs as segmentDurationAccountMs } from './segment-duration-account';
 
 export * from './orchestrator-types';
 
@@ -141,8 +142,8 @@ export class SttEngineOrchestrator extends EventEmitter {
    */
   private readonly onEngineSessionExpired = (): void => {
     if (this.terminated || this.terminalizing) return;
-    if (this.rolloverWork || this.idle.isBusy || !this.engine) return;
-    this.rolloverWork = this.rolloverSegment(false).finally(() => { this.rolloverWork = null; });
+    if (this.rolloverWork || this.idle.isBusy || !this.engine) { this.session.retryEngineCeilingSoon(); return; } // B2-G: retry soon, don't leave the leg unrotated a full ceiling (see that method's doc)
+    this.runRollover(false);
   };
   constructor(
     private readonly session: AudioSession,
@@ -378,7 +379,54 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  (card SEG-4). Policy + full account: `stt/segment-boundary.ts`. */
   private startRollover(deliver: boolean): void {
     if (this.rolloverWork || this.terminated || this.terminalizing || !this.engine) return;
-    this.rolloverWork = this.rolloverSegment(deliver).finally(() => { this.rolloverWork = null; });
+    this.runRollover(deliver);
+  }
+
+  /**
+   * 🔴 card P0-1 — the ONE place `rolloverWork` is assigned, shared by
+   * `startRollover` (soft-segment / sentence-or-pause cut) and
+   * `onEngineSessionExpired` (N1-B4's 5-minute wall). Both used to write
+   * `this.rolloverSegment(...).finally(...)` with no `.catch`, and the
+   * rollover-phase spawn inside it was a bare `await this.spawnEngine()` (see
+   * {@link spawnRolloverEngine}) — so an `open()` rejection on EITHER trigger
+   * became an `unhandledRejection`, which `error-handling.ts` hands to
+   * `onFatal` → `exit(FATAL_EXIT_CODE)`: ONE Soniox rollover-open failure took
+   * the whole relay process down for every other live session. `dialLeg` (the
+   * silence-redial spawn) never had this hole; it was already wrapped, which is
+   * what made these two a gap rather than a design choice.
+   *
+   * The `.catch` here is a terminal safety net, not the primary handler — every
+   * spawn failure `rolloverSegment` knows about is already routed to the ladder
+   * from inside `spawnRolloverEngine`. What lands here is a defect neither
+   * anticipated, and it must still reach the ladder's terminal channel rather than crash the process or vanish silently.
+   */
+  private runRollover(deliver: boolean): void {
+    this.rolloverWork = this.rolloverSegment(deliver)
+      .catch((err) => { if (!this.terminated && !this.terminalizing) this.ladder.handleEngineError(err as Error); })
+      .finally(() => { this.rolloverWork = null; });
+  }
+
+  /**
+   * 🔴 card P0-1 — every ROLLOVER spawn must go through this, never a bare
+   * `await this.spawnEngine()`. Same shape as {@link dialLeg}'s cap-and-catch:
+   * race against `engineSpawnTimeoutMs`, hand a rejection to
+   * `this.ladder.handleEngineError` instead of letting it propagate — the
+   * ladder already owns "an engine session died, try again", and a second,
+   * uncaught copy of that decision is exactly how P0-1 happened.
+   *
+   * Returns `false` when the spawn failed (ladder has taken over the retry) or
+   * the orchestrator finished mid-spawn — either way the caller must stop its
+   * own rollover bookkeeping right there, exactly as `dialLeg`'s callers do.
+   */
+  private async spawnRolloverEngine(): Promise<boolean> {
+    try {
+      await raceSpawnTimeout(this.spawnEngine(), this.engineSpawnTimeoutMs, this._setTimeout, this._clearTimeout);
+    } catch (err) {
+      if (!this.terminated && !this.terminalizing) this.ladder.handleEngineError(err as Error);
+      return false;
+    }
+    if (this.terminated || this.terminalizing) { await this.closeEngine(); return false; }
+    return true;
   }
 
   /**
@@ -464,7 +512,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       if (this.terminated || this.terminalizing) return;
       this.lastEngineFedSeq = finalizedSeq;
       this.engineFedBytes = 0;
-      await this.spawnEngine();
+      if (!(await this.spawnRolloverEngine())) return; // card P0-1: ladder has taken over
       this.replayBufferTail(true);
       return; // the cadence re-arms its own leg timer; `due` stays raised
     }
@@ -498,7 +546,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.onlineDraft = '';
     this.lastEngineFedSeq = finalizedSeq;
     this.engineFedBytes = 0; // a fresh engine has been handed nothing yet
-    await this.spawnEngine();
+    if (!(await this.spawnRolloverEngine())) return; // card P0-1: ladder has taken over
     this.replayBufferTail(true);
     this.cadence.arm();
   }
@@ -556,55 +604,13 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.terminated = true;
   }
 
-  /**
-   * 🔴 card N1-B1 — the ONE question `duration_ms` answers, on BOTH exits: "how
-   * long is this segment".
-   *
-   * It used to answer two. The soft-segment exit passed `now - segmentStartMs`
-   * and BOTH terminal exits passed `now - sessionStartMs`, so the same wire field
-   * meant "this segment" on one final and "the whole utterance" on the next.
-   * That was internally consistent while a whole utterance settled as ONE row:
-   * the phone assembled every segment into one entry and read the duration off
-   * the terminal final only. book 15 §2.0-c ends that — "one segment (segment_idx) = one row"
-   * — and under it the old shape double-counts: a 10-minute recording mints ~20
-   * rows of 30 s each PLUS a last row claiming 600 s, and the desktop stats tile
-   * sums rows (`entry-metrics.ts` rowDurationMs).
-   *
-   * ⚠️ Not a bug fix — a contract change. Read the two directions before shipping:
-   *  · new relay + OLD phone (settles only on the terminal final): a >30 s
-   *    utterance's single row under-reports its duration. No text is lost.
-   *  · new phone + OLD relay: every per-segment row claims the whole session's
-   *    duration. No text is lost. Both degrade a number, neither drops a word —
-   *    which is why this may ship ahead of N1-B2, though shipping them together
-   *    is what keeps the number right.
-   *
-   * ⚠️ It cannot reach billing: the STT meter is settled from `totalAudioMs` /
-   * `vad.sessionMs` in the bridge's `settle()`, never from a final's payload.
-   *
-   * ✅ CLOSED by card N1-B1b (`031660c`) — this block used to read "OPEN ACCOUNT …
-   * it is reported, not done here", and every clause of it went false the moment
-   * that card landed in a lane this one may not touch. Corrected in place rather
-   * than deleted, because the account was real and the fix it PROPOSED was wrong:
-   *
-   * The account: the bridge's `kickRefine` passed this same number to
-   * `shouldRefine`, whose floor is "only re-transcribe an utterance of at least N
-   * seconds" while `RetainedAudio` holds the WHOLE utterance ⇒ a per-segment
-   * duration made that gate read one segment and judge the whole. Real defect:
-   * release a few seconds past a rollover and refine silently never ran, on
-   * exactly the long recordings GA-14 exists to improve.
-   *
-   * 🔴 Why the replacement proposed here was REJECTED — keep this, or it will be
-   * proposed again: `totalAudioMs` counts every byte the phone offered, INCLUDING
-   * bytes `RetainedAudio` refused (cap) and replayed reconnect chunks. On an
-   * overflowed buffer it would clear the floor and then hand `take()` an empty
-   * buffer — re-creating the very "the gate judges something other than what it
-   * bills" shape it was meant to close. The number that cannot disagree with
-   * `take()` is the retained buffer's own length, and that is what shipped.
-   *
-   * ⚠️ Nothing here reads a final's `duration_ms` for that decision any more, so
-   * this method is once again free to mean only what its name says.
-   */
-  private segmentDurationMs(): number { return this.now() - this.segmentStartMs; }
+  /** card N1-B1 — the ONE question `duration_ms` answers on BOTH exits: "how
+   *  long is this segment" (never the whole session — that used to double-count,
+   *  card N1-B1b closed it). Full account (why it is a contract change, the two
+   *  compat directions, why the `totalAudioMs` replacement was rejected) moved
+   *  VERBATIM to `segment-duration-account.ts` (800-line cap) — behaviour
+   *  unchanged, only the call stayed behind. */
+  private segmentDurationMs(): number { return segmentDurationAccountMs(this.now(), this.segmentStartMs); }
 
   private async flushAndEmitFinal(isSegment: boolean, durationMs: number): Promise<boolean> {
     this.flushErrored = false; this.flushing = true;

@@ -114,6 +114,25 @@ function ledgerRow(userId: string, eventId: string, receivedAt: string, outcome:
   db.billing.finishEvent(eventId, { user_id: userId, subscription_id: 'sub_x', outcome, detail: 'test row' });
 }
 
+/** Write ONE `refund_requests` row directly through the real repo method
+ *  (2026-09-02 audit F3/F9 — the route's own reader, `listRefundRequests`). */
+function refundRow(userId: string, id: string, createdAt: string, paddleStatus: string | null): void {
+  db.billing.recordRefundRequest({
+    id,
+    user_id: userId,
+    subscription_id: 'sub_x',
+    transaction_id: `txn_${id}`,
+    kind: 'statutory_withdrawal',
+    state: 'submitted',
+    amount_minor: 600,
+    currency: 'USD',
+    paddle_adjustment_id: `adj_${id}`,
+    paddle_status: paddleStatus,
+    detail: null,
+    created_at: createdAt,
+  });
+}
+
 async function get(path: string, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
   const res = await fetch(`${url}${path}`, { headers });
   return { status: res.status, json: await res.json().catch(() => null) };
@@ -211,6 +230,58 @@ describe('D1 §6.2 — GET /api/cloud/billing/events', () => {
     // fall through to the router's 404, not be answered by this handler.
     const a = await account('prefix@b.co');
     expect((await get('/api/cloud/billing/eventsomething', a.bearer)).status).toBe(404);
+  });
+});
+
+// ── 2026-09-02 audit F3/F9 — GET /api/cloud/billing/refunds ────────────────
+//
+// WHY THIS ROUTE EXISTS AT ALL: `BillingRepo.listRefundRequests` had zero
+// production callers before this route — its own doc comment claimed "Read
+// by the console", which was false (audit F3/F9). Same shape as
+// `/billing/events` above, so this suite mirrors it case-for-case rather than
+// inventing a new pattern.
+describe('2026-09-02 F3/F9 — GET /api/cloud/billing/refunds', () => {
+  it('no Bearer → 401, and the body names the reason (no silent empty list)', async () => {
+    const r = await get('/api/cloud/billing/refunds');
+    expect(r.status).toBe(401);
+    expect(r.json.error).toBe('AUTH_TOKEN_INVALID');
+  });
+
+  it('an account with no refund requests gets an explicit empty list, not a 404', async () => {
+    const a = await account('empty-refunds@b.co');
+    const r = await get('/api/cloud/billing/refunds', a.bearer);
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ refunds: [] });
+  });
+
+  it('returns this account‘s rows, newest first, with paddle_status intact', async () => {
+    const a = await account('refund-rows@b.co');
+    refundRow(a.id, 'rr_old', '2026-07-30T00:00:00.000Z', 'pending_approval');
+    refundRow(a.id, 'rr_new', '2026-07-31T00:00:00.000Z', 'approved');
+    const r = await get('/api/cloud/billing/refunds', a.bearer);
+    expect(r.status).toBe(200);
+    expect(r.json.refunds.map((row: { id: string }) => row.id)).toEqual(['rr_new', 'rr_old']);
+    expect(r.json.refunds[0]).toMatchObject({ id: 'rr_new', paddle_status: 'approved', user_id: a.id });
+  });
+
+  // ── 🔴 REVERSE CONTROL ────────────────────────────────────────────────────
+  it("B's token cannot read A's refund rows — and B's OWN row proves the probe works", async () => {
+    const a = await account('refund-victim@b.co');
+    const b = await account('refund-attacker@b.co');
+    refundRow(a.id, 'rr_a1', '2026-07-31T00:00:00.000Z', 'pending_approval');
+    refundRow(b.id, 'rr_b1', '2026-07-31T02:00:00.000Z', 'pending_approval');
+
+    const asB = await get('/api/cloud/billing/refunds', b.bearer);
+    expect(asB.status).toBe(200);
+    const ids = asB.json.refunds.map((row: { id: string }) => row.id);
+    expect(ids).not.toContain('rr_a1');
+    expect(JSON.stringify(asB.json)).not.toContain(a.id);
+    expect(ids).toEqual(['rr_b1']);
+  });
+
+  it('a path that merely STARTS with the route is not claimed by it', async () => {
+    const a = await account('refund-prefix@b.co');
+    expect((await get('/api/cloud/billing/refundsomething', a.bearer)).status).toBe(404);
   });
 });
 

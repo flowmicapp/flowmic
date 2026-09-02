@@ -92,28 +92,23 @@ export const VERIFY_CODE_EXPIRED = 'VERIFY_CODE_EXPIRED';
 /** the 5th wrong guess — 429, row burned, a fresh send is the only way on. */
 export const VERIFY_TOO_MANY_ATTEMPTS = 'VERIFY_TOO_MANY_ATTEMPTS';
 
-/** 0.3.0 M1 precedent (`FLOWMIC_INTERNAL_RESET_TOKEN_ECHO`, password-reset-
- *  routes.ts): the flag that makes the send response carry the code itself.
+/**
+ * 🔴 2026-09-02 — `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO` USED TO LIVE HERE
+ * AND IS DELETED. It made the send response carry the code itself, with no
+ * mode gate at all: any Bearer holder could verify without a mailbox if it
+ * was ever set on a reachable deployment, which is the same account-takeover
+ * shape as its sibling `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` (password-reset-
+ * routes.ts) — owner ordered both removed
+ * (docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+ * questions.md §3, problem 1), not merely defaulted dark.
  *
- *  🔴 PRIVATE-LINE / GOLDEN-HARNESS AFFORDANCE ONLY — it must never be set on
- *  a deployment a stranger can reach (with it on, any Bearer holder can verify
- *  without a mailbox, i.e. the gate stops proving anything). It exists because
- *  the golden paths (g11/g17/g18) drive a REAL spawned server that has no mail
- *  channel and no DB handle to reach into, and the alternative — goldens that
- *  skip the gate — would leave the one true-boot harness blind to it. Same
- *  strict '1'/'true' parsing as the reset echo; read per request, not at
- *  module load, so tests can flip it and a server needs no restart to go dark.
- *
- *  ⚠️ With the echo ON the send-failure contract bends, out loud: the code is
- *  stored and echoed even when the transport refused (the response then says
- *  `dispatched:false` — never a silent claim of delivery). With it OFF (the
- *  default, and every production deployment) the honest-502 contract above is
- *  the whole story; test/email-verification.test.ts pins both halves. */
-const VERIFICATION_CODE_ECHO_ENV = 'FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO';
-function verificationCodeEchoEnabled(): boolean {
-  const v = process.env[VERIFICATION_CODE_ECHO_ENV];
-  return v === '1' || v === 'true';
-}
+ * It existed because the golden paths (g11/g17/g18) drive a REAL spawned
+ * server with no mail channel and no DB handle to reach into. That capability
+ * is now mail/file.ts (FLOWMIC_MAIL_PROVIDER=file): the code is IN the mail
+ * `sendVerificationMail` sent, on disk, for a test to read the same way a
+ * real recipient reads their inbox — nothing on this wire carries it any
+ * more, in any configuration.
+ */
 
 export interface EmailVerificationRoutesDeps {
   /** The SAME AuthService instance every other Bearer surface verifies with —
@@ -200,9 +195,6 @@ export function tryHandleEmailVerificationRoutes(
       // resend cannot produce a mail whose code and link disagree about which
       // send they belong to.
       const minted = mintVerification(user.id, t);
-      const code = minted.code;
-      const echo = verificationCodeEchoEnabled();
-      let dispatched = true;
       try {
         // AWAITED, deliberately — see the file header: honesty beats latency
         // here, and there is no enumeration clock to hide (the caller is
@@ -221,30 +213,25 @@ export function tryHandleEmailVerificationRoutes(
           transport: deps.mailer.id,
           reason: err instanceof Error ? err.message : String(err),
         });
-        if (!echo) {
-          // Nothing stored, no budget spent, no cooldown started: the user
-          // received nothing, so no state may claim otherwise.
-          return sendJson(res, 502, {
-            error: VERIFY_SEND_FAILED,
-            message: 'the verification email could not be sent; try again later or contact the operator',
-          });
-        }
-        dispatched = false; // echo mode: stored + echoed below, failure named
+        // Nothing stored, no budget spent, no cooldown started: the user
+        // received nothing, so no state may claim otherwise.
+        return sendJson(res, 502, {
+          error: VERIFY_SEND_FAILED,
+          message: 'the verification email could not be sent; try again later or contact the operator',
+        });
       }
       deps.sendLimiter.record(user.id);
       // NR-2a — BOTH rows, written together (verification-issue.ts states why).
       storeVerification(deps.repo, deps.settings, user.id, minted);
-      // The code itself is NEVER in the response or a log line — except under
-      // the internal echo flag (its doc block above is the whole argument).
-      // ⚠️ The LINK TOKEN is not echoed even then: the echo exists so a golden
-      // path that spawns a real server with no mail channel can still pass the
-      // console gate, and the code arm alone does that. A token in a response
-      // body is a token in whatever logs that body.
+      // The code itself is NEVER in the response or a log line — no exception
+      // left (2026-09-02: the internal echo that used to carve one out is
+      // deleted, not defaulted off — see the file header). A test that needs
+      // the code without a real mailbox reads it out of mail/file.ts's written
+      // JSON, the same way a real recipient reads their inbox.
       return sendJson(res, 200, {
         ok: true,
         expires_in_ms: EMAIL_VERIFICATION_CODE_TTL_MS,
         resend_cooldown_ms: EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
-        ...(echo ? { code, dispatched } : {}),
       });
     })();
     return true;

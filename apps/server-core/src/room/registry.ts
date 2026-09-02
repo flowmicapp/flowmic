@@ -58,63 +58,52 @@ export interface RegistryDeps {
   limitsOf?: (user_id: string) => PlanLimits;
 }
 
-export interface PairInput {
-  short_code?: string;
-  qr_payload?: string;
-  /** 0.2.66 — the PUBLIC 9-digit addressing id of the PC this phone means (04
-   *  §3.1 PCID addressing). Only ever set on the short-code arm: the QR arm carries
-   *  its own inside `qr_payload` and is parsed out of it in `resolvePcForPair`,
-   *  so both arms reach the same code path (owner 2026-08-14: "scanning a QR
-   *  and typing it by hand are the same logic"). Required in SAAS, ignored in standalone (no PCID on the LAN). */
-  pcid?: string;
-  mobile_name?: string;
-  /** v0.2.4 — the handset's own machine-level id (protocol DeviceUid). The
-   *  reuse key, in preference to the name; absent for a pre-0.2.4 phone. */
-  device_uid?: string;
-  user_id?: string | null;
-}
+// 🔴 STRUCTURAL SPLIT (WP-9, 2026-09-02) — `PairInput` / `isRealPc` /
+// `CLOUD_INSTANCE_*` / `PCID_*` moved VERBATIM to `registry-shared.ts` (the
+// 800-line cap; see that file's header for the full account, including WHY a
+// leaf file rather than either side importing from the other). Re-exported so
+// every existing `import { isRealPc } from '../room/registry'`
+// (console-routes.ts and others) keeps working unchanged.
+export * from './registry-shared';
+import {
+  isRealPc, type PairInput,
+  CLOUD_INSTANCE_ID, CLOUD_INSTANCE_SHORT_CODE, CLOUD_INSTANCE_PC_NAME,
+  PCID_DIGITS, PCID_SPACE,
+} from './registry-shared';
+import { resolvePcForPair as resolvePcForPairImpl } from './registry-pair-resolve';
 
-// F-3140 (05 §1): the fixed "cloud instance" virtual PC row identity. Per-user,
-// find-or-created on cloud admission; never online (pc_online:false), never a
-// code-pairing target (its short_code is never stamped ACTIVE in the governor).
-export const CLOUD_INSTANCE_ID = 'flowmic-cloud-instance';
-export const CLOUD_INSTANCE_SHORT_CODE = '0000';
-export const CLOUD_INSTANCE_PC_NAME = 'FlowMic Cloud';
-
-/** 0.2.66 — the PCID shape, stated once so the arithmetic has a symbol to cite
- *  instead of a number retyped across the server, the desktop and the phone:
- *  `randomInt(0, PCID_SPACE)` zero-padded to PCID_DIGITS, so the alphabet is 0-9,
- *  the length is 9 and the space is exactly 10^9. Pinned (alphabet, length and
- *  bounds, by sampling) in test/pcid-pairing.test.ts.
+/** GA-16 fix (WP-9, findings-crossend-quota.md #4) — the `mobiles` device
+ *  count, DEDUPED BY PHYSICAL HANDSET rather than counted as pairing ROWS.
  *
- *  🔴 THIS IS ADDRESSING, NOT A SECRET — do not reason about it the way
- *  SHORT_CODE_SPACE is reasoned about in short-code.ts. It is printed on the PC
- *  for anyone in the room to read, it never expires, and knowing one buys an
- *  attacker nothing on its own: pairing still requires a live 4-digit code, and
- *  that code keeps all three of its limits (5-minute TTL, per-issuance failure
- *  budget, per-IP window). The size is chosen so a PCID is comfortably typeable
- *  while a blind walk of the space is pointless, not because it is a password. */
-export const PCID_DIGITS = 9;
-export const PCID_SPACE = 1_000_000_000;
-/** The one shape gate. Used by the resolve path AND by the tests; a second
- *  hand-written `/^\d{9}$/` somewhere else is how the desktop and the server end
- *  up disagreeing about what a PCID is. */
-export const PCID_RE = /^\d{9}$/;
-
-/** Is this a PC the USER actually registered?
+ *  🔴 A `mobile_pairings` ROW IS ONE (PC, HANDSET) EDGE, NOT ONE DEVICE. Before
+ *  this the free tier's 2-mobile ceiling was `Σ listByPc(pc.id).length` over
+ *  every real PC — so ONE physical phone paired to TWO of the user's PCs (an
+ *  ordinary thing to do, and the exact shape `device_uid` was minted to
+ *  recognise — v0.2.4, `mobile.repo.ts`) counted as TWO mobiles and filled the
+ *  free ceiling by itself, before a second handset ever existed. The console's
+ *  device card and the registry's enforcement must answer "how many phones"
+ *  with the same arithmetic (5-4 ① in the 2026-09-02 audit: a local table
+ *  answering a question that needs the whole picture), so this is exported and
+ *  used by BOTH (`ensureMobileSlot` below, `console-routes.ts` ③'s
+ *  `mobile_count`).
  *
- *  v0.2.3 — the ONE definition. The F-3140 cloud-instance row is a virtual device
- *  the server mints on cloud admission (it has no focus window and nobody
- *  installed it), so it is not a machine anyone owns. The quota path has always
- *  known that; the console's device counter did not, and answered the same
- *  question — "how many PCs does this user have" — with `pcs.length`. owner 2026-07-29 read
- *  "Device 5 · PC 2" with exactly one PC.
- *
- *  Exported so there is nowhere left to disagree: two definitions of a real PC is
- *  how the display and the limit drift apart, and a device count that does not
- *  match the limit it is displayed next to is worse than no count. */
-export function isRealPc(pc: { client_instance_id: string | null }): boolean {
-  return pc.client_instance_id !== CLOUD_INSTANCE_ID;
+ *  Rows with no `device_uid` (paired by a pre-0.2.4 build, or before the first
+ *  reconnect stamps one) CANNOT be deduped — there is no key to dedupe them
+ *  BY — so each such row still counts on its own. This can only ever
+ *  OVER-count relative to the true device number, never under, which keeps the
+ *  refusal direction safe: a user is never let past a ceiling they have
+ *  actually reached, only (at worst) refused one pairing later than the exact
+ *  device count would allow. */
+export function countMobileDevices(pcs: readonly PcRecord[], mobiles: Pick<MobileRepo, 'listByPc'>): number {
+  const seen = new Set<string>();
+  let undeduped = 0;
+  for (const pc of pcs) {
+    for (const m of mobiles.listByPc(pc.id)) {
+      if (m.device_uid) seen.add(m.device_uid);
+      else undeduped++;
+    }
+  }
+  return seen.size + undeduped;
 }
 
 export class Registry {
@@ -191,7 +180,8 @@ export class Registry {
   private ensureMobileSlot(user_id: string): void {
     const limit = this.deviceLimit(user_id, 'mobiles');
     if (!Number.isFinite(limit)) return;
-    const used = this.realPcs(user_id).reduce((n, pc) => n + this.deps.mobiles.listByPc(pc.id).length, 0);
+    // WP-9 — device count, not pairing-row count. See {@link countMobileDevices}.
+    const used = countMobileDevices(this.realPcs(user_id), this.deps.mobiles);
     if (used >= limit) this.refuse('mobiles', user_id, used, limit);
   }
 
@@ -374,7 +364,13 @@ export class Registry {
     return reapCrossAccountSiblings({ pcs: this.deps.pcs, mobiles: this.deps.mobiles }, machine_uid, keep_user_id);
   }
 
-  reconnectPc(token: string, client_instance_id?: string, machine_uid?: string): { pc: PcRecord } | null {
+  reconnectPc(
+    token: string,
+    client_instance_id?: string,
+    machine_uid?: string,
+    // B12 (2026-09-02, WP-6) — see the parameter's own doc below.
+    opts?: { skipPcidBackfill?: boolean },
+  ): { pc: PcRecord } | null {
     let pc = this.deps.pcs.findByToken(token);
     if (!pc) return null;
     if (client_instance_id && pc.client_instance_id === null) {
@@ -391,7 +387,23 @@ export class Registry {
     // PCID in the dialog, no pcid= in the cloud QR, and the relay (which
     // enforces PAIR_PCID_REQUIRED) refused every scan of that QR. stampPcid is
     // a no-op once the row has one, so this can never rotate an address.
-    this.stampPcid(pc);
+    //
+    // 🔴 B12 (2026-09-02, WP-6) — EXCEPT on a replica, where `opts.
+    // skipPcidBackfill` is set by the caller (pc.handler.ts, from the SAME
+    // `writerOnly()` guard every other per-role decision here reads). Unlike
+    // `stampMachineUid`/`setOnline` just above and below — genuinely idempotent
+    // writes of a value the CLIENT already knows, so a replica's copy dying at
+    // the next pull loses nothing new — `stampPcid` MINTS a fresh random value
+    // when the row has none. Minting it locally on a replica does not merely
+    // get erased: because the writer's own row is STILL null afterwards, the
+    // NEXT reconnect (same replica after a pull, or any other node) mints a
+    // DIFFERENT one — a pre-0.2.66 row that only ever reconnects through a
+    // replica would churn a fresh PCID on every cycle, shown to the user in the
+    // pairing dialog, none of which ever persist (findings-multinode.md F10).
+    // Skipping leaves the row exactly as absent as it always was for that case
+    // — the pre-0.2.66 behaviour this backfill exists to improve on, never
+    // worse than it, and correct again the moment this PC reaches the writer.
+    if (!opts?.skipPcidBackfill) this.stampPcid(pc);
     this.deps.pcs.setOnline(pc.id, true);
     return { pc: this.deps.pcs.findById(pc.id) ?? pc };
   }
@@ -405,164 +417,18 @@ export class Registry {
     return code;
   }
 
+  /** 🔴 STRUCTURAL SPLIT (WP-9) — delegates to `registry-pair-resolve.ts`'s
+   *  free function, VERBATIM logic, only the seam changed (`this.deps` /
+   *  `this.codes` become explicit arguments). See that file's header.
+   *
+   *  A second, independent extraction of this same family landed the same
+   *  day (WP-6, `pairing-resolve.ts`) — byte-for-byte the same functions and
+   *  constants, just combined into one file instead of split by concern. The
+   *  WP-9 two-file split (registry-shared.ts + registry-pair-resolve.ts) is
+   *  the one this tree keeps; WP-6's own pairing-resolve.ts was dropped at
+   *  merge time rather than kept as a second copy of the same logic. */
   resolvePcForPair(input: PairInput): PcRecord {
-    const { pcs } = this.deps;
-    let code: string | undefined;
-    let pcid: string | undefined;
-    if (input.short_code) {
-      if (!/^\d{4}$/.test(input.short_code)) throw new ServerError('PAIR_INVALID_CODE');
-      code = input.short_code;
-      pcid = input.pcid;
-    } else if (input.qr_payload) {
-      const m = /code=(\d{4})/.exec(input.qr_payload);
-      if (!m) throw new ServerError('PAIR_INVALID_PAYLOAD');
-      code = m[1];
-      // 0.2.66 — the QR arm's PCID travels INSIDE the payload, appended after
-      // `code=` (04 §3.1). Extracting it here rather than in a second parser is
-      // what makes owner's "scanning a QR and typing it are the same logic" true in the code and not just
-      // in the copy: from the next line on, the two arms are one path.
-      // ⚠️ A phone built before 0.2.66 forwards the scanned link VERBATIM
-      // (mobile wire_payloads.dart), so this finds the pcid in a new PC's QR
-      // even though that phone knows nothing about PCIDs. That is not luck — it
-      // is the append-after-`code=` discipline paying out (04 §3.1 rule 4).
-      pcid = /pcid=(\d{9})/.exec(input.qr_payload)?.[1];
-    } else {
-      throw new ServerError('PAIR_INVALID_PAYLOAD');
-    }
-    // ── 0.2.66 · SAAS: address first, THEN check the secret ───────────────────
-    // owner 2026-08-14: "the cloud relay does not support establishing a
-    // connection by typing the pairing code directly". Standalone falls
-    // through to the historical global-code path below — there is no PCID on the
-    // LAN, and this branch must never make the LAN stricter.
-    if (this.deps.mode === 'saas') return this.resolvePcByPcid(pcid, code as string);
-    const rows = pcs.listByShortCode(code as string);
-    const pc = findActivePcByCode(rows, (id) => this.codes.isActive(id));
-    if (!pc) {
-      // IT-39 — THE per-code brute-force charge, and the only one. Placed after
-      // the resolve (so a legitimate pairing is never charged) and after the two
-      // malformed-input throws above (so junk cannot burn codes), which makes
-      // this line reachable by exactly one thing: a well-formed guess that
-      // probed the code space and missed. `recordFailedGuess` decides which
-      // issuance pays; see its comment in short-code.ts.
-      this.codes.recordFailedGuess();
-      // U3-EXPIRED-VS-INVALID (0.3.0) — the two misses are two different facts
-      // and used to collapse into one code (the typo answer for an aged-out
-      // code was the launch register's E4):
-      //   · rows matched ⇒ this exact string IS some real PC's most recent
-      //     issuance — pc_devices.short_code is a single overwritten column,
-      //     so a row matches a code only while that code is the newest one —
-      //     and the only way it stopped resolving is that its ACTIVE window
-      //     lapsed: the TTL ran out (short-code.ts isActive), the governor's
-      //     in-memory issuance table was lost to a restart, or — IT-39 — the
-      //     issuance spent its failure budget and was BURNED
-      //     (short-code.ts isBurned). Either way PAIR_EXPIRED_CODE's "please refresh"
-      //     names the action that fixes it.
-      //
-      // IT-39 — HOW HONEST THIS PAIR OF ANSWERS IS, exactly, since a burn is a
-      // third fact riding on a two-value vocabulary and no error code was added:
-      //   · "guessed wrong" vs "this code got burned" ARE told apart, by the branch below: a
-      //     string that matches nothing is PAIR_INVALID_CODE; the real, burned
-      //     string is PAIR_EXPIRED_CODE. Different code, and the ACTION each
-      //     names is the right one for its case.
-      //   · "burned" vs "expired" are NOT told apart, and deliberately so even
-      //     though isBurned could. Splitting them on the wire would tell a
-      //     sprayer "your spray worked" — an oracle paid for with a red line
-      //     (a new error code is an owner gate) to tell the attacker something
-      //     only the attacker wants. The user-facing action is identical
-      //     ("refresh") and correct in both. Recorded as a known limit of the
-      //     vocabulary, not as an omission: the server-side line
-      //     `short_code.burned` (short-code.ts) is where that distinction lives.
-      //   · zero rows ⇒ the string matches nothing stored ⇒ PAIR_INVALID_CODE.
-      // A SUPERSEDED code (its PC has since minted a newer one — re-register or
-      // refreshShortCode) lands in the second bucket BY CONSTRUCTION: every
-      // re-mint writes the new code over the same column (pc.repo.ts
-      // setShortCode) in the same breath as it stamps the governor, so the old
-      // string matches zero rows and is physically indistinguishable from one
-      // that never existed. Deciding 「expired」 for it would need a
-      // code-history table (a DB migration — an owner gate); we implement the
-      // distinguishable subset and document the limit here.
-      // The isRealPc filter is load-bearing twice over: the F-3140
-      // cloud-instance rows hold the well-known constant '0000' and are never
-      // stamped ACTIVE, so without it that constant would answer "expired,
-      // please refresh" forever — false (no refresh can ever activate it) and an
-      // existence oracle over a code every probe knows. EXPIRED is only
-      // emitted when the probed string matches a real PC's stored issuance; a
-      // guess that matches nothing keeps reading PAIR_INVALID_CODE, and the
-      // brute-force gate (pair-rate-limit) throttles both answers alike.
-      if (rows.some(isRealPc)) {
-        throw new ServerError('PAIR_EXPIRED_CODE', 'code was issued but its active window lapsed');
-      }
-      throw new ServerError('PAIR_INVALID_CODE', 'no active PC for code');
-    }
-    return pc;
-  }
-
-  /** 0.2.66 — the SAAS resolve: the PCID says WHICH PC, the code says WHETHER.
-   *
-   *  🔴 WHAT THIS REPLACES, because the shape of the old bug is the whole point.
-   *  The standalone path below asks `listByShortCode(code)` — the one PC lookup
-   *  in this repo with no user dimension — and takes the newest ACTIVE row. On a
-   *  single-machine deployment that is exactly right (there is one user). On the
-   *  multi-tenant relay it meant the 4-digit code was the ONLY addressing the
-   *  protocol had (short-code.ts says so in its own words), so a guessed code
-   *  paired the guesser with whichever stranger happened to be pairing right
-   *  then. One value was answering two questions — 「which PC」 and 「prove it」 —
-   *  which is this repo's #1 documented defect shape.
-   *
-   *  ORDER IS LOAD-BEARING: address, then secret. Resolving the row first means
-   *  the code is checked against ONE row's own issuance instead of probing a
-   *  shared namespace, and it gives a wrong guess a victim to be charged to (see
-   *  the recordFailedGuess call below, and IT-39-a in short-code.ts for why 「who
-   *  pays」 was previously a heuristic).
-   *
-   *  WHAT DOES NOT CHANGE: the code keeps every limit it had (5-minute TTL,
-   *  per-issuance failure budget, per-IP window in pair-rate-limit.ts). A PCID is
-   *  public addressing — it is not a second factor and must never be described as
-   *  one. */
-  private resolvePcByPcid(pcid: string | undefined, code: string): PcRecord {
-    // ① No PCID at all — the refusal owner's ruling exists to produce. It fires
-    // BEFORE any lookup and before any failure accounting: nothing about this
-    // frame probed the code space, so charging it would let a malformed client
-    // burn a stranger's live code for free (the same reasoning that keeps the
-    // malformed-input throws above the charge site on the standalone path).
-    //
-    // 🔴 This is the one refusal on this path the USER CAN FIX, so it must stay a
-    // code of its own — the phone force-shows its PCID field on seeing it, which
-    // is what rescues a user whose endpoint heuristic guessed 「LAN」 wrongly
-    // (apps/mobile/lib/src/ui/add_pairing_sheet.dart).
-    if (!pcid) throw new ServerError('PAIR_PCID_REQUIRED', 'cloud pairing requires a pcid');
-    // ② Shape and existence collapse into ONE answer deliberately. Both mean
-    // 「that PCID does not name a PC」 and both are fixed by the same action
-    // (re-read the number on the PC); splitting them would only tell a prober
-    // which of their guesses were well-formed.
-    if (!PCID_RE.test(pcid)) throw new ServerError('PAIR_PCID_UNKNOWN', 'malformed pcid');
-    const pc = this.deps.pcs.findByPcid(pcid);
-    // `isRealPc` is load-bearing here for the same reason it is on the standalone
-    // path: the F-3140 cloud-instance row must never be reachable by address.
-    // Today it cannot even hold a pcid (stampPcid skips it), so this is a belt
-    // on top of braces — kept because the cost is one call and the failure it
-    // prevents is 「a phone pairs with a virtual PC that has no focus window」.
-    if (!pc || !isRealPc(pc)) throw new ServerError('PAIR_PCID_UNKNOWN', 'no pc for pcid');
-    // ③ Now, and only now, the secret — checked against THIS row's own issuance.
-    const matches = pc.short_code === code;
-    if (matches && this.codes.isActive(pc.id)) return pc;
-    // A miss. Charge it to the PC that was actually attacked: unlike the
-    // standalone path, a guess here CARRIES its victim, so IT-39-a's
-    // "most-exposed live issuance" heuristic is not needed and not used. One
-    // consequence worth stating: a sprayer can now aim a burn at a PC whose PCID
-    // they know, where before they could not aim at all — but they can only ever
-    // burn the code of the PC they name, never a bystander's, and the cure is
-    // unchanged (press "refresh"). The cross-tenant blast radius IT-39-a was written
-    // to bound is gone from this path entirely, because a bare code no longer
-    // reaches a lookup at all (it dies at ① above).
-    this.codes.recordFailedGuess(pc.id);
-    // Same two-value vocabulary as the standalone path, same reasoning: the code
-    // this row is CURRENTLY showing but which is no longer live (TTL lapsed,
-    // governor restarted, or burned) is 「expired, refresh it」; anything else is
-    // 「that code is not this PC's」. Burned vs expired stay indistinguishable on
-    // the wire on purpose — see the long note on the standalone path.
-    if (matches) throw new ServerError('PAIR_EXPIRED_CODE', 'code was issued but its active window lapsed');
-    throw new ServerError('PAIR_INVALID_CODE', 'code does not match this pc');
+    return resolvePcForPairImpl(this.deps, this.codes, input);
   }
 
   pairMobile(input: PairInput): { mobile: MobileRecord; pc: PcRecord; token: string } {
@@ -719,10 +585,6 @@ export class Registry {
       mobile_name: 'Phone',
     });
     return { pc, mobile, token };
-  }
-
-  listPcsForUser(user_id: string): PcRecord[] {
-    return this.deps.pcs.listByUser(user_id);
   }
 
   /** The pc_devices row behind an id, or null. Used by the ownership gate on

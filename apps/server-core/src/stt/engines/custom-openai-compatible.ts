@@ -53,7 +53,7 @@ export class CustomOpenAiCompatibleEngine extends EventEmitter implements SttEng
 
   push(chunk: Buffer): void {
     if (this._state !== 'open') {
-      throw new SttEngineError('STT_ENGINE_TIMEOUT', `CustomOpenAiCompatibleEngine.push: not open (${this._state})`, true);
+      throw new SttEngineError('STT_ENGINE_NOT_OPEN', `CustomOpenAiCompatibleEngine.push: not open (${this._state})`, true);
     }
     if (chunk.length === 0) return;
     this.chunks.push(chunk);

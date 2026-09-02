@@ -12,9 +12,8 @@ import { reactive } from 'vue';
 import {
   ADDITIONAL_PRIVATE_CIDRS,
   CUSTOM_PRESET_ID,
+  DICTIONARY_PACK_MAX_ENTRIES,
   DICTIONARY_PACKS,
-  LLM_PRESETS,
-  SCENARIO_MAX_DOMAINS,
   SCENARIO_MAX_LABEL_LEN,
   SCENARIO_MAX_PACKS,
   SCENARIO_MAX_PROFESSIONS,
@@ -67,14 +66,14 @@ export { orderedRoutings, type Routing };
 import { S } from '../lib/strings';
 import { settings } from './store';
 import { migrateProfessionList } from './profession-ids';
-export {
-  migrateProfessionId,
-  migrateProfessionList,
-  PROFESSION_LABELS,
-  PROFESSION_LEGACY_ZH_TO_SLUG,
-  PROFESSION_OPTIONS,
-  PROFESSIONS,
-} from './profession-ids';
+// P2 #13 (2026-09-02): migrateProfessionId / PROFESSION_LABELS /
+// PROFESSION_LEGACY_ZH_TO_SLUG used to be re-exported here too, but every real
+// reader of those three imports them straight from './profession-ids'
+// (profession-ids.test.ts) — this module never forwarded a live consumer for
+// them. PROFESSIONS (ScenarioCard.vue) and PROFESSION_OPTIONS
+// (scenario-professions-locale.test.ts) do have consumers through this path,
+// so only those two stay re-exported.
+export { PROFESSION_OPTIONS, PROFESSIONS } from './profession-ids';
 
 // stt.dictionary is read by the server via a VARIABLE key (scenario-context /
 // engine-factory) and is deliberately NOT a drift-lint anchor — so it is pushed
@@ -143,7 +142,6 @@ export const PACKS = DICTIONARY_PACKS.map((p) => ({
 }));
 
 export const sttPresets = STT_PRESETS;
-export const llmPresets = LLM_PRESETS;
 /** The menu, already sectioned (06 §7.1 ②). Re-exported rather than re-derived
  *  in the SFCs: the catalogue decides what the sections are, the page renders
  *  them. */
@@ -385,9 +383,19 @@ function pushDictionary(): void {
   save(K_DICT, model.dictionary);
   settings.updateSetting(STT_DICTIONARY_KEY, model.dictionary.map((d) => ({ ...d })));
 }
+// P2 #15 (2026-09-02) — the "n / 300" the card shows next to S.dict_title was a
+// display-only number: this function never checked it, so the box would keep
+// accepting terms past 300 and the server (HOTWORDS_MAX_ENTRIES /
+// DICTIONARY_MAX_ENTRIES, apps/server-core/src/stt/hotwords.ts) would silently
+// truncate from the front — a term a user just typed could vanish from the
+// dictionary the STT engine actually uses, with the card still showing it in
+// the list. Same at-cap no-op SttSettings.vue already gives a duplicate term
+// (`addTerm` only clears the input on `true`), so the fix is enforcing the
+// SAME cap the "n / 300" label reads, not inventing new feedback.
 export function addDictEntry(term: string): boolean {
   const t = term.trim();
   if (t.length === 0 || model.dictionary.some((d) => d.term === t)) return false;
+  if (model.dictionary.length >= DICTIONARY_PACK_MAX_ENTRIES) return false;
   model.dictionary.push({ term: t });
   pushDictionary();
   return true;
@@ -502,10 +510,12 @@ export function toggleProfession(value: string): void {
   model.card.professions = toggleIn(model.card.professions, value, SCENARIO_MAX_PROFESSIONS);
   pushCard();
 }
-export function toggleDomain(value: string): void {
-  model.card.domains = toggleIn(model.card.domains, value, SCENARIO_MAX_DOMAINS);
-  pushCard();
-}
+// P2 #13 (2026-09-02): `toggleDomain` (the domains analogue of the two
+// functions around it) was deleted here — profession-ids.ts's header already
+// documents why (Packet D §D3: the desktop deliberately has no domain-chip
+// row) and it had zero callers. `model.card.domains` itself is untouched: it
+// is still read and preserved by settings-cache-narrow.ts, because mobile is
+// the end that writes it.
 export function togglePack(id: string): void {
   model.card.packs = toggleIn(model.card.packs, id, SCENARIO_MAX_PACKS);
   pushCard();
@@ -582,9 +592,11 @@ export function setScenarioInferenceGranted(granted: boolean): void {
   settings.updateSetting(SCENARIO_INFERENCE_KEY, row);
 }
 
+// `domains` was dropped from this map with `toggleDomain` above (P2 #13,
+// 2026-09-02): the desktop has no domain-chip row to cap (profession-ids.ts
+// §DOMAINS), and nothing here read SCENARIO_CAPS.domains either.
 export const SCENARIO_CAPS = {
   professions: SCENARIO_MAX_PROFESSIONS,
-  domains: SCENARIO_MAX_DOMAINS,
   packs: SCENARIO_MAX_PACKS,
   terms: SCENARIO_MAX_TERMS,
   labelLen: SCENARIO_MAX_LABEL_LEN,
@@ -649,6 +661,27 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
           const strength = asPolishStrength((value as { strength?: unknown }).strength);
           model.polishStrength = strength ?? DEFAULT_POLISH_STRENGTH;
           save(K_POLISH_STRENGTH, model.polishStrength);
+        }
+        break;
+      }
+      // E3 (2026-09-02) — this case was MISSING: `stt.refine` has a real server
+      // reader (readSttRefine, stt-refine-settings.ts) and a real SET anchor
+      // (setSttRefine below), but nothing here ever adopted its GET side. The
+      // symptom is silent and one-directional — the toggle only drifts the way a
+      // pending-edit guard can never catch, because `isKeyPending` only protects an
+      // edit THIS window made. A phone flipping `stt.refine` (or a second PC
+      // window) pushed a settings:updated frame that triggered a re-pull here, and
+      // `applyServerSettings` walked straight past the item: the switch fell
+      // through to the `default` no-op with no error, so the settings page kept
+      // showing whatever this window last wrote, forever out of step with what
+      // the server (and hence the ACTUAL transcription session) does.
+      case SETTINGS_ANCHOR_KEYS.sttRefine: { // 'stt.refine' — mirrors sttPolish's `enabled` half
+        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+          const enabled = (value as { enabled?: unknown }).enabled;
+          if (typeof enabled === 'boolean') {
+            model.refineEnabled = enabled;
+            save(K_REFINE, model.refineEnabled);
+          }
         }
         break;
       }

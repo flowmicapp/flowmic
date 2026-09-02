@@ -163,7 +163,10 @@ export function makePoolManagedDefault(deps: PoolRoutingDeps = {}): PoolManagedD
     const first = resolvePoolRouting(
       pool,
       language,
-      health === null ? undefined : (r: PoolRoute) => health.isAvailable(r),
+      // card B2-G — availability is per (route, language): see the doc on
+      // `RouteHealthRegistry.isAvailable` for why a route rejected for one
+      // language must not evict it for every other language sharing it.
+      health === null ? undefined : (r: PoolRoute) => health.isAvailable(r, language),
     );
     let { routing, selection } = first;
 

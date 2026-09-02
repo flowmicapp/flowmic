@@ -176,6 +176,9 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   'GET /api/cloud/summary': 'account',
   'GET /api/cloud/subscription': 'account',
   'GET /api/cloud/billing/events': 'account',
+  // 2026-09-02 audit F3/F9 — same standing as `/billing/events` right above:
+  // own rows only, keyed off the Bearer-proven user id.
+  'GET /api/cloud/billing/refunds': 'account',
   // 2026-08-29 — the paid one-time service. BOTH are 'account' and neither may
   // ever become 'admin': 「buy」 and 「see what I bought」 belong to the person
   // spending the money, and an admin gate on either would be a gate in front of

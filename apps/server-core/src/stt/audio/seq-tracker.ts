@@ -81,10 +81,11 @@ export class SeqTracker {
       this.out_of_order.delete(this.last_contiguous);
     }
   }
-
-  /** Reset to fresh state (e.g. on new session). */
-  reset(): void {
-    this.last_contiguous = -1;
-    this.out_of_order.clear();
-  }
 }
+
+// card P2-5/WP-1 (2026-09-02): `reset(): void` used to sit here ("reset to
+// fresh state, e.g. on new session"). DELETED — zero callers anywhere,
+// production or test: a new session always gets a freshly-constructed
+// `SeqTracker` (`AudioSession`'s own constructor, `this.seq = new
+// SeqTracker()`), so nothing in this codebase has ever needed to rewind one
+// in place.

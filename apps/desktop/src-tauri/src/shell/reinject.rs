@@ -35,6 +35,8 @@
 use serde_json::Value;
 use tauri::State;
 
+use crate::socket::local_inject::{reinject_image_with_handles, reinject_text_with_handles, InjectHandles};
+
 use super::{with_socket, SocketState};
 
 /// Re-inject one row's text into this machine's focused window — no server, no round trip.
@@ -79,7 +81,15 @@ use super::{with_socket, SocketState};
 /// event to every resident channel), and only the PRIMARY channel is ever allowed to
 /// lock one (`PrimaryGate` refuses a non-primary `audio:start`/`inject:request`), so
 /// primary-first picks up the locked FSM whenever a lock exists.
-#[tauri::command]
+///
+/// P1-2 (2026-09-02 audit §3-D): the `SocketState` mutex is held only long enough to
+/// clone the session's `InjectHandles` (four Arcs — microseconds), NOT for the whole
+/// pipeline. The old shape ran `reinject_locally` (SendInput / clipboard-paste-and-hold,
+/// up to 1.5s of PASTE_HOLD) inside `with_socket`'s closure, i.e. inside the lock guard —
+/// freezing every other Tauri command that touches `SocketState` (settings, pairing, the
+/// device page, every inbound socket handler) for that whole run. Marked `async` on top
+/// of that so the wait itself is off the Tauri main thread (D1).
+#[tauri::command(async)]
 pub fn timeline_reinject(
     state: State<'_, SocketState>,
     text: String,
@@ -90,13 +100,13 @@ pub fn timeline_reinject(
     // Two options rather than one because `with_socket`'s fallback is evaluated
     // eagerly: collapsing them would log 「没有会话」("no session") on every successful injection —
     // a forensic line that lies is worse than no line (vol. 13 §7).
-    let ran: Option<Option<Value>> = with_socket(
-        &state,
-        |s| Some(s.reinject_locally(&text, &id)),
-        None,
-    );
+    //
+    // The lock is dropped as soon as this line returns — it only had to clone the
+    // handle bundle, not run anything.
+    let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
+    let ran: Option<Option<Value>> = handles.map(|h| reinject_text_with_handles(&h, &text, &id));
     match ran {
-        // A session ran it; `reinject_locally` already recorded the true outcome.
+        // A session ran it; `reinject_text_with_handles` already recorded the true outcome.
         Some(result) => result,
         None => {
             crate::forensic::record(
@@ -127,7 +137,7 @@ pub fn timeline_reinject(
 /// Everything else is [`timeline_reinject`]'s doc verbatim: one pipeline, one
 /// meaning of `injected`, no wire emission, session required and refused OUT
 /// LOUD when absent.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn timeline_reinject_image(state: State<'_, SocketState>, id: String) -> Option<Value> {
     let (mime, bytes, _which) = match crate::shell::clipboard_image::picture_bytes_in(
         &crate::socket::row_image::dir(),
@@ -147,11 +157,11 @@ pub fn timeline_reinject_image(state: State<'_, SocketState>, id: String) -> Opt
         }
     };
     let b64 = crate::socket::row_image::encode_b64(&bytes);
-    let ran: Option<Option<Value>> = with_socket(
-        &state,
-        |s| Some(s.reinject_image_locally(&b64, mime.wire(), &id)),
-        None,
-    );
+    // Same P1-2 shape as `timeline_reinject`: the lock is held only to clone the
+    // handle bundle, then dropped before the (potentially 1.5s) paste-and-hold runs.
+    let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
+    let ran: Option<Option<Value>> =
+        handles.map(|h| reinject_image_with_handles(&h, &b64, mime.wire(), &id));
     match ran {
         Some(result) => result,
         None => {

@@ -73,6 +73,28 @@ extension PttSessionEdges on PttSession {
       await micPermission.noteCaptureStartRefused();
       return false;
     }
+    // 🔴 F1 (2026-09-02 audit) — RE-CHECK THE GATE THIS FUNCTION OPENED WITH.
+    // Two `await`s sit between that check and here (the permission dialog,
+    // and opening the platform recorder above) — either can outlast the
+    // link. Without this, a connection that died mid-gesture still reached
+    // `fsm.onPttDown()`, which the FSM correctly REFUSES
+    // (`fsm.connection != connected`) — but that refusal only reaches
+    // `illegalTransitions`, which has ZERO consumers in production, and this
+    // function never read it either: it kept going, emitted `audio:start` on
+    // a dead link, started the heartbeat, and returned `true` — claiming a
+    // press that the FSM never actually entered.
+    //
+    // ⚠️ WORSE THAN A WRONG RETURN VALUE: `audio.start()` just above has
+    // ALREADY opened the microphone. `pttUp()` refuses to close it
+    // (`if (fsm.session != SessionState.recording) return;`) because the FSM
+    // never left IDLE — so without stopping it here, the microphone stays
+    // open with no user-reachable way to close it short of restarting the
+    // app. Stopping it is therefore not optional cleanup, it is the whole
+    // point of this check.
+    if (fsm.connection != ConnectionState.connected) {
+      await audio.stop();
+      return false;
+    }
     fsm.onPttDown();
     transport.emit(
       FlowMicEvents.audioStart,

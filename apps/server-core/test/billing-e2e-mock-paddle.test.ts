@@ -30,6 +30,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startServer, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
+import { BILLING_WITHDRAWAL_ALREADY_REQUESTED } from '../src/http/billing-routes';
 
 const CONCLUDED = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
 const PERIOD_END = new Date(Date.now() + 27 * 24 * 60 * 60 * 1000).toISOString();
@@ -189,14 +190,20 @@ describe('🔴 withdrawal, end to end', () => {
     expect(rows[0]).toMatchObject({ kind: 'statutory_withdrawal', state: 'submitted' });
   });
 
-  it('a second withdrawal finds the subscription already gone and says so, honestly', async () => {
+  it('a second withdrawal is refused locally, honestly, before it ever reaches Paddle', async () => {
     await post('/api/cloud/billing/withdraw', bearer);
     const again = await post('/api/cloud/billing/withdraw', bearer);
-    // 🔴 NOT a silent 200. The subscription is cancelled at Paddle, so the
-    // second cancel is refused there and we report a refusal rather than
-    // pretending to do it twice — and, importantly, no SECOND refund is
-    // requested, which would be us asking to return money twice.
-    expect(again.status).toBe(502);
+    // 🔴 2026-09-02 (audit F4) — NOT a silent 200, and no longer a 502 either.
+    // Before the F4 fix, nothing local stopped the second request from reaching
+    // Paddle, and the assertion here was that PADDLE'S OWN "already canceled"
+    // refusal (502, `refuseFromProvider`) caught it — "double click relies on
+    // Paddle rejecting" was named as the fragile assumption. Now
+    // `claimWithdrawal` refuses the second attempt BEFORE calling the provider
+    // at all — a NAMED local code, not a provider error laundered into one —
+    // and, importantly, still no SECOND refund is requested, which would be us
+    // asking to return money twice.
+    expect(again.status).toBe(409);
+    expect(again.json.error).toBe(BILLING_WITHDRAWAL_ALREADY_REQUESTED);
     expect(handle.db.billing.listRefundRequests(userId, 10)).toHaveLength(1);
   });
 });

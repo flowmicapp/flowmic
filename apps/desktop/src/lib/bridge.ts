@@ -364,6 +364,19 @@ export async function fetchSidecarState(): Promise<SidecarStatus | null> {
   return (await invokeSafe<SidecarStatus>('sidecar_state')) ?? null;
 }
 
+/** `http://127.0.0.1:PORT` of the local FlowMic server, or null when there is
+ *  none (the sidecar is still starting, failed, or this build is cloud-only).
+ *
+ *  P2 #13 (2026-09-02): this exact one-liner was hand-copied into four
+ *  `{ baseUrl: async () => … }` transport object literals — `lib/model-client.ts`'s
+ *  `defaultModelTransport`, and the `ProbeTransport` built inline in
+ *  LlmSettings.vue / SttSettings.vue / ConnDiagPage.vue. A shared function is the
+ *  fix precisely because none of those four sites should ever disagree about
+ *  what "the sidecar's base URL" means. */
+export async function sidecarBaseUrl(): Promise<string | null> {
+  return (await fetchSidecarState())?.endpoint ?? null;
+}
+
 /** Retry the sidecar bring-up (the error-card Retry button, 07 §5). Re-runs
  *  resolve→spawn→handshake→health and, on success, reconnects the socket. Returns
  *  the new status (or null on a down bridge). */

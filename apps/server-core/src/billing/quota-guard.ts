@@ -15,23 +15,24 @@
 // ServerError('QUOTA_EXCEEDED'). Every tier's STT is finite and DOES throw at the
 // ceiling — no silent Infinity escape.
 //
-// 🔴 2026-08-07 CORRECTION (anti-façade ④). This header used to end 「→ the client
-// shows an upgrade prompt」 and there is no such prompt. What the two sites
-// actually do, verified by grep, is NOT symmetric:
-//   · kind='llm' — the phone DOES render it: `aiErrorCode` in
+// 🔴 2026-08-07 CORRECTION (anti-façade ④), ITSELF CORRECTED 2026-09-02 (audit
+// P1 F5) — the STT half below described a real gap that QTA-1 (2026-08-15)
+// already closed; this paragraph sat stale for three weeks. Both sites are
+// now symmetric:
+//   · kind='llm' — the phone renders it: `aiErrorCode` in
 //     apps/mobile/lib/src/settings/strings/compose_strings.dart, case
 //     'QUOTA_EXCEEDED' → 「本月 AI 额度已用完」 ("this month's AI quota is used up") (four languages, NO upgrade CTA).
-//   · kind='stt' — 🔴 NOTHING RENDERS IT. The phone emits `audio:start`
-//     fire-and-forget (`transport.emit`, the single call site in
-//     apps/mobile/lib/src/ptt/ptt_session.dart — not `emitWithAck`), so the ack
-//     carrying this refusal is never read and the user is told nothing at all.
-// That asymmetry did not matter while every account that could reach the STT
-// ceiling was a paying one being warned by its own metering — but owner's
-// 2026-08-07 ruling gives the `permanent_free` account a real 3,000-minute
-// ceiling, so this path is now reachable by the one account nobody bills.
-// REGISTERED as an open account for the window that owns apps/mobile; naming it
-// here rather than leaving the old sentence, because "no silent failures" is a red
-// line and a comment that says a prompt exists is how it stays unnoticed.
+//   · kind='stt' — ALSO RENDERED, since QTA-1: `audio.handler.ts`'s
+//     `refuseStart` (not the ack — the phone's `audio:start` really is
+//     fire-and-forget, `ptt_session.dart`'s `transport.emit`, not
+//     `emitWithAck`, and that part of the old paragraph was correct) instead
+//     emits a live `stt:error` the phone already listens on; the mobile side
+//     renders `sttStallQuotaExceeded`
+//     (apps/mobile/lib/src/settings/strings/recording_strings.dart) —
+//     deliberately NOT routed through the generic engine-error sentence, so a
+//     healthy engine is never blamed for an account ceiling.
+// permanent_free's real 3,000-minute STT ceiling (owner's 2026-08-07 ruling)
+// is therefore a spoken refusal today, not a silent one.
 //
 // 0.2.38 (D1 §6.1-bis) — this guard used to take `{ effectivePlan }` and look the
 // numbers up itself via `planLimits(plan)`. It now takes `{ effectiveLimits }` and

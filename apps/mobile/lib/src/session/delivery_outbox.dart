@@ -109,6 +109,20 @@ class DeliveryOutbox {
 
   final Map<String, Timer> _watchdogs = <String, Timer>{};
 
+  /// 🔴 Card F12/F1-d (2026-09-02) — a retryable refusal (never terminal:
+  /// `isTerminalRefusalCode` says stop, this says merely "not yet") whose
+  /// answer NAMED a wait (`retry_after_ms`), keyed by `requestId`. Without
+  /// this, `INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED` — a code the server itself
+  /// measures a 24h-window remainder for — was retried and refused again on
+  /// EVERY room join, same as a code with no measured wait at all.
+  ///
+  /// In-memory, not persisted: the worst a process restart can do is retry
+  /// once more before the window is up, the same cost the code already paid
+  /// before this card, and adding a DB column for a courtesy this cheap would
+  /// be the wrong side of that trade. Cleared opportunistically wherever it is
+  /// read (`_drainOnePass`), so it cannot outlive its own deadline.
+  final Map<String, DateTime> _holdOutUntil = <String, DateTime>{};
+
   /// Everything the UI reads synchronously, refreshed on every mutation.
   /// 窗口B4-7: the three fields and their one-pass recompute moved to
   /// outbox_pending_view.dart (800-line src cap) — see that file's header.
@@ -517,6 +531,16 @@ class DeliveryOutbox {
 
   bool _draining = false;
 
+  /// Card F2 (2026-09-02) — ids named by [drain] calls that arrived WHILE a
+  /// pass was already running. They used to be answered `linkOk:false` and
+  /// left to whatever the NEXT background drain decided (an automatic
+  /// backfill judgment, not L8's user-requested one) — the request was not
+  /// lost from disk (`enqueueText` already persisted it), only its "a person
+  /// just pressed this" fact was. Folding the id in here means the drain
+  /// that is already in flight does one more pass for it before it hands
+  /// back control, so the fact survives.
+  final Set<String> _pendingUserRequestedIds = <String>{};
+
   /// Attempt every pending item, oldest first.
   ///
   /// ORDER OF OPERATIONS IS THE CONTRACT (design draft §3.5 then §3.3):
@@ -542,82 +566,137 @@ class DeliveryOutbox {
     Set<String> userRequestedEntryIds = const <String>{},
   }) async {
     if (_draining) {
+      // Card F2 - do not drop the request: fold the ids into the running
+      // pass's follow-up (below) so the FSM's L8 "user pressed something"
+      // fact survives even though this call itself does no I/O.
+      // `busy:true` / `linkOk:null` - "nobody asked the link this call" is a
+      // different fact from "the link is down", and conflating them is
+      // exactly the defect this card exists to remove (see
+      // [OutboxDrainReport.linkOk]).
+      _pendingUserRequestedIds.addAll(userRequestedEntryIds);
+      diag('outbox.drain_busy', <String, Object?>{
+        'merged_ids': userRequestedEntryIds.length,
+      });
       return const OutboxDrainReport(
         attempted: 0,
         sent: 0,
         held: <String, OutboxAddressRefusal>{},
         refused: <String, String>{},
-        linkOk: false,
+        linkOk: null,
+        busy: true,
       );
     }
     _draining = true;
     try {
-      final List<OutboxItem> pending = await _loadPendingMerged();
-      final List<OutboxItem> queued = pending
-          .where((OutboxItem i) => i.state == OutboxDeliveryState.queued)
-          .toList();
-      if (queued.isEmpty) {
-        return const OutboxDrainReport(
-          attempted: 0,
-          sent: 0,
-          held: <String, OutboxAddressRefusal>{},
-          refused: <String, String>{},
-          linkOk: true,
-        );
+      // The report returned here is THIS call's own answer — about the items
+      // and ids it itself named — never a follow-up pass's. A caller that
+      // asked "did MY item go out" (manual_delivery.dart's
+      // `report.held.containsKey(requestId)`) must read an answer about
+      // itself; swapping in a merged pass's report here would be the very
+      // conflation this card removes, just moved one level up.
+      final OutboxDrainReport report = await _drainOnePass(userRequestedEntryIds);
+      // Card F2 - a call that arrived while the pass above was running merged
+      // its ids into [_pendingUserRequestedIds] instead of being told
+      // `linkOk:false`; honour that merge with a follow-up pass NOW, while
+      // `_draining` is still ours, rather than leaving it for whatever
+      // unrelated drain happens to run next (which would not know these ids
+      // were user-requested and would treat them as an automatic backfill -
+      // the L8 defect this card exists to close). Its own report is not this
+      // call's to hand back — the merged caller only needed `busy:true` and
+      // gets the row's true state through [OutboxDrainHost.onOutboxChanged]
+      // like every other background drain.
+      while (_pendingUserRequestedIds.isNotEmpty) {
+        final Set<String> merged = Set<String>.of(_pendingUserRequestedIds);
+        _pendingUserRequestedIds.clear();
+        await _drainOnePass(merged);
       }
-      await _host.reseedDestination();
-      final bool linkOk = await _host.ensureLink();
-      diag('outbox.drain_begin', <String, Object?>{
-        'queued': queued.length,
-        'link_ok': linkOk,
-      });
-      if (!linkOk) {
-        // Nothing moves. Not a failure of any item — the pipe is not there, and
-        // owner ruled these wait however long it takes.
-        return OutboxDrainReport(
-          attempted: 0,
-          sent: 0,
-          held: <String, OutboxAddressRefusal>{
-            for (final OutboxItem i in queued)
-              i.requestId: OutboxAddressRefusal.noConnection,
-          },
-          refused: <String, String>{},
-          linkOk: false,
-        );
-      }
-      int sent = 0;
-      final Map<String, OutboxAddressRefusal> held =
-          <String, OutboxAddressRefusal>{};
-      final Map<String, String> refused = <String, String>{};
-      for (final OutboxItem item in queued) {
-        final _Attempt outcome = await _attempt(
-          item,
-          // 🔴 Per ITEM. `coveredEntryIds` and not `entryId`: a ➤ over N buffered
-          // utterances is ONE delivery covering N rows, and the caller names the
-          // rows it just sent — asking only about the representative would leave
-          // the other N-1 judged as a backfill delivery inside the very press that produced them.
-          userRequested: item.coveredEntryIds.any(userRequestedEntryIds.contains),
-        );
-        if (outcome.held != null) {
-          held[item.requestId] = outcome.held!;
-        } else if (outcome.refusedCode != null) {
-          refused[item.requestId] = outcome.refusedCode!;
-        } else {
-          sent++;
-        }
-      }
-      await _refreshDerived();
-      _host.onOutboxChanged();
-      return OutboxDrainReport(
-        attempted: queued.length,
-        sent: sent,
-        held: held,
-        refused: refused,
-        linkOk: true,
-      );
+      return report;
     } finally {
       _draining = false;
     }
+  }
+
+  /// One full attempt over everything currently `queued`, honouring
+  /// [userRequestedEntryIds] per L8. Split out of [drain] so a merged
+  /// follow-up pass (Card F2, above) can run it again without re-entering the
+  /// `_draining` guard it is already holding.
+  Future<OutboxDrainReport> _drainOnePass(
+    Set<String> userRequestedEntryIds,
+  ) async {
+    final List<OutboxItem> pending = await _loadPendingMerged();
+    final DateTime now = DateTime.now().toUtc();
+    // Card F12/F1-d — a hold-out named BY THE SERVER (`_holdOutUntil`) skips an
+    // item this pass UNLESS the user just pressed something covering it: L8
+    // (owner 2026-08-02) makes a manual action count as expected regardless of
+    // timing, and a resend button that silently does nothing while a hold-out
+    // is live would be the exact "control that changes nothing" red line.
+    // Expired entries are dropped here so the map cannot grow forever.
+    _holdOutUntil.removeWhere((String id, DateTime until) => !until.isAfter(now));
+    final List<OutboxItem> queued = pending
+        .where((OutboxItem i) => i.state == OutboxDeliveryState.queued)
+        .where((OutboxItem i) =>
+            !_holdOutUntil.containsKey(i.requestId) ||
+            i.coveredEntryIds.any(userRequestedEntryIds.contains))
+        .toList();
+    if (queued.isEmpty) {
+      return const OutboxDrainReport(
+        attempted: 0,
+        sent: 0,
+        held: <String, OutboxAddressRefusal>{},
+        refused: <String, String>{},
+        linkOk: true,
+      );
+    }
+    await _host.reseedDestination();
+    final bool linkOk = await _host.ensureLink();
+    diag('outbox.drain_begin', <String, Object?>{
+      'queued': queued.length,
+      'link_ok': linkOk,
+    });
+    if (!linkOk) {
+      // Nothing moves. Not a failure of any item — the pipe is not there, and
+      // owner ruled these wait however long it takes.
+      return OutboxDrainReport(
+        attempted: 0,
+        sent: 0,
+        held: <String, OutboxAddressRefusal>{
+          for (final OutboxItem i in queued)
+            i.requestId: OutboxAddressRefusal.noConnection,
+        },
+        refused: <String, String>{},
+        linkOk: false,
+      );
+    }
+    int sent = 0;
+    final Map<String, OutboxAddressRefusal> held =
+        <String, OutboxAddressRefusal>{};
+    final Map<String, String> refused = <String, String>{};
+    for (final OutboxItem item in queued) {
+      final _Attempt outcome = await _attempt(
+        item,
+        // 🔴 Per ITEM. `coveredEntryIds` and not `entryId`: a ➤ over N buffered
+        // utterances is ONE delivery covering N rows, and the caller names the
+        // rows it just sent — asking only about the representative would leave
+        // the other N-1 judged as a backfill delivery inside the very press that produced them.
+        userRequested: item.coveredEntryIds.any(userRequestedEntryIds.contains),
+      );
+      if (outcome.held != null) {
+        held[item.requestId] = outcome.held!;
+      } else if (outcome.refusedCode != null) {
+        refused[item.requestId] = outcome.refusedCode!;
+      } else {
+        sent++;
+      }
+    }
+    await _refreshDerived();
+    _host.onOutboxChanged();
+    return OutboxDrainReport(
+      attempted: queued.length,
+      sent: sent,
+      held: held,
+      refused: refused,
+      linkOk: true,
+    );
   }
 
   // ── attempt ────────────────────────────────────────────────────────────────
@@ -644,7 +723,16 @@ class DeliveryOutbox {
     required String correlationId,
     required bool ok,
     String? code,
-  }) => outboxSettle(this, correlationId: correlationId, ok: ok, code: code);
+    // Card F12/F1-d — how long the server measured before this refusal is
+    // worth trying again, when it said. See [_holdOutUntil].
+    int? retryAfterMs,
+  }) => outboxSettle(
+    this,
+    correlationId: correlationId,
+    ok: ok,
+    code: code,
+    retryAfterMs: retryAfterMs,
+  );
 
   /// The derived-state recompute, reachable from the settle part file.
   ///

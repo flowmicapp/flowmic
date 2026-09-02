@@ -41,6 +41,10 @@ const FINGERPRINTS = [
   // Fine-grained PATs have their own prefix the classic rule above never
   // matches — found missing 2026-08-02, the day one arrived in .local/.
   { vendor: 'github-fine-grained', re: /github_pat_[A-Za-z0-9_]{36,}/ },
+  // The LAN copy-audit proxy (scripts/copy-scent-audit.mjs). Added the day the
+  // key arrived, 2026-09-01, rather than the day one leaked — the fine-grained
+  // PAT rule above was written the other way round and its own comment says so.
+  { vendor: 'cliproxy-copy-audit', re: /cpa_[0-9a-f]{32,}/ },
   { vendor: 'aliyun', re: /LTAI[0-9A-Za-z]{12,}/ },
   { vendor: 'tencent', re: /AKID[0-9A-Za-z]{32}/ },
   { vendor: 'azure-connstr', re: /AccountKey=[A-Za-z0-9+/=]{40,}/ },
@@ -74,8 +78,24 @@ export function scanText(text) {
   return hits;
 }
 
-export default async function run() {
-  const files = await walk(ROOT, { skipDir });
+// `root` defaults to the real repo (added 2026-09-02, B2-A) so a drill can
+// point this at a disposable fixture tree instead of walking the whole repo —
+// same walk, same fingerprints, same SELF/EXPORT_MANIFEST exclusions.
+export default async function run(root = ROOT) {
+  const files = await walk(root, { skipDir });
+  // A scan that touches zero files has verified nothing, and "no cloud keys"
+  // read off an empty file list is exactly the "blind pass" shape this repo's
+  // own SKIP convention exists to name (scripts/run-script-tests.mjs: a run
+  // that verified nothing must never report success). Before this guard,
+  // pointing walk() at an empty or wrongly-pruned tree silently PASSed with
+  // "0 file(s) scanned, no cloud keys" — a sentence that reads exactly like a
+  // real clean scan. It cannot happen against the real ROOT today (thousands
+  // of tracked files), so this only ever fires on a misconfiguration; that is
+  // the point — it should fire on the day a misconfiguration exists, not on
+  // the day someone remembers to check for one.
+  if (files.length === 0) {
+    return { status: 'FAIL', detail: 'scanned 0 files — the walk found nothing, so this verifies nothing (blind scan, not a clean one)' };
+  }
   const findings = [];
   for (const abs of files) {
     if (abs === SELF || abs === EXPORT_MANIFEST) continue; // fingerprint definitions live in both

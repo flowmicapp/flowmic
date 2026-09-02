@@ -16,6 +16,7 @@ import { deriveKey } from './auth/crypto';
 import { createDbConnection, type DbConnection } from './db/connection';
 import { checkSettingsSecretAtBoot } from './startup-secret-check';
 import { startSweepsForBootstrap } from './bootstrap-sweeps';
+import { makeForwardLedger } from './node/forward-ledger';
 import { seedDefaultSettings, seedDefaultSettingsForAllUsers } from './settings/defaults';
 import { Registry } from './room/registry';
 import { RoomStore } from './room/store';
@@ -33,12 +34,11 @@ import { nodeIdForHost, parseNodeHostMap, requestHost } from './node/node-identi
 import { makeQuotaGuard } from './billing/quota-guard';
 import { BillingService } from './billing/billing-service';
 import { makeHttpHandler } from './http/router';
-// One definition of 「which room, without naming it」 — see its own doc comment.
-import { hashedRoomId } from './http/presence-routes';
 import { composeHttpDeps } from './bootstrap-http-deps';
 import { getAccount, getAccountAuthError, type ActingIdentity } from './socket/wire';
 import { registerPcHandlers } from './socket/handlers/pc.handler';
 import { registerMobileHandlers } from './socket/handlers/mobile.handler';
+import { makeDisconnectHandler } from './socket/handlers/disconnect.handler';
 import { registerHeartbeatHandler } from './socket/handlers/heartbeat.handler';
 import { registerAuthHandlers } from './socket/handlers/auth.handler';
 import { armAuthExpiry, type AuthExpiryClock } from './socket/handlers/auth-expiry';
@@ -53,7 +53,7 @@ import { registerRelayHandlers } from './socket/handlers/relay.handler';
 import { InjectPendingRegistry } from './socket/inject-pending';
 import { makeCloudImagePolicy } from './socket/cloud-image-policy';
 import { makeSttSessionFactory } from './engine/stt-factory';
-import { AudioSessionRegistry, audioSessionKey, isDeliberateLeave, mobileLeftOnGraceExpiry } from './engine/audio-registry';
+import { AudioSessionRegistry } from './engine/audio-registry';
 import { createComposeFactory } from './compose';
 import { wrapSocketHandlers } from './error-handling';
 import { makeShutdownSequence } from './shutdown';
@@ -77,7 +77,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.55';
+export const SERVER_VERSION = '0.3.58';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -382,7 +382,14 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // sweep. Both live in bootstrap-sweeps.ts (see its header for why they moved
   // and why the status probes did not), and both are STOPPED by the sequence
   // below.
-  const sweeps = startSweepsForBootstrap({ config, db, billing, overrides });
+  // F6 (2026-09-02 audit) — constructed HERE, once, rather than inline inside
+  // composeHttpDeps's writer-only branch, so this sweep and POST
+  // /api/node/forward's receiver share the SAME instance instead of each
+  // holding a private one. Writer-only: a replica never mounts the receive
+  // side this ledger backs, and node_forward_seen is node plumbing that a
+  // single-node deployment never creates at all.
+  const forwardLedger = nodeRuntime.nodeConfig.role === 'writer' ? makeForwardLedger(db.raw) : undefined;
+  const sweeps = startSweepsForBootstrap({ config, db, billing, overrides, forwardLedger });
   const retention = sweeps.retention;
 
   // W-5a (REQ-13-03) — the status probe timer. ONE per server, held here for the
@@ -452,6 +459,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     standaloneUserId: STANDALONE_USER_ID,
     db,
     nodeRuntime, quota: quotaGuard,
+    ...(forwardLedger ? { forwardLedger } : {}),
     authService,
     registerLimiter,
     siteAnalyticsLimiter,
@@ -505,10 +513,16 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // single-node deployment gets the two-argument middleware that shipped
     // before this existed. See node/token-read-through.ts for the thirty-second
     // window it closes and why absence-of-dependency is the guarantee.
+    // OPS-1 (2026-09-02) — the fourth argument is purely for the refusal-log
+    // lines (auth/refusal-log.ts): it names WHICH node answered a refused
+    // handshake, same convention as node-runtime.ts's own `nodeId ?? 'unknown'`.
+    // It never gates anything; a single-node deployment passes 'unknown', same
+    // as every other log line that already carries this field.
     authMiddleware: authMiddleware(
       tokenLookupOver(db),
       jwtHandshake,
       nodeRuntime.resolveTokenOnWriter ?? undefined,
+      nodeRuntime.nodeConfig.nodeId ?? 'unknown',
     ),
     // GA-15: the saas allow-list is env-driven (FLOWMIC_CORS_ORIGIN, comma
     // separated) with the current production value as the default, so putting
@@ -603,7 +617,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     const stampHomeNodeHere = nodeRuntime.stampHomeNode === null
       ? null
       : (pcId: string): void => nodeRuntime.stampHomeNode?.(pcId, socketNodeId ?? undefined);
-    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}) });
+    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
     // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
     // the SAME instance `console-routes.refuseRestricted` reads through and the
     // same one Bearers are verified with, so the HTTP gate and the two socket
@@ -620,8 +634,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // `resolveTokenOnWriter` is the SAME instance `authMiddleware` got above (one
     // budget, one single-flight table) and is null on the writer and on every
     // single-node deployment, so that spread is empty there.
-    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}) });
-    registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly });
+    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}), ...(nodeRuntime.forwardUnpairMobileOnWriter /* B4, WP-6: the generic handoff's unpair_mobile verb */ ? { forwardUnpairMobile: nodeRuntime.forwardUnpairMobileOnWriter } : {}) });
+    registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.forwardSettingsUpdateOnWriter /* B6, WP-6: the generic handoff's settings_update verb */ ? { forwardSettingsUpdate: nodeRuntime.forwardSettingsUpdateOnWriter } : {}) });
     // (0.2.27) still registered, and now ONLY to refuse out loud: the five
     // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is
     // silently discarded by socket.io, and a 0.2.26 client is still in the field —
@@ -643,69 +657,19 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
     });
     registerComposeHandlers(socket, { io, guard: quotaGuard, usageTracker, store, composeFactory, verificationGrace: verificationGraceGuard });
-    registerRelayHandlers(socket, { store, pending: injectPending, cloudImages });
-    socket.on('disconnect', (reason: string) => {
-      const roomUuid = (socket.data as { roomUuid?: string }).roomUuid;
-      const auth = (socket.data as { auth?: { kind: string; deviceId?: string; pairingId?: string } | null }).auth;
-      if (!roomUuid || !auth) return;
-      if (auth.kind === 'pc') {
-        // F-3 Fix#2 — the offline WRITE follows leavePc's socket_id VERDICT, not
-        // the bare fact that a PC socket closed. `leavePc` returns false when this
-        // socket was no longer the room's PC, i.e. it had already been displaced by
-        // a NEWER session — and `auth.deviceId` is that same pc_devices row, so an
-        // unconditional write here marks a machine that is live right now as
-        // offline (read by /api/cloud/devices and by the reaper's staleness gate).
-        // The mobile branch below has followed leaveMobile's socket_id verdict
-        // since GA-26 for exactly this reason; this branch never did.
-        // Pre-existing, not introduced by Fix#2: an ordinary reconnect already hit
-        // this ~20 s later when the old socket's pingTimeout expired. Fix#2 closes
-        // the displaced socket immediately, which would have made it deterministic.
-        const leftItsRoom = store.leavePc(roomUuid, socket.id);
-        // 🔴 The one line that can attribute a PC's absence AFTER THE FACT, and the
-        // only place in the process that holds both halves of it:
-        //   · `reason` is socket.io's own verdict on WHY this socket went away, and
-        //     the distinction it carries is the one support work always needs —
-        //     'client namespace disconnect' (the desktop chose to leave) vs
-        //     'ping timeout' / 'transport close' (the network took it). Nothing
-        //     downstream keeps that: the room map only learns that the PC is gone,
-        //     and `pc_devices.is_online` is one bit with no cause attached.
-        //   · `left_room` is `leavePc`'s socket_id VERDICT (F-3 Fix#2 above), so a
-        //     `false` here says 「this was a DISPLACED socket, the machine is live
-        //     right now」 — which is exactly the line that stops the next reader
-        //     from concluding a healthy PC went offline.
-        // Counts/ids/verdicts only: no window titles, no transcripts, no tokens,
-        // and the room travels as a digest (`hashedRoomId`, whose other caller is
-        // the presence route — the two lines are meant to be joined).
-        log.info('pc left its room', {
-          pc_id: auth.deviceId ?? null,
-          room: hashedRoomId(roomUuid),
-          reason,
-          left_room: leftItsRoom,
-        });
-        if (leftItsRoom) db.pcs.setOnline(auth.deviceId ?? '', false);
-      } else if (auth.kind === 'mobile' && auth.pairingId) {
-        // GA-04: a mobile drop is NOT a departure yet. Defer the room-leave and
-        // the pc:mobile-left announcement to the end of the audio grace window
-        // (AUDIO_DEFAULTS.mobile_drop_grace_ms) — a phone back inside 30 s
-        // resumes its session and the PC never learns it was away. The audio
-        // handler arms the same window for the session half; beginGrace is
-        // idempotent per drop, so this only appends the presence callback.
-        // GA-26's discriminator lives on inside mobileLeftOnGraceExpiry: the
-        // announcement follows leaveMobile's socket_id verdict, so a displaced
-        // socket never deletes a live phone from the desktop's presence set.
-        const key = audioSessionKey(roomUuid, auth.pairingId);
-        audioRegistry.beginGrace(
-          key,
-          mobileLeftOnGraceExpiry({ store, roomUuid, pairingId: auth.pairingId, socketId: socket.id }),
-          socket.id,
-        );
-        // …unless the phone said it was leaving. Backing out to the connection
-        // list calls socket.disconnect() → `client namespace disconnect`, which
-        // is a departure, not a brief flicker: collapse the window so the PC's
-        // capsule retreats on the same gesture (owner 2026-07-27: it lingered ~30 s).
-        if (isDeliberateLeave(reason)) audioRegistry.expireGraceNow(key);
-      }
+    registerRelayHandlers(socket, {
+      store, pending: injectPending, cloudImages,
+      // B3, WP-6: same `socketNodeId`/`registry` the mobile handler above uses
+      // for `nodeId`/home_node — one instance, one answer, never a second
+      // reading of "which node is this" or "where does the PC live".
+      ...(socketNodeId ? { nodeId: socketNodeId } : {}),
+      pcHomeNode: (pcId: string): string | null => registry.findPc(pcId)?.home_node ?? null,
     });
+    // 2026-09-02 — moved verbatim to socket/handlers/disconnect.handler.ts
+    // (800-line cap). Same behaviour, same comments, one call site.
+    socket.on('disconnect', makeDisconnectHandler(socket, {
+      store, pcs: db.pcs, audioRegistry, stampPresence: nodeRuntime.stampPresence,
+    }));
   });
 
   // D2-LAN (design 2026-08-08 §4-2) — the LAN leg's TLS front.
@@ -773,7 +737,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
 
   const stop = makeShutdownSequence({
     retention, statusProbes, latencyReader, closeSocket, audioRegistry, httpServer, db,
+    growthReaper: sweeps.growthReaper,
     ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
+    ...(sweeps.forwardLedgerPrune ? { forwardLedgerPrune: sweeps.forwardLedgerPrune } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),
     ...(replicaPuller ? { replicaPuller } : {}) });
   return {

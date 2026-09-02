@@ -6,9 +6,8 @@
 // roster's two readers (RV-08 presence + RV-新C current channel) and the refusal hook.
 use super::*;
 use crate::socket::admission::Verdict;
-use crate::socket::session_gen::{
-    SessionGenerations, CLOSING_RELEASE_AFTER, CLOSING_RELEASE_AFTER_ATTEMPTS,
-};
+use crate::socket::refusal::RefusalAuthority;
+use crate::socket::session_gen::SessionGenerations;
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -394,7 +393,7 @@ fn an_expired_account_reconnect_ack_keeps_the_pairing_and_fires_the_hook() {
         Arc::new(Mutex::new(creds)),
         Arc::new(path.clone()),
         Arc::new(Mutex::new(None)),
-        Some(Arc::new(move |code: &str| {
+        Some(Arc::new(move |code: &str, _a: RefusalAuthority| {
             h.fetch_add(1, Ordering::SeqCst);
             s.lock().unwrap().push(code.to_string());
         })),
@@ -418,6 +417,61 @@ fn an_expired_account_reconnect_ack_keeps_the_pairing_and_fires_the_hook() {
 }
 
 #[test]
+fn an_unverifiable_reconnect_ack_keeps_the_token_and_never_fires_the_hook() {
+    // A11/F2-a (WP-8, 2026-09-02) — a multi-node replica could not confirm
+    // this token either way. Unlike AUTH_TOKEN_EXPIRED (an account verdict,
+    // hook fires) this is evidence about NEITHER the account nor the device —
+    // it is evidence about this node's ability to answer right now, so the
+    // hook must stay silent (report_refusal's RefusalAuthority::
+    // IdentityHandshake would otherwise let shell::cloud::auth_failure_hook
+    // read it as a credential verdict worth tearing the session down over).
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let mut creds = Credentials::fresh("PC");
+    creds.accept_registration("fm_tok_alive", Some("pc-1".into()), Some("room-1".into()));
+    let path = temp_cred_path();
+    let p = Pairing::new(
+        Arc::new(Mutex::new(creds)),
+        Arc::new(path.clone()),
+        Arc::new(Mutex::new(None)),
+        Some(Arc::new(move |_code: &str, _a: RefusalAuthority| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })),
+        Channel::Cloud,
+        None,
+        SessionGenerations::new(),
+    );
+    let rec = Arc::new(Reconciler::new(Arc::new(AtomicUsize::new(0))));
+    rec.on_join("m1");
+    p.mark_handshake_acked("an earlier ack on this same socket");
+
+    let ack = json!({ "error": "AUTH_TOKEN_UNVERIFIABLE" });
+    assert_eq!(on_reconnect_ack(&ack, &p, &rec), ReconnectAckVerdict::Unverifiable);
+    assert!(
+        p.creds.lock().unwrap().is_registered(),
+        "the pairing credential must survive — the server explicitly did not \
+         claim it was bad"
+    );
+    assert!(
+        !p.handshake_acked(),
+        "…while this connection is marked unconfirmed, so the register/reconnect \
+         watchdog will ask again"
+    );
+    assert_eq!(
+        rec.count(),
+        1,
+        "the room association is untouched — unlike DeadToken, nothing here is a \
+         verdict about the PAIRING"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "no account refusal was invented; the hook must not fire"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn an_invalid_token_reconnect_ack_still_takes_the_recovery_path_not_the_hook() {
     // The collision guard: AUTH_TOKEN_INVALID also answers a plain dead DEVICE
     // token (pinned server-side in pc-reconnect-account-auth.test.ts), so it
@@ -431,7 +485,7 @@ fn an_invalid_token_reconnect_ack_still_takes_the_recovery_path_not_the_hook() {
         Arc::new(Mutex::new(creds)),
         Arc::new(path.clone()),
         Arc::new(Mutex::new(None)),
-        Some(Arc::new(move |_code: &str| {
+        Some(Arc::new(move |_code: &str, _a: RefusalAuthority| {
             h.fetch_add(1, Ordering::SeqCst);
         })),
         Channel::Cloud,
@@ -446,16 +500,10 @@ fn an_invalid_token_reconnect_ack_still_takes_the_recovery_path_not_the_hook() {
     std::fs::remove_file(&path).ok();
 }
 
-#[test]
-fn account_auth_failures_are_exactly_the_two_frozen_codes() {
-    assert!(is_account_auth_failure("AUTH_TOKEN_EXPIRED"));
-    assert!(is_account_auth_failure("AUTH_TOKEN_INVALID"));
-    // Registry / payload failures are NOT an account refusal — a Cloud Key
-    // must not be wiped because a payload was malformed.
-    assert!(!is_account_auth_failure("PAIR_INVALID_PAYLOAD"));
-    assert!(!is_account_auth_failure("PAIR_RATE_LIMITED"));
-    assert!(!is_account_auth_failure(""));
-}
+// The refusal-vocabulary tests (`account_auth_failures_are_exactly_the_two_frozen_
+// codes`, the two hook tests, and the RefusalAuthority pair) moved to
+// `refusal_tests.rs` at this file's 800-line cap. They pin `socket::refusal`, so
+// they now sit beside it.
 
 #[test]
 fn a_code_without_a_server_ttl_never_invents_a_deadline() {
@@ -483,277 +531,6 @@ fn a_ttl_becomes_a_deadline_and_saturates_at_zero_once_past() {
 }
 
 #[test]
-fn a_refusal_reaches_the_hook_when_one_is_installed() {
-    let hits = Arc::new(AtomicUsize::new(0));
-    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let (h, s) = (hits.clone(), seen.clone());
-    let pairing = Pairing::new(
-        Arc::new(Mutex::new(Credentials::fresh("PC"))),
-        Arc::new(PathBuf::from("unused.bin")),
-        Arc::new(Mutex::new(None)),
-        Some(Arc::new(move |code: &str| {
-            h.fetch_add(1, Ordering::SeqCst);
-            s.lock().unwrap().push(code.to_string());
-        })),
-        Channel::Cloud, // the hook is only ever installed on the cloud channel
-        None,
-        SessionGenerations::new(),
-    );
-    pairing.report_refusal("pc:register", "AUTH_TOKEN_EXPIRED");
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
-    assert_eq!(seen.lock().unwrap().as_slice(), ["AUTH_TOKEN_EXPIRED"]);
-}
-
-#[test]
-fn a_refusal_without_a_hook_is_recorded_and_never_panics() {
-    // The LAN channel installs no hook — the refusal path must still be safe.
-    let pairing = Pairing::new(
-        Arc::new(Mutex::new(Credentials::fresh("PC"))),
-        Arc::new(PathBuf::from("unused.bin")),
-        Arc::new(Mutex::new(None)),
-        None,
-        Channel::Lan,
-        None,
-        SessionGenerations::new(),
-    );
-    pairing.report_refusal("pc:register", "PAIR_INVALID_PAYLOAD");
-}
-
-// ── F-3 Fix#1: a session being torn down does not hand the server a handshake ──
-//
-// THE SUBJECT IS THE FUNNEL, NOT THE CALLERS. `pc:register` / `pc:reconnect` leave
-// this process through the two `emit_*` functions below and nowhere else (grep
-// `PC_REGISTER\|PC_RECONNECT` over apps/desktop/src-tauri/src: two definitions in
-// events.rs, one whitelist entry, and these two emits). So the guard is asserted
-// where every caller — the `open` handler, `auth:expired`, the RV-26 register
-// watchdog, and the dead-token fallback — must pass through it.
-//
-// WHAT THESE TESTS CANNOT SEE, said out loud: the SITUATION is a `rust_socketio`
-// reconnect firing `open` on a session we already closed, and reproducing that
-// needs a live transport that can be broken on cue. What is pinned here is that the
-// flag really gates both emits and that the emits really fire when it is clear —
-// the second half is the positive control, and without it a broken fake would look
-// exactly like a working guard.
-
-/// Counts frames that reached the transport, per event name. Only `emit_ack` is
-/// implemented because that is the entire surface both verbs use.
-struct CountingEmitter {
-    sent: Mutex<Vec<&'static str>>,
-}
-
-impl CountingEmitter {
-    fn new() -> Self {
-        Self { sent: Mutex::new(Vec::new()) }
-    }
-    fn events(&self) -> Vec<&'static str> {
-        self.sent.lock().unwrap().clone()
-    }
-}
-
-impl AckEmitter for CountingEmitter {
-    fn emit_ack(
-        &self,
-        event: &'static str,
-        _data: serde_json::Value,
-        _timeout: Duration,
-        // Deliberately dropped: an ack that never arrives is exactly the shape of a
-        // frame sent to a server that is not going to answer, and the callback's
-        // contents are the subject of the ack tests above, not of this one.
-        _callback: Box<dyn FnMut(Payload, RawClient) + Send + 'static>,
-    ) -> bool {
-        self.sent.lock().unwrap().push(event);
-        true
-    }
-}
-
-#[test]
-fn a_closing_session_emits_neither_register_nor_reconnect() {
-    // POSITIVE CONTROL FIRST — on an OPEN session both verbs really do reach the
-    // transport. Two separate fixtures because the token is what decides which of
-    // the two frames a session sends, and the F-3 zombie is the token-bearing one.
-    let (fresh, rec_a, _pa) = fixture(None);
-    let (paired, rec_b, _pb) = fixture(Some("fm_tok"));
-    let open_a = CountingEmitter::new();
-    let open_b = CountingEmitter::new();
-    emit_register(&open_a, &fresh, &rec_a);
-    emit_reconnect(&open_b, &paired, &rec_b);
-    assert_eq!(open_a.events(), [events::PC_REGISTER], "an open session registers");
-    assert_eq!(open_b.events(), [events::PC_RECONNECT], "an open session reconnects");
-
-    // …and once the session has begun closing, the same two calls send nothing.
-    fresh.begin_closing();
-    paired.begin_closing();
-    let closed_a = CountingEmitter::new();
-    let closed_b = CountingEmitter::new();
-    emit_register(&closed_a, &fresh, &rec_a);
-    emit_reconnect(&closed_b, &paired, &rec_b);
-    assert!(
-        closed_a.events().is_empty(),
-        "a closing session must not re-register (F-3: the library's reconnect arm \
-         re-installs the open handler on a socket we believe we closed)"
-    );
-    assert!(
-        closed_b.events().is_empty(),
-        "…and must not re-claim the room with its token either — this is the branch \
-         the F-3 zombie actually takes, because it HAS a token"
-    );
-}
-
-// ── W8-2: the closing latch's local watchdog ────────────────────────────────
-//
-// The real-machine trace (2026-08-10, dev-pc-a): sidecar killed twice,
-// watchdog brought up a fresh one, the SUCCESSOR session was never constructed
-// (main-thread marshal never ran), and the only session the process had answered
-// three `open`s with "SUPPRESSED — this session is closing" — then the PC was
-// simply gone from the server (`pc_devices.last_seen_at` froze) until an app
-// restart. These tests pin the repair WITHOUT deleting the F-3 Fix#1 assertion:
-// a closing session with a constructed successor stays quiet FOREVER; a closing
-// session that nobody ever replaced gets its voice back, and hands it back the
-// moment a successor finally exists.
-
-#[test]
-fn the_f3_protection_holds_forever_once_a_successor_is_constructed() {
-    // THE DO-NOT-DELETE HALF, now pinned past every release arm: successor
-    // constructed + grace long gone + attempts burned ⇒ still suppressed. This is
-    // the exact theft F-3 Fix#1 exists to stop, and no amount of staleness may
-    // re-open it.
-    let reg = SessionGenerations::new();
-    let (zombie, rec_z, _a1, _p1) = build_in(Some("fm_tok"), Channel::Lan, None, reg.clone());
-    zombie.mark_constructed();
-    let (successor, _rec_s, _a2, _p2) = build_in(Some("fm_tok"), Channel::Lan, None, reg);
-    successor.mark_constructed(); // the replacement is up
-    zombie.begin_closing();
-    zombie.backdate_closing(Duration::from_secs(3600)); // stale beyond any grace
-    let wire = CountingEmitter::new();
-    for _ in 0..5 {
-        // …and burn well past CLOSING_RELEASE_AFTER_ATTEMPTS for good measure.
-        emit_reconnect(&wire, &zombie, &rec_z);
-        emit_register(&wire, &zombie, &rec_z);
-    }
-    assert!(
-        wire.events().is_empty(),
-        "a zombie with a live successor must never re-claim the room, however stale \
-         its close is — releasing here would be the F-3 slot theft itself"
-    );
-}
-
-#[test]
-fn a_stale_close_with_no_successor_releases_the_handshake() {
-    // THE W8-2 REPAIR (time arm). This session is the newest its channel ever
-    // constructed; it began closing and nobody replaced it. Past the grace window
-    // the funnel must let it speak again — a machine represented by a half-dead
-    // session beats a machine that vanished from the server.
-    let reg = SessionGenerations::new();
-    let (p, rec, _adm, _path) = build_in(Some("fm_tok"), Channel::Lan, None, reg);
-    p.mark_constructed();
-    p.begin_closing();
-    p.backdate_closing(CLOSING_RELEASE_AFTER + Duration::from_secs(1));
-    let wire = CountingEmitter::new();
-    emit_reconnect(&wire, &p, &rec);
-    assert_eq!(
-        wire.events(),
-        [events::PC_RECONNECT],
-        "closing + no successor + stale ⇒ the reconnect goes out (W8-2 release)"
-    );
-    // The register leg passes the same gate (the funnel covers both verbs).
-    let wire2 = CountingEmitter::new();
-    emit_register(&wire2, &p, &rec);
-    assert_eq!(wire2.events(), [events::PC_REGISTER]);
-}
-
-#[test]
-fn repeated_suppressed_handshakes_release_without_waiting_for_the_clock() {
-    // THE W8-2 REPAIR (attempt arm) — shaped exactly like the real trace: three
-    // fresh `open`s arrived and the zombie's reconnect thread then wedged, so a
-    // time-only grace (first opens land inside any reasonable window) would have
-    // released NOTHING. Two suppressed handshakes = two full reconnect cycles of
-    // wall time in which no successor appeared; the third attempt goes through.
-    let reg = SessionGenerations::new();
-    let (p, rec, _adm, _path) = build_in(Some("fm_tok"), Channel::Lan, None, reg);
-    p.mark_constructed();
-    p.begin_closing(); // fresh close — the time arm must NOT be what fires
-    let wire = CountingEmitter::new();
-    emit_reconnect(&wire, &p, &rec);
-    emit_reconnect(&wire, &p, &rec);
-    assert!(
-        wire.events().is_empty(),
-        "the first {CLOSING_RELEASE_AFTER_ATTEMPTS} handshakes on a fresh close are \
-         still suppressed (F-3 Fix#1 within the judgment window)"
-    );
-    emit_reconnect(&wire, &p, &rec);
-    assert_eq!(
-        wire.events(),
-        [events::PC_RECONNECT],
-        "the attempt arm releases on the very open the real trace still had"
-    );
-}
-
-#[test]
-fn a_successor_constructed_after_a_release_re_suppresses_the_zombie() {
-    // The release is a per-attempt judgment, not an un-latch: the moment a real
-    // successor exists, the F-3 protection re-arms and the zombie yields — so a
-    // recovered swap never fights a released zombie for the room slot.
-    let reg = SessionGenerations::new();
-    let (zombie, rec, _adm, _path) = build_in(Some("fm_tok"), Channel::Lan, None, reg.clone());
-    zombie.mark_constructed();
-    zombie.begin_closing();
-    zombie.backdate_closing(CLOSING_RELEASE_AFTER + Duration::from_secs(1));
-    let wire = CountingEmitter::new();
-    emit_reconnect(&wire, &zombie, &rec);
-    assert_eq!(wire.events(), [events::PC_RECONNECT], "released while alone");
-
-    let (successor, _rs, _a2, _p2) = build_in(Some("fm_tok"), Channel::Lan, None, reg);
-    successor.mark_constructed(); // the replacement finally arrives
-    let wire2 = CountingEmitter::new();
-    emit_reconnect(&wire2, &zombie, &rec);
-    assert!(
-        wire2.events().is_empty(),
-        "the successor's construction re-suppresses the zombie on its next open"
-    );
-}
-
-#[test]
-fn a_cloud_session_never_releases_its_closing_latch() {
-    // The cloud slot's successorless closes are DELIBERATE (Cloud Key refused /
-    // not configured) — a released cloud zombie would re-present a refused or
-    // user-removed identity every backoff forever. Stale + attempts burned +
-    // newest of its channel: still quiet.
-    let reg = SessionGenerations::new();
-    let (p, rec, _adm, _path) = build_in(Some("fm_tok"), Channel::Cloud, None, reg);
-    p.mark_constructed();
-    p.begin_closing();
-    p.backdate_closing(Duration::from_secs(3600));
-    let wire = CountingEmitter::new();
-    for _ in 0..5 {
-        emit_reconnect(&wire, &p, &rec);
-    }
-    assert!(wire.events().is_empty(), "cloud: a closing session stays closed");
-}
-
-#[test]
-fn the_closing_gate_decision_table() {
-    // The pure decision, arm by arm — the funnel tests above prove the wiring,
-    // this proves the judgment (no clocks, no threads).
-    let lan = Channel::Lan;
-    let fresh = Some(Duration::from_secs(1));
-    let stale = Some(CLOSING_RELEASE_AFTER);
-    // Successor wins over EVERYTHING — checked first, releases never.
-    assert_eq!(closing_gate(lan, 1, 2, 99, stale), ClosingGate::Suppress);
-    // Cloud never releases.
-    assert_eq!(closing_gate(Channel::Cloud, 1, 1, 99, stale), ClosingGate::Suppress);
-    // LAN, no successor, fresh, no attempts burned: still the plain Fix#1.
-    assert_eq!(closing_gate(lan, 1, 1, 0, fresh), ClosingGate::Suppress);
-    // Time arm.
-    assert_eq!(closing_gate(lan, 1, 1, 0, stale), ClosingGate::Release);
-    // Attempt arm (clock says fresh).
-    assert_eq!(closing_gate(lan, 1, 1, CLOSING_RELEASE_AFTER_ATTEMPTS, fresh), ClosingGate::Release);
-    // No closing timestamp at all (defensive): the attempt arm still works…
-    assert_eq!(closing_gate(lan, 1, 1, CLOSING_RELEASE_AFTER_ATTEMPTS, None), ClosingGate::Release);
-    // …and without it, absence of a clock is not staleness.
-    assert_eq!(closing_gate(lan, 1, 1, 0, None), ClosingGate::Suppress);
-}
-
-#[test]
 fn begin_closing_is_one_way_and_idempotent() {
     let (p, _rec, _path) = fixture(Some("fm_tok"));
     assert!(!p.is_closing(), "a fresh session is not closing");
@@ -774,3 +551,9 @@ fn begin_closing_is_one_way_and_idempotent() {
 // instead of growing a second copy of it.
 #[path = "pairing_pcid_tests.rs"]
 mod pcid;
+
+// F-3 Fix#1 / closing-gate family, in its own file (this one hit the source
+// cap again) for the same reason: it inherits `fixture` / `build_in` /
+// `ShortCodeState` from here instead of growing a second copy of them.
+#[path = "pairing_closing_gate_tests.rs"]
+mod closing_gate;

@@ -37,6 +37,8 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { makeOneTimePurchaseRepo, type OneTimePurchaseRepo } from './one-time-purchase.repo';
+import { makeWithdrawalClaimRepo, type WithdrawalClaimRepo } from './withdrawal-claim.repo';
+import { makeRefundRequestRepo, type RefundRequestRepo } from './refund-request.repo';
 import type { Plan } from '@flowmic/protocol';
 
 /**
@@ -229,39 +231,12 @@ export interface BillingEventRow {
   last_notification_id: string | null;
 }
 
-/**
- * One row of `refund_requests` (0.3.25 B3).
- *
- * 🔴 `kind` separates a RIGHT from a REQUEST. A statutory withdrawal is executed,
- * never decided; a discretionary refund is decided by a person. The DDL argues
- * this at length — the short version is that one shared value would put a reject
- * button in front of a legal obligation.
- */
-export interface RefundRequestRow {
-  id: string;
-  user_id: string;
-  subscription_id: string;
-  /** null when there was nothing to refund — see state 'none_due'. */
-  transaction_id: string | null;
-  kind: 'statutory_withdrawal' | 'discretionary';
-  /** submitted = asked Paddle. failed = asked and could not. none_due = valid and
-   *  there was nothing to give back. 🔴 None of the three means 「the money is
-   *  back in their account」; only Paddle can say that, later. */
-  state: 'submitted' | 'failed' | 'none_due';
-  amount_minor: number | null;
-  currency: string | null;
-  paddle_adjustment_id: string | null;
-  /** Paddle's own word, verbatim — usually `pending_approval` on a live account. */
-  paddle_status: string | null;
-  detail: string | null;
-  created_at: string;
-}
-
 
 export type { OneTimePurchaseRow, OneTimePurchaseState, OneTimePurchaseRepo } from './one-time-purchase.repo';
 export { isOneTimePurchaseState } from './one-time-purchase.repo';
+export type { RefundRequestRow, RefundRequestRepo } from './refund-request.repo';
 
-export interface BillingRepo extends OneTimePurchaseRepo {
+export interface BillingRepo extends OneTimePurchaseRepo, WithdrawalClaimRepo, RefundRequestRepo {
   /** true = this event_id is new (now registered); false = already seen, the
    *  caller must return 200 directly and write no state */
   claimEvent(row: {
@@ -309,24 +284,6 @@ export interface BillingRepo extends OneTimePurchaseRepo {
    * how a reader concludes the problem is handled.
    */
   tombstoneSubscription(row: PaddleSubTombstone): void;
-  /**
-   * 0.3.25 B3 — record a refund we asked Paddle for, whatever the answer was.
-   *
-   * 🔴 IT IS WRITTEN ON EVERY PATH, INCLUDING THE FAILURES, and that is the
-   * feature rather than diligence. A withdrawal that we accepted and then could
-   * not refund is the single case someone will come back about, and if the only
-   * trace of it is a log line that has rotated away, the conversation starts
-   * with us saying 「we have no record of that」 to a person who is right.
-   *
-   * ⚠️ 'submitted' does NOT mean the money moved — Paddle usually holds refunds
-   * for approval. `paddle_status` carries its word verbatim so no reader has to
-   * infer, and so nobody can round it up.
-   */
-  recordRefundRequest(row: RefundRequestRow): void;
-  /** Every refund record for this account, newest first. Read by the console so
-   *  a user can see 「requested on X, Paddle says pending」 rather than having to
-   *  trust that something happened. */
-  listRefundRequests(user_id: string, limit: number): RefundRequestRow[];
   listEventsForUser(user_id: string, limit: number): BillingEventRow[];
   /**
    * 0.2.38 — the rows NO per-user view can ever show.
@@ -583,19 +540,6 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
      ON CONFLICT(subscription_id) DO NOTHING`,
   );
 
-  // 0.3.25 B3. A plain INSERT with no upsert arm: every refund we ask for is its
-  // own event and two withdrawals a month apart are two rows, not one row
-  // overwritten. The id is minted by the caller.
-  const refundInsert = db.prepare(
-    `INSERT INTO refund_requests
-       (id, user_id, subscription_id, transaction_id, kind, state,
-        amount_minor, currency, paddle_adjustment_id, paddle_status, detail, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-  );
-  const refundsForUser = db.prepare(
-    'SELECT * FROM refund_requests WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
-  );
-
   return {
     claimEvent(row): boolean {
       const res = claimStmt.get(
@@ -677,43 +621,6 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
         row.created_at,
       );
     },
-    recordRefundRequest(row): void {
-      refundInsert.run(
-        row.id,
-        row.user_id,
-        row.subscription_id,
-        row.transaction_id,
-        row.kind,
-        row.state,
-        row.amount_minor,
-        row.currency,
-        row.paddle_adjustment_id,
-        row.paddle_status,
-        row.detail,
-        row.created_at,
-      );
-    },
-    listRefundRequests(user_id, limit): RefundRequestRow[] {
-      return (refundsForUser.all(user_id, limit) as Record<string, unknown>[]).map((r) => ({
-        id: String(r.id),
-        user_id: String(r.user_id),
-        subscription_id: String(r.subscription_id),
-        transaction_id: r.transaction_id === null ? null : String(r.transaction_id),
-        // 🔴 Narrowed by TEST, never by `as`. These two columns are free text in
-        // SQLite, and a hand-written cast on a DB string is a claim the compiler
-        // does not check — book 13 §7 F1 ⑤, which this repo has already paid for
-        // once. An unrecognised value falls to the safest reading rather than
-        // being asserted into a union it is not in.
-        kind: r.kind === 'discretionary' ? 'discretionary' : 'statutory_withdrawal',
-        state: r.state === 'submitted' || r.state === 'none_due' ? r.state : 'failed',
-        amount_minor: r.amount_minor === null ? null : Number(r.amount_minor),
-        currency: r.currency === null ? null : String(r.currency),
-        paddle_adjustment_id: r.paddle_adjustment_id === null ? null : String(r.paddle_adjustment_id),
-        paddle_status: r.paddle_status === null ? null : String(r.paddle_status),
-        detail: r.detail === null ? null : String(r.detail),
-        created_at: String(r.created_at),
-      }));
-    },
     listEventsForUser(user_id, limit): BillingEventRow[] {
       return (eventsByUser.all(user_id, limit) as Record<string, unknown>[]).map(toEventRow);
     },
@@ -731,5 +638,7 @@ export function makeBillingRepo(db: DatabaseSync): BillingRepo {
     // exactly one object answering 「what does the database say」 and no call site
     // has to know which file a method came from.
     ...makeOneTimePurchaseRepo(db),
+    ...makeWithdrawalClaimRepo(db),
+    ...makeRefundRequestRepo(db),
   };
 }

@@ -53,7 +53,6 @@
     "nodePanelNote": "'Your computer picks the node; this phone follows it.'",
     "nodePanelMeasure": "'Measure'",
     "nodeLegEdge": "'Connect'",
-    "nodeLegOrigin": "'To node'",
     "nodeLegTotal": "'Latency'",
     "articleBadge": "'Long session'",
     "articleNoTitle": "'Nothing said yet'",
@@ -152,6 +151,7 @@
     "continuousEntryModeNote": "'Realtime mode only'",
     "continuousEntryNoCeilingNote": "'Account limit unavailable — try again'",
     "continuousEntryQuotaSpentNote": "'This month\\'s minutes are used up'",
+    "continuousEntrySignInNote": "'Sign in to use long recordings'",
     "continuousEntryTitle": "'Long recording'",
     "continuousLiveCaption": "'Finished parts are already saved'",
     "continuousLiveLabel": "'Recording'",
@@ -454,7 +454,6 @@
     "loginFootnote": "'Sign in to use Notes: capture anywhere without a PC'",
     "loginScanHint": "'Open the flowmic.app console on your PC and choose Sign in by QR'",
     "loginScanIsPair": "'That is a pairing code — scan it under Add device'",
-    "loginScanOpen": "'Scan the sign-in QR in the web console'",
     "loginScanTitle": "'Sign in by QR'",
     "loginTitle": "'Sign in to Notes'",
     "logout": "'Log out'",
@@ -602,7 +601,6 @@
     "planLabel_free": "'Free'",
     "planLabel_max": "'Max'",
     "planLabel_pro": "'Pro'",
-    "plusPanelTitle": "'More'",
     "plusSelectionImagesSeparate": "'Pictures are sent one message each'",
     "plusSelectionSend": "'Send to the computer'",
     "polishSkipped": "'Polish skipped · raw text kept'",
@@ -657,7 +655,6 @@
     "registerCopyLink": "'Copy link'",
     "registerLinkCopied": "'Link copied'",
     "relayUpPcUnknown": "'Relay reachable · PC status unknown'",
-    "reloginRequired": "'Session expired — please sign in again'",
     "removeDidNotReachServer": "'Removed here. That PC could not be reached, so its entry is still there.'",
     "removeFavoriteConfirmBody": "'The saved phrase is deleted. Timeline entries are unaffected.'",
     "removeFavoriteConfirmTitle": "'Remove “$shown” from Favorites?'",
@@ -679,6 +676,9 @@
     "restrictionReasonNote_legal_requirement": "'This account was restricted to meet a legal or regulatory requirement.'",
     "restrictionReasonNote_other": "'This account was restricted following a review.'",
     "restrictionReasonNote_terms_violation": "'This account was used in a way that breaches the Terms of Service.'",
+    "retainedAudioNoticeCapReached": "'Storage is full, so part of this recording is no longer being kept for later'",
+    "retainedAudioNoticeDroppedOldest": "'Storage was nearly full, so an older unfinished recording was deleted to make room'",
+    "retainedAudioNoticeExpired": "'An unclaimed recording kept on this phone has been deleted'",
     "sameMachine": "'$name · $connections connections to the same PC'",
     "save": "'Save'",
     "saveAndReInject": "'Save & re-inject'",
@@ -776,6 +776,7 @@
     "sttStallNotSignedIn": "'This phone is no longer signed in to the cloud relay, so nothing was transcribed. Reconnect it on the devices page'",
     "sttStallPoolNoRoute": "'The service has no speech engine available for this recording. Nothing on this phone needs changing — if it keeps happening, tell us'",
     "sttStallQuotaExceeded": "'The monthly transcription quota is used up, so this recording was not transcribed. It resets at the start of next month'",
+    "sttStallQuotaExceededPcOwner": "\"The computer's owner has used up this month's transcription quota, so this recording was not transcribed. It resets at the start of next month\"",
     "sttStallServerFault": "'Not transcribed: the server hit an unexpected fault while starting this recording. Say it again — nothing on this phone needs changing'",
     "sttStallSettingsInvalid": "'Not transcribed: one of your saved settings is not valid, so this recording never reached a speech engine. Open settings and re-save what you changed most recently, then try again'",
     "sttStallVerifyEmail": "'Your email address is still unverified, so the cloud service stopped accepting recordings. Verify it in the web console to carry on'",
@@ -875,6 +876,10 @@
     "updateOwnVersionUnknown": [
       "'This app cannot read its own version, so it cannot tell whether an '",
       "'update is needed.'"
+    ],
+    "updatePlatformNotCovered": [
+      "'This update check does not cover this platform yet, so it cannot say '",
+      "'whether an update is available.'"
     ],
     "updateStoreChannelNote": [
       "'New versions for this device arrive through TestFlight or the App '",

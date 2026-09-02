@@ -11,7 +11,7 @@
 
 import {
   SERVER_DIST,
-  connect, ack, startSaasServer, verifyRegisteredEmail, PASS, FAIL,
+  connect, ack, startSaasServer, verifyRegisteredEmail, mailFileDir, mailFileEnv, PASS, FAIL,
 } from './harness.mjs';
 
 export const G9 = {
@@ -20,13 +20,16 @@ export const G9 = {
     requires: [SERVER_DIST],
     async fn() {
       // Starts its OWN saas instance (G1–G8 share the standalone one, untouched).
-      // VERIFY-1 (2026-08-11): the internal code echo — step 5 reads
-      // /api/cloud/summary, a console feature route behind the verification
-      // gate, and a spawned dist server has no mail channel (M1 reset-echo
-      // precedent; the gate's own proof = G11 §1b + test/email-verification.test.ts).
+      // VERIFY-1 (2026-08-11): step 5 reads /api/cloud/summary, a console
+      // feature route behind the verification gate. 2026-09-02 — the code is
+      // read from the file-mail fixture (harness.mjs `mailFileEnv`/
+      // `readLatestMail`), not an echoed wire flag (deleted — owner's
+      // 2026-09-02 ruling, see harness.mjs for the full account); the gate's
+      // own proof = G11 §1b + test/email-verification.test.ts.
+      const mailDir = mailFileDir();
       let saas = null;
       try {
-        saas = await startSaasServer({ FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO: '1' });
+        saas = await startSaasServer(mailFileEnv(mailDir));
       } catch (e) {
         return FAIL(`saas server failed to start: ${e.message}`);
       }
@@ -47,7 +50,7 @@ export const G9 = {
         // Deliberately BETWEEN login and pairing: the phone-side admission in
         // steps 3–4 is exempt (owner's "console" wording) and following the
         // confirm proves the gate does not block a cloud pair either.
-        await verifyRegisteredEmail(url, jwt);
+        await verifyRegisteredEmail(url, jwt, mailDir, 'g9@flowmic.test');
         // 3. socket connect with the handshake JWT → cloud-instance pair.
         const c1 = await connect(url, { jwt });
         const p1 = await ack(c1, 'mobile:pair', { cloud_instance: true });

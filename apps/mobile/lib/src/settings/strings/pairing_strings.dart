@@ -50,7 +50,6 @@ mixin PairingStrings on AppStringsLeaves {
   String get pairScanNoCamera => _lfPairScanNoCamera;
   // GA-31 scan-to-login (the WEB-side scope of owner's 2026-07-26 ruling).
   String get loginScanTitle => _lfLoginScanTitle;
-  String get loginScanOpen => _lfLoginScanOpen;
   String get loginScanHint => _lfLoginScanHint;
   /// A pairing code scanned on the LOGIN screen — right app, wrong screen.
   String get loginScanIsPair => _lfLoginScanIsPair;

@@ -129,7 +129,33 @@ const SRC = path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src');
 // includes them.
 const EXPECTED = {
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
-  'cfg(not(windows))': 23,
+  //
+  // 23 → 24 (2026-09-02, B2-X): `portable::commands::main_window_hwnd` gained
+  // a non-Windows twin returning `0` ("no owner", the same value every caller
+  // got before `hwnd()` was called at all). The bug this fixes was found BY a
+  // real Mac run (`cargo test --lib --features app` on flowmic-mac): the
+  // ungated `w.hwnd()` — Windows-only on `tauri::WebviewWindow` — failed the
+  // whole crate to build there (`E0599`), so this row was not "23 branches,
+  // all proven" but "22 branches plus one that did not compile anywhere".
+  // 🔴 THE MAC RUN THIS PROTOCOL DEMANDS HAS NOT HAPPENED FOR THIS BUMP. This
+  // fix was written and tested only on the Windows lead box (both feature
+  // sets: `cargo clippy --lib [--features app] -- -D warnings` clean,
+  // `cargo test --lib [--features app]` 836 / 890 passed). Updating this
+  // number only stops the tripwire from firing on a change already written
+  // down here by name — it does not stand in for `./scripts/mac-verify.sh` on
+  // the Mac, which must confirm the non-Windows twin actually builds and
+  // behaves before any delivery claim stronger than "written".
+  //
+  // 24 → 26 (2026-09-02, B2-T, landed the same day as B2-X above and merged
+  // into the same tree): `shell/mod.rs`'s ambient-capsule surface gained two
+  // non-Windows arms (never activate the window on mac/linux; the guard has
+  // two call sites). This number is DERIVED FROM THE MERGED TREE'S OWN SCAN
+  // (`pnpm verify:lint` reading its own count, not from adding B2-X's +1 and
+  // B2-T's own branch-relative +2 from ITS base of 23) — the two branches
+  // counted from different starting points, and a naive 24+2 or 23+1+2 would
+  // both have been one off from what is actually in this file. 🔴 Same
+  // caveat as above: WINDOWS-ONLY proof so far for both bumps.
+  'cfg(not(windows))': 26,
   // 11 → 12 (2026-08-22, the clipboard restore-race fix): ONE new non-Windows
   // arm — `readback::watch`'s inert stub for hosts with no UIA.
   //
@@ -178,8 +204,41 @@ const EXPECTED = {
   // ⚠️ What is still NOT proven: that a macOS user can copy a picture. There is
   // no macOS implementation — the arm's entire content is the refusal. That is
   // the product state, recorded, not a gap in this run.
+  //
+  // 23 → 25 (2026-09-02, AUD-D3 P1, machine dev-pc-a, Windows): this MOVED BY
+  // PROSE, NOT CODE — `shell/mod.rs`'s `surface_capsule` `#[cfg(not(windows))]`
+  // arm itself was not added or removed, only its body was fixed (the MAC-D1
+  // ambient-surface-steals-focus bug: it used to call `w.show()`
+  // unconditionally, now it gates on a new pure `ambient_surface_may_show`
+  // helper before showing). Two new doc-comment mentions of the literal
+  // `#[cfg(not(windows))]` attribute account for the whole +2, exactly the
+  // "prose alone can demand a Mac run" property this file already documents
+  // for the cfg(not(windows)) 24→26 case above.
+  // 🔴 NOT RUN ON A MAC — this session has no Mac access. Windows-side proof
+  // only: `cargo clippy --lib --features app -- -D warnings` and
+  // `cargo test --lib --features app` (894 passed) both green on Windows, which
+  // is exactly the proof this gate's header says counts for nothing about the
+  // non-Windows arm itself. Owed: `./scripts/mac-verify.sh` on flowmic-mac
+  // before this fix is anything stronger than "written" — flagged in the
+  // card's report.
   'cfg(not(target_os = "windows"))': 14,
-  'cfg(unix)': 9,
+  // 9 → 11 (2026-09-02, AUD-D3 P3, machine dev-pc-a, Windows): ONE genuinely
+  // new non-Windows site — `socket/credentials.rs` gained a
+  // `#[cfg(unix)]`-gated test (`second_save_replaces_the_file_via_a_new_inode
+  // _not_in_place_truncate`) for the `write_user_only` atomic-write fix
+  // (temp file + `rename` instead of truncate-in-place, closing a crash-loses-
+  // the-credential window and a TOCTOU on `if path.exists() { ensure_user_only
+  // (path)?; }`). The other +1 is a prose mention of the literal
+  // `#[cfg(unix)]` attribute in `write_user_only`'s updated doc comment.
+  // 🔴 NOT RUN ON A MAC — this session has no Mac access. The new test cannot
+  // even be COMPILED on Windows (`#[cfg(unix)]` strips it before type-checking
+  // reaches it), so `cargo test --lib` passing here proves nothing about it —
+  // that is this gate's entire reason to exist. Owed: `./scripts/mac-verify.sh`
+  // on flowmic-mac, specifically exercising
+  // `socket::credentials::tests::second_save_replaces_the_file_via_a_new_inode
+  // _not_in_place_truncate`, before this fix is anything stronger than
+  // "written" — flagged in the card's report.
+  'cfg(unix)': 11,
   // 32 → 37 (2026-08-24, 0.3.28 card B — the macOS default machine name).
   // Five new sites in `pc_name.rs` / `pc_name_tests.rs`: the two arms of
   // `read_name_half_uncached`, `read_scutil`, `read_hw_model`, and one
@@ -231,7 +290,12 @@ const EXPECTED = {
   // 🔴 Worth the four lines: this counter did NOT move while the crate was
   // unbuildable, because a MISSING gate is not a site. The instrument that found
   // it was ./scripts/mac-verify.sh, which is what the header already says.
-  'cfg(windows)': 74,
+  // 74 → 75 (2026-09-02, B2-X, same fix as the `cfg(not(windows))` row
+  // above): the Windows half of `main_window_hwnd`'s split. Windows-SIDE row,
+  // so it owes no Mac run on its own — but it moved in the same commit as a
+  // non-Windows row that does, so the Mac run this file's tests demand covers
+  // both.
+  'cfg(windows)': 75,
   // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the
@@ -245,7 +309,16 @@ const EXPECTED = {
   // owes no Mac run — but this one WAS measured there anyway, because the whole
   // point of the change is that Windows cannot see the failure it fixes:
   // clippy --lib 0/0, tests 729 + 755, doctests 0 on the Mac mini.
-  'cfg(target_os = "windows")': 35,
+  // 35 → 34 (2026-09-02, WP-5 D3/P1): `sendinput.rs`'s Windows-only
+  // `real_send_backspaces` was deleted along with `apply_correction` /
+  // `CorrectionOps` / the `backspacer` seam (zero production callers, grepped
+  // across `apps/desktop/src` and `src-tauri/src`). Windows-SIDE row, so it
+  // owes no Mac run. The non-Windows counterpart (`cfg(not(target_os =
+  // "windows"))`) was DELIBERATELY left in place, now orphaned, rather than
+  // deleted alongside it — that deletion would move the non-Windows count and
+  // this repo's law is that such a change is not this session's to make from
+  // a Windows-only box; see the `#[allow(dead_code)]` note on that function.
+  'cfg(target_os = "windows")': 34,
   'cfg!(windows)': 4,
 };
 
@@ -272,6 +345,23 @@ const EXPECTED = {
 // virtue (nobody can misread what it counts) for coverage; rejected for the
 // same reason the subtree-hash design above was. If a card adds MORE
 // compound platform cfgs, extend this census by hand in the same commit.
+//
+// 2026-09-02 (B2-Z, mac clippy dead-code fixes) adds a SIXTH form, and it is
+// a different shape from the five above: `#[cfg(any(test, target_os =
+// "windows"))]`, on `focus/tracker.rs::{FanoutOutcome, fanout_focus_event}`,
+// `inject/image.rs::dimensions_within_pixel_cap`,
+// `inject/readback.rs::BoundedReuseWorker` (struct + impl block), and
+// `inject/sendinput.rs::sendinput_fully_sent`. Unlike the five above, this
+// one carries NO invisibility risk on the Windows lead box — `target_os =
+// "windows"` alone makes it true there in both `cargo test` and a plain
+// build, so every line behind it compiles on Windows exactly as it always
+// did. It is recorded here only because the header above asks for every new
+// compound form to be named, not because it hides anything from this
+// machine: the branch it actually removes code from is a PLAIN (non-test)
+// build on a non-Windows target, which is a real branch and this scanner's
+// whole reason to exist, but it was already invisible before this pass (six
+// mac clippy dead-code errors, commit 7d9a775c) — the fix does not make it
+// MORE invisible, it gives it a name.
 
 // Attribute form `#[cfg(...)]` and macro form `cfg!(...)` are counted
 // separately because they are different things: the attribute removes code from

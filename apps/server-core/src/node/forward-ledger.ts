@@ -47,6 +47,14 @@ CREATE INDEX IF NOT EXISTS idx_node_forward_seen_at ON node_forward_seen(at);
  *  unreachability」 with room to spare; the table costs ~50 bytes a row. */
 export const FORWARD_LEDGER_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** F6 (2026-09-02 audit) — sweep cadence for `prune()`, which had zero
+ *  production callers until this card: `node_forward_seen` grew without bound
+ *  (~17k rows/PC/day at this route's own traffic estimate) because the method
+ *  existed, was unit-tested, and was never armed on a timer anywhere bootstrap
+ *  runs. Daily, same cadence as db/retention.ts and db/reaper.ts — a 7-day
+ *  retention window does not need a tighter sweep than either of those. */
+export const FORWARD_LEDGER_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 export interface ForwardLedger {
   /** Perform `effect` exactly once for this id.
    *

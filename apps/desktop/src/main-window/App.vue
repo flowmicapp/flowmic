@@ -29,6 +29,7 @@ import {
 import type { MainPage } from '../lib/bridge';
 import { asCloudStatus, EMPTY_CLOUD_STATUS, type CloudStatus } from '../lib/channel';
 import { deriveFooterConnDot } from '../lib/conn-dot';
+import { seedThenSubscribe } from '../lib/seed-then-subscribe';
 import { S } from '../lib/strings';
 import { localKv } from '../lib/storage';
 import { profileKeys, resolveFirstRunPrompt } from '../lib/strings/first-run-locale';
@@ -161,19 +162,21 @@ onMounted(() => {
   );
 
   void (async () => {
-    // RV-24: register BEFORE pulling — the rule main-window/store.ts spells out at
-    // its snapshot seed («register first so a frame arriving mid-seed is not lost,
-    // then ask for the current state»). A push landing between the fetch and the
-    // listen is lost for the rest of the session; both halves are idempotent, so
-    // the overlap costs nothing.
-    unlistenSidecar = await onChannel<SidecarStatus>(CH.sidecarState, (p) => {
-      sidecar.value = p;
-    });
-    unlistenCloud = await onChannel<unknown>(CH.cloudState, (p) => {
-      cloud.value = asCloudStatus(p);
-    });
-    cloud.value = await fetchCloudStatus();
-    sidecar.value = await fetchSidecarState();
+    // RV-24 register-then-pull order, PLUS the E7 guard seedThenSubscribe adds:
+    // a push landing WHILE `fetchCloudStatus()`/`fetchSidecarState()` is still
+    // in flight must not be overwritten once that pull finally resolves — the
+    // plain register-then-pull order above only protected the window BEFORE
+    // the listener existed, not the one during the pull's own await.
+    unlistenSidecar = await seedThenSubscribe<SidecarStatus | null>(
+      (apply) => onChannel<SidecarStatus>(CH.sidecarState, apply),
+      fetchSidecarState,
+      (v) => { sidecar.value = v; },
+    );
+    unlistenCloud = await seedThenSubscribe<CloudStatus>(
+      (apply) => onChannel<unknown>(CH.cloudState, (p) => apply(asCloudStatus(p))),
+      fetchCloudStatus,
+      (v) => { cloud.value = v; },
+    );
   })();
 });
 

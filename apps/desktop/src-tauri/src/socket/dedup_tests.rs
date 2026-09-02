@@ -307,6 +307,48 @@
         let _ = std::fs::remove_file(&path);
     }
 
+    /// P2 (2026-09-02 audit): "dedup replays ok:false failed verdicts" was
+    /// flagged as a possible defect. It is not one — it is the policy this
+    /// file's own top-of-file header names by name ("A later frame with the
+    /// same request_id → Replay(cached): re-send the byte-identical first
+    /// result WITHOUT typing again ... status only ever reports the delivery
+    /// truth"), and the test above already proves the ONE place that policy
+    /// is deliberately NARROWED (a restart gets a fresh try). This test pins
+    /// the un-narrowed half explicitly, with the exact user-visible
+    /// consequence spelled out: a same-process reconnect-flap replay of a
+    /// FAILED verdict answers with the SAME error_code, byte for byte, not a
+    /// fresh attempt and not a generic one — even though the target window
+    /// could in principle have changed in the meantime. That is the accepted
+    /// cost of "status only ever reports the delivery truth": the truth was
+    /// INJECT_TARGET_INVALID at the moment it was recorded, and this table's
+    /// whole job is to keep repeating one delivery's truth, not to speculate
+    /// about whether a retry might now do better (the restart case above is
+    /// the one place that speculation is thought worth the restart's own,
+    /// much longer, staleness window).
+    #[test]
+    fn reverse_control_a_same_process_replay_of_a_failure_reports_the_identical_error_not_a_fresh_attempt() {
+        let path = tmp_ledger_path();
+        let mut d = InjectDeduper::load_spec_default(path.clone());
+        assert_eq!(d.classify("stt", Some("rq-flap"), "hello", 0), InjectDecision::Proceed);
+        let failed = json!({
+            "ok": false, "mode": "sendinput", "error": "INJECT_TARGET_INVALID",
+            "request_id": "rq-flap"
+        });
+        d.record("stt", Some("rq-flap"), "hello", &failed, 0);
+
+        // A reconnect-flap re-emission of the same delivery, moments later.
+        match d.classify("stt", Some("rq-flap"), "hello", 1) {
+            InjectDecision::Replay(v) => assert_eq!(
+                v, failed,
+                "the phone must see the EXACT same failure again, not a fresh classify — this \
+                 is what makes the replay honest rather than a silent second attempt the caller \
+                 never asked to skip"
+            ),
+            other => panic!("expected Replay of the recorded failure, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn the_disk_ledger_shares_the_in_memory_lru_cap_and_survives_only_the_newest() {
         let path = tmp_ledger_path();
@@ -396,6 +438,76 @@
         std::fs::write(&path, b"not json at all").expect("write garbage");
         let mut d = InjectDeduper::load_spec_default(path.clone());
         assert_eq!(d.classify("manual", Some("rq-z"), "t", 0), InjectDecision::Proceed);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// D6 (2026-09-02 audit §3-D): `TypedLedgerFile::save` no longer writes the
+    /// destination directly — it writes a `.tmp` sibling and renames it into
+    /// place. This asserts the visible half of that: the tmp file never
+    /// survives a successful save, and the destination holds exactly what was
+    /// serialized.
+    #[test]
+    fn save_leaves_no_tmp_file_behind_and_the_destination_is_exact() {
+        let path = tmp_ledger_path();
+        let mut tmp_path = path.clone().into_os_string();
+        tmp_path.push(".tmp");
+        let tmp_path = std::path::PathBuf::from(tmp_path);
+
+        let mut entries = std::collections::VecDeque::new();
+        entries.push_back(TypedLedgerEntry { request_id: "rq-atomic".to_string(), mode: "sendinput".to_string() });
+        let file = TypedLedgerFile { entries };
+        file.save(&path).expect("save must succeed");
+
+        assert!(path.exists(), "the destination must exist after save");
+        assert!(!tmp_path.exists(), "the .tmp sibling must not survive a successful save");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("rq-atomic") && raw.contains("sendinput"), "raw={raw}");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// D6, the actual regression test on `save()` itself (not a simulation):
+    /// if the TMP-WRITE step fails, the LIVE file must be completely
+    /// untouched — still whatever it held before this `save()` call.
+    ///
+    /// Forcing the tmp write to fail portably: create a DIRECTORY at the exact
+    /// path `save()` computes for its tmp file (`<path>.tmp`). `fs::write`
+    /// cannot write to a path that is a directory, so the tmp step errors out
+    /// before `rename` is ever reached — which is exactly the "old copy is
+    /// entirely safe if anything goes wrong before the swap" property a
+    /// tmp+rename design exists to provide.
+    ///
+    /// **Reverse control, actually run**: the pre-D6 `save` was
+    /// `std::fs::write(path, json)` — it never looks at a `.tmp` path at all,
+    /// so the directory this test plants at `<path>.tmp` has ZERO effect on
+    /// it: the old code would happily overwrite `path` with the NEW content
+    /// and this test's final assertion (the OLD content must still be there)
+    /// would fail. Confirmed by swapping the implementation back in place and
+    /// watching this test fail, then restoring it — see the WP-5 report.
+    #[test]
+    fn a_failed_tmp_write_never_touches_the_still_good_live_file() {
+        let path = tmp_ledger_path();
+        let mut old = std::collections::VecDeque::new();
+        old.push_back(TypedLedgerEntry { request_id: "rq-old-good".to_string(), mode: "clipboard".to_string() });
+        TypedLedgerFile { entries: old }.save(&path).expect("the first save must succeed");
+        assert_eq!(TypedLedgerFile::load(&path).entries.len(), 1, "sanity: the good save loaded back");
+
+        let mut tmp_path = path.clone().into_os_string();
+        tmp_path.push(".tmp");
+        let tmp_path = std::path::PathBuf::from(tmp_path);
+        std::fs::create_dir_all(&tmp_path).expect("plant a directory where the tmp FILE needs to go");
+
+        let mut new = std::collections::VecDeque::new();
+        new.push_back(TypedLedgerEntry { request_id: "rq-new-should-not-land".to_string(), mode: "sendinput".to_string() });
+        let result = TypedLedgerFile { entries: new }.save(&path);
+
+        assert!(result.is_err(), "the tmp write must fail — a directory sits where the file needs to be");
+        let after = TypedLedgerFile::load(&path);
+        assert_eq!(after.entries.len(), 1, "the live file must be untouched by a save that never got past its tmp step");
+        assert_eq!(after.entries[0].request_id, "rq-old-good", "it must still be the OLD entry, not a mix and not empty");
+
+        let _ = std::fs::remove_dir_all(&tmp_path);
         let _ = std::fs::remove_file(&path);
     }
 

@@ -206,6 +206,18 @@ class BannerIds {
   /// mic_permission_banner.dart, which owns the face→severity/action mapping.
   static const String micPermission = 'mic_permission';
 
+  /// AUD-D F6 / P1-6 (2026-09-02) — `RetainedAudioStore` gave up or aged out
+  /// unclaimed capture audio (`RetainedAudioNotice`, audio/retained_audio_store.dart).
+  /// Before this id existed the diagnostics log was the ONLY surface for an
+  /// event the store's own header requires callers to "hear" — the exact
+  /// unbacked-promise shape volume 15 §2.0-b bans, one step later than the
+  /// original defect those words were coined to fix. Its own id (not
+  /// [sttStall] / [autoStop]): those describe what happened to the CURRENT
+  /// utterance's transcript, this describes what happened to a RETAINED FILE
+  /// that may belong to an utterance already off screen — collapsing them
+  /// would let one overwrite the other while both are still news.
+  static const String retainedAudioNotice = 'retained_audio_notice';
+
   // `timelineConflict` was removed in 0.2.27 with the banner it keyed (see
   // buildChatBanners). A banner id nothing can push is dead weight that reads
   // like a live surface.
@@ -388,6 +400,13 @@ BannerQueue buildChatBanners({
   /// what keeps owner §5-4 (「a few seconds, never a standing bar」) true in the
   /// code rather than only in a comment.
   bool continuousCapWarning = false,
+  /// AUD-D F6 / P1-6 — the stable [RetainedAudioNotice.code] of the most
+  /// recent retention event nobody has dismissed yet, or null for none. A raw
+  /// code string (not the model type) so this pure function never has to
+  /// import `audio/retained_audio_store.dart` — the SAME shape [autoStopReason]
+  /// already uses for the same reason.
+  String? retainedAudioNotice,
+  void Function()? onDismissRetainedAudioNotice,
 }) {
   final BannerQueue queue = BannerQueue();
   final BannerItem? link = _linkBanner(
@@ -430,6 +449,20 @@ BannerQueue buildChatBanners({
         ),
         dismissible: true,
         onAction: onDismissContinuousCapWarning,
+      ),
+    );
+  }
+  if (retainedAudioNotice != null && retainedAudioNotice.isNotEmpty) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.retainedAudioNotice,
+        // DEGRADED, not blocking: the recording itself already finished (or
+        // is continuing unaffected) — this is a heads-up about a FILE, not a
+        // live obstruction the user must clear before doing anything else.
+        severity: BannerSeverity.degraded,
+        message: strings.retainedAudioNoticeMessage(retainedAudioNotice),
+        dismissible: true,
+        onAction: onDismissRetainedAudioNotice,
       ),
     );
   }

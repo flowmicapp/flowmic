@@ -117,27 +117,3 @@ enum PairTab { scan, manual }
 ///     "no need to type the endpoint URL, because it is fixed").
 enum PairChannel { lan, cloud }
 
-/// owner 2026-07-26:「扫码优先于手输」("scan takes priority over manual typing")
-/// — scan is the default entry.
-///
-/// [cameraUsable] is false when the platform has no camera or the user refused
-/// permission. Falling back is correct; falling back SILENTLY is not, which is
-/// why this returns the reason alongside the tab so the caller must render it.
-class PairEntryMode {
-  const PairEntryMode(this.tab, {this.fallbackReason});
-
-  final PairTab tab;
-
-  /// Non-null only when we landed on [PairTab.manual] against the default —
-  /// the sheet MUST show this, or the user just sees a form and never learns
-  /// the camera was refused.
-  final String? fallbackReason;
-}
-
-PairEntryMode resolvePairEntryMode({
-  required bool cameraUsable,
-  required String cameraUnavailableReason,
-}) {
-  if (cameraUsable) return const PairEntryMode(PairTab.scan);
-  return PairEntryMode(PairTab.manual, fallbackReason: cameraUnavailableReason);
-}

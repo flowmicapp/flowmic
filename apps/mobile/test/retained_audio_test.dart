@@ -225,6 +225,9 @@ void main() {
     expect(dropped.bytes, 6400,
         reason: 'the notice must say how much was lost, not merely that '
             'something was');
+    // F6 (2026-09-02 audit) — the SAME fact must also be readable as a VALUE,
+    // not only as a stream event a listener could have missed.
+    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeDroppedOldest);
   });
 
   test('CAP HIT with nothing older to give up: the append is REFUSED and '
@@ -246,6 +249,7 @@ void main() {
     expect(spill.refusedChunks, 1);
     expect(notices.map((RetainedAudioNotice n) => n.code),
         contains(RetainedAudioNotice.codeCapReached));
+    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeCapReached);
   });
 
   test('CAP HIT announces ONCE per segment, not once per 200 ms chunk',
@@ -282,6 +286,7 @@ void main() {
     expect(await store.pendingSegments(), isEmpty);
     expect(notices.map((RetainedAudioNotice n) => n.code),
         contains(RetainedAudioNotice.codeExpired));
+    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeExpired);
   });
 
   // ─────────────────────────────────────── keying + lifecycle guards

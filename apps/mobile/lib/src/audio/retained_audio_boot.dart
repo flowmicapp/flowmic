@@ -47,6 +47,18 @@ Future<RetainedAudioSpill?> openRetainedAudioSpill() async {
     // both directions). The diagnostics log is the minimum surface the store's
     // own doc names; listener attached BEFORE the sweep so expiry notices from
     // a previous run's orphans are not announced into the void.
+    //
+    // 🔴 F6 (2026-09-02 audit) — THIS WAS THE ONLY LISTENER, PERIOD, and the
+    // store's own header already required more ("callers MUST surface
+    // these"). `retainedStore.lastNotice` (a `ValueListenable`, set on every
+    // announcement regardless of who is subscribed here) plus
+    // `RecordingStrings.retainedAudioNoticeMessage` now give a future UI
+    // layer everything it needs to show the sentence — no stream subscription
+    // race, no missing translation. Actually putting it on screen is banner-
+    // queue work (`session/chat_notices.dart` / `ui/banner_queue.dart`) and
+    // does not belong in this bootstrap file; until that lands, this diag
+    // line remains the only OBSERVED surface, which is the honest thing to
+    // say about it here.
     retainedStore.notices.listen(
       (RetainedAudioNotice n) =>
           diag('audio.retained.notice', <String, Object?>{

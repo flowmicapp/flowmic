@@ -98,7 +98,6 @@ Future<void> _openPlusPanelRouted(
     // the SAME persistence `historySource` already threads for the chat list,
     // so 「这台手机上有哪些行」("which rows exist on this phone") has one
     // answer whichever surface asks.
-    //
     // 🔴 It is NOT built from the cloud leg's `BlindStoreTimelineBridge`, and
     // that is deliberate: main.dart only constructs that inside
     // `if (cloudState != null)`, so on the shared_preferences fallback the tab
@@ -108,6 +107,7 @@ Future<void> _openPlusPanelRouted(
     lightRecords: s.widget.historySource == null
         ? null
         : LightRecordQuery(persistence: s.widget.historySource!),
+    liveArticleId: s.controller.session.recordingArticleId, // Card P2-9
     backfill: s.controller.backfill.progress, // CR-8 — read-only, one owner.
     isSignedIn: s.widget.isSignedIn,
     onSignIn: s.widget.onSignIn,

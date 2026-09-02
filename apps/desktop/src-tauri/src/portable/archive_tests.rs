@@ -196,6 +196,52 @@ fn a_traversal_member_writes_nothing_and_a_normal_one_does() {
     assert!(row_image::find_in(&dest, "req:ok2").is_some());
 }
 
+// ── P2 (2026-09-02 audit): a failed export must not leave a half-written
+//    file sitting under the user's chosen final name ─────────────────────────
+
+#[test]
+fn a_failed_export_leaves_no_half_written_file_at_the_final_path() {
+    let d = tmpdir("half-written");
+    let dest = d.join("out.zip");
+    let lines = vec![
+        r#"{"fpr":1,"kind":"header","count":0}"#.to_string(),
+    ];
+    // records.jsonl and README.txt are written FIRST — real bytes land before
+    // this ever runs — and only THEN does the attachment loop reach an entry
+    // whose name `ZipWriter::begin` refuses (a path-traversal shape, exactly
+    // the guard `entry_name_is_safe` exists for). Before this fix, that late
+    // failure still left the FIRST two members sitting in a real, truncated
+    // zip under `dest`'s exact name.
+    let pics = d.join("pics");
+    assert!(row_image::store_in(&pics, "req:evil", PNG_2X2_B64, "image/png"));
+    let attachments = vec![Attachment {
+        row_id: "req:evil".to_string(),
+        name: "att/../../evil.png".to_string(),
+    }];
+
+    let err = write_export(&dest, &lines, "readme body", &attachments, &pics).expect_err("must fail");
+    assert!(matches!(err, ZipError::UnsafeName(_)), "unexpected error: {err:?}");
+    assert!(!dest.exists(), "the final path must not exist after a failed export");
+    assert!(
+        !d.join("out.zip.tmp").exists(),
+        "the .tmp scratch file must be cleaned up on failure too, not just the final name"
+    );
+}
+
+#[test]
+fn reverse_control_a_successful_export_still_lands_at_the_final_path() {
+    // NEGATIVE CONTROL for the test above: without it, a version of the
+    // temp-then-rename wrapper that always deleted its output (even on
+    // success) would still pass the failure test.
+    let d = tmpdir("half-written-ok");
+    let dest = d.join("out.zip");
+    let lines = vec![r#"{"fpr":1,"kind":"header","count":0}"#.to_string()];
+    let r = write_export(&dest, &lines, "readme body", &[], &d).expect("export");
+    assert_eq!(r.path, dest.display().to_string());
+    assert!(dest.exists(), "a successful export must land at the final path");
+    assert!(!d.join("out.zip.tmp").exists(), "no scratch file left behind on success");
+}
+
 /// Three-entry forger (the writer refuses unsafe names, so a malicious archive
 /// has to be built by hand). All entries are STORE; `good_name` carries `body`,
 /// and a real `records.jsonl` rides along so `read_archive` gets as far as the

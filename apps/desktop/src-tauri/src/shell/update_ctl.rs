@@ -265,7 +265,7 @@ pub fn update_set_auto_check(enabled: bool, state: State<'_, UpdateState>) -> Up
 /// 🔴 A dev build short-circuits inside `update::check` BEFORE any network call
 /// (design §4.2 「完全不检查更新」("does not check for updates at all")), and the resulting plan is `not_checked` —
 /// which the UI must never render as 「已是最新」("already up to date").
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_check(base: String, state: State<'_, UpdateState>) -> UpdateStateDto {
     {
         let mut inner = state.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -341,7 +341,7 @@ fn install_dir_of_running_copy() -> std::path::PathBuf {
 }
 
 /// Download the planned artifact and put it through the hash gate.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_download(app: AppHandle, state: State<'_, UpdateState>) -> UpdateStateDto {
     let artifact = {
         let inner = state.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -413,7 +413,7 @@ pub fn update_download(app: AppHandle, state: State<'_, UpdateState>) -> UpdateS
 /// Both branches obey design §4.3 ④b: the thing that will do the work is started
 /// BEFORE we exit, because after we exit there is no process left to start
 /// anything.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_apply(app: AppHandle, state: State<'_, UpdateState>) -> UpdateStateDto {
     let (pkg_path, kind) = {
         let inner = state.inner.lock().unwrap_or_else(|e| e.into_inner());

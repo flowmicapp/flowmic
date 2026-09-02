@@ -260,6 +260,23 @@ describe('a replica refuses HTTP writes', () => {
     h({ url: '/api/auth/register', method: 'POST', headers: {} } as never, res as never);
     expect(status).not.toBe(421);
   });
+
+  // ── B7 (2026-09-02 replica gap audit) ───────────────────────────────────
+  it('🔴 does NOT 421 the phone diagnostic upload — it appends to a file, not the DB', () => {
+    // The phone dialed a regional node precisely because its writer was far or
+    // unreachable — that phone's diagnostic trail is the one this repo's
+    // root-cause method needs most, and a blanket "no writes on a replica" gate
+    // bounced it before diag-routes.ts ever saw the request.
+    const r = call('POST', '/api/diag/mobile');
+    expect(r.status).not.toBe(421);
+  });
+
+  it('REVERSE CONTROL — an unrelated POST to the same-looking path still 421s', () => {
+    // Guards against a sloppy fix that widened the match (prefix, method-less,
+    // or dropped the exact-path check) instead of naming exactly one route.
+    expect(call('POST', '/api/diag/mobile/../other').status).toBe(421);
+    expect(call('PUT', '/api/diag/mobile').status).toBe(421);
+  });
 });
 
 describe('the node list names the writer', () => {

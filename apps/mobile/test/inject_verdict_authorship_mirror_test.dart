@@ -22,6 +22,27 @@ import 'package:flowmic/src/session/outbox_inject_authorship.dart';
 import 'package:flowmic/src/session/outbox_item.dart' show isTerminalRefusalCode;
 import 'package:flutter_test/flutter_test.dart';
 
+/// Card fix-018, closed 2026-09-02 (WP-8) — matches a single-quoted string
+/// literal inside the `TRANSIENT_INJECT_VERDICT_CODES` array literal, the same
+/// "read the source rather than trust a comment" technique as [_entry] above.
+final RegExp _transientArray = RegExp(
+  r'TRANSIENT_INJECT_VERDICT_CODES[^\[]*\[([\s\S]*?)\]\s*as const',
+);
+final RegExp _transientEntry = RegExp(r"'([A-Z][A-Z0-9_]*)'");
+
+Set<String> _parseTransientSsot() {
+  final Match? arrayMatch = _transientArray.firstMatch(_ssot.readAsStringSync());
+  expect(
+    arrayMatch,
+    isNotNull,
+    reason: 'TRANSIENT_INJECT_VERDICT_CODES not found in ${_ssot.path} — did the export get renamed?',
+  );
+  return _transientEntry
+      .allMatches(arrayMatch!.group(1)!)
+      .map((RegExpMatch m) => m.group(1)!)
+      .toSet();
+}
+
 /// `flutter test`'s working directory is fixed at this package's root (apps/mobile).
 final File _ssot = File(
   '../../packages/protocol/src/inject-verdict-authorship.ts',
@@ -108,6 +129,27 @@ void main() {
           isFalse,
           reason: '$code is both "evidence delivery succeeded" and "terminal refusal"; the two branches will fight',
         );
+      }
+    });
+
+    test('🔴 the transient-retry set is byte-for-byte equal on both ends (card fix-018)', () {
+      // 🔴 Positive control first: a regex that matched 0 entries would make
+      // the equality below pass vacuously if the Dart set were also emptied.
+      final Set<String> fromTs = _parseTransientSsot();
+      expect(fromTs, isNotEmpty, reason: 'parsed 0 transient codes; the regex may have drifted');
+      expect(
+        fromTs,
+        equals(kTransientInjectionVerdictCodes),
+        reason:
+            'packages/protocol/src/inject-verdict-authorship.ts TRANSIENT_INJECT_VERDICT_CODES and '
+            'outbox_inject_authorship.dart kTransientInjectionVerdictCodes disagree. Change the TS '
+            'side first (it needs an owner ruling, same as the authorship table), then the phone mirror.',
+      );
+      // Every transient code must ALSO be a pc-injection verdict code — the
+      // second dimension only makes sense layered on the first (see the note
+      // at TRANSIENT_INJECT_VERDICT_CODES's declaration).
+      for (final String code in fromTs) {
+        expect(isPcInjectionVerdictCode(code), isTrue, reason: code);
       }
     });
 

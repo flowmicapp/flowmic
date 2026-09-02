@@ -182,6 +182,11 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       return safeAck(ack, e);
     }
 
+    // AUD-2 P1 — declared outside the try so the catch block can still read it.
+    // `undefined` here means "the vendor was never called" (EngineNotWiredError
+    // fires before this line), which is exactly the case the usage commit below
+    // must NOT cover — a quota refusal or a missing engine spent no tokens.
+    let orchestrator: ComposeOrchestrator | undefined;
     try {
       if (!deps.composeFactory) throw new EngineNotWiredError('compose');
       // §4.1 source ②: the room's latest PC focus process_name (from the
@@ -189,7 +194,7 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       // Absent (no PC focus seen / PC gone) → undefined → no app-context line.
       const roomUuid = getRoomUuid(socket);
       const processName = roomUuid ? deps.store.getFocusProcess(roomUuid) : undefined;
-      const orchestrator = deps.composeFactory({
+      orchestrator = deps.composeFactory({
         userId: auth.userId,
         task: parsed.data.task,
         sourceText: parsed.data.source_text,
@@ -221,6 +226,35 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       socket.emit('compose:done', { output_text: finalText, task: parsed.data.task, ...echo });
       safeAck(ack, { ok: true });
     } catch (err) {
+      // AUD-2 P1 (2026-09-02) — commit vendor-billed tokens on EVERY path where
+      // the vendor answered, not only on the happy path.
+      //
+      // Before this fix, `commitLlmUsage` was called from exactly one place:
+      // the line right after the `for await` loop above. `orchestrator.run()`
+      // records real `tokensIn`/`tokensOut` into its private `_usage` the moment
+      // a `done` event carries `usage` (orchestrator.ts `run()`), which happens
+      // BEFORE `assertOutputDeliverable` runs and can throw
+      // `ComposeOutputRejectedError` — the guard rejects the OUTPUT, not the
+      // billing fact that the vendor was already paid for producing it. Every
+      // rejected turn (orchestrator.ts documents this is a systematically
+      // reproducible outcome, e.g. any dictionary-replaced CJK utterance hitting
+      // `invented_latin_tokens`) and every other failure that happens after a
+      // `done` event landed (a guard bug, a downstream throw) silently dropped
+      // its tokens from both `usage_records` (the user's month quota) and
+      // `usage_events` — the `llm_tokens` safety valve this repo relies on to
+      // catch a run-away vendor bill would never see them either.
+      //
+      // `readComposeUsage` is a safe best-effort read: it returns 0/0/false for
+      // anything that is not a `ComposeRun`, and `recordLlmUsage` itself
+      // early-returns on an all-zero report (usage-tracker.ts), so this call is
+      // a genuine no-op whenever the vendor was never reached — which is exactly
+      // when `orchestrator` is still `undefined` (EngineNotWiredError fires
+      // before a factory call is made, and the quota refusal above never enters
+      // this try block at all). Nothing here changes what happens on THAT path.
+      if (orchestrator) {
+        const usage = readComposeUsage(orchestrator);
+        commitLlmUsage(auth.userId, usage.tokensIn, usage.tokensOut, usage.isByok);
+      }
       // W2-2: the output guard's rejection gets its own branch because the error
       // carries the RULE that fired, which a bare `ServerError` has nowhere to
       // put — the wire `message` and the server log name the same rule because

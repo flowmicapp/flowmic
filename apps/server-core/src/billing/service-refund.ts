@@ -3,6 +3,17 @@
 //   apps/server-core/src/db/repos/one-time-purchase.repo.ts
 //     (requestOneTimeRefund — the claim, and why the state test is in the SQL)
 //   apps/server-core/src/billing/service-deadlines.ts (who is due)
+//   test/one-time-purchase-repo-atomicity.test.ts (2026-09-02 audit P2 — pins
+//     THE CLAIM'S ATOMICITY this header's whole "exactly one caller can win it"
+//     sentence rests on, one layer BELOW this file: it calls
+//     `requestOneTimeRefund` twice against one row directly, with no service
+//     or provider in between, and asserts the second call is 'not_refundable'.
+//     service-refund-action.test.ts §1 already proved the property through
+//     THIS file's own caller ("so a second caller never reaches the provider
+//     at all"); the repo-level test is the same property pinned at the SQL
+//     statement that actually decides it, so a future rewrite of the UPDATE
+//     into a read-then-write cannot pass by accident just because nothing
+//     above it changed.)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //
 // 🔴 ASKING FOR A REFUND, IN ONE PLACE, FOR ALL THREE CALLERS.

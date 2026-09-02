@@ -199,3 +199,30 @@ void onAmplitudeRouted(ChatController c, double db) {
   if (c._sess != SessionState.recording) return;
   c.recording.addAmplitude(db);
 }
+
+/// AUD-D F6 / P1-6 (2026-09-02, card B2-O) — `RetainedAudioStore.lastNotice`
+/// fired: a segment was dropped-oldest / cap-reached / TTL-expired out of
+/// local retention. Reads the CURRENT value off the listenable rather than
+/// carrying one in the callback signature, because [ValueListenable]'s
+/// listener contract is a bare `void Function()` — the same shape
+/// `session.pcBusyListenable.addListener(notifyUi)` already relies on.
+///
+/// 🔴 Silent by construction otherwise: this is the ONLY thing that turns the
+/// store's `lastNotice` into an on-screen fact — before this card the store's
+/// own header already said "callers MUST surface these" and the sole
+/// listener (retained_audio_boot.dart) wrote a diag line and nothing else.
+void onRetainedAudioNoticeRouted(ChatController c) {
+  final RetainedAudioNotice? n =
+      c.session.audio.retainedAudio?.store.lastNotice.value;
+  if (n == null) return;
+  c._retainedAudioNoticeCode = n.code;
+  c.notifyUi();
+}
+
+/// Dismiss the retained-audio banner (✕, or the auto-hide reconciler).
+/// No-op when already clear.
+void dismissRetainedAudioNoticeRouted(ChatController c) {
+  if (c._retainedAudioNoticeCode == null) return;
+  c._retainedAudioNoticeCode = null;
+  c.notifyUi();
+}

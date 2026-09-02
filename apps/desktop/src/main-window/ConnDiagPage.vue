@@ -23,12 +23,14 @@ import {
   fetchPairingInfo,
   fetchSidecarState,
   onChannel,
+  sidecarBaseUrl,
   type SidecarStatus,
 } from '../lib/bridge';
 // ⚠️ Focus-probe temporarily hidden (owner 2026-08-02 UI batch 1 ④) — the
 // `focusDiagnostic` / `FocusDiagnostic` imports are commented out together with
 // their only caller, down in the V2-01 section below. Restore both places together.
 import { asCloudStatus, CHANNEL_LABEL, CHANNEL_VISUAL, EMPTY_CLOUD_STATUS, type ChannelId, type CloudStatus } from '../lib/channel';
+import { seedThenSubscribe } from '../lib/seed-then-subscribe';
 import { connChannelLabel, deriveConnDot } from '../lib/conn-dot';
 import { model, type Routing } from './settings-model';
 import {
@@ -58,7 +60,7 @@ const machineUid = ref('');
 // REQ-12-12 — local STT/LLM one-shot (same transport + store as settings;
 // D3: never a resident green light; page is v-if so leaving wipes the store).
 const engineTransport: ProbeTransport = {
-  baseUrl: async (): Promise<string | null> => (await fetchSidecarState())?.endpoint ?? null,
+  baseUrl: sidecarBaseUrl,
 };
 const engineProbe = createProbeStore(async (): Promise<ProbeRowView[]> => {
   const routings: Routing[] = model.routings.map((r) => ({ ...r }));
@@ -160,7 +162,15 @@ function channelRow(ch: ChannelId): { id: ChannelId; label: string; up: boolean;
 async function loadOnce(): Promise<void> {
   cloud.value = await fetchCloudStatus();
   sidecar.value = await fetchSidecarState();
-  const info = await fetchPairingInfo();
+  // P3 #19 (2026-09-02) — the variable this fills is named `lanEndpoint`, but an
+  // omitted channel argument does not mean "LAN" (bridge.ts's own doc comment
+  // on fetchPairingInfo: "Omitted ⇒ the Rust side falls back to the stored
+  // channel preference"). Whoever last paired over cloud would silently fill
+  // `lanEndpoint` with the CLOUD endpoint on this diagnostic page — the one
+  // value answering two questions shape this repo names as its #1 bug class.
+  // `machine_uid` is unaffected (per-machine, not per-channel, per its own
+  // doc comment above), so pinning the channel here changes nothing about it.
+  const info = await fetchPairingInfo('lan');
   lanEndpoint.value = info.endpoint;
   machineUid.value = info.machine_uid ?? '';
 }
@@ -168,20 +178,37 @@ async function loadOnce(): Promise<void> {
 let unSidecar: (() => void) | null = null;
 let unCloud: (() => void) | null = null;
 onMounted(async () => {
-  // RV-24: register the listener first, then pull the snapshot — the rule store.ts
-  // spells out at its snapshot seed («register first so a frame arriving mid-seed
-  // is not lost, then ask for the current state»). This page's whole job is
-  // telling the truth about the link, so a push it slept through would be the
-  // worst place to lose one.
-  unSidecar = await onChannel<SidecarStatus>(CH.sidecarState, (p) => {
-    sidecar.value = p;
-  });
-  unCloud = await onChannel<unknown>(CH.cloudState, (p) => {
-    cloud.value = asCloudStatus(p);
-    void loadOnce();
-  });
-  await loadOnce();
-  // After sidecar endpoint is known — probing before loadOnce races `probe_no_server`.
+  // RV-24 register-then-pull order, PLUS the E7 guard seedThenSubscribe adds:
+  // this page's whole job is telling the truth about the link, so a push
+  // arriving WHILE `fetchSidecarState()`/`fetchCloudStatus()` is still in
+  // flight is the worst place to lose one to a slower, now-stale pull.
+  unSidecar = await seedThenSubscribe<SidecarStatus | null>(
+    (apply) => onChannel<SidecarStatus>(CH.sidecarState, apply),
+    fetchSidecarState,
+    (v) => { sidecar.value = v; },
+  );
+  unCloud = await seedThenSubscribe<CloudStatus>(
+    (apply) => onChannel<unknown>(CH.cloudState, (p) => {
+      apply(asCloudStatus(p));
+      void loadOnce();
+    }),
+    fetchCloudStatus,
+    (v) => { cloud.value = v; },
+  );
+  // The one field `loadOnce()` also carries that the two seeds above do not:
+  // pairing info has no push edge on this page, so it is read once, plainly.
+  // P3 #19 (2026-09-02) — the variable this fills is named `lanEndpoint`, but an
+  // omitted channel argument does not mean "LAN" (bridge.ts's own doc comment
+  // on fetchPairingInfo: "Omitted ⇒ the Rust side falls back to the stored
+  // channel preference"). Whoever last paired over cloud would silently fill
+  // `lanEndpoint` with the CLOUD endpoint on this diagnostic page — the one
+  // value answering two questions shape this repo names as its #1 bug class.
+  // `machine_uid` is unaffected (per-machine, not per-channel, per its own
+  // doc comment above), so pinning the channel here changes nothing about it.
+  const info = await fetchPairingInfo('lan');
+  lanEndpoint.value = info.endpoint;
+  machineUid.value = info.machine_uid ?? '';
+  // After sidecar endpoint is known — probing before this races `probe_no_server`.
   void engineProbe.run();
 });
 onUnmounted(() => {

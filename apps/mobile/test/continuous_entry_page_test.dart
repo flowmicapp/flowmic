@@ -42,6 +42,11 @@ Future<ChatController> _pump(
   bool withAccount = true,
   bool connected = true,
   int? continuousMinutes = 30,
+  // Owner ruling (2026-09-02) — false reproduces a page built without the
+  // `isSignedIn` getter at all (a stale test harness, a build that has not
+  // caught up), which must NOT read as "signed in": see [ContinuousOffer]'s
+  // `signedIn` doc, "missing reads as signed out rather than guessing yes".
+  bool wireSignedIn = true,
 }) async {
   // Phone width: this row lives in the phone dock, and the tablet arrangement
   // is unreachable while it is visible (pinned in continuous_wired_test.dart).
@@ -110,7 +115,18 @@ Future<ChatController> _pump(
     });
   }
   await tester.pumpWidget(
-    MaterialApp(home: ChatFlowPage(controller: controller, cloudSummary: account)),
+    MaterialApp(
+      home: ChatFlowPage(
+        controller: controller,
+        cloudSummary: account,
+        // Owner ruling (2026-09-02) — the entry is gated on a cloud sign-in
+        // (see `continuous_offer.dart`'s `signedIn` parameter). Wired the SAME
+        // way the composition root wires it (`main.dart`: `() =>
+        // _login.isLoggedIn`), or the row renders `notSignedIn` for every case
+        // below and the tap test fails the moment a sheet is expected to open.
+        isSignedIn: wireSignedIn ? () => login.isLoggedIn : null,
+      ),
+    ),
   );
   await tester.pump();
   return controller;
@@ -152,6 +168,23 @@ void main() {
         reason: 'the other half of the case above — this one the user can act '
             'on, so it must not be hidden');
     expect(find.byKey(ContinuousEntryKeys.reason), findsOneWidget);
+  });
+
+  testWidgets('🔴 owner ruling 2026-09-02: an account present but no '
+      '`isSignedIn` getter wired ⇒ disabled, with the sign-in reason', (
+    WidgetTester tester,
+  ) async {
+    // The realistic shape of "missing reads as signed out": a page built with
+    // `cloudSummary` but not `isSignedIn` (an older call site, a test harness
+    // that has not caught up) must not silently guess "yes".
+    await _pump(tester, recordOnly: true, wireSignedIn: false);
+    expect(find.byKey(ContinuousEntryKeys.row), findsOneWidget);
+    expect(find.byKey(ContinuousEntryKeys.reason), findsOneWidget);
+
+    await tester.tap(find.byKey(ContinuousEntryKeys.row), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.byKey(ContinuousSheetKeys.sheet), findsNothing,
+        reason: 'a disabled row must not open the briefing');
   });
 
   testWidgets('🔴 tapping it opens the briefing, on the page, for real', (

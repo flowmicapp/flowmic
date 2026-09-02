@@ -42,12 +42,6 @@
  *  keep compiling while meaning something else. */
 export type BillingProvider = 'paddle' | 'creem';
 
-export const BILLING_PROVIDERS: readonly BillingProvider[] = ['paddle', 'creem'];
-
-export function isBillingProvider(v: unknown): v is BillingProvider {
-  return v === 'paddle' || v === 'creem';
-}
-
 /** Why a signature header was refused.
  *
  *  Four values because they are four different operator actions: fix the sender
@@ -225,17 +219,16 @@ export interface BillingProviderAdapter {
    * them together would turn money moving back into silence.
    */
   readRefund(envelope: WebhookEnvelope): RefundFacts | null;
-  /**
-   * A refund this provider is telling us about, or null when the event is not
-   * one.
-   *
-   * 🔴 `order_id: null` INSIDE A NON-NULL RESULT IS A REAL AND DIFFERENT ANSWER
-   * from returning null. Null means 「this is not a refund event」; a refund with
-   * no readable order means 「a refund happened and we cannot say whose」, which
-   * has to reach the ledger as `unmapped` and be looked at by a person. Folding
-   * them together would turn money moving back into silence.
-   */
-  readRefund(envelope: WebhookEnvelope): RefundFacts | null;
+}
+
+/** What a refund event tells us. */
+export interface RefundFacts {
+  /** The order the money is going back for, or null if the event did not say. */
+  order_id: string | null;
+  /** The provider's id for the refund — a handle for a human. */
+  provider_id: string | null;
+  /** The provider's own status word, verbatim. Never rounded to a boolean. */
+  provider_status: string | null;
 }
 
 /**
@@ -253,26 +246,6 @@ export interface BillingProviderAdapter {
  * to carry a nullable column for every one of those differences and a reader
  * would have to know which kind it was holding before it could read any of them.
  */
-/** What a refund event tells us. */
-export interface RefundFacts {
-  /** The order the money is going back for, or null if the event did not say. */
-  order_id: string | null;
-  /** The provider's id for the refund — a handle for a human. */
-  provider_id: string | null;
-  /** The provider's own status word, verbatim. Never rounded to a boolean. */
-  provider_status: string | null;
-}
-
-/** What a refund event tells us. */
-export interface RefundFacts {
-  /** The order the money is going back for, or null if the event did not say. */
-  order_id: string | null;
-  /** The provider's id for the refund — a handle for a human. */
-  provider_id: string | null;
-  /** The provider's own status word, verbatim. Never rounded to a boolean. */
-  provider_status: string | null;
-}
-
 export interface OneTimePurchaseFacts {
   /** The provider's order id. 🔴 THE IDEMPOTENCY KEY for the purchase row —
    *  distinct from the event id, because a redelivered `checkout.completed` and

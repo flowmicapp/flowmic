@@ -363,7 +363,7 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
 
   push(chunk: Buffer): void {
     if (this._state !== 'open') {
-      throw new SttEngineError('STT_ENGINE_TIMEOUT', `SherpaLocalEngine.push: not open (${this._state})`, true);
+      throw new SttEngineError('STT_ENGINE_NOT_OPEN', `SherpaLocalEngine.push: not open (${this._state})`, true);
     }
     if (chunk.length === 0) return;
     this.chunks.push(chunk);

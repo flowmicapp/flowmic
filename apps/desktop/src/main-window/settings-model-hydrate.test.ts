@@ -5,12 +5,18 @@
 // the reactive `model` (what the UI renders) is the assertion surface.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   applyServerSettings,
   model,
   scheduleServerSettingsPull,
   setServerSettingsPuller,
 } from './settings-model';
+import { SETTINGS_ANCHOR_KEYS } from '../lib/settings-client';
+
+const src = (rel: string): string =>
+  readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 describe('applyServerSettings adopts a server settings:list snapshot into the model', () => {
   beforeEach(() => {
@@ -18,21 +24,24 @@ describe('applyServerSettings adopts a server settings:list snapshot into the mo
     model.routings = [{ language: 'zh-CN', engine_id: 'funasr' }];
     model.dictionary = [];
     model.polishEnabled = false;
+    model.refineEnabled = false;
     model.llm = { preset_id: 'lan-vllm-qwen35', protocol: 'openai-compatible', endpoint: '', api_key: '', model: '' };
     model.card = { professions: [], domains: [], packs: [], terms: [] };
   });
 
-  it('maps the five owned keys (routings / dictionary / polish / llm.config / scenario.card)', () => {
+  it('maps the six owned keys (routings / dictionary / polish / refine / llm.config / scenario.card)', () => {
     applyServerSettings([
       { key: 'stt.routings', value: [{ language: 'en', engine_id: 'funasr', endpoint: 'ws://srv:10095' }] },
       { key: 'stt.dictionary', value: [{ term: 'Kubernetes' }] },
       { key: 'stt.polish', value: { enabled: true } },
+      { key: 'stt.refine', value: { enabled: true } },
       { key: 'llm.config', value: { protocol: 'openai-compatible', endpoint: 'http://llm:8000/v1', api_key: 'sk-x', model: 'qwen' } },
       { key: 'scenario.card', value: { professions: ['法律'], domains: [], packs: ['legal'], terms: ['FlowMic'] } },
     ]);
     expect(model.routings).toEqual([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://srv:10095' }]);
     expect(model.dictionary).toEqual([{ term: 'Kubernetes' }]);
     expect(model.polishEnabled).toBe(true);
+    expect(model.refineEnabled).toBe(true);
     expect(model.llm.endpoint).toBe('http://llm:8000/v1');
     expect(model.llm.model).toBe('qwen');
     expect(model.llm.preset_id).toBe('lan-vllm-qwen35'); // server value has no preset_id — UI's is kept
@@ -60,6 +69,29 @@ describe('applyServerSettings adopts a server settings:list snapshot into the mo
     expect(model.llm.endpoint).toBe('http://new');
     expect(model.llm.model).toBe('new-model');
     expect(model.llm.api_key).toBe('keep'); // absent field preserved
+  });
+
+  // E3 (2026-09-02) exhaustiveness pin — this is the mechanism that would have
+  // caught `stt.refine` missing a case BEFORE a real server push exposed it. A
+  // switch on a plain `string` (ServerSettingItem.key comes over the wire, so it
+  // cannot be a closed union) gets no compiler exhaustiveness check, so the check
+  // has to read the SOURCE: every literal in `SETTINGS_ANCHOR_KEYS` — the "keys
+  // with a real server reader" registry that file's own header names — must
+  // appear as a `case SETTINGS_ANCHOR_KEYS.<name>:` in applyServerSettings.
+  // Reverse control: comment out the stt.refine case in settings-model.ts and
+  // this test fails (`sttRefine` is missing) while the mapping test above stays
+  // green in isolation only because it happens to run before this one in file
+  // order — this test is what makes a REGRESSION visible on its own.
+  it('every SETTINGS_ANCHOR_KEYS entry has a case in applyServerSettings', () => {
+    const source = src('./settings-model.ts');
+    const switchBody = source.slice(
+      source.indexOf('export function applyServerSettings'),
+      source.indexOf('/** Pull + adopt the server settings snapshot.'),
+    );
+    for (const anchorName of Object.keys(SETTINGS_ANCHOR_KEYS) as (keyof typeof SETTINGS_ANCHOR_KEYS)[]) {
+      expect(switchBody, `SETTINGS_ANCHOR_KEYS.${anchorName} ('${SETTINGS_ANCHOR_KEYS[anchorName]}') needs a case in applyServerSettings`)
+        .toContain(`case SETTINGS_ANCHOR_KEYS.${anchorName}:`);
+    }
   });
 });
 

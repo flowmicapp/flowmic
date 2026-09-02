@@ -17,6 +17,7 @@
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
+import 'package:flowmic/src/diag/diag_log.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/session/compose_gate.dart';
@@ -231,18 +232,86 @@ void main() {
     await h.dispose();
   });
 
-  test('D10: an emit that never leaves the device marks the fresh row ✗ failed '
-      'and raises the fail-loud reason (no silent failure)', () async {
+  // 🔴 Card B2-M — CORRECTED (this test used to assert the pre-fix shape).
+  //
+  // Before B2-M, `deliverText` fail-settled this row to ✗ `failed` on ANY
+  // wire miss, including the case tested here where the outbox itself still
+  // holds the item `queued` for its own next drain (giveSessionAPairedIdentity
+  // gives this send a real, redeemable destination, so the admission-refusal
+  // branch — `queued == null` ⇒ `noPcTarget` — is not the one this fixture
+  // reaches). That duplicated the outbox's own verdict through a second door:
+  // the row painted failed immediately, and the outbox's later successful
+  // retry would silently flip it back with no user action in between — the
+  // same "flips to ✓ later" shape card B2-H closed on the direct-send path
+  // (session/chat_utterance.dart `_deliverDirect`).
+  test('D10: an emit that never leaves the device leaves the fresh row queued '
+      '(the outbox still owes it) and diags the wire miss instead of '
+      'fail-settling — no silent failure, and no premature one either',
+      () async {
     final _Harness h = _Harness();
     h.connect();
     h.controller.setBuffer('发不出去');
     h.transport.refuse = FlowMicEvents.injectRequest;
+    DiagLog.instance.clear();
 
-    expect(await h.controller.sendBuffer(), ComposeSendFailure.wireFailed);
-    expect(h.controller.sendFailure, ComposeSendFailure.wireFailed);
-    // The row exists (the user did type it) and honestly says it failed.
-    expect(h.store.entries.single.status, EntryStatus.failed);
+    // The send does not report a fail-loud failure of its own: the outbox
+    // still owes the delivery, so there is nothing to say out loud yet.
+    expect(await h.controller.sendBuffer(), isNull);
+    expect(h.controller.sendFailure, isNull);
+
+    final TimelineEntry row = h.store.entries.single;
+    // POSITIVE CONTROL — the outbox really did keep the request queued: this
+    // is what makes the "still owed" branch the one under test, not a
+    // vacuously-passing admission refusal.
+    expect(
+      h.controller.outbox.queuedEntryIds.contains(row.id),
+      isTrue,
+      reason: 'positive control: the outbox must actually hold this row, or '
+          'the assertions below prove nothing about the queued branch',
+    );
+    // THE FIX — never fail-settled while the outbox still owes it.
+    expect(row.status, isNot(EntryStatus.failed));
+    expect(row.status, EntryStatus.cached);
+    // The miss is still on the record — diag'd, not silent.
+    expect(
+      DiagLog.instance
+          .snapshot()
+          .any((String l) => l.contains('deliver.wire_failed_queued')),
+      isTrue,
+      reason: 'no silent failure: the wire miss must be diagged even when '
+          'the row itself is left alone',
+    );
     expect(h.injects, isEmpty);
+    await h.dispose();
+  });
+
+  test('B2-M reverse control: fail-settling the same row the way the old '
+      '`deliverText` did (unconditionally, on any held wire miss) DOES paint '
+      'it failed — proving the assertions above are not vacuously true',
+      () async {
+    final _Harness h = _Harness();
+    h.connect();
+    h.controller.setBuffer('发不出去');
+    h.transport.refuse = FlowMicEvents.injectRequest;
+    await h.controller.sendBuffer();
+    final TimelineEntry row = h.store.entries.single;
+
+    // Re-run the PRE-FIX behaviour directly against the same row+outbox
+    // state this test just produced (the old `deliverText`'s own
+    // unconditional call), without hand-editing production source, per the
+    // common contract's reverse-control note.
+    h.controller.delivery.failSettled(
+      <String>[row.id],
+      ComposeSendFailure.wireFailed,
+    );
+
+    expect(
+      h.store.entries.single.status,
+      EntryStatus.failed,
+      reason: 'seen red: this is exactly the shape the old `deliverText` '
+          'produced by calling failSettled unconditionally on a held wire '
+          'miss',
+    );
     await h.dispose();
   });
 

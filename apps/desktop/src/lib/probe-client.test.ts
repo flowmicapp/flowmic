@@ -7,7 +7,7 @@
 // persisted and is wiped when the page stops being displayed. Nothing here needs
 // a reachable LAN endpoint — the transport's fetch is injected.
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   configMissingRow,
   createProbeStore,
@@ -24,7 +24,7 @@ import {
   type ProbeResult,
   type ProbeTransport,
 } from './probe-client';
-import { S } from './strings';
+import { DEFAULT_LOCALE, S, setLocale } from './strings';
 
 function transportOf(body: unknown, status = 200): ProbeTransport & { calls: Array<[string, unknown]> } {
   const calls: Array<[string, unknown]> = [];
@@ -109,6 +109,13 @@ describe('four-dimension rendering', () => {
   });
 
   it('a failure renders ✗ + the bilingual protocol copy + an expandable raw reason', () => {
+    // P2 #10: this test's zh-CN expectation used to hold NO MATTER what UI
+    // locale was set, because headlineFor hardcoded 'zh-CN' — an accidental
+    // pass, not a pin on the reader's locale. Setting it explicitly here keeps
+    // this test's original intent (what the registry's zh-CN copy looks like)
+    // now that the headline actually follows getLocale(); the locale-follows
+    // behaviour itself is covered by the describe block below.
+    setLocale('zh-CN');
     const v = toRowView('语言模型', {
       ok: false, code: 'LLM_PROBE_FAIL', message: 'fetch failed', latency_ms: 12, probe_kind: 'completion',
     });
@@ -117,10 +124,44 @@ describe('four-dimension rendering', () => {
     expect(v.detail).toBe('LLM_PROBE_FAIL: fetch failed');
     expect(v.model).toBe(S.probe_none);
     expect(v.latency).toBe('12 ms');
+    setLocale(DEFAULT_LOCALE);
   });
 
   it('an unknown code degrades to the code itself rather than a blank headline', () => {
     expect(toRowView('x', { ok: false, code: 'WAT_IS_THIS', message: 'm', latency_ms: 0 }).headline).toBe('WAT_IS_THIS');
+  });
+
+  // P2 #10 (2026-09-02) — this used to hardcode 'zh-CN' into getErrorMessage
+  // regardless of the reader's UI locale, so an English-locale reader testing
+  // a connection got a Chinese headline. getErrorMessage is bilingual only
+  // (zh-CN | en), so every non-zh-CN UI locale now reads the English copy.
+  describe('the headline follows the UI locale, not a hardcoded zh-CN', () => {
+    afterEach(() => setLocale(DEFAULT_LOCALE));
+
+    it('en UI locale gets the English protocol copy', () => {
+      setLocale('en');
+      const v = toRowView('x', {
+        ok: false, code: 'LLM_PROBE_FAIL', message: 'fetch failed', latency_ms: 12, probe_kind: 'completion',
+      });
+      expect(v.headline).not.toBe('大模型连接测试失败。');
+      expect(v.headline.length).toBeGreaterThan(0);
+    });
+
+    it('a non-zh-CN, non-en UI locale (ja) still gets English — the registry has no third language', () => {
+      setLocale('ja');
+      const v = toRowView('x', {
+        ok: false, code: 'LLM_PROBE_FAIL', message: 'fetch failed', latency_ms: 12, probe_kind: 'completion',
+      });
+      expect(v.headline).not.toBe('大模型连接测试失败。');
+    });
+
+    it('zh-CN UI locale still gets the Chinese copy — REVERSE-CONTROL SHAPE for the fix direction', () => {
+      setLocale('zh-CN');
+      const v = toRowView('x', {
+        ok: false, code: 'LLM_PROBE_FAIL', message: 'fetch failed', latency_ms: 12, probe_kind: 'completion',
+      });
+      expect(v.headline).toBe('大模型连接测试失败。');
+    });
   });
 });
 

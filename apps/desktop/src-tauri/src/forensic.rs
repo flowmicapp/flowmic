@@ -55,12 +55,32 @@ impl ForensicSink {
         Self { path, cap, keep, write_lock: Mutex::new(()) }
     }
 
+    /// P2 (2026-09-02 audit): "costs 4 syscalls per line" — `open` +
+    /// `write_all(line)` + `write_all(newline)` + `flush` (plus an implicit
+    /// `close` on drop) for every single call. This buffers the message and its
+    /// trailing newline into ONE `write_all`, removing one of those syscalls.
+    ///
+    /// 🔴 WHY THIS DOES NOT ALSO KEEP THE HANDLE OPEN ACROSS CALLS (the more
+    /// obvious reading of "buffer"): [`Self::rotate_if_needed`] replaces this
+    /// same path via `std::fs::rename` after every write that crosses the cap.
+    /// On Windows, `rename`'s underlying `MoveFileExW` can fail when the
+    /// destination has an open handle that was not opened with
+    /// `FILE_SHARE_DELETE` — which `OpenOptions::append` does not request, and
+    /// `std::fs::File` cannot ask for portably. A sink that kept its own
+    /// handle open for the process's whole life would make rotation fail
+    /// **every time**, which is worse than the syscall cost this line saves:
+    /// this module's whole reason to exist is surviving to explain a crash,
+    /// and a log that silently stopped rotating is a slower-motion version of
+    /// the same failure. Re-opening per call, appended, is what makes
+    /// `rotate_if_needed`'s rename ever succeed at all.
     fn append(&self, line: &str) {
         // Poisoned lock is fine here — we only guard write ordering, not invariants.
         let _guard = self.write_lock.lock().unwrap_or_else(|p| p.into_inner());
         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&self.path) {
-            let _ = f.write_all(line.as_bytes());
-            let _ = f.write_all(b"\n");
+            let mut buf = Vec::with_capacity(line.len() + 1);
+            buf.extend_from_slice(line.as_bytes());
+            buf.push(b'\n');
+            let _ = f.write_all(&buf);
             let _ = f.flush();
         }
         self.rotate_if_needed();
@@ -85,6 +105,25 @@ impl ForensicSink {
         if f.read_to_end(&mut buf).is_err() {
             return;
         }
+        // P2 (2026-09-02 audit): "rotates while the file is open" — `f` (the
+        // READ handle just used to slurp the tail) used to stay open, purely
+        // by lexical scope, all the way past the `std::fs::rename(&tmp,
+        // &self.path)` call below (NLL only affects borrow-checking, never
+        // WHEN a destructor runs). ⚠️ MEASURED, NOT JUST THEORISED — and the
+        // measurement came back more forgiving than the theory: `rename` is
+        // `MoveFileExW`, and replacing a file with an open handle that lacks
+        // `FILE_SHARE_DELETE` can fail on Windows in general — but
+        // `rotation_keeps_only_the_tail_on_a_boundary` below passes IDENTICALLY
+        // with this `drop` commented out, because `std::fs::File`'s Windows
+        // implementation already requests `FILE_SHARE_DELETE` by default. So
+        // this line does not fix an observed failure on THIS stack; it removes
+        // a dependency on that std implementation detail (which nothing here
+        // pins) and shortens the window in which an external holder of this
+        // path WITHOUT that sharing flag — an AV scanner, a backup agent, a
+        // `Get-Content -Wait` someone left running — could make the rename
+        // fail instead. Kept as defensive hygiene, not claimed as a reproduced
+        // bug fix; see the report for this task for the same caveat.
+        drop(f);
         // Drop the (likely partial) first line so the file starts on a boundary.
         if start > 0 {
             if let Some(pos) = buf.iter().position(|&b| b == b'\n') {

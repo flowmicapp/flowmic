@@ -23,8 +23,9 @@ import type { DbConnection } from '../db/connection';
 import { makeUsageTracker, type UsageTracker } from '../billing/usage-tracker';
 import { ReplicaOutbox } from '../db/replica-outbox';
 import { readNodeConfig, type NodeConfig } from './node-config';
+import { assertWriterDirectoryConsistencyFromFile } from './writer-directory-check';
 import { makeForwardingUsageTracker } from './forwarding-usage-tracker';
-import { makeWriterClient, type MintedCode } from './writer-client';
+import { makeWriterClient, type ForwardSyncOutcome, type MintedCode } from './writer-client';
 import { startOutboxDrainer, type OutboxDrainer } from './outbox-drainer';
 import { makeReplicaPuller, type ReplicaPuller } from './replica-puller';
 import { makeSnapshotProducer } from './snapshot';
@@ -32,6 +33,10 @@ import { makeAuthoritativeQuotaReader, type QuotaReader } from './authoritative-
 import { makeWriterOnlyGuard, NODE_CAN_WRITE, type WriterOnlyGuard } from './writer-only';
 import { makeTokenReadThrough, type TokenReadThrough } from './token-read-through';
 import { applyTokenResolution } from './token-rows';
+import {
+  isReleaseMobileResult, isSettingsUpdateResult, isUnpairMobileResult,
+  type SettingsUpdateRequest, type SettingsUpdateResult,
+} from './forward-sync-types';
 
 export interface NodeRuntimeDeps {
   db: DbConnection;
@@ -114,7 +119,7 @@ export interface NodeRuntime {
    * be one fact with two authors. See the construction site for why the first
    * diagnosis of this gap was wrong and what measuring the read path changed.
    */
-  stampPresence: ((pcId: string, lastSeenAtMs: number) => void) | null;
+  stampPresence: ((pcId: string, isOnline: boolean, lastSeenAtMs: number) => void) | null;
 
   /**
    * 2026-08-29 — 「must this node refuse a writer-only socket event?」
@@ -162,6 +167,59 @@ export interface NodeRuntime {
    * code that shipped before this existed, refusing on the same tick.
    */
   resolveTokenOnWriter: TokenReadThrough | null;
+  /**
+   * 2026-09-02 (WP-6) — present ONLY on a replica that has a writer client: the
+   * GENERIC form of `mintCodeOnWriter`/`resolveTokenOnWriter`, for every small
+   * synchronous writer-only mutation added since those two (`pc:release-mobile`,
+   * `mobile:unpair`, `settings:update` — node/forward-sync.ts has the table).
+   *
+   * Keyed off the writer CLIENT for the same reason the other two are: the
+   * client is what actually carries the secret and the URL, so a role with no
+   * client could only produce a promise it cannot keep.
+   *
+   * `null` on the writer and on every single-node deployment — same meaning as
+   * the other two members of this family.
+   */
+  forwardSyncOnWriter: ((verb: string, payload: Record<string, unknown>) => Promise<ForwardSyncOutcome>) | null;
+  /**
+   * 2026-09-02 (WP-6, B5) — the `release_mobile` verb of `forwardSyncOnWriter`,
+   * typed and narrowed so `pc.handler.ts` need not reach into an `unknown`
+   * result. A malformed/unexpected shape from the writer (a version-skew
+   * safety net, not an expected path) is treated as `refused` rather than
+   * thrown, so a rolling deploy degrades to the honest `NODE_IS_REPLICA`
+   * refusal instead of crashing the handler.
+   *
+   * `null` on the writer and on every single-node deployment, same as every
+   * other member of this family.
+   */
+  forwardReleaseMobileOnWriter: ((req: {
+    pc_id: string;
+    user_id: string;
+    room_uuid: string;
+    revoke: boolean;
+    reason: 'manual' | 'busy';
+    mobile_id?: string;
+  }) => Promise<
+    | { status: 'ok'; result: { target_ids: string[]; revoke: boolean; revoked_count: number; suppressed_ms: number } }
+    | { status: 'refused'; error: string }
+  >) | null;
+  /**
+   * 2026-09-02 (WP-6, B4) — the `unpair_mobile` verb of `forwardSyncOnWriter`,
+   * typed for `mobile.handler.ts`. Same version-skew posture as
+   * `forwardReleaseMobileOnWriter`: an unexpected shape degrades to `refused`.
+   */
+  forwardUnpairMobileOnWriter: ((pairingId: string) => Promise<
+    | { status: 'ok'; result: { unpaired: boolean; mobile_id: string | null; pc_room_uuid: string | null } }
+    | { status: 'refused'; error: string }
+  >) | null;
+  /**
+   * 2026-09-02 (WP-6, B6) — the `settings_update` verb of `forwardSyncOnWriter`,
+   * typed for `settings.handler.ts`. Same version-skew posture as the other two.
+   */
+  forwardSettingsUpdateOnWriter: ((req: SettingsUpdateRequest) => Promise<
+    | { status: 'ok'; result: SettingsUpdateResult }
+    | { status: 'refused'; error: string }
+  >) | null;
 }
 
 export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
@@ -181,6 +239,13 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
       ...(nodeConfig.writerUrl ? { writer: nodeConfig.writerUrl } : {}),
     });
   }
+  // B11 (2026-09-02, WP-6) — this process's own env-declared role must agree
+  // with what the published node directory says about the node carrying its
+  // id, or first contact (registration, pairing) can be routed at a door that
+  // refuses it. Throws (boot fails loud) on a genuine disagreement; degrades
+  // to a warning, never a throw, when there is nothing to compare against —
+  // see writer-directory-check.ts for the full argument.
+  assertWriterDirectoryConsistencyFromFile(nodeConfig, log);
 
   // 🔴 `events` is passed UNCONDITIONALLY while `usageEventsEnabled` carries the
   // decision, and the split is deliberate: wiring the sink behind the same `if`
@@ -358,17 +423,29 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
    * rather than left to be discovered: heartbeat 5 s + drain 5 s + a cross-ocean
    * RTT ≈ 10.2 s against a 15 s staleness window. Forwarding on a slower cadence
    * spends margin this path does not have.
+   *
+   * 🔴 B8/F3 (2026-09-02) — `isOnline` IS A PARAMETER, not a hardcoded `true`.
+   * Before this, the ONLY producer forwarded `is_online: true` on every
+   * heartbeat and NOTHING ever forwarded `false`: a PC's socket disconnects on
+   * a replica, the disconnect handler writes `is_online=0` into THAT REPLICA'S
+   * OWN database (a snapshot the next pull replaces wholesale), and the writer
+   * — the only database `reaper.ts`'s `listStaleOffline` and the console ever
+   * read — never learns the machine left. The row sits at `is_online=1`
+   * forever, the console reports it online forever, and the reaper's
+   * `(is_online=0 AND last_seen_at < cutoff)` gate can never true for it. The
+   * disconnect handler (bootstrap.ts) now calls this the same way the
+   * heartbeat handler does, with `false`.
    */
   const stampPresence = nodeConfig.nodeId === null
     ? null
     : replicaOutbox
-      ? (pcId: string, lastSeenAtMs: number): void => {
+      ? (pcId: string, isOnline: boolean, lastSeenAtMs: number): void => {
         try {
           replicaOutbox.enqueue({
             id: randomUUID(),
             kind: 'presence',
             node: nodeConfig.nodeId ?? 'unknown',
-            body: { kind: 'pc.presence', pc_id: pcId, is_online: true, last_seen_at: lastSeenAtMs },
+            body: { kind: 'pc.presence', pc_id: pcId, is_online: isOnline, last_seen_at: lastSeenAtMs },
           });
         } catch (err) {
           // Not fatal to the session — the PC keeps working and its phone keeps
@@ -421,9 +498,53 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     })
     : null;
 
+  // The generic handoff, keyed off the writer client for the same reason
+  // `mintCodeOnWriter`/`resolveTokenOnWriter` are — see this field's doc.
+  const forwardSyncOnWriter = writerClient
+    ? (verb: string, payload: Record<string, unknown>): Promise<ForwardSyncOutcome> =>
+      writerClient.forwardSync(verb, payload)
+    : null;
+
+  // The three typed verbs, each a thin narrowing of `forwardSyncOnWriter` —
+  // see each field's own doc on NodeRuntime for why an unexpected shape
+  // degrades to `refused` rather than throwing.
+  const forwardReleaseMobileOnWriter = forwardSyncOnWriter
+    ? async (req: {
+      pc_id: string; user_id: string; room_uuid: string; revoke: boolean;
+      reason: 'manual' | 'busy'; mobile_id?: string;
+    }) => {
+      const outcome = await forwardSyncOnWriter('release_mobile', req);
+      if (outcome.status !== 'ok' || !isReleaseMobileResult(outcome.result)) {
+        return { status: 'refused' as const, error: outcome.status === 'refused' ? outcome.error : 'bad_shape' };
+      }
+      return { status: 'ok' as const, result: outcome.result };
+    }
+    : null;
+
+  const forwardUnpairMobileOnWriter = forwardSyncOnWriter
+    ? async (pairingId: string) => {
+      const outcome = await forwardSyncOnWriter('unpair_mobile', { pairing_id: pairingId });
+      if (outcome.status !== 'ok' || !isUnpairMobileResult(outcome.result)) {
+        return { status: 'refused' as const, error: outcome.status === 'refused' ? outcome.error : 'bad_shape' };
+      }
+      return { status: 'ok' as const, result: outcome.result };
+    }
+    : null;
+
+  const forwardSettingsUpdateOnWriter = forwardSyncOnWriter
+    ? async (req: SettingsUpdateRequest) => {
+      const outcome = await forwardSyncOnWriter('settings_update', { ...req });
+      if (outcome.status !== 'ok' || !isSettingsUpdateResult(outcome.result)) {
+        return { status: 'refused' as const, error: outcome.status === 'refused' ? outcome.error : 'bad_shape' };
+      }
+      return { status: 'ok' as const, result: outcome.result as SettingsUpdateResult };
+    }
+    : null;
+
   return {
     nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
     wrapQuota, stampHomeNode, stampPresence, writerOnly, mintCodeOnWriter,
-    resolveTokenOnWriter,
+    resolveTokenOnWriter, forwardSyncOnWriter, forwardReleaseMobileOnWriter,
+    forwardUnpairMobileOnWriter, forwardSettingsUpdateOnWriter,
   };
 }

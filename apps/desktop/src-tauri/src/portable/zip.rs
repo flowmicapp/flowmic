@@ -54,6 +54,13 @@ pub enum ZipError {
     UnsafeName(String),
     /// An entry the caller asked for is not in this archive.
     NoSuchEntry(String),
+    /// P2 (2026-09-02 audit): an entry size, an entry's local-header offset, or
+    /// the central directory itself would not fit in this format's 32-bit
+    /// length/offset fields (this writer has no ZIP64). Silently truncating —
+    /// what `as u32` used to do everywhere below — does not fail: it writes an
+    /// archive that OPENS and reports the WRONG length for the truncated
+    /// field, which is worse than refusing the export (no silent failures).
+    TooLarge(String),
 }
 
 impl ZipError {
@@ -68,6 +75,7 @@ impl ZipError {
             ZipError::Compressed(_) => "compressed",
             ZipError::UnsafeName(_) => "unsafe_name",
             ZipError::NoSuchEntry(_) => "no_such_entry",
+            ZipError::TooLarge(_) => "too_large",
         }
     }
 
@@ -77,7 +85,7 @@ impl ZipError {
     pub fn detail(&self) -> String {
         match self {
             ZipError::Io(s) | ZipError::Compressed(s) | ZipError::UnsafeName(s)
-            | ZipError::NoSuchEntry(s) => s.clone(),
+            | ZipError::NoSuchEntry(s) | ZipError::TooLarge(s) => s.clone(),
             ZipError::NotAZip => String::new(),
             ZipError::Corrupt(s) => (*s).to_string(),
         }
@@ -230,6 +238,25 @@ impl ZipWriter {
         if !entry_name_is_safe(name) {
             return Err(ZipError::UnsafeName(name.to_string()));
         }
+        // P2 (2026-09-02 audit): the local AND central headers below both
+        // write `size as u32` twice each — refuse loudly here rather than let
+        // that cast wrap a >4 GiB entry into a small, wrong number nobody
+        // would notice until the archive was opened and hand out garbage.
+        if size > u32::MAX as u64 {
+            return Err(ZipError::TooLarge(format!(
+                "entry '{name}' is {size} bytes — this writer has no ZIP64 support (4 GiB limit)"
+            )));
+        }
+        // The entry's OWN local-header offset also has to fit — a header
+        // placed past 4 GiB into the archive cannot be named by the central
+        // directory's 32-bit offset field either, regardless of how small the
+        // entry itself is.
+        if self.offset > u32::MAX as u64 {
+            return Err(ZipError::TooLarge(format!(
+                "archive offset {} for entry '{name}' exceeds the ZIP32 4 GiB limit (no ZIP64 support)",
+                self.offset
+            )));
+        }
         let (dos_time, dos_date) = dos_datetime(unix_secs);
         let nb = name.as_bytes();
         let mut h = Vec::with_capacity(30 + nb.len());
@@ -286,6 +313,17 @@ impl ZipWriter {
         }
         let cd_start = self.offset;
         for e in &self.entries {
+            // Belt-and-braces (`begin` already refuses a size/offset this
+            // would reject before the entry is ever recorded): a defensive
+            // re-check here means this loop can never be the one place that
+            // silently trusts a `Central` some future caller constructed
+            // another way.
+            if e.size > u32::MAX as u64 || e.offset > u32::MAX as u64 {
+                return Err(ZipError::TooLarge(format!(
+                    "entry '{}' (size={}, offset={}) exceeds the ZIP32 4 GiB limit (no ZIP64 support)",
+                    e.name, e.size, e.offset
+                )));
+            }
             let nb = e.name.as_bytes();
             let mut h = Vec::with_capacity(46 + nb.len());
             h.extend_from_slice(&0x0201_4b50u32.to_le_bytes()); // central header
@@ -310,6 +348,21 @@ impl ZipWriter {
             self.offset += h.len() as u64;
         }
         let cd_size = self.offset - cd_start;
+        // Same 4 GiB ceiling applied to the central directory's own fields —
+        // `cd_start`/`cd_size` are what the EOCD's `as u32` casts below would
+        // otherwise wrap silently.
+        if cd_start > u32::MAX as u64 || cd_size > u32::MAX as u64 {
+            return Err(ZipError::TooLarge(format!(
+                "central directory (start={cd_start}, size={cd_size}) exceeds the ZIP32 4 GiB \
+                 limit (no ZIP64 support)"
+            )));
+        }
+        if self.entries.len() > u16::MAX as usize {
+            return Err(ZipError::TooLarge(format!(
+                "{} entries exceeds the ZIP32 65535-entry limit (no ZIP64 support)",
+                self.entries.len()
+            )));
+        }
         let n = self.entries.len() as u16;
         let mut eocd = Vec::with_capacity(22);
         eocd.extend_from_slice(&0x0605_4b50u32.to_le_bytes());

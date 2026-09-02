@@ -75,17 +75,41 @@ export interface OutboxRecord {
   /** Delivery attempts so far. Carried in the record rather than in memory so a
    *  restart does not reset a poison record's count back to zero. */
   tries?: number;
+  /** F1 (2026-09-02 audit) — set the FIRST time this record is parked past
+   *  MAX_TRIES, and never unset. Its only job is telling "just parked" from
+   *  "still parked" apart across drain cycles, so `failed` (below) counts a
+   *  poison record ONCE rather than once per tick forever. Absent/false on
+   *  every record that has not yet exhausted its retry budget. */
+  parked?: boolean;
 }
 
 export interface OutboxStats {
+  /** F1 — records still being actively retried. A parked record (see `parked`
+   *  below) is EXCLUDED, on purpose: it will never move again, so counting it
+   *  here would make a healthy, draining queue look identical to one where
+   *  every record but the poisoned one is stuck too. */
   pending: number;
   delivered: number;
+  /** F1 — incremented ONCE, the tick a record crosses MAX_TRIES and parks, not
+   *  once per tick for as long as it stays parked. Before this it grew without
+   *  bound for the lifetime of the process over a single poison record. */
   failed: number;
-  /** Oldest undelivered record's age in ms, or null when the queue is empty.
+  /** Oldest STILL-ACTIVE record's age in ms, or null when nothing is actively
+   *  retrying (an empty queue, or a queue that is ENTIRELY parked records).
    *  🔴 This is the number that matters operationally: a queue that is draining
    *  has a small age, and a queue that is stuck has a growing one — whereas
-   *  `pending` alone looks identical in both cases at any single instant. */
+   *  `pending` alone looks identical in both cases at any single instant.
+   *  🔴 F1 — MUST exclude parked records or this number can never shrink again:
+   *  one permanently-poisoned record used to keep `oldest_pending_ms` growing
+   *  forever, even while every other record flowed normally, so
+   *  outbox-drainer.ts's stuck-queue alarm could never clear (`warnedStuck`
+   *  stayed true for the rest of the process's life). */
   oldest_pending_ms: number | null;
+  /** F1 — records parked past MAX_TRIES. Still counted (via `failed`, once —
+   *  see MAX_TRIES's own doc comment on why they are never silently dropped),
+   *  just kept OUT of `pending`/`oldest_pending_ms` so they cannot poison the
+   *  health signal those two exist to carry. */
+  parked: number;
 }
 
 /** A record that has failed this many times is parked rather than retried
@@ -161,12 +185,18 @@ export class ReplicaOutbox {
 
   stats(): OutboxStats {
     const p = this.pending();
-    const oldest = p.length ? Math.min(...p.map((r) => r.at)) : null;
+    // F1 — `rec.parked` is the authoritative signal (set the tick a record
+    // first crosses MAX_TRIES, in drainBatch below); `(rec.tries ?? 0) >=
+    // MAX_TRIES` is the fallback for a record parked by a PRE-F1 build, whose
+    // on-disk shape has no `parked` field at all.
+    const active = p.filter((r) => !r.parked && (r.tries ?? 0) < MAX_TRIES);
+    const oldest = active.length ? Math.min(...active.map((r) => r.at)) : null;
     return {
-      pending: p.length,
+      pending: active.length,
       delivered: this.delivered,
       failed: this.failed,
       oldest_pending_ms: oldest === null ? null : Date.now() - oldest,
+      parked: p.length - active.length,
     };
   }
 
@@ -227,8 +257,16 @@ export class ReplicaOutbox {
       for (const rec of owed) {
         const tries = (rec.tries ?? 0) + 1;
         if (tries > MAX_TRIES) {
-          this.failed += 1;
-          resolved.set(rec.id, { ...rec, tries: rec.tries ?? 0 }); // parked, count frozen
+          // F1 (2026-09-02 audit) — `this.failed` counts a poison record ONCE,
+          // the tick it first crosses MAX_TRIES. `rec.parked` is what tells
+          // that tick apart from every tick after it: without this guard the
+          // record re-enters this branch on EVERY drain cycle for the rest of
+          // the process's life (its `tries` is frozen, so it is never NOT
+          // over the limit again), and `failed` grew without bound over a
+          // single record — a metric that looked like an ever-worsening
+          // outage was one record parked once.
+          if (!rec.parked) this.failed += 1;
+          resolved.set(rec.id, { ...rec, tries: rec.tries ?? 0, parked: true }); // parked, count frozen
           continue;
         }
         if (!verdicts.has(rec.id)) continue; // never asked about — leave untouched

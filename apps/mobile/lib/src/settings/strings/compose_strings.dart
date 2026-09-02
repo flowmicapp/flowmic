@@ -126,6 +126,13 @@ mixin ComposeStrings on AppStringsLeaves {
   String continuousEntryCapAndLeft(Object? minutes, Object? left) =>
       _lfContinuousEntryCapAndLeft(minutes, left);
 
+  /// Owner ruling (2026-09-02) — a signed-out phone gets this INSTEAD of
+  /// [continuousEntryModeNote] or [continuousEntryNoCeilingNote], because long-
+  /// form recording lives only inside Light Records and Light Records require
+  /// a cloud account. Tells the user the one step that unblocks it — sign in —
+  /// rather than a generic 「不可用」.
+  String get continuousEntrySignInNote => _lfContinuousEntrySignInNote;
+
   /// A-2 — why the entry is dimmed under translate / organize.
   ///
   /// Says which mode DOES work, because that is the step the user can take: the
@@ -134,13 +141,16 @@ mixin ComposeStrings on AppStringsLeaves {
   /// argument, in a place with no error code.
   String get continuousEntryModeNote => _lfContinuousEntryModeNote;
 
-  /// The ceiling could not be read, so the length of the sitting is unknown and
-  /// it may not start (see `CloudSummary.continuousMinutes`).
+  /// SIGNED IN, and the ceiling still could not be read — see
+  /// `ContinuousBlock.ceilingUnknown`'s doc for why this is now a narrower
+  /// claim than it used to be.
   ///
   /// ⚠️ It names the account, not the network, because the account is what the
-  /// user can check. It deliberately does NOT say 「未登录」: this phone cannot
-  /// tell 「not signed in」 from 「signed in, and the server did not answer」, and
-  /// a sentence that picks one would be right half the time.
+  /// user can check. It no longer needs to hedge between 「not signed in」 and
+  /// 「signed in, and the server did not answer」 (2026-09-02): `continuousOffer`
+  /// now takes sign-in as its own explicit fact and answers that question with
+  /// [continuousEntrySignInNote] instead, so reaching this string already means
+  /// the account is real.
   String get continuousEntryNoCeilingNote => _lfContinuousEntryNoCeilingNote;
 
   /// The month's transcription minutes are gone.

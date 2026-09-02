@@ -3,8 +3,9 @@
 //     {sub, plan}; minted by REST /api/login|register, verified on
 //     the relay handshake + Console/web socket. ⚠️ Both SPEC-REF lines below
 //     say "7-day TTL"; that was true until owner ruling 2026-08-27 §R1 made the
-//     default 100 years — see DEFAULT_TTL_MS. The books are not rewritten,
-//     they are cited as what they said.)
+//     default 100 years, and owner ruling 2026-09-02 (问题二) then set it to
+//     90 days — see DEFAULT_TTL_MS. The books are not rewritten, they are
+//     cited as what they said.)
 //   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (JWT sign/verify HS256
 //     {sub, plan}, secret = the saas explicit secret from config)
 //   Ported verbatim-mechanism from legacy apps/server/src/auth/jwt.ts
@@ -18,7 +19,8 @@
 // Header is fixed {"alg":"HS256","typ":"JWT"} — no algorithm negotiation.
 // Payload claims are exactly { sub: string, plan: Plan, iat, exp }
 // (iat/exp seconds-since-epoch, RFC 7519 §4.1.4/§4.1.6). Default TTL: see
-// DEFAULT_TTL_MS — 100 years since owner ruling 2026-08-27 §R1.
+// DEFAULT_TTL_MS — 90 days since owner ruling 2026-09-02 (问题二; was 100
+// years, owner ruling 2026-08-27 §R1).
 //
 // 0.2.38 — the two plan guards below used to spell out `'free' | 'pro'` by hand,
 // which is why adding a third tier had to touch this crypto file at all. They
@@ -57,7 +59,42 @@ export interface VerifyOpts {
 }
 
 /**
- * 🔴 100 YEARS — owner ruling 2026-08-27, §R1 of
+ * 🔴 CORRECTION (2026-09-02, owner ruling — 问题二 of
+ * docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-questions.md
+ * §3): the 100-YEAR value this constant held is REPLACED with 90 DAYS. The
+ * paragraphs below are kept verbatim — they were true when written, and they
+ * are exactly why this correction exists: a credential the server can never
+ * make expire, with no way to revoke it either, was flagged as its own
+ * security question and owner chose the cheap fix over doing nothing.
+ *
+ * WHAT CHANGED AND WHAT DID NOT: only this number. `exp` is still in the
+ * claims, the verifier still refuses a token past it, every client's expiry
+ * handling still works unmodified, and `socket/handlers/auth-expiry.ts`'s
+ * `setTimeout` clamp (①  below) is STILL REQUIRED — 90 days in ms is still
+ * past Node's 2^31-1 ms ceiling. True REVOCATION (W4-4: an account-version
+ * number or a denylist, letting the server invalidate a token it already
+ * signed) is explicitly NOT this — see the cost paragraph below, restated for
+ * 90 days: this is a self-heal window, not a revoke button. The decision doc
+ * records the owner's read that a 90-day self-heal is enough to demote W4-4
+ * from a hard prerequisite for paid launch — flagged there as the first
+ * responsible party's interpretation, pending owner confirmation, not
+ * re-litigated here.
+ *
+ * THE COST, IN HUMAN TERMS: nobody built a "stay signed in" toggle or a
+ * refresh endpoint (08-27 deliberately shipped without one — see ② below,
+ * now sharper). So every device — phone, desktop, console — signs out and
+ * must re-authenticate every 90 days, on whatever schedule each one happened
+ * to sign in on. If that trade is wrong for the product, the fix is a
+ * refresh mechanism, which is a different card, not a bigger number here.
+ *
+ * ALREADY-ISSUED 100-YEAR TOKENS ARE UNAFFECTED — `exp` is baked into the
+ * token at signing time, so this change only affects TOKENS SIGNED AFTER
+ * TODAY. Making the old ones expire early needs a key rotation or W4-4;
+ * neither is done by this commit (see the decision doc's own note on this).
+ *
+ * ── ORIGINAL TEXT BELOW, FOR THE RECORD (2026-08-27 → 2026-09-02) ──────────
+ *
+ * 100 YEARS — owner ruling 2026-08-27, §R1 of
  * docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md:
  * 「登录后不用有自动失效时间——只要不删除本地的凭证就一直处于登录状态」
  * ("signing in has no automatic expiry — as long as the local credential is not
@@ -85,7 +122,7 @@ export interface VerifyOpts {
  * rotating FLOWMIC_JWT_SECRET. That is why the same ruling promotes W4-4 to a
  * hard prerequisite for the paid launch / public release gates.
  */
-export const DEFAULT_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+export const DEFAULT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const HEADER_JSON = JSON.stringify({ alg: 'HS256', typ: 'JWT' });
 

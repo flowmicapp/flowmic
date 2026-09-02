@@ -97,7 +97,19 @@ export interface RecentLine {
 
 /** The four delivery truths a row can carry (protocol `HistoryStatus`). Narrowed
  *  here rather than imported so an unknown wire value degrades to null instead of
- *  widening the union (same rule as [[KNOWN_MODES]]). */
+ *  widening the union (same rule as [[KNOWN_MODES]]).
+ *
+ *  🔴 `'noted'` IS CONFIRMED UNREACHABLE HERE (P2 #7, 2026-09-02, pinned by
+ *  `lib/status-noted-reachability.test.ts`) — this strip's ONLY source of a
+ *  row is `onHistoryItem`'s `socket::row_transit` frame just above, and that
+ *  Rust side's `row_status()` never returns it (import, the strip's only other
+ *  conceivable door, does not reach the capsule at all — it writes straight
+ *  into the main window's `TimelineStore`). The value is kept in the type
+ *  anyway because it is the SAME `HistoryStatus` mobile's own history uses,
+ *  where a「仅记录」row really can carry it — narrowing this union to three
+ *  values would make an incoming `'noted'` (impossible today, not
+ *  IMPOSSIBLE-impossible) fall through to `null` via [[KNOWN_STATUSES]]
+ *  instead of failing a type check that would catch a future producer. */
 export type RecentStatus = 'injected' | 'cached' | 'failed' | 'noted';
 
 const KNOWN_MODES = new Set(['realtime', 'translate', 'organize']);

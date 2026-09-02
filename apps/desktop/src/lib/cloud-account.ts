@@ -56,15 +56,29 @@ import { maskAccountEmail } from './account-mask';
  *  and folding that into `unauthorized` made this card say "session expired —
  *  please sign in again": the credential is fine, signing in again succeeds, and
  *  nothing changes. Two verdicts, two outcomes. */
-export type AccountOutcome =
-  | 'ok'
-  | 'no_key'
-  | 'no_endpoint'
-  | 'unauthorized'
-  | 'restricted'
-  | 'unreachable'
-  | 'bad_response'
-  | 'no_bridge';
+/** Every outcome string the Rust side can put on the wire, verbatim.
+ *  Anchors (grep these before editing this array): the `failed(..)` call sites and
+ *  the `Err((..))` returns in `apps/desktop/src-tauri/src/shell/cloud.rs` — search that
+ *  file for `"bad_response"` and you get the whole set in one screen.
+ *
+ *  🔴 This array is the parser's whitelist AND the source of `AccountOutcome`, in that
+ *  order. It used to be the other way round: the union was written by hand and
+ *  `asCloudAccountRaw` carried a SECOND, hand-typed list of six — which silently
+ *  lacked `restricted`, so every restricted account fell through to `bad_response`
+ *  and the card said "we could not read the answer" about an answer we read fine.
+ *  Two copies of one fact, and only one of them was ever updated. */
+export const RUST_ACCOUNT_OUTCOMES = [
+  'ok',
+  'no_key',
+  'no_endpoint',
+  'unauthorized',
+  'restricted',
+  'unreachable',
+  'bad_response',
+] as const;
+
+/** `no_bridge` is the one value Rust never produces — see the doc comment above. */
+export type AccountOutcome = (typeof RUST_ACCOUNT_OUTCOMES)[number] | 'no_bridge';
 
 export interface CloudAccountRaw {
   outcome: AccountOutcome;
@@ -128,6 +142,34 @@ export interface LiveAccount {
    *  "couldn't be read" — see [quotaGauge] for why that is NOT rendered as
    *  "unlimited". */
   limit_tokens: number | null;
+  /** WP-9 (2026-09-02) — `devices.pc_limit` off `/api/cloud/summary` ③. Was
+   *  on the wire since that route existed (server-core's own comment there
+   *  names the desktop by name as the reason it must be TOLD rather than
+   *  derive it from `plan`) and was never read here — findings-crossend-
+   *  quota.md's struct note. `null` means "unlimited" (∞ crosses the wire as
+   *  `null` — the same encoding [limit_min] would use if it were ever
+   *  reintroduced), which for `pcs` is a real, if rare, state
+   *  (`INFINITY_ALLOWED` in billing/plans.ts does not include it today, but
+   *  the wire encoding does not assume that stays true). ⚠️ For an EXEMPT
+   *  account this is the MAX tier's real number (10 today), never "unlimited"
+   *  and never a number derived from `plan` — the exact "effective number,
+   *  not a name-derived one" rule [quotaGauge] already applies to the minutes
+   *  gauge. */
+  pc_limit: number | null;
+  /** WP-9 — `devices.mobile_limit`, same rule as [pc_limit]. `null` here is
+   *  the ordinary case today (pro/max `mobiles` is genuinely infinite —
+   *  billing/plans.ts `INFINITY_ALLOWED`), not a read failure — there is
+   *  nothing on this wire to distinguish the two, which mirrors
+   *  `QuotaView`'s own note that a bare `null` limit is now only reachable by
+   *  a read failure for the DIFFERENT (finite-only) minutes/token meters. */
+  mobile_limit: number | null;
+  /** WP-9 — the top-level `continuous_minutes` (sibling of `quota`, not
+   *  inside it: it answers "how long may one sitting be", `quota.stt`
+   *  answers "how much of this month is left" — console-routes.ts ③'s own
+   *  comment states the two must never be merged). `null` means "could not be
+   *  computed" (this field is deliberately outside `INFINITY_ALLOWED` on the
+   *  server, so `null` can never mean "unlimited" here — unlike [pc_limit]). */
+  continuous_minutes: number | null;
 }
 
 // ── narrowing helpers ────────────────────────────────────────────────────────
@@ -175,8 +217,8 @@ export function asCloudAccountRaw(raw: unknown): CloudAccountRaw {
   const o = obj(raw);
   if (o === null) return { outcome: 'bad_response', fetched_at: null, detail: null, me: null, summary: null };
   const outcome = o.outcome;
-  const known: AccountOutcome[] = ['ok', 'no_key', 'no_endpoint', 'unauthorized', 'unreachable', 'bad_response'];
-  const named = known.find((k) => k === outcome) ?? 'bad_response';
+  // The whitelist is RUST_ACCOUNT_OUTCOMES itself, never a second copy of it.
+  const named = RUST_ACCOUNT_OUTCOMES.find((k) => k === outcome) ?? 'bad_response';
   return {
     outcome: named,
     fetched_at: num(o.fetched_at),
@@ -201,6 +243,7 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
   // the desktop simply never read it, which is why the card could only ever answer
   // half of "how much of my plan have I used".
   const llm = obj(obj(summary?.quota)?.llm);
+  const devices = obj(summary?.devices);
   return {
     email: str(user?.email),
     plan: str(plan.plan),
@@ -213,6 +256,13 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
     limit_min: num(quota?.limit_min),
     used_tokens: num(llm?.used),
     limit_tokens: num(llm?.limit),
+    // WP-9 — `num()` returns null for anything that is not a finite number,
+    // which already IS the "unlimited" encoding for `pc_limit`/`mobile_limit`
+    // (the server never puts `Infinity` on the wire — JSON does that for us —
+    // so a `null` here needs no separate "means unlimited" branch).
+    pc_limit: num(devices?.pc_limit),
+    mobile_limit: num(devices?.mobile_limit),
+    continuous_minutes: num(summary?.continuous_minutes),
   };
 }
 

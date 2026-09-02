@@ -42,8 +42,10 @@ use crate::socket::channel::Channel;
 use crate::socket::credentials::Credentials;
 use crate::socket::dedup::{session_deduper, SharedDeduper};
 use crate::socket::fanout::{self, on_forward, on_forward_speaking, on_forward_tagged, PrimaryGate};
+use crate::socket::lifecycle;
 use crate::socket::local_inject::InjectHandles;
-use crate::socket::pairing::{self, AuthFailureHook, Pairing, SharedCode, SharedCreds};
+use crate::socket::pairing::{self, Pairing, SharedCode, SharedCreds};
+use crate::socket::refusal::AuthFailureHook;
 use crate::socket::pump;
 use crate::socket::reconcile::Reconciler;
 use crate::socket::speak_liveness::SpeakLiveness;
@@ -169,6 +171,9 @@ pub struct DesktopSocket {
     /// 0.2.27 — the inject-decision state this session's `inject:request` handler runs
     /// on, so a LOCAL re-inject travels the identical path. Read by `socket::local_inject`
     /// (see there: a second FSM would be a second meaning for `injected`).
+    // Field stays module-private (only `local_inject.rs`'s accessor reads it);
+    // the TYPE is `pub(crate)` (see local_inject.rs) so callers outside the
+    // socket module can hold a cloned bundle, not the field itself.
     pub(in crate::socket) inject: InjectHandles,
     stop: Arc<AtomicBool>,
     pump: Option<JoinHandle<()>>,
@@ -233,6 +238,16 @@ impl DesktopSocket {
     // Outbound verbs (settings:update / pc:*) live in outbound.rs and the local re-inject in
     // local_inject.rs — this file is the socket LIFECYCLE. `socket::timeline_ops`' four
     // timeline verbs are GONE (0.2.27): no server transcripts, nothing to address.
+
+    /// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — mark this session's eventual
+    /// close (whenever it comes) as a REDIAL ATTEMPT rather than a deliberate
+    /// teardown. `pub` because the only useful caller is `shell::channel_session`,
+    /// a different module tree, reached BEFORE this instance is replaced in its
+    /// `SocketState` slot — see `Pairing::mark_transient_close` for the full
+    /// account and why the default (never calling this) must stay safe.
+    pub fn mark_transient_close(&self) {
+        self.pairing.mark_transient_close();
+    }
 
     /// Stop the pump and disconnect.
     pub fn disconnect(&mut self) {
@@ -376,54 +391,10 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
         builder = builder.auth(serde_json::json!({ "jwt": jwt }));
     }
 
-    // ── open: register or reconnect (fires on initial connect AND each reconnect) ──
-    {
-        let p_o = pairing.clone();
-        let rec_o = reconciler.clone();
-        let conn_o = connected.clone();
-        builder = builder.on("open", move |_payload, socket| {
-            conn_o.store(true, Ordering::SeqCst);
-            // RV-34: a NEW connection carries none of the previous one's standing. The
-            // ack that confirmed the last socket says nothing about this one, and the
-            // handshake below is what has to earn the claim again — so the judgment
-            // starts false here, which is also what arms the pump's watchdog.
-            p_o.clear_handshake_ack("new socket — the handshake starts over");
-            // 「本机存着 token 吗」("does this machine have a token stored") is the
-            // ONE question that decides which frame to
-            // send, and it is the only thing this variable is allowed to answer.
-            let has_token = p_o.creds.lock().map(|c| c.is_registered()).unwrap_or(false);
-            eprintln!("[flowmic] socket open (has_token={has_token})");
-            forensic::record("socket", &format!("open (has_token={has_token})"));
-            // connected rising edge → pc:reconnect (07 §6); a fresh session registers.
-            if has_token {
-                pairing::emit_reconnect(&socket, &p_o, &rec_o);
-            } else {
-                pairing::emit_register(&socket, &p_o, &rec_o);
-            }
-        });
-    }
-
-    // ── close: mark disconnected so the pump forwards the transition;
-    //    the settings/timeline queues flush again on the next open.
-    //    rust_socketio 0.6 also has Event::Error; it is NOT registered. An
-    //    earlier comment claimed "close / error" — only `"close"` is wired.
-    //    `"open"` is the sole room-entering emitter; Error is not a second
-    //    handshake author. Engine Close that never becomes `"close"` (Edge 1)
-    //    is detected at the pump's heartbeat emit (`socket::hb_death`). ──
-    {
-        let conn_c = connected.clone();
-        let p_c = pairing.clone();
-        builder = builder.on("close", move |_payload, _socket| {
-            conn_c.store(false, Ordering::SeqCst);
-            // RV-34: the connection the server confirmed is gone. The TOKEN survives
-            // (that is the point of a token, and the reconnect ladder needs it), but
-            // 「服务端认了我」("the server recognized me") does not survive the socket it was granted on — that
-            // conflation is what put `connected=false registered=true` in the log.
-            p_c.clear_handshake_ack("socket closed");
-            eprintln!("[flowmic] socket close");
-            forensic::record("socket", "close");
-        });
-    }
+    // ── open/close: the transport's own lifecycle events, split into
+    //    lifecycle.rs at this file's 800-line cap (see that file's header). ──
+    builder = lifecycle::wire_open(builder, pairing.clone(), reconciler.clone(), connected.clone());
+    builder = lifecycle::wire_close(builder, pairing.clone(), connected.clone());
 
     // ── capsule fan-out (stt:*) + timeline fan-out (history:*) + settings peer
     //    broadcast — each forwarded verbatim to the Vue windows (07 §4/§9). ──

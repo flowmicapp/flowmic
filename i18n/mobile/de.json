@@ -53,7 +53,6 @@
     "nodePanelNote": "'Der Computer wählt den Knoten; dieses Telefon folgt ihm.'",
     "nodePanelMeasure": "'Messen'",
     "nodeLegEdge": "'Verbindung'",
-    "nodeLegOrigin": "'Bis Knoten'",
     "nodeLegTotal": "'Latenz'",
     "articleBadge": "'Lange Aufnahme'",
     "articleNoTitle": "'Noch nichts gesagt'",
@@ -152,6 +151,7 @@
     "continuousEntryModeNote": "'Nur im Echtzeit-Modus'",
     "continuousEntryNoCeilingNote": "'Kontolimit nicht abrufbar — erneut versuchen'",
     "continuousEntryQuotaSpentNote": "'Minuten des Monats aufgebraucht'",
+    "continuousEntrySignInNote": "'Anmelden, um lange Aufnahmen zu nutzen'",
     "continuousEntryTitle": "'Lange Aufnahme'",
     "continuousLiveCaption": "'Fertige Teile sind bereits gespeichert'",
     "continuousLiveLabel": "'Aufnahme läuft'",
@@ -454,7 +454,6 @@
     "loginFootnote": "'Anmelden für Notizen: überall festhalten, ohne PC'",
     "loginScanHint": "'Auf dem PC die Konsole flowmic.app öffnen und Anmelden per QR wählen'",
     "loginScanIsPair": "'Das ist ein Kopplungscode — unter Gerät hinzu scannen'",
-    "loginScanOpen": "'Anmelde-QR in der Web-Konsole scannen'",
     "loginScanTitle": "'Anmelden per QR'",
     "loginTitle": "'Bei Notizen anmelden'",
     "logout": "'Abmelden'",
@@ -602,7 +601,6 @@
     "planLabel_free": "'Free'",
     "planLabel_max": "'Max'",
     "planLabel_pro": "'Pro'",
-    "plusPanelTitle": "'Mehr'",
     "plusSelectionImagesSeparate": "'Bilder gehen je als eigene Nachricht'",
     "plusSelectionSend": "'An den PC senden'",
     "polishSkipped": "'Polieren übersprungen · Rohtext behalten'",
@@ -657,7 +655,6 @@
     "registerCopyLink": "'Link kopieren'",
     "registerLinkCopied": "'Link kopiert'",
     "relayUpPcUnknown": "'Relais erreichbar · PC-Status unbekannt'",
-    "reloginRequired": "'Sitzung abgelaufen — bitte neu anmelden'",
     "removeDidNotReachServer": "'Hier entfernt. Dieser PC war nicht erreichbar, sein Eintrag bleibt dort.'",
     "removeFavoriteConfirmBody": "'Die gespeicherte Phrase wird gelöscht. Verlaufseinträge bleiben.'",
     "removeFavoriteConfirmTitle": "'„$shown“ aus Favoriten entfernen?'",
@@ -679,6 +676,9 @@
     "restrictionReasonNote_legal_requirement": "'Dieses Konto wurde wegen einer rechtlichen oder regulatorischen Vorgabe eingeschränkt.'",
     "restrictionReasonNote_other": "'Dieses Konto wurde nach einer Prüfung eingeschränkt.'",
     "restrictionReasonNote_terms_violation": "'Dieses Konto wurde so genutzt, dass es gegen die Nutzungsbedingungen verstößt.'",
+    "retainedAudioNoticeCapReached": "'Der Speicher ist voll, daher wird ein Teil dieser Aufnahme nicht mehr für später aufbewahrt'",
+    "retainedAudioNoticeDroppedOldest": "'Der Speicher war fast voll, daher wurde eine ältere unvollständige Aufnahme gelöscht, um Platz zu schaffen'",
+    "retainedAudioNoticeExpired": "'Eine nicht abgeholte Aufnahme, die auf diesem Telefon aufbewahrt wurde, wurde gelöscht'",
     "sameMachine": "'$name · $connections Verbindungen zum selben PC'",
     "save": "'Speichern'",
     "saveAndReInject": "'Speichern & erneut einfügen'",
@@ -776,6 +776,7 @@
     "sttStallNotSignedIn": "'Dieses Telefon ist nicht mehr beim Cloud-Relay angemeldet, daher wurde nichts transkribiert. Verbinde es auf der Geräteseite neu'",
     "sttStallPoolNoRoute": "'Der Dienst hat für diese Aufnahme keine Sprach-Engine verfügbar. An diesem Telefon ist nichts zu ändern; hält es an, bitte melden'",
     "sttStallQuotaExceeded": "'Das Transkriptionskontingent dieses Monats ist aufgebraucht, diese Aufnahme wurde daher nicht transkribiert. Es wird zu Beginn des nächsten Monats zurückgesetzt'",
+    "sttStallQuotaExceededPcOwner": "'Das Transkriptionskontingent dieses Monats des Besitzers dieses Computers ist aufgebraucht, diese Aufnahme wurde daher nicht transkribiert. Es wird zu Beginn des nächsten Monats zurückgesetzt'",
     "sttStallServerFault": "'Nicht transkribiert: Auf dem Server trat beim Start dieser Aufnahme eine unerwartete Störung auf. Sagen Sie es noch einmal — an diesem Telefon muss nichts geändert werden'",
     "sttStallSettingsInvalid": "'Nicht transkribiert: Eine Ihrer gespeicherten Einstellungen ist ungültig, daher hat diese Aufnahme nie eine Spracherkennung erreicht. Öffnen Sie die Einstellungen, speichern Sie das zuletzt Geänderte erneut und versuchen Sie es dann noch einmal'",
     "sttStallVerifyEmail": "'Deine E-Mail-Adresse ist noch nicht bestätigt, daher nimmt der Cloud-Dienst keine Aufnahmen mehr an. Bestätige sie in der Web-Konsole, um fortzufahren'",
@@ -875,6 +876,10 @@
     "updateOwnVersionUnknown": [
       "'Diese App kann die eigene Version nicht lesen, daher nicht sagen, '",
       "'ob ein Update nötig ist.'"
+    ],
+    "updatePlatformNotCovered": [
+      "'Diese Update-Prüfung deckt diese Plattform noch nicht ab, daher kann '",
+      "'sie nicht sagen, ob ein Update verfügbar ist.'"
     ],
     "updateStoreChannelNote": [
       "'Neue Versionen für dieses Gerät kommen über TestFlight oder den App '",

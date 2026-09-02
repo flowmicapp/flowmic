@@ -34,10 +34,17 @@
 //     Stubbing `askWriter` in every test would have proven the gate and left the
 //     wire contract — where a forwarding feature actually breaks — untested.
 //
-//  ③ EVERY FAILURE PATH IS ASSERTED TO PRODUCE THE OLD REFUSAL. Unreachable
-//     writer, authoritative 「never heard of it」, a row that will not land, a
-//     spent budget, no seam at all: AUTH_TOKEN_INVALID, on a resolved promise,
-//     every time. A handshake that hangs would be worse than the defect.
+//  ③ EVERY FAILURE PATH IS ASSERTED, on a resolved promise, never a hang.
+//     🔴 CORRECTION (A11/F2-a, WP-8, 2026-09-02): this used to read "…every
+//     failure path…: AUTH_TOKEN_INVALID, every time." That collapsed two
+//     different claims into one code, which is the exact defect A11/F2-a
+//     closes (mirroring B1 on the PC side): only an AUTHORITATIVE "the writer
+//     confirmed this token does not exist" (a 404, or no seam at all — a
+//     single-node/writer miss is authoritative by construction) still answers
+//     AUTH_TOKEN_INVALID. Unreachable writer, a row that will not land, and a
+//     spent budget are all "nothing was actually learned", and now answer the
+//     new retryable AUTH_TOKEN_UNVERIFIABLE instead — neither the phone nor
+//     the desktop deletes a credential over that code.
 //
 //  ④ THE CASCADE. `INSERT OR REPLACE` on `pc_devices` would DELETE the
 //     conflicting row first, and `mobile_pairings.pc_device_id ... ON DELETE
@@ -387,7 +394,10 @@ describe('the failure direction is exactly today\'s behaviour', () => {
 
     const r = await handshake(token, gate);
 
-    expect(r.err).toBe('AUTH_TOKEN_INVALID');
+    // 🔴 CORRECTION (A11/F2-a, WP-8): was AUTH_TOKEN_INVALID. An unreachable
+    // writer is "nothing was learned", not "the writer said no" — see the
+    // header's ③.
+    expect(r.err).toBe('AUTH_TOKEN_UNVERIFIABLE');
     expect(r.auth).toBeNull();
     // Nothing was invented locally out of a failure.
     expect(replica.db.mobiles.findByToken(token)).toBeNull();
@@ -449,7 +459,10 @@ describe('the failure direction is exactly today\'s behaviour', () => {
 
     const r = await handshake(pc.device_token, productionReadThrough());
 
-    expect(r.err).toBe('AUTH_TOKEN_INVALID');
+    // 🔴 CORRECTION (A11/F2-a, WP-8): was AUTH_TOKEN_INVALID. The writer just
+    // confirmed this token IS real; the fault is this node's own UNIQUE
+    // collision, not evidence the credential is bad — see the header's ③.
+    expect(r.err).toBe('AUTH_TOKEN_UNVERIFIABLE');
     expect(replica.db.pcs.findByToken(pc.device_token)).toBeNull();
     // 🔴 The transaction's own assertion: the account row that DID insert is not
     // here either, so the statement that succeeded was rolled back with the one
@@ -509,7 +522,14 @@ describe('the writer is not an amplifier', () => {
     for (let i = 0; i < attempts; i += 1) {
       // Distinct tokens, so single-flight is not what is being measured here.
       const token = 'fm_' + i.toString(16).padStart(64, '0');
-      expect((await handshake(token, gate)).err).toBe('AUTH_TOKEN_INVALID');
+      // 🔴 CORRECTION (A11/F2-a, WP-8): the first MAX_CALLS_PER_WINDOW attempts
+      // still reach `askWriter` (which resolves null — the writer confirming
+      // it knows nothing) and stay AUTH_TOKEN_INVALID; the ones AFTER the
+      // budget is spent never ask at all, and answer the new
+      // AUTH_TOKEN_UNVERIFIABLE — "the budget ran out" is not "the writer said
+      // no". Both still resolve, never hang, which is what this test is for.
+      const expected = i < READ_THROUGH_MAX_CALLS_PER_WINDOW ? 'AUTH_TOKEN_INVALID' : 'AUTH_TOKEN_UNVERIFIABLE';
+      expect((await handshake(token, gate)).err).toBe(expected);
     }
 
     expect(dialled.length).toBe(READ_THROUGH_MAX_CALLS_PER_WINDOW);
@@ -584,6 +604,88 @@ describe('the writer is not an amplifier', () => {
     replica.db.mobiles.remove(writer.db.mobiles.findByToken(token)!.id);
     expect((await handshake(token, gate)).err).toBeNull();
     expect(dialled.length).toBe(2);
+  });
+});
+
+// 🔴 A11/F2-a (WP-8, 2026-09-02) — `resolveDetailed`'s three outcomes, asserted
+// directly on the gate rather than only through a full handshake. The
+// handshake-level tests above prove the CODE `authMiddleware` answers with;
+// these prove the underlying fact each outcome name claims, independent of
+// how any particular caller reacts to it.
+describe('resolveDetailed names which of three things actually happened', () => {
+  it('landed: the writer knew the token and the rows are now local', async () => {
+    const { pcId } = pcOnBothNodes();
+    const token = pairOnWriter(pcId);
+    const gate = productionReadThrough();
+
+    expect(await gate.resolveDetailed(token)).toBe('landed');
+    expect(replica.db.mobiles.findByToken(token)).not.toBeNull();
+  });
+
+  it('writer-confirmed-absent: the writer was asked and said no', async () => {
+    const gate = productionReadThrough();
+
+    expect(await gate.resolveDetailed('fm_' + 'e'.repeat(64))).toBe('writer-confirmed-absent');
+    expect(dialled).toEqual(['/api/node/resolve-token']);
+  });
+
+  it('unverifiable: the writer could not be reached', async () => {
+    const gate = makeTokenReadThrough({
+      askWriter: () => Promise.reject(new WriterUnreachable('ECONNRESET')),
+      apply: () => { throw new Error('nothing may be applied when nothing was learned'); },
+      log: silentLog,
+    });
+
+    expect(await gate.resolveDetailed('fm_' + 'f'.repeat(64))).toBe('unverifiable');
+  });
+
+  it('unverifiable: the writer answered but the rows would not land here', async () => {
+    writer.db.users.insert({ id: 'newbie2', display_name: 'N', plan: 'free' });
+    const { pc } = writer.registry.registerPc({ device_name: 'second-pc', user_id: 'newbie2' });
+    replica.db.pcs.insert({
+      id: 'another-stale-row',
+      user_id: 'default',
+      device_name: 'stale',
+      device_token: 'fm_' + '8'.repeat(64),
+      room_uuid: pc.room_uuid,
+      short_code: '0001',
+    });
+    const gate = productionReadThrough();
+
+    expect(await gate.resolveDetailed(pc.device_token)).toBe('unverifiable');
+  });
+
+  it('unverifiable: a malformed token never reaches the writer at all', async () => {
+    const gate = productionReadThrough();
+
+    expect(await gate.resolveDetailed('not-a-real-token')).toBe('unverifiable');
+    expect(dialled).toEqual([]);
+  });
+
+  it('unverifiable: the budget is spent', async () => {
+    const gate = makeTokenReadThrough({
+      askWriter: () => Promise.resolve(null),
+      apply: () => { throw new Error('unreachable — the writer knew nothing'); },
+      log: silentLog,
+      maxCallsPerWindow: 0,
+    });
+
+    expect(await gate.resolveDetailed('fm_' + '9'.repeat(64))).toBe('unverifiable');
+  });
+
+  it('🔴 resolve() and resolveDetailed() share one flight for the same token', async () => {
+    // Positive control on the sharing claim in resolveDetailed's own doc: if
+    // this ever cost TWO writer calls, the "shared budget" comment above it
+    // would be describing code that no longer does that.
+    const { pcId } = pcOnBothNodes();
+    const token = pairOnWriter(pcId);
+    const gate = productionReadThrough();
+
+    const [viaResolve, viaDetailed] = await Promise.all([gate.resolve(token), gate.resolveDetailed(token)]);
+
+    expect(viaResolve).toBe(true);
+    expect(viaDetailed).toBe('landed');
+    expect(dialled.length).toBe(1);
   });
 });
 
@@ -867,6 +969,14 @@ class FakeSocket {
     return true;
   }
   disconnect(): this { this.connected = false; return this; }
+  /** A1's own test needs this: `invoke()` resolves only via the handler's own
+   *  ack, and A1's whole point is a handler that must NOT ack a vanished
+   *  socket. Calling the handler and returning its own promise lets the test
+   *  await completion without depending on an ack that must never come. */
+  callRaw(event: string, payload: unknown, ack: (v: unknown) => void): unknown {
+    const list = this.handlers.get(event) ?? [];
+    return list[0]?.(payload, ack);
+  }
   invoke(event: string, payload: unknown): Promise<Record<string, unknown>> {
     return new Promise((resolve) => {
       const list = this.handlers.get(event) ?? [];
@@ -949,7 +1059,15 @@ describe('Z4: mobile:reconnect resolves an unknown token through the writer too'
     // newly possible.
     const ack = await socket.invoke('mobile:reconnect', { token });
 
-    expect(ack.error).toBe('AUTH_TOKEN_INVALID');
+    // 🔴 CORRECTION (B2-S, 2026-09-02): was AUTH_TOKEN_INVALID. Before this
+    // card the handler asked only the boolean `resolve()`, which collapses
+    // 'unverifiable' (this case — the writer is unreachable, nothing was
+    // learned about the token) into the same `false` as
+    // 'writer-confirmed-absent' — so an unreachable writer deleted a pairing
+    // that was never revoked. This is the REVERSE CONTROL for that bug: with
+    // the pre-fix `.resolve()`-only call this assertion fails
+    // (actual AUTH_TOKEN_INVALID), and the pairing row below would be gone.
+    expect(ack.error).toBe('AUTH_TOKEN_UNVERIFIABLE');
     expect(replica.db.mobiles.findByToken(token)).toBeNull();
   });
 
@@ -1002,6 +1120,62 @@ describe('Z4: mobile:reconnect resolves an unknown token through the writer too'
 
     expect(ack.error).toBe('AUTH_TOKEN_INVALID');
     expect(dialled).toEqual([]);
+  });
+
+  // A1 (2026-09-02) — the socket vanishing DURING the await, not after. Before
+  // this card the handler proceeded unconditionally: `setAuth` + `joinAndNotify`
+  // on a socket socket.io already fired 'disconnect' for, which found nothing
+  // to clean up (auth was still null then). No SECOND 'disconnect' ever comes
+  // for it, so the join — and `pc:list-mobiles`'s count — would be permanent.
+  it('🔴 the socket disconnects DURING the writer await — no ack, no join, no leak', async () => {
+    const { pcId } = pcOnBothNodes();
+    const token = pairOnWriter(pcId);
+    const acked: unknown[] = [];
+    const client = makeWriterClient({
+      writerUrl: WRITER_URL,
+      sharedSecret: SECRET,
+      nodeId: 'srvjp',
+      fetchImpl: fetchIntoRoutes({
+        nodeId: 'srvny', version: '0.3.54', sharedSecret: SECRET,
+        resolveToken: (t) => resolveTokenRows(writer.db, t),
+      }),
+    });
+    const socket = wireMobileOnReplica(makeTokenReadThrough({
+      askWriter: async (t) => {
+        // The disconnect happens WHILE the writer call is in flight — this is
+        // the exact instant the finding names, simulated without a real
+        // network race.
+        socket.connected = false;
+        return client.resolveToken(t);
+      },
+      apply: (rows) => applyTokenResolution(replica.db, rows),
+      log: silentLog,
+    }));
+
+    await socket.callRaw('mobile:reconnect', { token }, (v: unknown) => acked.push(v));
+
+    // The rows landed (the read-through itself is unaffected)…
+    expect(replica.db.mobiles.findByToken(token)).not.toBeNull();
+    // …but this socket must never have been told, never joined, and never
+    // authenticated as the phone that is no longer there to speak as it.
+    expect(acked).toEqual([]);
+    expect((socket.data as { auth: unknown }).auth).toBeNull();
+    expect(socket.emitted).toEqual([]);
+  });
+
+  it('REVERSE CONTROL — the SAME race, but the socket is still connected', async () => {
+    // Proves the assertions above are about the disconnect, not about some
+    // other side effect of this test's plumbing.
+    const { pcId } = pcOnBothNodes();
+    const token = pairOnWriter(pcId);
+    const acked: unknown[] = [];
+    const socket = wireMobileOnReplica(productionReadThrough());
+
+    await socket.callRaw('mobile:reconnect', { token }, (v: unknown) => acked.push(v));
+
+    expect(acked).toHaveLength(1);
+    expect((acked[0] as { error?: string }).error).toBeUndefined();
+    expect((socket.data as { auth: unknown }).auth).not.toBeNull();
   });
 });
 

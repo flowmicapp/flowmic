@@ -133,7 +133,6 @@ export const SETTINGS_KEYS = [
   'stt_title',
   'stt_hint',
   'stt_preset',
-  'stt_routings',
   'stt_add_lang',
   // ── owner ruling 2026-08-27 §2-1: the language cell is a fixed list ────────
   // The catch-all row's label. 🔴 THE ASTERISK IS NEVER SHOWN. It is our
@@ -170,7 +169,6 @@ export const SETTINGS_KEYS = [
   'stt_model_missing',
   'stt_model_missing_action',
   'col_language',
-  'col_engine',
   'col_endpoint',
   'dict_title',
   'dict_add',
@@ -246,10 +244,28 @@ export const SETTINGS_KEYS = [
   // be a claim about a set, not about this utterance. Naming the spoken set
   // is true regardless of what happens to be configured.
   'polish_strength_smooth_coverage',
-  // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on both
-  // model sections because the alternative is a user tuning a dictionary here
-  // and wondering why the phone-on-relay ignores it.
+  // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on the LLM
+  // section and the scenario-inference consent section, whose keys
+  // (`llm.config` / `scenario.inference`) are STILL LAN-only today (verified by
+  // grep: neither is in `PREFERENCE_SETTING_KEYS`,
+  // apps/desktop/src-tauri/src/shell/settings_route.rs).
+  //
+  // ⚠️ IT USED TO ALSO BE TRUE OF `SttSettings.vue`'s note (see
+  // `stt_settings_scope_note` below for why that page no longer uses this key).
   'settings_scope_lan',
+  // E6 (2026-09-02) — `SttSettings.vue` renders FOUR sections on one page: the
+  // routing table (`stt.routings`, still LAN-only) plus the dictionary/AI-polish/
+  // two-pass-refine controls (`stt.dictionary`/`stt.polish`/`stt.refine`), which
+  // owner 2026-08-24 moved onto BOTH legs (verified by grep:
+  // `PREFERENCE_SETTING_KEYS` in settings_route.rs lists exactly those three plus
+  // `scenario.card`). The page used to show `settings_scope_lan` above ALL FOUR
+  // sections, so since 08-24 it told a cloud-relay user their dictionary/polish/
+  // refine choices "have no effect on the cloud relay" while the wire sent them
+  // there anyway — the opposite of true, and exactly the shape CLAUDE.md's
+  // 反 façade ④ names (a sentence asserting behaviour elsewhere that stopped
+  // being true when that elsewhere changed). This key names both facts
+  // instead of the one that stopped being universal.
+  'stt_settings_scope_note',
   // GA-14 two-pass refine
   'refine_title',
   'refine_hint',

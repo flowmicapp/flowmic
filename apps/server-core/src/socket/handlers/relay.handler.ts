@@ -78,6 +78,24 @@ export interface RelayHandlerDeps {
    *  Absent ⇒ every image passes, which is the pre-RV-87 behaviour and is exactly
    *  right for the LAN sidecar. */
   cloudImages?: CloudImagePolicy;
+  /**
+   * B3 (2026-09-02, WP-6) — this node's own id, echoed on a server-authored
+   * `INJECT_PC_OFFLINE` so the phone can tell "this node answered" from
+   * "the PC's actual home". Same field, same reason, as `MobileHandlerDeps.
+   * nodeId` — absent on a single-node deployment, where the question does
+   * not arise. */
+  nodeId?: string;
+  /**
+   * B3 — "where does THIS node's own copy of the database currently believe
+   * this PC lives". A LOCAL read only (never a cross-node call — this refusal
+   * is already on the hot inject path and must not gain a network hop), so on
+   * a replica it can be stale by up to one pull cycle; that staleness is
+   * exactly why the phone is told never to treat it as authoritative (see the
+   * field's own doc in protocol-schemas-inject.ts). `null` is a real answer
+   * ("no home recorded yet"), distinct from the function itself being absent
+   * ("this deployment has no such concept").
+   */
+  pcHomeNode?: (pcId: string) => string | null;
 }
 
 export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): void {
@@ -131,8 +149,26 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
       | 'INJECT_PC_MISMATCH' | 'INJECT_PC_UNSPECIFIED'
       | 'INJECT_CLOUD_IMAGE_TOO_LARGE' | 'INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED',
     echo: { request_id?: string; entry_id?: string },
+    // Extra additive fields, each carried by exactly ONE refusal and nobody
+    // else — see each field's own doc in protocol-schemas-inject.ts for why.
+    // `node`/`home_node`: B3, ONLY `INJECT_PC_OFFLINE`. `retry_after_ms`: item
+    // 5, ONLY `INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED` (cloud-image-policy.ts's own
+    // computed window, previously stuck in the forensic log). Every field is
+    // omitted from the frame entirely when unset — additive fields are
+    // absent-means-unknown, never `null`/`0` on the wire.
+    extra?: { node?: string; home_node?: string | null; retry_after_ms?: number },
   ): void => {
-    socket.emit('inject:result', { ok: false, mode: 'cached', error, ...echo });
+    socket.emit('inject:result', {
+      ok: false,
+      mode: 'cached',
+      error,
+      ...echo,
+      ...(extra?.node !== undefined ? { node: extra.node } : {}),
+      ...(extra?.home_node !== undefined && extra.home_node !== null
+        ? { home_node: extra.home_node }
+        : {}),
+      ...(extra?.retry_after_ms !== undefined ? { retry_after_ms: extra.retry_after_ms } : {}),
+    });
   };
 
   // mobile → PC: injection request
@@ -180,7 +216,7 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     // THE EVIDENCE IS THIS CONNECTION'S TOKEN BINDING, NEVER "who is in the room right now".
     // On a mobile socket `auth.deviceId` IS `pc_devices.id` of the PC this phone
     // is paired to, resolved from its token and from nothing else
-    // (auth/middleware.ts:152-154 → `mobileRow.pc_device_id`; mobile.handler.ts
+    // (auth/middleware.ts:189-191 → `mobileRow.pc_device_id`; mobile.handler.ts
     // :134/:180/:235 → `deviceId: pc.id`). `target_pc_id` is written in that exact
     // convention: it is the `pc_id` the phone was handed in its pairing ack — the SAME
     // `pc.id`, from the same three admission sites (mobile.handler.ts :143/:186/
@@ -300,7 +336,14 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
           user_id: auth.userId,
           room_uuid: roomUuid,
         });
-        answerReject(verdict.error, echoOf(parsed.data));
+        // item 5 — `verdict.detail.retry_after_ms` exists ONLY on the
+        // QUOTA_EXCEEDED branch (cloud-image-policy.ts); TOO_LARGE's detail
+        // carries `bytes`/`max_bytes` instead, so this reads defensively
+        // rather than assuming which shape `detail` is.
+        const retryAfterMs = typeof verdict.detail.retry_after_ms === 'number'
+          ? verdict.detail.retry_after_ms
+          : undefined;
+        answerReject(verdict.error, echoOf(parsed.data), { retry_after_ms: retryAfterMs });
         return;
       }
     }
@@ -308,11 +351,21 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     if (!pc) {
       // The `?.` here used to be a total void — no log, no mirror, a 20 s
       // mystery on the phone. A room with no PC is a real, nameable verdict.
+      //
+      // B3 — but "no PC in THIS room" is a fact about this NODE, not about the
+      // PC. `auth.deviceId` is the PC this phone is bound to (the same value
+      // the mismatch check above uses); its home_node says where this node's
+      // own database currently believes that machine lives, so the phone can
+      // tell "genuinely offline" from "wrong node, follow home_node" the same
+      // way ptt_presence_poll.dart already does for presence.
+      const homeNode = auth.deviceId !== undefined ? (deps.pcHomeNode?.(auth.deviceId) ?? null) : null;
       log.warn('relay: inject:request but no PC in room', {
         socket: socket.id,
         source: parsed.data.source,
+        node: deps.nodeId ?? null,
+        home_node: homeNode,
       });
-      answerReject('INJECT_PC_OFFLINE', echoOf(parsed.data));
+      answerReject('INJECT_PC_OFFLINE', echoOf(parsed.data), { node: deps.nodeId, home_node: homeNode });
       return;
     }
     // t2 — marked BEFORE the relay so the inject segment covers the PC's real

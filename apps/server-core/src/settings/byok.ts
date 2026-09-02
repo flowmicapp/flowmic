@@ -19,8 +19,11 @@
 // starts empty; the user configures it. This module writes `[]` + `false`
 // BEFORE seedDefaultSettings so the existing key is not overwritten.
 
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { isSeedMarked, STT_ROUTINGS_KEY } from './provenance';
 import type { SettingsRepo } from '../db/repos/settings.repo';
+import { isLoopbackAddress } from '../http/local-only';
 
 /** Console master switch. Absent ⇒ do not change existing routing behaviour
  *  (standalone seeds and already-configured BYOK keep working). `false` is
@@ -71,11 +74,94 @@ export function seedSaasByokEmpty(repo: SettingsRepo, userId: string): string[] 
 }
 
 /**
+ * Node's WHATWG URL parser spells an IPv4-mapped IPv6 literal as the packed
+ * hex form (`[::ffff:169.254.169.254]` in a URL becomes hostname
+ * `::ffff:a9fe:a9fe`), while a resolver or an operator may just as well hand
+ * back the dotted-decimal spelling (`::ffff:169.254.169.254`). Both name the
+ * same address; collapse either to plain dotted-decimal so every check below
+ * only has to know "IPv4 or plain IPv6", not which of the two an operator (or
+ * an attacker) chose to write.
+ */
+function unwrapIpv4Mapped(address: string): string {
+  const lower = address.toLowerCase();
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(lower);
+  if (dotted) return dotted[1] as string;
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
+  if (hex) {
+    const h1 = parseInt(hex[1] as string, 16);
+    const h2 = parseInt(hex[2] as string, 16);
+    return `${(h1 >> 8) & 0xff}.${h1 & 0xff}.${(h2 >> 8) & 0xff}.${h2 & 0xff}`;
+  }
+  return address;
+}
+
+/**
+ * True for any address the probe must never actually dial: loopback,
+ * link-local (this single range already covers the 169.254.169.254 cloud
+ * metadata address on AWS/GCP/Azure alike — it is not a coincidence that
+ * every provider picked a link-local address for it), the unspecified
+ * address, and any IPv4-mapped IPv6 spelling of those. RFC1918 is NOT here on
+ * purpose — see the function header below: a BYOK engine on the owner's own
+ * LAN/VPN is a valid target — the existence proof is the owner's VPN-segment
+ * address in this file's own test.
+ */
+function isBlockedAddress(address: string): boolean {
+  const addr = unwrapIpv4Mapped(address);
+  if (isLoopbackAddress(addr)) return true;
+  if (isIP(addr) === 4) {
+    const octets = addr.split('.').map(Number);
+    if (octets[0] === 169 && octets[1] === 254) return true; // link-local incl. cloud metadata
+    if (octets[0] === 0) return true; // 0.0.0.0/8 — "unspecified" / "this network"
+    return false;
+  }
+  const lower = addr.toLowerCase();
+  if (lower === '::') return true; // unspecified
+  if (isIP(lower) === 6) {
+    // fe80::/10 — first hextet ranges 0xfe80..0xfebf. `lower.split(':')[0]` is
+    // '' for anything starting with '::' (already handled above as loopback
+    // or unspecified), so a parse failure here just means "not fe80::/10".
+    const firstHextet = parseInt(lower.split(':')[0] ?? '', 16);
+    if (!Number.isNaN(firstHextet) && firstHextet >= 0xfe80 && firstHextet <= 0xfebf) return true;
+  }
+  return false;
+}
+
+export interface ByokProbeEndpointDeps {
+  /** Test seam. Production default: `dns.lookup(hostname, {all:true})` — EVERY
+   *  address a real connect could land on, not just the first (Happy Eyeballs
+   *  / round-robin DNS may pick any record in the list). */
+  resolveHost?: (hostname: string) => Promise<string[]>;
+}
+
+async function defaultResolveHost(hostname: string): Promise<string[]> {
+  const records = await dnsLookup(hostname, { all: true });
+  return records.map((r) => r.address);
+}
+
+/**
  * Cloud TEST may not turn the VPS into a loopback / metadata scanner.
  * RFC1918 is allowed: a user's engine may live on a network the relay can
  * already reach (the owner's own VPN path is the existence proof).
+ *
+ * Two layers, kept BOTH:
+ *  ① the literal-hostname / literal-IP string check — cheap, and it cannot be
+ *    fooled by a DNS answer because it never asks DNS anything;
+ *  ② resolve-then-check — a hostname is judged by what it ACTUALLY resolves
+ *    to, so `metadata.flowmic-attacker.example` pointed at 169.254.169.254 is
+ *    refused exactly like the literal address is.
+ * 🔴 What this does NOT close: DNS rebinding between this check and the
+ * connect `probeStt` performs a few milliseconds later (the resolver could
+ * answer safely here and answer 169.254.169.254 on the next lookup). Closing
+ * that needs the actual dial pinned to the address checked here — the probe's
+ * real network call lives inside per-engine transports (stt/engines/*.ts, one
+ * fetch-based or ws-based client per SttEngineId), not in this module, and
+ * pinning all of them was judged out of scope for this pass. Recorded here
+ * rather than silently left out (CLAUDE.md anti-façade discipline).
  */
-export function byokProbeEndpointAllowed(endpoint: string): { ok: true } | { ok: false; reason: string } {
+export async function byokProbeEndpointAllowed(
+  endpoint: string,
+  deps: ByokProbeEndpointDeps = {},
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const trimmed = endpoint.trim();
   if (trimmed === '') return { ok: false, reason: 'endpoint required' };
   let url: URL;
@@ -93,6 +179,31 @@ export function byokProbeEndpointAllowed(endpoint: string): { ok: true } | { ok:
   }
   if (host === '169.254.169.254' || host === 'metadata.google.internal') {
     return { ok: false, reason: 'this address is not a valid engine endpoint' };
+  }
+  const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  if (isIP(bareHost) !== 0) {
+    // A literal IP typed directly must be judged by RANGE, not just the three
+    // exact strings above — 127.0.0.2 or ::ffff:169.254.169.254 are not
+    // byte-for-byte "127.0.0.1" / "169.254.169.254" but are the same address
+    // class.
+    if (isBlockedAddress(bareHost)) return { ok: false, reason: 'this address is not a valid engine endpoint' };
+    return { ok: true };
+  }
+  // RESOLVE-THEN-CHECK: the string checks above cannot see a hostname whose
+  // DNS answer IS 169.254.169.254 — this is the fix for that gap.
+  let addresses: string[];
+  try {
+    addresses = await (deps.resolveHost ?? defaultResolveHost)(bareHost);
+  } catch (err) {
+    return { ok: false, reason: `endpoint host could not be resolved: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (addresses.length === 0) {
+    return { ok: false, reason: 'endpoint host could not be resolved' };
+  }
+  for (const address of addresses) {
+    if (isBlockedAddress(address)) {
+      return { ok: false, reason: 'this address is not a valid engine endpoint' };
+    }
   }
   return { ok: true };
 }

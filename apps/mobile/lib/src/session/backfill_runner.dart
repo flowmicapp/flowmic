@@ -259,26 +259,72 @@ class BackfillRunner {
   /// it returns false and leaves the bytes alone. A later sweep will find them
   /// again, which costs a second transcription and loses nothing; deleting on a
   /// timeout is the one choice here that could lose words.
+  ///
+  /// 🔴 P0-1 (2026-09-02 audit) — `sessionAcceptsPttDown` WAS THE PREDICATE
+  /// HERE, and it is the wrong one: it answers 「idle, or the JUST_DONE face」,
+  /// which is also what `state_machine.dart`'s own 15 s processing watchdog and
+  /// its terminal-`stt:error` stall (`_stallProcessing`) produce on their way
+  /// BACK TO IDLE. A stall is not a completion — no terminal final arrived, no
+  /// row was built — but this predicate could not tell the two apart, so an
+  /// engine hiccup made this function report 「done」 and the caller deleted a
+  /// stretch of audio that had never been transcribed. Only [SessionState
+  /// .justDone] is reachable exclusively through [FlowmicStateMachine
+  /// .onSttFinal] — a REAL terminal final — so it is the one state this
+  /// function may treat as settled.
+  ///
+  /// ⚠️ THE SYNCHRONOUS CASE, AND WHY IT IS CHECKED BEFORE SUBSCRIBING TO
+  /// ANYTHING: a terminal `stt:error` that arrived while capture was still
+  /// open is LATCHED (`onSttTerminalError`, RECORDING branch) and consumed the
+  /// instant `endBackfill()` — called by our caller one line above this
+  /// function — calls `fsm.onPttUp()`. That stall (PROCESSING → IDLE) and its
+  /// `sttStalled` event both fire synchronously, before this function has had
+  /// a chance to listen for anything. A generic `SessionState.processing` check
+  /// at entry, done ONCE, catches that miss: anything other than PROCESSING or
+  /// JUST_DONE at this exact instant means a stall already happened and there
+  /// is nothing left to wait for.
   Future<bool> _awaitSettled() async {
-    if (sessionAcceptsPttDown(_session.fsm.session)) return true;
+    final SessionState atEntry = _session.fsm.session;
+    if (atEntry == SessionState.justDone) return true;
+    if (atEntry != SessionState.processing) {
+      // A stall already ran to completion — and its own event already fired —
+      // before this function subscribed to anything. Say so and stop, rather
+      // than sitting out the full [_settleTimeout] waiting for an event that
+      // has already happened and gone.
+      diag('audio.backfill.stall', <String, Object?>{
+        'reason': 'synchronous',
+        'session': atEntry.name,
+      });
+      return false;
+    }
     final Completer<bool> done = Completer<bool>();
-    late final StreamSubscription<FlowmicStateSnapshot> sub;
+    late final StreamSubscription<FlowmicStateSnapshot> stateSub;
+    late final StreamSubscription<SttStall> stallSub;
     final Timer timer = Timer(_settleTimeout, () {
       if (!done.isCompleted) {
         diag('audio.backfill.settle_timeout', const <String, Object?>{});
         done.complete(false);
       }
     });
-    sub = _session.fsm.changes.listen((FlowmicStateSnapshot s) {
-      if (!done.isCompleted && sessionAcceptsPttDown(s.session)) {
+    stateSub = _session.fsm.changes.listen((FlowmicStateSnapshot s) {
+      if (!done.isCompleted && s.session == SessionState.justDone) {
         done.complete(true);
+      }
+    });
+    stallSub = _session.sttStalled.listen((SttStall stall) {
+      if (!done.isCompleted) {
+        diag('audio.backfill.stall', <String, Object?>{
+          'reason': stall.reason.name,
+          if (stall.code != null) 'code': stall.code,
+        });
+        done.complete(false);
       }
     });
     try {
       return await done.future;
     } finally {
       timer.cancel();
-      await sub.cancel();
+      await stateSub.cancel();
+      await stallSub.cancel();
     }
   }
 

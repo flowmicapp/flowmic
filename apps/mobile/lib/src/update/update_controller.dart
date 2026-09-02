@@ -294,24 +294,35 @@ class UpdateController extends ChangeNotifier {
     _download = null;
     _install = null;
     _notify();
-    UpdateCheckResult res;
+    // P2-7 (2026-09-02 audit) — WITHOUT THIS `finally`, a throw from
+    // `_prefs.setLastSuccessAt` (below) left `_checking` latched `true`
+    // forever: the guard at the top of this method then makes every LATER
+    // tap of "check now" a silent no-op — the button looks enabled (nothing
+    // here disabled it) but does nothing, which is a worse shape than a
+    // visibly-stuck spinner because nothing on screen says why. `_checker`
+    // itself is already guarded (the inner try below, unchanged) — this outer
+    // one covers the prefs write that guard never protected.
     try {
-      final String? mine = await _version.appVersion();
-      res = await _checker(currentVersion: mine);
-    } on Object catch (e) {
-      // checkForUpdate is contractually non-throwing, but a swapped-in checker might throw.
-      // 🔴 Collapsing to 「probably no update」 would be this chain's worst failure ⇒ named as 「unreachable」.
-      res = UpdateCheckResult(UpdateCheckOutcome.unreachable, detail: 'checker_threw:$e');
+      UpdateCheckResult res;
+      try {
+        final String? mine = await _version.appVersion();
+        res = await _checker(currentVersion: mine);
+      } on Object catch (e) {
+        // checkForUpdate is contractually non-throwing, but a swapped-in checker might throw.
+        // 🔴 Collapsing to 「probably no update」 would be this chain's worst failure ⇒ named as 「unreachable」.
+        res = UpdateCheckResult(UpdateCheckOutcome.unreachable, detail: 'checker_threw:$e');
+      }
+      _result = res;
+      // The credential only refreshes when a version comparison genuinely happened. A failed attempt must not touch it — see file header.
+      final DateTime? at = res.comparedAt;
+      if (at != null) {
+        _lastSuccessAt = at;
+        await _prefs.setLastSuccessAt(at);
+      }
+    } finally {
+      _checking = false;
+      _notify();
     }
-    _result = res;
-    // The credential only refreshes when a version comparison genuinely happened. A failed attempt must not touch it — see file header.
-    final DateTime? at = res.comparedAt;
-    if (at != null) {
-      _lastSuccessAt = at;
-      await _prefs.setLastSuccessAt(at);
-    }
-    _checking = false;
-    _notify();
   }
 
   // ── UP-2b: download → verify → hand off to the system installer ─────────────────────────────────

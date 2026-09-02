@@ -17,12 +17,22 @@
 // wired (a multi-node replica): a token this node's database does not have is a
 // MAYBE rather than a no, because replication makes rows arrive late. The miss
 // path asks the writer once, lands the rows locally, and repeats the same local
-// lookup. Every failure of that — no seam, unreachable writer, an authoritative
-// 「never heard of it」 — falls back to exactly the refusal above.
+// lookup.
+//
+// 🔴 CORRECTION (A11/F2-a, WP-8, 2026-09-02): the line this replaces said every
+// failure of that "falls back to exactly the refusal above" (AUTH_TOKEN_
+// INVALID). That was the defect: an unreachable writer, a spent budget and an
+// authoritative "never heard of it" are not the same fact, and only the last
+// one licenses deleting a credential. No seam at all (single node / the
+// writer) still falls back to AUTH_TOKEN_INVALID — that miss IS authoritative
+// by construction. Everything past a wired seam that is NOT a confirmed
+// absence now answers AUTH_TOKEN_UNVERIFIABLE — see `TokenReadThroughSeam`'s
+// doc just below and `node/token-read-through.ts`'s `TokenReadThroughOutcome`.
 
 import { PROTOCOL_SCHEMA_VERSION, type Plan } from '@flowmic/protocol';
 import { isValidTokenShape } from './token';
 import { verifyJwt, JwtError } from './jwt';
+import { logAuthRefusal } from './refusal-log';
 
 /** GRANT-1 (2026-08-11): 'web' is the THIRD kind — a browser session holding a
  *  valid account JWT and no device credential. It exists so the timeline grant
@@ -82,9 +92,20 @@ export interface TokenLookup {
  * `resolve` resolves `true` when the rows are now local. It NEVER rejects — see
  * node/token-read-through.ts, where every failure is turned into `false`
  * precisely so this file cannot grow a catch that decides what an outage means.
+ *
+ * 🔴 A11/F2-a (WP-8, 2026-09-02) — `resolveDetailed` is additive on this seam,
+ * kept OPTIONAL so `mobile.handler.ts`'s existing `resolve()`-only usage needs
+ * no change. When present (the real `TokenReadThrough` always provides it —
+ * see its own file), this middleware uses it to tell "the writer confirmed
+ * this token does not exist" apart from "nothing could be confirmed either
+ * way", and answers the latter with `AUTH_TOKEN_UNVERIFIABLE` instead of
+ * `AUTH_TOKEN_INVALID`. The two phone/desktop credential-deletion paths both
+ * key on the exact code string, so this is the ONE place that gets to decide
+ * which of the two a replica's local miss becomes.
  */
 export interface TokenReadThroughSeam {
   resolve(token: string): Promise<boolean>;
+  resolveDetailed?(token: string): Promise<'landed' | 'writer-confirmed-absent' | 'unverifiable'>;
 }
 
 /** Fold any non-positive-integer (incl. absent) client schema_ver to legacy=1;
@@ -125,15 +146,23 @@ interface AccountData {
  *  (04 §2: the negotiation result never causes a connection refusal) — a
  *  bad/expired JWT leaves the socket unauthenticated and an identity-required op
  *  fails loud later with the recorded code (AUTH_TOKEN_INVALID / AUTH_TOKEN_EXPIRED
- *  per the frozen contract). */
-function resolveHandshakeJwt(rawJwt: unknown, jwt: JwtHandshakeConfig, data: Record<string, unknown>): void {
+ *  per the frozen contract).
+ *
+ * 🔴 OPS-1 (2026-09-02): this failure used to be invisible — `data.accountAuthError`
+ * is read much later (the pc:reconnect zombie-room gate, `resolveActingUser`),
+ * so nothing ever logged the moment the JWT itself failed to verify. `kind` is
+ * deliberately null here: at this point in the handshake the socket has not
+ * yet declared/resolved pc vs mobile vs web. */
+function resolveHandshakeJwt(rawJwt: unknown, jwt: JwtHandshakeConfig, data: Record<string, unknown>, nodeId?: string | null): void {
   if (typeof rawJwt !== 'string' || rawJwt.length === 0) return; // no JWT → not an account socket
   try {
     const claims = verifyJwt(rawJwt, { secret: jwt.secret, now: jwt.nowMs ?? Date.now });
     data.account = { userId: claims.sub, plan: claims.plan, exp: claims.exp } satisfies AccountData;
   } catch (err) {
     data.account = null;
-    data.accountAuthError = err instanceof JwtError && err.code === 'JWT_EXPIRED' ? 'AUTH_TOKEN_EXPIRED' : 'AUTH_TOKEN_INVALID';
+    const code = err instanceof JwtError && err.code === 'JWT_EXPIRED' ? 'AUTH_TOKEN_EXPIRED' : 'AUTH_TOKEN_INVALID';
+    data.accountAuthError = code;
+    logAuthRefusal({ code, where: 'handshake-jwt', kind: null, node: nodeId, token: rawJwt });
   }
 }
 
@@ -170,6 +199,10 @@ export function authMiddleware(
   lookup: TokenLookup,
   jwt?: JwtHandshakeConfig,
   readThrough?: TokenReadThroughSeam,
+  /** OPS-1 (2026-09-02): this node's id (`nodeConfig.nodeId`), purely for the
+   *  refusal log lines below — it never gates anything. Absent on a
+   *  single-node deployment, same as everywhere else this repo threads it. */
+  nodeId?: string | null,
 ): (socket: unknown, next: Next) => void {
   return (socketUnknown: unknown, next: Next): void => {
     const socket = socketUnknown as HandshakeShape;
@@ -178,7 +211,7 @@ export function authMiddleware(
     // saas: resolve the optional account JWT first (sets data.account or records
     // the failure). The opaque device/mobile token path below is independent and
     // owns the next() call — a standalone reconnect is entirely unaffected.
-    if (jwt) resolveHandshakeJwt(socket.handshake?.auth?.jwt, jwt, data);
+    if (jwt) resolveHandshakeJwt(socket.handshake?.auth?.jwt, jwt, data, nodeId);
     const rawToken = socket.handshake?.auth?.token;
 
     // No token → register / pair flows connect first (auth stays null)…
@@ -221,7 +254,17 @@ export function authMiddleware(
       next();
       return;
     }
+    // OPS-1 (2026-09-02): every branch below that calls `next(new Error(code))`
+    // now also calls `refuseWithLog(code)` first — same code, same tick, the
+    // only addition is a `log.warn` line (rate-limited, see refusal-log.ts).
+    // `kind` is null: at the handshake, a REFUSED token never got far enough
+    // for `resolveLocally` to say pc vs mobile.
+    const tokenForLog = typeof rawToken === 'string' ? rawToken : null;
+    const refuseWithLog = (code: 'AUTH_TOKEN_INVALID' | 'AUTH_TOKEN_UNVERIFIABLE'): void => {
+      logAuthRefusal({ code, where: 'handshake-token', kind: null, node: nodeId, token: tokenForLog });
+    };
     if (!isValidTokenShape(rawToken)) {
+      refuseWithLog('AUTH_TOKEN_INVALID');
       next(new Error('AUTH_TOKEN_INVALID'));
       return;
     }
@@ -244,7 +287,35 @@ export function authMiddleware(
       // lookup above. If any part of that does not work, we land back on this
       // same refusal.
       if (!readThrough) {
+        refuseWithLog('AUTH_TOKEN_INVALID');
         next(new Error('AUTH_TOKEN_INVALID'));
+        return;
+      }
+      // 🔴 A11/F2-a (WP-8, 2026-09-02) — prefer the tri-state form when the
+      // seam offers it (the real TokenReadThrough always does; only a test
+      // double built against the narrower interface would not). Only a
+      // WRITER-CONFIRMED absence is answered AUTH_TOKEN_INVALID; every other
+      // miss — unreachable writer, spent budget, rows that would not land —
+      // is answered AUTH_TOKEN_UNVERIFIABLE, a retryable code neither the
+      // phone nor the desktop treats as licence to delete the credential.
+      if (readThrough.resolveDetailed) {
+        void readThrough.resolveDetailed(rawToken).then(
+          (outcome) => {
+            if (outcome === 'landed' && resolveLocally(lookup, rawToken, data)) {
+              next();
+              return;
+            }
+            const code = outcome === 'writer-confirmed-absent' ? 'AUTH_TOKEN_INVALID' : 'AUTH_TOKEN_UNVERIFIABLE';
+            refuseWithLog(code);
+            next(new Error(code));
+          },
+          // Unreachable by contract (the seam never rejects) and wired anyway:
+          // an unhandled rejection here would leave `next` uncalled, and a
+          // handshake that is never answered is the ONE failure this path
+          // must not have. Landing here means the seam itself misbehaved, not
+          // that the token is bad — AUTH_TOKEN_UNVERIFIABLE, not INVALID.
+          () => { refuseWithLog('AUTH_TOKEN_UNVERIFIABLE'); next(new Error('AUTH_TOKEN_UNVERIFIABLE')); },
+        );
         return;
       }
       void readThrough.resolve(rawToken).then(
@@ -253,14 +324,16 @@ export function authMiddleware(
             next();
             return;
           }
+          refuseWithLog('AUTH_TOKEN_INVALID');
           next(new Error('AUTH_TOKEN_INVALID'));
         },
         // Unreachable by contract (the seam never rejects) and wired anyway: an
         // unhandled rejection here would leave `next` uncalled, and a handshake
         // that is never answered is the ONE failure this path must not have.
-        () => next(new Error('AUTH_TOKEN_INVALID')),
+        () => { refuseWithLog('AUTH_TOKEN_INVALID'); next(new Error('AUTH_TOKEN_INVALID')); },
       );
     } catch (err) {
+      refuseWithLog('AUTH_TOKEN_INVALID');
       const wrapped = new Error('AUTH_TOKEN_INVALID');
       (wrapped as Error & { cause?: unknown }).cause = err;
       next(wrapped);

@@ -515,7 +515,7 @@ watch(
              CAPSULE_HEIGHT.just_injected is EXACT, not a model). Same word, consistent
              in both places; a difference in verbosity is not drift. -->
         <span class="oktxt">{{ state.injected?.confirmed ? S.cap_injected : S.cap_delivered }} {{ S.to }} {{ state.injected?.target || targetText }}</span>
-        <span class="oksub" v-if="state.injected">{{ state.injected.chars }} {{ S.cap_chars }} · {{ state.injected.seconds.toFixed(1) }} {{ S.cap_secs }}</span>
+        <span class="oksub" v-if="state.injected?.metrics">{{ state.injected.metrics.chars }} {{ S.cap_chars }} · {{ state.injected.metrics.seconds.toFixed(1) }} {{ S.cap_secs }}</span>
       </div>
     </div>
 

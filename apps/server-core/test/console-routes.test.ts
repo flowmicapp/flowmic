@@ -133,35 +133,26 @@ describe('console: logout (① acknowledgement, NOT revocation)', () => {
 });
 
 describe('console: password reset (② forgot + reset rotation)', () => {
-  // 0.3.0 M1 — the reset_token echo is DARK by default. The old single echo test
-  // is split in two (flag on / flag off), and the flag-off half is the redline:
-  // echoing the token to an anonymous caller is a 2-request account takeover of
-  // any known email.
-  afterEach(() => {
-    delete process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO;
-  });
+  // 🔴 2026-09-02 — `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` IS DELETED, not merely
+  // defaulted off (owner ordered it removed —
+  // docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+  // questions.md §3, problem 1). There is exactly ONE shape left for this
+  // route to answer in, and the test below is the redline: echoing the token
+  // to an anonymous caller was a 2-request account takeover of any known
+  // email. A test reading the token WITHOUT a wire echo — for a harness that
+  // has no real mailbox — now goes through mail/file.ts
+  // (FLOWMIC_MAIL_PROVIDER=file), exercised in
+  // test/mail-password-reset.test.ts.
 
-  /** The persisted pending reset — the row a future mail channel (card M2) will
-   *  read. Fetching it here is the production-shaped way to get a token now that
-   *  the wire no longer carries one by default. */
+  /** The persisted pending reset — the row the mail channel reads to build the
+   *  link. Fetching it here is the production-shaped way to get a token: the
+   *  wire never carries one, in any configuration. */
   function mintedReset(handle: BootstrapHandle, userId: string): { reset_token: string; expires_at: string } {
     const row = handle.db.settings.read(userId, 'account.password_reset');
     return (row?.value ?? {}) as { reset_token: string; expires_at: string };
   }
 
-  it('forgot for a KNOWN email with FLOWMIC_INTERNAL_RESET_TOKEN_ECHO=1 → 200 {ok, reset_token, expires_at} (flag-gated internal echo)', async () => {
-    process.env.FLOWMIC_INTERNAL_RESET_TOKEN_ECHO = '1';
-    const { url } = await saasServer();
-    await registerUser(url, 'known@b.co');
-    const { status, json } = await post(`${url}/api/password/forgot`, { email: 'known@b.co' });
-    expect(status).toBe(200);
-    expect(json.ok).toBe(true);
-    expect(typeof json.reset_token).toBe('string');
-    expect(json.reset_token.length).toBeGreaterThan(10);
-    expect(typeof json.expires_at).toBe('string');
-  });
-
-  it('🔴 forgot for a KNOWN email with the flag OFF (default) → BYTE-IDENTICAL to the unknown-email response; token persisted, never on the wire', async () => {
+  it('🔴 forgot for a KNOWN email → BYTE-IDENTICAL to the unknown-email response; token persisted, never on the wire', async () => {
     const { url, handle } = await saasServer();
     const { id } = await registerUser(url, 'dark@b.co');
     // Raw text, not parsed JSON: 「byte-identical」 is the anti-enumeration
@@ -343,8 +334,8 @@ describe('console: device + pairing management (④)', () => {
   });
 
   // 🔴 owner 2026-08-02 (PC instances 2/3/10) — "counts and ceilings must share one source, must not drift"
-  // (room/registry.ts:115 `isRealPc`, written after the console and the quota path disagreed
-  // about what a PC even is). The console cannot derive the ceiling from the tier
+  // (room/registry-shared.ts:74 `isRealPc`, written after the console and the quota path disagreed
+  // about what a PC even is; moved out of registry.ts verbatim by WP-9's file-size split). The console cannot derive the ceiling from the tier
   // NAME: an exempt account resolves to plan 'free' with ∞ machines, so a browser
   // computing "free ⇒ 2" would print a wall owner is not behind. This asserts the
   // route reports the SOLVER's number, with the exemption as the reverse control —

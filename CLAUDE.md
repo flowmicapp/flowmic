@@ -31,7 +31,7 @@
 > alike; most of this codebase was written by agents under these rules, and the
 > rules exist because each one was paid for with a real bug.
 
-**Current version: <!--version:current-->0.3.55<!--/version:current-->**
+**Current version: <!--version:current-->0.3.58<!--/version:current-->**
 
 ## What this is
 
@@ -148,6 +148,33 @@ The team is mixed Chinese/English. The split is by artefact, not by author:
 - **User-facing product copy is out of scope.** The four-language strings in
   `AppStrings` and `error-codes.ts` are governed by the i18n lint; do not touch
   any language of a user-visible string because of this rule.
+
+### Copy a person would actually have written
+
+Every string a user reads — in all nine interface languages, in the README, in a
+release note — has to read as though a human wrote it for the person in front of
+them. Two failure families, and they need different fixes:
+
+- **The register of a machine or of an internal document.** Aphorisms,
+  sentences that hedge the page's own accuracy instead of being accurate,
+  mechanically parallel three-part structures, hype adjectives, or the writer
+  talking to a colleague instead of to a user.
+- **Translationese.** A translation can be accurate and still be something no
+  native speaker would ever type: literal calques of English structure,
+  redundant pronouns, stiff officialese where the product speaks plainly. The
+  term-list lint cannot see this — a machine-translated sentence carries no
+  banned word, matches no template, and has no em-dashes at all.
+
+The full contract, with real examples from this repository, is
+`docs/rebuild/21-OUTWARD-COPY-VOICE-CONTRACT.md` (§2 and §2-5).
+
+Two boundaries that matter more than the rule itself:
+
+- **UI microcopy is allowed to be terse, verbless and blunt.** Short is not a
+  defect. "Recording stopped." is good copy.
+- **Do not sweep.** Fix the sentence you were already working on. A tone pass
+  must never delete a product claim to make a sentence read better: claims may
+  move (and keep a link), never vanish.
 
 ### One value answers one question
 

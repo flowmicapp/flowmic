@@ -114,11 +114,10 @@ export class SttSessionBridge implements SttOrchestrator {
 
     this.wireEvents();
     this.session.start();
-    const input: StartInput = {
-      language: deps.sourceLang,
-      mode: deps.mode,
-      ...(deps.targetLang !== undefined ? { target_lang: deps.targetLang } : {}),
-    };
+    // card P2-5/WP-1: `target_lang` used to be spread in here conditionally.
+    // Deleted along with the `StartInput.target_lang` field it fed — nothing
+    // in orchestrator-core.ts ever read it back (see that type's own header).
+    const input: StartInput = { language: deps.sourceLang, mode: deps.mode };
     // Engine connect is async; spawn failures already surface via the 'error'
     // handler (→ stt:error). Catch the rejection so a connect failure is never
     // an unhandled promise rejection (fail-loud already happened via emit).

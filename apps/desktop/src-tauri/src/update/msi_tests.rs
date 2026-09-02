@@ -140,6 +140,49 @@ fn a_declined_uac_prompt_still_gives_the_user_their_application_back() {
     );
 }
 
+/// P1 (2026-09-02 audit §3-D): the ORDERING, not just the end state.
+///
+/// `launch` starts a NEW FlowMic that reads this SAME breadcrumb on its own
+/// boot — the previous test only checks the detail is right AFTER
+/// `run_install_with` returns, which cannot tell an ordering bug from a
+/// correct one when `launch` is a fake that does not itself look at the
+/// filesystem. This one makes the fake `launch` closure READ the breadcrumb
+/// AT THE MOMENT it is invoked (standing in for the new process's own
+/// startup read) and asserts the annotation is ALREADY there — i.e. that
+/// `note_outcome_for` for the refused case runs BEFORE `launch`, not after.
+///
+/// **Reverse control**: move the `if !ok { note_outcome_for(...) }` block
+/// back to AFTER `match launch(...)` (the pre-fix shape) and this test's
+/// assertion inside the closure fails — the closure runs before that
+/// now-later `note_outcome_for` call, so it observes `None`.
+#[test]
+fn the_refusal_is_on_the_breadcrumb_before_the_new_process_can_read_it() {
+    let dir = scratch("order");
+    let j = job();
+    write_crumb(&dir, &j.to);
+    let seen_detail_at_launch_time: RefCell<Option<Option<String>>> = RefCell::new(None);
+    let dir_for_closure = dir.clone();
+
+    let out = run_install_with(
+        &j,
+        &dir,
+        |_| Ok(Some(1602)), // declined UAC — installer refused
+        |_| true,
+        |_| {
+            *seen_detail_at_launch_time.borrow_mut() = Some(crumb_detail(&dir_for_closure));
+            Ok(7)
+        },
+    );
+
+    assert_eq!(out, InstallOutcome::RefusedButRelaunched { code: Some(1602) });
+    assert_eq!(
+        seen_detail_at_launch_time.into_inner(),
+        Some(Some("installer_refused:1602".to_string())),
+        "the breadcrumb must already say installer_refused by the time `launch` runs — \
+         a new FlowMic process could read it that early",
+    );
+}
+
 /// msiexec would not start at all. Nothing was installed, so the old build is
 /// intact — start it.
 #[test]

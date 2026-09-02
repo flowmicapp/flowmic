@@ -223,3 +223,65 @@ fn the_dos_timestamp_encodes_a_real_instant() {
     let (_, early) = dos_datetime(0);
     assert_eq!((early >> 9) + 1980, 1980);
 }
+
+// ── P2 (2026-09-02 audit): no ZIP64, so a >4 GiB field must be a NAMED
+//    refusal, never a silently wrapped `as u32` ────────────────────────────
+
+#[test]
+fn an_entry_over_4gib_is_refused_named_not_silently_truncated() {
+    let p = tmp("too-large-entry");
+    let mut w = ZipWriter::create(&p).expect("create");
+    let huge = (u32::MAX as u64) + 1;
+    let err = w
+        .begin("big.bin", huge, 0, 1_754_000_000)
+        .expect_err("a >4 GiB declared size must be refused before any header is written");
+    assert_eq!(err.tag(), "too_large");
+    assert!(err.detail().contains("big.bin"), "{}", err.detail());
+}
+
+#[test]
+fn reverse_control_a_4gib_minus_one_entry_is_accepted_at_the_boundary() {
+    // NEGATIVE CONTROL for the test above: the limit is `> u32::MAX`, not
+    // `>= u32::MAX`, so the boundary value itself must still be accepted.
+    // Without this, a version of the guard that rejected EVERYTHING (or
+    // rejected one byte too early) would still pass the positive test.
+    let p = tmp("boundary-entry");
+    let mut w = ZipWriter::create(&p).expect("create");
+    assert!(
+        w.begin("edge.bin", u32::MAX as u64, 0, 1_754_000_000).is_ok(),
+        "exactly u32::MAX bytes must still fit a 32-bit length field"
+    );
+}
+
+#[test]
+fn an_entry_whose_local_header_would_start_past_4gib_is_refused() {
+    // Simulates an archive that has already grown past 4 GiB from EARLIER
+    // (small) entries, without actually writing 4 GiB of bytes in a test —
+    // `offset` is a private field this module's test child can reach directly.
+    let p = tmp("too-large-offset");
+    let mut w = ZipWriter::create(&p).expect("create");
+    w.offset = (u32::MAX as u64) + 1;
+    let err = w
+        .begin("late.bin", 4, 0, 1_754_000_000)
+        .expect_err("a local header starting past the 4 GiB mark cannot be addressed by ZIP32");
+    assert_eq!(err.tag(), "too_large");
+}
+
+#[test]
+fn a_central_directory_entry_forged_with_a_too_large_offset_is_refused_at_finish() {
+    // Belt-and-braces re-check in `finish()`: construct a `Central` directly
+    // (bypassing `begin`'s guard) to prove the SECOND check also fires, not
+    // only the first.
+    let p = tmp("too-large-cd-offset");
+    let mut w = ZipWriter::create(&p).expect("create");
+    w.entries.push(Central {
+        name: "forged.bin".to_string(),
+        crc: 0,
+        size: 4,
+        offset: (u32::MAX as u64) + 1,
+        dos_time: 0,
+        dos_date: 0,
+    });
+    let err = w.finish().expect_err("a forged too-large offset must still be refused");
+    assert_eq!(err.tag(), "too_large");
+}

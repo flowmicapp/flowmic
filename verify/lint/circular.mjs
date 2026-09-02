@@ -39,10 +39,15 @@ function isWorkspaceSrc(relPath) {
   return /(^|\/)src\//.test(relPath) && TS_EXT.has(path.extname(relPath));
 }
 
-async function buildGraph() {
+// `rootsAbs` defaults to the real workspace globs (added 2026-09-02, B2-A) so
+// a drill can point this at a disposable fixture tree instead of walking
+// packages/**+apps/** — same walk, same import-resolution, same comment
+// stripping. `buildGraph()` below is a thin wrapper calling this with the
+// real roots.
+export async function buildGraphFrom(rootsAbs) {
   const files = [];
-  for (const g of SRC_GLOBS) {
-    for (const abs of await walk(path.join(ROOT, g))) {
+  for (const rootAbs of rootsAbs) {
+    for (const abs of await walk(rootAbs)) {
       const r = rel(abs);
       if (isWorkspaceSrc(r) && TS_EXT.has(path.extname(abs))) {
         files.push(abs);
@@ -67,7 +72,7 @@ async function buildGraph() {
 }
 
 // Iterative Tarjan SCC.
-function tarjan(adj) {
+export function tarjan(adj) {
   let index = 0;
   const idx = new Map();
   const low = new Map();
@@ -120,14 +125,14 @@ function tarjan(adj) {
   return sccs;
 }
 
-function selfLoops(adj) {
+export function selfLoops(adj) {
   const loops = [];
   for (const [v, ns] of adj) if (ns.includes(v)) loops.push(v);
   return loops;
 }
 
 export default async function run() {
-  const adj = await buildGraph();
+  const adj = await buildGraphFrom(SRC_GLOBS.map((g) => path.join(ROOT, g)));
   if (adj.size === 0) {
     return { status: 'SKIP', detail: 'no workspace TS sources under */src' };
   }

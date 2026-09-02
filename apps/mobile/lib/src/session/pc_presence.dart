@@ -139,8 +139,8 @@ typedef PcPresenceRow = ({
   bool pairingRejected,
 });
 
-/// The two codes the server sends back to the phone when 「there is no PC in the
-/// room」. Receiving them IS **measured evidence the PC is absent** —
+/// The code the server sends back to the phone when 「there is no PC in the
+/// room」. Receiving it IS **measured evidence the PC is absent** —
 /// this is currently the only path that **actively tells the phone mid-session that
 /// the PC left**
 /// (`relay.handler.ts`'s `answerReject('INJECT_PC_OFFLINE', …)` /
@@ -152,21 +152,52 @@ typedef PcPresenceRow = ({
 /// here」.
 /// Also deliberately does not include `PC_BUSY` — that code's whole premise IS that
 /// the **PC is online** (some other phone is occupying it).
-const Set<String> kPcAbsentInjectCodes = <String>{
-  'INJECT_PC_OFFLINE',
-  'INJECT_NOT_IN_ROOM',
-};
+///
+/// 🔴 Card F7/F1-a (2026-09-02) — **`INJECT_NOT_IN_ROOM` used to be a member,
+/// and that was a testimony error, not a design choice.** The registry
+/// (`error-codes.ts`) says what the code means: 「Connection not ready (not in
+/// a session yet); retry shortly」 — it is the answer to 「is THIS SOCKET in
+/// the room」, produced the instant a request lands after a reconnect but
+/// before `mobile:reconnect`'s round trip has landed. It says nothing about
+/// the PC at all, and it fires on the phone's OWN reconnect edge — so the one
+/// moment this code is likeliest is the one moment the header would flash
+/// "PC offline" for a computer that never left.
+const Set<String> kPcAbsentInjectCodes = <String>{'INJECT_PC_OFFLINE'};
 
 /// The **testimony** one `inject:result` gives on the question 「is the PC here or
 /// not」, `null` = this one has no testimony.
 ///
 /// This is a **read** function, not a second definition of the criterion: it only
 /// reads [kPcAbsentInjectCodes] back out.
-PcPresence? pcPresenceFromInjectResult({required bool ok, String? error}) {
+///
+/// 🔴 Card B3 (2026-09-02, WP-6) — [node] / [homeNode] are the same pair
+/// `presenceAnswerIsAboutAnotherNode` (session/presence_route.dart) already
+/// uses for the idle-poll leg, applied here to the OTHER path that can paint
+/// `offline`: `INJECT_PC_OFFLINE` is authored from "no PC in THIS node's
+/// room", which on a multi-node deployment answers a question about the node,
+/// not the computer, whenever the PC's actual home is somewhere else. When
+/// both are present and disagree, this frame's testimony is downgraded to "no
+/// testimony" (`null`) rather than `offline` — the SAME safe direction the
+/// poll's `wrongNode` gate takes, so the hold (liveness_hold.dart) keeps
+/// whatever was last actually established instead of acquiring a new, wrong
+/// certainty. Either field absent means "cannot tell" and must never be read
+/// as agreement — a stale/never-set [homeNode] must not silently license every
+/// future `offline` reading.
+PcPresence? pcPresenceFromInjectResult({
+  required bool ok,
+  String? error,
+  String? node,
+  String? homeNode,
+}) {
   if (ok) return PcPresence.online; // only the PC itself can produce a successful receipt
   final String? code = error;
   if (code == null || code.isEmpty) return null;
-  if (kPcAbsentInjectCodes.contains(code)) return PcPresence.offline;
+  if (kPcAbsentInjectCodes.contains(code)) {
+    final bool bothKnown = node != null && node.isNotEmpty
+        && homeNode != null && homeNode.isNotEmpty;
+    if (bothKnown && node != homeNode) return null;
+    return PcPresence.offline;
+  }
   // The remaining refusal codes (frame too large / ID crosstalk / no focus …) are
   // all cases where **the PC or the server said something**,
   // but only the ones the PC itself produced can prove it is present. A
@@ -271,8 +302,23 @@ class PcPresenceTracker {
   void noteFocusState() => _set(PcPresence.online);
 
   /// The testimony of one `inject:result` (do nothing if there is no testimony).
-  void noteInjectResult({required bool ok, String? error}) {
-    final PcPresence? says = pcPresenceFromInjectResult(ok: ok, error: error);
+  ///
+  /// [node] / [homeNode] (Card B3, WP-6) are optional and pass straight
+  /// through to [pcPresenceFromInjectResult] — see that function's doc for
+  /// what they change. Omitted callers (an old server, a frame that never
+  /// carried them) keep today's behaviour exactly.
+  void noteInjectResult({
+    required bool ok,
+    String? error,
+    String? node,
+    String? homeNode,
+  }) {
+    final PcPresence? says = pcPresenceFromInjectResult(
+      ok: ok,
+      error: error,
+      node: node,
+      homeNode: homeNode,
+    );
     if (says != null) _set(says);
   }
 

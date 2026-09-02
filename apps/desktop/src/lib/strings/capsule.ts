@@ -123,7 +123,6 @@ export const CAPSULE_KEYS = [
    *  See capsule/controller.ts `deriveSessionTitle`; 卡 D-a corrected this doc,
    *  which used to cite an `audio:start.device_label` that does not exist. */
   'cap_session_default',
-  'cap_reconnect',
   'cap_diag',
   'cap_settings',
   'cap_dismiss',

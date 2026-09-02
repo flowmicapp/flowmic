@@ -118,21 +118,24 @@ function statedStamp(container: Record<string, unknown>, key: string): string | 
   return normalizeRfc3339(stated) ?? undefined;
 }
 
-/** The webhook envelope every Paddle notification shares.
+/** The webhook envelope every provider's notification shares, re-exported here
+ *  for callers that reach it through the Paddle-specific module path.
  *
- *  ⚠️ AN ALIAS SINCE 2026-08-29, not a second shape. The envelope is identical
- *  at both providers once parsed — that is WHY the seven-step pipeline could be
- *  shared — and the name is kept because ~20 call sites and two test files spell
- *  it, and renaming them would put a large mechanical diff in front of the
- *  reviewer of a billing change. What each field is filled FROM differs per
- *  provider and is documented at each parser.
+ *  ⚠️ ONE SHAPE, NOT TWO. The envelope is identical at both providers once
+ *  parsed — that is WHY the seven-step pipeline could be shared. What each
+ *  field is filled FROM differs per provider and is documented at each parser.
+ *
+ *  🔴 2026-09-02 audit F9 — this file used to ALSO export a `PaddleEnvelope`
+ *  type alias (`= WebhookEnvelope`) with a comment arguing it was "kept
+ *  because ~20 call sites and two test files spell it". Grepped: zero call
+ *  sites anywhere in apps/ or packages/, dead. Deleted rather than kept —
+ *  the comment describing why it existed was itself the exact "past comment
+ *  nobody re-checked" shape this repo's anti-façade rule exists to catch.
  *
  *  🔴 `notification_id` IS ALWAYS NULL FOR CREEM. Paddle distinguishes the event
  *  from this delivery of it; Creem does not, so 「how many times did the provider
  *  send this」 is a question only one of the two can answer. Anything reading
  *  that column must not treat null as 「once」. */
-export type PaddleEnvelope = WebhookEnvelope;
-
 export type { EnvelopeParse, WebhookEnvelope } from '../webhook-types';
 
 export function parsePaddleEnvelope(raw: unknown): EnvelopeParse {

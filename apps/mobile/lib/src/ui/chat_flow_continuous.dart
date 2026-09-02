@@ -45,7 +45,20 @@ ContinuousOffer? _continuousOfferRouted(
     // `PttVisual.disabled` arm), and a second derivation here could disagree
     // with the bar sitting directly underneath this row.
     linkUp: visual != PttVisual.disabled,
+    // Owner ruling (2026-09-02): the entry is gated on a cloud sign-in before
+    // anything else. `s.widget.isSignedIn` is the SAME getter the 「+」 panel's
+    // Light-record tab reads (never a value snapshotted at build time — see
+    // its own doc on `ChatFlowPage`), so this cannot disagree with what that
+    // tab is showing at the same instant. Missing (feature not wired at all,
+    // e.g. a test harness that supplies `cloudSummary` without it) reads as
+    // signed out rather than guessing "yes" for a fact nobody answered.
+    signedIn: s.widget.isSignedIn?.call() ?? false,
     summary: account.summary,
+    // WP-9 — the live session's own channel fact (already tracked for the
+    // header chip / connection-diagnostics sheet), so a LAN recording is never
+    // judged against a cloud account's monthly balance (see the parameter's
+    // doc in continuous_offer.dart).
+    channel: s.controller.session.serverChannel.value,
   );
 }
 

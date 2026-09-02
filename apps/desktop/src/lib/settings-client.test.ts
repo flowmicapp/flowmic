@@ -97,6 +97,60 @@ describe('SettingsClient — 即改即存 200ms debounce + durable + fail-loud',
   });
 });
 
+// ── E4 (2026-09-02): isKeyPending must cover the debounce + in-flight window ──
+//
+// `isKeyPending` used to answer ONLY `dirty.has(key)` — "did the last flush
+// attempt fail". `applyServerSettings` (settings-model.ts) calls it to decide
+// whether an incoming server snapshot may overwrite a key: for the whole
+// 200ms debounce window AND for the whole of the in-flight network await, a
+// key the user had JUST edited was neither debounce-armed-and-checked nor
+// dirty, so `isKeyPending` said false and a same-tick server pull (triggered
+// by an UNRELATED key changing, since settings:list is a full snapshot) wrote
+// the pre-edit value straight back over the user's edit.
+describe('E4 — isKeyPending covers the debounce window and the in-flight flush', () => {
+  it('is true the instant an edit is made, before the 200ms debounce fires', () => {
+    const t = new RecordingTransport();
+    const c = new SettingsClient(t, new MemStore(), 200);
+    expect(c.isKeyPending('llm.config')).toBe(false); // nothing happened yet
+    c.setLlmConfig({ model: 'a' });
+    // REVERSE CONTROL for this line: reading only `dirty.has(key)` (the old
+    // body) returns false here — the debounce timer is armed, the flush has
+    // not even started, so `dirty` has never heard of this key.
+    expect(c.isKeyPending('llm.config')).toBe(true);
+  });
+
+  it('stays true for the entire in-flight network await, not just until dirty is set', async () => {
+    let resolveFlush: ((ok: boolean) => void) | null = null;
+    const t: SettingsTransport = {
+      settingsUpdate: () =>
+        new Promise<boolean>((resolve) => {
+          resolveFlush = resolve;
+        }),
+    };
+    const c = new SettingsClient(t, new MemStore(), 200);
+    c.setLlmConfig({ model: 'a' });
+    await vi.advanceTimersByTimeAsync(200); // debounce fires, flushKey() starts and awaits
+    expect(resolveFlush).not.toBeNull(); // sanity: the transport call is actually in flight
+    // The debounce timer is gone (flushKey already started) and `dirty` has not
+    // been touched yet (the await has not settled) — this is exactly the gap
+    // `inFlight` exists to cover.
+    expect(c.isKeyPending('llm.config')).toBe(true);
+    resolveFlush!(true);
+    await Promise.resolve(); // let flushKey's continuation run
+    expect(c.isKeyPending('llm.config')).toBe(false); // settled + succeeded
+  });
+
+  it('a settings:list pull inside the debounce window must not revert the edit (end-to-end shape)', () => {
+    // This is the actual defect, expressed the way applyServerSettings uses the
+    // flag: "is there a local edit that should win over this server value".
+    const t = new RecordingTransport();
+    const c = new SettingsClient(t, new MemStore(), 200);
+    c.setLlmConfig({ model: 'user-just-typed-this' });
+    const serverSnapshotIsStale = c.isKeyPending('llm.config');
+    expect(serverSnapshotIsStale).toBe(true); // ⇒ settings-model.ts must SKIP adopting the pull
+  });
+});
+
 // ── C3: this client is the SECOND writer of scenario.card, so it must stamp ───
 //
 // Before this card the desktop sent no `updated_at` at all. The consequence was

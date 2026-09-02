@@ -750,6 +750,20 @@ export class TimelineStore {
           process_name: result.inject_target.process_name,
           injected_at: result.inject_target.injected_at,
         };
+      } else {
+        // P2 #21 (2026-09-02) — this branch used to do nothing, which left
+        // `r.target` at whatever a PREVIOUS verdict on this SAME row (re-inject,
+        // RV-72's "two callers, one meaning") had written. A row re-injected
+        // successfully into a real window, then later re-injected again as a
+        // target-less ok:true (self-window injection / RV-83 disk replay — the
+        // same two producers capsule/controller.ts's onInjectResult names for
+        // exactly this shape, "NO FALLBACK TO state.target (F1a)") would show
+        // the FIRST attempt's window as this attempt's landing place. `target`
+        // answers "where did THIS verdict say it landed" — an absent
+        // `inject_target` on THIS verdict is not silence about the question,
+        // it is this verdict's own answer of "nowhere named," and the row must
+        // say that rather than repeat an older answer to a different question.
+        r.target = null;
       }
     } else {
       r.status = result.mode === 'cached' ? 'cached' : 'failed';

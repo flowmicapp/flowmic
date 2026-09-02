@@ -142,10 +142,10 @@ mixin ArticleStrings on AppStringsLeaves {
   String get nodePanelNote => _lfNodePanelNote;
   String get nodePanelMeasure => _lfNodePanelMeasure;
 
-  /// The three legs of 本机 → 边缘 → 节点. Separate strings rather than one
-  /// interpolated sentence so that a locale can order them however it reads.
+  /// The two legs the panel actually renders (本机 → 边缘, and the total).
+  /// Separate strings rather than one interpolated sentence so that a locale
+  /// can order them however it reads.
   String get nodeLegEdge => _lfNodeLegEdge;
-  String get nodeLegOrigin => _lfNodeLegOrigin;
   String get nodeLegTotal => _lfNodeLegTotal;
 
   /// The chip on the card: 「this is a long recording, not a note」.

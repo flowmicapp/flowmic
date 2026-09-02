@@ -323,6 +323,11 @@ class SettingsUpdateCard extends StatelessWidget {
         return _failure(strings.updateOwnVersionUnknown);
       case UpdateCheckOutcome.incompleteInfo:
         return _failure(strings.updateIncompleteInfo);
+      // Card (2026-09-02, findings-crossend-update.md item 1): a DIFFERENT
+      // sentence from the one above — nothing was verified and failed here,
+      // this deployment simply does not mention this platform yet.
+      case UpdateCheckOutcome.platformNotCovered:
+        return _failure(strings.updatePlatformNotCovered);
       case UpdateCheckOutcome.noManifestHere:
         return _failure(strings.updateNoManifestHere);
       case UpdateCheckOutcome.unavailable:

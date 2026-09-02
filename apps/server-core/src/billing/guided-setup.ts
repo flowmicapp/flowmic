@@ -117,11 +117,11 @@ export const GUIDED_SETUP_CONSENT_TEXT: Readonly<Record<string, { earlyStart: st
   // 🔴 WHY IT WAS SUPERSEDED, since that is the reusable part: its third
   // paragraph promised a PROPORTIONATE refund for a withdrawal 「after we have
   // started but before we finish」 — and the state machine had no such state,
-  // no calculation existed, and `retainableFraction()` returns 0 for
-  // subscriptions and was never on this path at all. The copy described a case
-  // the mechanism could not represent. owner's rules then removed the case
-  // entirely: a full refund is available until completion, so there is no
-  // partial one to compute.
+  // no calculation existed, and the retention on this path was always zero
+  // (billing/withdrawal.ts's header carries the CRD art. 14 argument for why).
+  // The copy described a case the mechanism could not represent. owner's
+  // rules then removed the case entirely: a full refund is available until
+  // completion, so there is no partial one to compute.
   'gs-1': {
     // ① CRD art. 7(3) — the express request.
     earlyStart:

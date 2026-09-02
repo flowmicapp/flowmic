@@ -40,9 +40,11 @@ import { errorPayload } from '../../errors';
 import { restrictionRefusalBody, restrictionVerdict, type RestrictionReader } from '../../auth/account-restriction';
 import type { WriterOnlyGuard } from '../../node/writer-only';
 import type { TokenReadThroughSeam } from '../../auth/middleware';
+import { logAuthRefusal } from '../../auth/refusal-log';
 import { getAuth, safeAck, setAuth, setCloudSession, setRoomUuid, type ActingIdentity } from '../wire';
 import { adoptAudioSession, peekAudioLastContiguousSeq } from '../../engine/audio-registry';
 import { clientIpFromHandshake } from '../../http/trusted-proxy';
+import { joinAndNotify, liveContender } from './mobile-room-admission';
 import { log } from '../../log';
 
 export interface MobileHandlerDeps {
@@ -134,100 +136,26 @@ export interface MobileHandlerDeps {
   /** Acting-user resolution for the cloud-instance variant (saas: handshake-JWT
    *  sub / in-session login; standalone never reaches this — it fails earlier). */
   resolveActingUser(socket: Socket): ActingIdentity;
-}
-
-/**
- * Put this socket in the room AS this pairing, then answer TWO independent
- * questions with TWO named booleans — never one value for both:
- *
- *   needsJoinAnnounce — should the PC hear `pc:mobile-joined`?
- *                    Whenever a socket TAKES THE SLOT: a first arrival
- *                    (`previous === null`) or a same-pairing socket SWAP.
- *   needsFocusSeed — should THIS socket hear the room's last `focus:state`?
- *                    Yes for every new socket: it has never been on the wire,
- *                    so a CHANGE-only mirror would leave its header blank until
- *                    the user happens to alt-tab (A-1 / owner 2026-07-29).
- *
- * The bug that made A-1: the early-return on `previous !== null` answered
- * needsFocusSeed with the announce question's answer. Silent reconnect (EMUI /
- * WiFi↔4G) then left the phone's destination as `—` for the whole session.
- *
- * 🔴 fix-001 (P0 red line "the capsule allows only one phone") — THE SAME COLLAPSE, A THIRD TIME, and
- * this one had a red line on it. The announce boolean used to be `isNewPresence`
- * = `previous === null`, i.e. it answered 「is this phone newly PRESENT?」 and was
- * then reused for 「may this SOCKET speak into the capsule?」. Those come apart
- * for exactly one input, and it is the one the owner hit:
- *
- *   1. second phone B joins → announced → the desktop's `Admission` REFUSES it →
- *      `pc:release-mobile{reason:'busy'}` → B suppressed 8 s and disconnected;
- *   2. B's dead socket STAYS in the slot — `leaveMobile` is deferred to the end of
- *      the GA-04 mobile-drop grace (~30 s). Deliberate, and the precondition here;
- *   3. B's ladder returns after the 8 s hold-out but INSIDE that grace ⇒ admitted,
- *      and `previous !== null` (the corpse) ⇒ **no announce** ⇒ the capsule verdict
- *      never runs again. `Admission::join` is reachable from `PC_MOBILE_JOINED` and
- *      from NOWHERE else (presence.rs) — no pull, no poll, no watchdog for this;
- *   4. when the grace expires, `leaveMobile(room, B, OLD_id)` correctly returns
- *      false (GA-26's displaced-socket guard: the slot holds a NEWER socket) ⇒ no
- *      `pc:mobile-left` either.
- *
- * ⇒ B squats on the capsule, invisible to the only layer allowed to refuse it.
- *   Real-device forensics (2026-08-11): `mobiles=2` for EIGHT MINUTES, both phones
- *   on the transcription screen, and the server's `released:1` true the whole time
- *   — it counts 「I closed a socket」, never 「that phone gave up the capsule」.
- *
- * WHY WIDENING IS SAFE, i.e. why GA-26 narrowed the wrong thing: GA-26's actual
- * fix was making the desktop's presence a SET keyed by mobile_id, and its own
- * header says in as many words that 「a duplicate joined (server re-announced a
- * reconnecting phone)」 is thereby harmless — `Reconciler::on_join` is an
- * idempotent insert, and `Admission::join` GRANTS the holder re-joining
- * (admission.rs, 「The SAME phone re-joining (a reconnect) is not a second
- * phone」). The desktop was hardened for this frame; suppressing it here bought
- * nothing and cost the verdict.
- *
- * Scope: a socket swap is per-server, so this cannot make a phone refuse ITSELF
- * across channels — the two channels are two servers with two RoomStores, and a
- * same-channel swap always lands on `Admission`'s Granted arm.
- *
- * The displaced socket is dropped here as well — one live link per pairing —
- * so it can neither be probed as alive (GA-07) nor speak into the room.
- */
-function joinAndNotify(
-  store: RoomStore<Socket>,
-  roomUuid: string,
-  mobile: { id: string; mobile_name: string },
-  socket: Socket,
-): void {
-  const { previous } = store.joinMobile(roomUuid, mobile.id, socket);
-  // Named separately on purpose — do not collapse these into one boolean again.
-  // 「Took the slot」, NOT 「is newly present」 — see the header: the capsule verdict
-  // is a question about THIS SOCKET, and the difference is the P0 red line.
-  const needsJoinAnnounce = previous === null || previous.id !== socket.id;
-  const needsFocusSeed = true; // every fresh socket; independent of presence
-
-  if (previous !== null && previous.id !== socket.id) {
-    previous.disconnect(true);
-  }
-
-  if (needsJoinAnnounce) {
-    const pc = store.getPc(roomUuid);
-    pc?.emit('pc:mobile-joined', {
-      mobile_id: mobile.id,
-      mobile_name: mobile.mobile_name,
-      room_uuid: roomUuid,
-    });
-  }
-
-  if (needsFocusSeed) {
-    // 2026-07-29 (owner: "the PC capsule shows the focus window, but it doesn't
-    // show above the phone's transcription screen — only appears after exiting
-    // and reconnecting"): `focus:state` is a CHANGE-only mirror, so a phone that arrives
-    // (or re-arrives on a new socket) between two foreground switches never
-    // learns the focus that is already true. The server replays what it holds
-    // on the SAME event — no new protocol, no PC/phone build. "Pushed state must
-    // also be pullable" — 0.2.x wrap-up §8-2.
-    const focus = store.getLastFocus(roomUuid);
-    if (focus) socket.emit('focus:state', focus);
-  }
+  /**
+   * 2026-09-02 (WP-6, B4) — REPLICA ONLY: ask the writer to perform a
+   * `mobile:unpair` this node cannot (node/writer-only.ts `registry.retireMobile`
+   * row — the phone's half of "a revoke that comes back", same class of defect
+   * `pc:release-mobile`'s `forwardReleaseMobile` closes for the PC's half).
+   *
+   * Before this existed, a phone that retired its own pairing on a replica was
+   * refused `NODE_IS_REPLICA` and had to dial the writer directly through
+   * `pairing.endpoint` — and if that endpoint pointed back at a replica after a
+   * follow (the common case once a phone has been routed to its PC's home
+   * node), the row survived forever with the phone told "did not reach server".
+   *
+   * Optional for the same reason `PcHandlerDeps.mintCodeOnWriter` is: absent
+   * means "nobody to ask" (the writer, every single-node deployment), and the
+   * caller falls back to the honest refusal.
+   */
+  forwardUnpairMobile?: (pairingId: string) => Promise<
+    | { status: 'ok'; result: { unpaired: boolean; mobile_id: string | null; pc_room_uuid: string | null } }
+    | { status: 'refused'; error: string }
+  >;
 }
 
 /** The client IP behind the socket, for the pair limiter's per-IP window
@@ -342,6 +270,10 @@ function refuseRestricted(deps: MobileHandlerDeps, userId: string, ack: unknown)
   // sentence written by ops ending up on the user's screen" is impossible here rather than merely avoided.
   const verdict = restrictionVerdict(deps.restriction, userId);
   if (verdict === null) return false;
+  // OPS-1 (2026-09-02) — the ONE call site for this refusal, so all three
+  // admission points it guards (mobile:pair cloud-instance, mobile:reconnect,
+  // mobile:unpair) log identically without each needing its own call.
+  logAuthRefusal({ code: 'ACCOUNT_RESTRICTED', where: 'mobile:restricted', kind: 'mobile', node: deps.nodeId, userId });
   safeAck(ack, restrictionRefusalBody(verdict.reason));
   return true;
 }
@@ -395,7 +327,10 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD', message: 'cloud instance requires saas mode' });
       }
       const acting = deps.resolveActingUser(socket);
-      if ('error' in acting) return safeAck(ack, { error: acting.error });
+      if ('error' in acting) {
+        logAuthRefusal({ code: acting.error, where: 'mobile:pair-cloud-instance', kind: 'mobile', node: deps.nodeId });
+        return safeAck(ack, { error: acting.error });
+      }
       // A2-3 — BEFORE admitCloudInstance, which INSERTS the virtual PC row and
       // its pairing on first use. A restricted account must not have rows minted
       // for it by a path it is not allowed to complete, and this is the one
@@ -480,6 +415,15 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
       if (refuseRestricted(deps, target.user_id, ack)) return;
       const { mobile, pc, token } = registry.pairMobile(input);
       pairLimiter.recordSuccess(socket.id);
+      // A12/F2-b — the pairing row is real and the token is good (the phone can
+      // retry with it); the ROOM is what is occupied. Refused BEFORE `setAuth`/
+      // `joinAndNotify`, so this socket never takes the slot and the PC never
+      // hears a `pc:mobile-joined` it would only have to refuse a moment later.
+      const contender = liveContender(store, pc.room_uuid, mobile.id);
+      if (contender) {
+        const suppressedMs = deps.suppression?.suppress(mobile.id, 'busy') ?? 0;
+        return safeAck(ack, { error: 'PC_BUSY', retryable: true, retry_after_ms: suppressedMs });
+      }
       setAuth(socket, { userId: mobile.user_id ?? pc.user_id, pairingId: mobile.id, deviceId: pc.id, kind: 'mobile' });
       setRoomUuid(socket, pc.room_uuid);
       joinAndNotify(store, pc.room_uuid, mobile, socket);
@@ -552,7 +496,20 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
   // containment shape either.
   socket.on('mobile:reconnect', async (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:reconnect', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    if (!parsed.success) {
+      // OPS-1 (2026-09-02): best-effort token for the log line only, same as
+      // pc:reconnect's identical guard — a malformed payload never reaches
+      // `parsed.data`.
+      const rawToken = (payload as { token?: unknown } | null | undefined)?.token;
+      logAuthRefusal({
+        code: 'AUTH_TOKEN_INVALID',
+        where: 'mobile:reconnect-parse',
+        kind: 'mobile',
+        node: deps.nodeId,
+        token: typeof rawToken === 'string' ? rawToken : null,
+      });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
     try {
       let result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
       // ── LOCAL MISS ──────────────────────────────────────────────────────
@@ -572,15 +529,53 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
       //
       // Exactly ONE retry, and only after rows actually landed: the read-through
       // is authoritative, so a second attempt on the same answer could only
-      // produce the same miss. Every failure of it — no dep, writer unreachable,
-      // timeout, spent budget, an authoritative「never heard of it」— resolves
-      // `false` and falls through to the refusal below, which is what this
-      // handler did before Z4.
+      // produce the same miss.
+      //
+      // 🔴 CORRECTED (B2-S, 2026-09-02) — this used to ask only the boolean
+      // `resolve()`, which A11/F2-a (WP-8, node/token-read-through.ts) documents
+      // as collapsing THREE outcomes into one `false`: 'writer-confirmed-absent'
+      // (the writer itself does not know this token — the WRITER refusal this
+      // comment block above is about) and 'unverifiable' (writer unreachable,
+      // budget spent, or a row that would not land — a fault on THIS node, not
+      // a statement about the credential) both fell through to the same
+      // AUTH_TOKEN_INVALID below, deleting a good pairing over the latter too.
+      // Only 'writer-confirmed-absent' may still answer AUTH_TOKEN_INVALID;
+      // 'unverifiable' now answers AUTH_TOKEN_UNVERIFIABLE, the retryable code
+      // the phone (mobile_reconnect_flow.dart) already keeps the pairing over.
+      let refusal: 'AUTH_TOKEN_INVALID' | 'AUTH_TOKEN_UNVERIFIABLE' = 'AUTH_TOKEN_INVALID';
       if (!result && deps.resolveTokenOnWriter) {
-        const landed = await deps.resolveTokenOnWriter.resolve(parsed.data.token);
-        if (landed) result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
+        const seam = deps.resolveTokenOnWriter;
+        const outcome = seam.resolveDetailed
+          ? await seam.resolveDetailed(parsed.data.token)
+          : (await seam.resolve(parsed.data.token)) ? 'landed' : 'writer-confirmed-absent';
+        // ── A1 (2026-09-02) — THE SOCKET THAT ASKED MAY BE GONE ────────────
+        //
+        // A phone that dials and drops mid-handshake (a flaky hop, an app
+        // killed in the background) can disconnect DURING this await.
+        // socket.io fires 'disconnect' the instant the transport closes —
+        // before this handler has ever called `setAuth` — so the disconnect
+        // handler's own `if (!roomUuid || !auth) return;` guard finds
+        // nothing to clean up (disconnect.handler.ts). Proceeding past this
+        // point would unconditionally `setAuth` + `joinAndNotify` a socket
+        // socket.io itself has already forgotten: no SECOND 'disconnect'
+        // event will ever fire for it, so it stays in the room — and in
+        // `pc:list-mobiles`'s count — until the process restarts.
+        if (!socket.connected) {
+          log.info('mobile:reconnect — socket disconnected during the writer read-through, dropping the join', {
+            outcome,
+          });
+          return;
+        }
+        if (outcome === 'landed') {
+          result = registry.reconnectMobile(parsed.data.token, parsed.data.device_uid);
+        } else if (outcome === 'unverifiable') {
+          refusal = 'AUTH_TOKEN_UNVERIFIABLE';
+        }
       }
-      if (!result) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+      if (!result) {
+        logAuthRefusal({ code: refusal, where: 'mobile:reconnect', kind: 'mobile', node: deps.nodeId, token: parsed.data.token });
+        return safeAck(ack, { error: refusal });
+      }
       const { mobile, pc } = result;
       // A2-3 — the identity this socket is ABOUT to be given, computed ONCE and
       // read by both the gate below and `setAuth` further down. A gate that
@@ -623,6 +618,18 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
           retryable: true,
           retry_after_ms: suppressedFor,
         });
+      }
+      // A12/F2-b — no PRE-EXISTING suppression, but the room may still be held
+      // by a phone that never triggered one: THE FIRST TIME two phones contend,
+      // there is no suppression entry yet for either of them (`ReleaseSuppression`
+      // only ever gets an entry from a PC's OWN `pc:release-mobile{busy}` call —
+      // see the header above `liveContender`). Checked here, after the existing
+      // hold-out, so a phone already serving a window gets the ORIGINAL reason
+      // and remaining time rather than a fresh one for the same fact.
+      const contender = liveContender(store, pc.room_uuid, mobile.id);
+      if (contender) {
+        const suppressedMs = deps.suppression?.suppress(mobile.id, 'busy') ?? 0;
+        return safeAck(ack, { error: 'PC_BUSY', retryable: true, retry_after_ms: suppressedMs });
       }
       setAuth(socket, { userId: actingUserId, pairingId: mobile.id, deviceId: pc.id, kind: 'mobile' });
       setRoomUuid(socket, pc.room_uuid);
@@ -687,13 +694,34 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
   socket.on('mobile:unpair', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('mobile:unpair', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
-    // The phone's half of「a revoke that comes back」— same fact, same refusal as
-    // pc:release-mobile.
+    // The phone's half of「a revoke that comes back」— same fact as
+    // pc:release-mobile, and since 2026-09-02 (B4, WP-6) the same fix: forward
+    // to the writer when there is one to ask, fall back to the honest refusal
+    // otherwise.
     const replicaUnpair = deps.writerOnly();
-    if (replicaUnpair) return safeAck(ack, replicaUnpair);
     const auth = getAuth(socket);
     if (!auth || auth.kind !== 'mobile' || !auth.pairingId) {
+      logAuthRefusal({ code: 'AUTH_TOKEN_INVALID', where: 'mobile:unpair', kind: auth?.kind ?? null, node: deps.nodeId, userId: auth?.userId });
       return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
+    if (replicaUnpair) {
+      const forward = deps.forwardUnpairMobile;
+      if (!forward) return safeAck(ack, replicaUnpair);
+      void forward(auth.pairingId)
+        .then((outcome) => {
+          if (outcome.status !== 'ok') return safeAck(ack, replicaUnpair);
+          const { pc_room_uuid, mobile_id } = outcome.result;
+          // Same local notify the direct path does — the writer cannot see
+          // this node's room, so THIS node tells the PC if it happens to be
+          // connected here (node/forward-sync.ts never touches sockets).
+          if (pc_room_uuid && mobile_id) {
+            store.leaveMobile(pc_room_uuid, mobile_id);
+            store.getPc(pc_room_uuid)?.emit('pc:mobile-left', { mobile_id });
+          }
+          safeAck(ack, { ok: true });
+        })
+        .catch(() => safeAck(ack, replicaUnpair));
+      return;
     }
     try {
       const mobile = registry.retireMobile(auth.pairingId);
@@ -716,17 +744,14 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
     }
   });
 
-  socket.on('mobile:list-pcs', (payload: unknown, ack: unknown) => {
-    const parsed = safeParseEvent('mobile:list-pcs', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
-    const auth = (socket.data as { auth?: { userId: string } | null }).auth;
-    if (!auth) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
-    const pcs = registry.listPcsForUser(auth.userId).map((pc) => ({
-      pc_id: pc.id,
-      pc_name: pc.device_name,
-      room_uuid: pc.room_uuid,
-      is_online: store.getPc(pc.room_uuid) !== null,
-    }));
-    safeAck(ack, { pcs });
-  });
+  // F7 (2026-09-02 audit) — `mobile:list-pcs` was DELETED here, not merely
+  // trimmed: grep across apps/mobile (Dart), apps/desktop, and every test in
+  // this package found no producer at all — no phone ever emits it, so the
+  // handler served nobody. What it DID do was compute `is_online` via
+  // `store.getPc(pc.room_uuid) !== null`, the direct-room-membership check
+  // this repo's own `pcPresence()` was built to replace (a working computer
+  // on a REPLICA reads as absent from this node's RoomStore). The event name
+  // stays registered in packages/protocol/src/events.ts (event-registry
+  // cleanup is not this card's scope); only the dead server handler and its
+  // sole caller, `Registry.listPcsForUser`, are gone.
 }

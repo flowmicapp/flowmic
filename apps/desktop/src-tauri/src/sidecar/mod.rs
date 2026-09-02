@@ -12,6 +12,10 @@
 /// adopted (owner 2026-07-27).
 pub mod adopt;
 pub mod io;
+/// The /api/network readers + health poll — split out of `io` (2026-09-02,
+/// file-size cap). Re-exported back through `io::*` so no caller's path
+/// changes; not meant to be reached directly as `sidecar::lan_probe::*`.
+pub(in crate::sidecar) mod lan_probe;
 pub mod job;
 pub mod network;
 /// Which host Node to run `server.js` on, and whether it is new enough to run it

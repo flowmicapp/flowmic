@@ -22,9 +22,27 @@
 // (not a colour choice — see MOBILE_RE below), leaving **46 real debts**. That
 // is far past the 15 the card set as the rewrite threshold, so this lint does
 // NOT rewrite production code. It pins the current multiset as BASELINE / ALLOWLIST and
-// FAILs only on *new* hits (file|literal multiplicity). Cleared hits are fine
+// FAILs on *new* hits (file|literal multiplicity). Cleared hits are fine
 // — the gate only prevents getting worse. Detail always prints the pinned
 // count (no silent allow).
+//
+// STALE-ENTRY GATE (B2-P, 2026-09-02): a pinned entry is a promise that a
+// specific literal still lives at that file — not just a historical grant.
+// When code moves on and the literal is deleted (token adoption, a rewrite),
+// the ALLOWLIST line is unspent budget nobody is watching, and this file's own
+// history shows that budget gets silently re-spent by an unrelated new literal
+// landing in the same slot (see the ai_action_row.dart / ptt_bar.dart comments
+// below — those were caught by a human re-reading the list, not by a check).
+// AUD-W's audit first noticed the shape (an allowance whose literal already
+// left the tree) and B2-A added `findStale` as a REPORT-ONLY line so the rot
+// would be visible; it did not gate because the tree carried 3 stale entries
+// at the time and B2-A's scope forbade editing ALLOWLIST content. B2-P pruned
+// those 3 (compose_band.dart's two white literals and settings_widgets.dart's
+// `Color(0xFF2A2F42)` — all replaced by `FlowMicDockColors` / `FlowMicColors`
+// tokens, verified absent by a second search method: grepping the literal
+// itself, not just re-running this scanner) and turned the check into a real
+// gate: `findStale` now FAILs the lint by name, the same way `findNew` always
+// has. Two failure modes, one gate: growth (`findNew`) and rot (`findStale`).
 
 import path from 'node:path';
 import { ROOT, walk, readText, rel, DEFAULT_SKIP_DIRS } from './_util.mjs';
@@ -45,7 +63,7 @@ const DESKTOP_SSOT = 'apps/desktop/src/styles/tokens.css';
 const MOBILE_SSOT = 'apps/mobile/lib/src/ui/tokens.dart';
 
 // Full colour literals (desktop CSS/TS/Vue).
-const DESKTOP_RE =
+export const DESKTOP_RE =
   /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b|(?:rgba?|hsla?)\(\s*[^)]*\)/g;
 // Material Colors.x / Color(0x…) — not FlowMicColors.x.
 //
@@ -55,7 +73,7 @@ const DESKTOP_RE =
 // tokens file. Counting it padded the pinned baseline by 10 of 56 entries and
 // made the number read as「56 places invent colours」when 10 of them invent
 // nothing. A baseline is only useful if every entry is a real debt.
-const MOBILE_RE =
+export const MOBILE_RE =
   /Color\s*\(\s*0x[0-9a-fA-F]+\s*\)|(?<![A-Za-z0-9_])Colors\.(?!transparent\b)\w+/g;
 
 // Baseline pinned 2026-07-30 (G7 scan). Key = `${rel}|${literal}` (no line —
@@ -69,7 +87,7 @@ const MOBILE_RE =
 // wrong in dark mode. Registered as a zero-work item, not fixed here — this lint
 // exists to stop the list GROWING, and pinning a debt is not the same as
 // blessing it.
-const ALLOWLIST = [
+export const ALLOWLIST = [
   // desktop — error-boundary injects inline CSS before Vue/tokens load
   'apps/desktop/src/lib/error-boundary.ts|#fdeaea',
   'apps/desktop/src/lib/error-boundary.ts|#8a1f1f',
@@ -98,8 +116,10 @@ const ALLOWLIST = [
   // colour, same one use, new home — the allowlist is keyed by file, so a pure
   // move has to be re-keyed here or the move reads as a new hard-coded colour.
   'apps/mobile/lib/src/ui/live_draft_tile.dart|Color(0x73818CF8)',
-  'apps/mobile/lib/src/ui/compose_band.dart|Color(0xFFFFFFFF)',
-  'apps/mobile/lib/src/ui/compose_band.dart|Color(0xB3FFFFFF)',
+  // compose_band.dart's two white literals were pruned 2026-09-02 (B2-P,
+  // findStale) — the dock restyle routed both through
+  // `FlowMicDockColors.bg`/`.line`, verified absent by grep. Pruned rather
+  // than banked, same reasoning as ai_action_row/ptt_bar above.
   'apps/mobile/lib/src/ui/connections_page.dart|Colors.white',
   'apps/mobile/lib/src/ui/connections_page.dart|Colors.white',
   'apps/mobile/lib/src/ui/image_preview_page.dart|Color(0xE60B1020)',
@@ -131,7 +151,9 @@ const ALLOWLIST = [
   'apps/mobile/lib/src/ui/scan_sheet.dart|Color(0xFFFCA5A5)',
   'apps/mobile/lib/src/ui/scan_sheet.dart|Color(0xFFFCA5A5)',
   'apps/mobile/lib/src/ui/settings_page.dart|Color(0xFF4A4F63)',
-  'apps/mobile/lib/src/ui/settings_widgets.dart|Color(0xFF2A2F42)',
+  // settings_widgets.dart's `Color(0xFF2A2F42)` was pruned 2026-09-02 (B2-P,
+  // findStale) — every ink in this file now reads `FlowMicColors.*`, verified
+  // absent by grep.
   'apps/mobile/lib/src/ui/settings_widgets.dart|Colors.white',
   'apps/mobile/lib/src/ui/settings_widgets.dart|Colors.white',
   'apps/mobile/lib/src/ui/status_badge.dart|Color(0x4DFBBF24)',
@@ -150,7 +172,7 @@ function isTestFile(relPath) {
 }
 
 /** @returns {{ key: string, file: string, line: number, lit: string }[]} */
-function collectHits(text, relPath, re) {
+export function collectHits(text, relPath, re) {
   const out = [];
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -168,14 +190,14 @@ function collectHits(text, relPath, re) {
   return out;
 }
 
-function multiset(keys) {
+export function multiset(keys) {
   const m = new Map();
   for (const k of keys) m.set(k, (m.get(k) || 0) + 1);
   return m;
 }
 
 /** Hits whose (file|literal) multiplicity exceeds the baseline. */
-function findNew(hits, baselineKeys) {
+export function findNew(hits, baselineKeys) {
   const base = multiset(baselineKeys);
   const used = new Map();
   const neu = [];
@@ -186,6 +208,17 @@ function findNew(hits, baselineKeys) {
     if (n > allowed) neu.push(h);
   }
   return neu;
+}
+
+// A baseline key whose literal no longer appears ANYWHERE in the current scan
+// is rot: exactly the shape this file's own comments describe by hand (the
+// ai_action_row.dart / ptt_bar.dart entries "pruned rather than banked ... a
+// stale slot is budget somebody can silently re-spend"). Distinct keys only —
+// ALLOWLIST encodes multiplicity via duplicate entries, so going from 2 uses
+// to 1 is a partial paydown, not rot; only "0 uses left" is reported here.
+export function findStale(baselineKeys, hits) {
+  const current = new Set(hits.map((h) => h.key));
+  return [...new Set(baselineKeys)].filter((k) => !current.has(k));
 }
 
 export default async function run() {
@@ -223,26 +256,37 @@ export default async function run() {
 
   const baseline = ALLOWLIST.length;
   const neu = findNew(hits, ALLOWLIST);
+  const stale = findStale(ALLOWLIST, hits);
   // Always print pinned / excluded counts — silent allowlists are forbidden.
   const excludeNote = `test-excluded ${testExcluded}`;
+  const context = `baseline ${baseline} pinned, current ${hits.length}, ${excludeNote}; see ALLOWLIST`;
 
-  if (neu.length > 0) {
-    const sample = neu
-      .slice(0, 8)
-      .map((h) => `${h.file}:${h.line} ${h.lit}`)
-      .join('; ');
+  if (neu.length > 0 || stale.length > 0) {
+    const parts = [];
+    if (neu.length > 0) {
+      const sample = neu
+        .slice(0, 8)
+        .map((h) => `${h.file}:${h.line} ${h.lit}`)
+        .join('; ');
+      parts.push(`${neu.length} new: ${sample}`);
+    }
+    if (stale.length > 0) {
+      // Names every stale entry, not just a sample — a rot list this short is
+      // exactly the "must be deleted" instruction, not a debt to browse.
+      parts.push(
+        `${stale.length} stale allowlist entr${stale.length === 1 ? 'y' : 'ies'} ` +
+          `(literal no longer present anywhere in the tree — delete from ` +
+          `ALLOWLIST): ${stale.join(', ')}`,
+      );
+    }
     return {
       status: 'FAIL',
-      detail:
-        `${neu.length} new (baseline ${baseline} pinned, current ${hits.length}, ` +
-        `${excludeNote}; see ALLOWLIST): ${sample}`,
+      detail: `${parts.join('; ')} (${context})`,
     };
   }
 
   return {
     status: 'PASS',
-    detail:
-      `0 new (baseline ${baseline} pinned, current ${hits.length}, ` +
-      `${excludeNote}; see ALLOWLIST)`,
+    detail: `0 new, 0 stale (${context})`,
   };
 }

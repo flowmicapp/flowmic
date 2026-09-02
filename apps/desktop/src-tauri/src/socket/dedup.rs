@@ -227,12 +227,11 @@
 //    `manual_delivery.dart`'s `mintRequestId` — no PII) and a 2-value mode
 //    tag. DPAPI would protect nothing here that plaintext doesn't already.
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// A dedup table by shared reference. `pub` because the table is reached from
@@ -740,57 +739,11 @@ fn merge_by_alternating(
     }
 }
 
-/// RV-83 on-disk shape — see the block above [`InjectDeduper`] for the full
-/// reasoning. One record per request_id this machine has physically typed
-/// (`ok:true`, mode ≠ cached): NOT `InjectOutcome`, NOT the wire `Value` — no
-/// window title, no injected_at, no error detail, no text. Just enough to
-/// answer 「这条打过了吗」("has this one already been typed") honestly.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct TypedLedgerEntry {
-    request_id: String,
-    /// Wire `mode` token — "sendinput" | "clipboard" only, mirroring
-    /// `InjectMode::wire()`'s two non-cached values. Never "cached": a cached
-    /// (untouched) utterance is never recorded here, on disk any more than in
-    /// memory (`record`'s existing `mode != Cached` guard, unchanged by RV-83).
-    mode: String,
-}
+// D6 (2026-09-02 audit §3-D): moved to a sibling file, VERBATIM apart from
+// visibility annotations, when this file crossed the 800-line cap (see
+// socket/typed_ledger.rs for the reasoning this section carries).
+use crate::socket::typed_ledger::{TypedLedgerEntry, TypedLedgerFile};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct TypedLedgerFile {
-    /// Front = most recently typed. Bounded at [`InjectDeduper::LRU_CAP`] by
-    /// construction — this is DERIVED from that same LRU on every save (see
-    /// `save_ledger_best_effort`), never a second independently-sized table —
-    /// so this file can never hold more than 256 short records no matter how
-    /// long the process runs. The bound is the existing owner-approved 07 §2
-    /// constant, not a new one invented for this file.
-    entries: VecDeque<TypedLedgerEntry>,
-}
-
-impl TypedLedgerFile {
-    /// Absent / unreadable / corrupt / a shape this build no longer recognises
-    /// → empty, never a crash loop. The worst case is this launch simply not
-    /// getting the restart-survival benefit — i.e. exactly today's (pre-RV-83)
-    /// behaviour, not a new failure mode.
-    fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
-    }
-
-    /// Plaintext JSON — deliberately NOT DPAPI, unlike `credentials.bin`. This
-    /// file carries no secret: no token, no window title, no message text —
-    /// only opaque request_id strings (`mintRequestId`'s
-    /// `'{prefix}{seq}-{micros}'` shape, no PII) and a 2-value mode tag. DPAPI
-    /// would wrap a value that has nothing in it worth wrapping.
-    fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let json = serde_json::to_vec(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, json)
-    }
-}
 
 #[cfg(test)]
 #[path = "dedup_tests.rs"]

@@ -64,6 +64,7 @@ class PlusPanelNotesTab extends StatefulWidget {
     super.key,
     required this.strings,
     required this.query,
+    this.liveArticleId,
     required this.isSignedIn,
     this.onSignIn,
     this.selection,
@@ -79,6 +80,10 @@ class PlusPanelNotesTab extends StatefulWidget {
 
   /// The read. Read-only by construction — see [LightRecordQuery].
   final LightRecordQuery query;
+
+  /// Card P2-9 — see [PlusPanel.liveArticleId]'s doc; threaded straight
+  /// through to [LightRecordQuery.all].
+  final String? liveArticleId;
 
   /// 🔴 A GETTER, NOT A BOOL, and that is the one snapshot this card refused to
   /// inherit. Every other value the panel holds (`buffer` / `noPcTarget` /
@@ -167,7 +172,8 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   Future<void> _reload() async {
     final int mine = ++_seq;
     if (!_loading) setState(() => _loading = true);
-    final List<TimelineEntry> rows = await widget.query.all();
+    final List<TimelineEntry> rows =
+        await widget.query.all(liveArticleId: widget.liveArticleId);
     if (!mounted || mine != _seq) return;
     setState(() {
       _notes = rows;
@@ -240,7 +246,8 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   /// scrolling first」.
   Future<void> _runSearch(String q) async {
     final int mine = ++_seq;
-    final List<TimelineEntry> hits = await widget.query.search(q);
+    final List<TimelineEntry> hits =
+        await widget.query.search(q, liveArticleId: widget.liveArticleId);
     if (!mounted || mine != _seq) return;
     setState(() => _hits = hits);
     // Hits are a subset of [all] today, so this normally probes nothing. It is

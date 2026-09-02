@@ -31,7 +31,7 @@ use crate::forensic;
 use crate::socket::bridge;
 use crate::socket::channel::{self, Channel, CloudConfig, KEY_MALFORMED};
 use crate::socket::cloud_endpoint::{self, EndpointMigration};
-use crate::socket::pairing::{is_account_auth_failure, AuthFailureHook};
+use crate::socket::refusal::{is_account_auth_failure, AuthFailureHook, RefusalAuthority};
 
 use super::sidecar_ctl;
 
@@ -174,25 +174,46 @@ pub fn emit_state(app: &AppHandle) {
 /// which must never happen from inside that client's own event handler.
 ///
 /// An account-level refusal (`AUTH_TOKEN_EXPIRED` / `AUTH_TOKEN_INVALID` /
-/// `auth:expired`) DROPS the Cloud Key so the next start cannot re-dial a dead
-/// key; any other register refusal is recorded loudly but keeps the key (a
-/// malformed payload or a registry error is not the user's key going bad). The
-/// cloud PAIRING credential is deliberately left alone in both cases — it belongs
-/// to the relay's room, and wiping it would force every paired phone to re-pair
-/// just because the account key lapsed. (That used to read "a 7-day key" — since
-/// owner ruling 2026-08-27 §R1 a freshly minted key does not lapse on a
-/// schedule at all; the ONE thing that still produces this refusal is a key that
-/// really was rejected, which makes keeping the pairing MORE right, not less.)
+/// `auth:expired`) **arriving on the identity handshake** DROPS the Cloud Key so
+/// the next start cannot re-dial a dead key; any other register refusal is
+/// recorded loudly but keeps the key (a malformed payload or a registry error is
+/// not the user's key going bad). The cloud PAIRING credential is deliberately
+/// left alone in every case — it belongs to the relay's room, and wiping it would
+/// force every paired phone to re-pair just because the account key lapsed.
+///
+/// 🔴 THE SENTENCE THAT USED TO BE HERE WAS FALSE, AND ITS FALSENESS COST THE
+/// USER'S LOGIN. It read: 「the ONE thing that still produces this refusal is a
+/// key that really was rejected」. It was written when the only producers were
+/// `pc:register` / `pc:reconnect`; four days later five device-page verbs were
+/// wired to this same hook, and `pc:list-mobiles` racing a cold start's handshake
+/// became by far the most common producer. Four sign-outs on dev-pc-a between
+/// 2026-08-30 and 2026-09-01 were all that shape, the handshake ack landing
+/// 56–335 ms after the refusal every time. The claim did not become false because
+/// it was careless — it became false because it asserted something about OTHER
+/// code, and that code changed while this sentence could not (反 façade ④).
+/// What pins the current claim is [`RefusalAuthority`]: the producer now has to
+/// say which conversation it belongs to, and the compiler makes it say so.
 pub fn auth_failure_hook(app: &AppHandle) -> AuthFailureHook {
     let app = app.clone();
-    Arc::new(move |code: &str| {
+    Arc::new(move |code: &str, authority: RefusalAuthority| {
         let app = app.clone();
         let code = code.to_string();
         std::thread::spawn(move || {
-            let account_level = is_account_auth_failure(&code) || code == "auth:expired";
+            // 🔴 TWO CONDITIONS, NOT ONE — and the second one is the fix.
+            // `is_account_auth_failure` answers 「is this code about an account」.
+            // It does NOT answer 「did whoever asked have any way of knowing」.
+            // A device-page verb does not: it never sees the handshake, so on a
+            // cold start it reports AUTH_TOKEN_INVALID for a credential the
+            // relay accepts milliseconds later. Four measured sign-outs came
+            // from treating those two questions as one (RefusalAuthority).
+            let account_code = is_account_auth_failure(&code) || code == "auth:expired";
+            let account_level = account_code && authority == RefusalAuthority::IdentityHandshake;
             forensic::record(
                 "cloud",
-                &format!("relay refused identity ({code}) — account_level={account_level}"),
+                &format!(
+                    "relay refused identity ({code}) — account_level={account_level} \
+                     (code_is_account={account_code} authority={authority:?})"
+                ),
             );
             eprintln!("[flowmic] cloud relay refused identity: {code}");
             {
@@ -206,8 +227,13 @@ pub fn auth_failure_hook(app: &AppHandle) -> AuthFailureHook {
                     }
                 });
             }
-            // Tear the dead session down so nothing pretends to be connected.
-            sidecar_ctl::drop_socket(&app);
+            // Tear the dead session down so nothing pretends to be connected —
+            // but ONLY when the handshake itself was refused. A verb's refusal
+            // says nothing about the transport, and dropping the socket over one
+            // used to kill a session whose handshake ack was already in flight.
+            if authority == RefusalAuthority::IdentityHandshake {
+                sidecar_ctl::drop_socket(&app);
+            }
             emit_state(&app);
         });
     })
@@ -507,7 +533,7 @@ fn fetch_account_blocking(base: String, key: String) -> CloudAccountDto {
 /// `undefined` branch keeps meaning exactly one thing (「the bridge is not
 /// there」, i.e. running
 /// outside Tauri) rather than doubling as 「the server did not answer」.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cloud_account_fetch(state: State<'_, CloudState>) -> CloudAccountDto {
     let cfg = state.snapshot();
     let base = cfg.endpoint.trim_end_matches('/').to_string();

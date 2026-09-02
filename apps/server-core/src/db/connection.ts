@@ -471,7 +471,9 @@ export function openDatabase(dbPath: string): DatabaseSync {
   return db;
 }
 
-export function createDbConnection(opts: { dbPath: string; encryptionKey: Buffer }): DbConnection {
+export function createDbConnection(
+  opts: { dbPath: string; encryptionKey: Buffer; now?: () => number },
+): DbConnection {
   const db = openDatabase(opts.dbPath);
   return {
     raw: db,
@@ -479,7 +481,14 @@ export function createDbConnection(opts: { dbPath: string; encryptionKey: Buffer
     pcs: makePcRepo(db),
     mobiles: makeMobileRepo(db),
     settings: makeSettingsRepo(db, opts.encryptionKey),
-    usage: makeUsageRepo(db),
+    // 2026-09-02 (audit F15) — optional, defaults to `Date.now` inside
+    // `makeUsageRepo` itself when omitted, so every existing caller of THIS
+    // function (there are dozens across test/*.ts, none passing `now`) is
+    // unaffected. A future test that wants `usage_records.updated_at` to agree
+    // with the SAME fake clock its `UsageTracker`/`QuotaGuard` were built on
+    // now has a seam to do it through, rather than a hardcoded wall-clock call
+    // three layers down that no test could ever see or control.
+    usage: makeUsageRepo(db, opts.now),
     usageEvents: makeUsageEventsRepo(db),
     siteCounts: makeSiteCountsRepo(db),
     timeline: makeTimelineRepo(db),

@@ -36,6 +36,11 @@ mixin ImageStrings on AppStringsLeaves {
     required String en,
     required String ja,
     required String ko,
+    required String zhTw,
+    required String fr,
+    required String es,
+    required String de,
+    required String ru,
   });
 
   // ── Picture pipeline (R6 T-4 / §6.1 「+」panel B3 flagship action) ─────────
@@ -166,9 +171,14 @@ mixin ImageStrings on AppStringsLeaves {
       case ImageSendFailure.rejected:
         return _t(
           zh: '服务器拒收了这张图片：${outcome.detail ?? '未知原因'}',
+          zhTw: '伺服器拒收了這張圖片：${outcome.detail ?? '未知原因'}',
           en: 'The server refused this photo: ${outcome.detail ?? 'unknown reason'}',
           ja: 'サーバーがこの画像を拒否しました：${outcome.detail ?? '不明な理由'}',
           ko: '서버가 이 사진을 거부했습니다: ${outcome.detail ?? '알 수 없는 이유'}',
+          fr: "Le serveur a refusé cette photo : ${outcome.detail ?? 'raison inconnue'}",
+          es: 'El servidor rechazó esta foto: ${outcome.detail ?? 'motivo desconocido'}',
+          de: 'Der Server hat dieses Foto abgelehnt: ${outcome.detail ?? 'unbekannter Grund'}',
+          ru: 'Сервер отклонил это фото: ${outcome.detail ?? 'причина не указана'}',
         );
       // RV-05 (2026-07-30): the SERVER held the delivery out. Worded as
       // 「服务器」("the server") and 「未注入」("not injected") on purpose —
@@ -203,9 +213,14 @@ mixin ImageStrings on AppStringsLeaves {
       default:
         return _t(
           zh: '服务器暂时不接收（${code ?? '未说明'}）',
+          zhTw: '伺服器暫時不接收（${code ?? '未說明'}）',
           en: 'The server is not taking deliveries right now (${code ?? 'unstated'})',
           ja: 'サーバーが現在受け付けていません（${code ?? '理由不明'}）',
           ko: '서버가 현재 수신하지 않습니다(${code ?? '이유 미기재'})',
+          fr: "Le serveur n'accepte pas d'envois pour le moment (${code ?? 'non précisé'})",
+          es: 'El servidor no está aceptando envíos en este momento (${code ?? 'sin especificar'})',
+          de: 'Der Server nimmt derzeit keine Zustellungen an (${code ?? 'nicht angegeben'})',
+          ru: 'Сервер сейчас не принимает доставки (${code ?? 'причина не указана'})',
         );
     }
   }

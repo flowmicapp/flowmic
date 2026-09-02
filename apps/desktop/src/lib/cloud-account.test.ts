@@ -13,12 +13,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  asCloudAccountRaw,
   deriveAccountCard,
   formatTokensM,
   gaugePct,
   LONG_LIVED_KEY_THRESHOLD_MS,
   parseLiveAccount,
   quotaGauge,
+  RUST_ACCOUNT_OUTCOMES,
   type CloudAccountRaw,
 } from './cloud-account';
 import { EMPTY_CLOUD_STATUS, type CloudStatus } from './channel';
@@ -58,6 +60,14 @@ function okRaw(over: {
   // tokens still describes an account the server could actually return.
   used_tokens?: number;
   limit_tokens?: number | null;
+  // WP-9: device ceilings + the continuous-recording ceiling. Defaults are the
+  // FREE tier's real numbers (2 PCs, `null` mobile_limit is WRONG for free —
+  // free's `mobiles` is finite too — so the default here is 2, not null; a test
+  // that wants the pro/max "infinite mobiles" shape passes `mobileLimit: null`
+  // explicitly rather than inheriting it by accident).
+  pcLimit?: number | null;
+  mobileLimit?: number | null;
+  continuousMinutes?: number | null;
 }): CloudAccountRaw {
   return {
     outcome: 'ok',
@@ -87,7 +97,13 @@ function okRaw(over: {
         },
         month: '2026-08',
       },
-      devices: { pc_count: 1, mobile_count: 1 },
+      devices: {
+        pc_count: 1,
+        mobile_count: 1,
+        pc_limit: over.pcLimit === undefined ? 2 : over.pcLimit,
+        mobile_limit: over.mobileLimit === undefined ? 2 : over.mobileLimit,
+      },
+      continuous_minutes: over.continuousMinutes === undefined ? 10 : over.continuousMinutes,
     },
   };
 }
@@ -391,6 +407,9 @@ describe('④ the name and "the actual number in effect" are asserted separately
       limit_min: null,
       used_tokens: 12,
       limit_tokens: null,
+      pc_limit: null,
+      mobile_limit: null,
+      continuous_minutes: null,
     });
     expect(g).toBeNull();
   });
@@ -438,6 +457,44 @@ describe('④ the name and "the actual number in effect" are asserted separately
     );
     expect(unknownExempt.gauge).toBeNull();
     expect(unknownExempt.sourceBadge).toBe('长期免费'); // same as above: what justifies still being able to answer
+  });
+});
+
+describe('🔴 WP-9 — device limits + the continuous-recording ceiling read the EFFECTIVE number, never a tier-derived or "unlimited" one', () => {
+  it('an exempt (permanent_free) account gets the MAX tier\'s real ceilings, not free\'s and not "unlimited"', () => {
+    // The exact D1/R11 shape this file already enforces for the minutes gauge
+    // (④ above): the tier NAME says 'free', but the account is capped at MAX's
+    // real numbers (owner 2026-08-07). `pc_limit`/`continuous_minutes` must
+    // read the same way — a client deriving them from `plan === 'free'` would
+    // print FREE's numbers (2 PCs, 10 minutes) for an account the server
+    // actually allows 10 PCs and 30 minutes.
+    const raw = okRaw({
+      plan: 'free',
+      source: 'permanent_free',
+      quota_exempt: true,
+      pcLimit: 10,
+      mobileLimit: null,
+      continuousMinutes: 30,
+    });
+    const parsed = parseLiveAccount(raw)!;
+    expect(parsed.plan).toBe('free'); // the name is still 'free' — owner bought nothing
+    expect(parsed.pc_limit).toBe(10); // but the number in force is MAX's
+    expect(parsed.mobile_limit).toBeNull(); // null = unlimited, the wire's own encoding
+    expect(parsed.continuous_minutes).toBe(30);
+  });
+
+  it('an ordinary free account gets free\'s own (smaller) numbers', () => {
+    const parsed = parseLiveAccount(okRaw({ pcLimit: 2, mobileLimit: 2, continuousMinutes: 10 }))!;
+    expect(parsed.pc_limit).toBe(2);
+    expect(parsed.mobile_limit).toBe(2);
+    expect(parsed.continuous_minutes).toBe(10);
+  });
+
+  it('a missing/unreadable continuous_minutes is null — "could not compute it", never a guessed default', () => {
+    const raw = okRaw({});
+    const summary = raw.summary as Record<string, unknown>;
+    delete summary.continuous_minutes;
+    expect(parseLiveAccount(raw)?.continuous_minutes).toBeNull();
   });
 });
 
@@ -689,5 +746,60 @@ describe('④ ACCOUNT_RESTRICTED: its own phase, its own sentence, and no button
     });
     for (const r of rendered) expect(String(r).length).toBeGreaterThan(0);
     expect(new Set(rendered).size).toBe(UI_LOCALES.length);
+  });
+});
+
+// ── ⑥ the parser entry vs. the Rust enum (E1, 2026-09-02) ────────────────────
+//
+// 🔴 Every test above builds a `CloudAccountRaw` object literal by hand and hands
+// it straight to `deriveAccountCard`. That is a legitimate way to test the card,
+// but it means the whole suite went around `asCloudAccountRaw` — the ONLY door a
+// real payload comes through. And behind that door sat a second, hand-typed
+// whitelist of six outcome strings that had never been updated when `restricted`
+// was added: a real restricted account arrived, failed the whitelist, and was
+// rewritten as `bad_response` ⇒ the card said 「couldn't read the answer」 about
+// an answer it read fine, and every one of the ④ tests stayed green.
+//
+// So this block drives the enum through the door instead of past it. The strings
+// are pinned from the Rust side, not from the TypeScript union: grep
+// `apps/desktop/src-tauri/src/shell/cloud.rs` for `"bad_response"` and every
+// producer of an outcome is on that one screen (`failed(..)` calls + `Err((..))`).
+describe('⑥ asCloudAccountRaw is fed the whole Rust outcome enum', () => {
+  /** Pinned by hand from apps/desktop/src-tauri/src/shell/cloud.rs. Deliberately NOT
+   *  derived from RUST_ACCOUNT_OUTCOMES: a list compared against itself proves nothing. */
+  const FROM_CLOUD_RS = [
+    'ok', // cloud.rs, the CloudAccountDto literal
+    'no_key', // failed("no_key", None)
+    'no_endpoint', // failed("no_endpoint", None)
+    'unauthorized', // Err(("unauthorized".to_string(), ..))
+    'restricted', // Err(("restricted".to_string(), reason))
+    'unreachable', // Err(("unreachable".to_string(), ..))
+    'bad_response', // failed("bad_response", ..) and two Err(..) arms
+  ] as const;
+
+  it('keeps every Rust outcome verbatim — none is rewritten into bad_response', () => {
+    for (const outcome of FROM_CLOUD_RS) {
+      const parsed = asCloudAccountRaw({ outcome, fetched_at: null, detail: null, me: null, summary: null });
+      expect(parsed.outcome, `${outcome} must survive the parser`).toBe(outcome);
+    }
+  });
+
+  it('reverse control: a string Rust cannot produce still becomes bad_response', () => {
+    // Without this the fix would be 'accept anything', which is the opposite defect
+    // (a typo on the wire would render as a phase nobody wrote a sentence for).
+    expect(asCloudAccountRaw({ outcome: 'restrictedd' }).outcome).toBe('bad_response');
+    expect(asCloudAccountRaw({ outcome: 'no_bridge' }).outcome).toBe('bad_response');
+    expect(asCloudAccountRaw(null).outcome).toBe('bad_response');
+  });
+
+  it('the whitelist and the Rust enum are the same set, in both directions', () => {
+    expect([...RUST_ACCOUNT_OUTCOMES].sort()).toEqual([...FROM_CLOUD_RS].sort());
+  });
+
+  it('a restricted payload reaches the card through the parser, reason intact', () => {
+    // The end-to-end shape of the defect: raw IPC payload in, restricted sentence out.
+    const c = card(asCloudAccountRaw({ outcome: 'restricted', fetched_at: null, detail: 'terms_violation', me: null, summary: null }));
+    expect(c.phase).toBe('restricted');
+    expect(c.loud).toContain(RESTRICTION_REASONS.terms_violation.zh_CN);
   });
 });

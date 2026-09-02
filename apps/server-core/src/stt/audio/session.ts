@@ -19,6 +19,14 @@ import { AUDIO_DEFAULTS } from '@flowmic/protocol';
 import { RingBuffer, type BufferedChunk } from './ring-buffer';
 import { SeqTracker, type GapRange } from './seq-tracker';
 
+/** 🔴 card P2-5/WP-1 (2026-09-02) — `'paused'` is now UNREACHABLE: the only two
+ *  methods that ever entered it, `pause()`/`resume()`, were dead code (zero
+ *  callers, production or test — `audio:pause`/`audio:resume` in
+ *  `socket/handlers/audio.handler.ts` set a plain flag on the REGISTRY entry,
+ *  never this class's own state machine) and were deleted. Kept in the union
+ *  rather than removed, because several defensive `!== 'paused'` guards below
+ *  predate this note and are harmless to leave — this is a documented dead
+ *  branch, not a silent one. */
 export type SessionState =
   | 'idle'
   | 'recording'
@@ -430,18 +438,6 @@ export class AudioSession extends EventEmitter {
     this.buffer.setRetentionPin(fedThroughSeq, graceMs);
   }
 
-  pause(reason: string): void {
-    if (this._state !== 'recording') return;
-    this.transition('paused');
-    this.emit('paused', reason);
-  }
-
-  resume(): void {
-    if (this._state !== 'paused') return;
-    this.transition('recording');
-    this.emit('resumed');
-  }
-
   stop(): void {
     if (this._state === 'closed' || this._state === 'auto_stopped') return;
     this.transition('processing');
@@ -502,6 +498,44 @@ export class AudioSession extends EventEmitter {
     this.legStartedAt = t;
     this.armHardLimit(t);
     this.emit('engine_session_expired');
+  }
+
+  /**
+   * 🔴 card B2-G (2026-09-02) — closes "a leg can run about twice hard_limit".
+   *
+   * `onHardLimit()` above re-anchors `legStartedAt` to `now` UNCONDITIONALLY
+   * the instant the `engine_session` ceiling fires, before it can know whether
+   * `engine_session_expired`'s one listener (the orchestrator) actually
+   * rotated the leg. `onEngineSessionExpired` bails out WITHOUT rotating when
+   * a rollover is already in flight, the leg is hung up for idle silence, or
+   * there is no engine at all — and in every one of those cases this class had
+   * already told itself "a new leg started now" and armed the NEXT check a
+   * full `engineSessionLimitMs` away. The real engine leg kept running on the
+   * OLD instance, unrotated, for up to ANOTHER full ceiling before the next
+   * chance to check — i.e. up to roughly TWICE the configured limit before the
+   * engine-layer wall does anything.
+   *
+   * The orchestrator calls this instead of silently returning from a bailed
+   * `onEngineSessionExpired`. Rewinding `legStartedAt` by `engineSessionLimitMs`
+   * undoes exactly the premature advance `onHardLimit` just made, so the next
+   * check (soon, not a full ceiling later) finds the SAME ceiling still due and
+   * emits again — repeating at `delayMs` granularity until a check finally CAN
+   * rotate, at which point `onHardLimit` re-anchors `legStartedAt` to that real
+   * moment. Bounded overrun becomes "however many `delayMs` polls the busy
+   * condition lasted", not "up to one more full ceiling".
+   *
+   * Only ever called for the `engine_session` origin (the branch that reaches
+   * `onEngineSessionExpired` at all), so `engineSessionLimitMs` is guaranteed
+   * finite here — the `quota_budget` branch never emits this event.
+   */
+  retryEngineCeilingSoon(delayMs = 250): void {
+    if (this._state !== 'recording' && this._state !== 'paused') return;
+    if (this.legStartedAt !== null) this.legStartedAt -= this.engineSessionLimitMs;
+    if (this.hardLimitTimer !== null) {
+      this._clearTimeout(this.hardLimitTimer);
+      this.hardLimitTimer = null;
+    }
+    this.hardLimitTimer = this._setTimeout(() => this.onHardLimit(), Math.max(0, delayMs));
   }
 
   private autoStop(reason: 'hard_limit'): void {

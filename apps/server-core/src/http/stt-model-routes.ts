@@ -259,6 +259,28 @@ export function tryHandleSttModelRoutes(
       if (url === STT_MODEL_DOWNLOAD_PATH) {
         // 🔴 THIS POST IS THE CONSENT (design §2-3): the button names a pack,
         // this call fetches that pack, nothing else consults an env var.
+        //
+        // 🔴 card B2-G (2026-09-02) — the busy check now runs BEFORE the
+        // selection write, not after. This block used to persist "for this
+        // language, use this pack" first and check single-flight second, so a
+        // press that was refused with 409 (another pack already downloading)
+        // still recorded the preference for a pack whose download never
+        // started. `model-resolve.ts`'s §6 ladder degrades gracefully when the
+        // selected pack is not ready (falls to rung 2), so this never crossed
+        // the model-form red line (借用一个转录不了这个语言的模型) — but it did
+        // let a REFUSED action silently change what the settings page reports
+        // as the user's choice for that language, with nothing telling them
+        // the pairing they see is not the one they pressed. A refused press
+        // must persist nothing.
+        const busy = (deps.busyController ?? busyModelController)();
+        if (busy !== null && busy !== controller) {
+          sendJson(res, 409, {
+            ok: false, error: 'MODEL_DOWNLOAD_BUSY',
+            busy_model_id: busy.modelId,
+            message: `'${busy.modelId}' is downloading; one pack at a time`,
+          });
+          return;
+        }
         const lang = typeof body.lang === 'string' ? body.lang : '';
         if (lang !== '') {
           // Selection rides the same POST: pressing a pack's button UNDER a
@@ -273,18 +295,6 @@ export function tryHandleSttModelRoutes(
             });
             return;
           }
-        }
-        // Machine-wide single flight (LM-CAT §7): one pack at a time. The
-        // scan and the claim run in one synchronous stretch (claim() is
-        // synchronous by contract), so two same-tick POSTs cannot both pass.
-        const busy = (deps.busyController ?? busyModelController)();
-        if (busy !== null && busy !== controller) {
-          sendJson(res, 409, {
-            ok: false, error: 'MODEL_DOWNLOAD_BUSY',
-            busy_model_id: busy.modelId,
-            message: `'${busy.modelId}' is downloading; one pack at a time`,
-          });
-          return;
         }
         const first = controller.start();
         await first;

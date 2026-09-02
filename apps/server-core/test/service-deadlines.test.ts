@@ -344,7 +344,7 @@ describe('§4 🔴 the verdict and the SQL claim make the SAME decision', () => 
     // Walked back to scheduled: the claim 「it began」 is retracted.
     repo.advanceOneTimePurchase(
       'ord_1',
-      { state: 'scheduled', scheduled_at: BOUGHT, started_at: null, delivered_at: null, completion_notice_at: null, refunded_at: null },
+      { expected_state: 'in_progress', state: 'scheduled', scheduled_at: BOUGHT, started_at: null, delivered_at: null, completion_notice_at: null, refunded_at: null },
       NOW_ISO,
     );
     expect(repo.getOneTimePurchase('ord_1')!.started_at).toBeNull();

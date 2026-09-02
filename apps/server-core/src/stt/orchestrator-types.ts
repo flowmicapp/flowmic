@@ -85,10 +85,18 @@ export interface OrchestratorOptions {
   clearTimeoutFn?: (handle: unknown) => void;
 }
 
+/**
+ * 🔴 card P2-5/WP-1 (2026-09-02) — `target_lang?: string` used to sit here too.
+ * DELETED: `orchestrator-core.ts` never read it (only `.language` is ever
+ * consulted — grep confirms it), and `engine/stt-session.ts`'s construction of
+ * this object only ever WROTE it, conditionally, to a field nothing read back.
+ * `mode` is kept despite the same "orchestrator-core.ts never reads it" fact —
+ * it is a REQUIRED field exercised by every production call and every test in
+ * this suite, i.e. established API surface rather than an orphaned write.
+ */
 export interface StartInput {
   language: string;
   mode: ProcessingMode;
-  target_lang?: string;
 }
 
 /** Per 06 §3 every engine IS an EventEmitter; narrow once for type-safe wiring. */

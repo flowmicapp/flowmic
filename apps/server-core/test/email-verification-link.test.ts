@@ -346,7 +346,15 @@ describe('refusals are named, and never an oracle', () => {
 
 describe('pins', () => {
   it('🔴 NR-2a added no protocol error code — both link refusals are HTTP-local', () => {
-    for (const name of [VERIFY_LINK_INVALID, VERIFY_LINK_EXPIRED, 'EMAIL_VERIFY_GRACE_EXPIRED']) {
+    // CORRECTION (WP-8, 2026-09-02): this loop used to include
+    // 'EMAIL_VERIFY_GRACE_EXPIRED' too. That code was promoted into the
+    // registry this round (see the entry in error-codes.ts) — it is a
+    // DIFFERENT refusal from the two below (the grace-period gate on
+    // audio:start / compose:start, not the reset/verify LINK's own
+    // invalid/expired verdicts), and the pin for its new status lives at
+    // verification-grace.test.ts's "pins" describe block. Only the two link
+    // codes NR-2a actually introduced remain HTTP-local here.
+    for (const name of [VERIFY_LINK_INVALID, VERIFY_LINK_EXPIRED]) {
       expect(Object.prototype.hasOwnProperty.call(ERROR_CODES, name), `${name} must NOT be a protocol code`).toBe(false);
     }
   });

@@ -69,7 +69,7 @@ pub(crate) fn persist_pc_name_on_disk(path: &Path, name: &str) -> bool {
 /// Result semantics — deliberately strict: `true` only when EVERY channel slot
 /// (resident wire rename OR dormant disk persist) succeeded. A partial rename is
 /// precisely the state that produced the bug, so it must not report success.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pc_rename(state: State<'_, SocketState>, name: String) -> bool {
     let Some(clean) = crate::pc_name::sanitize_pc_name(&name) else {
         return false;

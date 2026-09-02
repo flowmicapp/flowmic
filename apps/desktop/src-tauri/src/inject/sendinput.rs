@@ -18,7 +18,6 @@
 // testable — the injection path is human-audit-sensitive and must be provable
 // without a live desktop).
 
-use crate::inject::correction::CorrectionOps;
 
 /// Errors returned by the SendInput-backed injection path.
 #[derive(Debug, thiserror::Error)]
@@ -65,23 +64,26 @@ pub enum InjectError {
 /// return the number the OS accepted. 0 maps to `AppRejected`.
 type Sender = Box<dyn Fn(&[u16]) -> Result<usize, InjectError> + Send + Sync>;
 
-/// Backspacer callback: send `n` BACKSPACE keystrokes (down+up). Returns the
-/// number the OS accepted (0 maps to `AppRejected`).
-type Backspacer = Box<dyn Fn(usize) -> Result<usize, InjectError> + Send + Sync>;
-
 /// Enter callback: press RETURN once (down+up). Returns the number of
 /// keystrokes the OS accepted — 1 on success, 0 maps to `AppRejected`.
 ///
-/// Deliberately a THIRD seam rather than a payload for `Sender`: a line break
+/// Deliberately a second seam rather than a payload for `Sender`: a line break
 /// does not travel as a Unicode code unit at all (see `type_text`), so it is a
 /// different kind of event, not a different character.
 type Enterer = Box<dyn Fn() -> Result<usize, InjectError> + Send + Sync>;
 
 /// Primary text-injection client. `new()` wires the real Win32 path;
-/// `with_fakes()` swaps all three seams for unit tests.
+/// `with_fakes()` swaps both seams for unit tests.
+///
+/// P1 (2026-09-02 audit §3-D): this used to carry a THIRD seam, `backspacer`,
+/// for `apply_correction` — deleted along with it (see `inject/mod.rs`'s
+/// history and `git log -- inject/correction.rs`): `diff_correction` /
+/// `CorrectionOps` / `apply_correction` had zero production callers (grepped
+/// across `apps/desktop/src` and `src-tauri/src`; every hit was the dead
+/// code's own definition or its own tests) — the character-level correction
+/// feature it implemented was never wired into the inject pipeline.
 pub struct SendInputClient {
     sender: Sender,
-    backspacer: Backspacer,
     enter: Enterer,
 }
 
@@ -89,19 +91,16 @@ impl SendInputClient {
     pub fn new() -> Self {
         Self {
             sender: Box::new(real_send_unicode),
-            backspacer: Box::new(real_send_backspaces),
             enter: Box::new(real_send_enter),
         }
     }
 
     pub fn with_fakes(
         sender: impl Fn(&[u16]) -> Result<usize, InjectError> + Send + Sync + 'static,
-        backspacer: impl Fn(usize) -> Result<usize, InjectError> + Send + Sync + 'static,
         enter: impl Fn() -> Result<usize, InjectError> + Send + Sync + 'static,
     ) -> Self {
         Self {
             sender: Box::new(sender),
-            backspacer: Box::new(backspacer),
             enter: Box::new(enter),
         }
     }
@@ -139,9 +138,9 @@ impl SendInputClient {
     ///
     /// ⚠️ THE COUNT: one Enter counts as one unit, so `"a\r\nb"` returns 3 and
     /// not the 4 UTF-16 units the string measures. The number says what was
-    /// sent, not what the string was. Both callers are fine with that and there
-    /// are only two: `sendinput_outcome::map_sendinput_outcome` binds it as
-    /// `Ok(_queued)` and never reads it, and `apply_correction` below drops it.
+    /// sent, not what the string was. The one caller is fine with that:
+    /// `sendinput_outcome::map_sendinput_outcome` binds it as `Ok(_queued)`
+    /// and never reads it.
     pub fn type_text(&self, text: &str) -> Result<usize, InjectError> {
         if text.is_empty() {
             return Ok(0);
@@ -189,26 +188,6 @@ impl SendInputClient {
         Ok(pressed)
     }
 
-    /// Apply a correction: backspace the differing suffix, then type the new
-    /// suffix. Order matters — backspaces run first so the cursor is
-    /// positioned when new text streams in.
-    ///
-    /// The append half goes through `type_text`, so a line break inside a
-    /// correction gets the same Enter keystroke as one in a finished utterance.
-    /// It is the second entry point to the NL-1 loss and is asserted separately
-    /// in the tests for that reason.
-    pub fn apply_correction(&self, ops: &CorrectionOps) -> Result<(), InjectError> {
-        if ops.backspaces > 0 {
-            let bs = (self.backspacer)(ops.backspaces)?;
-            if bs == 0 {
-                return Err(InjectError::AppRejected);
-            }
-        }
-        if !ops.append.is_empty() {
-            let _ = self.type_text(&ops.append)?;
-        }
-        Ok(())
-    }
 }
 
 impl Default for SendInputClient {
@@ -222,6 +201,71 @@ impl Default for SendInputClient {
 // errors so the crate still cargo-checks on Linux CI (the desktop binary is
 // Windows-only but cross-target verification must not break — 07-SPEC §12.4).
 // ---------------------------------------------------------------------
+
+/// D3 (2026-09-02 audit §3-D) — ONE rule for what counts as a successful raw
+/// `SendInput` call, shared by every call site that makes one.
+///
+/// `SendInput` returns the number of events it actually queued, which can be
+/// LESS than what was asked for (Windows stops at the first event it refuses —
+/// e.g. UIPI blocking a higher-integrity target partway through a batch). Before
+/// this, `sendinput.rs`'s two wrappers treated `sent > 0` as success and quietly
+/// reported a TRUNCATED count as though everything had landed; only
+/// `flow_key.rs`'s chord sender compared `sent` against the batch length. Three
+/// SendInput call sites disagreeing about what "sent" means is this repo's #1
+/// bug shape (a value answers two questions) — this function is now the single
+/// answer, called from `real_send_unicode`, `real_send_vk_pairs` below and
+/// `clipboard_confirm.rs`'s `send_ctrl_v`.
+///
+/// ⚠️ CORRECTED IN PLACE (2026-09-02, B2-Z): the Mac-side run (commit
+/// 7d9a775c) reported `cargo clippy --lib --features app -- -D warnings`
+/// flagging this function dead code on macOS — true in a plain build there,
+/// because every production caller named above (`real_send_unicode`,
+/// `real_send_vk_pairs`, `flow_key.rs::send_chords`, `clipboard_confirm.rs`'s
+/// `send_ctrl_v`) is Windows-only. `#[cfg(any(test,
+/// target_os = "windows"))]` keeps it reachable for the real Windows build
+/// and for `sendinput_fully_sent_tests` below on every platform, without
+/// `#[allow(dead_code)]` masking the day all four callers actually go away.
+/// NOT YET CONFIRMED ON THE MAC by this commit — see
+/// `verify/lint/platform-cfg-count.mjs`'s compound-cfg census note.
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) fn sendinput_fully_sent(sent: u32, expected: usize) -> bool {
+    sent as usize == expected
+}
+
+#[cfg(test)]
+mod sendinput_fully_sent_tests {
+    use super::sendinput_fully_sent;
+
+    #[test]
+    fn full_batch_is_success() {
+        assert!(sendinput_fully_sent(4, 4));
+    }
+
+    /// The exact shape this card fixes: a NONZERO but PARTIAL send must not
+    /// read as success. Before D3, `real_send_unicode`/`real_send_vk_pairs` only
+    /// checked `sent == 0`, so `sendinput_fully_sent`-shaped logic would have
+    /// said "sent" here — this is the case that made a target see the text
+    /// twice (SendInput partially lands, the caller believes it failed... or,
+    /// as this bug actually shipped, the caller believed a PARTIAL send was a
+    /// COMPLETE one and never retried the missing tail at all).
+    #[test]
+    fn partial_batch_is_not_success() {
+        assert!(!sendinput_fully_sent(2, 4));
+        assert!(!sendinput_fully_sent(1, 4));
+    }
+
+    #[test]
+    fn zero_sent_is_not_success() {
+        assert!(!sendinput_fully_sent(0, 4));
+    }
+
+    #[test]
+    fn empty_batch_edge_case() {
+        // Callers already special-case `inputs.is_empty()` before reaching
+        // SendInput, but the predicate itself should not lie about it either.
+        assert!(sendinput_fully_sent(0, 0));
+    }
+}
 
 #[cfg(target_os = "windows")]
 fn real_send_unicode(units: &[u16]) -> Result<usize, InjectError> {
@@ -271,14 +315,23 @@ fn real_send_unicode(units: &[u16]) -> Result<usize, InjectError> {
     // `inputs` is a properly-sized Vec<INPUT> and the size_of cast is exact.
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 
-    if sent == 0 {
+    // D3 (2026-09-02 audit §3-D): a PARTIAL send is a failure, not a partial
+    // success. This used to accept any `sent > 0` and report `sent / 2` units
+    // typed even when the OS silently dropped the rest of the batch — the
+    // caller then believed fewer characters landed than it asked for, never
+    // that the call failed. `flow_key.rs`'s chord sender already treats
+    // `sent != inputs.len()` as the failure condition (07-DESKTOP-SPEC's "one
+    // meaning of injected" applies to internal call sites too, not just the
+    // externally-visible verdict) — this wrapper and `clipboard_confirm.rs`'s
+    // Ctrl+V sender now use the SAME rule.
+    if !sendinput_fully_sent(sent, inputs.len()) {
         let err = unsafe { windows::Win32::Foundation::GetLastError() };
         if err.0 == 0 {
             return Err(InjectError::AppRejected);
         }
         return Err(InjectError::Win32(err.0));
     }
-    Ok((sent as usize) / 2)
+    Ok(units.len())
 }
 
 /// Send `count` down+up pairs of a VIRTUAL KEY.
@@ -336,19 +389,16 @@ fn real_send_vk_pairs(
     // `inputs` is a properly-sized Vec<INPUT> and the size_of cast is exact.
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 
-    if sent == 0 {
+    // D3: same rule as `real_send_unicode` above — a partial send is a failure,
+    // not `count`'s worth of backspaces reported when fewer actually landed.
+    if !sendinput_fully_sent(sent, inputs.len()) {
         let err = unsafe { windows::Win32::Foundation::GetLastError() };
         if err.0 == 0 {
             return Err(InjectError::AppRejected);
         }
         return Err(InjectError::Win32(err.0));
     }
-    Ok((sent as usize) / 2)
-}
-
-#[cfg(target_os = "windows")]
-fn real_send_backspaces(count: usize) -> Result<usize, InjectError> {
-    real_send_vk_pairs(windows::Win32::UI::Input::KeyboardAndMouse::VK_BACK, count)
+    Ok(count)
 }
 
 /// One RETURN keystroke — the line-break half of NL-1.
@@ -369,11 +419,10 @@ fn real_send_enter() -> Result<usize, InjectError> {
 /// `mode: clipboard` with a forensic note saying typing was not attempted; after
 /// that, `AppLearningStore` sends the app straight to the clipboard.
 ///
-/// ⚠️ NOTE WHAT THIS COSTS, so it is not discovered later: `apply_correction`
-/// (streaming realtime correction — backspace the changed suffix, retype it) goes
-/// through these two functions, so it does not work on macOS either. That is the
-/// same deferral, not a separate gap, and it is the reason this arm names the
-/// mechanism instead of shrugging.
+/// (Comment history: this used to also warn that `apply_correction` — streaming
+/// realtime correction — inherited this same deferral. That function had zero
+/// production callers and was deleted 2026-09-02 (P1, audit §3-D); the
+/// deferral described below still applies to plain typed text.)
 #[cfg(not(target_os = "windows"))]
 fn real_send_unicode(_units: &[u16]) -> Result<usize, InjectError> {
     Err(InjectError::Unsupported(
@@ -382,13 +431,6 @@ fn real_send_unicode(_units: &[u16]) -> Result<usize, InjectError> {
     ))
 }
 
-#[cfg(not(target_os = "windows"))]
-fn real_send_backspaces(_count: usize) -> Result<usize, InjectError> {
-    Err(InjectError::Unsupported(
-        "Stage-2 backspace chords (streaming correction). Same deferral as the typing path \
-         above — there is no clipboard equivalent of a backspace, so correction degrades",
-    ))
-}
 
 #[cfg(not(target_os = "windows"))]
 fn real_send_enter() -> Result<usize, InjectError> {
@@ -396,6 +438,29 @@ fn real_send_enter() -> Result<usize, InjectError> {
         "Stage-2 RETURN keystroke (line breaks in typed text). Same deferral as the typing path \
          above — and unlike the backspace, nothing is lost by it: the clipboard main path carries \
          the text's own line breaks, so macOS never needs one synthesised",
+    ))
+}
+
+/// ⚠️ SCOPE STOP (WP-5, 2026-09-02): the Windows-side `apply_correction` /
+/// `CorrectionOps` / `backspacer` seam this stub served was deleted this same
+/// pass (zero production callers, grepped across `apps/desktop/src` and
+/// `src-tauri/src`). This non-Windows counterpart is left in place, now
+/// genuinely unreferenced on every platform, rather than deleted alongside it:
+/// this repo's law is that `cfg(not(target_os = "windows"))` code must not be
+/// touched from a Windows-only session — "Windows gates cannot compile it, so
+/// nothing here can tell you whether removing it is safe" (the same reasoning
+/// `platform-cfg-count`'s lint exists to enforce: a non-Windows branch-count
+/// change requires `./scripts/mac-verify.sh` on the real machine before the
+/// lint's EXPECTED constants can be updated). Deleting THIS function is exactly
+/// that kind of change, so it stops here — flagged for the mac-verified pass
+/// to remove alongside whatever else in `inject/macos/` it also turns out to
+/// be the last reference to.
+#[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
+fn real_send_backspaces(_count: usize) -> Result<usize, InjectError> {
+    Err(InjectError::Unsupported(
+        "Stage-2 backspace chords (streaming correction). Same deferral as the typing path \
+         above — there is no clipboard equivalent of a backspace, so correction degrades",
     ))
 }
 
@@ -419,7 +484,6 @@ mod tests {
     enum Op {
         Units(Vec<u16>),
         Enter,
-        Backspace(usize),
     }
 
     fn utf16(s: &str) -> Vec<u16> {
@@ -429,15 +493,11 @@ mod tests {
     /// A client that records every call, in order, and accepts all of them.
     fn recording_client() -> (SendInputClient, Arc<Mutex<Vec<Op>>>) {
         let log = Arc::new(Mutex::new(Vec::new()));
-        let (t, b, e) = (log.clone(), log.clone(), log.clone());
+        let (t, e) = (log.clone(), log.clone());
         let client = SendInputClient::with_fakes(
             move |units| {
                 t.lock().unwrap().push(Op::Units(units.to_vec()));
                 Ok(units.len())
-            },
-            move |n| {
-                b.lock().unwrap().push(Op::Backspace(n));
-                Ok(n)
             },
             move || {
                 e.lock().unwrap().push(Op::Enter);
@@ -481,7 +541,7 @@ mod tests {
 
     #[test]
     fn sender_returning_zero_maps_to_app_rejected() {
-        let client = SendInputClient::with_fakes(|_| Ok(0), |_| Ok(0), || Ok(0));
+        let client = SendInputClient::with_fakes(|_| Ok(0), || Ok(0));
         assert!(matches!(client.type_text("x"), Err(InjectError::AppRejected)));
     }
 
@@ -549,8 +609,8 @@ mod tests {
     fn a_crlf_pair_counts_as_the_one_keystroke_it_becomes() {
         // 4 UTF-16 units in the string, 3 keystroke units on the wire. The count
         // reports what was SENT; nothing compares it to the text length
-        // (`map_sendinput_outcome` ignores the value, `apply_correction` drops
-        // it), so this is a truthful number rather than a regression.
+        // (`map_sendinput_outcome` ignores the value), so this is a truthful
+        // number rather than a regression.
         let (client, _) = recording_client();
         assert_eq!("a\r\nb".encode_utf16().count(), 4);
         assert_eq!(client.type_text("a\r\nb").unwrap(), 3);
@@ -597,63 +657,11 @@ mod tests {
     fn an_enter_the_app_refuses_is_a_rejection_not_a_silent_skip() {
         // "No silent failures": if the keystroke is refused we must say so, not carry on
         // and report a success whose line break never happened.
-        let client = SendInputClient::with_fakes(|u| Ok(u.len()), Ok, || Ok(0));
+        let client = SendInputClient::with_fakes(|u| Ok(u.len()), || Ok(0));
         assert!(matches!(
             client.type_text("a\nb"),
             Err(InjectError::AppRejected)
         ));
     }
 
-    #[test]
-    fn apply_correction_backspaces_before_appending() {
-        // "hello world" → "hello there": 5 backspaces then type "there".
-        let ops = CorrectionOps {
-            backspaces: 5,
-            append: "there".to_string(),
-        };
-        let (client, log) = recording_client();
-        client.apply_correction(&ops).unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![Op::Backspace(5), Op::Units(utf16("there"))],
-            "backspaces first, then one append batch"
-        );
-    }
-
-    #[test]
-    fn apply_correction_pure_append_sends_no_backspaces() {
-        let ops = CorrectionOps {
-            backspaces: 0,
-            append: " world".to_string(),
-        };
-        let (client, log) = recording_client();
-        client.apply_correction(&ops).unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![Op::Units(utf16(" world"))],
-            "no backspaces on pure append"
-        );
-    }
-
-    #[test]
-    fn a_correction_append_translates_its_line_breaks_too() {
-        // The second entry point to the same loss. Asserted separately because
-        // 「it delegates to type_text」 is a fact about today's code, and this
-        // test is what keeps it one.
-        let ops = CorrectionOps {
-            backspaces: 2,
-            append: "x\ny".to_string(),
-        };
-        let (client, log) = recording_client();
-        client.apply_correction(&ops).unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![
-                Op::Backspace(2),
-                Op::Units(utf16("x")),
-                Op::Enter,
-                Op::Units(utf16("y")),
-            ]
-        );
-    }
 }

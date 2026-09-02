@@ -83,9 +83,20 @@ describe('mobile:pair carries the phone\'s own name (over the wire)', () => {
   it('two handsets stay distinguishable — the whole point', async () => {
     const url = await standalone();
     const { code } = await pcWithCode(url);
-    const a = await ack<{ pairing_id: string }>(await connect(url), 'mobile:pair', {
+    const sockA = await connect(url);
+    const a = await ack<{ pairing_id: string }>(sockA, 'mobile:pair', {
       short_code: code, mobile_name: 'Google Pixel 8-3f2a',
     });
+    // A12/F2-b (WP-6) — a second LIVE phone now contends for the room and is
+    // refused PC_BUSY before it can occupy a second slot; irrelevant to what
+    // THIS test is about (do two ROWS keep their own names), so A disconnects
+    // first, exactly as if it had simply left before B ever showed up. A short
+    // real wait is enough: `liveContender` reads the SERVER socket's own
+    // `.connected`, which the transport flips the instant the close lands — the
+    // GA-04 grace this repo talks about elsewhere only delays REMOVING the
+    // room-store entry and the `pc:mobile-left` announcement, not this flag.
+    sockA.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const b = await ack<{ pairing_id: string }>(await connect(url), 'mobile:pair', {
       short_code: code, mobile_name: 'Lenovo TB335ZC-91c4',
     });

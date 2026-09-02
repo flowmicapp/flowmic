@@ -71,7 +71,8 @@ export const ERROR_CODES = {
   AUTH_TOKEN_INVALID:        { zh_CN: '令牌无效，请重新配对。',                en: 'Token invalid, please pair again.' },
   AUTH_TOKEN_EXPIRED:        { zh_CN: '登录已过期，请重新登录。',              en: 'Session expired, please sign in again.' },
   AUTH_LOGIN_FAILED:         { zh_CN: '邮箱或密码不正确。',                    en: 'Email or password incorrect.' },
-  AUTH_USE_REST_LOGIN:       { zh_CN: '请通过登录接口完成登录。',              en: 'Please sign in via the login endpoint.' },
+  // AUTH_USE_REST_LOGIN retired 2026-09-02 (WP-8 registry hygiene) — see the
+  // "75 → 69" note near EXPECTED_ERROR_CODE_COUNT for why.
   // F-2327 (SB-3): per-IP registration throttle. Too many sign-ups from one IP
   // inside the window -> 429 (a throwaway-account farm mints unbounded free quota).
   REGISTER_RATE_LIMITED:     { zh_CN: '注册过于频繁，请稍后再试。',            en: 'Too many sign-ups from this network, please try again later.' },
@@ -99,8 +100,8 @@ export const ERROR_CODES = {
   PAIR_INVALID_PAYLOAD:      { zh_CN: '配对载荷无效；请重新扫描二维码或重新输入配对码。', en: 'Invalid pairing payload; please rescan the QR code or re-enter the code.' },
   PAIR_EXPIRED_CODE:         { zh_CN: '配对码已过期，请刷新。',                en: 'Pairing code expired, please refresh.' },
   PAIR_PC_OFFLINE:           { zh_CN: '电脑离线，无法配对。',                  en: 'PC is offline, cannot pair.' },
-  PC_MOBILE_SLOT_BUSY:       { zh_CN: '电脑已连接其他手机，请先断开后再试。',  en: 'This PC is already connected to another phone.' },
-  PAIR_NOT_CONNECTED:        { zh_CN: '未连接电脑，请先在 PC 端打开 FlowMic 并完成配对。', en: 'No PC connected — open FlowMic on your PC and pair first.' },
+  // PC_MOBILE_SLOT_BUSY and PAIR_NOT_CONNECTED retired 2026-09-02 (WP-8
+  // registry hygiene) — see the "75 → 69" note near EXPECTED_ERROR_CODE_COUNT.
   // WP-R23-1: 4-digit-code brute-force guard. The code space is only 10^4, so an
   // unthrottled mobile:pair spray cracks the ACTIVE code within its 5-min TTL in
   // seconds. Per-socket exponential backoff (after 5 consecutive misses) + a
@@ -123,6 +124,70 @@ export const ERROR_CODES = {
   // from PAIR_RELEASED: nothing about this pairing is wrong and no operator
   // pressed anything, so the hold-out window is seconds, not a minute.
   PC_BUSY:                   { zh_CN: '这台电脑正被另一台手机占用。请先在那台手机上退出转录页，再从这里连接。', en: 'Another phone is using this PC. Leave the transcription page on that phone first, then connect from here.' },
+  // ── 74 → 75, owner approved 2026-09-01 ───────────────────────────────────────
+  // Producer apps/server-core/src/socket/handlers/pc.handler.ts `pc:list-mobiles`
+  //          (the `!auth` branch only; the second branch keeps AUTH_TOKEN_INVALID)
+  //
+  // A socket that has connected but has not yet had its `pc:register` /
+  // `pc:reconnect` ack land carries no pairing identity, so an identity-required
+  // verb cannot be served. That is a fact about TIMING, not about a credential.
+  //
+  // 🔴 WHY AUTH_TOKEN_INVALID WAS A LIE HERE, MEASURED. Its registered sentence
+  // is 「令牌无效，请重新配对」 — and on this branch the token is perfectly valid
+  // and about to be accepted. Forensic from dev-pc-a (four occurrences,
+  // 2026-08-30 → 2026-09-01) shows the `pc:reconnect` ack landing 56–335 ms AFTER
+  // this refusal every single time. The desktop read the code as an ACCOUNT
+  // verdict and deleted the user's Cloud Key, so a healthy session logged itself
+  // out on a race — the repo's #1 shape (one value answering two questions) with
+  // a credential on the line. The reciprocal desktop fix (a device-page verb may
+  // never drop the key) lands in the same round; either half alone stops the
+  // logout, which is why neither deploy order can regress.
+  //
+  // WHY NOT A NEIGHBOUR — each sends the user to an action that cannot help:
+  //   · AUTH_TOKEN_INVALID / AUTH_TOKEN_EXPIRED — both assert the credential is
+  //     bad. Re-pairing or signing in again "fixes" nothing, and the second one
+  //     also makes the desktop drop a key that was never refused;
+  //   · PAIR_RATE_LIMITED — invents a verdict about the caller's behaviour;
+  //   · PC_BUSY / PAIR_RELEASED — both invent an ACTOR. Nobody did anything here.
+  //
+  // The copy names the one action that genuinely works (wait a moment, ask
+  // again) and says nothing about handshakes, sockets or acks — the user never
+  // chose our connection model and owes us no picture of it (owner 2026-08-22).
+  // 20 characters, inside the phone's 28-char raw-code cell (0.2.53).
+  PC_HANDSHAKE_PENDING:      { zh_CN: '连接还没准备好，请稍后再试。',              en: 'The connection is not ready yet, please try again in a moment.' },
+  // ── AUTH_TOKEN_UNVERIFIABLE · 2026-09-02 (WP-8, A11/F2-a) ────────────────────
+  //
+  // The multi-node relay (2026-08-29 design) has a token this REPLICA cannot
+  // find locally, and it could not get a definitive answer from the writer
+  // either — the writer was unreachable, the read-through budget was spent,
+  // or the writer's own rows would not land on this node yet
+  // (`node/token-read-through.ts` `askAndApply`). Every one of those was
+  // previously folded into `AUTH_TOKEN_INVALID` by `auth/middleware.ts` and
+  // `mobile.handler.ts`'s `mobile:reconnect`, and BOTH the phone
+  // (`mobile_reconnect_flow.dart`) and the desktop (`socket/pairing.rs`)
+  // treat that code as "this credential is dead, delete it" — a healthy
+  // pairing minted seconds ago on the writer gets wiped on a node that simply
+  // has not heard about it yet.
+  //
+  // WHY NOT AUTH_TOKEN_INVALID — that code means "asked, and the answer is
+  // no" (`token-read-through.ts`'s own words: "the writer IS the authority").
+  // This code means "could not ask, or could not hear back" — a materially
+  // different claim, because only the first one licenses deleting a
+  // credential the user never revoked.
+  //
+  // WHY NOT PC_HANDSHAKE_PENDING (the code directly above, same family of
+  // defect) — that one answers "the ack for THIS socket has not landed yet"
+  // (an identity-required verb racing its own connection's register/reconnect
+  // ack). This one answers "a different machine could not confirm this token
+  // right now" — same shape (a race mistaken for a verdict), different actor,
+  // and PC_HANDSHAKE_PENDING's producer (pc.handler.ts) has no reason to ever
+  // emit this one instead.
+  //
+  // Retryable, and the copy says so: nothing the user does helps beyond
+  // waiting for the next attempt — same "no imperative because there is
+  // nothing to imperative about" shape as NODE_IS_REPLICA and
+  // PC_HANDSHAKE_PENDING.
+  AUTH_TOKEN_UNVERIFIABLE:   { zh_CN: '暂时无法确认这把凭证是否有效，请稍后再试。', en: 'Could not confirm this credential right now — please try again shortly.' },
   // ── PCID addressing (0.2.66) · 69 → 71, owner approved 2026-08-14 ────────────
   // Ruling   docs/decisions/2026-08-14-owner-cloud-pairing-requires-pcid.md
   // Design   docs/strategy/…-0266-cloud-pcid-pairing-design.md §5.3 — the full
@@ -166,7 +231,16 @@ export const ERROR_CODES = {
   // the pinning is doing its job, and an override turns a working defence into a
   // prompt people click through; fix-024 carries that as a red line and this
   // sentence is written to match it — the only action it names is pairing again.
-  LAN_CERT_PIN_MISMATCH:     { zh_CN: '这台电脑出示的安全证书与配对时记下的不一致，已拒绝连接。请在电脑上重新生成二维码，用手机重新扫码配对。', en: 'This PC presented a different security certificate from the one recorded when you paired, so the connection was refused. Generate a new QR code on the PC and scan it again to pair.' },
+  // LAN_CERT_PIN_MISMATCH retired 2026-09-02 (WP-8 registry hygiene). This was
+  // one of the four 2026-08-10 codes registered ahead of its producer, under a
+  // rule written down verbatim at the time: "if the wave ships without a
+  // code's producer, that code goes with it." Its three siblings
+  // (REGISTER_EMAIL_INVALID / STT_NO_ENGINE_REACHED / PC_IMAGE_STORE_FAILED)
+  // all landed producers within weeks; this one never did (grepped three ends
+  // 2026-09-02: only error-codes.ts, inject-verdict-authorship.ts and this
+  // round's own tests referenced the name — zero call sites in
+  // apps/server-core, apps/desktop or apps/mobile). See the "75 → 69" note
+  // near EXPECTED_ERROR_CODE_COUNT.
 
   // STT engine / config
   STT_CONFIG_MISSING:        { zh_CN: '该语言尚未配置识别引擎。',              en: 'No STT engine configured for this language.' },
@@ -174,6 +248,34 @@ export const ERROR_CODES = {
   STT_ENGINE_RATE_LIMITED:   { zh_CN: '识别引擎请求过频，请稍后重试。',        en: 'STT engine rate limited, retry later.' },
   STT_ENGINE_TIMEOUT:        { zh_CN: '识别引擎响应超时。',                    en: 'STT engine timeout.' },
   STT_NETWORK_DROP:          { zh_CN: '网络中断，识别会话终止。',              en: 'Network drop, STT session terminated.' },
+  // 72 → 73. B2-G (2026-09-02): every one of the eight bundled STT adapters
+  // (apps/server-core/src/stt/engines/*.ts + packages/stt-cloud/src/engines/
+  // soniox.ts) throws when `push()` is called while the engine's own state is
+  // not `'open'` — and every one of them named that `STT_ENGINE_TIMEOUT`. It
+  // never was one: nothing was sent to a vendor, so nothing timed OUT waiting
+  // for a reply. The real fact — recorded verbatim in the message each site
+  // already wrote — is a caller/orchestrator invariant violation: audio
+  // arrived for an engine session that had not opened yet, or had already
+  // closed/failed. Same failure shape argued at `STT_NO_ENGINE_REACHED` above
+  // (a reused code answers a question nobody asked, one level closer to the
+  // wire): grep for `STT_ENGINE_TIMEOUT` across those eight files before this
+  // card shows the exact same string doing two jobs — "the vendor took too
+  // long" and "we called push() on an engine that was not there to call it
+  // on" — and only the first one is what the sentence below actually says.
+  // 🔴 WHY NOT STT_NETWORK_DROP: `sherpa-local` is an in-process engine with no
+  // network at all, so a message about a dropped connection would be false on
+  // its face for that adapter — and for the ws-based adapters the drop code
+  // already has its own, narrower meaning (`unexpectedCloseError` in
+  // `engines/base.ts`: a socket that WAS open closing on its own).
+  // 🔴 WHY NOT STT_CONFIG_MISSING: that one answers "this language has no
+  // engine configured"; here an engine was configured and constructed, it
+  // simply was not (or was no longer) accepting audio at the moment this
+  // chunk arrived.
+  // `retryable: true` unchanged from what every site already declared — the
+  // condition is very often transient (a chunk arriving mid-rollover, mid-
+  // reconnect, or just after a clean close) and the reconnect ladder is what
+  // decides whether to act on that, not this code.
+  STT_ENGINE_NOT_OPEN:       { zh_CN: '识别引擎当时未处于可接收状态，这段音频没有送达引擎。', en: 'The STT engine was not in a state to receive audio, so this segment was not delivered to it.' },
   // 66 → 67. owner approved on 2026-08-10 (ruling group #5-c). The utterance was captured
   // and NO speech engine ever received it. Producer lands with card fix-022
   // (`apps/server-core/src/stt/orchestrator-core.ts`).
@@ -303,7 +405,8 @@ export const ERROR_CODES = {
   STT_LANGUAGE_UNSUPPORTED:  { zh_CN: '这次识别用的引擎不支持你选的说话语种。请到设置里为这个语种换一个引擎，或者改说它支持的语种。', en: 'The speech engine used for this recording does not support the spoken language you selected. Choose a different engine for this language in settings, or speak one it supports.' },
   STT_PROBE_FAIL:            { zh_CN: '连接测试失败，请检查地址或密钥。',      en: 'Connection test failed, check endpoint or key.' },
   STT_PROBE_SCHEME_MISMATCH: { zh_CN: '服务可经 ws:// 访问，但 wss:// 握手失败 — 该服务未启用 TLS，请把端点改为 ws://。', en: 'Server reachable via ws:// but wss:// handshake failed — endpoint has no TLS, change scheme to ws://.' },
-  STT_HARD_LIMIT_REACHED:    { zh_CN: '已达 5 分钟单次最长录音限制。',         en: 'Reached 5-minute single-recording hard limit.' },
+  // STT_HARD_LIMIT_REACHED retired 2026-09-02 (WP-8 registry hygiene) — see
+  // the "75 → 69" note near EXPECTED_ERROR_CODE_COUNT.
 
   // LLM / compose
   LLM_TIMEOUT:               { zh_CN: '大模型响应超时。',                      en: 'LLM response timeout.' },
@@ -395,7 +498,8 @@ export const ERROR_CODES = {
   // instead of being dropped — a request with no result leaves the phone's entry
   // stuck 「投递中」 forever.
   INJECT_NOT_PRIMARY:        { zh_CN: '这台电脑正被另一台手机占用，未注入。',    en: 'This PC is occupied by another phone; not injected.' },
-  INJECT_TAURI_MISSING:      { zh_CN: '未检测到 Tauri 运行时；请在桌面端启动 FlowMic。', en: 'Tauri invoke unavailable; ensure the desktop runtime is present.' },
+  // INJECT_TAURI_MISSING retired 2026-09-02 (WP-8 registry hygiene) — see the
+  // "75 → 69" note near EXPECTED_ERROR_CODE_COUNT.
   // 2026-07-29 (owner「按最优选择修复」): the three server-side verdicts that used
   // to be SILENT. A dropped inject:request left the phone waiting out its 20 s
   // watchdog with no reason ever stated — the frame died at the zod boundary
@@ -953,6 +1057,36 @@ export const ERROR_CODES = {
   // ZERO wire-shape change: this rides the existing `{error}` ack field.
   // `whitelist=54` is untouched — no event was added, removed, or renamed.
   NODE_IS_REPLICA:           { zh_CN: '当前服务器不处理注册和配对，请重新连接后再试。', en: 'The current server does not handle registration or pairing — reconnect and try again.' },
+
+  // ── 2026-09-02 (WP-8, registry hygiene) — two long-standing SHADOW codes
+  // promoted into this registry. Both already had real producers and real
+  // phone-side sentences before today; what they lacked was a row here, which
+  // is the one thing every other guard in this file (the count guard, the
+  // i18n-error-keys lint, `inject-verdict-authorship.ts`'s exhaustive
+  // `satisfies`) actually reads. A shadow code cannot be caught by any of
+  // that machinery — see 2026-09-02-full-implementation-audit-and-next-plan.md
+  // §3-G G1.
+  //
+  // INJECT_RESULT_TIMEOUT — `http/inject-routes.ts`'s image-ingress waiter
+  // (`socket/inject-pending.ts`) gave up on an `inject:result` inside its
+  // window. Deliberately NOT a failure verdict: the frame WAS relayed
+  // (`relayed:true` rides every answer that uses this code) and the PC may
+  // still answer late, at which point `relay.handler.ts`'s write-back records
+  // the truth. It rides the HTTP image-ingress ack's `error` field, never the
+  // `inject:result` SOCKET event — which is why `inject-verdict-authorship.ts`
+  // gives it `'none'` rather than `'relay'` (that value is reserved for "this
+  // frame never reached any PC", and here the opposite is true: it did).
+  INJECT_RESULT_TIMEOUT:     { zh_CN: '电脑那边响应超时，不确定是否已处理，请重试。', en: 'No response from the PC in time — unsure whether it was handled, please retry.' },
+  // EMAIL_VERIFY_GRACE_EXPIRED — `auth/verification-grace.ts`'s 3-day
+  // unverified-email grace period (owner ruling 2026-08-27 items 3/4) ran out,
+  // and `audio:start` / `compose:start` refused to open a new managed-cloud
+  // session over it. It already has bespoke phone-side sentences
+  // (`recording_strings.dart` `sttStallVerifyEmail`, `compose_strings.dart`
+  // `case 'EMAIL_VERIFY_GRACE_EXPIRED'`) — this round only makes the registry
+  // agree with what both ends already do. `verification-grace.test.ts`'s pin
+  // ("EMAIL_VERIFY_GRACE_EXPIRED is NOT a protocol error code") is flipped in
+  // the same commit.
+  EMAIL_VERIFY_GRACE_EXPIRED: { zh_CN: '邮箱验证宽限期已结束，请先完成邮箱验证。', en: 'The unverified-email grace period has ended — please verify your email first.' },
 } as const satisfies Record<string, ErrorMessage>;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

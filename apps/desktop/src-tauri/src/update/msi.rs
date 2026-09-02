@@ -237,26 +237,54 @@ pub(crate) fn run_install_with(
         return InstallOutcome::NotRelaunched { detail };
     }
 
+    // 🔴 P1 (2026-09-02 audit §3-D) — annotate the breadcrumb BEFORE `launch`,
+    // not after. The process `launch` starts is a NEW FlowMic that reads this
+    // SAME breadcrumb on its own boot to decide what to tell the user about
+    // the update it is coming back from. `launch` returns as soon as the OS
+    // accepts the spawn — it does not wait for that process to finish
+    // starting up — so a `note_outcome_for` written AFTER `launch` returns is
+    // racing the new process's own startup read, and a race a diagnostic
+    // write can LOSE is not hypothetical here: this exact ordering is why
+    // `installer_refused:<code>` never reached a user even though this line
+    // ran on every refused-but-relaunched install. Writing first means the
+    // new process cannot start before the fact it needs to read exists.
+    // 🔴 P1 (2026-09-02 audit §3-D) — annotate the breadcrumb BEFORE `launch`,
+    // not after. The process `launch` starts is a NEW FlowMic that reads this
+    // SAME breadcrumb on its own boot to decide what to tell the user about
+    // the update it is coming back from. `launch` returns as soon as the OS
+    // accepts the spawn — it does not wait for that process to finish
+    // starting up — so a `note_outcome_for` written AFTER `launch` returns is
+    // racing the new process's own startup read, and a race a diagnostic
+    // write can LOSE is not hypothetical here: this exact ordering is why
+    // `installer_refused:<code>` never reached a user even though this line
+    // ran on every refused-but-relaunched install. Writing first means the
+    // new process cannot start before the fact it needs to read exists.
+    if !ok {
+        note_outcome_for(
+            &job.to,
+            crumb_dir,
+            &format!(
+                "installer_refused:{}",
+                code.map(|c| c.to_string()).unwrap_or_else(|| "nocode".to_string())
+            ),
+        );
+    }
     match launch(&job.relaunch_exe) {
         Ok(pid) => {
             crate::forensic::record("update", &format!("installer runner relaunched FlowMic (pid {pid})"));
             if ok {
                 InstallOutcome::InstalledAndRelaunched
             } else {
-                // The app is back, but it is the OLD one. Say so on the
-                // breadcrumb, or the next launch reports a completed update.
-                note_outcome_for(
-                    &job.to,
-                    crumb_dir,
-                    &format!(
-                        "installer_refused:{}",
-                        code.map(|c| c.to_string()).unwrap_or_else(|| "nocode".to_string())
-                    ),
-                );
+                // The app is back, but it is the OLD one — already said on the
+                // breadcrumb above, before this relaunch, or the next launch
+                // would report a completed update instead.
                 InstallOutcome::RefusedButRelaunched { code }
             }
         }
         Err(e) => {
+            // Nothing was started, so there is no race to lose here — but the
+            // pre-write above (if `!ok`) said "refused but relaunched", which
+            // is now wrong: overwrite with the true final state.
             let detail = format!("not_relaunched:spawn:{}", e.kind());
             crate::forensic::record(
                 "update",

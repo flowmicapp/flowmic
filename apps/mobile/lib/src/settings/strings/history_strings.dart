@@ -13,6 +13,11 @@ mixin HistoryStrings on AppStringsLeaves {
     required String en,
     required String ja,
     required String ko,
+    required String zhTw,
+    required String fr,
+    required String es,
+    required String de,
+    required String ru,
   });
 
   // ── the full-history page + chat-page instance narrowing (V2-06b, requirement ④) ─
@@ -61,12 +66,36 @@ mixin HistoryStrings on AppStringsLeaves {
 
   /// The hit count. Search **asks the store**, it does not filter the already-
   /// loaded page, so this number is the true count across the whole database.
+  ///
+  /// AUD-D P1-4: [_ruMatchesWord] carries Russian's three-way plural (1 vs.
+  /// 2-4 vs. 5+/11-14) — the one language among the nine where "just add an
+  /// -s" is not even close to how the count word actually changes shape.
   String historySearchHits(int n) => _t(
     zh: '$n 条匹配',
+    zhTw: '$n 條符合',
     en: '$n match${n == 1 ? '' : 'es'}',
     ja: '$n 件一致',
     ko: '$n개 일치',
+    fr: '$n résultat${n > 1 ? 's' : ''}',
+    es: '$n resultado${n == 1 ? '' : 's'}',
+    de: '$n Treffer',
+    ru: '$n ${_ruMatchesWord(n)}',
   );
+
+  /// Russian noun plural for "match" (совпадение), by the standard Slavic
+  /// count-word rule: forms ending in 1 (but not 11) take the singular; 2-4
+  /// (but not 12-14) take the "few" form; everything else — including 11-14 —
+  /// takes the "many" form. `n % 100` before `n % 10` matters: without it, 11
+  /// would wrongly match the "ends in 1" singular rule.
+  static String _ruMatchesWord(int n) {
+    final int mod100 = n % 100;
+    final int mod10 = n % 10;
+    if (mod10 == 1 && mod100 != 11) return 'совпадение';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'совпадения';
+    }
+    return 'совпадений';
+  }
 
   String get historyLoadingMore => _lfHistoryLoadingMore;
 

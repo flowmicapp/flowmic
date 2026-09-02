@@ -278,7 +278,7 @@ mod channel_session;
 /// second confirmation before ever sending that.
 /// Returns whether the server acked `{ok:true}`; `false` (socket down / timeout /
 /// refusal) makes the page say so instead of silently re-rendering the old table.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_mobile(
     state: State<'_, SocketState>,
     id: String,
@@ -385,7 +385,7 @@ const RELEASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// `cloud.active_channel()` flag, i.e. always LAN).
 ///
 /// `state` is Tauri-injected managed state.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn refresh_pairing_code(
     state: State<'_, SocketState>,
     channel: Option<String>,
@@ -685,10 +685,67 @@ pub fn surface_capsule(app: &AppHandle, user_gesture: bool) {
     }
     #[cfg(not(windows))]
     {
-        let _ = w.show();
-        if user_gesture {
-            let _ = w.set_focus();
+        // MAC-D1 (docs/rebuild/07-DESKTOP-SPEC.md §13): "deliberately not
+        // enabled" was the doc's framing, but until this fix nothing in this
+        // arm actually enforced it — `w.show()` ran unconditionally, and
+        // tao 0.35.3's `set_visible(true)` (what `show()` calls on this
+        // platform) maps straight to `makeKeyAndOrderFront`, which ALWAYS
+        // activates. There is no SW_SHOWNOACTIVATE equivalent here. The only
+        // caller of the `capsule_surface` command is `capsule.surface()` in
+        // `apps/desktop/src/lib/bridge.ts`, and it is invoked ambient-only
+        // (ptt/reconnect flows) — grepped: no call site on this platform ever
+        // passes `user_gesture = true` today, so every ambient surface was
+        // silently stealing focus. `ambient_surface_may_show` below is the
+        // actual gate now, not the doc sentence.
+        if !ambient_surface_may_show(user_gesture) {
+            crate::forensic::record(
+                "capsule",
+                "MAC-D1 ambient surface suppressed (user_gesture=false) — non-windows show() has no non-activating form (tao 0.35.3 set_visible => makeKeyAndOrderFront); see docs/rebuild/07-DESKTOP-SPEC.md §13",
+            );
+            return;
         }
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Pure decision for the MAC-D1 gate: may the non-windows `surface_capsule`
+/// arm call `w.show()`? Only a real user gesture (tray summon) may — there is
+/// no non-activating `show()` outside the Win32 raw path in
+/// `surface_capsule_native`. Kept as a free function (not inlined into the
+/// `#[cfg(not(windows))]` block) precisely so it can be unit-tested from a
+/// Windows build: Windows gates give this decision ZERO proof about the real
+/// mac runtime — they only prove the branching arithmetic, not that
+/// `w.show()` / `set_focus()` behave as documented on macOS. That half is
+/// only provable by scripts/mac-verify.sh on flowmic-mac.
+///
+/// ⚠️ On a Windows build this function is real dead code outside `#[cfg(test)]`
+/// — its only production call site is inside the `#[cfg(not(windows))]` arm
+/// above, which does not exist in a Windows binary. `allow(dead_code)` is
+/// scoped to `cfg(windows)` only, not blanket: on macOS/Linux the compiler
+/// must keep proving it is actually called.
+#[cfg_attr(windows, allow(dead_code))]
+fn ambient_surface_may_show(user_gesture: bool) -> bool {
+    user_gesture
+}
+
+#[cfg(test)]
+mod ambient_surface_gate_tests {
+    use super::ambient_surface_may_show;
+
+    /// Reverse control: before the MAC-D1 fix, the non-windows arm called
+    /// `w.show()` unconditionally — equivalent to this function always
+    /// returning `true`. This assertion is exactly what would go red against
+    /// that old behaviour (seen red while implementing this fix: reverting
+    /// `ambient_surface_may_show` to `true` flips this test to fail).
+    #[test]
+    fn ambient_gesture_is_suppressed() {
+        assert!(!ambient_surface_may_show(false));
+    }
+
+    #[test]
+    fn real_user_gesture_is_allowed() {
+        assert!(ambient_surface_may_show(true));
     }
 }
 

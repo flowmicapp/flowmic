@@ -89,6 +89,11 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.composeSend,
   BannerIds.imageSend,
   BannerIds.aiCompose,
+  // AUD-D F6 / P1-6 (card B2-O) — a past event: the segment already got
+  // dropped/evicted/expired by the time this banner appears, so like the
+  // entries above (and unlike [BannerIds.pcBusy]/[BannerIds.link]) it
+  // describes something already over, not a live condition.
+  BannerIds.retainedAudioNotice,
   // Card PAIR-SUCCESS: a past event (a pairing was just established). Since
   // 2026-08-26 the RENDERER is the centred panel (ui/pairing_success_toast.dart,
   // ~2 s), which clears the ticket itself — this entry is the BACKSTOP for the
@@ -137,6 +142,10 @@ const List<String> _autoHideBannerKeys = <String>[
     dismiss: c.dismissImageFailure,
   ),
   BannerIds.aiCompose => (value: c.aiFailure, dismiss: c.dismissAiFailure),
+  BannerIds.retainedAudioNotice => (
+    value: c.retainedAudioNotice,
+    dismiss: c.dismissRetainedAudioNotice,
+  ),
   // The ticket is the face value: a NEW raise is a new number ⇒ a fresh window.
   BannerIds.pairingSuccess => (
     value: c.pairingSuccess.ticket,
@@ -209,6 +218,10 @@ Future<void> disposeRouted(ChatController c) async {
   AlbumAway.instance.removeListener(c._onAlbumAwayChanged);
   c.session.pcPresence.removeListener(c._onPcPresenceChanged); // RV-92
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7
+  // AUD-D F6 / P1-6 (card B2-O) — mirrors the constructor's addListener; a
+  // torn-down controller must not go on writing into a field nobody reads.
+  c.session.audio.retainedAudio?.store.lastNotice
+      .removeListener(c._onRetainedAudioNotice);
   c._polishSkippedEntryIds.clear();
   c._sessionLostTimer?.cancel();
   c.recording.dispose();

@@ -142,7 +142,28 @@ extension PttSessionInbound on PttSession {
         //   immediately, everything else is refused (see onSttTerminalError).
         final SttError? e = SttError.tryFromJson(data);
         if (e != null && !e.retryable) {
-          fsm.onSttTerminalError(code: e.code, message: e.message);
+          fsm.onSttTerminalError(
+            code: e.code,
+            message: e.message,
+            judgedAccount: e.judgedAccount,
+          );
+        } else if (e != null) {
+          // 🔴 P2-4 (2026-09-02 audit) — THIS ARM USED TO DROP THE FRAME
+          // ENTIRELY. A retryable error means the engine is reconnecting and
+          // capture continues (unchanged below), so no FSM transition belongs
+          // here — but dropping it silently left no trace anywhere: if the
+          // engine never comes back the ONLY residue is state_machine.dart's
+          // own 15 s processing watchdog, which stalls with the generic
+          // [SttStallReason.timeout] and no code at all. That is a real bug
+          // hiding behind a fake one — the wire told us EXACTLY what
+          // happened, and the trail we control threw it away before the
+          // eventual timeout could quote it. Diagnose the bounce so a real
+          // device trail can tell 「the engine recovered」 apart from
+          // 「nothing came back, and we don't know why」.
+          diag('stt.error.retryable', <String, Object?>{
+            'code': e.code,
+            'message': e.message,
+          });
         }
         break;
       case FlowMicEvents.sttLevel:
@@ -271,22 +292,13 @@ extension PttSessionInbound on PttSession {
         });
         if (!_autoStoppedCtl.isClosed) _autoStoppedCtl.add(reason);
         break;
-      case FlowMicEvents.pcMobileJoined:
-        // owner 2026-07-27: this used to set the in-memory notifier ONLY, so a
-        // name learned here died with the session. Every other learn point (pair
-        // ack, reconnect ack, settings:updated) persists, and the connections
-        // list renders from the PERSISTED MobileSession.pcName — so a rename the
-        // phone only ever saw through this event left the list showing the name
-        // captured when the pairing was first made, forever. Persist it here too;
-        // _adoptPcName is idempotent and keeps the pc_id attribution guard.
-        final Object? name = data['pc_name'] ?? data['device_name'];
-        if (name is String && name.isNotEmpty) {
-          // Header updates synchronously (unchanged); persistence rides after the
-          // storage read so the LIST agrees with the header on the next visit.
-          connectedDeviceName.value = name;
-          unawaited(_adoptPcName(data['pc_id'] is String ? data['pc_id'] as String : null, name));
-        }
-        break;
+      // Card C-1 (2026-09-02, findings-mobile-dead.md): a `pc:mobile-joined`
+      // handler used to live here. Deleted rather than fixed: the server only
+      // ever emits this event to the PC's OWN socket (`mobile.handler.ts`'s
+      // `pc?.emit`), never to a mobile client, and the event's schema does not
+      // even carry `pc_name` — so this branch could not fire in production,
+      // and the one test that exercised it had to invent a frame shape the
+      // wire never sends to make it look reachable.
       // GA-10 (04 §3.7 F-3101): the PC renamed itself. The reconnect ack already
       // carries the latest name as a fallback, but without this the header keeps the
       // old label for as long as the session lives — a rename the user made on
@@ -318,8 +330,18 @@ extension PttSessionInbound on PttSession {
         final InjectResult? r = InjectResult.tryFromJson(data);
         if (r != null) {
           // 🔴 RV-92 — the ONLY path mid-session that actively says 「the PC is
-          // gone」 (see that method for the criterion).
-          _pcPresence.noteInjectResult(ok: r.ok, error: r.error);
+          // gone」 (see that method for the criterion). Card B3 (WP-6): also
+          // hand over this frame's `node` and this session's OWN idea of the
+          // PC's home (`reconnect.pcHomeNode`, the same field
+          // ptt_presence_poll.dart already reads for the idle poll) so a
+          // wrong-node `INJECT_PC_OFFLINE` cannot paint a working computer as
+          // gone.
+          _pcPresence.noteInjectResult(
+            ok: r.ok,
+            error: r.error,
+            node: r.node,
+            homeNode: reconnect.pcHomeNode.value,
+          );
           if (!_injectResultCtl.isClosed) _injectResultCtl.add(r);
         }
         break;

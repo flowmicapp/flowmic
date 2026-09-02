@@ -22,26 +22,143 @@
 // contract is the one that has to be corrected — not this comment.
 
 use crate::inject::pipeline::InjectMode;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+const APP_LEARNING_FILE: &str = "app-learning.json";
+
+/// On-disk shape. The store's ONLY recorded fact is 「this app hard-rejected
+/// SendInput, go straight to Clipboard」 (see `record_outcome`'s doc comment
+/// for why nothing else is ever written) — so a set of app_ids is the whole
+/// truth, not a map to `InjectMode`. `InjectMode` itself stays free of
+/// `serde` derives: this file does not need a second serialisation of a type
+/// whose only other encoding is the wire's `.wire()` token, and the two have
+/// no reason to be forced to agree.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AppLearningFile {
+    clipboard_pinned: HashSet<String>,
+}
+
+impl AppLearningFile {
+    /// Absent → empty (normal first run). Corrupt / unreadable → ALSO empty,
+    /// but NAMED on the forensic log — same discipline as
+    /// `socket::typed_ledger::TypedLedgerFile::load`: a file that silently
+    /// stopped being read is indistinguishable from a machine with no
+    /// history, and only one of those is worth a note.
+    fn load(path: &Path) -> Self {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            Err(e) => {
+                crate::forensic::record(
+                    "inject",
+                    &format!("app-learning file {path:?} could not be read ({e}) — starting empty"),
+                );
+                return Self::default();
+            }
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                crate::forensic::record(
+                    "inject",
+                    &format!("app-learning file {path:?} is corrupt or an unrecognised shape ({e}) — starting empty"),
+                );
+                Self::default()
+            }
+        }
+    }
+
+    /// Write-to-temp-then-rename, matching `TypedLedgerFile::save` — this file
+    /// is small (one HashSet<String>) but a half-written JSON document is
+    /// still a half-written JSON document if the process dies mid `fs::write`.
+    fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_vec(self).map_err(std::io::Error::other)?;
+        let mut tmp_name = path.as_os_str().to_os_string();
+        tmp_name.push(".tmp");
+        let tmp = PathBuf::from(tmp_name);
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(&tmp, path)
+    }
+}
+
 /// Per-app inject-outcome memory: app_name → preferred next-inject mode.
+///
+/// P2 (2026-09-02 audit): this used to be pure in-memory `HashMap`, so the one
+/// fact it exists to remember — 「this app hard-rejects SendInput」 — was
+/// forgotten on every restart, and the owner's Cursor corruption (see the
+/// header above) could recur once per process lifetime instead of once ever.
+/// `path` is `None` in tests (and any other caller that wants a pure in-memory
+/// store) — persistence is opt-in via `global()`/`load_from_disk`, never
+/// forced on `new()`.
 pub struct AppLearningStore {
     inner: Mutex<HashMap<String, InjectMode>>,
+    path: Option<PathBuf>,
 }
 
 impl AppLearningStore {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
+            path: None,
+        }
+    }
+
+    /// Default on-disk location: a sibling of `credentials.bin` under this
+    /// user's local app-data home (same directory role as the typed ledger).
+    pub fn default_path() -> PathBuf {
+        crate::app_dirs::local_home().join(APP_LEARNING_FILE)
+    }
+
+    /// Load prior history from `path` (best-effort — see `AppLearningFile::load`)
+    /// and remember `path` so future `record_outcome` calls persist there too.
+    fn load_from_disk(path: PathBuf) -> Self {
+        let file = AppLearningFile::load(&path);
+        let inner = file
+            .clipboard_pinned
+            .into_iter()
+            .map(|app_id| (app_id, InjectMode::Clipboard))
+            .collect();
+        Self {
+            inner: Mutex::new(inner),
+            path: Some(path),
+        }
+    }
+
+    /// Best-effort save of the current table to `self.path`, if any. Failure
+    /// is not fatal to the running process (the in-memory table still answers
+    /// correctly for this session) but must not be silent — see `save`'s own
+    /// discipline in `typed_ledger.rs` for why a swallowed write is worse than
+    /// a swallowed read: it is the one that makes NEXT session's read lie.
+    fn persist(&self, table: &HashMap<String, InjectMode>) {
+        let Some(path) = &self.path else { return };
+        let file = AppLearningFile {
+            clipboard_pinned: table
+                .iter()
+                .filter(|(_, mode)| matches!(mode, InjectMode::Clipboard))
+                .map(|(app_id, _)| app_id.clone())
+                .collect(),
+        };
+        if let Err(e) = file.save(path) {
+            crate::forensic::record(
+                "inject",
+                &format!("app-learning file {path:?} could not be saved ({e}) — this restart's history will not survive the next one"),
+            );
         }
     }
 
     /// Process-wide singleton the inject pipeline consults instead of
-    /// threading the store through every call signature.
+    /// threading the store through every call signature. Persists to
+    /// [`Self::default_path`] so a hard SendInput rejection is remembered
+    /// across restarts, not just for the rest of this process's life.
     pub fn global() -> &'static Self {
         static STORE: OnceLock<AppLearningStore> = OnceLock::new();
-        STORE.get_or_init(AppLearningStore::new)
+        STORE.get_or_init(|| AppLearningStore::load_from_disk(Self::default_path()))
     }
 
     /// Record an inject outcome for `app_id`.
@@ -115,6 +232,13 @@ impl AppLearningStore {
         }
         if let Ok(mut g) = self.inner.lock() {
             g.insert(app_id.to_string(), InjectMode::Clipboard);
+            // P2 fix: this used to be the entire body — the table this insert
+            // just changed was never written past the running process. Clone
+            // out from under the lock so a slow disk write never holds up the
+            // inject pipeline's next `preferred_mode_for` read.
+            let snapshot = g.clone();
+            drop(g);
+            self.persist(&snapshot);
         }
     }
 
@@ -142,10 +266,87 @@ impl Default for AppLearningStore {
 mod tests {
     use super::*;
 
+    fn scratch_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("flowmic-app-learning-{label}-{}.json", uuid::Uuid::new_v4()))
+    }
+
     #[test]
     fn fresh_store_has_no_history() {
         let store = AppLearningStore::new();
         assert_eq!(store.preferred_mode_for("notepad"), None);
+    }
+
+    // ── P2 (2026-09-02): the table must survive a restart ──────────────────
+
+    #[test]
+    fn a_hard_rejection_survives_reloading_the_store_from_disk() {
+        let path = scratch_path("roundtrip");
+        {
+            let store = AppLearningStore::load_from_disk(path.clone());
+            store.record_outcome("game", InjectMode::SendInput, false);
+        } // store (and its process-local table) dropped — simulates a restart
+
+        let reloaded = AppLearningStore::load_from_disk(path.clone());
+        assert_eq!(
+            reloaded.preferred_mode_for("game"),
+            Some(InjectMode::Clipboard),
+            "a hard SendInput rejection recorded before 'restart' must still be known after it"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn reverse_control_an_in_memory_only_store_forgets_on_reload() {
+        // NEGATIVE CONTROL: this is the pre-fix shape (`new()`, no path) —
+        // without the fix above, EVERY store looked like this, which is
+        // exactly the defect the audit named ("the table is never
+        // persisted"). Kept as a permanent contrast so a future change that
+        // makes `new()` itself persist does not silently make this drill
+        // meaningless.
+        let store = AppLearningStore::new();
+        store.record_outcome("game", InjectMode::SendInput, false);
+        assert_eq!(store.preferred_mode_for("game"), Some(InjectMode::Clipboard));
+        drop(store);
+        let fresh = AppLearningStore::new();
+        assert_eq!(
+            fresh.preferred_mode_for("game"),
+            None,
+            "an in-memory-only store has nothing to reload from"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_loads_as_empty_not_an_error() {
+        let path = scratch_path("missing");
+        let store = AppLearningStore::load_from_disk(path);
+        assert_eq!(store.preferred_mode_for("anything"), None);
+    }
+
+    #[test]
+    fn a_corrupt_file_loads_as_empty_and_does_not_panic() {
+        let path = scratch_path("corrupt");
+        std::fs::write(&path, b"{ not json").unwrap();
+        let store = AppLearningStore::load_from_disk(path.clone());
+        assert_eq!(store.preferred_mode_for("anything"), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_paste_outcome_is_not_written_to_disk() {
+        // The deliberate no-op (see `record_outcome`'s header) must stay a
+        // no-op at the persistence layer too — a Clipboard outcome writing a
+        // file would resurrect exactly the bug the header describes as fixed
+        // (a paste answering a question about typing) the moment the process
+        // restarted and reloaded it.
+        let path = scratch_path("clipboard-noop");
+        {
+            let store = AppLearningStore::load_from_disk(path.clone());
+            store.record_outcome("uwp", InjectMode::Clipboard, true);
+        }
+        assert!(
+            !path.exists(),
+            "a Clipboard outcome must never create the on-disk file"
+        );
     }
 
     #[test]

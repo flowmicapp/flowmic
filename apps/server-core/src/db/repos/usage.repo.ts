@@ -209,7 +209,21 @@ function toNum(v: unknown): number {
   return typeof v === 'bigint' ? Number(v) : ((v as number | null) ?? 0);
 }
 
-export function makeUsageRepo(db: DatabaseSync): UsageRepo {
+/**
+ * 2026-09-02 (audit F15) — `updated_at`'s clock, injectable.
+ *
+ * 🔴 WHY THIS ONE AND NOT EVERY `new Date()` IN THE REPO LAYER: unlike
+ * `email_verified_at` (connection.ts's own comment argues that ONE stays
+ * un-injected because its only consumer is a NULL/non-NULL verdict, so the
+ * exact stamp is documentary), `increment` is called from `usage-tracker.ts`
+ * ALONGSIDE an ALREADY-INJECTED `clock` (`config.now ?? Date.now`, the same
+ * one `currentMonth(clock)` uses to pick the bucket) — a hardcoded `new Date()`
+ * here meant this repo could never be driven, end to end, on a single fake
+ * clock the way `billing-service.ts` and `quota-guard.ts` already can be.
+ * DEFAULTS TO `Date.now`, so every existing caller (including every test in
+ * this file's own suite, which calls `increment` with no fourth argument) is
+ * byte-for-byte unchanged. */
+export function makeUsageRepo(db: DatabaseSync, now: () => number = Date.now): UsageRepo {
   const getStmt = db.prepare('SELECT * FROM usage_records WHERE user_id=? AND month=?');
   // 0.3.0 P4 — every month of ONE account (the data export). Seeks on the PK's
   // user_id-first index; `month DESC` matches listMonths()'s newest-first order
@@ -259,7 +273,7 @@ export function makeUsageRepo(db: DatabaseSync): UsageRepo {
         delta.stt_minutes ?? 0,
         delta.llm_tokens_in ?? 0,
         delta.llm_tokens_out ?? 0,
-        new Date().toISOString(),
+        new Date(now()).toISOString(),
       );
       return toRecord(getStmt.get(user_id, month) as Record<string, unknown>);
     },

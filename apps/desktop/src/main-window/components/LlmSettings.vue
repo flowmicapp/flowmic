@@ -7,7 +7,7 @@ import {
   llmPresetSections, llmPresetUnresolved, model, setLlmPreset, updateLlmField,
   type LlmConfigModel,
 } from '../settings-model';
-import { fetchSidecarState } from '../../lib/bridge';
+import { sidecarBaseUrl } from '../../lib/bridge';
 import {
   createProbeStore, PROBE_LLM_PATH, runProbe, toRowView, watchHidden,
   type HiddenWatcher, type ProbeTransport,
@@ -17,7 +17,7 @@ import {
 // probed is exactly what the boxes above show — including edits not yet round-
 // tripped through the server.
 const transport: ProbeTransport = {
-  baseUrl: async (): Promise<string | null> => (await fetchSidecarState())?.endpoint ?? null,
+  baseUrl: sidecarBaseUrl,
 };
 const probe = createProbeStore(async () => [
   toRowView(S.llm_title, await runProbe(PROBE_LLM_PATH, {

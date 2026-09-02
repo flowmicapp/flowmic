@@ -367,9 +367,43 @@ export interface OneTimePurchaseRepo {
     fields: { to_state: RefundReleaseTarget; reason: RefundReleaseReason; released_at: string },
     nowIso: string,
   ): 'released' | 'not_requested';
+  /**
+   * 🔴 2026-09-02 audit P1 — CONDITIONAL ON `expected_state` IN THE SQL, not in
+   * the caller, for the SAME reason `settleOneTimeRefundByHand` and
+   * `releaseOneTimeRefundRequest` are conditional on their own preconditions
+   * (see both above): the route reads the row, decides the move is legal, and
+   * writes an audit row BEFORE calling this — and a second operator tab can
+   * advance the very same order in that gap. Before this parameter existed the
+   * UPDATE was `WHERE order_id = ?` alone, so the SECOND write always won
+   * outright, silently overwriting or skipping whatever the first one recorded
+   * (`one-time-purchase-repo-atomicity.test.ts` pins this at the SQL layer;
+   * `ops-purchase-routes.ts`'s own header is where the caller-side half of the
+   * race is closed).
+   *
+   * ⚠️ UNLIKE THE OTHER TWO, THE PRECONDITION IS NOT A FIXED LITERAL. A refund
+   * claim can only ever leave 'refund_requested', so that state is baked into
+   * `settleOneTimeRefundByHand`'s and `releaseOneTimeRefundRequest`'s own SQL.
+   * A delivery-state move can legally start from any of several states (see
+   * `deliveryStampsFor` in ops-purchase-routes.ts), so the caller — the only
+   * party that just read the row — has to say what it read. Passing a
+   * WRONG `expected_state` cannot make an illegal move happen either: it can
+   * only make a legal one fail to apply, which is `'not_applied'`, the same
+   * safe direction every conditional write in this file already fails toward.
+   *
+   * Returns `'not_applied'` (`changes === 0`) when the row already moved off
+   * `expected_state` — same shape as `'not_requested'` above, so a route that
+   * already knows how to read that outcome from a sibling method reads this
+   * one the same way.
+   */
   advanceOneTimePurchase(
     order_id: string,
     patch: {
+      /** 🔴 THE PRECONDITION, READ BY THE CALLER MOMENTS EARLIER. Its own
+       *  field, not folded into `state`: `state` is what this write WANTS to
+       *  become true, `expected_state` is what the caller is asserting is
+       *  STILL true right now — conflating the two is exactly the kind of
+       *  one-value-two-questions shape this repo's own header warns about. */
+      expected_state: OneTimePurchaseState;
       state: OneTimePurchaseState;
       scheduled_at: string | null;
       /** 🔴 ASSIGNED WITH THE OTHER DELIVERY STAMPS, not coalesced — the same
@@ -387,7 +421,7 @@ export interface OneTimePurchaseRepo {
       note?: string | null;
     },
     nowIso: string,
-  ): void;
+  ): 'advanced' | 'not_applied';
 }
 
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
@@ -555,6 +589,15 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
   // decision an operator already made and signed an audit row for. A purchase
   // released back to 'paid' and later delivered keeps saying WHY its refund
   // stopped — which is exactly what somebody reading it a year later needs.
+  //
+  // 🔴 2026-09-02 audit P1 — `AND state = ?` IS THE FIX. This statement used to
+  // be `WHERE order_id = ?` alone: no precondition, so the SECOND of two
+  // concurrent advances always won outright, same shape as the claim/settle/
+  // release race one-time-purchase-repo-atomicity.test.ts already pinned for
+  // the other three writers in this file. The bound value is the interface's
+  // new `expected_state` — the row the CALLER read, not a value this file
+  // invents — so `changes` answers exactly one question: did the row still say
+  // that a moment ago.
   const advancePurchase = db.prepare(
     `UPDATE one_time_purchases SET
        state = ?,
@@ -566,7 +609,7 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
        transaction_id = COALESCE(?, transaction_id),
        note = COALESCE(?, note),
        updated_at = ?
-     WHERE order_id = ?`,
+     WHERE order_id = ? AND state = ?`,
   );
 
   return {
@@ -659,8 +702,8 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
       );
       return res.changes > 0 ? 'released' : 'not_requested';
     },
-    advanceOneTimePurchase(order_id, patch, nowIso): void {
-      advancePurchase.run(
+    advanceOneTimePurchase(order_id, patch, nowIso): 'advanced' | 'not_applied' {
+      const res = advancePurchase.run(
         patch.state,
         patch.scheduled_at,
         patch.started_at,
@@ -671,7 +714,12 @@ export function makeOneTimePurchaseRepo(db: DatabaseSync): OneTimePurchaseRepo {
         patch.note ?? null,
         nowIso,
         order_id,
+        patch.expected_state,
       );
+      // `changes` IS THE ANSWER, same as every other conditional write in this
+      // file: zero means the row moved off `expected_state` between the
+      // caller's read and this write, or the id never existed at all.
+      return res.changes > 0 ? 'advanced' : 'not_applied';
     },
   };
 }

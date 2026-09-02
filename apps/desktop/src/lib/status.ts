@@ -125,12 +125,25 @@ export function statusLine(
  *  from a status alone. TimelinePage.rowCanReinject composes the two and
  *  withholds the op for image rows (re-injecting one would type its descriptor
  *  and call that a delivery). This function is status-only on purpose — it has
- *  no row to inspect. */
+ *  no row to inspect.
+ *
+ *  🔴 `'noted'` IS CONFIRMED UNREACHABLE ON THIS PC TODAY (P2 #7, 2026-09-02) —
+ *  `status-noted-reachability.test.ts` reads `row_transit.rs::row_status()`
+ *  (the ONLY writer of a row's status on the live path) and shows it never
+ *  returns `"noted"`, then imports a hand-built same-end file to prove even
+ *  that door cannot carry one (a desktop export could only ever repeat what
+ *  live delivery already minted). The branch stays anyway: `HistoryStatus` is
+ *  the SAME type mobile's own history uses, where `noted` really is reachable
+ *  (a「仅记录」row), so `Record<HistoryStatus, StatusBadge>` above and both
+ *  functions below must stay TOTAL for type-exhaustiveness over that shared
+ *  enum. This is completeness, not evidence the branch does anything here. */
 export function canReinject(status: HistoryStatus): boolean {
   return status === 'injected' || status === 'cached' || status === 'failed' || status === 'noted';
 }
 
-/** noted rows carry a 补投 ("inject to PC") action label; others carry 重新注入 ("re-inject"). */
+/** noted rows carry a 补投 ("inject to PC") action label; others carry 重新注入 ("re-inject").
+ *  See `canReinject`'s note just above — unreachable on this PC today, kept for
+ *  exhaustiveness over the protocol-shared `HistoryStatus` type. */
 export function reinjectLabel(status: HistoryStatus): string {
   return status === 'noted' ? S.op_makeup : S.op_reinject;
 }

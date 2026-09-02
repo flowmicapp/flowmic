@@ -89,9 +89,15 @@ import '../audio/local_stop_reasons.dart'
         kLocalStopReasonContinuousCap,
         kLocalStopReasonLinkLoss,
         kLocalStopReasonLinkLossKept;
+import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../signaling/state_machine.dart' show SttStall, SttStallReason;
 import '../signaling/wire_payloads.dart' show ComposeTask, FlowMode;
 import 'app_settings.dart';
+// WP-8 (2026-09-02) — the generated bilingual fallback for a wire error code
+// that has no bespoke sentence of its own (recording_strings.dart's
+// `sttStallBannerMessage`). See that generated file's own header for why it
+// is deliberately zh_CN/en only.
+import '../../generated/protocol_error_sentences.g.dart' show protocolErrorSentence;
 
 part 'strings/settings_strings.dart';
 part 'strings/cloud_strings.dart';
@@ -174,6 +180,10 @@ abstract class AppStrings extends AppStringsLeaves
   /// target and this one has to choose between the languages — which is why the
   /// handful of `const AppStrings(...)` sites lost their `const`.
   factory AppStrings(AppLocale locale) => AppStrings.of(locale);
+  // WP-8 — @override because RecordingStrings now declares this getter's
+  // abstract signature too (same cross-shard pattern as `_t`'s own overrides
+  // further down); this field is what satisfies it.
+  @override
   final AppLocale locale;
 
   /// The one place a language is turned into a catalogue. The switch itself is
@@ -181,35 +191,51 @@ abstract class AppStrings extends AppStringsLeaves
   /// packages/protocol/src/locales.ts, so a new language never edits this file.
   static AppStrings of(AppLocale locale) => _appStringsFor(locale);
 
-  // 🔴 THE RESIDUE: 12 call sites still spell their four languages out here,
+  // 🔴 THE RESIDUE: 12 call sites still spell their nine languages out here,
   // and they are the only ones left. Every other string in this catalogue is a
   // generated leaf (l10n/), which is why this helper reads as an exception now
   // rather than as the mechanism.
   //
-  // They were refused ON PURPOSE, and by ONE rule with no judgement call in it:
-  // a call whose arms interpolate DIFFERENT expressions is left alone. Twelve
-  // sites meet that description and they are two different shapes:
+  // They were refused FROM THE GENERATOR on purpose, by ONE rule with no
+  // judgement call in it: a call whose arms interpolate DIFFERENT expressions
+  // is left alone. Twelve sites meet that description and they are two
+  // different shapes:
   //   · SIX carry language-specific CONTENT inside the expression — an English
   //     plural rule (`n == 1 ? '' : 'es'`), a localised fallback
   //     (`outcome.detail ?? '未知原因'`), a localised list separator
   //     (`reasons.join('、')`), whole localised sentences inside a conditional
-  //     (`portableReadme`). Hoisting those into a shared parameter list would
-  //     have moved translated text OUT of the locale layer, and the next
-  //     language could then never supply its own plural or its own separator
-  //     without editing Dart. For these six, refusing is the right answer.
+  //     (`portableReadme`). Hoisting those into a code GENERATOR's shared
+  //     parameter list would have moved translated text OUT of the locale
+  //     layer, and the next language could then never supply its own plural or
+  //     its own separator without editing Dart. For these six, refusing THE
+  //     GENERATOR is the right answer — but the expression itself still has to
+  //     be written, by hand, for every language; that is what `_t`'s nine
+  //     named arguments are for.
   //   · SIX are `packLabel`, where the `en` arm is not a translation at all but
-  //     the protocol's own SSOT label handed in by the caller. Unioning those
-  //     would in fact have been safe. They are refused anyway, because the
-  //     alternative is a generator that decides case by case which
-  //     disagreements are benign — and a rule that has exceptions is a rule
-  //     whose next exception nobody reviews.
+  //     the protocol's own SSOT label handed in by the caller. The other eight
+  //     arms ARE real translations.
   //
   // ⚠️ The switch stays exhaustive with no default, so this is not a quiet debt:
-  // the day AppLocale gains a fifth member, these sites fail to compile, by name,
-  // and whoever adds that language has to give each of them a real answer.
-  // (Everything else falls back to English by construction — volume 17 §0-bis.)
+  // the day AppLocale gains a tenth member, this helper fails to compile, by
+  // name, and whoever adds that language has to give it a real answer here too.
   //
-  // 🔴 In-place correction (原地更正, 2026-08-14): that day came — five members
+  // 🔴 AUD-D P1-4 (2026-09-02) — CLOSED THE GAP THE 2026-08-14 CORRECTION LEFT
+  // OPEN. That correction (kept below, unmodified) recorded owner's fallback
+  // ruling for missing translations — 「如果一个语种没有适当的翻译，就用默认语
+  // 种的文本；默认语种是英文」("if a language has no proper translation, use the
+  // default language's text; the default language is English") — and used it to
+  // make `_t` COMPILE again after AppLocale grew from four members to nine. It
+  // was the right emergency answer (a fallback beats a broken build), but it
+  // left en/zhTw/fr/es/de/ru all reading the SAME English sentence for these
+  // twelve call sites, with nothing in `coverage.json` able to say so (the next
+  // paragraph's own words). `_t` now takes all nine languages as REQUIRED named
+  // arguments — the same discipline every OTHER string in this catalogue
+  // already has, just not generated — so every one of the twelve call sites is
+  // a real, reviewed sentence in every shipped language, not a silent copy of
+  // English wearing five different locale tags.
+  //
+  // 🔴 In-place correction (原地更正, 2026-08-14, kept for the record): that day
+  // came — five members
   // at once — and the
   // sentence above got the mechanism right and the ANSWER wrong. It assumed the
   // real answer had to be a fifth translated argument. Owner ruled otherwise on
@@ -221,42 +247,32 @@ abstract class AppStrings extends AppStringsLeaves
   // does structurally for every other string (`AppStringsFr extends
   // AppStringsEn`). Original text kept, not deleted (原文保留不删): it was true
   // when written, and the compile
-  // error it promised is exactly what surfaced this decision.
-  //
-  // 🔴 THE FALLBACK HERE MUST BE THE SAME FALLBACK THE CATALOGUE USES. Making
-  // `_t` fall back to `zh` for zh-TW (the intuitive move — 「it is closer」)
-  // would give the app TWO answers to 「what does a missing translation show」,
-  // and the two would disagree inside a single screen: one sentence in
-  // Traditional Chinese from this helper, the next in English from a generated
-  // leaf. `AppStringsZhTw extends AppStringsEn` in the generated file is the
-  // fact this line matches — grep `class AppStringsZhTw` to re-check it rather
-  // than trusting this comment (anti-façade ④).
-  //
-  // ⚠️ DECLARED DEGRADATION, AND THE PART THAT IS NOT MEASURED. The registry's
-  // red line is that falling back silently to the USER must not mean falling
-  // back silently to US, and coverage.json is how that promise is kept — but
-  // coverage.json is computed from `i18n/mobile/*.json`, and these twelve
-  // sentences are not in those files. So they are English in six languages and
-  // NO coverage number will ever say so. Registered here rather than left to be
-  // discovered: closing it means hoisting these twelve into the catalogue, and
-  // the paragraph above says why each was refused.
+  // error it promised is exactly what surfaced this decision. **Superseded by
+  // the paragraph above**: the fallback stayed correct policy for a language
+  // with NO translation yet, but these twelve now have one in every language,
+  // so the fallback's whole premise (「没有」"there isn't one") no longer holds
+  // here — see AUD-D P1-4 above.
   @override
   String _t({
     required String zh,
     required String en,
     required String ja,
     required String ko,
+    required String zhTw,
+    required String fr,
+    required String es,
+    required String de,
+    required String ru,
   }) => switch (locale) {
     AppLocale.zh => zh,
+    AppLocale.zhTw => zhTw,
     AppLocale.ja => ja,
     AppLocale.ko => ko,
-    // en, and every language whose twelve are still untranslated.
-    AppLocale.en ||
-    AppLocale.zhTw ||
-    AppLocale.fr ||
-    AppLocale.es ||
-    AppLocale.de ||
-    AppLocale.ru => en,
+    AppLocale.en => en,
+    AppLocale.fr => fr,
+    AppLocale.es => es,
+    AppLocale.de => de,
+    AppLocale.ru => ru,
   };
 }
 

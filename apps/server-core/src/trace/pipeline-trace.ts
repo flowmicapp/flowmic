@@ -41,6 +41,18 @@
 // change the text?" Two stages with the same digest did nothing between them,
 // and that is the whole comparison — without ever writing a word down.
 //
+// THE 'full' RECORD IS SPLIT ACROSS ITS TWO READERS, DELIBERATELY. `trace()`
+// mirrors every record into the ordinary log (see its own doc comment below)
+// so the person already tailing server.log does not have to be told a second
+// file exists — but server.log is also what a support bundle grabs whole, and
+// log.ts has no level filter or redaction of its own (it exists to survive a
+// broken pipe, not to keep a secret). So at 'full' the log mirror carries the
+// same `chars`/`sha8`/`count` fields meta level would have shown, and drops the
+// `text`/`sample` fields that only 'full' adds — the words themselves land in
+// ONE place, pipeline-trace.jsonl, marked by a `trace_text_in` field on the log
+// line that says so. Anyone who actually needs the words already knows to go
+// read that file; nobody who only wanted "did this change" pays for a leak.
+//
 // FAILURE POSTURE: this module can never take the session down with it. A broken
 // sink disables itself after one complaint, exactly as log.ts learned to
 // (an unhandled stdio error once killed the whole server the moment a user
@@ -162,6 +174,25 @@ export type TraceStage =
   | 'compose.request'
   | 'compose.response';
 
+/** Drops the `full`-only content (`text`, `sample`) from a trace record before
+ *  it goes to the ordinary log, one level below the top (`system:`, `user:`,
+ *  `block:` are the nested shapes every call site above actually uses — see
+ *  `tracedText`/`tracedList`'s callers in stt-polish.ts, engine/stt-session.ts,
+ *  engine/stt-factory.ts and compose/orchestrator.ts, compose/index.ts).
+ *  `chars`/`sha8`/`count` are left in place: that is the whole set 'meta'
+ *  already ships, so the log mirror stays exactly as useful at 'full' as it is
+ *  at 'meta' — it just never gains the words. */
+function redactFullOnlyFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactFullOnlyFields);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'text' || key === 'sample') continue; // full-only — stays in the JSONL sink alone
+    out[key] = redactFullOnlyFields(v);
+  }
+  return out;
+}
+
 /**
  * Emit one stage record. No-op when tracing is off, and never throws.
  *
@@ -169,6 +200,11 @@ export type TraceStage =
  * debug-ish level, because the two have different readers: the JSONL is for
  * `jq` and for diffing two runs line by line; the log is for the person already
  * tailing server.log who should not have to be told a second file exists.
+ *
+ * The log mirror is NOT the same object as the JSONL record once level is
+ * 'full': see `redactFullOnlyFields` above and the file header's "two readers"
+ * note. `writeLine` still gets the untouched `fields` — this only narrows what
+ * reaches `log.info`, which has no redaction of its own (log.ts).
  */
 export function trace(stage: TraceStage, traceId: string, fields: Record<string, unknown>): void {
   const level = readLevel();
@@ -176,7 +212,10 @@ export function trace(stage: TraceStage, traceId: string, fields: Record<string,
   try {
     const record = { ts: new Date().toISOString(), trace_id: traceId, stage, ...fields };
     writeLine(JSON.stringify(record));
-    log.info(`trace:${stage}`, { trace_id: traceId, ...fields });
+    const logFields = level === 'full'
+      ? { trace_id: traceId, trace_text_in: 'pipeline-trace.jsonl', ...(redactFullOnlyFields(fields) as Record<string, unknown>) }
+      : { trace_id: traceId, ...fields };
+    log.info(`trace:${stage}`, logFields);
   } catch {
     // A trace line is worth less than the session it would kill.
   }

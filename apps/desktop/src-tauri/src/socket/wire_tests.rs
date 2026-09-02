@@ -699,7 +699,7 @@ fn ack_error_code_reads_the_refusal_the_parsers_throw_away() {
 #[test]
 fn only_account_verdicts_are_routed_to_the_identity_surface() {
     use crate::socket::outbound::is_account_validity_refusal;
-    use crate::socket::pairing::is_account_auth_failure;
+    use crate::socket::refusal::is_account_auth_failure;
     // The three the relay can send about the ACCOUNT.
     assert!(is_account_validity_refusal("AUTH_TOKEN_INVALID"));
     assert!(is_account_validity_refusal("AUTH_TOKEN_EXPIRED"));
@@ -710,7 +710,12 @@ fn only_account_verdicts_are_routed_to_the_identity_surface() {
     assert!(!is_account_auth_failure("ACCOUNT_RESTRICTED"));
     // Everything else stays the VERB's business. Routing these would paint an
     // identity refusal over a rate limit — the same defect facing the other way.
-    for code in ["PAIR_RATE_LIMITED", "PAIR_INVALID_PAYLOAD", "PCS_LIMIT_EXCEEDED", "SETTINGS_SCHEMA_INVALID", ""] {
+    // 🔴 `PC_HANDSHAKE_PENDING` (2026-09-01) is in this list on purpose. It is the
+    // relay's honest answer to a verb that arrived before this connection's
+    // handshake ack, i.e. the frame that used to arrive as AUTH_TOKEN_INVALID and
+    // cost the user their Cloud Key. Routing it as an identity verdict would
+    // rebuild the defect on top of the code minted to retire it.
+    for code in ["PC_HANDSHAKE_PENDING", "PAIR_RATE_LIMITED", "PAIR_INVALID_PAYLOAD", "PCS_LIMIT_EXCEEDED", "SETTINGS_SCHEMA_INVALID", ""] {
         assert!(!is_account_validity_refusal(code), "{code} must not be routed as an account verdict");
     }
 }

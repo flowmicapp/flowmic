@@ -16,7 +16,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { BILLING_SQL } from '../src/db/schema-billing';
-import { makeOneTimePurchaseRepo, type OneTimePurchaseRow } from '../src/db/repos/one-time-purchase.repo';
+import {
+  makeOneTimePurchaseRepo,
+  type OneTimePurchaseRepo,
+  type OneTimePurchaseRow,
+} from '../src/db/repos/one-time-purchase.repo';
 import {
   deliveryStampsFor,
   OPERATOR_SETTABLE_STATES,
@@ -24,6 +28,7 @@ import {
   PURCHASE_NOTE_MAX,
   PURCHASE_REOPEN_ACTION,
   PURCHASE_SCHEDULE_ACTION,
+  PURCHASE_SCHEDULE_NOT_APPLIED_ACTION,
   PURCHASE_START_ACTION,
   PURCHASE_TARGET_KIND,
   PURCHASES_ADVANCE_ROUTE,
@@ -1054,5 +1059,80 @@ describe('the queue tells an operator what is DUE and when', () => {
     const { deps } = makeDeps(repo);
     const out = await call(deps, 'GET', '/api/ops/purchases');
     expect((out.body.purchases as Record<string, unknown>[])[0]!.refund_due).toBeNull();
+  });
+});
+
+describe('🔴 2026-09-02 audit P1 — a race the advance write LOSES must not leave the trail saying it won', () => {
+  // Same "mutate from inside the read" technique
+  // ops-refund-release-routes.test.ts §7 uses to pin the opposite half of this
+  // TOCTOU: `getOneTimePurchase` is overridden to run a SEPARATE, REAL
+  // `advanceOneTimePurchase` call (the "racer") at the exact moment this
+  // route's own pre-check reads the row, then returns the pre-check's own
+  // reading — so the route proceeds believing the row is still where the
+  // racer just moved it away from.
+  function raceInsideThePrecheck(
+    repo: ReturnType<typeof makeOneTimePurchaseRepo>,
+    mutate: () => void,
+  ): OpsPurchaseRoutesDeps['purchases'] {
+    let raced = false;
+    return {
+      listAllOneTimePurchases: repo.listAllOneTimePurchases,
+      getOneTimePurchase: (orderId: string) => {
+        const row = repo.getOneTimePurchase(orderId);
+        if (!raced && row !== null && row.state === 'paid') {
+          raced = true;
+          mutate();
+        }
+        return row;
+      },
+      advanceOneTimePurchase: repo.advanceOneTimePurchase,
+      stampCompletionNotice: repo.stampCompletionNotice,
+    };
+  }
+
+  it('the racer wins, this route 409s, and the trail gets a second row saying so instead of standing alone', async () => {
+    const repo = makeDb();
+    const id = seed(repo, { order_id: 'ord_1' });
+    const { deps, rows } = makeDeps(repo, {
+      purchases: raceInsideThePrecheck(repo, () => {
+        // A second operator tab, also reading 'paid', gets there first and
+        // moves the row somewhere this route's own pre-check never sees.
+        repo.advanceOneTimePurchase(
+          'ord_1',
+          {
+            expected_state: 'paid',
+            state: 'in_progress',
+            scheduled_at: null,
+            started_at: NOW_ISO,
+            delivered_at: null,
+            completion_notice_at: null,
+            refunded_at: null,
+            note: 'racer',
+          },
+          NOW_ISO,
+        );
+      }),
+    });
+    const res = await call(deps, 'POST', '/api/ops/purchases/advance', {
+      order_id: id,
+      state: 'scheduled',
+      note: 'this route',
+    });
+    expect(res.status).toBe(409);
+    // The racer's write stands — this route's own write did not land at all.
+    expect(repo.getOneTimePurchase(id)!.state).toBe('in_progress');
+    expect(repo.getOneTimePurchase(id)!.scheduled_at).toBeNull();
+
+    const business = businessRows(rows);
+    expect(business).toHaveLength(2);
+    // 🔴 THE FIRST ROW IS NOT DELETED OR REWRITTEN — it is exactly what this
+    // route wrote before the race was known about, and it already landed
+    // truthfully at the moment it was written.
+    expect(business[0]).toMatchObject({ action: PURCHASE_SCHEDULE_ACTION, target_id: id });
+    // 🔴 THE SECOND ROW IS WHAT THIS FIX ADDS: its own action name naming the
+    // same order, never the first row's action with a 'no_change' buried in
+    // `detail` — one value answering two questions again.
+    expect(business[1]).toMatchObject({ action: PURCHASE_SCHEDULE_NOT_APPLIED_ACTION, target_id: id });
+    expect(String(business[1]!.detail)).toContain('did not take effect');
   });
 });

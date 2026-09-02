@@ -5,10 +5,18 @@
 //   chat_flow_edit_sheet.dart, this file is the mechanism it points at).
 //
 // A `part` of manual_delivery.dart (the runReInject precedent) rather than a
-// method on ManualDelivery: that file is pinned at 842 lines by the
-// translation-bloat baseline (verify/lint/file-size.mjs), and a part file
-// cannot reopen the class — so this is a top-level function taking the
-// receiver explicitly, exactly like manual_delivery_reinject.dart.
+// method on ManualDelivery: a part file cannot reopen the class, so this is a
+// top-level function taking the receiver explicitly, exactly like
+// manual_delivery_reinject.dart.
+//
+// 🔴 CORRECTED (card B2-M): this file's reason used to be "that file is
+// pinned at 842 lines by the translation-bloat baseline" — true when this
+// file was split out, false now. B2-M's own split (manual_delivery_result.dart,
+// the in-flight claim + inject:result routing family) paid that debt off and
+// deleted the pin in verify/lint/file-size.mjs; manual_delivery.dart sits
+// comfortably under the real 800-line cap today. The split stays anyway: it
+// is still the established shape for a coherent family that does not need to
+// reopen the class, pin or no pin.
 
 part of 'manual_delivery.dart';
 

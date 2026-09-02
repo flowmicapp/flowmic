@@ -97,7 +97,16 @@ const DESKTOP_EN = 'i18n/desktop/en.json';
 // mobile key → desktop key. Every pair here is a sentence about the SAME
 // mechanism, so the two must be identical unless declared in DIVERGENCES.
 const PAIRS = {
-  discEntry: 'disc_entry',
+  // P2 #9 (2026-09-02): was paired with desktop's 'disc_entry', a key with
+  // byte-identical English content ("Where your words go") that no desktop
+  // template ever rendered — SettingsPage.vue renders 'disc_title' for this
+  // heading and 'disc_entry_sub' for the hint beneath it. 'disc_entry' was
+  // deleted as dead (grep across apps/desktop/src returned zero renderers,
+  // confirmed by reading the two catalogues' content before deleting), and
+  // this pairing now names the key desktop ACTUALLY shows, so the mirror
+  // keeps comparing the sentence a reader can see on both ends rather than
+  // one screen's visible heading against the other's orphaned duplicate.
+  discEntry: 'disc_title',
   discEntrySub: 'disc_entry_sub',
   discLead: 'disc_lead',
   discStep1Title: 'disc_s1_title',

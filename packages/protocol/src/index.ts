@@ -35,3 +35,4 @@ export * from './scenario';
 export * from './scenario-consent';
 export * from './stt-polish';
 export * from './stt-refine';
+export * from './cloud-summary';

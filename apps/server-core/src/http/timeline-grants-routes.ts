@@ -30,6 +30,7 @@ import { accountFromBearer, type AccountVerifier } from './account-auth';
 import { EMAIL_NOT_VERIFIED, isEmailVerified, type EmailVerifiedReader } from '../auth/email-verification';
 import { sendJson } from './console-http';
 import type { TimelineGrantsRepo } from '../db/repos/timeline-grants.repo';
+import { restrictionRefusalBody, restrictionVerdict } from '../auth/account-restriction';
 
 /** The collection path (GET); DELETE addresses `${path}/<gid>`. Exported for
  *  the tests — same argument as TIMELINE_KEYMETA_PATH: a hand-copied literal
@@ -61,6 +62,20 @@ function refuseUnverified(res: ServerResponse, deps: TimelineGrantsRoutesDeps, u
   return true;
 }
 
+/** P2-4 (2026-09-01 audit) — this file was named by console-routes.ts's own
+ *  restriction-gate census as an open hole: "timeline-grants REST … NOT
+ *  covered". `AccountVerifier` (the SAME instance `who` was just verified
+ *  against) already carries `getUser` and so structurally satisfies
+ *  `RestrictionReader` — no second reader, same argument
+ *  account-restriction.ts's own doc comment makes for `refuseRestricted`
+ *  everywhere else it is wired. */
+function refuseRestricted(res: ServerResponse, deps: TimelineGrantsRoutesDeps, userId: string): boolean {
+  const verdict = restrictionVerdict(deps.auth, userId);
+  if (verdict === null) return false;
+  sendJson(res, 403, restrictionRefusalBody(verdict.reason));
+  return true;
+}
+
 /** Handle the two grant-management routes. Returns true iff it owned the
  *  request; any other (path, method) pair falls to the router's 404. */
 export function tryHandleTimelineGrantsRoutes(
@@ -78,6 +93,7 @@ export function tryHandleTimelineGrantsRoutes(
       sendJson(res, 401, { error: who.error });
       return true;
     }
+    if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
     if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3
     // The row projection is already public-shaped (gid/origin/expires_at/
     // created_at/revoked — the repo type carries nothing else; above all it
@@ -97,6 +113,7 @@ export function tryHandleTimelineGrantsRoutes(
       sendJson(res, 401, { error: who.error });
       return true;
     }
+    if (refuseRestricted(res, deps, who.userId)) return true; // A2-3 (outranks the gate below)
     if (refuseUnverified(res, deps, who.userId)) return true; // VERIFY-1 D3
     const rawGid = url.slice(TIMELINE_GRANTS_PATH.length + 1);
     let gid: string;

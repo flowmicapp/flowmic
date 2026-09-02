@@ -27,6 +27,7 @@
 // is sometimes null even while disabled. See [ContinuousBlock].
 
 import '../auth/cloud_summary.dart' show CloudSummary;
+import '../session/instance_probe.dart' show ServerChannel;
 import '../signaling/wire_payloads.dart' show FlowMode;
 
 /// Why the entry cannot be pressed, when the entry itself owes an explanation.
@@ -41,6 +42,20 @@ import '../signaling/wire_payloads.dart' show FlowMode;
 /// ⇒ a dimmed entry with no sentence is not a missing explanation. It is a
 /// refusal to give one screen two voices for one fact.
 enum ContinuousBlock {
+  /// Owner ruling (2026-09-02): long-form recording lives ONLY inside Light
+  /// Records, and Light Records require a cloud sign-in — so this is checked
+  /// BEFORE every other gate below, including the mode and the link.
+  ///
+  /// 🔴 THIS IS WHY [continuousEntryNoCeilingNote]'s OLD RATIONALE NO LONGER
+  /// HOLDS. That sentence used to cover two causes it could not tell apart —
+  /// "not signed in" and "signed in, and the server did not answer" — because
+  /// nothing here carried a sign-in fact of its own. [continuousOffer] now
+  /// takes `signedIn` as an explicit, always-known boolean (never a guess),
+  /// so the two causes finally have two different sentences: this one, and
+  /// [ContinuousBlock.ceilingUnknown] for the case that remains genuinely
+  /// ambiguous (signed in, but the account's ceiling could not be read).
+  notSignedIn,
+
   /// A-2. translate / organize process a WHOLE utterance at once (compose is
   /// strictly single-flight, owner 2026-08-11), so half an hour of audio would
   /// produce nothing until the end and lose everything on any failure.
@@ -52,8 +67,12 @@ enum ContinuousBlock {
   /// be presented as impossible.
   modeNotRealtime,
 
-  /// The per-session ceiling could not be read, so we do not know how long this
-  /// sitting may be.
+  /// SIGNED IN, and the per-session ceiling still could not be read — a
+  /// narrower claim than this member used to make. Before `signedIn` existed
+  /// as its own field, a null ceiling was the ONLY signal available and stood
+  /// in for "not signed in" too; now that the caller states sign-in
+  /// separately (see [notSignedIn]), reaching this branch means the account
+  /// is real and the read itself failed or has not landed yet.
   ///
   /// 🔴 THE CEILING IS A PRECONDITION, NOT A DECORATION. `CloudSummary`'s own
   /// doc states it: a continuous recording may not START without this number —
@@ -161,29 +180,66 @@ const ContinuousOffer _absent = ContinuousOffer(visible: false, enabled: false);
 ///
 /// [summary] is the last believed `/api/cloud/summary`, or null when there is
 /// none. Null is 「we do not know」 in both directions and never a default.
+///
+/// [channel] — WP-9 (2026-09-02, findings-crossend-quota.md #2) — WHICH
+/// connection this recording would actually run over, or null when that is not
+/// known yet. `summary`'s two meters describe the CLOUD account's managed-STT
+/// month; a LAN recording is transcribed by the paired PC's own engine and
+/// never draws from that month at all. Before this parameter existed the
+/// balance side of `summary` was applied unconditionally, so a phone on a
+/// standalone/LAN PC — which has no cloud login and therefore no meter to
+/// read — inherited whatever the LAST logged-in cloud account's balance
+/// happened to be (or, more often, no summary at all, which is a SEPARATE gap:
+/// standalone answering its own [continuousMinutes] ceiling is `/api/limits`,
+/// server-side plumbing landing in this same card; this phone-side fix is only
+/// the balance-judgement half).
 ContinuousOffer continuousOffer({
   required bool recordOnly,
   required FlowMode mode,
   required bool linkUp,
+  // Owner ruling (2026-09-02): continuous recording is a Light Records
+  // feature and Light Records require a cloud account — so this is read
+  // BEFORE the mode, the link, or the ceiling. Always a real boolean (never
+  // null): the composition root threads `LoginController.isLoggedIn` as a
+  // getter for the same reason the "+" panel's Light-record tab does (see
+  // `ChatFlowPage.isSignedIn`'s own doc) — a value copied at some earlier
+  // instant would go stale the moment the user signs in without leaving this
+  // screen.
+  required bool signedIn,
   required CloudSummary? summary,
+  ServerChannel? channel,
 }) {
   // ① Destination first, and it is the only input that can remove the entry.
   if (!recordOnly) return _absent;
 
   final int? cap = summary?.continuousMinutes;
-  final int? left = _wholeMinutesLeft(summary);
+  // 🔴 A LAN channel's monthly balance question does not apply — see the
+  // parameter doc above — so `left` is forced null rather than read from a
+  // summary that may belong to an unrelated (or no) cloud account. Forcing it
+  // here, once, keeps every downstream reader ([boundedByBalance],
+  // [minutesAvailable], the `quotaSpent` branch below) honest without each of
+  // them re-deriving "is this channel exempt from the balance question".
+  final bool balanceApplies = channel != ServerChannel.lan;
+  final int? left = balanceApplies ? _wholeMinutesLeft(summary) : null;
 
   // ② Everything else is 「visible」, and the gates are collected rather than
   // ranked. `reason` takes the first sentence in a fixed order; the link
   // contributes no sentence at all, so a link-down phone in translate mode still
   // learns about the mode.
-  final ContinuousBlock? reason = mode != FlowMode.realtime
+  final ContinuousBlock? reason = !signedIn
+      // Outranks every other gate, including the mode: a signed-out phone
+      // does not have an account to check the mode or the ceiling against,
+      // and telling it "realtime mode only" would be answering a question
+      // one step ahead of the one that actually blocks it.
+      ? ContinuousBlock.notSignedIn
+      : mode != FlowMode.realtime
       ? ContinuousBlock.modeNotRealtime
       : cap == null
       ? ContinuousBlock.ceilingUnknown
       // Read as 「the meter said zero」, never as 「there was no meter」: `left` is
-      // null in the second case and falls through to enabled, where the sub-line
-      // simply omits a number it does not have.
+      // null in the second case (including every LAN channel, always) and falls
+      // through to enabled, where the sub-line simply omits a number it does
+      // not have.
       : left == 0
       ? ContinuousBlock.quotaSpent
       : null;

@@ -116,17 +116,26 @@ class SttStall {
   /// diagnostics; the banner renders the phone's own string table, never this.
   final String? message;
 
-  const SttStall(this.reason, {this.code, this.message});
+  /// WP-9 (2026-09-02) — the `stt:error` frame's additive `judged_account`
+  /// field, verbatim off the wire (`'self'` | `'pc_owner'`). Only meaningful
+  /// for `code == 'QUOTA_EXCEEDED'` (card QTA-2 checks two ledgers); null on
+  /// every other code, and null on a server that predates this field — which
+  /// [recording_strings.dart]'s `sttStallBannerMessage` reads as `'self'` (the
+  /// pre-existing sentence), never as a third, unlabelled state.
+  final String? judgedAccount;
+
+  const SttStall(this.reason, {this.code, this.message, this.judgedAccount});
 
   @override
   bool operator ==(Object other) =>
       other is SttStall &&
       other.reason == reason &&
       other.code == code &&
-      other.message == message;
+      other.message == message &&
+      other.judgedAccount == judgedAccount;
 
   @override
-  int get hashCode => Object.hash(reason, code, message);
+  int get hashCode => Object.hash(reason, code, message, judgedAccount);
 
   @override
   String toString() =>
@@ -258,6 +267,18 @@ class FlowmicStateMachine {
       // instantly. Hold the active session; reset only if the drop outlasts
       // [_sessionDropGrace].
       if (_sess != SessionState.disconnected && _sess != SessionState.idle) {
+        // 🔴 Card P2-2 (2026-09-02) — [_heldSession] is the ONLY signal this
+        // branch has for "is a hold already in progress", because [_sess]
+        // itself is never cleared while held (it is what gets RESTORED). A
+        // socket bouncing disconnected → connecting → error before it ever
+        // reaches `connected` fires [onSocketStatus] once per hop, and every
+        // hop used to re-arm [_dropGraceTimer] from zero — so the promised
+        // 3 s grace measured from the FIRST drop instead stretched to
+        // 3 s-since-the-LAST hop, observed as ~7 s+ in practice. The timer
+        // must be armed once, on the transition INTO the hold, and left alone
+        // for every subsequent "still not connected" flip until it fires or
+        // the link recovers.
+        final bool alreadyHeld = _heldSession != null;
         _heldSession = _sess;
         _justDoneTimer?.cancel();
         _justDoneTimer = null;
@@ -266,8 +287,9 @@ class FlowmicStateMachine {
         // before the drop expire mid-hold (the session is held, not stalled),
         // nor leave the restored PROCESSING with no net at all.
         _cancelProcessingWatchdog();
-        _dropGraceTimer?.cancel();
-        _dropGraceTimer = Timer(_sessionDropGrace, _onDropGraceFired);
+        if (!alreadyHeld) {
+          _dropGraceTimer = Timer(_sessionDropGrace, _onDropGraceFired);
+        }
       } else {
         _resetSession();
       }
@@ -495,9 +517,13 @@ class FlowmicStateMachine {
   /// consumes the latch and stalls PROCESSING immediately with the named code.
   /// Every other exit from RECORDING (cancel / reset / a fresh press) clears
   /// the latch, so it can never leak across utterances.
-  void onSttTerminalError({String? code, String? message}) {
-    final SttStall stall =
-        SttStall(SttStallReason.engineError, code: code, message: message);
+  void onSttTerminalError({String? code, String? message, String? judgedAccount}) {
+    final SttStall stall = SttStall(
+      SttStallReason.engineError,
+      code: code,
+      message: message,
+      judgedAccount: judgedAccount,
+    );
     if (_sess == SessionState.recording) {
       _pendingTerminalError = stall;
       return;

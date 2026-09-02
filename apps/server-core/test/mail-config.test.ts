@@ -72,6 +72,8 @@ describe('mail config: ON and complete', () => {
       // NR-2a — DERIVED, not required: same origin as the reset page, `/verify`.
       verifyBaseUrl: 'https://flowmic.app/verify',
       endpoint: DEFAULT_RESEND_ENDPOINT,
+      // 2026-09-02 — non-null only for the `file` provider (mail/file.ts).
+      fileDir: null,
     });
   });
 
@@ -167,5 +169,83 @@ describe('mail config: ON and wrong → FAIL LOUD, and the message names the key
     // link has to be one a mail client will open.
     expect(() => mailConfigFromEnv({ ...goodEnv(), FLOWMIC_MAIL_RESET_BASE_URL: 'mailto:ops@flowmic.app' }))
       .toThrow(/must be http\(s\)/);
+  });
+});
+
+// 🔴 2026-09-02 — the `file` provider (mail/file.ts), added to retire
+// FLOWMIC_INTERNAL_RESET_TOKEN_ECHO / FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO
+// (owner-ordered deletion — docs/decisions/2026-09-02-owner-plain-language-
+// lan-ci-and-two-security-questions.md §3, problem 1). It is a TEST FIXTURE,
+// not a second production transport: see mail/config.ts's `VALID_MAIL_PROVIDERS`
+// doc for why that distinction is load-bearing.
+describe('mail config: the `file` provider (test fixture, not a second transport)', () => {
+  function fileEnv(over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+    return {
+      FLOWMIC_MAIL_ENABLED: '1',
+      FLOWMIC_MAIL_PROVIDER: 'file',
+      // The bench declaration this describe block's own tests are pinning
+      // below — every OTHER test in this file wants a working fixture, not a
+      // demonstration of the gate, so it is on by default here and turned off
+      // explicitly where the gate itself is under test.
+      FLOWMIC_TEST_BENCH: '1',
+      FLOWMIC_MAIL_FROM: 'FlowMic <noreply@flowmic.app>',
+      FLOWMIC_MAIL_RESET_BASE_URL: 'https://flowmic.app/reset-password',
+      FLOWMIC_MAIL_FILE_DIR: '/tmp/flowmic-mail-fixture',
+      ...over,
+    };
+  }
+
+  // 🔴 REVERSE CONTROL — this is the whole point of the bench gate. A copied
+  // `.env` carries the mail lines without necessarily carrying this second,
+  // unrelated flag; before this fix `mailConfigFromEnv` had no opinion about
+  // that at all, so it built a working file-provider config regardless.
+  it('REFUSES provider:file at boot when FLOWMIC_TEST_BENCH is not set — by name, not a fallback to resend', () => {
+    const env = fileEnv();
+    delete env.FLOWMIC_TEST_BENCH;
+    expect(() => mailConfigFromEnv(env)).toThrow(/FLOWMIC_TEST_BENCH/);
+  });
+
+  it('also refuses when FLOWMIC_TEST_BENCH is set to something other than the literal "1"', () => {
+    expect(() => mailConfigFromEnv(fileEnv({ FLOWMIC_TEST_BENCH: 'true' }))).toThrow(/FLOWMIC_TEST_BENCH/);
+    expect(() => mailConfigFromEnv(fileEnv({ FLOWMIC_TEST_BENCH: '0' }))).toThrow(/FLOWMIC_TEST_BENCH/);
+  });
+
+  it('builds the fixture once FLOWMIC_TEST_BENCH=1 is declared', () => {
+    expect(() => mailConfigFromEnv(fileEnv())).not.toThrow();
+    expect(mailConfigFromEnv(fileEnv())?.provider).toBe('file');
+  });
+
+  it('parses with apiKey/endpoint left empty (no vendor, no meaning for either)', () => {
+    const c = mailConfigFromEnv(fileEnv());
+    expect(c).toEqual({
+      provider: 'file',
+      apiKey: '',
+      from: 'FlowMic <noreply@flowmic.app>',
+      resetBaseUrl: 'https://flowmic.app/reset-password',
+      verifyBaseUrl: 'https://flowmic.app/verify',
+      endpoint: '',
+      fileDir: '/tmp/flowmic-mail-fixture',
+    });
+  });
+
+  it('does NOT require FLOWMIC_MAIL_API_KEY — a directory write has no vendor to authenticate to', () => {
+    const env = fileEnv();
+    delete env.FLOWMIC_MAIL_API_KEY; // never set in fileEnv(), asserted explicitly for the reader
+    expect(() => mailConfigFromEnv(env)).not.toThrow();
+  });
+
+  it('missing FLOWMIC_MAIL_FILE_DIR throws by name — this provider is worthless without it', () => {
+    const env = fileEnv();
+    delete env.FLOWMIC_MAIL_FILE_DIR;
+    expect(() => mailConfigFromEnv(env)).toThrow(/FLOWMIC_MAIL_FILE_DIR is missing or empty/);
+  });
+
+  it('still requires FLOWMIC_MAIL_FROM and FLOWMIC_MAIL_RESET_BASE_URL — the mailer builds real text from them', () => {
+    const noFrom = fileEnv();
+    delete noFrom.FLOWMIC_MAIL_FROM;
+    expect(() => mailConfigFromEnv(noFrom)).toThrow(/FLOWMIC_MAIL_FROM is missing or empty/);
+    const noReset = fileEnv();
+    delete noReset.FLOWMIC_MAIL_RESET_BASE_URL;
+    expect(() => mailConfigFromEnv(noReset)).toThrow(/FLOWMIC_MAIL_RESET_BASE_URL is missing or empty/);
   });
 });

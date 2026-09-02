@@ -295,12 +295,6 @@ typedef HealthReader = Future<HealthReading> Function(Uri url, Duration timeout)
 /// like」, no longer 「how ws becomes http」.
 Uri healthUri(String endpoint) => httpEndpointUri(endpoint, '/api/health');
 
-/// The production probe. dart:io does its own networking, so a cleartext LAN
-/// address works here for the same reason ws://172.x already does (Android's
-/// usesCleartextTraffic governs the PLATFORM http stacks, not Dart's).
-Future<bool> httpHealthProbe(Uri url, Duration timeout) async =>
-    (await httpHealthRead(url, timeout)).ok;
-
 /// The same single request, keeping BOTH facts it already returns. Reachability
 /// is what the list dot needs; `mode` is what the channel chip needs. Reading
 /// them from one response is the only way the two can never disagree.
@@ -402,7 +396,12 @@ Future<HealthReading> httpHealthRead(Uri url, Duration timeout) async {
     return const HealthReading.missed(HealthMiss.timeout);
   } on FormatException {
     return const HealthReading.missed(HealthMiss.malformed); // 200, but not JSON
-  } on Exception {
+  } on Object {
+    // Card P2-9 (2026-09-02) — `on Exception` was the 0.2.35 shape: a
+    // platform/socket failure that surfaces as an `Error` (or anything else
+    // outside the `Exception` hierarchy) fell straight through this clause
+    // uncaught instead of landing on the same "network miss" every other
+    // connection failure here already does.
     req?.abort();
     return const HealthReading.missed(HealthMiss.network); // refused / DNS / TLS / socket died
   }

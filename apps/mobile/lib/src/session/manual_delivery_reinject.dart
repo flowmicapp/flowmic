@@ -303,7 +303,7 @@ Future<ComposeSendFailure?> runReInject(
   // `entry_id`. So this is not a second claim mechanism — the registry is
   // unchanged, and `_armResultWatch` still supersedes by `covered`, which is
   // what makes a re-inject of the same row take over its predecessor's claim.
-  d._armResultWatch(entry.id, <String>[entry.id]);
+  _armResultWatch(d, entry.id, <String>[entry.id]);
   d._host.deliveryNotify();
   return null;
 }

@@ -64,6 +64,86 @@ impl FocusTracker {
     }
 }
 
+// ─── Fan-out policy (portable logic; production caller is Windows-only) ───
+//
+// P2 (2026-09-02 audit): a full 64-slot channel used to drop the ARRIVING
+// event via `try_send`'s own `Err(Full)` and say nothing — the newest
+// foreground change (the one the tracker exists to report) was the one
+// discarded, and nobody could ever tell it had happened. `std::sync::mpsc`
+// gives a `Sender` no way to pop the QUEUE'S oldest entry to make room for the
+// new one — only the `Receiver` can drain it — so an "evict-oldest, keep-
+// newest" mailbox would need a channel type this crate owns end-to-end. That
+// would change `WinEventSource::install`'s signature, which `focus/macos.rs`
+// also implements behind its own platform gate — out of bounds for this pass
+// (see wp-common.md: never edit that file's platform-gated code; naming the
+// literal gate text here would itself move `verify:lint`'s
+// `platform-cfg-count` census with zero platform-specific code added, exactly
+// the trap that lint's own module header warns against). So the fix taken here
+// is the one available without touching that trait: the drop stops being
+// silent. `fanout_focus_event` itself is portable — nothing in its body
+// touches Win32 — but its only PRODUCTION caller is the hook callback inside
+// `mod win32` right below.
+//
+// ⚠️ CORRECTED IN PLACE (2026-09-02, B2-Z): the paragraph above used to end
+// "so it is unit-testable on any host" and carried no cfg gate at all. The
+// Mac-side run (commit 7d9a775c) reported `cargo clippy --lib --features app
+// -- -D warnings` failing there with dead-code errors, `FanoutOutcome` and
+// `fanout_focus_event` among them: with `mod win32` compiled out, their only
+// PRODUCTION caller is gone, so on a plain (non-test) macOS build they are
+// never reached. `#[allow(dead_code)]` would silence that signal permanently
+// — including the day a real portable caller shows up — and a bare
+// cfg-gating them to Windows outright would break the "unit-testable on any host"
+// claim for real, by taking the three tests below down with it on macOS. The
+// fix that keeps both properties true is `#[cfg(any(test, target_os =
+// "windows"))]` (same shape as `inject/image.rs::dimensions_within_pixel_cap`,
+// `inject/readback.rs::BoundedReuseWorker` and
+// `inject/sendinput.rs::sendinput_fully_sent`, all fixed the same way in this
+// commit): present in the real Windows build for the real caller, present in
+// EVERY platform's test build for the tests below, absent only from a
+// non-test non-Windows build, which is exactly where it was unreachable.
+// 🔴 NOT YET CONFIRMED ON THE MAC BY THIS COMMIT — written and verified on
+// the Windows lead box only (`cargo clippy --lib [--features app] -- -D
+// warnings` and `cargo test --lib [--features app]`, both feature sets). The
+// device line owes a Mac run confirming the dead-code errors are gone; see
+// `verify/lint/platform-cfg-count.mjs` for the compound-cfg census note this
+// commit adds.
+#[cfg(any(test, target_os = "windows"))]
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct FanoutOutcome {
+    /// Subscribers whose queue was already full — `event` was NOT delivered
+    /// to them (this is the condition that used to be silent).
+    pub dropped_full: usize,
+    /// Subscribers pruned because their receiver had already been dropped.
+    /// Not an error — this is the self-pruning teardown path.
+    pub pruned_disconnected: usize,
+}
+
+/// Deliver `event` to every sender in `list`, pruning ones whose receiver is
+/// gone. Returns counts so the caller can decide whether/how to report a full
+/// queue — this function does no I/O itself so it stays testable everywhere,
+/// even though its only production caller (the Windows hook callback below)
+/// cannot.
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) fn fanout_focus_event(
+    list: &mut Vec<SyncSender<FocusEvent>>,
+    event: &FocusEvent,
+) -> FanoutOutcome {
+    use std::sync::mpsc::TrySendError;
+    let mut outcome = FanoutOutcome::default();
+    list.retain(|tx| match tx.try_send(event.clone()) {
+        Ok(()) => true,
+        Err(TrySendError::Full(_)) => {
+            outcome.dropped_full += 1;
+            true // keep the subscriber, only this one event was lost
+        }
+        Err(TrySendError::Disconnected(_)) => {
+            outcome.pruned_disconnected += 1;
+            false
+        }
+    });
+    outcome
+}
+
 // ─── Win32 production source (windows-only) ────────────────────────────
 
 #[cfg(target_os = "windows")]
@@ -72,7 +152,6 @@ mod win32 {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::sync::{Mutex, OnceLock};
-    use std::sync::mpsc::TrySendError;
     use windows::Win32::Foundation::{HMODULE, HWND};
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
@@ -219,7 +298,22 @@ mod win32 {
         // receiver has gone. `try_send` rather than `send`: drop the event
         // rather than block the OS message pump on a slow consumer —
         // sub-millisecond duplicates are the same window anyway.
-        list.retain(|tx| !matches!(tx.try_send(fg.clone()), Err(TrySendError::Disconnected(_))));
+        //
+        // P2 (2026-09-02): a full queue used to disappear the NEWEST event
+        // with zero trace (`try_send`'s `Err(Full)` was matched by nothing and
+        // fell through to "keep this subscriber"). `fanout_focus_event` still
+        // keeps the subscriber (a slow pump is not a dead one), but now it
+        // COUNTS the loss so it can be reported instead of swallowed.
+        let outcome = fanout_focus_event(&mut list, &fg);
+        if outcome.dropped_full > 0 {
+            crate::forensic::record(
+                "focus",
+                &format!(
+                    "foreground event DROPPED (channel full) for {} subscriber(s) — pump is not draining",
+                    outcome.dropped_full
+                ),
+            );
+        }
     }
 
     /// Shared extractor used by both the hook callback and the cold-read seed.
@@ -437,6 +531,59 @@ pub use noop_nonwin::{
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    // `FanoutOutcome`/`fanout_focus_event` are `#[cfg(any(test, target_os =
+    // "windows"))]` now (see the 2026-09-02 correction on their definition
+    // above) — `cfg(test)` is true for this whole module on every platform,
+    // so the three tests below stay bare here and keep running everywhere,
+    // exactly as the "unit-testable on any host" comment on the definition
+    // claims.
+
+    // ── P2 (2026-09-02): a full mailbox must be COUNTED, not silently eaten ──
+
+    #[test]
+    fn full_channel_reports_the_drop_instead_of_vanishing_it() {
+        // Capacity-1 channel, one send to fill it, then a second event that
+        // cannot fit — this is the exact shape of a slow/stalled pump.
+        let (tx, _rx) = std::sync::mpsc::sync_channel::<FocusEvent>(1);
+        tx.try_send(sample()).expect("first send fills the only slot");
+        let mut list = vec![tx];
+
+        let outcome = fanout_focus_event(&mut list, &sample());
+
+        assert_eq!(outcome.dropped_full, 1, "the full subscriber must be counted");
+        assert_eq!(outcome.pruned_disconnected, 0);
+        assert_eq!(list.len(), 1, "a full (not dead) subscriber must not be pruned");
+    }
+
+    #[test]
+    fn reverse_control_room_in_the_queue_reports_nothing_dropped() {
+        // NEGATIVE CONTROL: capacity 2, only 1 occupied — the send fits, so
+        // there must be nothing to report. Without this, a version of
+        // `fanout_focus_event` that always reports a drop would still pass
+        // the test above.
+        let (tx, _rx) = std::sync::mpsc::sync_channel::<FocusEvent>(2);
+        tx.try_send(sample()).expect("first send");
+        let mut list = vec![tx];
+
+        let outcome = fanout_focus_event(&mut list, &sample());
+
+        assert_eq!(outcome.dropped_full, 0);
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn disconnected_subscriber_is_pruned_not_counted_as_a_drop() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<FocusEvent>(1);
+        drop(rx);
+        let mut list = vec![tx];
+
+        let outcome = fanout_focus_event(&mut list, &sample());
+
+        assert_eq!(outcome.dropped_full, 0);
+        assert_eq!(outcome.pruned_disconnected, 1);
+        assert!(list.is_empty(), "a dead receiver must still self-prune");
+    }
 
     // ── v0.2.6: EVERY resident channel must receive focus events ────────────
     //

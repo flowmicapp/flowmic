@@ -38,6 +38,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { accountFromBearer, type AccountVerifier } from './account-auth';
 import { readJsonBody, sendJson, str } from './console-http';
 import { keymetaInvalidReason, type TimelineKeymetaRepo } from '../db/repos/timeline-keymeta.repo';
+import { restrictionRefusalBody, restrictionVerdict } from '../auth/account-restriction';
 
 /** The one path both verbs share. Exported for the tests (same argument as
  *  PC_PRESENCE_PATH: a hand-copied literal in a test could drift into passing
@@ -60,6 +61,19 @@ export interface TimelineKeymetaRoutesDeps {
   repo: TimelineKeymetaRepo;
 }
 
+/** P2-4 (2026-09-01 audit) — this file was one of the named open holes in
+ *  console-routes.ts's own restriction-gate census: "timeline-grants REST …
+ *  and every phone path are NOT covered". `AccountVerifier` (the SAME
+ *  instance `who` was just verified against) already carries `getUser` and so
+ *  structurally satisfies `RestrictionReader` — no second reader, same
+ *  argument account-restriction.ts's own doc comment makes. */
+function refuseRestricted(res: ServerResponse, auth: AccountVerifier, userId: string): boolean {
+  const verdict = restrictionVerdict(auth, userId);
+  if (verdict === null) return false;
+  sendJson(res, 403, restrictionRefusalBody(verdict.reason));
+  return true;
+}
+
 /** Handle the two keymeta routes. Returns true iff it owned the request.
  *  Any other method on the path falls through to the router's 404, the same
  *  shape every route family here uses for an unknown (path, method) pair. */
@@ -78,6 +92,7 @@ export function tryHandleTimelineKeymetaRoutes(
       sendJson(res, 401, { error: who.error });
       return true;
     }
+    if (refuseRestricted(res, deps.auth, who.userId)) return true;
     const row = deps.repo.get(who.userId);
     if (!row) {
       sendJson(res, 404, { ok: false, error: KEYMETA_NOT_FOUND });
@@ -98,6 +113,7 @@ export function tryHandleTimelineKeymetaRoutes(
       sendJson(res, 401, { error: who.error });
       return true;
     }
+    if (refuseRestricted(res, deps.auth, who.userId)) return true;
     void (async (): Promise<void> => {
       // Shared bounded reader (console-http.ts BODY_CAP): an over-cap body is
       // truncated, fails to parse, arrives here as {} and dies on the named

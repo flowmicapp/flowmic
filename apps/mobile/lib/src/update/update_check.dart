@@ -122,13 +122,29 @@ enum UpdateCheckOutcome {
   /// and that is precisely what that table exists to prevent.
   ownVersionUnknown,
 
-  /// The manifest is reachable and its envelope is valid, but **this
-  /// platform's own entry cannot be used** (design draft §3 row 4):
-  /// entry missing / every artifact is missing a sha256, or has an invalid
-  /// url.
+  /// 🔴 Card: split from [incompleteInfo] (findings-crossend-update.md item 1,
+  /// 2026-09-02). The manifest is reachable and valid, and it simply **does
+  /// not mention this platform at all** (design draft §3 row 4, first half).
+  ///
+  /// This is NOT the same fact as [incompleteInfo] and must not share its
+  /// sentence: nothing here was even attempted to verify — there is no entry,
+  /// no artifact, no sha256 to check. Rendering it as "the package cannot be
+  /// verified" tells the user their platform's package failed a check that
+  /// never ran, when the honest answer is 「this deployment doesn't mention my
+  /// platform, so this build genuinely does not know whether there is an
+  /// update」 (see [_decide]'s `entry == null` branch — its one producer,
+  /// reached whether the platform is absent from `platforms` alone or from
+  /// both `platforms` and `store_platforms`).
+  platformNotCovered,
+
+  /// The manifest is reachable, its envelope is valid, and **this platform
+  /// DOES have an entry** — but every one of its artifacts is missing a
+  /// sha256, or has an invalid url (design draft §3 row 4, second half).
   ///
   /// 🔴 **Do not download.** The UI says 「update info incomplete, cannot
-  /// verify the install package」 + a link to the downloads page.
+  /// verify the install package」 + a link to the downloads page. Unlike
+  /// [platformNotCovered], a verification genuinely was attempted here and
+  /// genuinely failed.
   incompleteInfo,
 
   /// Endpoint 404 —「**this deployment** doesn't provide an update manifest」
@@ -376,7 +392,7 @@ UpdateCheckResult _decide(
     // honest degradation until the relay is redeployed, and why the deploy
     // order is server first, manifest second.)
     return const UpdateCheckResult(
-      UpdateCheckOutcome.incompleteInfo,
+      UpdateCheckOutcome.platformNotCovered,
       detail: 'platform_absent',
     );
   }

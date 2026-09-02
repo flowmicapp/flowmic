@@ -48,16 +48,46 @@ pub fn portable_picture_digests(ids: Vec<String>) -> Vec<archive::Digest> {
     ids.iter().filter_map(|id| archive::digest_of(&dir, id)).collect()
 }
 
+/// P2 (2026-09-02 audit): the raw HWND of the app's main window, or `0` when it
+/// cannot be found — `dialog::pick`'s `owner_hwnd` treats `0` as "no owner",
+/// exactly the behaviour every caller got before this fix existed, so a lookup
+/// failure degrades to the old behaviour rather than a new one.
+///
+/// 🔴 CORRECTED IN PLACE (2026-09-02, mac-side `cargo test --features app` run):
+/// `tauri::WebviewWindow::hwnd()` only exists on Windows, so an ungated call
+/// here failed the whole crate to build (`E0599`) on macOS/Linux — a break
+/// Windows gates cannot see because they never compile the other half. The
+/// non-Windows twin below exists solely to give every platform a build;
+/// `dialog::pick`'s own non-Windows arm already ignores the value it receives.
+#[cfg(windows)]
+fn main_window_hwnd(app: &tauri::AppHandle) -> isize {
+    use tauri::Manager;
+    app.get_webview_window("main")
+        .and_then(|w| w.hwnd().ok())
+        .map(|h| h.0 as isize)
+        .unwrap_or(0)
+}
+
+#[cfg(not(windows))]
+fn main_window_hwnd(_app: &tauri::AppHandle) -> isize {
+    0
+}
+
 /// The user picks the destination (§7-2). `None` = cancelled — a normal answer.
 #[tauri::command]
-pub fn portable_pick_save(title: String, filter: String, suggested: String) -> Option<String> {
-    dialog::save_as(&title, &filter, &suggested)
+pub fn portable_pick_save(
+    app: tauri::AppHandle,
+    title: String,
+    filter: String,
+    suggested: String,
+) -> Option<String> {
+    dialog::save_as(&title, &filter, &suggested, main_window_hwnd(&app))
 }
 
 /// The user picks the archive to import. `None` = cancelled.
 #[tauri::command]
-pub fn portable_pick_open(title: String, filter: String) -> Option<String> {
-    dialog::open(&title, &filter)
+pub fn portable_pick_open(app: tauri::AppHandle, title: String, filter: String) -> Option<String> {
+    dialog::open(&title, &filter, main_window_hwnd(&app))
 }
 
 /// A verdict shape shared by the two commands that can fail on the file layer.

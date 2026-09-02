@@ -100,8 +100,8 @@ function yamlVersion(text) {
   return m ? m[1] : null;
 }
 
-export default async function run() {
-  const rootPkg = await readJson(path.join(ROOT, 'package.json'));
+export default async function run(rootAbs = ROOT) {
+  const rootPkg = await readJson(path.join(rootAbs, 'package.json'));
   if (!rootPkg || !rootPkg.version) {
     return { status: 'FAIL', detail: 'root package.json has no version' };
   }
@@ -113,7 +113,7 @@ export default async function run() {
   // Workspace package.json files under packages/* and apps/*
   let pkgCount = 0;
   for (const g of ['packages', 'apps']) {
-    for (const abs of await walk(path.join(ROOT, g), { skipDir })) {
+    for (const abs of await walk(path.join(rootAbs, g), { skipDir })) {
       if (path.basename(abs) !== 'package.json') continue;
       // only immediate <g>/<name>/package.json
       const r = rel(abs);
@@ -129,7 +129,7 @@ export default async function run() {
 
   // tauri.conf.json (search under apps/*/src-tauri or anywhere non-pruned)
   let tauriFound = false;
-  for (const abs of await walk(path.join(ROOT, 'apps'), { skipDir })) {
+  for (const abs of await walk(path.join(rootAbs, 'apps'), { skipDir })) {
     if (path.basename(abs) === 'tauri.conf.json') {
       const conf = await readJson(abs);
       const v = conf?.version ?? conf?.package?.version ?? '(none)';
@@ -141,7 +141,7 @@ export default async function run() {
 
   // pubspec.yaml (mobile)
   let pubspecFound = false;
-  for (const abs of await walk(path.join(ROOT, 'apps'), { skipDir })) {
+  for (const abs of await walk(path.join(rootAbs, 'apps'), { skipDir })) {
     if (path.basename(abs) === 'pubspec.yaml') {
       const text = await readText(abs);
       const v = text ? yamlVersion(text) : null;
@@ -230,7 +230,7 @@ export default async function run() {
         };
       }
     }
-    const text = await readText(path.join(ROOT, label));
+    const text = await readText(path.join(rootAbs, label));
     if (text === null) {
       if (!optional) {
         return {

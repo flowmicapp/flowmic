@@ -19,28 +19,34 @@
 // entirely (a dev points the desktop at a hand-run server), but the LAN-IP poll
 // still runs so pairing works in dev too.
 //
-// R6 T-2 (dual channels): the ACTIVE CHANNEL now decides the whole bring-up path.
-//   • LAN   → everything above, unchanged.
-//   • Cloud → the server is REMOTE, so the local sidecar is not needed: it is
-//     neither spawned nor killed (an already-running one may serve something
-//     else), the device page shows the local-server card as `suspended` rather
-//     than a fake failure, and the socket dials the relay with the Cloud Key.
-// Switching back to LAN brings the sidecar up on demand.
+// R6 T-2 (dual channels): the ACTIVE CHANNEL used to decide the whole bring-up
+// path — a Cloud-only world left the local sidecar neither spawned nor killed
+// and showed the device page a `suspended` card instead of a fake failure.
+//
+// In-place correction (2026-09-02, sidecar supervisor leftovers): GA-28 made
+// BOTH channels always resident, so nothing sets `suspended` any more — start()
+// always brings the LAN sidecar up regardless of which channel a phone ends up
+// admitted to. The dead `suspended` field, its dto() branch, and the device
+// page's corresponding phase (SIDECAR_LABEL.suspended in channel.ts) were
+// removed here; the original text above is kept because it accurately records
+// why this shape existed and the T-2 ruling it came from, not because it is
+// still true today.
 
 use std::process::Child;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::forensic;
 use crate::sidecar::io::{self, BringUpOptions};
+use crate::sidecar::state::FailReason;
 use crate::sidecar::{self, Phase};
 use crate::socket::channel::{self as chan, Channel, CloudReadiness};
 use crate::socket::bridge;
 use crate::socket::node_select;
 
-use super::channel_session::{connect_on_main, has_socket, set_socket};
+use super::channel_session::{connect_on_main, has_socket, mark_slot_transient, set_socket};
 use super::cloud;
 
 /// Re-exported so that `shell::cloud`'s two `sidecar_ctl::drop_socket` call sites
@@ -72,14 +78,42 @@ pub struct SidecarState {
     lan_tls_fp: Arc<Mutex<Option<String>>>,
     /// The current lifecycle phase (device-page status source).
     phase: Mutex<Phase>,
-    /// R6 T-2: the cloud channel is active, so the local sidecar was deliberately
-    /// NOT brought up. The device page renders「本地服务未启动（当前使用云端中继）」
-    /// ("local service not started (currently using cloud relay)")
-    /// instead of a transient「启动中」("starting") that would never resolve.
-    suspended: Mutex<bool>,
     /// A health supervisor thread is running — at most one, ever (owner
     /// 2026-07-27). Cleared when that thread returns.
     supervising: std::sync::atomic::AtomicBool,
+    /// D8 (2026-09-02 audit §3-D): a bring-up (resolve → spawn → handshake →
+    /// health) is in flight — at most one, ever. Before this flag existed,
+    /// nothing stopped two callers of `start()` (a device-page "retry" click
+    /// racing a heartbeat-death `ensure_dialed` rebuild, say) from BOTH
+    /// running `bring_up_and_connect` concurrently: each spawns its OWN
+    /// `node server.js`, and whichever finishes last silently overwrites
+    /// `child` here — orphaning the other spawned child, which
+    /// `job::guard_child`'s single-slot job-object replace can then respond
+    /// to by killing a perfectly HEALTHY process (`KILL_ON_JOB_CLOSE`) instead
+    /// of the stale one. `supervising` above guards a different thing (the
+    /// health-poll loop that runs AFTER a successful bring-up) and does
+    /// nothing to stop this.
+    bringing_up: std::sync::atomic::AtomicBool,
+    /// 2026-09-02 (sidecar supervisor leftovers, item 1): how many consecutive
+    /// AUTOMATIC restarts the health supervisor has run without the server
+    /// ever staying up long enough to forgive the streak (`note_restart_attempt`
+    /// / `reset_restart_attempts` / `forgive_restart_streak_if_older_than`,
+    /// used only by `spawn_health_supervisor`). A manual Retry always resets
+    /// this to 0 (`start()`) — the budget is for CRASH LOOPS the supervisor is
+    /// fighting alone, not a ceiling on how many times a human may click Retry.
+    restart_attempts: std::sync::atomic::AtomicU32,
+    /// When the LAST automatic restart was noted, so a streak can be forgiven
+    /// once the server has stayed healthy for SUPERVISOR_FORGIVE_AFTER since
+    /// then — an occasional restart over the app's whole lifetime must not
+    /// spend down the same budget a real crash loop would need.
+    last_restart_at: Mutex<Option<Instant>>,
+    /// D-B2L (2026-09-02 audit, sidecar supervisor leftovers item 3): the
+    /// buffer `io::bring_up`'s `BringUp::stderr_tail` hands back once a child
+    /// has completed its handshake — set on every bring-up, taken (and thus
+    /// cleared) by the health supervisor when it finds the child dead, so a
+    /// restart/give-up forensic line can say what the dead child's own last
+    /// words were instead of just "it's gone".
+    child_stderr_tail: Mutex<Option<io::SharedStderrTail>>,
     host: String,
     port: u16,
 }
@@ -99,8 +133,11 @@ impl SidecarState {
             lan_candidates: Arc::new(Mutex::new(Vec::new())),
             lan_tls_fp: Arc::new(Mutex::new(None)),
             phase: Mutex::new(Phase::Resolving),
-            suspended: Mutex::new(false),
             supervising: std::sync::atomic::AtomicBool::new(false),
+            bringing_up: std::sync::atomic::AtomicBool::new(false),
+            restart_attempts: std::sync::atomic::AtomicU32::new(0),
+            last_restart_at: Mutex::new(None),
+            child_stderr_tail: Mutex::new(None),
             host: sidecar::SIDECAR_HOST.to_string(),
             // The resolved port, not the constant — FLOWMIC_SIDECAR_PORT must
             // reach the device page and the LAN poll too, or a second instance
@@ -116,6 +153,73 @@ impl SidecarState {
 
     fn release_supervisor(&self) {
         self.supervising.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// D8 — claim the single bring-up slot. `false` = one is already running.
+    fn claim_bring_up(&self) -> bool {
+        !self.bringing_up.swap(true, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn release_bring_up(&self) {
+        self.bringing_up.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Record one more automatic restart in the current streak and return its
+    /// 1-based number. Only `spawn_health_supervisor` calls this — a manual
+    /// Retry goes through `start()`, which resets the streak instead.
+    fn note_restart_attempt(&self) -> u32 {
+        if let Ok(mut g) = self.last_restart_at.lock() {
+            *g = Some(Instant::now());
+        }
+        self.restart_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+    }
+
+    /// Start a fresh streak — called on every manual entry point (`start()`,
+    /// which both a cold boot and the Retry button run through) so the
+    /// crash-loop budget is never spent by a human's own choice to retry.
+    fn reset_restart_attempts(&self) {
+        self.restart_attempts.store(0, std::sync::atomic::Ordering::SeqCst);
+        if let Ok(mut g) = self.last_restart_at.lock() {
+            *g = None;
+        }
+    }
+
+    /// Forgive the streak once the server has stayed healthy for at least
+    /// `threshold` since the last automatic restart. A no-op when there is
+    /// nothing to forgive (streak already at 0, or too young). Takes the
+    /// threshold as a parameter rather than reading SUPERVISOR_FORGIVE_AFTER
+    /// directly so the decision itself is unit-testable without a real clock.
+    fn forgive_restart_streak_if_older_than(&self, threshold: Duration) {
+        let stable = self
+            .last_restart_at
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .map(|t| t.elapsed() >= threshold)
+            .unwrap_or(false);
+        if stable {
+            self.reset_restart_attempts();
+        }
+    }
+
+    fn set_child_stderr_tail(&self, tail: Option<io::SharedStderrTail>) {
+        let mut g = self.child_stderr_tail.lock().unwrap_or_else(|p| p.into_inner());
+        *g = tail;
+    }
+
+    /// Take (not just read) the buffered stderr tail for whichever child's
+    /// bring-up last set one — `None` before any child has completed its
+    /// handshake, or for an AdoptedExternal process (io::bring_up never sets
+    /// one for those — see BringUp::stderr_tail's doc comment). Taking it
+    /// means a stale tail is never attributed to the NEXT child after a
+    /// restart: the following bring-up sets a fresh value (or `None`) before
+    /// anyone could read this one again.
+    fn take_child_stderr_tail(&self) -> Option<String> {
+        let buf = {
+            let mut g = self.child_stderr_tail.lock().unwrap_or_else(|p| p.into_inner());
+            g.take()
+        }?;
+        Some(io::stderr_tail(&buf, 5))
     }
 
     /// Kill the spawned child. No-op when adopted/dev.
@@ -164,13 +268,6 @@ impl SidecarState {
         let mut g = self.dialed_endpoint.lock().unwrap_or_else(|p| p.into_inner());
         *g = endpoint;
     }
-    fn set_suspended(&self, suspended: bool) {
-        let mut g = self.suspended.lock().unwrap_or_else(|p| p.into_inner());
-        *g = suspended;
-    }
-    fn suspended(&self) -> bool {
-        self.suspended.lock().map(|g| *g).unwrap_or(false)
-    }
     fn phase_snapshot(&self) -> Phase {
         self.phase.lock().map(|g| g.clone()).unwrap_or(Phase::Resolving)
     }
@@ -210,12 +307,7 @@ pub struct SidecarStatusDto {
     pub detail: Option<String>,
 }
 
-fn dto(phase: &Phase, dialed: Option<String>, suspended: bool) -> SidecarStatusDto {
-    if suspended {
-        // T-2 ④: honest state for "we never started it, on purpose". NOT a failure
-        // (no Retry offered) and NOT a transient「启动中」("starting") that never resolves.
-        return SidecarStatusDto { phase: "suspended".to_string(), endpoint: dialed, detail: None };
-    }
+fn dto(phase: &Phase, dialed: Option<String>) -> SidecarStatusDto {
     let (tag, detail): (&str, Option<String>) = match phase {
         Phase::Resolving => ("resolving", None),
         Phase::Spawning => ("spawning", None),
@@ -235,8 +327,7 @@ fn dto(phase: &Phase, dialed: Option<String>, suspended: bool) -> SidecarStatusD
 }
 
 fn emit_state(app: &AppHandle, phase: &Phase, dialed: Option<String>) {
-    let suspended = app.state::<SidecarState>().suspended();
-    if let Ok(v) = serde_json::to_value(dto(phase, dialed, suspended)) {
+    if let Ok(v) = serde_json::to_value(dto(phase, dialed)) {
         let _ = app.emit(bridge::channel::SIDECAR_STATE, v);
     }
 }
@@ -278,142 +369,52 @@ pub fn start(app: &AppHandle) {
     forensic::record("channel", "bring-up: LAN + cloud both resident");
 
     // With both channels resident the LAN sidecar is always wanted: it IS the
-    // local channel, so it is never left 'suspended' for the cloud's sake again.
+    // local channel, and GA-28 removed the only thing that used to hold it back
+    // (see the file header's in-place correction on the retired `suspended` state).
     {
         let state: State<SidecarState> = app.state();
-        state.set_suspended(false);
         state.set_phase(Phase::Resolving);
+        // 2026-09-02 (sidecar supervisor leftovers, item 1): `start()` is the
+        // ONLY manual entry point (cold boot, the Retry button, and
+        // ensure_dialed()'s "never brought up" fallback all run through it) —
+        // resetting the automatic-restart streak here means a human's own
+        // choice to retry never counts against the crash-loop budget that
+        // SUPERVISOR_MAX_RESTARTS bounds.
+        state.reset_restart_attempts();
     }
     emit_state(app, &Phase::Resolving, None);
-    let app2 = app.clone();
-    std::thread::spawn(move || bring_up_and_connect(&app2));
+    // D8: claim the single bring-up slot BEFORE spawning the worker thread, so
+    // two overlapping calls to `start()` (a device-page retry racing a
+    // heartbeat-death rebuild, say) cannot both end up running
+    // `bring_up_and_connect` — see `SidecarState::bringing_up`'s doc comment
+    // for what that used to cost (two `node server.js` children, one of them
+    // orphaned and then killed by a job-object slot replace).
+    let state: State<SidecarState> = app.state();
+    if state.claim_bring_up() {
+        let app2 = app.clone();
+        std::thread::spawn(move || bring_up_and_connect(&app2));
+    } else {
+        forensic::record(
+            "sidecar",
+            "bring-up SKIPPED — one is already in flight (D8 reentrancy guard); \
+             the in-flight run will emit its own terminal status",
+        );
+    }
     // The cloud leg needs no local process, so it dials in PARALLEL rather than
     // waiting behind the sidecar handshake.
     start_cloud(app);
 }
 
-
-/// The node this process is currently dialing, if any. Process-global because
-/// the choice has to survive a reconnect — without it every reconnect would be a
-/// first choice, the stickiness margin would never apply, and two nodes a few
-/// milliseconds apart would trade the socket back and forth forever.
-static CURRENT_NODE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The node this process is dialing, for the DEVICE PAGE to name it.
-///
-/// owner 2026-08-30 — 「PC 端的云端中继连接通道的信息卡片中也增加连接的节点信息」.
-///
-/// 🔴 `None` on a single-node deployment and on every LAN-only run, and the card
-/// must then say nothing rather than 「unknown」: there is no node in either case,
-/// so naming one would be inventing a fact about a path this connection does not
-/// take. Same posture as the phone's badge (node_badge.dart).
-pub fn current_node() -> Option<String> {
-    // 🔴 THE OPERATOR'S LABEL OR NOTHING — never the node id. Owner
-    // 2026-08-30: 「当前只有 asia/us 两个节点，不要显示其它文字」, and the
-    // 2026-08-22 iron rule already forbade internal vocabulary in anything a
-    // user can see. `srvjp` is our name for that machine, not theirs.
-    //
-    // An earlier version of this line fell back to the id. It was wrong for the
-    // same reason on both clients, and the phone's node_badge.dart carries the
-    // full argument — including why the 0.2.53 「print the raw error code」
-    // precedent does NOT transfer (there the alternative was a fabricated
-    // sentence; here it is silence, and silence is honest).
-    //
-    // The card must draw nothing on None: no node (LAN, single node) and no
-    // label are both 「nothing to name」, and both deserve the same silence.
-    let _ = CURRENT_NODE.lock().ok().and_then(|g| g.clone())?;
-    CURRENT_NODE_LABEL
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
-        .filter(|s| !s.trim().is_empty())
-}
-
-static CURRENT_NODE_LABEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The URL last dialed for [CURRENT_NODE]. Needed so the next pick can fetch
-/// `/api/node/list` from that node instead of always asking the canonical writer
-/// (`socket/node_select.rs` `fetch_published`). An id without a URL cannot be
-/// asked; a URL without an id cannot be checked for containment.
-static CURRENT_NODE_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The node **id** this process is dialing, for the latency panel to mark
-/// "in use". Distinct from [`current_node`], which returns the operator's
-/// **label** (or nothing) because that value is painted on a card.
-///
-/// ⚠️ The panel is read-only: this is a stamp, not a setter. The only
-/// writer remains `remember_node` in this file.
-pub fn current_node_id() -> Option<String> {
-    CURRENT_NODE
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
-        .filter(|s| !s.trim().is_empty())
-}
-
-/// Remember the id, the operator label, and the dialed URL from the same
-/// [node_select::Choice].
-///
-/// 🔴 One writer for three values that must never disagree: an id from this
-/// round beside a label from the last one would name the wrong machine room
-/// on a card whose whole job is to name it, and a list fetch to a URL that
-/// is not that id's door would be asking a stranger for the directory.
-fn remember_node(node: Option<String>, label: Option<String>, url: String) {
-    if let Ok(mut g) = CURRENT_NODE.lock() {
-        *g = node;
-    }
-    if let Ok(mut g) = CURRENT_NODE_LABEL.lock() {
-        *g = label;
-    }
-    if let Ok(mut g) = CURRENT_NODE_URL.lock() {
-        *g = Some(url);
-    }
-}
-
-/// 「这条连接会不会发 pc:register」("will this connection emit pc:register").
-///
-/// Read from the CLOUD credential file, which is the same thing socket/client.rs
-/// consults to decide between `pc:register` and `pc:reconnect{token}` — see
-/// [`Credentials::is_registered`], whose doc comment is explicit that this is the
-/// right question in exactly one place. This is the second place, and it is the
-/// SAME question: a connection that is about to register must land on the writer,
-/// because registration writes seven rows including the pairing code and a
-/// replica loses all of them at its next replication pull.
-///
-/// ⚠️ Absent or unreadable credentials mean 「no token」 ⇒ registration is due.
-/// The safe failure: dialing the writer when we did not have to costs one round
-/// trip, while dialing a replica when we had to costs the user's pairing code.
-fn cloud_registration_due() -> bool {
-    !crate::socket::credentials::Credentials::load(&chan::credentials_path(Channel::Cloud))
-        .map(|c| c.is_registered())
-        .unwrap_or(false)
-}
-
-/// Pick a relay node for `endpoint`, or fall back to the endpoint itself.
-///
-/// ⚠️ EVERY FAILURE HERE FALLS BACK TO THE ENDPOINT, deliberately. Node selection
-/// is an optimisation; a PC that cannot build an HTTP client, or reach the node
-/// list, must still connect exactly the way it did before this feature existed.
-/// The one thing it must never do is fail to dial at all.
-fn select_relay_node(endpoint: &str, must_register: bool) -> node_select::Choice {
-    let Some(probe) = node_select::HttpProbe::new() else {
-        return node_select::Choice {
-            url: endpoint.to_string(),
-            node: None,
-            short: None,
-            reason: node_select::Reason::NoneReachable,
-        };
-    };
-    let current = CURRENT_NODE.lock().ok().and_then(|g| g.clone());
-    let current_url = CURRENT_NODE_URL.lock().ok().and_then(|g| g.clone());
-    node_select::choose(
-        endpoint,
-        current.as_deref(),
-        current_url.as_deref(),
-        must_register,
-        &probe,
-    )
-}
+// Cloud-relay node tracking + selection moved to sidecar_node_select.rs
+// (2026-09-02, file-size cap) — a child module so it keeps private access to
+// this file's imports (chan, Channel, node_select). `current_node` /
+// `current_node_id` are re-exported below because shell/connection.rs and
+// shell/node_latency.rs call them as `sidecar_ctl::current_node()` /
+// `sidecar_ctl::current_node_id()`.
+#[path = "sidecar_node_select.rs"]
+mod sidecar_node_select;
+pub use sidecar_node_select::{current_node, current_node_id};
+use sidecar_node_select::{cloud_registration_due, remember_node, select_relay_node};
 
 /// Bring the CLOUD channel up alongside the LAN one. A relay that cannot be dialed
 /// stays loudly disconnected (T-2 ⑤) — it never degrades the LAN channel, and
@@ -485,7 +486,6 @@ pub fn ensure_dialed(app: &AppHandle, target: Channel) {
         Channel::Cloud => start_cloud(app),
         Channel::Lan => {
             let state: State<SidecarState> = app.state();
-            state.set_suspended(false);
             match state.phase_snapshot() {
                 // The sidecar is already up — re-dial its endpoint instead of
                 // restarting the whole bring-up.
@@ -507,6 +507,19 @@ pub fn ensure_dialed(app: &AppHandle, target: Channel) {
 ///
 /// Shared by both channels: the detector lives in the shared pump, and this
 /// is the shared dial funnel. No LAN-only fork.
+///
+/// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — `mark_slot_transient` runs BEFORE
+/// `set_socket(None)` for exactly this reason: this funnel's whole purpose is
+/// "empty it so we can redial it", never "shut this channel down". Before this
+/// line, a redial that then FAILED (`ensure_dialed` → `connect_cloud` →
+/// `connect_on_main` → `channel_session::connect_socket`'s `Err` arm) left the
+/// outgoing session marked deliberate by default — on the cloud channel that is
+/// suppress-forever, so the PC could never reconnect on that channel again
+/// short of an app restart (the same shape W8-2 fixed for LAN, now reproduced
+/// for cloud one level up: no redial attempt marks it want-to-come-back). LAN
+/// is unaffected (its release never depended on this flag); see
+/// `session_gen::closing_gate`'s `transient` parameter for the decision this
+/// feeds.
 pub(super) fn rebuild_after_heartbeat_death(app: &AppHandle, channel: Channel) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -518,9 +531,26 @@ pub(super) fn rebuild_after_heartbeat_death(app: &AppHandle, channel: Channel) {
                 channel.tag()
             ),
         );
+        mark_slot_transient(&app, channel);
         set_socket(&app, channel, None);
         ensure_dialed(&app, channel);
     });
+}
+
+/// D8 — releases the `bringing_up` slot on drop. `bring_up_and_connect` has
+/// more than one return path (the dev-override short-circuit, the ordinary
+/// end after a failed OR healthy bring-up), and a guard released BY HAND at
+/// each one is exactly the kind of invariant a later-added early return
+/// silently breaks. `Drop` runs no matter which path is taken.
+struct BringUpGuard {
+    app: AppHandle,
+}
+
+impl Drop for BringUpGuard {
+    fn drop(&mut self) {
+        let state: State<SidecarState> = self.app.state();
+        state.release_bring_up();
+    }
 }
 
 /// The blocking bring-up worker (runs on a thread). Honours the FLOWMIC_SERVER_URL
@@ -528,7 +558,13 @@ pub(super) fn rebuild_after_heartbeat_death(app: &AppHandle, channel: Channel) {
 /// endpoint, emits the terminal status, connects the socket, and kicks the LAN
 /// poll. On failure it manages a None socket (fail-loud — commands resolve to
 /// false, never a silent dead socket).
+///
+/// Callers: `start()`, which claims `SidecarState::bringing_up` before
+/// spawning the thread that runs this. This function's ONLY job regarding
+/// that flag is to hold `_bring_up_guard` for its entire body so the flag
+/// clears exactly once, whichever way this function returns (D8).
 fn bring_up_and_connect(app: &AppHandle) {
+    let _bring_up_guard = BringUpGuard { app: app.clone() };
     let state: State<SidecarState> = app.state();
 
     // PRIORITY 1 — explicit dev override bypasses the sidecar (lead-controller ruling #4).
@@ -556,6 +592,11 @@ fn bring_up_and_connect(app: &AppHandle) {
     let phase = up.phase.clone();
 
     state.set_child(up.child.take());
+    // D-B2L item 3: carried alongside the child so a LATER death (during the
+    // health supervisor's watch, after this function has already returned)
+    // can still be explained — see SidecarState::child_stderr_tail's doc
+    // comment for the 0.2.50-shaped gap this closes.
+    state.set_child_stderr_tail(up.stderr_tail.take());
     let endpoint = phase.endpoint().map(str::to_string);
     if let Some(e) = &endpoint {
         state.set_dialed(Some(e.clone()));
@@ -578,164 +619,24 @@ fn bring_up_and_connect(app: &AppHandle) {
     }
 }
 
-/// F-2343 LAN-IP poll: once the endpoint is up, poll /api/network every 3 s until a
-/// non-loopback LAN IPv4 appears (DHCP may be late — a loopback-only result is
-/// "还没好" ("not ready yet"), not terminal). Stops once resolved. A ~10 min ceiling then gives up
-/// (the pairing modal keeps the loopback endpoint → QR suppressed, F-2346).
-fn spawn_lan_poll(app: &AppHandle) {
-    let state: State<SidecarState> = app.state();
-    if state.lan_resolved() {
-        return; // already resolved
-    }
-    let lan = state.lan_handle();
-    let cands = state.lan_candidates_handle();
-    let tls_fp = state.lan_tls_fp_handle();
-    let host = state.host.clone();
-    let port = state.port;
-    std::thread::spawn(move || {
-        let mut warned_malformed = false;
-        for _ in 0..200 {
-            // GA-21: record the WHOLE candidate list on every read, not only on
-            // the resolving one — the picker needs the alternatives even when the
-            // heuristic already produced a usable primary.
-            let all = io::fetch_lan_candidates(&host, port);
-            if !all.is_empty() {
-                if let Ok(mut g) = cands.lock() {
-                    *g = all;
-                }
-            }
-            // D2LAN-B2b — read the fingerprint HERE, ABOVE the primary check,
-            // because that check RETURNS. On a normal machine the loop exits on its
-            // first iteration, so a read placed after it would run zero times on
-            // exactly the machines this feature is for. One read suffices (the TLS
-            // front exists before the server listens), hence the `is_none` guard.
-            // Rationale for dropping-vs-carrying is at `io::is_carryable_fingerprint`.
-            if tls_fp.lock().map(|g| g.is_none()).unwrap_or(false) {
-                match io::fetch_lan_tls_fingerprint(&host, port) {
-                    Some(raw) if io::is_carryable_fingerprint(&raw) => {
-                        if let Ok(mut g) = tls_fp.lock() {
-                            *g = Some(raw.clone());
-                        }
-                        forensic::record("sidecar", &format!("LAN TLS fingerprint read: {raw}"));
-                    }
-                    // 🔴 Out loud, once, with the LENGTH rather than the value:
-                    // truncation is the likely corruption and 「多长」("how long") identifies it.
-                    Some(raw) if !warned_malformed => {
-                        warned_malformed = true;
-                        forensic::record(
-                            "sidecar",
-                            &format!(
-                                "REFUSED a malformed LAN TLS fingerprint from /api/network ({} chars) — the pairing QR carries no fp=",
-                                raw.len()
-                            ),
-                        );
-                    }
-                    // A malformed value we have already reported, or none at all:
-                    // both leave the slot empty, which is the same QR either way.
-                    _ => {}
-                }
-            }
-            if let Some(ip) = io::fetch_lan_primary(&host, port) {
-                let ep = format!("http://{ip}:{port}");
-                if let Ok(mut g) = lan.lock() {
-                    *g = Some(ep.clone());
-                }
-                forensic::record("sidecar", &format!("LAN pairing endpoint resolved: {ep}"));
-                return;
-            }
-            std::thread::sleep(Duration::from_secs(3));
-        }
-        forensic::record("sidecar", "LAN-IP poll gave up (no non-loopback IPv4 in ~10min)");
-    });
-}
+// spawn_lan_poll moved to sidecar_lan_poll.rs (2026-09-02, file-size cap) —
+// a child module so it keeps private access to SidecarState's accessors.
+#[path = "sidecar_lan_poll.rs"]
+mod sidecar_lan_poll;
+use sidecar_lan_poll::spawn_lan_poll;
 
-/// Consecutive failed health probes before the local server is declared dead.
-/// 3 × 5 s ≈ 15 s: long enough that a GC pause or a busy moment is not a death,
-/// short enough that the user is not left staring at 「重新连接中」("reconnecting").
-const SUPERVISOR_STRIKES: u32 = 3;
-const SUPERVISOR_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Watch the local server for the rest of its life and bring it back if it dies
-/// (owner 2026-07-27).
-///
-/// The lifecycle FSM only covers failures BEFORE Healthy — exit-during-handshake,
-/// EADDRINUSE. Nothing watched afterwards, so a server that died once it was up
-/// left the desktop reconnecting to a port with nothing behind it, forever, with
-/// no way back except quitting the app. That is exactly what owner hit: an
-/// adopted orphan sidecar exited mid-utterance and the PC just said
-/// 「重新连接中」("reconnecting") until it was restarted by hand.
-///
-/// Re-runs the SAME bring-up used at startup and by Retry (probe → adopt → spawn),
-/// so it inherits the adopt-first rule and the one-shot kill budget instead of
-/// inventing a second recovery path. Then it returns: the fresh bring-up starts
-/// the next supervisor, so there is never more than one alive.
-fn spawn_health_supervisor(app: &AppHandle) {
-    {
-        let state: State<SidecarState> = app.state();
-        if !state.claim_supervisor() {
-            return; // one is already watching
-        }
-    }
-    let app2 = app.clone();
-    std::thread::spawn(move || {
-        let (host, port) = {
-            let state: State<SidecarState> = app2.state();
-            (state.host.clone(), state.port)
-        };
-        let mut strikes: u32 = 0;
-        loop {
-            std::thread::sleep(SUPERVISOR_INTERVAL);
-            {
-                let state: State<SidecarState> = app2.state();
-                // A suspended or already-failed sidecar is somebody else's story.
-                if state.suspended() || !matches!(
-                    state.phase_snapshot(),
-                    Phase::Healthy { .. } | Phase::AdoptedExternal { .. }
-                ) {
-                    state.release_supervisor();
-                    return;
-                }
-            }
-            let alive = io::http_get(&host, port, "/api/health", Duration::from_secs(2))
-                .map(|r| r.status == 200)
-                .unwrap_or(false);
-            if alive {
-                strikes = 0;
-                continue;
-            }
-            strikes += 1;
-            forensic::record(
-                "sidecar",
-                &format!("supervisor: /api/health unanswered ({strikes}/{SUPERVISOR_STRIKES})"),
-            );
-            if strikes < SUPERVISOR_STRIKES {
-                continue;
-            }
-            forensic::record(
-                "sidecar",
-                "supervisor: local server is GONE — re-running bring-up (never silent)",
-            );
-            {
-                let state: State<SidecarState> = app2.state();
-                // Reap our own corpse first: a dead child left in the slot would
-                // otherwise be 'killed' again by the next exit path.
-                state.kill_child(crate::exit_reason::SidecarKillCause::HealthSupervisorRestart);
-                state.set_phase(Phase::Resolving);
-                state.release_supervisor(); // the new bring-up claims a fresh one
-            }
-            emit_state(&app2, &Phase::Resolving, None);
-            bring_up_and_connect(&app2);
-            return;
-        }
-    });
-}
+// The supervisor watch loop + its backoff/max policy moved to
+// sidecar_supervisor.rs (2026-09-02, file-size cap) — same technique.
+#[path = "sidecar_supervisor.rs"]
+mod sidecar_supervisor;
+use sidecar_supervisor::spawn_health_supervisor;
 
 // ── commands ─────────────────────────────────────────────────────────────────
 
 /// Read the current sidecar status for the device page.
 #[tauri::command]
 pub fn sidecar_state(state: State<'_, SidecarState>) -> SidecarStatusDto {
-    dto(&state.phase_snapshot(), state.dialed_snapshot(), state.suspended())
+    dto(&state.phase_snapshot(), state.dialed_snapshot())
 }
 
 /// Retry the bring-up (error-card Retry button). Kills any prior child, re-emits
@@ -744,15 +645,71 @@ pub fn sidecar_state(state: State<'_, SidecarState>) -> SidecarStatusDto {
 ///
 /// The R6 T-2 「cloud channel is active ⇒ ignore」 branch is GONE (owner 2026-07-30 ②).
 /// It rested on the single-channel world where choosing cloud suspended the local
-/// server; since GA-28 the LAN sidecar is always wanted (`start` clears `suspended`
-/// unconditionally, and nothing sets it), and now that the channel select is deleted
-/// the user has no way to flip that flag back — so the branch could only ever refuse
-/// a retry the user cannot otherwise obtain.
+/// server; since GA-28 the LAN sidecar is always wanted (the `suspended` flag it
+/// used to check no longer exists at all — see the file header), and now that the
+/// channel select is deleted the user has no way to flip that flag back — so the
+/// branch could only ever refuse a retry the user cannot otherwise obtain.
 #[tauri::command]
 pub fn sidecar_retry(app: AppHandle) -> SidecarStatusDto {
     let state: State<SidecarState> = app.state();
     state.kill_child(crate::exit_reason::SidecarKillCause::DevicePageRetry);
     forensic::record("sidecar", "retry requested (device page)");
     start(&app);
-    dto(&Phase::Resolving, None, false)
+    dto(&Phase::Resolving, None)
+}
+
+#[cfg(test)]
+#[path = "bring_up_guard_tests.rs"]
+mod bring_up_guard_tests;
+
+#[cfg(test)]
+mod child_stderr_tail_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// D-B2L (2026-09-02 audit, sidecar supervisor leftovers item 3): before
+    /// this plumbing existed, the post-handshake stderr reader thread kept
+    /// filling a buffer for the child's whole life, but nothing outside
+    /// io::bring_up() ever held a handle to it again once that function
+    /// returned — so a LATER death (the health supervisor's job to notice)
+    /// had no tail to report, only "it's gone". This proves the buffer
+    /// SidecarState now holds actually reaches the caller, formatted.
+    #[test]
+    fn take_child_stderr_tail_reads_the_buffered_lines() {
+        let state = SidecarState::new();
+        let buf: io::SharedStderrTail = Arc::new(Mutex::new(vec![
+            "Error: listen EADDRINUSE".to_string(),
+            "    at Server.setupListenHandle".to_string(),
+        ]));
+        state.set_child_stderr_tail(Some(buf));
+
+        let tail = state.take_child_stderr_tail();
+        assert_eq!(
+            tail.as_deref(),
+            Some("Error: listen EADDRINUSE | at Server.setupListenHandle"),
+            "both lines must reach the caller, joined the same way the handshake-exit path formats them"
+        );
+    }
+
+    /// Taking clears it — a stale tail from a PREVIOUS child must never be
+    /// attributed to the next one after a restart.
+    #[test]
+    fn take_child_stderr_tail_clears_after_reading() {
+        let state = SidecarState::new();
+        state.set_child_stderr_tail(Some(Arc::new(Mutex::new(vec!["boom".to_string()]))));
+        assert!(state.take_child_stderr_tail().is_some());
+        assert_eq!(
+            state.take_child_stderr_tail(),
+            None,
+            "a second read after the first must not replay the previous child's words"
+        );
+    }
+
+    /// Before any bring-up has completed a handshake, there is nothing to
+    /// read — this must say so honestly (None), not fabricate an empty tail.
+    #[test]
+    fn no_buffer_ever_set_reads_as_none() {
+        let state = SidecarState::new();
+        assert_eq!(state.take_child_stderr_tail(), None);
+    }
 }

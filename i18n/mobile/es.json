@@ -53,7 +53,6 @@
     "nodePanelNote": "'Tu ordenador elige el nodo; este teléfono lo sigue.'",
     "nodePanelMeasure": "'Medir'",
     "nodeLegEdge": "'Conexión'",
-    "nodeLegOrigin": "'Al nodo'",
     "nodeLegTotal": "'Latencia'",
     "articleBadge": "'Sesión larga'",
     "articleNoTitle": "'Todavía no se ha dicho nada'",
@@ -152,6 +151,7 @@
     "continuousEntryModeNote": "'Solo en modo en tiempo real'",
     "continuousEntryNoCeilingNote": "'Límite de la cuenta no disponible — reintenta'",
     "continuousEntryQuotaSpentNote": "'Minutos del mes agotados'",
+    "continuousEntrySignInNote": "'Inicia sesión para usar la grabación larga'",
     "continuousEntryTitle": "'Grabación larga'",
     "continuousLiveCaption": "'Las partes terminadas ya están guardadas'",
     "continuousLiveLabel": "'Grabando'",
@@ -454,7 +454,6 @@
     "loginFootnote": "'Inicia sesión para usar Notas: captura en cualquier sitio sin un PC'",
     "loginScanHint": "'Abre la consola de flowmic.app en tu PC y elige Iniciar sesión por QR'",
     "loginScanIsPair": "'Eso es un código de emparejamiento — escanéalo en Añadir dispositivo'",
-    "loginScanOpen": "'Escanea el QR de inicio de sesión en la consola web'",
     "loginScanTitle": "'Iniciar sesión por QR'",
     "loginTitle": "'Iniciar sesión en Notas'",
     "logout": "'Cerrar sesión'",
@@ -602,7 +601,6 @@
     "planLabel_free": "'Free'",
     "planLabel_max": "'Max'",
     "planLabel_pro": "'Pro'",
-    "plusPanelTitle": "'Más'",
     "plusSelectionImagesSeparate": "'Las fotos se envían en un mensaje cada una'",
     "plusSelectionSend": "'Enviar al PC'",
     "polishSkipped": "'Pulido omitido · se conservó el texto en bruto'",
@@ -657,7 +655,6 @@
     "registerCopyLink": "'Copiar enlace'",
     "registerLinkCopied": "'Enlace copiado'",
     "relayUpPcUnknown": "'Relé alcanzable · estado del PC desconocido'",
-    "reloginRequired": "'Sesión caducada — inicia sesión de nuevo'",
     "removeDidNotReachServer": "'Quitado aquí. No se alcanzó ese PC, así que su entrada sigue allí.'",
     "removeFavoriteConfirmBody": "'Se elimina la frase guardada. Las entradas de la cronología no se tocan.'",
     "removeFavoriteConfirmTitle": "'¿Quitar «$shown» de Favoritos?'",
@@ -679,6 +676,9 @@
     "restrictionReasonNote_legal_requirement": "'Esta cuenta se restringió para cumplir un requisito legal o normativo.'",
     "restrictionReasonNote_other": "'Esta cuenta se restringió tras una revisión.'",
     "restrictionReasonNote_terms_violation": "'Esta cuenta se usó de un modo que incumple los Términos del servicio.'",
+    "retainedAudioNoticeCapReached": "'El almacenamiento está lleno, así que parte de esta grabación ya no se conserva para más tarde'",
+    "retainedAudioNoticeDroppedOldest": "'El almacenamiento estaba casi lleno, así que se eliminó una grabación anterior sin terminar para liberar espacio'",
+    "retainedAudioNoticeExpired": "'Se eliminó una grabación no reclamada que se conservaba en este teléfono'",
     "sameMachine": "'$name · $connections conexiones al mismo PC'",
     "save": "'Guardar'",
     "saveAndReInject": "'Guardar y reinyectar'",
@@ -776,6 +776,7 @@
     "sttStallNotSignedIn": "'Este teléfono ya no tiene sesión iniciada en el relé en la nube, así que no se transcribió nada. Vuelve a conectarlo en la página de dispositivos'",
     "sttStallPoolNoRoute": "'El servicio no tiene ningún motor de voz disponible para esta grabación. No hay nada que cambiar en este teléfono; si sigue pasando, avísanos'",
     "sttStallQuotaExceeded": "'La cuota de transcripción de este mes se agotó, así que esta grabación no se transcribió. Se restablece al principio del mes que viene'",
+    "sttStallQuotaExceededPcOwner": "'La cuota de transcripción de este mes del propietario de este ordenador se agotó, así que esta grabación no se transcribió. Se restablece al principio del mes que viene'",
     "sttStallServerFault": "'No se transcribió: el servidor tuvo un fallo inesperado al iniciar esta grabación. Dilo otra vez: no hay nada que cambiar en este teléfono'",
     "sttStallSettingsInvalid": "'No se transcribió: uno de tus ajustes guardados no es válido, así que esta grabación nunca llegó a un motor de reconocimiento de voz. Abre los ajustes, vuelve a guardar lo último que cambiaste y prueba otra vez'",
     "sttStallVerifyEmail": "'Tu dirección de correo sigue sin verificar, así que el servicio en la nube dejó de aceptar grabaciones. Verifícala en la consola web para continuar'",
@@ -875,6 +876,10 @@
     "updateOwnVersionUnknown": [
       "'Esta app no puede leer su propia versión, así que no puede saber si hace '",
       "'falta una actualización.'"
+    ],
+    "updatePlatformNotCovered": [
+      "'Esta comprobación de actualización aún no cubre esta plataforma, así '",
+      "'que no puede decir si hay una actualización disponible.'"
     ],
     "updateStoreChannelNote": [
       "'Las versiones nuevas para este dispositivo llegan a través de TestFlight '",

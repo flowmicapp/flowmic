@@ -78,6 +78,10 @@ export function startOutboxDrainer(deps: OutboxDrainerDeps): OutboxDrainer {
           pending: stats.pending,
           oldest_pending_ms: age,
           failed: stats.failed,
+          // F1 — surfaced separately from `pending`: a queue can be stuck
+          // (this line firing) while ALSO carrying poison records that will
+          // never move regardless of whether the writer comes back.
+          parked: stats.parked,
         });
         warnedStuck = true;
       }

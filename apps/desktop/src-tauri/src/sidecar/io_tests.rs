@@ -81,6 +81,45 @@
         assert!(tail.ends_with('…'));
     }
 
+    /// D7 (2026-09-02 audit §3-D): this is the function `Action::ProbeHealth`'s
+    /// child-died branch now calls — before this card that branch had `None`
+    /// hardcoded (no buffer ever reached it; see `HandshakeOutcome::Listening`'s
+    /// doc comment for why). A death during the health probe used to report
+    /// `INJECT`-unrelated but analogous silence: "child exited (code 1)" with
+    /// nothing else, even when the child had printed exactly why on stderr.
+    /// This asserts the buffer really is read (not just "some string comes
+    /// back") and that a still-running reader thread is joined rather than
+    /// raced.
+    #[test]
+    fn stderr_tail_after_exit_reads_a_buffer_a_still_running_reader_is_filling() {
+        let buf: SharedStderrTail = Arc::new(Mutex::new(Vec::new()));
+        let buf_for_thread = Arc::clone(&buf);
+        // A real thread standing in for the handshake's stderr-reader thread:
+        // it appends a line, exactly like the real reader does per line read,
+        // then finishes (as the real one does at EOF once the child exits).
+        let handle = std::thread::spawn(move || {
+            buf_for_thread.lock().unwrap().push("fatal: server failed to start".to_string());
+        });
+        let mut reader = Some(handle);
+
+        let tail = stderr_tail_after_exit("node.exe", Some(&buf), &mut reader);
+
+        assert!(
+            tail.contains("fatal: server failed to start"),
+            "the line the reader thread appended must be in the reported tail: {tail}"
+        );
+        assert!(reader.is_none(), "the handle must be taken/joined, not left dangling");
+    }
+
+    /// D7: the `None` buffer case (a caller that reached the exit path without
+    /// ever having a `Listening` outcome to carry one from) must still answer
+    /// honestly rather than panicking on an `Option::unwrap`.
+    #[test]
+    fn stderr_tail_after_exit_with_no_buffer_says_so_rather_than_panicking() {
+        let mut reader: Option<JoinHandle<()>> = None;
+        assert_eq!(stderr_tail_after_exit("node.exe", None, &mut reader), "<none>");
+    }
+
 // ── owner 2026-07-27: adopt only OUR server.js ───────────────────────────────
 //
 // A stale orphan sidecar from another build answers `/api/health` with ok:true

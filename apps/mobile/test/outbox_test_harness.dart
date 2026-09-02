@@ -66,6 +66,11 @@ class _FakeHost implements OutboxDrainHost {
   int notifies = 0;
   final List<_Sent> sends = <_Sent>[];
 
+  /// Card F2 test hook — when set, [ensureLink] awaits this before answering,
+  /// so a test can hold a `drain()` call "in flight" long enough to start a
+  /// second one and observe `_draining`'s busy answer.
+  Completer<void>? ensureLinkGate;
+
   /// Records the order of the two pre-drain steps so §3.5's ordering (seed
   /// BEFORE probe BEFORE send) is assertable rather than assumed.
   final List<String> trace = <String>[];
@@ -79,6 +84,8 @@ class _FakeHost implements OutboxDrainHost {
   @override
   Future<bool> ensureLink() async {
     trace.add('probe');
+    final Completer<void>? gate = ensureLinkGate;
+    if (gate != null) await gate.future;
     return linkOk;
   }
 

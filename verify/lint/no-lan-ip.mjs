@@ -319,7 +319,10 @@ export const WAIVERS = [
       + 'delete the record of which two machines that override exists for.',
   },
   {
-    file: 'apps/server-core/src/http/router.ts',
+    // 2026-09-02: this waiver moved from apps/server-core/src/http/router.ts —
+    // the LAN candidate family it describes (classifyLanIpv4 et al.) moved
+    // there VERBATIM in the same change (router.ts hit the 800-line cap).
+    file: 'apps/server-core/src/http/lan-candidates.ts',
     code: 0,
     comments: 2,
     why: 'Why the trusted-proxy ordering puts legal-but-non-standard office ranges '
@@ -377,10 +380,12 @@ export const WAIVERS = [
       + 'change is legible. Removing them would leave 「was a preset」 with no referent.',
   },
   {
-    file: 'apps/desktop/src-tauri/src/sidecar/io.rs',
+    file: 'apps/desktop/src-tauri/src/sidecar/lan_probe.rs',
     code: 0,
     comments: 1,
-    why: 'Same RFC1918-ranking explanation as lan-endpoint.ts, Rust side.',
+    why: 'Same RFC1918-ranking explanation as lan-endpoint.ts, Rust side — moved '
+      + 'here from sidecar/io.rs (2026-09-02, file-size cap; WP-5 D7) along with the '
+      + 'comment that carries it.',
   },
   {
     file: 'apps/mobile/lib/src/auth/saas_endpoint.dart',

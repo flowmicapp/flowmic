@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Socket } from 'socket.io';
-import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '@flowmic/protocol';
+import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX, CLOUD_IMAGE_QUOTA_WINDOW_MS } from '@flowmic/protocol';
 import { registerRelayHandlers } from '../src/socket/handlers/relay.handler';
 import { makeCloudImagePolicy } from '../src/socket/cloud-image-policy';
 import type { RoomStore } from '../src/room/store';
@@ -215,6 +215,41 @@ describe('RV-87 — the relay actually asks the cloud image policy', () => {
         entry_id: 'e-over',
       },
     });
+  });
+
+  it('⑧b 🔴 (2026-09-02, item 5) retry_after_ms crosses the wire — it used to stop at the forensic log', () => {
+    // A REAL advancing clock, so the window math is not a coincidence of the
+    // fixed `now: () => 1_000_000` every other test in this file uses: the
+    // oldest picture in the window was relayed 100ms into the run, and the
+    // refusal arrives 300ms in, so exactly WINDOW_MS - 200 must remain.
+    const pcFrames: Frame[] = [];
+    const mobile = mobileSocket('m-wire', ROOM_A, PC_A);
+    let clock = 0;
+    const policy = makeCloudImagePolicy({ mode: 'saas', now: () => clock, quotaMax: 1 });
+    registerRelayHandlers(mobile as unknown as Socket, {
+      store: storeOf({ [ROOM_A]: pcFrames }),
+      cloudImages: policy,
+    });
+    clock = 100;
+    mobile.fire('inject:request', imageFrame(12, { request_id: 'first' }));
+    expect(pcFrames).toHaveLength(1);
+    clock = 300;
+    mobile.fire('inject:request', imageFrame(12, { request_id: 'second' }));
+    expect(mobile.emits[0]!.payload).toMatchObject({
+      error: 'INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED',
+      retry_after_ms: CLOUD_IMAGE_QUOTA_WINDOW_MS - 200,
+    });
+  });
+
+  it('⑧c the SIZE refusal never carries retry_after_ms — it is not the same shape of "wait"', () => {
+    // cloud-image-policy.ts's TOO_LARGE branch has no `retry_after_ms` in its
+    // detail at all (a bigger picture never becomes legal by waiting); this
+    // pins that the generalised `extra` plumbing in relay.handler.ts does not
+    // invent one for a refusal that never measured it.
+    const { mobile } = saasRig();
+    mobile.fire('inject:request', imageFrame(CLOUD_IMAGE_BYTES_MAX + 1));
+    expect(mobile.emits[0]!.payload).toMatchObject({ error: 'INJECT_CLOUD_IMAGE_TOO_LARGE' });
+    expect(mobile.emits[0]!.payload).not.toHaveProperty('retry_after_ms');
   });
 
   it('⑨ 🔴 NOT QUOTA_EXCEEDED — that code promises an upgrade would help', () => {

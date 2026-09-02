@@ -25,6 +25,8 @@
 import { describe, it, expect } from 'vitest';
 import { pcPresence } from '../src/room/pc-presence';
 import { registerHeartbeatHandler } from '../src/socket/handlers/heartbeat.handler';
+import { makeDisconnectHandler } from '../src/socket/handlers/disconnect.handler';
+import { RoomStore } from '../src/room/store';
 import { AUDIO_DEFAULTS } from '@flowmic/protocol';
 import { DRAIN_INTERVAL_MS } from '../src/node/outbox-drainer';
 import type { PcRecord } from '../src/db/repos/pc.repo';
@@ -135,13 +137,13 @@ describe('the heartbeat forwards presence on a replica', () => {
 
   it('forwards the SAME instant it wrote locally', async () => {
     const touched: Array<[string, string]> = [];
-    const forwarded: Array<[string, number]> = [];
+    const forwarded: Array<[string, boolean, number]> = [];
     const s = fakeSocket(auth);
     registerHeartbeatHandler(s as unknown as Socket, {
       pcs: { touchLastSeen: (id: string, w: string) => { touched.push([id, w]); } } as never,
       mobiles: { touchLastSeen: () => {} } as never,
       now: () => new Date(NOW),
-      stampPresence: (id, ms) => { forwarded.push([id, ms]); },
+      stampPresence: (id, isOnline, ms) => { forwarded.push([id, isOnline, ms]); },
     });
 
     await s.invoke('heartbeat', { ts: NOW });
@@ -149,7 +151,9 @@ describe('the heartbeat forwards presence on a replica', () => {
     expect(touched).toEqual([['pc-1', new Date(NOW).toISOString()]]);
     // 🔴 The same instant, not "about now". Two clocks for one fact is how the
     // console and the node disagree about whether a computer is here.
-    expect(forwarded).toEqual([['pc-1', NOW]]);
+    // A heartbeat always means "up" — B8/F3's `false` producer lives on the
+    // disconnect path, not here.
+    expect(forwarded).toEqual([['pc-1', true, NOW]]);
   });
 
   it('REVERSE CONTROL — a writer/single node forwards nothing', () => {
@@ -176,8 +180,86 @@ describe('the heartbeat forwards presence on a replica', () => {
       mobiles: { touchLastSeen: () => {} } as never,
       now: () => new Date(NOW),
       stampPresence: (id) => { forwarded.push(id); },
+      // ^ arity is intentionally loose here (id only): this test asserts
+      // it is never CALLED at all for a mobile heartbeat, so the extra
+      // params stampPresence's real signature now carries are irrelevant.
     });
     await s.invoke('heartbeat', { ts: NOW });
     expect(forwarded).toEqual([]);
+  });
+});
+
+// ── B8/F3 (2026-09-02) — the disconnect-side counterpart ────────────────────
+// Before this card, `is_online:true` was the ONLY thing ever forwarded: a PC's
+// socket disconnecting on a replica wrote `is_online=0` into that replica's OWN
+// database (a snapshot the next pull replaces wholesale) and forwarded nothing,
+// so the writer — the only database the console and `reaper.ts`'s
+// `listStaleOffline` ever read — kept believing the machine was online forever.
+describe('the disconnect handler forwards presence on a replica too', () => {
+  it('🔴 a PC leaving its room forwards is_online:false at the same instant', () => {
+    const online: Array<[string, boolean]> = [];
+    const forwarded: Array<[string, boolean, number]> = [];
+    const store = new RoomStore<{ id: string }>();
+    store.joinPc('room-1', { id: 'sock-1' });
+    const socket = {
+      id: 'sock-1',
+      data: { roomUuid: 'room-1', auth: { kind: 'pc', deviceId: 'pc-1' } },
+    } as unknown as Socket;
+
+    const handler = makeDisconnectHandler(socket, {
+      store: store as unknown as RoomStore<Socket>,
+      pcs: { setOnline: (id: string, isOnline: boolean) => { online.push([id, isOnline]); } } as never,
+      audioRegistry: { beginGrace: () => {}, expireGraceNow: () => {} } as never,
+      stampPresence: (id, isOnline, ms) => { forwarded.push([id, isOnline, ms]); },
+    });
+    handler('transport close');
+
+    expect(online).toEqual([['pc-1', false]]);
+    expect(forwarded).toEqual([['pc-1', false, expect.any(Number)]]);
+  });
+
+  it('REVERSE CONTROL — a DISPLACED socket (not the room\'s current PC) forwards nothing', () => {
+    // F-3 Fix#2's own guard: `leavePc` returns false for a socket a newer
+    // session already displaced, and writing (or forwarding) offline for that
+    // socket would mark a machine that is live right now as gone.
+    const online: string[] = [];
+    const forwarded: string[] = [];
+    const store = new RoomStore<{ id: string }>();
+    store.joinPc('room-1', { id: 'sock-1' });
+    store.joinPc('room-1', { id: 'sock-2' }); // displaces sock-1
+    const socket = {
+      id: 'sock-1',
+      data: { roomUuid: 'room-1', auth: { kind: 'pc', deviceId: 'pc-1' } },
+    } as unknown as Socket;
+
+    const handler = makeDisconnectHandler(socket, {
+      store: store as unknown as RoomStore<Socket>,
+      pcs: { setOnline: (id: string) => { online.push(id); } } as never,
+      audioRegistry: { beginGrace: () => {}, expireGraceNow: () => {} } as never,
+      stampPresence: (id) => { forwarded.push(id); },
+    });
+    handler('transport close');
+
+    expect(online).toEqual([]);
+    expect(forwarded).toEqual([]);
+  });
+
+  it('REVERSE CONTROL — with NO stampPresence wired (writer/single node), nothing throws', () => {
+    const online: Array<[string, boolean]> = [];
+    const store = new RoomStore<{ id: string }>();
+    store.joinPc('room-1', { id: 'sock-1' });
+    const socket = {
+      id: 'sock-1',
+      data: { roomUuid: 'room-1', auth: { kind: 'pc', deviceId: 'pc-1' } },
+    } as unknown as Socket;
+
+    const handler = makeDisconnectHandler(socket, {
+      store: store as unknown as RoomStore<Socket>,
+      pcs: { setOnline: (id: string, isOnline: boolean) => { online.push([id, isOnline]); } } as never,
+      audioRegistry: { beginGrace: () => {}, expireGraceNow: () => {} } as never,
+    });
+
+    expect(() => handler('transport close')).not.toThrow();
+    expect(online).toEqual([['pc-1', false]]);
   });
 });

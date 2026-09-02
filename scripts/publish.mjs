@@ -42,6 +42,8 @@ import {
   verifyApkDisclosureCopy,
 } from './publish-apk-gates.mjs';
 import { verifyArtifactsCarryNoLanIp } from './publish-lan-ip-gate.mjs';
+import { verifyCopyAudited } from './copy-scent-receipt.mjs';
+import { verifyNoticeCurrent } from './publish-notice-gate.mjs';
 import { verifyDiskHeadroom } from './publish-disk-space-gate.mjs';
 import { removeAllExcept, verifyAdoptedArtifactsSurvive } from './publish-adopted-artifact-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
@@ -167,36 +169,10 @@ ok(adoptedPre.notice);
   }
 }
 
-// ── GATE 0b: aggregate NOTICE current (card L4) ─────────────────────────────
-//
-// Same "cannot depend on memory" reasoning as Gate 0 above, applied to the
-// third-party license NOTICE (scripts/generate-notice.mjs): Apache-2.0 §4(d)
-// and the bundled MIT dependencies' own license terms require this file to
-// accompany what's published, and a NOTICE that quietly drifted out of date
-// (a dependency bumped, a new one added) is worse than an obviously-missing
-// one — nobody notices "the license text is for last month's dependency
-// set." `--check` regenerates the expected content in memory and diffs it
-// against the committed ./NOTICE and apps/desktop/public/NOTICE without
-// writing anything, so it is safe to run on every publish.
-//
-// Deliberately no bypass flag, matching Gate 0's stated reasoning verbatim:
-// if this ever needs skipping, delete these lines in a visible commit.
-{
-  console.log('── generate-notice --check (third-party license NOTICE) ─────────');
-  const gate = spawnSync('node', ['scripts/generate-notice.mjs', '--check'], { cwd: ROOT, stdio: 'inherit', shell: true });
-  if (gate.error) {
-    console.error(`✗ could not run \`node scripts/generate-notice.mjs --check\`: ${gate.error.message}`);
-    console.error('  A gate that cannot run is a FAILED gate, not a skipped one.');
-    process.exit(1);
-  }
-  if (gate.status !== 0) {
-    console.error(`✗ NOTICE is missing or stale (exit ${gate.status}) — refusing to publish.`);
-    console.error('  Run `node scripts/generate-notice.mjs` at the repo root, review the diff,');
-    console.error('  commit ./NOTICE, then re-run publish.');
-    process.exit(1);
-  }
-  ok('NOTICE current');
-}
+// GATE 0b (NOTICE current, card L4) lives in scripts/publish-notice-gate.mjs —
+// extracted VERBATIM, reasoning and all, to pay for GATE 0e below (same
+// precedent as publish-apk-gates.mjs). It exits the process on failure.
+verifyNoticeCurrent(ROOT, ok);
 
 // APK content gates (version / self-update / disclosure copy) live in
 // scripts/publish-apk-gates.mjs — extracted so this file stays under the
@@ -320,6 +296,26 @@ if (failed) process.exit(1);
 // still holds last round's output, and refusing this round over last round's
 // bytes measures the wrong build (W6R 「否则我量的是别人」).
 if (!verifyArtifactsCarryNoLanIp(fail, ok)) process.exit(1);
+
+// ── GATE 0e: the outward copy in this build has been through the AI-scent audit
+//
+// The gate above asks what is IN the bytes. This asks who WROTE them — whether
+// the strings a stranger is about to read have been looked at by the reviewer
+// that docs/rebuild/21-OUTWARD-COPY-VOICE-CONTRACT.md §M4 always said this half
+// of the contract needed, and that nothing implemented until 2026-09-01.
+//
+// It reads a RECEIPT rather than calling the model: a release that depended on
+// one LAN host being up would acquire a skip flag the first afternoon that host
+// was down. The audit happens at acceptance time, when there is a person to
+// argue with; publish only asks whether the copy has moved since.
+//
+// ⚠️ TODAY IT WARNS, and the arming switch is not a date but the stock sweep's
+// own completion (`$stockSweep` in verify/copy-scent/baseline.json). 13,349
+// units across nine locales have never been read by the auditor; a refusal
+// landing before that sweep would be red on day one for a reason nobody could
+// clear in one sitting, which is how gates die here. The module says all of
+// this out loud on every run rather than passing silently.
+if (!(await verifyCopyAudited(fail, ok))) process.exit(1);
 
 // ── clean + recreate ────────────────────────────────────────────────────────
 // A best-effort clean, NOT a precondition. On Windows a shell whose cwd is inside

@@ -33,6 +33,18 @@
 # honestly execute. Do not describe a pass here as "verify:delivery passed on
 # mac" — that sentence would be false in a way nobody could see.
 #
+# 🔴 Correction (2026-09-02, measured on flowmic-mac): the "there is no pnpm
+# and no npm on this machine" half of the sentence above is stale. pnpm 9.15.9
+# is available there via the staged node runtime at
+# ~/.local/node-v22.22.3-darwin-arm64/bin, and
+# `pnpm --filter @flowmic/protocol build && pnpm --filter @flowmic/stt-cloud
+# build` was run from that path to refresh the stt-cloud dist that the private-tree lint checks.
+# Original sentence kept as-is above: it was true of whatever pnpm/node state
+# that machine was in when this was written, and the reasoning that follows
+# it — this script is still not verify:delivery — remains true for an
+# unrelated reason: the types/clippy/golden segments still do not run here
+# (nobody has wired them up on this box), not because pnpm is absent.
+#
 # Usage:  sh scripts/mac-verify.sh            (from the repo root)
 
 set -u

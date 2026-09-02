@@ -33,6 +33,7 @@ import { WITHDRAWAL_WINDOW_DAYS } from '../src/billing/withdrawal';
 import type { SubscriptionMailer, WithdrawalMailInput } from '../src/mail/subscription-mailer';
 import { buildWithdrawalEmail } from '../src/mail/subscription-mailer';
 import {
+  BILLING_WITHDRAWAL_ALREADY_REQUESTED,
   BILLING_WITHDRAWAL_WINDOW_CLOSED,
   BILLING_WITHDRAWAL_WINDOW_UNKNOWN,
   BILLING_WRITE_DISABLED,
@@ -71,13 +72,21 @@ const mailer: SubscriptionMailer = {
   },
 };
 
-function boot(opts: { nowMs: number; writeEnabled?: boolean; seedSub?: boolean }): void {
+function boot(opts: { nowMs: number; writeEnabled?: boolean; seedSub?: boolean; distinctIds?: boolean }): void {
   paddle = createMockPaddleClient({
     writeEnabled: opts.writeEnabled ?? true,
     now: () => opts.nowMs,
     seed: opts.seedSub === false ? [] : [{ id: 'sub_test', periodEnd: PERIOD_END }],
   });
   auth = makeAuthService({ users: db.users, jwtSecret: Buffer.from(SECRET, 'utf8'), now: () => opts.nowMs });
+  // `distinctIds`: the fixed 'rfd_fixed' id below is what every OTHER test in
+  // this file wants (a stable, assertable id) — but two GENUINELY CONCURRENT
+  // withdraw calls minting the SAME id would collide on `refund_requests`'
+  // PRIMARY KEY, an artefact of this test harness never seen in production
+  // (there `newId` is `randomUUID`-based). The race suites below opt in to a
+  // counter instead, so a real double-call is distinguishable from a harness
+  // collision.
+  let seq = 0;
   const deps: BillingRoutesDeps = {
     auth,
     billing: new BillingService({
@@ -92,7 +101,7 @@ function boot(opts: { nowMs: number; writeEnabled?: boolean; seedSub?: boolean }
     mailer,
     refunds: db.billing,
     now: () => opts.nowMs,
-    newId: () => 'rfd_fixed',
+    newId: opts.distinctIds === true ? () => `rfd_seq_${(seq += 1)}` : () => 'rfd_fixed',
   };
   server = createServer((req, res) => {
     if (!tryHandleBillingRoutes(req, res, deps)) res.writeHead(404).end('{}');
@@ -362,5 +371,150 @@ describe('the write switch', () => {
     expect(out.json.error).toBe(BILLING_WRITE_DISABLED);
     expect(paddle.state()[0]!.status).toBe('active');
     expect(acknowledged).toHaveLength(0);
+  });
+});
+
+// 2026-09-02 (audit F4) — 🔴 「double click relies on Paddle rejecting」 was the
+// finding: nothing local stopped two withdraw requests a moment apart from both
+// reading the subscription as 'active' and both calling the provider, and the
+// ONLY thing standing between that and a duplicate cancellation/refund was the
+// mock's OWN "already canceled" refusal — a courtesy the real Paddle API is not
+// guaranteed to give at the exact instant two requests race it. This suite
+// removes that courtesy on purpose (a bypassed mock, not a weaker one) so the
+// LOCAL claim is what is actually under test, not Paddle's behaviour.
+describe('🔴 F4 — the local claim, not Paddle, stops a genuine concurrent double-click', () => {
+  /** A real network call takes many event-loop turns; `Promise.resolve()` takes
+   *  none. Without an artificial delay here, two `fetch()` calls to a LOCAL
+   *  server would never actually interleave — Node runs each request's fully
+   *  synchronous prefix (auth → getPlan → window check → the claim itself) to
+   *  completion before the next connection's 'request' event is even
+   *  dispatched, and the race this suite exists to prove would never occur in
+   *  the test even if the fix were absent. The delay is what makes this test
+   *  capable of failing at all.
+   *
+   *  🔴 A FULL REPLACEMENT, NOT A WRAPPER around the mock's real
+   *  `cancelSubscription` — that method records into a `calls` array private to
+   *  `createMockPaddleClient` (there is no way to delay-then-delegate to it
+   *  without ALSO delaying the recording), so this keeps its own count instead
+   *  of relying on `ops()` for this one operation. It also never re-checks
+   *  「already canceled」 — the exact courtesy this suite is proving must not be
+   *  load-bearing. */
+  function delayedAlwaysSucceedingCancel(
+    calls: string[],
+  ): (id: string, ef: string) => Promise<{ ok: true; data: unknown }> {
+    return (id: string) => {
+      calls.push(id);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({ ok: true, data: { id, status: 'canceled', scheduled_change: null, next_billed_at: null } });
+        }, 20);
+      });
+    };
+  }
+
+  it('claims first: the loser is refused with a NAMED code before it ever reaches the provider', async () => {
+    boot({ nowMs: CONCLUDED_MS + 3 * DAY_MS, distinctIds: true });
+    const cancelCalls: string[] = [];
+    (paddle as { cancelSubscription: unknown }).cancelSubscription = delayedAlwaysSucceedingCancel(cancelCalls);
+    const bearer = await account('m@flowmic.test');
+
+    const [a, b] = await Promise.all([withdraw(bearer), withdraw(bearer)]);
+    const statuses = [a.status, b.status].sort();
+    // 🔴 EXACTLY one winner, one loser — not "at most one", which a test that
+    // tolerated two 200s could still pass by accident.
+    expect(statuses).toEqual([200, 409]);
+    const loser = a.status === 409 ? a : b;
+    expect(loser.json.error).toBe(BILLING_WITHDRAWAL_ALREADY_REQUESTED);
+    // The load-bearing count: with the mock's own "already canceled" refusal
+    // bypassed, ONLY the local claim can be the reason this is 1 and not 2.
+    expect(cancelCalls).toHaveLength(1);
+  });
+
+  // 🔴 REVERSE CONTROL, seen red: the SAME race, with ONLY the claim disabled
+  // (the transaction-level backstop from AUD-2 stays in place, but it acts at
+  // step ② — cancelSubscription itself is not what it guards, so the count
+  // below isolates the claim's own contribution). Restored immediately after.
+  it('🔴 reverse control — with the claim disabled, BOTH requests reach the provider', async () => {
+    boot({ nowMs: CONCLUDED_MS + 3 * DAY_MS, distinctIds: true });
+    const cancelCalls: string[] = [];
+    (paddle as { cancelSubscription: unknown }).cancelSubscription = delayedAlwaysSucceedingCancel(cancelCalls);
+    const bearer = await account('n@flowmic.test');
+    const originalClaim = db.billing.claimWithdrawal.bind(db.billing);
+    (db.billing as { claimWithdrawal: unknown }).claimWithdrawal = () => true;
+
+    const [a, b] = await Promise.all([withdraw(bearer), withdraw(bearer)]);
+
+    (db.billing as { claimWithdrawal: unknown }).claimWithdrawal = originalClaim;
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect(cancelCalls).toHaveLength(2);
+  });
+});
+
+// 2026-09-02 (AUD-2 addendum to audit F4) — `findRefundableTransaction` names
+// the most recently BILLED completed transaction and has no notion of
+// "already adjusted" (paddle/client.ts's `readTransactionList`, unlike the
+// Creem client's equivalent, does not filter on this). This is the local
+// backstop http/billing-routes.ts checks BEFORE calling `createRefund`.
+describe('🔴 AUD-2 — a transaction that already has a submitted refund is never asked for one again', () => {
+  it('refused locally: no second createRefund call, the EXISTING adjustment is echoed back', async () => {
+    boot({ nowMs: CONCLUDED_MS + 3 * DAY_MS });
+    const user = await auth.register({ email: 'o@flowmic.test', password: 'longenough1', display_name: 'T' });
+    subscribe(user.id);
+    const bearer = { authorization: `Bearer ${auth.issueToken(user).token}` };
+    // The mock derives the transaction id from the subscription id (see
+    // findRefundableTransaction in mock-client.ts: `txn_mock_${id.slice(-6)}`)
+    // — read from ITS source, not guessed, the same way this file already
+    // hardcodes the mock's `amount_minor: 600, currency: 'USD'` above.
+    const txnId = `txn_mock_${'sub_test'.slice(-6)}`;
+    db.billing.recordRefundRequest({
+      id: 'rfd_prior', user_id: user.id, subscription_id: 'sub_test', transaction_id: txnId,
+      kind: 'statutory_withdrawal', state: 'submitted', amount_minor: 600, currency: 'USD',
+      paddle_adjustment_id: 'adj_prior_real', paddle_status: 'pending_approval', detail: null,
+      created_at: CONCLUDED,
+    });
+
+    const out = await withdraw(bearer);
+
+    expect(out.status).toBe(200);
+    // The cancellation still happens — this backstop is about not asking for
+    // money twice, not about refusing to cancel.
+    expect(ops()).toContain('cancelSubscription');
+    // 🔴 THE ASSERTION THIS TEST EXISTS FOR: Paddle is never asked for a SECOND
+    // refund on a transaction that already has one submitted.
+    expect(ops()).not.toContain('createRefund');
+    expect(out.json.refund).toMatchObject({ state: 'submitted' });
+    const rows = db.billing.listRefundRequests(user.id, 10).filter((r) => r.transaction_id === txnId);
+    expect(rows).toHaveLength(2);
+    // The NEW row (the one this attempt wrote) copies the EXISTING adjustment
+    // id verbatim rather than fabricating a fresh one — proof it never asked
+    // Paddle again, read from the row `recordRefundRequest` actually wrote,
+    // not from the response body (which never carries `paddle_adjustment_id`).
+    const refused = rows.find((r) => r.id !== 'rfd_prior');
+    expect(refused).toMatchObject({ paddle_adjustment_id: 'adj_prior_real', state: 'submitted' });
+    expect(refused?.detail).toContain('refused locally');
+  });
+
+  // 🔴 REVERSE CONTROL, seen red: without the check, this SAME setup calls
+  // createRefund again (it has no way to know one was already submitted).
+  it('🔴 reverse control — without the check, createRefund is called a second time', async () => {
+    boot({ nowMs: CONCLUDED_MS + 3 * DAY_MS });
+    const user = await auth.register({ email: 'p@flowmic.test', password: 'longenough1', display_name: 'T' });
+    subscribe(user.id);
+    const bearer = { authorization: `Bearer ${auth.issueToken(user).token}` };
+    const txnId = `txn_mock_${'sub_test'.slice(-6)}`;
+    db.billing.recordRefundRequest({
+      id: 'rfd_prior2', user_id: user.id, subscription_id: 'sub_test', transaction_id: txnId,
+      kind: 'statutory_withdrawal', state: 'submitted', amount_minor: 600, currency: 'USD',
+      paddle_adjustment_id: 'adj_prior2', paddle_status: 'pending_approval', detail: null,
+      created_at: CONCLUDED,
+    });
+    const original = db.billing.findSubmittedRefundForTransaction.bind(db.billing);
+    (db.billing as { findSubmittedRefundForTransaction: unknown }).findSubmittedRefundForTransaction = () => null;
+
+    const out = await withdraw(bearer);
+
+    (db.billing as { findSubmittedRefundForTransaction: unknown }).findSubmittedRefundForTransaction = original;
+    expect(out.status).toBe(200);
+    expect(ops()).toContain('createRefund');
   });
 });

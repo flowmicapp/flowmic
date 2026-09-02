@@ -124,7 +124,7 @@ export function tryHandleByokRoutes(
       const endpoint = typeof (routing as { endpoint?: unknown }).endpoint === 'string'
         ? (routing as { endpoint: string }).endpoint
         : '';
-      const allowed = byokProbeEndpointAllowed(endpoint);
+      const allowed = await byokProbeEndpointAllowed(endpoint);
       if (!allowed.ok) {
         return sendJson(res, 400, { error: 'SETTINGS_SCHEMA_INVALID', message: allowed.reason });
       }

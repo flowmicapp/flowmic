@@ -52,6 +52,10 @@ Future<void> outboxSettle(
   required String correlationId,
   required bool ok,
   String? code,
+  // Card F12/F1-d — see [DeliveryOutbox._holdOutUntil]. Only consulted on the
+  // retryable branch below; a terminal or successful verdict has no next
+  // attempt to hold out.
+  int? retryAfterMs,
 }) async {
   final OutboxItem? item = await _find(box, correlationId);
   if (item == null) return;
@@ -294,11 +298,23 @@ Future<void> outboxSettle(
       ),
       op: 'settle_requeued',
     );
+    // 🔴 Card F12/F1-d — a code that NAMED a wait (retry_after_ms) gets one:
+    // without this, a "not right now, ask again in 24h" refusal
+    // (`INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED`) was retried and refused again on
+    // every single room join for the length of the whole window, same as a
+    // refusal with no measured wait at all. Only a POSITIVE, finite wait
+    // counts — a server that measured "0 left" or omitted the field changes
+    // nothing here, and the item is retried next drain exactly as before.
+    if (retryAfterMs != null && retryAfterMs > 0) {
+      box._holdOutUntil[item.requestId] =
+          DateTime.now().toUtc().add(Duration(milliseconds: retryAfterMs));
+    }
     diag('outbox.settled', <String, Object?>{
       'request_id': item.requestId,
       'state': 'requeued',
       'code': code,
       'attempts': item.attempts,
+      'hold_out_ms': retryAfterMs,
     });
   }
   await box.refreshDerivedForSettle();

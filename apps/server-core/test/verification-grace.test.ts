@@ -302,7 +302,17 @@ describe('③ enforcement: the two session-start sites, driven through the real 
 });
 
 describe('pins', () => {
-  it('🔴 EMAIL_VERIFY_GRACE_EXPIRED is NOT a protocol error code — the owner-gated table did not move', () => {
-    expect(Object.prototype.hasOwnProperty.call(ERROR_CODES, EMAIL_VERIFY_GRACE_EXPIRED)).toBe(false);
+  it('🔴 EMAIL_VERIFY_GRACE_EXPIRED IS a protocol error code (WP-8, 2026-09-02)', () => {
+    // CORRECTION: this pin used to assert the opposite — the code was a shadow
+    // (ack-local, real producer, real phone-side sentences, but no row in
+    // packages/protocol/src/error-codes.ts, so none of that file's guards
+    // could see it). WP-8's registry-hygiene round closed that gap; see the
+    // matching note at the code's entry there. The constant this module
+    // exports and the registry's key are now required to be the SAME STRING,
+    // which the second assertion below pins so the two cannot drift apart
+    // silently (a typo in either place would otherwise just recreate a new
+    // shadow code under a slightly different name).
+    expect(Object.prototype.hasOwnProperty.call(ERROR_CODES, EMAIL_VERIFY_GRACE_EXPIRED)).toBe(true);
+    expect(EMAIL_VERIFY_GRACE_EXPIRED).toBe('EMAIL_VERIFY_GRACE_EXPIRED');
   });
 });

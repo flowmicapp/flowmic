@@ -160,10 +160,12 @@ export interface ServerConfig {
   lanTls: LanTlsConfig | null;
   /** A1: plan-quota overlay as CONFIGURED (null = nothing overridden). The
    *  RESOLVED table is not here — it lives in billing/plans.ts, installed by
-   *  loadConfig, and is read through planLimits()/currentPlanLimits(). Two
-   *  copies of the same table would be two answers to one question; this field
-   *  answers only "what did the deployment configure" (部署配了什么) and exists
-   *  so a diagnostics/console surface can say so out loud. */
+   *  loadConfig, and is read PER-TIER through planLimits(plan) (2026-09-02
+   *  audit F9 — the whole-table reader `currentPlanLimits()` this comment
+   *  used to also name had zero production callers and was deleted, not the
+   *  diagnostics/console surface it was written for; none was ever built).
+   *  Two copies of the same table would be two answers to one question; this
+   *  field answers only "what did the deployment configure" (部署配了什么). */
   planLimits: PlanLimitsOverrides | null;
 }
 

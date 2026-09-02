@@ -162,6 +162,17 @@ export interface ShutdownSteps {
    *  while the database it has to record that in is closing. The refund would
    *  really happen and the row saying we asked might not. */
   serviceRefunds?: { stop(): void };
+  /** P2-6 — the D11 growth reaper (db/reaper.ts pc_devices/paddle_subscriptions
+   *  sweep). Same shape and same argument as `retention`: a live 24h timer
+   *  keeps the process alive, and a tick after `db.close()` hits dead statements. */
+  growthReaper: { stop(): void };
+  /** F6 — the writer's forward-ledger prune sweep. OPTIONAL: absent on a
+   *  replica and on every single-node deployment, which never construct a
+   *  `ForwardLedger` in the first place — same contract as `outboxDrainer`
+   *  below. Same reason as `growthReaper`/`retention`: a live daily timer
+   *  keeps the process alive and a tick after `db.close()` hits dead
+   *  statements. */
+  forwardLedgerPrune?: { stop(): void };
   closeSocket: () => Promise<void> | void;
   audioRegistry: { stopAll(): void };
   httpServer: HttpServer;
@@ -180,12 +191,18 @@ export interface ShutdownSteps {
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
     retention, statusProbes, latencyReader, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
-    outboxDrainer, replicaPuller,
+    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune,
   } = steps;
   return async (): Promise<void> => {
     // GA-06: disarm the sweep FIRST — a tick that fired after db.close() would
     // hit dead statements, and a live 24h timer would keep the process alive.
     await announceShutdownStep('retention.stop', () => retention.stop());
+    // P2-6: the same argument as retention, one line later.
+    await announceShutdownStep('growthReaper.stop', () => growthReaper.stop());
+    // F6: the same argument again — optional, writer-only.
+    if (forwardLedgerPrune) {
+      await announceShutdownStep('forwardLedgerPrune.stop', () => forwardLedgerPrune.stop());
+    }
     // W-5a: the same argument, one line later. This timer touches no DB, so its
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.

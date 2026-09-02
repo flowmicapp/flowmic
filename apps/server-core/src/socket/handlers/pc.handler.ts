@@ -35,7 +35,10 @@ import { pcAbsenceReasons } from '../../room/pc-absence';
 import type { ReleaseSuppression } from '../../room/release-suppression';
 import { log } from '../../log';
 import type { WriterOnlyGuard } from '../../node/writer-only';
+import type { TokenReadThroughSeam } from '../../auth/middleware';
+import { logAuthRefusal } from '../../auth/refusal-log';
 import { getAccount, getAccountAuthError, getAuth, safeAck, setAuth, setRoomUuid, type ActingIdentity } from '../wire';
+import { registerPcListMobilesHandler } from './pc-list-mobiles';
 
 export interface PcHandlerDeps {
   io: Server;
@@ -91,6 +94,71 @@ export interface PcHandlerDeps {
    * documented — rather than silently disabling a gate.
    */
   mintCodeOnWriter?: (pcId: string) => Promise<{ short_code: string; expires_in_ms: number | null } | null>;
+  /**
+   * 2026-09-02 (B1) — the SAME handshake read-through `mobile:reconnect` has
+   * had since Z4, missing here. `pc:reconnect` resolved its token with a
+   * LOCAL-ONLY `registry.reconnectPc` — the exact asymmetry this repo's own
+   * `TokenReadThroughSeam` doc calls out by name: "`pc_devices` has the same
+   * gap whenever a PC re-selects a node it has not been on."
+   *
+   * 🔴 WHY THE HANDSHAKE'S OWN COPY (authMiddleware) WAS NOT ENOUGH: a PC that
+   * just REGISTERED on the writer reconnects with a token minted seconds ago,
+   * on a socket admitted before this event even fires — the handshake ran its
+   * read-through against a database state from before the row existed. And a
+   * replication pull racing us can erase a row the handshake DID land, between
+   * that middleware tick and this one. Both leave `registry.reconnectPc` with a
+   * local miss that is a MAYBE, not a NO.
+   *
+   * ⚠️ THE COST OF NOT HAVING THIS ONE, MEASURED: desktop `pairing.rs` treats
+   * this event's `AUTH_TOKEN_INVALID` as terminal — `clear_token` (destroying a
+   * device credential replication had simply not delivered yet) followed by
+   * `emit_register`, which a replica refuses by name (`NODE_IS_REPLICA`,
+   * writerOnly above), landing the desktop in `cloud_err_wrong_node` until the
+   * next redial. A mobile hitting the identical race gets one retry and a
+   * session; a PC hitting it loses its credential outright.
+   *
+   * Optional for the same reason as `mintCodeOnWriter`: absent means "there is
+   * nobody to ask" (the writer, every single-node deployment), and the miss
+   * falls back to today's refusal — a forgotten wiring restores the
+   * already-documented gap rather than silently disabling a gate.
+   */
+  resolveTokenOnWriter?: TokenReadThroughSeam;
+  /**
+   * 2026-09-02 (WP-6, B5) — REPLICA ONLY: ask the writer to perform a
+   * `pc:release-mobile` this node cannot (node/writer-only.ts
+   * `registry.revokeMobile` row — "a revoke that comes back", the same class
+   * of defect `mintCodeOnWriter` closed for the code mint).
+   *
+   * Before this existed a PC on a replica could never disconnect or revoke any
+   * phone: PC_BUSY eviction was unavailable, and a revoked phone's row would be
+   * restored by the next replication pull while the desktop showed success.
+   *
+   * Optional for the same reason `mintCodeOnWriter` is: absent means "there is
+   * nobody to ask" (the writer, every single-node deployment), and the caller
+   * falls back to the honest `NODE_IS_REPLICA` refusal — a forgotten wiring
+   * restores the already-documented gap rather than silently disabling a gate.
+   *
+   * The result carries `released_ids` — which pairings the WRITER actually
+   * touched — so THIS node can still do the one thing only it can do: find and
+   * disconnect a live local socket for any of them (node/forward-sync.ts never
+   * touches sockets; it cannot see a room that lives in this process).
+   */
+  forwardReleaseMobile?: (req: {
+    pc_id: string;
+    user_id: string;
+    room_uuid: string;
+    revoke: boolean;
+    reason: 'manual' | 'busy';
+    mobile_id?: string;
+  }) => Promise<
+    | { status: 'ok'; result: { target_ids: string[]; revoke: boolean; revoked_count: number; suppressed_ms: number } }
+    | { status: 'refused'; error: string }
+  >;
+  /** OPS-1 (2026-09-02) — this node's id, purely for the auth-refusal log
+   *  lines below (auth/refusal-log.ts). Same value bootstrap.ts already
+   *  computes as `socketNodeId` for `registerMobileHandlers`; absent on a
+   *  single-node deployment. */
+  nodeId?: string;
 }
 
 export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
@@ -301,9 +369,26 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
 
   // GA-07 + GA-26: the ack's `connectedMobiles` is the liveness-CONFIRMED set —
   // see `confirmedMobiles` above, which both this leg and pc:register answer with.
-  socket.on('pc:reconnect', (payload: unknown, ack: unknown) => {
+  // ⚠️ ASYNC for the same reason mobile.handler.ts's `mobile:reconnect` is: the
+  // only thing that awaits is the replica read-through below, so a local hit —
+  // every hit on a writer, on a single node, and the overwhelming majority on a
+  // replica — reaches `safeAck` in the same tick it always did.
+  socket.on('pc:reconnect', async (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('pc:reconnect', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    if (!parsed.success) {
+      // OPS-1 (2026-09-02): best-effort token for the log line only — a
+      // malformed payload never reaches `parsed.data`, so this reads the raw
+      // field directly rather than trusting its shape for anything else.
+      const rawToken = (payload as { token?: unknown } | null | undefined)?.token;
+      logAuthRefusal({
+        code: 'AUTH_TOKEN_INVALID',
+        where: 'pc:reconnect-parse',
+        kind: 'pc',
+        node: deps.nodeId,
+        token: typeof rawToken === 'string' ? rawToken : null,
+      });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
     // Zombie-room gate (#6 P0): a socket whose handshake PRESENTED an account
     // JWT that failed verification must not re-enter its room on the device
     // token alone. The handshake itself never rejects (middleware contract),
@@ -339,6 +424,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
         const resolved = registry.findPcByToken(parsed.data.token) !== null;
         pcAbsenceReasons.noteByDeviceToken(parsed.data.token, 'auth_expired', resolved);
       }
+      logAuthRefusal({ code: accountAuthError, where: 'pc:reconnect-zombie-room', kind: 'pc', node: deps.nodeId, token: parsed.data.token });
       return safeAck(ack, { error: accountAuthError });
     }
     // A2 cross-account gate (owner 2026-08-11 cloud logout / switch account):
@@ -368,16 +454,70 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     if (account !== null) {
       const owned = registry.findPcByToken(parsed.data.token);
       if (owned !== null && owned.user_id !== account.userId) {
+        logAuthRefusal({
+          code: 'AUTH_TOKEN_INVALID',
+          where: 'pc:reconnect-cross-account',
+          kind: 'pc',
+          node: deps.nodeId,
+          token: parsed.data.token,
+          userId: account.userId,
+        });
         return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
       }
     }
+    // B12 (2026-09-02, WP-6) — same truthiness `writerOnly()` guards every
+    // other per-role decision in this file with; not acted on as a refusal
+    // here (pc:reconnect is deliberately SERVED on a replica), only read to
+    // stop `reconnectPc` minting a PCID that would just churn — see that
+    // method's own doc.
+    const skipPcidBackfill = deps.writerOnly() !== null;
     try {
-      const result = registry.reconnectPc(
+      let result = registry.reconnectPc(
         parsed.data.token,
         parsed.data.client_instance_id,
         parsed.data.machine_uid,
+        { skipPcidBackfill },
       );
-      if (!result) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+      // ── LOCAL MISS (B1, 2026-09-02) ────────────────────────────────────
+      //
+      // 🔴 ON A REPLICA A LOCAL MISS IS A MAYBE, NOT A NO — the same asymmetry
+      // `mobile:reconnect` already answers on the identical seam. Exactly ONE
+      // retry, and only after rows actually landed: the read-through is
+      // authoritative, so a second attempt on the same answer could only
+      // produce the same miss.
+      //
+      // 🔴 CORRECTED (B2-S, 2026-09-02) — this used to ask only the boolean
+      // `resolve()`, which A11/F2-a (WP-8, node/token-read-through.ts) documents
+      // as collapsing THREE outcomes into one `false`: 'writer-confirmed-absent'
+      // (the writer itself does not know this token) and 'unverifiable' (writer
+      // unreachable, budget spent, or a row that would not land — a fault on
+      // THIS node, not a statement about the credential) both fell through to
+      // the same AUTH_TOKEN_INVALID below, and the desktop's DeadToken branch
+      // (socket/pairing.rs) deletes a good token over the latter. Only
+      // 'writer-confirmed-absent' may still answer AUTH_TOKEN_INVALID;
+      // 'unverifiable' now answers AUTH_TOKEN_UNVERIFIABLE, the retryable code
+      // the desktop (reconnect_ack.rs) already keeps the credential over.
+      let refusal: 'AUTH_TOKEN_INVALID' | 'AUTH_TOKEN_UNVERIFIABLE' = 'AUTH_TOKEN_INVALID';
+      if (!result && deps.resolveTokenOnWriter) {
+        const seam = deps.resolveTokenOnWriter;
+        const outcome = seam.resolveDetailed
+          ? await seam.resolveDetailed(parsed.data.token)
+          : (await seam.resolve(parsed.data.token)) ? 'landed' : 'writer-confirmed-absent';
+        if (outcome === 'landed') {
+          result = registry.reconnectPc(
+            parsed.data.token,
+            parsed.data.client_instance_id,
+            parsed.data.machine_uid,
+            { skipPcidBackfill },
+          );
+        } else if (outcome === 'unverifiable') {
+          refusal = 'AUTH_TOKEN_UNVERIFIABLE';
+        }
+      }
+      if (!result) {
+        logAuthRefusal({ code: refusal, where: 'pc:reconnect', kind: 'pc', node: deps.nodeId, token: parsed.data.token });
+        return safeAck(ack, { error: refusal });
+      }
       const { pc } = result;
       setAuth(socket, { userId: pc.user_id, deviceId: pc.id, kind: 'pc' });
       deps.stampHomeNode?.(pc.id);
@@ -417,7 +557,10 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     // PC displays the dead code to the user. See pc:register above.
     const replicaCode = deps.writerOnly();
     const auth = getAuth(socket);
-    if (!auth || auth.kind !== 'pc' || !auth.deviceId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    if (!auth || auth.kind !== 'pc' || !auth.deviceId) {
+      logAuthRefusal({ code: 'AUTH_TOKEN_INVALID', where: 'pc:refresh-code', kind: auth?.kind ?? null, node: deps.nodeId, userId: auth?.userId });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
     if (replicaCode) {
       // ── 🔴 2026-08-31 — THE REFUSAL THAT HAD NO WAY OUT ────────────────────
       //
@@ -505,52 +648,14 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
   //
   // `pc:mobile-left` is not emitted here: the mobile's own disconnect hook owns
   // that announcement (and its GA-04 grace), exactly as before.
-  socket.on('pc:release-mobile', (payload: unknown, ack: unknown) => {
-    const parsed = safeParseEvent('pc:release-mobile', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
-    // 🔴 A REVOKE THAT COMES BACK is the worst member of this family: the row is
-    // deleted, both ends say OK, and the next pull restores the pairing the user
-    // just removed. A security control that silently fails to apply is worse
-    // than one that visibly refuses — so it refuses.
-    const replicaRelease = deps.writerOnly();
-    if (replicaRelease) return safeAck(ack, replicaRelease);
-    const auth = getAuth(socket);
-    const roomUuid = (socket.data as { roomUuid?: string }).roomUuid;
-    if (!auth || auth.kind !== 'pc' || !auth.deviceId || !roomUuid) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
-    const pc = registry.findPc(auth.deviceId);
-    if (!pc || pc.user_id !== auth.userId || pc.room_uuid !== roomUuid) {
-      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
-    }
-    const revoke = parsed.data.revoke === true;
-    // Absent `reason` = 'manual' — an older desktop's frame keeps its exact
-    // pre-GA-29 meaning without any version negotiation.
-    const reason = parsed.data.reason ?? 'manual';
-    // A revoke MUST name its target. "revoke all" is not offered by this wire, so an
-    // omitted id is a malformed revoke — refused loudly rather than silently
-    // widened into a mass revocation (or silently narrowed into a no-op).
-    if (revoke && parsed.data.mobile_id === undefined) {
-      return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD', message: 'revoke requires mobile_id' });
-    }
-    const owned = registry.listMobilesForPc(pc.id).map((m) => m.id);
-    const targets = parsed.data.mobile_id !== undefined
-      ? owned.filter((id) => id === parsed.data.mobile_id)
-      : owned;
-
+  // Emits `mobile:released` + disconnects a local socket for every id in
+  // `targetIds` — the ONE thing only this node can do, whichever database the
+  // mutation itself landed on. Shared by the direct path and the forwarded
+  // path below so the emit shape (and the emit-before-disconnect ordering,
+  // load-bearing per the comment on the call site) has one author.
+  const applyLocalReleaseEffects = (roomUuid: string, targetIds: string[], revoke: boolean, suppressedMs: number): number => {
     let released = 0;
-    let revoked = 0;
-    let suppressedMs = 0;
-    for (const pairingId of targets) {
-      if (revoke) {
-        if (registry.revokeMobile(pc.id, pairingId)) revoked++;
-        // The row is gone — a suppression entry for it would outlive the thing it
-        // describes (and the token is dead anyway).
-        deps.suppression?.clear(pairingId);
-      } else {
-        // GA-29: a `busy` refusal earns a SECONDS-long window, not the minute a
-        // deliberate disconnect earns — the second phone must be able to return the
-        // moment the capsule frees up, and it never asked to be disconnected.
-        suppressedMs = deps.suppression?.suppress(pairingId, reason) ?? 0;
-      }
+    for (const pairingId of targetIds) {
       const mobileSocket: Socket | null = store.getMobile(roomUuid, pairingId);
       if (mobileSocket) {
         // owner 2026-08-20 — SAY IT BEFORE CLOSING THE DOOR.
@@ -583,6 +688,96 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
         released++;
       }
     }
+    return released;
+  };
+
+  socket.on('pc:release-mobile', (payload: unknown, ack: unknown) => {
+    const parsed = safeParseEvent('pc:release-mobile', payload);
+    if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
+    // 🔴 A REVOKE THAT COMES BACK is the worst member of this family: the row is
+    // deleted, both ends say OK, and the next pull restores the pairing the user
+    // just removed. A security control that silently fails to apply is worse
+    // than one that visibly refuses — so on a replica with nobody to forward to,
+    // it refuses. `replicaRelease` is computed eagerly and used in THREE places
+    // below (no forwarder wired, forward refused, forward unreachable) — same
+    // shape as `pc:refresh-code`'s `replicaCode`.
+    const replicaRelease = deps.writerOnly();
+    const auth = getAuth(socket);
+    const roomUuid = (socket.data as { roomUuid?: string }).roomUuid;
+    // Auth is checked BEFORE the replica branch — same fix `pc:refresh-code`
+    // made and for the same reason: forwarding needs a device id, and "who are
+    // you" is always the more honest first question than "where do I live".
+    if (!auth || auth.kind !== 'pc' || !auth.deviceId || !roomUuid) {
+      logAuthRefusal({ code: 'AUTH_TOKEN_INVALID', where: 'pc:release-mobile', kind: auth?.kind ?? null, node: deps.nodeId, userId: auth?.userId });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
+    const pc = registry.findPc(auth.deviceId);
+    if (!pc || pc.user_id !== auth.userId || pc.room_uuid !== roomUuid) {
+      logAuthRefusal({ code: 'AUTH_TOKEN_INVALID', where: 'pc:release-mobile', kind: auth.kind, node: deps.nodeId, userId: auth.userId });
+      return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
+    }
+    const revoke = parsed.data.revoke === true;
+    // Absent `reason` = 'manual' — an older desktop's frame keeps its exact
+    // pre-GA-29 meaning without any version negotiation.
+    const reason = parsed.data.reason ?? 'manual';
+    // A revoke MUST name its target. "revoke all" is not offered by this wire, so an
+    // omitted id is a malformed revoke — refused loudly rather than silently
+    // widened into a mass revocation (or silently narrowed into a no-op).
+    if (revoke && parsed.data.mobile_id === undefined) {
+      return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD', message: 'revoke requires mobile_id' });
+    }
+
+    if (replicaRelease) {
+      // 🔴 2026-09-02 (B5, WP-6) — THE REFUSAL THAT HAD NO WAY OUT. A PC on a
+      // replica could never disconnect or revoke a phone: PC_BUSY eviction was
+      // unavailable, and a revoke would flatten to `dev_release_failed` on the
+      // desktop while the pairing row (and its live token) survived the next
+      // pull unchanged. Forward the write to the writer, exactly as
+      // `pc:refresh-code` forwards its mint; fall back to the honest refusal
+      // when there is nobody to ask or the ask fails.
+      const forward = deps.forwardReleaseMobile;
+      if (!forward) return safeAck(ack, replicaRelease);
+      void forward({
+        pc_id: pc.id, user_id: auth.userId, room_uuid: roomUuid, revoke, reason,
+        ...(parsed.data.mobile_id !== undefined ? { mobile_id: parsed.data.mobile_id } : {}),
+      })
+        .then((outcome) => {
+          if (outcome.status !== 'ok') return safeAck(ack, replicaRelease);
+          const { target_ids, revoked_count, suppressed_ms } = outcome.result;
+          const released = applyLocalReleaseEffects(roomUuid, target_ids, revoke, suppressed_ms);
+          log.info('pc:release-mobile (forwarded)', {
+            pc_id: pc.id, revoke, targets: target_ids.length, released, revoked: revoked_count,
+          });
+          safeAck(ack, { ok: true, released, revoked: revoked_count, suppressed_ms: suppressed_ms });
+        })
+        // A writer that could not be reached is the SAME visible outcome as a
+        // node that cannot forward — both mean "this release did not happen",
+        // and NEVER a fabricated `{ok:true}`.
+        .catch(() => safeAck(ack, replicaRelease));
+      return;
+    }
+
+    const owned = registry.listMobilesForPc(pc.id).map((m) => m.id);
+    const targets = parsed.data.mobile_id !== undefined
+      ? owned.filter((id) => id === parsed.data.mobile_id)
+      : owned;
+
+    let revoked = 0;
+    let suppressedMs = 0;
+    for (const pairingId of targets) {
+      if (revoke) {
+        if (registry.revokeMobile(pc.id, pairingId)) revoked++;
+        // The row is gone — a suppression entry for it would outlive the thing it
+        // describes (and the token is dead anyway).
+        deps.suppression?.clear(pairingId);
+      } else {
+        // GA-29: a `busy` refusal earns a SECONDS-long window, not the minute a
+        // deliberate disconnect earns — the second phone must be able to return the
+        // moment the capsule frees up, and it never asked to be disconnected.
+        suppressedMs = deps.suppression?.suppress(pairingId, reason) ?? 0;
+      }
+    }
+    const released = applyLocalReleaseEffects(roomUuid, targets, revoke, suppressedMs);
     log.info('pc:release-mobile', { pc_id: pc.id, revoke, targets: targets.length, released, revoked });
     safeAck(ack, {
       ok: true,
@@ -595,50 +790,5 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     });
   });
 
-  // R6 T-8 — "paired phones" table for the desktop device page.
-  //
-  // OWNERSHIP (three gates, all of them structural rather than trusting input):
-  //   1. the socket must be an authenticated PC (auth.kind === 'pc' + deviceId);
-  //   2. the pc_devices row is resolved from that OWN deviceId — the payload is
-  //      `{}` and carries no addressable id, so there is nothing to spoof;
-  //   3. the row's user_id must equal the socket's userId (defence in depth for
-  //      the saas multi-tenant case; standalone collapses to 'default').
-  //   Rows are then read by pc_device_id, so a mobile paired to ANOTHER PC — of
-  //   this user or any other — is not reachable from this query at all.
-  //
-  // PROJECTION: five public fields, spelled out one by one. `mobile_token` is a
-  // bearer secret (05 §7) and NEVER crosses this wire — the raw record is read
-  // into `m` and only named fields leave it (same rule as the REST
-  // /api/cloud/devices projection).
-  //
-  // `online` is REAL presence: the live RoomStore membership of THIS PC's room,
-  // keyed by the same pairing id the mobile joined under (mobile.handler
-  // store.joinMobile(room, mobile.id, socket)) — never the persisted
-  // last_seen_at replayed as if it were live.
-  socket.on('pc:list-mobiles', (payload: unknown, ack: unknown) => {
-    const parsed = safeParseEvent('pc:list-mobiles', payload);
-    if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
-    const auth = getAuth(socket);
-    if (!auth || auth.kind !== 'pc' || !auth.deviceId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
-    const pc = registry.findPc(auth.deviceId);
-    if (!pc || pc.user_id !== auth.userId) return safeAck(ack, { error: 'AUTH_TOKEN_INVALID' });
-    const mobiles = registry.listMobilesForPc(pc.id).map((m) => ({
-      pairing_id: m.id,
-      mobile_name: m.mobile_name,
-      paired_at: m.paired_at,
-      last_seen_at: m.last_seen_at,
-      // v0.2.4 — which physical handset this row belongs to, so the desktop can
-      // say "these two rows are the same phone" across the LAN and relay lists instead of
-      // showing two identical rows. Null (pre-0.2.4 pairing) groups with NOTHING.
-      device_uid: m.device_uid,
-      // the lead's ruling (GA-04 ↔ GA-07 crossover): the ROSTER answers "is this phone's
-      // socket up right now」, which a slot in mobile-drop grace is NOT. The
-      // grace exists to keep the audio SESSION alive and to debounce the
-      // presence announcement — it is not a claim that the phone is online,
-      // and reporting it here would be exactly the fabricated status G12
-      // guards against. Two different questions, two different answers.
-      online: store.getMobile(pc.room_uuid, m.id)?.connected === true,
-    }));
-    safeAck(ack, { mobiles });
-  });
+  registerPcListMobilesHandler(socket, { registry, store });
 }

@@ -168,6 +168,28 @@ fn a_truncated_download_says_truncated_not_tampered() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+// ── P2 (2026-09-02 audit): the streaming loop's live size cap ───────────────
+// Same philosophy as this file's header: the RULE is split out of the network
+// call so it is testable without a server, real or fake.
+
+#[test]
+fn one_byte_over_the_declared_size_is_refused() {
+    assert_eq!(
+        refuse_if_over_declared_size(11, 10),
+        Err(UpdateFailure::SizeMismatch { expected: 10, actual: 11 })
+    );
+}
+
+#[test]
+fn reverse_control_exactly_and_under_the_declared_size_are_accepted() {
+    // NEGATIVE CONTROL for the test above: without it, a version of the cap
+    // that refused EVERYTHING (or was off by one in the other direction)
+    // would still pass. `written == declared` is the very last chunk of a
+    // correct download and must never itself be treated as an overrun.
+    assert_eq!(refuse_if_over_declared_size(10, 10), Ok(()));
+    assert_eq!(refuse_if_over_declared_size(9, 10), Ok(()));
+}
+
 /// A file we cannot even look at is `CannotHash` — never a pass.
 #[test]
 fn a_file_we_cannot_read_is_cannot_hash() {

@@ -11,6 +11,7 @@ import {
   fireLatchStarvedForTest,
   firePhonePausedForTest,
   firePhoneResumedForTest,
+  fireRealAudioStartForTest,
   onConnection,
   speakingForTest,
   onFocusChanged,
@@ -193,6 +194,40 @@ describe('capsule target', () => {
     expect(state.target).toBe('无标题 - 记事本'); // untouched, not overwritten with ''
     onFocusChanged(focus('Slack | 常规', 'slack'));
     expect(state.target).toBe('Slack | 常规');
+  });
+});
+
+// E2 (2026-09-02) — `state.injected.metrics` must not survive from one utterance
+// into the next, and must not exist at all when this utterance never spoke.
+describe('injected metrics only exist for an utterance that actually had audio', () => {
+  it('a spoken utterance gets real chars/seconds', () => {
+    fireRealAudioStartForTest();
+    state.finalText = '你好世界';
+    onInjectResult({ ok: true, mode: 'sendinput', inject_target: { window_title: '记事本' } });
+    expect(state.injected?.metrics).not.toBeNull();
+    expect(state.injected?.metrics?.chars).toBe(4);
+    expect(state.injected?.metrics?.seconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it('an image send (no onAudioStart) gets metrics:null, not a leftover char count', () => {
+    // Before E2: onAudioStart was never called, so `state.finalText` still held the
+    // PREVIOUS utterance's text and `speakStart` still held its timestamp (or 0) —
+    // onInjectResult built chars/seconds from both unconditionally.
+    fireRealAudioStartForTest();
+    state.finalText = '上一句话';
+    onInjectResult({ ok: true, mode: 'sendinput', inject_target: { window_title: '记事本' } });
+    expect(state.injected?.metrics).not.toBeNull(); // sanity: the prior utterance did get metrics
+
+    // Now an image/manual-text inject settles with NO audio in between.
+    onInjectResult({ ok: true, mode: 'sendinput', inject_target: { window_title: '记事本' } });
+    expect(state.injected?.metrics).toBeNull();
+  });
+
+  it('a manual-text inject with speakStart still at its initial 0 also gets metrics:null', () => {
+    // Fresh module state (no fireRealAudioStartForTest ever called): this is the
+    // shape that used to render "~1.7e9 秒" — (Date.now() - 0) / 1000.
+    onInjectResult({ ok: true, mode: 'sendinput', inject_target: { window_title: '记事本' } });
+    expect(state.injected?.metrics).toBeNull();
   });
 });
 

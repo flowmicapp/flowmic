@@ -534,6 +534,26 @@ void main() {
       expect(AppStrings(AppLocale.zh).imageSendError(r.imageSend.failure!), isNotEmpty);
     });
 
+    test('⟲ Card F7: retryable:true with NO error string must not be recorded as a fabricated PC_BUSY', () async {
+      final _Rig r = _Rig(
+        poster: fakePoster(200, <String, Object?>{
+          'ok': false,
+          // Deliberately no 'error' key — the shape `retryable:true` was
+          // designed to still classify correctly (see the comment above this
+          // switch arm), but the row's OWN failureReason used to invent the
+          // specific claim "another phone is occupying this PC" whenever the
+          // server left this field out.
+          'retryable': true,
+          'retry_after_ms': 1200,
+        }),
+      );
+      r.host.ingress = const LanImageIngress(endpoint: 'http://pc:41879', token: 'tok');
+      expect(await r.imageSend.pickAndSend(), ImageSendFailure.serverRefused);
+      expect(r.row.failureReason, isNot('PC_BUSY'),
+          reason: 'the server never sent this code; recording it invents a claim nobody made');
+      expect(r.row.failureReason, isNull);
+    });
+
     test('a transient first failure is healed by the retry — delivered on attempt 2', () async {
       int calls = 0;
       final _Rig r = _Rig(

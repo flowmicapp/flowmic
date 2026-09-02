@@ -104,7 +104,7 @@ pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value,
 /// frontend can adopt the server-authoritative settings into its local display
 /// cache on the connected rising edge. `None` when the socket is down / the ack
 /// times out — the frontend then keeps its local cache (never a blank overwrite).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_list(state: State<'_, SocketState>) -> Option<Value> {
     // owner ⑤: hydrate from the LAN server — the one this page configures.
     with_lan_socket(&state, |s| s.fetch_settings_list(std::time::Duration::from_secs(5)), None)

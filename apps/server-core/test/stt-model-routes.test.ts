@@ -51,6 +51,7 @@ import {
 import { SherpaModelController, resetSherpaModelControllers } from '../src/stt/sherpa/model-downloader';
 import { SENSE_VOICE_MODEL_ID } from '../src/stt/sherpa/model-catalog';
 import type { ModelFile } from '../src/stt/sherpa/model-manifest';
+import { readModelSelection } from '../src/stt/sherpa/model-selection';
 
 afterEach(() => {
   resetSherpaModelControllers();
@@ -338,6 +339,23 @@ describe('POST /api/stt/model/download and /cancel', () => {
     expect(out.status).toBe(409);
     expect(out.body['error']).toBe('MODEL_DOWNLOAD_BUSY');
     expect(out.body['busy_model_id']).toBe(other.modelId);
+  });
+
+  // 🔴 card B2-G (2026-09-02) — a press refused for being BUSY must not
+  // persist a preference for the pack it named. Before the fix, the route
+  // wrote the (lang, model_id) selection BEFORE checking single-flight, so a
+  // 409 here still left `readModelSelection` reporting the refused pack as
+  // the user's choice for `zh` even though its download never started.
+  it("a busy refusal with a lang does not record the selection — a refused press persists nothing", async () => {
+    const c = readyController();
+    const other = readyController();
+    const tmpAppData = mkdtempSync(join(tmpdir(), 'flowmic-route-appdata-'));
+    const env = { APPDATA: tmpAppData, XDG_DATA_HOME: tmpAppData } as NodeJS.ProcessEnv;
+    const h = handlerFor({ controller: c, busy: other, env });
+    const out = await call(h, 'POST', STT_MODEL_DOWNLOAD_PATH, LOOPBACK, {}, { ...SV, lang: 'zh' }).done;
+    expect(out.status).toBe(409);
+    expect(out.body['error']).toBe('MODEL_DOWNLOAD_BUSY');
+    expect(readModelSelection(env)['zh']).toBeUndefined();
   });
 
   // LM-CAT §6-1: pressing a pack's button UNDER a language records the

@@ -48,10 +48,20 @@ import {
 } from '../src/inject-verdict-authorship';
 import { EVENT_SCHEMAS } from '../src/protocol-schemas';
 
-/** The four, with the length each was CHOSEN at — not computed here on purpose. */
+/**
+ * The four, with the length each was CHOSEN at — not computed here on purpose.
+ *
+ * 🔴 CORRECTION (WP-8, 2026-09-02): `LAN_CERT_PIN_MISMATCH` was the fourth.
+ * This file's own rule (see the header above: "if the wave ships without a
+ * code's producer, that code goes with it") fired on it — a repo-wide grep
+ * still found zero producers seven weeks later, so it was retired in
+ * error-codes.test.ts's 75 → 69 round. Its length (21) and namespace choice
+ * are no longer live facts to pin; the row is removed rather than kept as a
+ * check against a code that no longer exists. The other three all landed
+ * real producers within weeks and remain below.
+ */
 const APPROVED_2026_08_10: ReadonlyArray<readonly [ErrorCode, number]> = [
   ['REGISTER_EMAIL_INVALID', 22],
-  ['LAN_CERT_PIN_MISMATCH', 21],
   ['STT_NO_ENGINE_REACHED', 21],
   ['PC_IMAGE_STORE_FAILED', 21],
 ] as const;

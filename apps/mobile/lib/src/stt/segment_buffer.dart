@@ -315,9 +315,6 @@ class SegmentBuffer {
 
   // ── N1-B2 settlement bookkeeping ───────────────────────────────────────────
 
-  /// Highest `segment_idx` already turned into a row; −1 ⇒ none yet.
-  int get settledThrough => _settledThrough;
-
   /// The lowest `segment_idx` that has not been settled yet.
   int get nextUnsettledIdx => _settledThrough + 1;
 

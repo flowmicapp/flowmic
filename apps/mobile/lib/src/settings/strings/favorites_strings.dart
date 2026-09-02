@@ -8,7 +8,6 @@ part of '../app_strings.dart';
 mixin FavoritesStrings on AppStringsLeaves {
 
   // ── the 「+」 panel + Favorites (R6 T-3b ②③ / §6.1 / F-5) ──────────────────
-  String get plusPanelTitle => _lfPlusPanelTitle;
   String get favorites => _lfFavorites;
 
   /// The cap is F-5's own 50 — deliberately not the 100 of custom terminology

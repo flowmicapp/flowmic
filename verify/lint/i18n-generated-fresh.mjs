@@ -99,6 +99,16 @@ const GENERATORS = [
     args: ['--check', '--skip-missing'],
   },
   {
+    // WP-8 (2026-09-02) — the phone's bilingual FALLBACK sentence table for
+    // wire error codes with no bespoke copy of their own (see the generator's
+    // own header for the F1-b/F4 defect this closes). Gitignored `*.g.dart`
+    // like the mobile string catalogue above, same reason and same
+    // `--skip-missing`.
+    label: 'mobile protocol error-sentence fallback (generated/protocol_error_sentences.g.dart)',
+    script: 'scripts/i18n/gen-protocol-error-sentences-dart.mjs',
+    args: ['--check', '--skip-missing'],
+  },
+  {
     // The mobile migration golden's HARNESS (apps/mobile/test/
     // i18n_migration_golden_test.dart). Committed, and generated — which is the
     // combination that bit us.

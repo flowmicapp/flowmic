@@ -57,17 +57,28 @@ class AuthExpiredHandler {
   Future<void> drain() async {
     if (_draining) return;
     _draining = true;
-    // 1. SESSION drain.
-    audio.fenceAndStop();
-    stateMachine.onAuthExpired();
-    // 2. PAIRING drain.
-    final String? owner = reconnect.token;
-    await reconnect.stop();
-    if (owner != null && owner.isNotEmpty) {
-      await tokenStorage.removeByToken(owner);
+    // P2-7 (2026-09-02 audit) — WITHOUT THE `finally` BELOW, any throw in the
+    // body (a storage error from `removeByToken`, a transport error from
+    // `disconnect`) left `_draining` latched `true` forever: the guard above
+    // then makes every LATER `auth:expired` — including a legitimate,
+    // unrelated one — a silent no-op for the rest of the session's life. That
+    // is the exact shape this class's own header warns about (「a zombie
+    // survives」), just moved from "a subsystem was never drained" to "no
+    // subsystem is ever drained again".
+    try {
+      // 1. SESSION drain.
+      audio.fenceAndStop();
+      stateMachine.onAuthExpired();
+      // 2. PAIRING drain.
+      final String? owner = reconnect.token;
+      await reconnect.stop();
+      if (owner != null && owner.isNotEmpty) {
+        await tokenStorage.removeByToken(owner);
+      }
+      await transport.disconnect();
+      onDrained?.call();
+    } finally {
+      _draining = false;
     }
-    await transport.disconnect();
-    onDrained?.call();
-    _draining = false;
   }
 }

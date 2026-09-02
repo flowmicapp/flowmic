@@ -124,6 +124,15 @@ use crate::inject::sendinput::InjectError;
 /// (never silently truncated) — the protocol adds a zod `.max()` on its side;
 /// this is the desktop's own guard. 100k chars is orders of magnitude beyond
 /// any real utterance/compose output.
+///
+/// 🔴 G7 (WP-8, 2026-09-02) — this number is hand-copied on THREE ends (this
+/// constant, `packages/protocol/src/protocol-schemas-inject.ts`'s
+/// `INJECT_TEXT_MAX_CHARS` zod `.max()`, and Dart's `compose_gate.dart` /
+/// `plus_panel_selection.dart`), and until now nothing would go red the day
+/// they drifted apart — they simply happened to agree.
+/// `text_cap_mirror_tests.rs`'s `inject_text_max_chars_matches_the_protocol_source`
+/// reads the TS file and pins this constant against it; change this value
+/// there first.
 pub const INJECT_TEXT_MAX_CHARS: usize = 100_000;
 
 /// Which physical path an inject attempt took / would take next.

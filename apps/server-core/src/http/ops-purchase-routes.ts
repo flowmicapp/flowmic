@@ -55,6 +55,14 @@
 // it back. The correction path IS the audit trail — every move writes a row
 // naming the operator, the purchase and their note — so the mistake is
 // recoverable AND findable, which beats irreversible and findable.
+//
+// 🔴 2026-09-02 audit P1: the pre-check/audit/write ordering above has a real
+// gap — a second operator tab can advance the same order between the read and
+// the write. `advanceOneTimePurchase` is now conditional on the state this
+// route just read (see its own interface comment), and a lost race gets its
+// own `..._NOT_APPLIED_ACTION` row (see `auditAdvanceRaceLost` below) instead
+// of leaving the earlier row alone claiming a move that never happened — the
+// same fix `ops-refund-release-routes.ts` made for settle/release the same day.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
@@ -74,11 +82,11 @@ import { adminGate, type OpsAuditSink } from './ops-audit-trail';
 import { readJsonBody, sendJson, str } from './console-http';
 import type { RefundOrigin, ServiceRefundOutcome } from '../billing/service-refund';
 import type { DeadlinePolicy } from '../billing/service-deadlines';
-import { nextDeadlineAt, refundDueReason, refundRelease, refundWindow, supportUntil } from '../billing/service-deadlines';
 import { PROMISED_DEADLINES } from '../billing/guided-setup';
 import type { ServiceMailer } from '../mail/service-mailer';
 import type { UserRepo } from '../db/repos/user.repo';
 import { log } from '../log';
+import { toOperatorRow } from './ops-purchase-view';
 
 
 
@@ -112,6 +120,20 @@ export const PURCHASE_REFUND_ACTION = 'ops.purchase.refund';
 /** `target_kind`. Kind and id stay two columns so 「every action against this
  *  order」 is an equality match and not a LIKE prefix. */
 export const PURCHASE_TARGET_KIND = 'purchase';
+
+/**
+ * 🔴 2026-09-02 audit P1 — the other half of the four ACTIONs above, for the
+ * ONE outcome none of them named: `advanceOneTimePurchase`'s atomic write
+ * raced and lost AFTER the business row already went in (see
+ * `auditAdvanceRaceLost` below). Its own action per target, same rule as the
+ * four above: `ops_audit_log` has no outcome column, so a shared
+ * `..._not_applied` action or a `detail:'no_change'` buried in the matching
+ * action would both make a value answer a second question.
+ */
+export const PURCHASE_SCHEDULE_NOT_APPLIED_ACTION = 'ops.purchase.schedule_not_applied';
+export const PURCHASE_START_NOT_APPLIED_ACTION = 'ops.purchase.start_not_applied';
+export const PURCHASE_DELIVER_NOT_APPLIED_ACTION = 'ops.purchase.deliver_not_applied';
+export const PURCHASE_REOPEN_NOT_APPLIED_ACTION = 'ops.purchase.reopen_not_applied';
 
 /** Longest operator note this route will store. REFUSED, never truncated: a
  *  half-stored justification is a worse record than a rejected one, and the
@@ -352,78 +374,54 @@ function actionFor(target: OperatorSettableState): string {
   }
 }
 
-/** What the operator console renders per row — the customer console's
- *  projection plus the two fields only an operator needs. */
-function toOperatorRow(
-  p: OneTimePurchaseRow,
-  nowMs: number,
-  policy: DeadlinePolicy,
-): Record<string, unknown> {
-  return {
-    order_id: p.order_id,
-    provider: p.provider,
-    // 🔴 THE ACCOUNT ID, NEVER THE EMAIL. An operator who needs the address has
-    // the account list; putting it here would spread a contact detail onto a
-    // second surface for the convenience of not clicking through.
-    user_id: p.user_id,
-    product_id: p.product_id,
-    amount_minor: p.amount_minor,
-    currency: p.currency,
-    state: p.state,
-    // Derived on every read, never a sentence stored on the row.
-    next_step: purchaseNextStep(p, nowMs, GUIDED_SETUP_AFTERCARE_DAYS),
-    // ⚠️ SURFACED because an operator handling a withdrawal request has to see
-    // what the buyer agreed to and when, without a database prompt.
-    consent: {
-      early_start_at: p.early_start_consent_at,
-      waiver_ack_at: p.withdrawal_waiver_ack_at,
-      terms_version: p.consent_terms_version,
-    },
-    purchased_at: p.created_at,
-    scheduled_at: p.scheduled_at,
-    started_at: p.started_at,
-    delivered_at: p.delivered_at,
-    // The end of the buyer's two weeks of help (gs-5), from `delivered_at`;
-    // null unless delivered.
-    support_until: supportUntil(p, GUIDED_SETUP_AFTERCARE_DAYS),
-    refund_requested_at: p.refund_requested_at,
-    refund_provider_id: p.refund_provider_id,
-    // 🔴 THE PROVIDER'S WORD, VERBATIM, AND `null` IS MEANINGFUL HERE: it means
-    // we asked and have not heard back. That is the row an operator has to look
-    // at, and it is distinguishable from 「the provider answered 'pending'」 only
-    // because this is not flattened.
-    refund_status: p.refund_status,
-    refunded_at: p.refunded_at,
-    // When the buyer was actually told their setup was done.
-    //
-    // 🔴 `null` ON A DELIVERED ROW IS THE ONE AN OPERATOR MUST ACT ON: it means
-    // we recorded the work and never told them, and that letter is owed. It is
-    // surfaced beside the state rather than folded into it because it is a
-    // different question — 「did we finish」 and 「did we say so」 — and the
-    // second one is ours to fix. ⚠️ It changes nothing about the refund (gs-5):
-    // the console must not read a null here as 「still refundable」.
-    completion_notice_at: p.completion_notice_at,
-    // Computed on every read from the row and the clock — never stored, so it
-    // cannot go on saying 「due」 after somebody acted.
-    refund_due: refundDueReason(p, nowMs, policy),
-    next_deadline_at: nextDeadlineAt(p, policy, GUIDED_SETUP_AFTERCARE_DAYS),
-    // 🔴 THE SAME FUNCTION THE CUSTOMER'S CONSOLE RENDERS ITS BUTTON FROM, and a
-    // projection of the same condition the claim SQL enforces. An operator who
-    // could see 「refundable」 where the write would refuse (or the reverse) would
-    // be looking at a second opinion about somebody's money.
-    refund_window: refundWindow(p, nowMs, policy),
-    // 🔴 WHETHER A HUMAN ALREADY RESOLVED A STUCK REFUND ON THIS ROW, and how.
-    // An operator looking at a purchase back in 'paid' cannot otherwise tell it
-    // from one that was never refunded at all — and the difference decides
-    // whether the no-start sweep will pick it up (see service-deadlines.ts).
-    refund_release: refundRelease(p),
-    // 🔴 THE OPERATOR'S OWN PROOF, WHERE THEY CAN READ IT. A 'refunded' row with
-    // this set was settled by a person, not confirmed by the provider — and this
-    // string is the only handle anybody has for checking it.
-    refund_external_reference: p.refund_external_reference,
-    note: p.note,
-    updated_at: p.updated_at,
-  };
+/** Correction-row counterpart to `actionFor`, one name per target — same
+ *  reason `actionFor` is a switch and not a template string. */
+function notAppliedActionFor(target: OperatorSettableState): string {
+  switch (target) {
+    case 'paid':
+      return PURCHASE_REOPEN_NOT_APPLIED_ACTION;
+    case 'scheduled':
+      return PURCHASE_SCHEDULE_NOT_APPLIED_ACTION;
+    case 'in_progress':
+      return PURCHASE_START_NOT_APPLIED_ACTION;
+    case 'delivered':
+      return PURCHASE_DELIVER_NOT_APPLIED_ACTION;
+  }
+}
+
+/** Append the correction row when `advanceOneTimePurchase` answers
+ *  `'not_applied'` (the row left `expectedState` between the pre-check and
+ *  the write). 🔴 BEST-EFFORT, NEVER FED BACK INTO THE RESPONSE — same posture
+ *  as `ops-refund-release-routes.ts`'s `auditRaceLost`: the write genuinely
+ *  did not happen and the 409 below is already the true answer, so a failure
+ *  here is a failure to ANNOTATE, not to protect the purchase — still never
+ *  silent, logged at ERROR. */
+function auditAdvanceRaceLost(
+  deps: OpsPurchaseRoutesDeps,
+  input: { actor: string; target: OperatorSettableState; orderId: string; expectedState: OneTimePurchaseState },
+): void {
+  try {
+    deps.audit.append({
+      actor_user_id: input.actor,
+      action: notAppliedActionFor(input.target),
+      target_kind: PURCHASE_TARGET_KIND,
+      target_id: input.orderId,
+      detail:
+        `did not take effect: the purchase moved off '${input.expectedState}' between the pre-check `
+        + 'and the write (another operator action resolved it first)',
+    });
+  } catch (err) {
+    log.error(
+      'ops: could not append the not-applied correction row — the earlier row still claims an action that never happened',
+      {
+        route: PURCHASES_ADVANCE_ROUTE,
+        actor: input.actor,
+        target: input.orderId,
+        intent: notAppliedActionFor(input.target),
+        reason: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
 }
 
 function refuseBadRequest(res: ServerResponse, message: string): void {
@@ -624,9 +622,14 @@ export function tryHandleOpsPurchaseRoutes(
         return;
       }
 
-      deps.purchases.advanceOneTimePurchase(
+      const outcome = deps.purchases.advanceOneTimePurchase(
         row.order_id,
         {
+          // 🔴 THE PRECONDITION THIS ROUTE JUST READ (`row.state`, moments
+          // before the audit row above went in), not re-derived inside the
+          // repo — this is what lets the atomic UPDATE refuse a second
+          // operator tab's write instead of the two overwriting each other.
+          expected_state: current,
           state: target,
           scheduled_at: stamps.scheduled_at,
           started_at: stamps.started_at,
@@ -644,6 +647,20 @@ export function tryHandleOpsPurchaseRoutes(
         },
         nowIso,
       );
+
+      if (outcome === 'not_applied') {
+        // The race the pre-check could not see: the row left `current`
+        // between the read above and the write just now. The audit row
+        // appended a few lines up STILL SAYS `actionFor(target)` — rows are
+        // append-only — so it is corrected with its own row rather than left
+        // standing alone as the only trace of an action that never happened.
+        auditAdvanceRaceLost(deps, { actor, target, orderId: row.order_id, expectedState: current });
+        sendJson(res, 409, {
+          error: PURCHASE_TRANSITION_INVALID,
+          message: 'this purchase changed state while this request was being handled; nothing was changed',
+        });
+        return;
+      }
 
       log.info('ops: purchase advanced', {
         actor,

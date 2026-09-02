@@ -339,7 +339,14 @@ void onInjectResultRouted(ChatController c, InjectResult r) {
   if (correlation == null || correlation.isEmpty) return;
   // Fire-and-forget: the queue write must not block the UI's settle path, and
   // an item that fails to persist here is picked up by the boot revive.
-  unawaited(c.outbox.settle(correlationId: correlation, ok: r.ok, code: r.error));
+  unawaited(c.outbox.settle(
+    correlationId: correlation,
+    ok: r.ok,
+    code: r.error,
+    // Card F12/F1-d — see InjectResult.retryAfterMs's own doc for why this is
+    // read defensively: no producer sets it on this frame yet.
+    retryAfterMs: r.retryAfterMs,
+  ));
 }
 
 /// Connection/session edges — MOVED VERBATIM from chat_controller.dart (800-line

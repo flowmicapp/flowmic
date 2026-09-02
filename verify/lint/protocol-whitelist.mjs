@@ -47,14 +47,14 @@ export function parseWhitelist(src) {
   return set;
 }
 
-function langOf(ext) {
+export function langOf(ext) {
   for (const [lang, exts] of Object.entries(LANG_EXT)) {
     if (exts.has(ext)) return lang;
   }
   return null;
 }
 
-function isTestFile(relPath) {
+export function isTestFile(relPath) {
   return (
     /(^|\/)(test|tests|__tests__)\//.test(relPath) ||
     /\.(test|spec)\.[tj]sx?$/.test(relPath) ||
@@ -62,6 +62,42 @@ function isTestFile(relPath) {
     /_test\.dart$/.test(relPath) ||
     /_test\.go$/.test(relPath)
   );
+}
+
+// Same shape as EVENT_SHAPE below, exported so a drill can feed the ruler a
+// whitelist and check the "did the parse actually parse" guard without
+// re-implementing it.
+export const EVENT_SHAPE = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)*$/;
+
+// Extracted 2026-09-02 (B2-A) so a drill can point the walk-and-match half of
+// this lint at a disposable fixture tree instead of the real apps/**+packages/**
+// — `run()` below is now a thin wrapper that calls this with the real roots.
+// Behaviour identical: same walk, same CALL_RE, same test-file/protocol-dir
+// exclusions, same per-language counters.
+export async function scanTree(rootsAbs, whitelist) {
+  const counts = { ts: 0, rust: 0, dart: 0, vue: 0 };
+  const violations = [];
+  for (const root of rootsAbs) {
+    const files = await walk(root);
+    for (const abs of files) {
+      const relPath = rel(abs);
+      if (relPath.startsWith('packages/protocol/')) continue; // the SSOT itself
+      if (isTestFile(relPath)) continue;
+      const lang = langOf(path.extname(abs).toLowerCase());
+      if (!lang) continue;
+      const src = await readText(abs);
+      if (src == null) continue;
+      counts[lang]++;
+      for (const m of src.matchAll(CALL_RE)) {
+        const ev = m[2];
+        if (!whitelist.has(ev)) {
+          const line = src.slice(0, m.index).split('\n').length;
+          violations.push(`${relPath}:${line} '${ev}'`);
+        }
+      }
+    }
+  }
+  return { counts, violations };
 }
 
 export default async function run() {
@@ -75,7 +111,6 @@ export default async function run() {
   }
 
   const roots = [path.join(ROOT, 'apps'), path.join(ROOT, 'packages')];
-  const counts = { ts: 0, rust: 0, dart: 0, vue: 0 };
   // 🔴 CHECK THE RULER BEFORE TRUSTING WHAT IT MEASURED (2026-08-20).
   //
   // `parseWhitelist` above is a single-quote regex over the array literal, so
@@ -97,7 +132,6 @@ export default async function run() {
   //
   // ⚠️ `heartbeat` has no colon — the shape allows a bare segment on purpose.
   // A rule demanding `x:y` would reject a real, shipped event name.
-  const EVENT_SHAPE = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)*$/;
   const malformed = [...whitelist].filter((n) => !EVENT_SHAPE.test(n));
   if (malformed.length > 0) {
     return {
@@ -110,28 +144,7 @@ export default async function run() {
     };
   }
 
-  const violations = [];
-
-  for (const root of roots) {
-    const files = await walk(root);
-    for (const abs of files) {
-      const relPath = rel(abs);
-      if (relPath.startsWith('packages/protocol/')) continue; // the SSOT itself
-      if (isTestFile(relPath)) continue;
-      const lang = langOf(path.extname(abs).toLowerCase());
-      if (!lang) continue;
-      const src = await readText(abs);
-      if (src == null) continue;
-      counts[lang]++;
-      for (const m of src.matchAll(CALL_RE)) {
-        const ev = m[2];
-        if (!whitelist.has(ev)) {
-          const line = src.slice(0, m.index).split('\n').length;
-          violations.push(`${relPath}:${line} '${ev}'`);
-        }
-      }
-    }
-  }
+  const { counts, violations } = await scanTree(roots, whitelist);
 
   if (violations.length > 0) {
     return {

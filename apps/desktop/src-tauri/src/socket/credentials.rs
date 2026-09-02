@@ -166,18 +166,39 @@ impl Credentials {
 /// me can read it」. Measured 2026-08-10 on the Mac mini: the three credential
 /// files were 0644. That is what this closes. The plaintext is still open.
 ///
-/// ⚠️ TWO ORDERING DETAILS, both load-bearing:
-///  1. The mode is set when the file is CREATED (`OpenOptions::mode`), not
-///     chmod'd afterwards. A write-then-chmod leaves a window in which the
-///     plaintext exists at 0644, which is the exact thing being fixed.
-///  2. An ALREADY EXISTING file is passed through [`ensure_user_only`] BEFORE
-///     being rewritten, because `OpenOptions::mode` is ignored when the file
-///     is not created. Without this, every install that predates MAC-08 would
-///     keep its 0644 file forever — a fix that only protects new users is not
-///     a fix for the machine it was written for.
+/// 🔴 In-place correction (AUD-D3 P3, 2026-09-02) — the unix branch used to
+/// truncate-then-write the REAL path directly (`OpenOptions::create(true)
+/// .truncate(true)`), tightening a pre-existing file with [`ensure_user_only`]
+/// first because `OpenOptions::mode` is ignored when the file already exists.
+/// That had two problems: (a) a crash between `truncate` and `write_all`
+/// left a 0-byte or partially-written file at the REAL path — the next
+/// `Credentials::load` sees valid-looking bytes that fail to parse and
+/// silently degrades to `None`, i.e. the pairing is lost with no forensic
+/// line naming why; (b) `if path.exists() { ensure_user_only(path)?; }` is a
+/// check-then-act TOCTOU (low severity here, the directory is already 0700,
+/// but still a race in principle). Both are gone now: the write goes to a
+/// freshly `create`d SIBLING temp file (mode 0600 from creation, per the
+/// ordering rule below) and [`std::fs::rename`] replaces the real path
+/// atomically — same-directory rename is a single filesystem operation, so a
+/// crash leaves either the OLD good credential file (rename never happened)
+/// or nothing changed at the real path, never a truncated one. Nothing needs
+/// tightening ahead of the write any more: the temp file is always brand new
+/// and the rename replaces the target's directory entry wholesale, so the
+/// target's PRIOR mode (0644 from a pre-MAC-08 install, 0600, anything) is
+/// irrelevant — the result is always whatever mode the temp file was created
+/// with.
 ///
-/// ⚠️ What it cannot undo: a file that has already been world-readable was
-/// readable for as long as it existed. This narrows the future, not the past.
+/// ⚠️ The mode-at-creation rule (`OpenOptions::mode`, not a chmod afterwards)
+/// still applies, now to the temp file: a write-then-chmod would leave a
+/// window where the plaintext briefly exists at a looser mode, which is the
+/// exact thing MAC-08 closed.
+///
+/// ⚠️ What none of this undoes: a file that has already been world-readable
+/// was readable for as long as it existed. This narrows the future, not the
+/// past. [`ensure_user_only`] still exists and is still called from
+/// [`Credentials::load`] for the read path (an upgrade that never re-saves
+/// must not stay 0644 for the rest of the session) — this function no longer
+/// needs it because it never rewrites an existing inode in place.
 pub(super) fn write_user_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -195,21 +216,56 @@ pub(super) fn write_user_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> 
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        if path.exists() {
-            ensure_user_only(path)?;
-        }
+        let tmp_path = atomic_write_tmp_path(path);
+        // `create(true).truncate(true)` rather than `create_new(true)`: a
+        // leftover temp file from a crashed prior write (rename never ran)
+        // must not permanently jam every future save by making `open` fail —
+        // it is abandoned, uncommitted data, safe to overwrite.
         let mut f = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(path)?;
+            .open(&tmp_path)?;
         f.write_all(bytes)?;
-        f.flush()
+        f.flush()?;
+        drop(f);
+        std::fs::rename(&tmp_path, path)
     }
 
     #[cfg(not(unix))]
     std::fs::write(path, bytes)
+}
+
+/// Sibling temp-file path used by the atomic write in [`write_user_only`]:
+/// `<file-name>.tmp` in the SAME directory as `path`. Same directory is not
+/// a style choice — `rename` is only guaranteed atomic within one filesystem,
+/// and the OS temp dir is routinely a different mount (and, per the
+/// no-dev-trees-on-system-drive lesson elsewhere in this repo, a different
+/// volume is exactly the kind of thing that quietly breaks an assumption).
+///
+/// Pure and platform-neutral on purpose: the unix branch of `write_user_only`
+/// is the only caller, but the path arithmetic itself has nothing unix-
+/// specific in it, so it is unit-tested here on Windows. That proves the
+/// naming is right; it proves nothing about `OpenOptions::mode` or `rename`'s
+/// atomicity guarantee on a real unix filesystem — only
+/// `scripts/mac-verify.sh` on flowmic-mac can prove that half.
+///
+/// ⚠️ On a Windows build the only production call site (`write_user_only`'s
+/// `#[cfg(unix)]` branch) does not exist, so this is real dead code outside
+/// `#[cfg(test)]` there. `allow(dead_code)` is scoped to `cfg(windows)` only —
+/// on macOS/Linux the compiler must keep proving it is actually called.
+#[cfg_attr(windows, allow(dead_code))]
+fn atomic_write_tmp_path(path: &Path) -> PathBuf {
+    let tmp_name = match path.file_name() {
+        Some(name) => {
+            let mut s = name.to_os_string();
+            s.push(".tmp");
+            s
+        }
+        None => std::ffi::OsString::from("credentials.tmp"),
+    };
+    path.with_file_name(tmp_name)
 }
 
 /// On unix, clear every one of the low nine permission bits outside owner-rw,
@@ -505,6 +561,61 @@ mod tests {
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o400,
             "must not add the owner-write bit"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Windows-testable half of the AUD-D3 P3 fix: the temp-file naming is
+    /// plain path arithmetic with nothing unix-specific in it.
+    #[test]
+    fn atomic_write_tmp_path_is_a_dot_tmp_sibling() {
+        let real = Path::new("/tmp/whatever/credentials.bin");
+        let tmp = atomic_write_tmp_path(real);
+        assert_eq!(tmp, Path::new("/tmp/whatever/credentials.bin.tmp"));
+        assert_eq!(tmp.parent(), real.parent(), "must stay in the SAME directory (rename atomicity)");
+    }
+
+    #[test]
+    fn atomic_write_tmp_path_handles_a_path_with_no_file_name() {
+        // Degenerate input (e.g. "/" or ""); must not panic, and must not
+        // collide with a real credential file.
+        let tmp = atomic_write_tmp_path(Path::new(""));
+        assert_eq!(tmp, Path::new("credentials.tmp"));
+    }
+
+    /// AUD-D3 P3 reverse control: `save()` must replace the file via a fresh
+    /// inode (create-temp + rename), never truncate the existing one in
+    /// place. Reverting `write_user_only`'s unix branch to the old
+    /// `OpenOptions::create(true).truncate(true).open(path)` shape (with the
+    /// `if path.exists() { ensure_user_only(path)?; }` TOCTOU restored) makes
+    /// this go red: a truncate-in-place keeps the SAME inode across saves, so
+    /// `ino1 == ino2`. Seen red against that reverted shape, green against
+    /// the temp+rename fix, restored to the fix afterwards.
+    #[cfg(unix)]
+    #[test]
+    fn second_save_replaces_the_file_via_a_new_inode_not_in_place_truncate() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = std::env::temp_dir().join(format!("flowmic-inode-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("credentials.bin");
+
+        let mut c = Credentials::fresh("Inode PC");
+        c.accept_registration("fm_tok_first", None, None);
+        c.save(&path).expect("first save");
+        let ino1 = std::fs::metadata(&path).expect("stat 1").ino();
+
+        c.accept_registration("fm_tok_second", None, None);
+        c.save(&path).expect("second save");
+        let ino2 = std::fs::metadata(&path).expect("stat 2").ino();
+
+        assert_ne!(ino1, ino2, "a fixed save must replace via rename (new inode), not truncate in place");
+        assert!(
+            !atomic_write_tmp_path(&path).exists(),
+            "the temp sibling must not survive a successful save"
+        );
+        assert_eq!(
+            Credentials::load(&path).and_then(|c| c.token),
+            Some("fm_tok_second".to_string())
         );
 
         std::fs::remove_dir_all(&dir).ok();

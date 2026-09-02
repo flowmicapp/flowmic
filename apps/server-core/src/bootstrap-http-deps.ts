@@ -50,8 +50,9 @@ import type { HttpDeps } from './http/router';
 import { makeResolveUserId } from './http/account-auth';
 import type { NodeRuntime } from './node/node-runtime';
 import { makeForwardReceiver } from './node/forward-receiver';
-import { makeForwardLedger } from './node/forward-ledger';
+import type { ForwardLedger } from './node/forward-ledger';
 import { resolveTokenRows } from './node/token-rows';
+import { makeForwardSyncDispatcher } from './node/forward-sync';
 import { diagLogPathBeside } from './http/diag-routes';
 import { seedDefaultSettings } from './settings/defaults';
 import { seedSaasByokEmpty } from './settings/byok';
@@ -156,6 +157,19 @@ export interface HttpDepsWiring {
   statusSnapshot: () => ProbedTargets;
   /** bootstrap's `overrides.now`, threaded through unchanged. */
   now?: () => number;
+  /**
+   * F6 (2026-09-02 audit) — the writer's at-least-once ledger for
+   * POST /api/node/forward (node/forward-ledger.ts). Constructed in
+   * bootstrap.ts, NOT here, so the SAME instance can also be handed to a
+   * periodic prune sweep (bootstrap-sweeps.ts) — this route used to build its
+   * own private instance with `prune()` never called by anyone but that
+   * method's own unit test, so `node_forward_seen` grew without bound
+   * (~17k rows/PC/day on this route's own traffic estimate).
+   *
+   * Absent on a replica and on every single-node deployment (there is no
+   * writer-only receive side to gate there at all).
+   */
+  forwardLedger?: ForwardLedger;
 }
 
 /** Compose the HttpDeps `makeHttpHandler` consumes. VERBATIM from bootstrap.ts
@@ -320,8 +334,19 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             ...(process.env.FLOWMIC_NODE_LIST_PATH
               ? { nodeListPath: process.env.FLOWMIC_NODE_LIST_PATH }
               : {}),
-            ...(process.env.FLOWMIC_NODE_WRITER_URL
-              ? { writerUrl: process.env.FLOWMIC_NODE_WRITER_URL }
+            // F13 (2026-09-02 audit) — `w.nodeRuntime.nodeConfig.writerUrl`, NOT
+            // a second raw `process.env.FLOWMIC_NODE_WRITER_URL` read.
+            // `readNodeConfig` (node/node-config.ts) TRIMS this variable before
+            // deciding this process's role; re-reading it raw here means a
+            // value that is whitespace-only (or padded) resolves DIFFERENTLY
+            // in the two places that ask the same question — `nodeConfig.role`
+            // reads 'single' (trim() empties it) while this truthy check on the
+            // raw string still passes, so router.ts's mutation gate would
+            // refuse every write on a deployment `nodeConfig` itself considers
+            // a single node. One fact, one author: the trimmed value is the
+            // only one NodeConfig ever produced.
+            ...(w.nodeRuntime.nodeConfig.writerUrl
+              ? { writerUrl: w.nodeRuntime.nodeConfig.writerUrl }
               : {}),
             // The directory read itself. findByPcid is already user-unscoped by
             // design (pc.repo.ts says why: a phone pairing by PCID has no account
@@ -375,8 +400,23 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                   // not have, so the route can answer 404 and the replica can
                   // tell 「no such token」 apart from 「I could not ask」.
                   resolveToken: (token: string) => resolveTokenRows(db, token),
+                  // WP-6 — the generic handoff (node/forward-sync.ts). Same
+                  // `registry`/`db.settings`/`releaseSuppression` instances the
+                  // socket handlers use, for the same reason `registry` above
+                  // is: a second instance is a second place these can disagree.
+                  forwardSync: makeForwardSyncDispatcher({
+                    registry,
+                    repo: db.settings,
+                    suppression: releaseSuppression,
+                    now: () => new Date(now ? now() : Date.now()).toISOString(),
+                  }),
                   receiveForward: makeForwardReceiver({
-                    ledger: makeForwardLedger(db.raw),
+                    // F6 — the SAME instance bootstrap.ts's periodic sweep
+                    // prunes, not a private one this route built for itself.
+                    // `w.forwardLedger!` is safe here: this whole branch is
+                    // already gated on `role === 'writer'`, the only role
+                    // bootstrap.ts ever constructs one for.
+                    ledger: w.forwardLedger as ForwardLedger,
                     targets: {
                       // The REPLAY tracker, not the ordinary one: same rules,
                       // clock pinned to the record's own timestamp. See
@@ -694,6 +734,11 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             // nowhere, which made it the surge gate's own bypass
             // (google-auth-routes.ts `surgeGate` carries the argument).
             ...(surgeGate ? { surgeGate } : {}),
+            // P2-5 (2026-09-01 audit) — the SAME per-IP daily mint cap `auth:`
+            // above receives. This route was the cap's own bypass for the same
+            // reason it was the surge gate's: an address that spent its two
+            // daily mints on /api/register could keep minting through Google.
+            mintLimiter: w.accountMintLimiter,
             verifier: w.googleVerifier,
             onUserCreated: (userId): void => {
               const byok = seedSaasByokEmpty(db.settings, userId);

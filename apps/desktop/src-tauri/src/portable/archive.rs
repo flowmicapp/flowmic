@@ -70,6 +70,19 @@ fn unix_now() -> i64 {
 /// they have to be known first) — walking is not concatenating, and no single
 /// buffer holding the whole document is ever allocated. Attachments are written
 /// one file at a time, so peak memory is ONE picture, not the whole album.
+/// P2 (2026-09-02 audit): "leaves a half-written dest.zip". Before this,
+/// [`ZipWriter::create`] opened `dest` — the FINAL, user-chosen path — and
+/// every `?` between there and `w.finish()` (a vanished attachment mid-export
+/// hitting a `ZipWriter` error, a full disk, any I/O failure) left whatever
+/// had been written so far sitting under that exact name. A user who then
+/// double-clicked it, or handed it to `verify_root` later, would open a real
+/// but truncated zip — no error anywhere told them the export itself had
+/// failed. This wrapper writes to a `.tmp` sibling and renames it onto `dest`
+/// ONLY after `write_export_body` returns `Ok` (mirroring
+/// `socket::typed_ledger::TypedLedgerFile::save`'s temp-then-rename, and
+/// `portable::zip`'s own `entry_name_is_safe` precedent of never trusting a
+/// half-finished write to speak for a finished one); any earlier failure
+/// removes the `.tmp` instead of leaving it, or `dest`, behind.
 pub fn write_export(
     dest: &Path,
     lines: &[String],
@@ -77,8 +90,49 @@ pub fn write_export(
     attachments: &[Attachment],
     picture_dir: &Path,
 ) -> Result<ExportResult, ZipError> {
+    let mut tmp_name = dest.as_os_str().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = PathBuf::from(tmp_name);
+    match write_export_body(&tmp, lines, readme, attachments, picture_dir) {
+        Ok(result) => {
+            if let Err(e) = std::fs::rename(&tmp, dest) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(ZipError::Io(format!(
+                    "export succeeded but could not be moved into place at {}: {e}",
+                    dest.display()
+                )));
+            }
+            forensic::record(
+                "portable",
+                &format!(
+                    "export wrote {} ({} records, {} pictures, {} bytes)",
+                    dest.display(),
+                    result.records,
+                    result.attachments,
+                    result.bytes
+                ),
+            );
+            Ok(ExportResult { path: dest.display().to_string(), ..result })
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// The actual write, always against a not-yet-final `target` path — see
+/// [`write_export`]'s doc comment for why that split exists. Behaviour below
+/// is otherwise unchanged from before this fix.
+fn write_export_body(
+    target: &Path,
+    lines: &[String],
+    readme: &str,
+    attachments: &[Attachment],
+    picture_dir: &Path,
+) -> Result<ExportResult, ZipError> {
     let now = unix_now();
-    let mut w = ZipWriter::create(dest)?;
+    let mut w = ZipWriter::create(target)?;
 
     // ── records.jsonl ──
     let mut size = 0u64;
@@ -140,17 +194,16 @@ pub fn write_export(
     }
     w.finish()?;
 
-    let bytes = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    // `target` here is the `.tmp` path (see `write_export`) — its length is
+    // identical to the final file's (a rename does not touch content), so
+    // reading it now rather than after the rename changes nothing observable.
+    let bytes = std::fs::metadata(target).map(|m| m.len()).unwrap_or(0);
     let records = lines.len().saturating_sub(1); // the header is not a record
-    forensic::record(
-        "portable",
-        &format!(
-            "export wrote {} ({records} records, {written} pictures, {bytes} bytes)",
-            dest.display()
-        ),
-    );
+    // The forensic line and `path` field both name the FINAL path, not this
+    // `.tmp` one — that is `write_export`'s job, since only it knows whether
+    // the rename actually succeeded.
     Ok(ExportResult {
-        path: dest.display().to_string(),
+        path: target.display().to_string(),
         records,
         attachments: written,
         bytes,

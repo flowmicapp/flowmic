@@ -313,16 +313,30 @@ describe('GA-26 — a phone that reconnects is not a second phone', () => {
     expect(second.disconnected).toBe(0);
   });
 
-  it('a DIFFERENT phone still announces itself — the suppression is per pairing', async () => {
+  // 🔴 CORRECTED IN PLACE (2026-09-02, WP-6, A12/F2-b) — this test used to
+  // assert that a SECOND, unrelated phone still gets announced ("the
+  // suppression is per pairing"). That was true when the server admitted every
+  // phone freely and left contention to the desktop's `Admission` FSM to
+  // referee after the fact. It is false now: `mobile:pair`/`mobile:reconnect`
+  // judge room occupancy themselves (`liveContender`,
+  // mobile-room-admission.ts), and a DIFFERENT, live pairing is refused
+  // `PC_BUSY` before it is ever announced — see capsule-single-holder.test.ts
+  // for the full account of why. What this test still usefully pins is the
+  // "per pairing" half of its old name: B's refusal must name B's own pairing
+  // problem (a room already occupied), not somehow inherit A's identity or
+  // fail some OTHER way.
+  it('a DIFFERENT live phone is refused PC_BUSY, not silently announced', async () => {
     const pc = await registerPc();
     const a = wireMobile(new FakeSocket('m-a'));
     await a.invoke('mobile:pair', { short_code: pc.shortCode });
     const b = wireMobile(new FakeSocket('m-b'));
-    await b.invoke('mobile:pair', { short_code: pc.shortCode });
+    const bAck = await b.invoke('mobile:pair', { short_code: pc.shortCode });
 
+    expect(bAck).toMatchObject({ error: 'PC_BUSY', retryable: true });
+    expect(typeof bAck.retry_after_ms).toBe('number');
     const joined = pc.sock.events('pc:mobile-joined') as { mobile_id: string }[];
-    expect(joined).toHaveLength(2);
-    expect(new Set(joined.map((j) => j.mobile_id)).size).toBe(2);
+    // Only A was ever announced — B's contention never reaches the PC at all.
+    expect(joined).toHaveLength(1);
   });
 });
 

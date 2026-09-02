@@ -169,6 +169,29 @@ fn the_exchange_url_is_https_only_and_is_never_upgraded() {
     }
 }
 
+/// D9 (2026-09-02 audit §3-D): a multi-byte UTF-8 character in the first 8
+/// bytes of the (trimmed) endpoint used to PANIC this function instead of
+/// returning `BadEndpoint` — `e[..8]` is a byte-index slice, and Rust panics
+/// when that index is not a char boundary. `endpoint` is whatever the scanned
+/// QR code said, i.e. untrusted input reaching a `#[tauri::command]` on the
+/// main thread.
+///
+/// **Reverse control**: swap the two `if` blocks back to the original order
+/// (length/prefix check before `is_ascii()`) and this test crashes the test
+/// process instead of failing an assertion — `e[..8]` panics before
+/// `Err(BadEndpoint)` can even be constructed.
+#[test]
+fn a_multi_byte_character_in_the_prefix_is_refused_not_a_panic() {
+    // "http://" is 7 ASCII bytes; 'é' (U+00E9) is 2 bytes in UTF-8, so it
+    // straddles byte index 8 exactly where the old code sliced.
+    assert_eq!(exchange_url("http://é.example"), Err(SignInFailure::BadEndpoint));
+    assert_eq!(exchange_url("https://é.example"), Err(SignInFailure::BadEndpoint));
+    // A multi-byte character earlier still must not panic even though it is
+    // nowhere near byte 8 — `is_ascii()` must gate ALL of this function's
+    // slicing, not just this one boundary.
+    assert_eq!(exchange_url("é"), Err(SignInFailure::BadEndpoint));
+}
+
 #[test]
 fn the_page_escapes_and_pulls_in_nothing_from_outside() {
     let html = callback_page("zh-CN", "完成 <b>了</b>", "回到 FlowMic & 继续");

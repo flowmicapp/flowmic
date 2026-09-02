@@ -24,12 +24,34 @@
 //     silent one: the user gets an email, clicks, and lands on a 404 with a
 //     token in the query string. Refusing to boot beats sending that.
 
-/** Every mail transport this repo can build. `resend` is the only one today;
- *  the Set exists so an unknown value is a NAMED boot failure rather than a
- *  provider that silently resolves to nothing (same argument as
- *  `managed-default.ts` VALID_ENGINES). */
-export const VALID_MAIL_PROVIDERS = new Set(['resend']);
-export type MailProviderId = 'resend';
+/**
+ * Every mail transport this repo can build. The Set exists so an unknown
+ * value is a NAMED boot failure rather than a provider that silently resolves
+ * to nothing (same argument as `managed-default.ts` VALID_ENGINES).
+ *
+ * 🔴 `'file'` (2026-09-02) IS A TEST FIXTURE, NOT A SECOND PRODUCTION
+ * TRANSPORT — see mail/file.ts's header. It exists to retire
+ * FLOWMIC_INTERNAL_RESET_TOKEN_ECHO / FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO
+ * (owner-ordered deletion, docs/decisions/…-two-security-questions.md §3
+ * problem 1): those two flags echoed a live secret onto the wire with no mode
+ * gate, so a fat-fingered production env line was a two-request account
+ * takeover of any known email.
+ *
+ * 🔴 2026-09-02 CORRECTION: the line this replaces read "nothing in this repo
+ * sets `FLOWMIC_MAIL_PROVIDER=file` outside a test harness — grep it", as a
+ * promise resting on nobody ever copying a test `.env` into production. That
+ * is exactly the failure class the deleted echo flags were removed for one
+ * paragraph above, and a comment is not a gate. `mailConfigFromEnv` below now
+ * REFUSES `provider:'file'` at boot unless the process also sets
+ * `FLOWMIC_TEST_BENCH=1` — a second, independent flag a copied mail block does
+ * not carry by accident. This is NOT a re-creation of the deleted echo
+ * switches: a bench declaration only permits the ON-DISK mailbox (mail/file.ts
+ * writes one JSON file per message to a directory this same process chose);
+ * it never echoes a secret onto the wire, gates no HTTP response, and reaches
+ * no caller who did not already have filesystem access to this box.
+ */
+export const VALID_MAIL_PROVIDERS = new Set(['resend', 'file']);
+export type MailProviderId = 'resend' | 'file';
 
 export interface MailConfig {
   provider: MailProviderId;
@@ -69,8 +91,21 @@ export interface MailConfig {
   verifyBaseUrl: string;
   /** The transport endpoint. Defaults to the vendor's; overridable so a test or
    *  a staging box can point at a local server WITHOUT anyone having to reach
-   *  for a network stub. Mirrors FLOWMIC_MANAGED_STT_ENDPOINT. */
+   *  for a network stub. Mirrors FLOWMIC_MANAGED_STT_ENDPOINT. Unused (`''`)
+   *  when `provider === 'file'` — that transport has no endpoint, only a
+   *  directory. */
   endpoint: string;
+  /**
+   * 2026-09-02 — FLOWMIC_MAIL_FILE_DIR. Non-null if and only if
+   * `provider === 'file'`: where each outbound message is written as JSON
+   * (mail/file.ts), for a test harness to read a reset token or verification
+   * code back from instead of a wire echo. `null` for every other provider —
+   * a resend deployment has no such directory, and defaulting this to
+   * anything would invite a reader to check `fileDir !== null` instead of
+   * `provider === 'file'`, which is the actual fact this field is a
+   * consequence of, not a second copy of it.
+   */
+  fileDir: string | null;
 }
 
 /** Resend's transactional send endpoint. A constant rather than a literal at the
@@ -122,14 +157,54 @@ export function mailConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MailCon
       ? requireHttpUrl(verifyOverride.trim(), 'FLOWMIC_MAIL_VERIFY_BASE_URL').toString()
       : new URL(VERIFY_PATH, parsed.origin).toString();
 
+  // 🔴 2026-09-02 — the `file` fixture branches OFF entirely before the
+  // resend-only fields below are required. `from` is still required: it is
+  // read by the mailer that builds each message's text (buildPasswordResetEmail
+  // etc.), not by any transport, so a file-provider test still exercises the
+  // real "does this message read like the one an operator configured" path.
+  // `apiKey`/`endpoint` have no meaning for a directory write and are left
+  // '' rather than defaulted to something resend-shaped, per the field's own
+  // doc comment.
+  //
+  // 🔴 THE BENCH GATE. A copied `.env` that happens to carry
+  // `FLOWMIC_MAIL_PROVIDER=file` must not silently turn a live deployment's
+  // reset tokens and verification codes into files on disk — that is the
+  // exact "I didn't notice this was a test config" failure this whole file's
+  // header argues against for every other field. `FLOWMIC_TEST_BENCH=1` is a
+  // SECOND, unrelated flag: a harness that intentionally builds a mail-file
+  // fixture sets it beside the mail block (verify/golden/harness.mjs
+  // `mailFileEnv`, test/mail-config.test.ts `fileEnv`), so an accidental copy
+  // of just the mail lines does not carry it. Fail-loud, named, at boot — the
+  // same "misconfigured must not look like configured" rule as every other
+  // throw in this function, never a quiet fall-through to `resend`.
+  if (provider === 'file' && env.FLOWMIC_TEST_BENCH !== '1') {
+    throw new Error(
+      'config: FLOWMIC_MAIL_PROVIDER=file requires FLOWMIC_TEST_BENCH=1 — this transport writes reset tokens '
+        + 'and verification codes to disk instead of sending them, and is a test fixture only (mail/file.ts). '
+        + 'If this is a real deployment, set FLOWMIC_MAIL_PROVIDER=resend instead.',
+    );
+  }
+  if (provider === 'file') {
+    return {
+      provider: 'file',
+      apiKey: '',
+      from: requireNonEmpty(env, 'FLOWMIC_MAIL_FROM'),
+      resetBaseUrl,
+      verifyBaseUrl,
+      endpoint: '',
+      fileDir: requireNonEmpty(env, 'FLOWMIC_MAIL_FILE_DIR'),
+    };
+  }
+
   const endpointRaw = env.FLOWMIC_MAIL_ENDPOINT;
   return {
-    provider: provider as MailProviderId,
+    provider: 'resend',
     apiKey: requireNonEmpty(env, 'FLOWMIC_MAIL_API_KEY'),
     from: requireNonEmpty(env, 'FLOWMIC_MAIL_FROM'),
     resetBaseUrl,
     verifyBaseUrl,
     endpoint: endpointRaw && endpointRaw.trim() !== '' ? endpointRaw.trim() : DEFAULT_RESEND_ENDPOINT,
+    fileDir: null,
   };
 }
 

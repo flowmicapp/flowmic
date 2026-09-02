@@ -134,11 +134,11 @@ describe('region normalisation in routing selection', () => {
     expect(got?.routing.engine_id).toBe('sherpa-local');
   });
 
-  it('an unhealthy engine at the normalised rung is skipped like any other', () => {
-    // Health filtering has to apply per candidate, not per rung, or a sick
-    // normalised match would shadow a healthy wildcard.
-    const rows = [U('zh-CN', 'funasr'), U('*', 'sherpa-local')];
-    const got = selectRouting('zh', rows, undefined, (id) => id !== 'funasr');
-    expect(got?.engine_id).toBe('sherpa-local');
-  });
+  // card P2-5/WP-1 (2026-09-02): the "unhealthy engine at the normalised rung"
+  // case that used to live here exercised `selectRouting`'s 4th `engineHealthy`
+  // parameter, which was DELETED — it was a route-health predicate no
+  // production call site ever supplied (always `() => true`); real route
+  // health is `pool-routing.ts`'s `RouteHealthRegistry`, filtered BEFORE a
+  // `Routing` ever reaches this function. See engine-router.ts's own header on
+  // `selectRoutingWithSource` for the full account.
 });

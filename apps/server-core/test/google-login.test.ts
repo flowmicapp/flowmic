@@ -391,6 +391,63 @@ describe('refusals: a token that is not ours, and one that is too old', () => {
   });
 });
 
+describe('P2-5 (2026-09-02 audit): the daily account-mint cap covers this route too', () => {
+  it('🔴 spending the SAME per-IP daily cap on /api/register (unused here) is not required — Google mints count on their own', async () => {
+    // Every call in this file dials from the SAME loopback address (fix-010:
+    // no proxy in front of an in-process server), so REGISTER_MAX_PER_DAY (2)
+    // real Google mints exhaust the address's whole daily budget without
+    // /api/register ever being touched — proving the cap is on THIS route,
+    // not borrowed from a count somebody else already did.
+    const { verifier } = realVerifier();
+    const url = await saas(verifier);
+
+    const first = await google(url, mint({ sub: 'g-cap-1', email: 'cap1@gmail.com' }));
+    expect(first.status, JSON.stringify(first.json)).toBe(201);
+    const second = await google(url, mint({ sub: 'g-cap-2', email: 'cap2@gmail.com' }));
+    expect(second.status, JSON.stringify(second.json)).toBe(201);
+
+    // The THIRD identity is entirely legitimate on its own — a fresh sub, a
+    // fresh verified email, a token that would mint on any other day. It is
+    // refused by the address's spent budget, not by anything about the token.
+    const third = await google(url, mint({ sub: 'g-cap-3', email: 'cap3@gmail.com' }));
+    expect(third.status, JSON.stringify(third.json)).toBe(429);
+    expect(third.json.error).toBe('REGISTER_RATE_LIMITED');
+    expect(third.json.token).toBeUndefined();
+  });
+
+  it('a SIGN-IN by an already-minted Google account is never charged against the cap', async () => {
+    // The mint-only accounting this route shares with /api/register: an
+    // attempt that resolves to an EXISTING user must not spend one of the
+    // address's two daily mints, or a returning user could lock a shared
+    // office IP out of ever creating a legitimate new account that day.
+    //
+    // ⚠️ EXACTLY FOUR calls in this test, deliberately: the 5/10-min BURST
+    // brake (REGISTER_MAX_ATTEMPTS=5) shares this same address, and a fifth
+    // call would trip THAT one first — a 429 REGISTER_RATE_LIMITED indistin-
+    // guishable on the wire from the daily cap this test is about.
+    const { verifier } = realVerifier();
+    const url = await saas(verifier);
+    const returning = mint({ sub: 'g-returning', email: 'returning@gmail.com' });
+
+    // Mints (spends slot 1 of REGISTER_MAX_PER_DAY=2).
+    const created = await google(url, returning);
+    expect(created.status, JSON.stringify(created.json)).toBe(201);
+    // A repeat sign-in against the SAME row — 200, and (this test's claim) no
+    // slot spent.
+    const repeat = await google(url, returning);
+    expect(repeat.status, JSON.stringify(repeat.json)).toBe(200);
+    // A brand-new identity still fits the budget — it would not if the repeat
+    // above had silently spent the address's last slot.
+    const fresh1 = await google(url, mint({ sub: 'g-fresh-1', email: 'fresh1@gmail.com' }));
+    expect(fresh1.status, JSON.stringify(fresh1.json)).toBe(201);
+    // …and THAT was the address's second and last real mint today — a THIRD
+    // brand-new identity is refused exactly as it would be after two through
+    // /api/register, which is the whole point: the count is shared and real.
+    const fresh2 = await google(url, mint({ sub: 'g-fresh-2', email: 'fresh2@gmail.com' }));
+    expect(fresh2.status, JSON.stringify(fresh2.json)).toBe(429);
+  });
+});
+
 describe('an unconfigured deployment', () => {
   it('answers a named 503 — never a 404, and never a quiet acceptance', async () => {
     // NO injected verifier: this drives the PRODUCTION resolution

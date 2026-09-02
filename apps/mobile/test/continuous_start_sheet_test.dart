@@ -25,6 +25,7 @@ ContinuousOffer _offer({int? cap = 30, double usedMin = 88, double limitMin = 90
       recordOnly: true,
       mode: FlowMode.realtime,
       linkUp: true,
+      signedIn: true,
       summary: CloudSummary(
         minutes: noMeter ? null : CloudMeter(used: usedMin, limit: limitMin),
         tokens: const CloudMeter(used: 1, limit: 20000000),

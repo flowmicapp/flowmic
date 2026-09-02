@@ -97,9 +97,16 @@ export type RouteHealth = 'healthy' | 'degraded' | 'down';
  *    · `priority` = the ONE ordering truth source within a group (lower first);
  *    · `role`     = a label for humans, DERIVED from that ordering.
  *
- *  Encoded two ways: {@link compareByConfig} structurally cannot read `role`
- *  (it is six lines, review them), and {@link auditRoleConsistency} surfaces a
- *  stored `role` that disagrees with the ordering instead of obeying it. */
+ *  Encoded one way today: {@link compareByConfig} structurally cannot read
+ *  `role` (it is six lines, review them). A second encoding used to exist here
+ *  — a function that surfaced a stored `role` disagreeing with the derived
+ *  ordering — but card B2-G (2026-09-02) deleted it: `grep`-ing every `.ts`/
+ *  `.rs`/`.dart` file in the repo found zero callers besides its own tests, no
+ *  ops-console endpoint ever wired it in, so the doc comment's claim that "an
+ *  ops console can run it" was aspirational, not measured. If the ops console
+ *  grows a Q1 conflict check, `compareByConfig` + a fresh pass over `pool`
+ *  reconstructs the same six-line audit; nothing about deleting it here makes
+ *  that harder. */
 export type RouteRole = 'primary' | 'backup';
 
 /** One pool entry — owner's field set from §-0d.
@@ -111,9 +118,22 @@ export type RouteRole = 'primary' | 'backup';
  *  pool row, not the row itself.
  *
  *  ⚠️ `capacity` is carried but NOT read here: "is there headroom right now" is
- *  a runtime-load question a pure function cannot answer. Callers fold it into
- *  {@link SelectRouteInput.isAvailable}. A `capacity` compared against nothing
- *  would be a façade, so it is compared against nothing *here*, on purpose. */
+ *  a runtime-load question a pure function cannot answer, so it is compared
+ *  against nothing *in this file*, on purpose — that part is still true.
+ *
+ *  🔴 CORRECTED (card B2-G, 2026-09-02): the line that used to stand here
+ *  claimed "callers fold it into {@link SelectRouteInput.isAvailable}". That
+ *  was never measured, and it is false today: `grep -rn '\.capacity\b'`
+ *  across `apps/` and `packages/` finds only the two places `capacity` is
+ *  WRITTEN (`stt/pool-config.ts`, parsing a `FLOWMIC_STT_POOL` row or
+ *  synthesising the managed-default route), and no `isAvailable`
+ *  implementation reads it — the one production implementation
+ *  (`stt/pool-health.ts` `makeRouteHealthRegistry().isAvailable`) keys
+ *  entirely off measured liveness, never `route.capacity`. Pinned by
+ *  `test/pool-select-route.test.ts` ("capacity is carried through the pool
+ *  but consulted by nothing"), so this becomes a decision to make out loud —
+ *  wire it into a real `isAvailable`, or stop carrying it — rather than a
+ *  comment quietly going stale a second time. */
 export interface PoolRoute {
   readonly id: string;
   /** 🔴 DATA, not an enum. No group name is hard-coded anywhere in this file;
@@ -264,16 +284,36 @@ export type PoolRefusalCode =
  *  mismatch is a QUALITY failure (curated "suitable for") while a region
  *  mismatch is a LATENCY failure, and owner's mandatory rule is about
  *  languages. Emitted verbatim in the result so forensic can say which
- *  stratum a session came from. */
+ *  stratum a session came from.
+ *
+ *  🔴 `language-family` (card B2-G, 2026-09-02) — a middle rung between
+ *  `language-exact` and the `'*'` wildcard tier, added because it was MISSING
+ *  here while it already exists one layer up: `stt/engine-router.ts`
+ *  `selectRoutingWithSource` matches a request tag against a configured one in
+ *  three rungs — exact, then the SAME base subtag (`toShortLang`, e.g.
+ *  `zh-TW` meeting a `zh-CN` row — owner's explicit intent, 簡體/繁體 is one
+ *  spoken language), then `'*'` — while this file's `tierOf` only ever had
+ *  two (exact, then straight to `'*'`). A pool route curated as `['zh-CN']`
+ *  therefore could not be reached by a `zh-TW` request AT ALL except through
+ *  the wildcard tier, even though the non-pool router one layer up would have
+ *  matched it on the middle rung — the two selection systems disagreed about
+ *  what "this route serves this language" means, silently, for any tag pair
+ *  that shares a base subtag but is not byte-identical. Deliberately NOT
+ *  fuzzier than that: {@link baseSubtag} below is the same one-cut algorithm
+ *  as `toShortLang`, so `ja` still does not reach a `zh` row here either. */
 export type CandidateTier =
   | 'language-exact/region-exact'
   | 'language-exact/region-any'
+  | 'language-family/region-exact'
+  | 'language-family/region-any'
   | 'language-any/region-exact'
   | 'language-any/region-any';
 
 const TIER_ORDER: readonly CandidateTier[] = [
   'language-exact/region-exact',
   'language-exact/region-any',
+  'language-family/region-exact',
+  'language-family/region-any',
   'language-any/region-exact',
   'language-any/region-any',
 ];
@@ -385,6 +425,22 @@ function compareWithinTier(a: PoolRoute, b: PoolRoute): number {
  * Filtering (stratification).
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/** 'zh-CN' → 'zh', 'en-US' → 'en'. Bare tags pass through lower-cased.
+ *
+ *  Deliberately re-implemented here rather than imported from
+ *  `stt/engines/wav.ts`'s identical `toShortLang`: this file's own header
+ *  states it is placed under `src/pool/`, not `src/stt/`, PRECISELY because
+ *  nothing in it is STT-specific (A6 wants the same algorithm for the LLM
+ *  pool) — importing an STT-engine module here would reintroduce the coupling
+ *  that placement exists to avoid. Two copies of a one-line, load-bearing-only-
+ *  by-agreement algorithm is the honest trade; see the note on
+ *  `CandidateTier`'s `language-family` member for why it must stay identical
+ *  to the original rather than drift into something fuzzier. */
+function baseSubtag(tag: string): string {
+  const idx = tag.indexOf('-');
+  return (idx > 0 ? tag.slice(0, idx) : tag).toLowerCase();
+}
+
 /** Which stratum does this route occupy for this request, or null if it is not
  *  a candidate at all? Note "not a candidate" is exclusion, not a low score:
  *  a route that serves neither this language nor this region is never probed. */
@@ -392,14 +448,22 @@ function tierOf(route: PoolRoute, request: RouteRequest): CandidateTier | null {
   // A request whose language IS the wildcard literal is a caller bug; it
   // resolves to the same route set either way, so it is not special-cased.
   const langExact = route.languages.includes(request.language);
+  // card B2-G — the middle rung: same base subtag, not byte-identical. Never
+  // consulted when langExact already matched (exact must not lose to itself
+  // read through the coarser lens), and never matches the wildcard entry
+  // itself (that is langAll's job, not a "family" of one).
+  const langFamily = !langExact && route.languages.some(
+    (l) => l !== LANGUAGE_ANY && baseSubtag(l) === baseSubtag(request.language),
+  );
   const langAll = route.languages.includes(LANGUAGE_ANY);
-  if (!langExact && !langAll) return null;
+  if (!langExact && !langFamily && !langAll) return null;
 
   const regionExact = route.region === request.region;
   const regionAll = route.region === REGION_ANY;
   if (!regionExact && !regionAll) return null;
 
   if (langExact) return regionExact ? 'language-exact/region-exact' : 'language-exact/region-any';
+  if (langFamily) return regionExact ? 'language-family/region-exact' : 'language-family/region-any';
   return regionExact ? 'language-any/region-exact' : 'language-any/region-any';
 }
 
@@ -589,53 +653,4 @@ export function selectRoute(input: SelectRouteInput): RouteSelection {
     failover,
     downgrade,
   };
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Q1, encoded as a check the ops console can run.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-export interface RoleConflict {
-  readonly group_id: string;
-  readonly route_id: string;
-  readonly stored_role: RouteRole;
-  readonly derived_role: RouteRole;
-}
-
-/**
- * Find routes whose stored `role` disagrees with the ordering `priority`
- * actually produces.
- *
- * 🔴 This is the Q1 position made machine-checkable. Selection obeys
- * `priority`; `role` is a label. Where the two disagree the label is wrong, and
- * an ops console that shows a "primary" the engine will never pick is a value
- * answering a second question. Surfacing the disagreement is the alternative to
- * silently having two primaries.
- *
- * Disabled routes are skipped — a route that can never be picked has no role.
- */
-export function auditRoleConsistency(pool: readonly PoolRoute[]): readonly RoleConflict[] {
-  const byGroup = new Map<string, PoolRoute[]>();
-  for (const r of pool) {
-    if (!r.enabled) continue;
-    const list = byGroup.get(r.group_id);
-    if (list === undefined) byGroup.set(r.group_id, [r]);
-    else list.push(r);
-  }
-  const conflicts: RoleConflict[] = [];
-  for (const [group_id, routes] of byGroup) {
-    const ordered = [...routes].sort(compareByConfig);
-    ordered.forEach((route, index) => {
-      const derived: RouteRole = index === 0 ? 'primary' : 'backup';
-      if (route.role !== derived) {
-        conflicts.push({
-          group_id,
-          route_id: route.id,
-          stored_role: route.role,
-          derived_role: derived,
-        });
-      }
-    });
-  }
-  return conflicts;
 }

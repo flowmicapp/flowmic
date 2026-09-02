@@ -5,6 +5,8 @@
 // design's §3 table is built around and the one a component test could not make.
 
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   FAILURE_KEYS,
   UPDATE_MANIFEST_BASE,
@@ -263,6 +265,30 @@ describe('the last attempt’s notice', () => {
         rolledBack: false,
       });
     }
+  });
+
+  /**
+   * D4 (2026-09-02 audit §3-D), anti-façade ④: the fixture above ('rolled_back:x')
+   * only proves the STRING MATCHER works — it says nothing about whether the mover
+   * ever actually produces a string with that prefix. It did not: `swap.rs`'s
+   * successful-rollback arm used to write `install:{park_err}`, a prefix this
+   * function has never recognised, so `rolledBack` was `false` on every real
+   * rollback the mover ever performed, for as long as that code existed. This
+   * test reads the Rust source itself so a future rename of the prefix on either
+   * side fails HERE instead of silently reopening the same gap.
+   */
+  it('🔴 the mechanism it describes is still the rollback prefix — pinned in Rust', () => {
+    const repo = (rel: string) => fileURLToPath(new URL('../../../../' + rel, import.meta.url));
+    const swap = readFileSync(repo('apps/desktop/src-tauri/src/update/swap.rs'), 'utf8');
+    // The successful-rollback arm: staging failed, backup_dir was renamed back
+    // to install_dir successfully (`Ok(())`), so the OLD copy is running again.
+    const okArm = swap.slice(swap.indexOf('Ok(()) => SwapOutcome::Failed'));
+    expect(okArm, 'the successful-rollback arm moved — the anchor needs updating').not.toBe('');
+    const detailLine = okArm.slice(0, okArm.indexOf('rolled_back: true'));
+    expect(
+      detailLine,
+      'the mover no longer writes a `rolled_back:` prefix on a successful rollback — pendingNotice will never show it again',
+    ).toContain('"rolled_back:{park_err}"');
   });
 });
 

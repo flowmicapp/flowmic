@@ -51,6 +51,24 @@ class InjectResult {
   final InjectTarget? target;
   final String? entryId;
   final String? requestId;
+
+  /// 🔴 Card F12/F1-d (2026-09-02) — how long the SERVER measured before this
+  /// same refusal is worth trying again, when it bothered to say. Not in
+  /// `InjectResultSchema` today (no producer sets it on this frame yet — see
+  /// this field's own doc for the gap), read defensively so the day a
+  /// producer does add it, this reader does not need to change. Absence
+  /// (`null`) is a fact, never defaulted to 0: a hold-out of 0ms would mean
+  /// "retry immediately," which is a claim nobody measured.
+  final int? retryAfterMs;
+
+  /// 🔴 Card B3 (2026-09-02, WP-6) — carried ONLY on a server-authored
+  /// `INJECT_PC_OFFLINE` (relay.handler.ts `answerReject`). [node] is which
+  /// process answered; [homeNode] is that same process's own, possibly stale,
+  /// reading of where the PC currently lives (`pc_devices.home_node`). See
+  /// `pcPresenceFromInjectResult` for what this phone does with the pair —
+  /// ADVISORY only, never treated as proof either way.
+  final String? node;
+  final String? homeNode;
   const InjectResult({
     required this.ok,
     required this.mode,
@@ -58,6 +76,9 @@ class InjectResult {
     this.target,
     this.entryId,
     this.requestId,
+    this.retryAfterMs,
+    this.node,
+    this.homeNode,
   });
 
   /// The correlation key the mobile keys write-back on: entry_id first (exact,
@@ -76,6 +97,11 @@ class InjectResult {
       target: InjectTarget.tryParse(j['inject_target']),
       entryId: j['entry_id'] is String ? j['entry_id'] as String : null,
       requestId: j['request_id'] is String ? j['request_id'] as String : null,
+      retryAfterMs: j['retry_after_ms'] is num
+          ? (j['retry_after_ms'] as num).round()
+          : null,
+      node: j['node'] is String ? j['node'] as String : null,
+      homeNode: j['home_node'] is String ? j['home_node'] as String : null,
     );
   }
 }
@@ -119,19 +145,27 @@ class SttError {
   final String code;
   final String message;
   final bool retryable;
+  /// WP-9 — the additive `judged_account` field (`'self'` | `'pc_owner'`),
+  /// verbatim off the wire. Null on any server build that predates it, or on
+  /// any code other than `QUOTA_EXCEEDED` (the only refusal card QTA-2 can
+  /// attribute to a second account). See `SttStall.judgedAccount`.
+  final String? judgedAccount;
   const SttError({
     required this.code,
     required this.message,
     required this.retryable,
+    this.judgedAccount,
   });
 
   static SttError? tryFromJson(Map<String, Object?> j) {
     final Object? code = j['code'];
     if (code is! String || code.isEmpty) return null;
+    final Object? judged = j['judged_account'];
     return SttError(
       code: code,
       message: j['message'] is String ? j['message'] as String : '',
       retryable: j['retryable'] == true,
+      judgedAccount: judged is String ? judged : null,
     );
   }
 }

@@ -18,6 +18,7 @@
 gen:
 	node tool/gen_protocol.mjs
 	node ../../scripts/i18n/gen-mobile-dart.mjs
+	node ../../scripts/i18n/gen-protocol-error-sentences-dart.mjs
 
 analyze: gen
 	flutter analyze

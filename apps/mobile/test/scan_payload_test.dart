@@ -97,25 +97,4 @@ void main() {
     });
   });
 
-  group('resolvePairEntryMode (owner: 扫码优先于手输)', () {
-    test('scan is the default entry', () {
-      final PairEntryMode m = resolvePairEntryMode(
-        cameraUsable: true,
-        cameraUnavailableReason: 'x',
-      );
-      expect(m.tab, PairTab.scan);
-      expect(m.fallbackReason, isNull);
-    });
-
-    test('no camera falls back to manual AND carries the reason', () {
-      // The red line: falling back is correct, falling back silently is not —
-      // the user would just see a form and never learn the camera was refused.
-      final PairEntryMode m = resolvePairEntryMode(
-        cameraUsable: false,
-        cameraUnavailableReason: '相机权限被拒绝',
-      );
-      expect(m.tab, PairTab.manual);
-      expect(m.fallbackReason, '相机权限被拒绝');
-    });
-  });
 }

@@ -147,6 +147,13 @@ describe('A2-3 · enforcement — every console feature refuses BY NAME, the car
     ['POST', '/api/cloud/stt-routings', { routings: [] }],
     ['POST', '/api/cloud/stt-routings/test', { routing: { language: 'en', engine_id: 'custom-openai-compatible', endpoint: 'http://127.0.0.1:9/v1' } }],
     ['POST', '/api/cloud/devices/revoke', { pairing_id: 'p-x' }],
+    // P2-4 (2026-09-02 audit) — console-routes.ts's own restriction-gate doc
+    // comment named "timeline-grants REST" as an open hole this census does
+    // not cover; the keymeta file shared the same gap. Both are wired now.
+    ['GET', '/api/timeline/keymeta'],
+    ['PUT', '/api/timeline/keymeta', { salt_b64: 'p2-4-salt', sentinel: 'p2-4-sentinel' }],
+    ['GET', '/api/timeline/grants'],
+    ['DELETE', '/api/timeline/grants/p2-4-nonexistent-gid'],
   ];
 
   it('🔴 restricted → 403 ACCOUNT_RESTRICTED on every gated route; the SAME account released → never that refusal', async () => {

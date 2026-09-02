@@ -24,7 +24,7 @@
 // two different sentences and only one of them has a Download button under it.
 
 import { reactive } from 'vue';
-import { CH, fetchSidecarState, onChannel, type SidecarStatus } from './bridge';
+import { CH, fetchSidecarState, onChannel, sidecarBaseUrl, type SidecarStatus } from './bridge';
 import {
   asModelsStatus, pushRateSample,
   type ModelSnapshot, type ModelsStatus,
@@ -48,7 +48,7 @@ export interface ModelTransport {
 }
 
 export const defaultModelTransport: ModelTransport = {
-  baseUrl: async (): Promise<string | null> => (await fetchSidecarState())?.endpoint ?? null,
+  baseUrl: sidecarBaseUrl,
 };
 
 /** Could we ask at all? Deliberately FOUR values — see the pre-LM-CAT header
@@ -88,6 +88,15 @@ export interface ModelStore {
   /** §5-B: 「记住本次不提醒」. Module state, not storage — dies with the
    *  WebView, which is what "for this session" means. */
   noticeDismissed: boolean;
+  /** E5 — the sidecar's own lifecycle phase (`SidecarStatus.phase`), recorded
+   *  verbatim from `flowmic://sidecar-state` regardless of whether it is a
+   *  wake phase. `null` until the first frame arrives. This is a SEPARATE fact
+   *  from `reach`: `reach` answers "did our last HTTP probe get a usable
+   *  answer", `sidecarPhase` answers "what does the sidecar's own supervisor
+   *  say is happening" — and only the second one can be `'failed'`, a verdict
+   *  Rust already reached rather than something this store infers from
+   *  silence. */
+  sidecarPhase: string | null;
 }
 
 export const modelStore = reactive<ModelStore>({
@@ -100,6 +109,7 @@ export const modelStore = reactive<ModelStore>({
   actionError: null,
   rateSamples: [],
   noticeDismissed: false,
+  sidecarPhase: null,
 });
 
 /** Tests re-arm the module-level store — one copy of the state means one place
@@ -115,6 +125,7 @@ export function resetModelStoreForTest(next: Partial<ModelStore> = {}): void {
     actionError: null,
     rateSamples: [],
     noticeDismissed: false,
+    sidecarPhase: null,
   }, next);
 }
 
@@ -330,8 +341,28 @@ export const POLL_IDLE_MS = 10_000;
 /** The sidecar phases on which the model store re-asks immediately. */
 export const MODEL_WAKE_PHASES: ReadonlySet<string> = new Set(['healthy', 'adopted_external']);
 
-/** The subscription's body, split out so a test can drive it without Tauri. */
-export function onSidecarPhaseForModel(phase: string | null | undefined, t: ModelTransport): void {
+/** E5 (2026-09-02) — the subscription's body, split out so a test can drive it
+ *  without Tauri. Before this, the sidecar's own lifecycle phase was consumed
+ *  ONLY to decide whether to wake the poller early; a TERMINAL phase
+ *  (`failed`) was thrown away just as readily as a transient one, so the card
+ *  had no way to distinguish "the sidecar has not answered YET" (quiet,
+ *  resolves on its own) from "the sidecar already told Rust it gave up"
+ *  (never resolves on its own — the card's `knowledge === 'connecting'` face
+ *  hid the recheck action exactly where it was needed). `sidecarPhase` is now
+ *  recorded unconditionally so LocalModelCard.vue can read it. */
+export function onSidecarPhaseForModel(
+  phase: string | null | undefined,
+  t: ModelTransport,
+  detail: string | null = null,
+): void {
+  modelStore.sidecarPhase = phase ?? null;
+  // A `failed` phase already carries a specific, more useful detail than
+  // "no local service endpoint" (the `no-endpoint` reason `refreshModelStatus`
+  // would otherwise leave in `reachReason` forever, since `status` stays null
+  // and that branch is gated on `status !== null`). It is the same field the
+  // fold beneath the recheck button already renders, so no template needed a
+  // new sink for it.
+  if (phase === 'failed' && detail !== null && detail !== '') modelStore.reachReason = detail;
   if (MODEL_WAKE_PHASES.has(phase ?? '')) void refreshModelStatus(t);
 }
 
@@ -379,8 +410,16 @@ export function startModelPolling(t: ModelTransport = defaultModelTransport): ()
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
   if (typeof window !== 'undefined') window.addEventListener('focus', onVisible);
   const unlistenSidecar = onChannel<SidecarStatus>(CH.sidecarState, (p) =>
-    onSidecarPhaseForModel(p?.phase, t),
+    onSidecarPhaseForModel(p?.phase, t, p?.detail ?? null),
   );
+  // E5 — `flowmic://sidecar-state` fires only on CHANGE (same shape as the
+  // capsule's RV-07 CONNECTION seed, connection-directory.ts). A settings page
+  // opened AFTER the sidecar already reached `failed` would otherwise never
+  // learn that: nothing changes it further, so no push ever arrives, and
+  // `modelStore.sidecarPhase` stays at its initial `null` for the entire
+  // session. Registered above, pulled here — same order the capsule's seed
+  // comment insists on, for the same reason.
+  void fetchSidecarState().then((s) => onSidecarPhaseForModel(s?.phase ?? null, t, s?.detail ?? null));
 
   return () => {
     stopped = true;

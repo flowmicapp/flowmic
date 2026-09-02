@@ -278,11 +278,6 @@
       "params": []
     },
     {
-      "key": "nodeLegOrigin",
-      "leaf": "_lfNodeLegOrigin",
-      "params": []
-    },
-    {
       "key": "nodeLegTotal",
       "leaf": "_lfNodeLegTotal",
       "params": []
@@ -800,6 +795,11 @@
     {
       "key": "continuousEntryQuotaSpentNote",
       "leaf": "_lfContinuousEntryQuotaSpentNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntrySignInNote",
+      "leaf": "_lfContinuousEntrySignInNote",
       "params": []
     },
     {
@@ -2314,11 +2314,6 @@
       "params": []
     },
     {
-      "key": "loginScanOpen",
-      "leaf": "_lfLoginScanOpen",
-      "params": []
-    },
-    {
       "key": "loginScanTitle",
       "leaf": "_lfLoginScanTitle",
       "params": []
@@ -2901,11 +2896,6 @@
       "params": []
     },
     {
-      "key": "plusPanelTitle",
-      "leaf": "_lfPlusPanelTitle",
-      "params": []
-    },
-    {
       "key": "plusSelectionImagesSeparate",
       "leaf": "_lfPlusSelectionImagesSeparate",
       "params": []
@@ -3175,11 +3165,6 @@
       "params": []
     },
     {
-      "key": "reloginRequired",
-      "leaf": "_lfReloginRequired",
-      "params": []
-    },
-    {
       "key": "removeDidNotReachServer",
       "leaf": "_lfRemoveDidNotReachServer",
       "params": []
@@ -3273,6 +3258,21 @@
     {
       "key": "restrictionReasonNote_terms_violation",
       "leaf": "_lfRestrictionReasonNote_terms_violation",
+      "params": []
+    },
+    {
+      "key": "retainedAudioNoticeCapReached",
+      "leaf": "_lfRetainedAudioNoticeCapReached",
+      "params": []
+    },
+    {
+      "key": "retainedAudioNoticeDroppedOldest",
+      "leaf": "_lfRetainedAudioNoticeDroppedOldest",
+      "params": []
+    },
+    {
+      "key": "retainedAudioNoticeExpired",
+      "leaf": "_lfRetainedAudioNoticeExpired",
       "params": []
     },
     {
@@ -3770,6 +3770,11 @@
       "params": []
     },
     {
+      "key": "sttStallQuotaExceededPcOwner",
+      "leaf": "_lfSttStallQuotaExceededPcOwner",
+      "params": []
+    },
+    {
       "key": "sttStallServerFault",
       "leaf": "_lfSttStallServerFault",
       "params": []
@@ -4055,6 +4060,11 @@
     {
       "key": "updateOwnVersionUnknown",
       "leaf": "_lfUpdateOwnVersionUnknown",
+      "params": []
+    },
+    {
+      "key": "updatePlatformNotCovered",
+      "leaf": "_lfUpdatePlatformNotCovered",
       "params": []
     },
     {

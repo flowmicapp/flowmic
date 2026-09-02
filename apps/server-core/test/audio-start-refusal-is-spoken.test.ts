@@ -349,6 +349,42 @@ describe('K-5: audio:start refusals are attributable', () => {
   });
 });
 
+// ── card WP-9 (2026-09-02, findings-crossend-quota.md #3) ────────────────────
+//
+// K-5 above proves the LOG line names which ledger was hit. This block proves
+// the WIRE FRAME does too — additively — because the log is server-only and
+// the phone read the exact same string ("本月转录额度已用完") whichever ledger
+// QTA-2 actually judged. A phone signed into account A, paired to a PC signed
+// into account B whose month is spent, was told "your quota", which is false
+// whenever the two accounts differ; only the PC OWNER can fix it.
+describe('WP-9: stt:error carries WHICH ledger QUOTA_EXCEEDED judged', () => {
+  it("the PC-owner half's frame carries judged_account:'pc_owner'", () => {
+    const mobile = dualWire('pc-acct', 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')[0]).toMatchObject({
+      code: 'QUOTA_EXCEEDED', judged_account: 'pc_owner',
+    });
+  });
+
+  it("the acting half's frame carries judged_account:'self'", () => {
+    const mobile = dualWire('phone-acct', 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(mobile.received('stt:error')[0]).toMatchObject({
+      code: 'QUOTA_EXCEEDED', judged_account: 'self',
+    });
+  });
+
+  it('every OTHER refusal code carries no judged_account at all — additive, not a new field on every frame', () => {
+    const mobile = wire(false);
+    // The payload arm (invalid frame ⇒ STT_CONFIG_MISSING) — same shape the
+    // "payload arm carries delivery:null" row above already drives.
+    mobile.fire('audio:start', { mode: 'not-a-mode' }, () => {});
+    const frame = mobile.received('stt:error')[0] as Record<string, unknown>;
+    expect(frame.code).toBe('STT_CONFIG_MISSING');
+    expect('judged_account' in frame).toBe(false);
+  });
+});
+
 // ── card K-3: nothing between the auth check and the ack may be unguarded ────
 //
 // The fan-out emit and `sessions.put` used to sit between the quota catch and

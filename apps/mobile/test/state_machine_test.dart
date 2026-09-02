@@ -123,6 +123,22 @@ void main() {
         expect(fsm.session, SessionState.disconnected);
       });
     });
+
+    test('⟲ Card P2-2: the grace deadline is anchored to the FIRST drop, not re-armed by every later flip', () {
+      fakeAsync((async) {
+        connect();
+        fsm.onPttDown();
+        fsm.onSocketStatus(SocketStatus.disconnected); // first drop, t=0
+        async.elapse(const Duration(seconds: 2));
+        // Still not connected — a transport bouncing through another
+        // non-connected status before giving up (or reconnecting) must not
+        // push the 3 s deadline out from here.
+        fsm.onSocketStatus(SocketStatus.error);
+        async.elapse(const Duration(seconds: 2)); // 4 s since the FIRST drop
+        expect(fsm.session, SessionState.disconnected,
+            reason: 'grace is measured from the first drop (3 s < 4 s elapsed), not re-armed by the second flip');
+      });
+    });
   });
 
   // ── GA-03: the PROCESSING safety net ──────────────────────────────────────

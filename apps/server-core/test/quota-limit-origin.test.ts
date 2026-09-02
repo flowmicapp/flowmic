@@ -195,6 +195,59 @@ describe('fix-025 ① — which ceiling applied, and what the origin says about 
 });
 
 /* ══════════════════════════════════════════════════════════════════════════════
+ * 1b — 🔴 card B2-G — a bailed-out rollover must not let the leg run to ~2x.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+describe('B2-G — retryEngineCeilingSoon: a bailed-out rollover is retried soon, not after another full ceiling', () => {
+  it('the ceiling stays DUE across a retry — the next check is ~250ms later, not another full ceiling away', async () => {
+    // Simulates the exact bail-out `onEngineSessionExpired` hits (a rollover
+    // already in flight / hung up for idle / no engine): the listener cannot
+    // rotate on the first NATURAL tick, so it calls `retryEngineCeilingSoon()`
+    // instead of doing nothing.
+    const r = rig({ engineCeilingMs: 300_000 });
+    await r.clock.advance(300_000);
+    expect(r.rollovers).toEqual([300_000]); // the natural first tick, unaffected
+    r.session.retryEngineCeilingSoon();
+    await r.clock.advance(250);
+
+    // BEFORE this card: `onHardLimit()` had already re-anchored `legStartedAt`
+    // to the first tick (300_000) regardless of the bail-out, so the SECOND
+    // firing could only arrive at 600_000 — a leg that could never rotate
+    // would run for up to 600_000ms (2x the 300_000ms ceiling) before anything
+    // acted again. Rewinding `legStartedAt` by the ceiling on retry keeps the
+    // SAME deadline due, so the retry re-fires at 300_250, not 600_000.
+    expect(r.rollovers).toEqual([300_000, 300_250]);
+  });
+
+  it('once a retry is no longer bailed, the leg re-anchors from the moment it actually rotated', async () => {
+    // Bail out exactly once, then let the (fake) rollover "succeed" on the
+    // retry by doing nothing further — `onHardLimit`'s normal re-anchor takes
+    // over from there, so every SUBSEQUENT gap is a full ceiling again, not a
+    // string of 250ms polls.
+    const r = rig({ engineCeilingMs: 300_000 });
+    let bailedOnce = false;
+    r.session.on('engine_session_expired', () => {
+      if (!bailedOnce) { bailedOnce = true; r.session.retryEngineCeilingSoon(); }
+    });
+    await r.clock.advance(900_000 + 250);
+
+    expect(r.rollovers).toEqual([300_000, 300_250, 600_250, 900_250]);
+  });
+
+  it('reverse-control shape: without calling retryEngineCeilingSoon, a bail-out is invisible to this test — the bug is real only because of the unconditional re-anchor', async () => {
+    // Documents the baseline this card changed nothing about: a listener that
+    // simply returns (the actual `onEngineSessionExpired` shape before B2-G)
+    // still only sees the next ceiling a full engineCeilingMs later. This is
+    // the behaviour that made the bug possible — not a defect on its own
+    // (the fix is calling retryEngineCeilingSoon on bail-out, tested above).
+    const r = rig({ engineCeilingMs: 300_000 });
+    await r.clock.advance(600_000);
+
+    expect(r.rollovers).toEqual([300_000, 600_000]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════
  * 2 — 🔴 THE QUOTA BOUNDARY. The assertion that would have caught this.
  * ═════════════════════════════════════════════════════════════════════════════ */
 

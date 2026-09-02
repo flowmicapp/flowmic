@@ -124,9 +124,6 @@ class BlindStoreSyncReport {
   /// The transport or server refusal that stopped a stage, if any.
   final String? failure;
 
-  bool get ranSomething =>
-      pushed > 0 || deletesConfirmed > 0 || merged > 0 || tombstonesApplied > 0;
-
   Map<String, Object?> toDiag() => <String, Object?>{
     if (blocked != null) 'blocked': blocked!.name,
     'pushed': pushed,

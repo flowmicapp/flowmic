@@ -47,117 +47,55 @@ export type { RecentLine, RecentStatus } from './recent-line';
 import { deriveSessionTitle } from './session-title';
 export { deriveSessionTitle } from './session-title';
 
+// CONNECTION admission + phone-name directory (`onConnection` / `seedConnection` /
+// `refreshMobileDirectory` / `acceptRecentChannel` / the two primaryChannel test hooks)
+// moved VERBATIM to connection-directory.ts (800-line cap). Re-exported here so no
+// import site moved.
+import {
+  acceptRecentChannel,
+  onConnection,
+  primaryChannelForTest,
+  refreshMobileDirectory,
+  resetDirectoryEdgeForTest,
+  resetPrimaryChannelForTest,
+  seedConnection,
+  setConnectionSnapshotFetcher,
+  setDirectoryFetcher,
+} from './connection-directory';
+export {
+  acceptRecentChannel,
+  onConnection,
+  primaryChannelForTest,
+  refreshMobileDirectory,
+  resetDirectoryEdgeForTest,
+  resetPrimaryChannelForTest,
+  seedConnection,
+  setConnectionSnapshotFetcher,
+  setDirectoryFetcher,
+} from './connection-directory';
 
-const morph = new CapsuleMorph();
-const vis = new CapsuleVisibility();
-const watchdog = new SpeakingWatchdog();
 
-/** Honest STT engine health for the capsule diagnostic (R6-R2). `known` stays
- *  false until a real stt:engine-status arrives — the row then shows "undetected" (未探测)
- *  rather than a fabricated green "ready · FunASR" (就绪 · FunASR). */
-type EngineStatus = 'ready' | 'reconnecting' | 'failed';
 
-export const state = reactive({
-  form: 'idle' as Morph,
-  visible: false,
-  /** An utterance is in flight (owner 2026-07-27) — the × is disabled, because a
-   *  capsule that vanishes mid-transcription takes away the only view of what is
-   *  being typed. Mirrors CapsuleVisibility.isSpeaking(). */
-  speaking: false,
-  /** Desktop socket-to-sidecar transport (the "Socket transport" (Socket 传输) diag row). */
-  connected: false,
-  /** `Credentials::is_registered()` — survives socket drop (T-5b). */
-  registered: false,
-  mobiles: 0,
-  /** Real phone presence, mobiles>0 (R6-C1 — drives surfacing + the "phone present" (手机在场) row).
-   *  Distinct from `connected`: the socket is up from boot before any phone pairs. */
-  phonePresent: false,
-  // `as string` is load-bearing: strings.ts is `as const`, so the catalog value is
-  // the literal type '手机' (phone) and would narrow this field — but `deriveSessionTitle`
-  // overwrites it with an arbitrary pairing name from pc:list-mobiles. Do not "clean
-  // up". (卡 D-a: the reason used to be cited as audio:start's device_label, a field
-  // that does not exist on AudioStartSchema — the annotation is still needed, its
-  // justification was not.)
-  session: S.cap_session_default as string,
-  /** RV-01 / RV-新B — the channel currently carrying the runtime, learned from the
-   *  CONNECTION frames/seed (which is where `primary` / admission lives). THE one
-   *  answer to "which channel is current" on this window, used for three things:
-   *  (1) the "current channel" diag label; (2) which endpoint that diag row shows;
-   *  (3) the "delivered-in record" (转入记录) strip filter — the main window now accepts both channels
-   *  (owner: timeline = all messages for this PC), so without a capsule-side filter the strip
-   *  would interleave two servers.
-   *
-   *  It used to be `state.cloud.channel`, the device-page PREFERENCE — a flag with no
-   *  writer since owner 2026-07-30 ②, hence a constant 'lan' (RV-新B). */
-  channel: 'lan' as ChannelTag,
-  /** Full cloud status for deriveConnDot (T-5b four-state connection dot). */
-  cloud: { ...EMPTY_CLOUD_STATUS } as CloudStatus,
-  /** Sidecar lifecycle phase for LAN loud-fault red (null = not yet probed). */
-  sidecarPhase: null as string | null,
-  /** The LAN sidecar's address when it has resolved one ('' = not yet). The diag row
-   *  picks between this and `cloud.endpoint` by `channel` AT RENDER TIME — it used to
-   *  be one latched `endpoint` field written by whichever of the two pushes arrived
-   *  last, which now that `channel` really does move at runtime would show the other
-   *  channel's address until one of those pushes happened to fire again. */
-  sidecarEndpoint: '' as string,
-  /** The window the NEXT utterance would land in (GA-25). Live from
-   *  `flowmic://focus-changed` while unlocked, frozen while `locked`, and
-   *  overwritten by `inject:result` (delivered truth outranks observation).
-   *  `''` → the view renders "—"; we never fabricate a destination. */
-  target: '',
-  locked: false,
-  interim: '',
-  finalText: '',
-  level: 0,
-  segs: 0,
-  /** 🔴 `confirmed` = 甲-3's ③evidence, reduced to the one bit this face needs
-   *  (owner 2026-08-07). `true` ⇒ the green card says "injected" (已注入); anything else ⇒ "delivered" (已送入).
-   *  A BOOLEAN, not the raw three-value reading, because this face asks exactly one
-   *  question ("which word") — the three-way fact lives on the row (TimelineRow
-   *  .focus_evidence) where the tooltip/parenthetical can tell "asked but couldn't answer" (问了答不出来)
-   *  from "never asked" (没问). ⚠️ It must default to `false`: "we never asked" (我们没问过) may not license "confirmed" (已确认). */
-  injected: null as { target: string; chars: number; seconds: number; confirmed: boolean } | null,
-  /** The truthful non-injected outcome (R6-R1 / RV-43 §4).
-   *  cached = ok:false+mode:cached → 📥 "not injected · cached" (amber); otherwise
-   *  ✗ not injected (red; the word was "unsuccessful" until owner deleted "failed"-class wording on
-   *  2026-08-07 — `cap_inject_failed` now references `st_failed`).
-   *  The retired readback-uncertain face is gone (0.2.22).
-   *  ⚠️ 卡 L7 — this line originally read "📥 not delivered …… and it matches the phone",
-   *  **both halves were the defect itself**: this PC had already received that frame
-   *  (otherwise this face would not appear), so saying "not delivered" used a
-   *  segment-① word on segment ②; and "matches the phone" was exactly the reason
-   *  it got copied over here in the first place. See
-   *  lib/strings/capsule.ts's file header and docs/rebuild/15 §2.0. */
-  injectFailed: null as {
-    target: string;
-    cached: boolean;
-    reason: string;
-    /** 🔴 book 15 §2.5e-4 — WHICH of `cached`'s three causes, in words; `null` when the
-     *  cause adds nothing the badge does not say. A SEPARATE field from `reason`, not
-     *  "reason, but also shown when cached": they answer different questions ("why did this
-     *  attempt fail" vs "why didn't this one get injected") and their code sets differ on purpose —
-     *  `INJECT_FOCUS_LOST` is a reason and is NOT a named cached cause. One value, one question. */
-    cachedCause: string | null;
-  } | null,
-  diagOpen: false,
-  /** V2-15: structured "delivered-in record" (转入记录) rows (was string[]). Written ONLY by the
-   *  history wire handlers below — never by inject:result, whose `mode` is the
-   *  DELIVERY mode (sendinput|clipboard|cached), not the content state. */
-  recent: [] as RecentLine[],
-  /** pairing_id → phone name (手机名) (V2-15 row sender / V2-16 pre-utterance title). A
-   *  FAILED refresh keeps the previous map: "we could not ask" is not "the
-   *  phone has no name" (paired-mobiles.ts honesty rule). */
-  mobileNames: {} as Record<string, string>,
-  engineProvider: '',
-  engineStatus: '' as '' | EngineStatus,
-  engineKnown: false,
-  /** Last non-null loud reason observed (diag "most recent fault" (最近一次故障); omit until first).
-   *  Latched on purpose — the row outlives recovery so the card can explain what
-   *  happened, which is why the label says "most recent" (最近一次) and not "fault reason" (故障原因). */
-  lastLoudReason: null as string | null,
-});
+
+// Shared runtime instances (`morph`/`vis`/`watchdog`) and the reactive `state`
+// moved VERBATIM to capsule-state.ts (800-line cap; also breaks the import cycle
+// connection-directory.ts would otherwise create — see that file's header).
+// Re-exported here so no import site moved.
+import { morph, state, vis, watchdog } from './capsule-state';
+export { morph, state, vis, watchdog } from './capsule-state';
 
 let speakStart = 0;
+/** E2 (2026-09-02) — true only between an onAudioStart and the inject:result that
+ *  settles it. An image send or a manual-text inject never calls onAudioStart, so
+ *  `speakStart` stays at whatever the PREVIOUS utterance left it (or 0) and
+ *  `state.finalText`/`interim` likewise still hold the previous spoken text — before
+ *  this flag existed, onInjectResult built `chars`/`seconds` from those stale values
+ *  unconditionally: an image inject showed the last utterance's char count, and a
+ *  manual-text inject with `speakStart` still 0 showed the elapsed-since-epoch
+ *  duration, roughly 1.7e9 seconds. This is reset to false every time onInjectResult
+ *  consumes it, so it answers "did AUDIO happen for the utterance this result is
+ *  settling" and nothing carries over to the next one. */
+let utteranceHadAudio = false;
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
@@ -184,6 +122,7 @@ function onAudioStart(_p: unknown): void {
   state.injectFailed = null;
   state.locked = true;
   speakStart = now;
+  utteranceHadAudio = true;
   // 卡 D-a — the `device_label` read that used to live here is GONE. It was a dead
   // branch defended by a false comment (see deriveSessionTitle): `AudioStartSchema`
   // (packages/protocol/src/protocol-schemas-audio.ts) declares no such key, zod strips
@@ -308,8 +247,18 @@ export function onInjectResult(p: unknown): void {
       // FlowMic) and RV-83's disk replay, whose own doc forbids re-claiming a place
       // it never observed. '' renders as no arrow — never a fabricated destination.
       target: resultTarget,
-      chars: [...(state.finalText || state.interim)].length,
-      seconds: Math.max(0, (now - speakStart) / 1000),
+      // E2 (2026-09-02) — `null` for an image send or a manual-text inject: neither
+      // ever ran onAudioStart, so there is no spoken text and no speech-start clock
+      // to measure against. Before this guard the sub-line still rendered — with
+      // whatever `state.finalText`/`interim` a PRIOR utterance had left behind for
+      // "chars", and `(now - speakStart)/1000` for "seconds" (≈1.7e9 s when
+      // `speakStart` was still its initial 0).
+      metrics: utteranceHadAudio
+        ? {
+            chars: [...(state.finalText || state.interim)].length,
+            seconds: Math.max(0, (now - speakStart) / 1000),
+          }
+        : null,
       // `=== 'editable'` and nothing looser: absent and 'unknown' and 'not_editable'
       // all mean we cannot claim confirmation (see the field's doc above).
       confirmed: r.focus_evidence === 'editable',
@@ -346,6 +295,10 @@ export function onInjectResult(p: unknown): void {
         : null,
     };
   }
+  // E2 — this result is settled; the NEXT one (which may be an image send or a
+  // manual-text inject with no onAudioStart of its own) must not inherit "yes,
+  // there was audio" from this utterance.
+  utteranceHadAudio = false;
 }
 // The two writers of `state.target` are exported (GA-25) so the ordering contract
 // between them — live focus vs. delivered truth — is unit-testable against the real
@@ -370,178 +323,6 @@ function onEngineStatus(p: unknown): void {
     state.engineKnown = true;
   }
 }
-// Exported (like the state.target writers above) so the GA-28 primary-gate — a
-// non-primary presence frame must NOT surface the HUD — is unit-testable against
-// the real reactive state. initCapsule is still the only place that wires it.
-/** Test hooks for the current channel. It lives on `state` (see `state.channel`) rather
- *  than in a module `let`, so there is exactly ONE copy of "which channel is current" in this
- *  window; specs re-arm it here (same reason resetDirectoryEdgeForTest exists). */
-export function primaryChannelForTest(): ChannelTag {
-  return state.channel;
-}
-export function resetPrimaryChannelForTest(ch: ChannelTag = 'lan'): void {
-  state.channel = ch;
-}
-
-export function onConnection(p: unknown): void {
-  const c = p as ConnectionState;
-  // GA-28 (owner UAT 2026-07-26): BOTH resident channels push a CONNECTION frame,
-  // and connection frames only fire on CHANGE. The capsule must key off the
-  // PRIMARY channel alone — exactly like the main-window store (store.ts) and the
-  // "phones online" (在线手机) diag row. A lingering phone on the NON-primary (presence) channel was
-  // surfacing the HUD for a PC whose active instance had no phone: the capsule
-  // floated on the cloud relay (云端中继) (primary, phones online (在线手机) = 0) because a stale LAN presence frame
-  // carried mobiles>0 and was the last frame it received. `primary` absent = a
-  // pre-GA-28 single-socket shell, which is by definition the primary one.
-  if (c.primary === false) return;
-  // Past the gate ⇒ this frame IS the primary channel's. An absent tag = a
-  // pre-GA-28 single-socket shell, which was LAN.
-  const next = asChannelTag(c.channel) ?? 'lan';
-  // Primary flipped → the strip's rows belong to a different server. Clear and
-  // re-seed; keeping the old list would show the wrong channel's "delivered-in record" (转入记录).
-  if (next !== state.channel) {
-    state.channel = next;
-    // Cleared, but NOT re-seeded — the seed pull is gone with the server's transcript
-    // store and nothing replaces it (there is no elsewhere to read rows from). The
-    // strip refills from whatever arrives next, which since the row-transit round is
-    // a real stream again: each delivery on the new primary mints a row.
-    state.recent = [];
-  }
-  // `connected` = desktop socket transport; `phonePresent` = a real phone in the
-  // room (mobiles>0). R6-C1: surfacing keys off phone presence, NOT the socket.
-  state.connected = c.connected;
-  state.registered = c.registered === true;
-  state.mobiles = typeof c.mobiles === 'number' ? c.mobiles : 0;
-  state.phonePresent = state.mobiles > 0;
-  // 🔴 CORRECTED 2026-08-26. The line that used to be here read 「V2-16:
-  // join/leave edges are EXACTLY the mobiles-count changes」 — FALSE, and two
-  // things were built on it. The full account (what was measured, why the count
-  // cannot answer it) lives once, in `socket/reconcile.rs::epoch` and in
-  // `capsule-visibility.onConnection`; repeating it here would be a third copy
-  // that can rot on its own.
-  //
-  // In one line: the presence set is keyed by mobile_id, so a phone re-entering
-  // the transcription page moves nothing the pump forwards. `presence_epoch` is
-  // the missing fact — watch it for CHANGE, never read meaning into its value.
-  const epoch = typeof c.presence_epoch === 'number' ? c.presence_epoch : null;
-  const presenceEvent = epoch !== null && epoch !== lastPresenceEpoch;
-  if (epoch !== null) lastPresenceEpoch = epoch;
-  // The directory refresh now hangs off the EVENT as well as the count, so a
-  // returning phone re-reads its own name too.
-  if (state.mobiles !== lastDirectoryMobiles || presenceEvent) {
-    lastDirectoryMobiles = state.mobiles;
-    void refreshMobileDirectory();
-  }
-  // The event rides INTO the FSM, not around it: `onConnection` still owns every
-  // rule about whether the capsule may show.
-  if (presenceEvent) {
-    appendForensic('capsule', `presence event (epoch=${epoch}) phonePresent=${state.phonePresent}`);
-  }
-  vis.onConnection(state.phonePresent, c.room_uuid ?? null, presenceEvent);
-}
-
-// ── RV-07 CONNECTION seed (pull) ──
-// Injectable read, same transport-seam culture as fetchDirectory below: production
-// uses the REAL bridge command, tests swap it.
-let fetchConnSnapshot: () => Promise<ConnectionState[]> = fetchConnectionSnapshot;
-export function setConnectionSnapshotFetcher(fn: () => Promise<ConnectionState[]>): void {
-  fetchConnSnapshot = fn;
-}
-
-/** Seed the CONNECTION state from a PULL — the half the v0.2.4 fix never gave the
- *  capsule.
- *
- *  `flowmic://connection` fires only on CHANGE, and Rust has both sockets up ~1.1 s
- *  before a WebView finishes booting (measured, see main-window/connection-seed
- *  .test.ts). The main window got a snapshot seed then; `initCapsule` got three
- *  seeds (cloud / sidecar / history) and no connection seed. So in the common cloud-leg
- *  (云端腿) case — desktop restarted while the phone is already in the room — nothing ever
- *  told the capsule a phone was there: `phonePresent` stayed false for the whole
- *  session, ambient surfacing (浮现) never fired, the tray's "show capsule" (显示胶囊) read that same false state
- *  (lib/capsule-visibility.ts) and the diagnostic's three rows were all wrong.
- *
- *  Every row is handed to the SAME `onConnection` the push uses — including its
- *  GA-28 primary gate — because one payload with two readers is how this repo grows
- *  "one value answers two questions" defects. */
-export async function seedConnection(): Promise<void> {
-  try {
-    const rows = await fetchConnSnapshot();
-    for (const row of rows) onConnection(row);
-    appendForensic(
-      'capsule',
-      `connection seed: ${
-        rows.length === 0
-          ? '(no resident channel)'
-          : rows.map((r) => `${r.channel ?? '(untagged)'}=${r.connected}/${r.mobiles}`).join(' ')
-      }`,
-    );
-  } catch (e) {
-    // Stated, never swallowed: a silent failure here degrades back to exactly the
-    // push-only behaviour this replaces (red line: no silent failure).
-    appendForensic('capsule', `connection seed FAILED: ${String(e)}`);
-  }
-}
-
-// ── V2-15/V2-16 phone-name directory (手机名目录) (pc:list-mobiles) ──
-// Injectable directory read, the stores' transport-seam culture: production
-// uses the REAL bridge command; tests swap it to drive the V2-16 title and the
-// V2-15 sender map without the Tauri IPC layer.
-let fetchDirectory: () => Promise<PairedMobile[] | null> = fetchPairedMobiles;
-export function setDirectoryFetcher(fn: () => Promise<PairedMobile[] | null>): void {
-  fetchDirectory = fn;
-}
-let lastDirectoryMobiles = -1;
-/** Card PRESENCE-EPOCH: the last presence-event counter seen. Starts below any
- *  real value so the boot frame counts as an event exactly once. */
-let lastPresenceEpoch = -1;
-let directoryInFlight = false;
-
-/** Test hook: the mobiles-change edge is module state, so specs re-arm it here
- *  (same reason onConnection/onFocusChanged are exported — the wiring itself is
- *  unit-testable against the real reactive state, never re-implemented). */
-export function resetDirectoryEdgeForTest(): void {
-  lastDirectoryMobiles = -1;
-}
-
-/** Refresh pairing_id→name AND the pre-utterance session title from one read.
- *  A FAILED read (null) keeps both untouched — a slightly stale name is honest;
- *  a blanked map would manufacture「unknown device」rows. */
-export async function refreshMobileDirectory(): Promise<void> {
-  if (directoryInFlight) return;
-  directoryInFlight = true;
-  try {
-    const rows = await fetchDirectory();
-    if (rows === null) return;
-    const map: Record<string, string> = {};
-    const online: string[] = [];
-    for (const r of rows) {
-      map[r.pairing_id] = r.mobile_name;
-      if (r.online) online.push(r.mobile_name);
-    }
-    state.mobileNames = map;
-    state.session = deriveSessionTitle(online, state.speaking, state.session);
-  } finally {
-    directoryInFlight = false;
-  }
-}
-
-// V2-15 — the structured "delivered-in record" (转入记录) strip is driven by the history wire: the ONLY
-// capsule-reachable channel carrying content-status (内容状态) (mode), processed-body-text
-// (处理后正文) (output_text), original-text (原文) (source_text), timestamp (时间戳) (created_at)
-// and sending-device (发送设备) (mobile_id) in one truthful
-// payload. stt:final carries NONE of them; inject:result's `mode` is the
-// DELIVERY mode — labeling rows from either would be fabricating data (编数据).
-//
-// W2: the envelope carries the bridge channel stamp (socket::bridge::tag_channel).
-// Main-window now accepts BOTH channels; the capsule still shows ONE server's
-// recent strip — filter here. No stamp → drop (0.2.18: unstamped rows cannot be
-// addressed; guessing `lan` is how that bug was born). Wrong channel → drop.
-/** True when the envelope stamp matches the admission-derived current channel. */
-export function acceptRecentChannel(stamp: unknown): boolean {
-  const ch = asChannelTag(stamp);
-  return ch !== null && ch === state.channel;
-}
-
 /** ✅ HAS A PRODUCER AGAIN (卡 P + 卡 D). Between 0.2.27 and the row-transit round no
  *  frame could reach this and the strip was permanently empty; the replacement arrival
  *  path has landed and it is the DELIVERY FRAME. `inject:request` now carries the six
@@ -686,6 +467,13 @@ export function fireLatchStarvedForTest(): void {
 }
 export function fireAudioStartForTest(): void {
   vis.onAudioStart(Date.now());
+}
+/** E2 test seam — drives the REAL private onAudioStart handler (not just the
+ *  visibility half `fireAudioStartForTest` above touches), so a test can put
+ *  `utteranceHadAudio` into its true production-only state before asserting on
+ *  `state.injected.metrics`. */
+export function fireRealAudioStartForTest(): void {
+  onAudioStart({});
 }
 export function speakingForTest(): boolean {
   return vis.isSpeaking();

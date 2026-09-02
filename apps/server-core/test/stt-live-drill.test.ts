@@ -491,7 +491,7 @@ describe.skipIf(!LIVE)('🔴 LIVE: Soniox real link + failover drill', () => {
     }
 
     // ── 4. ROUTE_ID CHANGED — asserted on the value, not inferred from the log.
-    const after = resolvePoolRouting(pmd.pool, 'zh', (route) => pmd.health!.isAvailable(route));
+    const after = resolvePoolRouting(pmd.pool, 'zh', (route) => pmd.health!.isAvailable(route, 'zh'));
     expect(after.selection.outcome).toBe('selected');
     if (after.selection.outcome !== 'selected') return;
     expect(after.selection.route.id).toBe('soniox-live');

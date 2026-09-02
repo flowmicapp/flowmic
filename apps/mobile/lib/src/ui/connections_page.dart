@@ -247,7 +247,44 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     if (mounted) await _refresh();
   }
 
+  /// 🔴 P0 (owner, 2026-09-02, iPhone on 0.3.55) — TAPPING 轻记录 SAID 「登录失效，
+  /// 请重新登录」 AND THERE WAS NOWHERE TO SIGN IN.
+  ///
+  /// The light-record row's ONLY credential is the account: `resumePairing`
+  /// dials it by device token alone and `enterCloud` needs a JWT and nothing
+  /// else (connections_controller.dart `enterCloud`). So when the account is
+  /// gone, this row cannot be resumed by anything the user does to it — and the
+  /// one screen that could fix it was unreachable from here: `showLoginSheet` is
+  /// called only by [_openCloud], and [_body] retires `_cloudCardRouted` the
+  /// moment a `saas` row exists (GA-33). Signed-out + a remembered cloud row is
+  /// therefore a CLOSED LOOP: tap → a sentence that says 「sign in again」 → no
+  /// way to obey it → tap again.
+  ///
+  /// 🔴 THAT STATE IS NOT HYPOTHETICAL AND IT IS NOT REACHED BY SIGNING OUT.
+  /// `signOutCloud()` purges every `saas` row with the account, so a deliberate
+  /// sign-out leaves nothing behind. `LoginController.handleAuthExpired` — the
+  /// path an `AUTH_TOKEN_EXPIRED` / `AUTH_TOKEN_INVALID` ack takes — clears the
+  /// account and DELIBERATELY keeps the rows (see its own note, and
+  /// connections_controller.dart `signOutCloud`'s ⚠️). One refused ack is all it
+  /// takes to enter the loop, and nothing ever leaves it.
+  ///
+  /// ⚠️ CLOUD ROWS ONLY, and the reverse control is the point: a LAN or
+  /// relay-paired PC row answers to that PC's pairing table, not to this phone's
+  /// account, so routing one of those to the sign-in sheet would answer a
+  /// pairing question with an account screen (see
+  /// light_record_signin_reachable_test.dart's reverse control).
+  bool _accountIsTheMissingCredential(MobileSession pairing) =>
+      pairing.channel == kCloudChannel && !widget.login.isLoggedIn;
+
   Future<void> _connect(MobileSession pairing) async {
+    // Before the dial: with no account there is nothing to resume WITH, and the
+    // refusal that would come back is one this phone can predict. Same funnel
+    // the retired dashed card used, so there is one answer to 「how do I get
+    // into 轻记录」 rather than two.
+    if (_accountIsTheMissingCredential(pairing)) {
+      await _openCloud();
+      return;
+    }
     final String key = ConnectionsController.keyFor(pairing);
     final ConnectOutcome outcome = await widget.connections.connectTo(pairing);
     if (!mounted) return;
@@ -296,6 +333,17 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     // ("last time it was this reason") must not
     // be read as 「这一次是这个原因」("this time it's this reason").
     _clearPinMismatch(key);
+    // The attempt itself can END the account: `enterCloud`'s refused ack drives
+    // `handleAuthExpired`, which clears it mid-tap (connections_controller.dart
+    // `enterCloud`). Asked AFTER the await, because that is the only moment it
+    // is about THIS attempt — the same discipline `_isPinMismatch` states above.
+    // The sheet is the surface, not a second sentence: `AppStrings.cloudError`'s
+    // sign-in arms are imperatives, and an imperative whose action is not
+    // reachable is the R11 shape (a word nobody can answer 「凭什么」 for).
+    if (_accountIsTheMissingCredential(pairing)) {
+      await _openCloud();
+      return;
+    }
     _toast(_rowErrorCopy(pairing, outcome.error));
   }
 

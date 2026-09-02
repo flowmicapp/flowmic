@@ -26,8 +26,9 @@
 // focus Stage 1/1b established is a delivery, and `pipeline::map_clipboard_outcome`
 // / `map_image_outcome` own that call. What changed is that we no longer sabotage
 // the delivery we are reporting, and that `landing` now says whether it was seen
-// to arrive. Restore runs even on failure; a restore failure wins UNLESS the
-// landing was confirmed (see `paste_text`). The save / paste / restore seams here
+// to arrive. Restore runs even on failure; a restore failure wins ONLY when the
+// paste operation itself also failed (P1-1, 2026-09-02 — NOT gated on `landing`;
+// see `paste_text`). The save / paste / restore seams here
 // are `Box<dyn Fn>`, so the ordering and the restore-on-failure guarantees are
 // provable headless (the Win32 inside `clipboard_confirm::win` is NOT behind
 // those seams).
@@ -168,7 +169,9 @@ impl ClipboardFallbackClient {
 
     /// Save → hold-the-paste → restore-always. On a paste error the restore
     /// still runs and the paste error propagates only when restoration succeeds;
-    /// a restore failure wins UNLESS the landing was confirmed.
+    /// a restore failure wins ONLY when the paste operation itself also failed
+    /// (P1-1, 2026-09-02: NOT gated on `landing` — see the match arm below for
+    /// why a successful-but-unconfirmable paste must not be re-typed either).
     pub fn paste_text(&self, text: &str) -> Result<PasteOutcome, InjectError> {
         let _serialised = paste_guard();
         let prev = (self.save)()?;
@@ -186,25 +189,36 @@ impl ClipboardFallbackClient {
             // sentence the user already had in their editor got TYPED IN AGAIN —
             // through the IME pipeline this route exists to avoid.
             //
-            // Reporting "not delivered" for something we can SEE in the target is
-            // the false-reporting red line pointing the other way, so a confirmed
-            // landing outranks the restore error. The lost clipboard is real and
-            // is said out loud rather than folded into the delivery verdict.
+            // Reporting "not delivered" for something we already DID is the
+            // false-reporting red line pointing the other way.
             //
-            // ⚠️ THE CONDITION IS `landing`, NOT `confirmed`, AND THAT IS THE
-            // WHOLE POINT: the render receipt is exactly the signal that was
-            // measured not to mean this. An unconfirmable target with a failed
-            // restore still reports the error and may still be re-typed — a
-            // visible duplicate beats a silent miss, and this module has no way
-            // to tell those two apart there.
-            (Ok(outcome), Err(restore_error))
-                if outcome.landing == crate::inject::readback::LandingEvidence::Confirmed =>
-            {
+            // 🔴 P1-1 (2026-09-02 audit §3-D) — WIDENED from `landing ==
+            // Confirmed` to ANY `Ok(outcome)`, whatever `landing` says. The
+            // 2026-08-22 fix above only carved out the CONFIRMED case, and the
+            // real duplicate this card fixes happens on the OTHER two
+            // `LandingEvidence` values (`Unavailable` — Cursor's editor exposes
+            // no `ValuePattern` at all, `NotObserved` — the read-back window
+            // expired with no answer either way): `confirm_result` came back
+            // `Ok`, which `paste_with_confirmation`'s own doc comment defines
+            // as「the OS accepted our Ctrl+V keystrokes」— that is a real
+            // delivery regardless of whether our instrument could SEE it land.
+            // `landing` only ever answers 「could we confirm it landed」, never
+            // 「did the keystrokes go out」 (see `LandingEvidence`'s doc: "anything
+            // but `Confirmed` means the instrument could not see it, never that
+            // the paste failed"). Falling back to SendInput on an unconfirmable
+            // — but still `Ok` — paste retypes text that is ALREADY in the
+            // target: this is the EXACT shape the clipboard-race P0 fixed for
+            // the render receipt (a signal that does not mean "landed" must not
+            // gate a decision that assumes it does), now fixed for the SAME
+            // mistake one layer up. The lost clipboard is real and is said out
+            // loud rather than folded into the delivery verdict.
+            (Ok(outcome), Err(restore_error)) => {
                 crate::forensic::record(
                     "inject",
                     &format!(
-                        "text WAS pasted (read-back saw it land) but the user's previous \
-                         clipboard could not be restored: {restore_error}"
+                        "text paste operation SUCCEEDED (landing={:?}) but the user's previous \
+                         clipboard could not be restored: {restore_error}",
+                        outcome.landing
                     ),
                 );
                 Ok(PasteOutcome {
@@ -213,6 +227,10 @@ impl ClipboardFallbackClient {
                     held_ms: outcome.held_ms,
                 })
             }
+            // Both failed: the RESTORE error wins (unchanged pre-existing rule,
+            // see `restore_failure_wins_over_paste_error` — the paste already
+            // failed so a fallback is coming regardless; the restore failure is
+            // the newer, less-diagnosed fact and the one worth naming).
             (_, Err(restore_error)) => Err(restore_error),
             (Err(operation_error), Ok(())) => Err(operation_error),
             (Ok(outcome), Ok(())) => Ok(PasteOutcome {
@@ -419,6 +437,55 @@ mod tests {
         let out = client.paste_text("x").expect("ok");
         assert!(!out.confirmed, "unconfirmed consumption must not be 'confirmed'");
         assert!(*restored.lock().unwrap(), "restore runs even when unconfirmed");
+    }
+
+    /// P1-1 (2026-09-02 audit §3-D): the exact shape that duplicated text on
+    /// Cursor. The paste OPERATION succeeded (`Ok`), but `landing` is
+    /// `Unavailable` — the target (like Cursor's editor, which exposes no
+    /// `ValuePattern`) could not be read back at all — AND the restore also
+    /// failed. Before this fix, `landing != Confirmed` sent this down the same
+    /// path as a genuine paste failure, `paste_text` returned `Err`, and
+    /// `text_dispatch`'s caller re-typed text that was ALREADY delivered.
+    ///
+    /// **Reverse control**: put the `if outcome.landing ==
+    /// LandingEvidence::Confirmed` guard back on the first match arm (the
+    /// 2026-08-22 shape) and this test fails — `paste_text` returns
+    /// `Err(Win32(5))` instead of `Ok(..)`.
+    #[test]
+    fn a_successful_but_unconfirmable_paste_survives_a_failed_restore() {
+        let client = ClipboardFallbackClient::with_fakes(
+            || Ok(ClipboardSnapshot::default()),
+            |_s| Err(InjectError::Win32(5)), // the clipboard-open-by-target race
+            |_t| {
+                Ok(ConfirmOutcome {
+                    confirmed: false,
+                    landing: crate::inject::readback::LandingEvidence::Unavailable,
+                    ..Default::default()
+                })
+            },
+        );
+        let out = client
+            .paste_text("hello")
+            .expect("a successful paste must not become an Err just because restore failed");
+        assert_eq!(out.landing, crate::inject::readback::LandingEvidence::Unavailable);
+    }
+
+    /// Same shape, the other non-Confirmed `LandingEvidence` value: the read
+    /// could see SOME value but it did not (yet) end with our text.
+    #[test]
+    fn a_successful_not_observed_paste_survives_a_failed_restore() {
+        let client = ClipboardFallbackClient::with_fakes(
+            || Ok(ClipboardSnapshot::default()),
+            |_s| Err(InjectError::Win32(5)),
+            |_t| {
+                Ok(ConfirmOutcome {
+                    confirmed: false,
+                    landing: crate::inject::readback::LandingEvidence::NotObserved,
+                    ..Default::default()
+                })
+            },
+        );
+        assert!(client.paste_text("hello").is_ok());
     }
 
     #[test]

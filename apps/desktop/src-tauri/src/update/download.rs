@@ -233,6 +233,18 @@ fn discard(part: &Path, failure: UpdateFailure) -> UpdateFailure {
     failure
 }
 
+/// The live stream cap `download_and_verify`'s loop enforces after every
+/// chunk. Split out, the same way `finalize` was (see this file's header), so
+/// the RULE — never accept more bytes than the manifest declared — is a
+/// unit-testable fact rather than something only provable by running a real
+/// HTTP server that misbehaves on purpose.
+fn refuse_if_over_declared_size(written: u64, declared: u64) -> Result<(), UpdateFailure> {
+    if written > declared {
+        return Err(UpdateFailure::SizeMismatch { expected: declared, actual: written });
+    }
+    Ok(())
+}
+
 /// Download one artifact into `dir` and verify it.
 ///
 /// `progress(downloaded, total)` is called as bytes arrive — `total` is the
@@ -302,6 +314,22 @@ pub fn download_and_verify(
             return Err(discard(&part, UpdateFailure::CannotWrite { detail: format!("write:{}", e.kind()) }));
         }
         written += n as u64;
+        // P2 (2026-09-02 audit): "no stream cap by artifact.size" — before
+        // this, a response body longer than the manifest's declared size
+        // streamed to disk in full and was only ever caught by `finalize`'s
+        // post-hoc `actual_size != artifact.size` check, AFTER every byte had
+        // already been downloaded and written. `DOWNLOAD_TIMEOUT` bounds
+        // elapsed TIME, not bytes — a server answering a legitimate-looking
+        // trickle of bytes for the whole timeout window could still write
+        // gigabytes before this ever noticed. Checked here instead, via a
+        // function split out for the same reason `finalize` was (see this
+        // file's header): the moment written bytes exceed what the manifest
+        // promised, this is already a `SizeMismatch` — the same error
+        // `finalize` would report at EOF, caught with at most one `CHUNK` of
+        // waste instead of the whole (possibly unbounded) body.
+        if let Err(e) = refuse_if_over_declared_size(written, artifact.size) {
+            return Err(discard(&part, e));
+        }
         progress(written, artifact.size);
     }
     // Flush before hashing: buffered bytes still in the handle would make the

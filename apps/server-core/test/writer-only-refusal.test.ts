@@ -162,6 +162,36 @@ describe('a replica refuses the writes it cannot keep', () => {
     expect(db.mobiles.listByPc(pc.id)).toHaveLength(1);
   });
 
+  // B11 (2026-09-02, WP-6) — the OTHER first-contact arm. `writer-only.ts`
+  // refuses `mobile:pair` unconditionally BEFORE it looks at which variant the
+  // payload names (short_code vs qr_payload vs cloud_instance) — this proves
+  // that guard actually covers the QR arm too, not only the one the rest of
+  // this describe block happens to exercise. Content of `qr_payload` is
+  // irrelevant here: the refusal fires before anything parses it.
+  it('mobile:pair via qr_payload — refused exactly like the short-code arm', async () => {
+    const { pc } = registry.registerPc({ device_name: 'PC-A', user_id: 'default', client_instance_id: 'inst-aaaaaaaaaaaaaaa' });
+    const sock = wire(fakeSocket('s2b', null), replica());
+    const ack = await sock.invoke('mobile:pair', {
+      qr_payload: `flowmic://pair?endpoint=wss://x&code=${pc.short_code}&channel=standalone`,
+      mobile_name: 'Pixel',
+    });
+
+    expectRefusal(ack);
+    expect(db.mobiles.listByPc(pc.id)).toHaveLength(0);
+  });
+
+  it('REVERSE CONTROL — the same qr_payload pairing on a writable node succeeds', async () => {
+    const { pc } = registry.registerPc({ device_name: 'PC-A', user_id: 'default', client_instance_id: 'inst-aaaaaaaaaaaaaaa' });
+    const sock = wire(fakeSocket('s2c', null), NODE_CAN_WRITE);
+    const ack = await sock.invoke('mobile:pair', {
+      qr_payload: `flowmic://pair?endpoint=wss://x&code=${pc.short_code}&channel=standalone`,
+      mobile_name: 'Pixel',
+    });
+
+    expect(ack.error).toBeUndefined();
+    expect(db.mobiles.listByPc(pc.id)).toHaveLength(1);
+  });
+
   it('pc:release-mobile — refused, and THE PAIRING IS STILL THERE', async () => {
     const { pc } = registry.registerPc({ device_name: 'PC-A', user_id: 'default', client_instance_id: 'inst-aaaaaaaaaaaaaaa' });
     const { mobile } = registry.pairMobile({ short_code: pc.short_code, mobile_name: 'Pixel', user_id: 'default' });

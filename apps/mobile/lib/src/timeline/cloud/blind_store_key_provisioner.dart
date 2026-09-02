@@ -99,15 +99,25 @@ class BlindStoreKeyProvisioner {
     required BlindStoreKeyring keyring,
     required BlindStoreKeymetaClient client,
     required String? Function() accountKey,
+    BlindStoreKeyStore? legacyStore,
   }) : _keyring = keyring,
        _client = client,
-       _accountKey = accountKey;
+       _accountKey = accountKey,
+       _legacyStore = legacyStore;
 
   final BlindStoreKeyring _keyring;
   final BlindStoreKeymetaClient _client;
 
   /// Same seam the sync's cursor uses (main.dart passes the login email).
   final String? Function() _accountKey;
+
+  /// AUD-D P1-1 migration source: the pre-partitioning single slot every
+  /// account on this device once shared (`SecureBlindStoreKeyStore` in
+  /// blind_store_secure_key_store.dart). Null in tests that do not care about
+  /// the migration walk and in any build with nothing to migrate — both
+  /// [_ensureConfirmed] and [_provision] treat that as "nothing to migrate",
+  /// never as a reason to invent trust.
+  final BlindStoreKeyStore? _legacyStore;
 
   /// account key → the fingerprint of the material that was confirmed for it.
   /// See the file header for why this is a fingerprint and not a bool.
@@ -152,6 +162,7 @@ class BlindStoreKeyProvisioner {
         BlindStoreProvisionOutcome.confirmed,
       );
     }
+    await _migrateLegacyIfProven();
     final ({Uint8List salt, String sentinel})? local =
         await _keyring.sharedKeyMaterial();
     if (local == null) {
@@ -213,6 +224,7 @@ class BlindStoreKeyProvisioner {
         BlindStoreProvisionOutcome.confirmed,
       );
     }
+    await _migrateLegacyIfProven();
 
     // ── step 1: GET ─────────────────────────────────────────────────────────
     final BlindStoreKeymetaRow? row;
@@ -317,6 +329,53 @@ class BlindStoreKeyProvisioner {
       passphrase: passphrase,
     );
     return _confirm(row.salt, row.sentinel, outcome: onAdopted);
+  }
+
+  // ── AUD-D P1-1: legacy single-slot migration, WITH PROOF ────────────────────
+
+  /// Before SALT-2's per-account partitioning
+  /// (blind_store_secure_key_store.dart), every account on one device shared
+  /// ONE keystore slot. A build with that slot already populated must not let
+  /// whichever account asks first simply inherit it — that is the exact
+  /// cross-account leak this method closes.
+  ///
+  /// The ONLY safe thing to do with orphaned legacy material is PROVE it: does
+  /// the CURRENT account's own server-side keymeta row match it byte-for-byte?
+  /// Only a match earns migration into this account's own slot. Anything else
+  /// — a differing row, OR NO ROW AT ALL — leaves the legacy slot untouched
+  /// for whichever account can later prove it, and this call is a no-op (the
+  /// caller proceeds exactly as if there were no local material). 🔴 "No row"
+  /// is deliberately NOT treated as proof: that is the precise gap the
+  /// pre-partitioning `_ensureConfirmed` "no row, finish the registration"
+  /// path exploited when the local material in that shared slot belonged to a
+  /// different account.
+  Future<void> _migrateLegacyIfProven() async {
+    final BlindStoreKeyStore? legacy = _legacyStore;
+    if (legacy == null) return;
+    // Only relevant while THIS account's own slot is still empty — once it
+    // holds material (its own enrolment, or an earlier proven migration)
+    // there is nothing left to migrate.
+    if (await _keyring.sharedKeyMaterial() != null) return;
+    final BlindStoreKeyMaterial? candidate = await legacy.read();
+    if (candidate == null) return;
+    final BlindStoreKeymetaRow? row;
+    try {
+      row = await _client.get();
+    } on BlindStoreCloudRefusal {
+      return; // cannot prove right now; leave the candidate where it is
+    } on BlindStoreCloudUnreachable {
+      return; // cannot prove right now; leave the candidate where it is
+    }
+    if (row == null) return; // no row is NOT proof — see the doc comment above
+    if (!_matches((salt: candidate.salt, sentinel: candidate.sentinel), row)) {
+      return; // registered to someone else's bytes; not ours to take
+    }
+    // Proven: the account's registered row IS these bytes. Move them into
+    // this account's own slot and retire the shared one — first prover wins,
+    // so no other account can also claim it later.
+    await _keyring.adoptProvenMaterial(candidate);
+    await legacy.clear();
+    diag('blindstore.legacy_material_migrated', const <String, Object?>{});
   }
 
   // ── confirmation bookkeeping ──────────────────────────────────────────────

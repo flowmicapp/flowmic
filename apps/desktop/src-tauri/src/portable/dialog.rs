@@ -22,13 +22,24 @@
 // clipboard layer and the tray are already Win32, and the desktop ships for
 // Windows alone.
 //
-// ── WHY ITS OWN THREAD ──────────────────────────────────────────────────────
+// ── WHY ITS OWN THREAD (AND WHAT THAT DOES NOT BUY) ─────────────────────────
 //
 // The modern common dialog is a COM object underneath, and it wants an
 // apartment-initialised thread. A Tauri command runs on a pooled thread whose
 // COM state belongs to whoever used it last, and `CoInitializeEx` there would
 // leave that apartment behind for the next command. A short-lived thread that
 // initialises, shows, and uninitialises owns its own state end to end.
+//
+// 🔴 P2 (2026-09-02 audit) — CORRECTED IN PLACE: this comment used to stop
+// there, which reads as "the dialog runs off to the side and does not hold
+// anything up". `run()` below immediately `.join()`s the thread it spawns, so
+// the CALLING command is blocked for exactly as long as the dialog is open —
+// which, for a save/open picker, is "however long the user takes to decide",
+// unbounded. The thread hop buys COM-apartment isolation ONLY; it is not, and
+// was never meant to be, a way to make `portable_pick_save`/`portable_pick_open`
+// non-blocking. Whether that blocking matters for THIS Tauri build's main loop
+// is the same question WP-5 (2026-09-02, `#[tauri::command(async)]` conversions)
+// answered for other long-running commands — not re-litigated here.
 
 /// Where the user chose to put / take the archive. `None` = the user cancelled,
 /// which is a NORMAL answer and must never be reported as a failure.
@@ -61,8 +72,18 @@ mod win {
         v
     }
 
-    /// `save = true` → GetSaveFileNameW, otherwise GetOpenFileNameW.
-    pub fn pick(save: bool, title: &str, filter_label: &str, suggested: &str) -> super::Chosen {
+    /// `save = true` → GetSaveFileNameW, otherwise GetOpenFileNameW. `owner_hwnd`
+    /// is `0` for "no owner" (the pre-fix behaviour) or a raw HWND value — see
+    /// [`super::run`]'s doc comment for why this crosses the thread boundary as
+    /// an `isize` rather than a `windows`-crate `HWND`.
+    ///
+    /// P2 (2026-09-02 audit): "no hwndOwner" — before this, `OPENFILENAMEW`
+    /// left `hwndOwner` at its `Default` zero value, so the dialog had no owner
+    /// window at all. An unowned common dialog is not modal to anything: it can
+    /// end up BEHIND the main window (Alt-Tab, a click on another app) with no
+    /// way back to it short of Alt-Tab again, and Windows does not centre or
+    /// otherwise relate its position to the app that asked for it.
+    pub fn pick(save: bool, title: &str, filter_label: &str, suggested: &str, owner_hwnd: isize) -> super::Chosen {
         // MAX_PATH is not the ceiling for a UNICODE dialog; 32 K is the real one,
         // and a user with a deep OneDrive path really does exceed 260.
         let mut buf: Vec<u16> = vec![0; 32 * 1024];
@@ -78,6 +99,7 @@ mod win {
 
         let mut ofn = OPENFILENAMEW {
             lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+            hwndOwner: windows::Win32::Foundation::HWND(owner_hwnd as *mut core::ffi::c_void),
             lpstrFilter: PCWSTR(filt.as_mut_ptr()),
             nFilterIndex: 1,
             lpstrFile: PWSTR(buf.as_mut_ptr()),
@@ -138,27 +160,36 @@ mod win {
     /// and the caller's `None` means 「the user did not pick a destination」— so nothing is written
     /// anywhere. It never invents a path, which is the failure mode the ban on
     /// friendly DI defaults exists to prevent.
-    pub fn pick(_save: bool, _t: &str, _f: &str, _s: &str) -> super::Chosen {
+    pub fn pick(_save: bool, _t: &str, _f: &str, _s: &str, _owner_hwnd: isize) -> super::Chosen {
         crate::forensic::record("portable", "file dialog unavailable on this platform");
         None
     }
 }
 
 /// Ask the user where to WRITE the archive. `suggested` is the file name only.
-pub fn save_as(title: &str, filter_label: &str, suggested: &str) -> Chosen {
-    run(true, title, filter_label, suggested)
+/// `owner_hwnd` — see [`run`]'s doc comment — is `0` when the caller has no
+/// window handle to offer (still valid: an unowned dialog is the pre-fix
+/// behaviour, not a new failure mode).
+pub fn save_as(title: &str, filter_label: &str, suggested: &str, owner_hwnd: isize) -> Chosen {
+    run(true, title, filter_label, suggested, owner_hwnd)
 }
 
 /// Ask the user WHICH archive to read.
-pub fn open(title: &str, filter_label: &str) -> Chosen {
-    run(false, title, filter_label, "")
+pub fn open(title: &str, filter_label: &str, owner_hwnd: isize) -> Chosen {
+    run(false, title, filter_label, "", owner_hwnd)
 }
 
-fn run(save: bool, title: &str, filter_label: &str, suggested: &str) -> Chosen {
+/// `owner_hwnd` crosses into the spawned thread as a raw `isize` rather than a
+/// `windows`-crate `HWND`: `HWND` wraps a raw pointer and is not `Send` (the
+/// crate does not implement it, correctly — a window handle usually should not
+/// cross threads casually), while the INTEGER value identifying that same
+/// window is Plain Old Data and freely `Send`. `win::pick` reconstructs the
+/// `HWND` from the integer on the thread that actually calls into comdlg32.
+fn run(save: bool, title: &str, filter_label: &str, suggested: &str, owner_hwnd: isize) -> Chosen {
     let (t, f, s) = (title.to_string(), filter_label.to_string(), suggested.to_string());
     // A panic inside the dialog thread would otherwise take the join with it; a
     // failed join reads as 「no file was picked」, the same as Cancel.
-    std::thread::spawn(move || win::pick(save, &t, &f, &s))
+    std::thread::spawn(move || win::pick(save, &t, &f, &s, owner_hwnd))
         .join()
         .unwrap_or(None)
 }

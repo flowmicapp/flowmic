@@ -127,8 +127,16 @@ describe('timeline handler: kind-web is READ-ONLY (the second gate, allowlist by
     const pull = (await phone.emit('timeline:pull', {})) as { error?: string; blobs: unknown[] };
     expect(pull.error).toBeUndefined();
     expect(pull.blobs).toHaveLength(1);
-    // …and the pull-result mirror emit still fires for the device path.
-    expect(phone.emitted.map((e) => e.event)).toContain('timeline:pull-result');
+    // 🔴 CORRECTION (G2, WP-8, 2026-09-02): this line used to assert the
+    // OPPOSITE — that the `timeline:pull-result` mirror emit fires "for the
+    // device path" as part of "exactly as before". It was removed
+    // (timeline.handler.ts) because a repo-wide grep found zero listeners for
+    // it on any of the three ends: the ack above already carries `pull`,
+    // byte-identical to what the removed emit sent, so nothing was reading
+    // this event and every pull was sending the ciphertext page twice for no
+    // reason. "Exactly as before" now means "the ack still carries the page";
+    // it never meant "and a copy nobody reads still goes out too".
+    expect(phone.emitted.map((e) => e.event)).not.toContain('timeline:pull-result');
     const tomb = (await phone.emit('timeline:tombstone', { ids: ['e1'] })) as { ok?: boolean; tombstoned?: number };
     expect(tomb).toEqual({ ok: true, tombstoned: 1 });
     db.close();

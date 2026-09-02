@@ -84,7 +84,6 @@ void main() {
     expect(legs, isNot(contains('160')));
     expect(legs, contains(_zh.nodeLegEdge));
     expect(legs, contains(_zh.nodeLegTotal));
-    expect(legs, isNot(contains(_zh.nodeLegOrigin)));
   });
 
   testWidgets('🔴 a node that did not answer is NAMED, not given a big number',

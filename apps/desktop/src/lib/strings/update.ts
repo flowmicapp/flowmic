@@ -70,7 +70,6 @@ export const UPDATE_KEYS = [
   'upd_portable_hint',
   'upd_open_page',
   'upd_dismiss',
-  'upd_retry',
   // 🔴 The three faces the card wore as an EMPTY BOX until 0.3.49 (owner
   // 2026-08-30, Windows 10 on 0.3.48). `form: 'dev'` is both the store's
   // pre-answer placeholder and what a copy under `publish/` or `target/`

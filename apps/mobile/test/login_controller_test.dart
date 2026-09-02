@@ -153,6 +153,62 @@ void main() {
     await t.close();
   });
 
+  // ── AUD-D P2-5/F9: `onSignedOut` is the seam main.dart wires to the
+  // blind-store cloud leg's `detachForAccountChange()` (residual key /
+  // cloud-sync state from the OUTGOING account must not survive into whatever
+  // signs in next). Both places `_account` is cleared must fire it — a
+  // callback wired to only one of the two would leave the other account
+  // switch silently un-detached.
+  test('onSignedOut fires on logout(), before the account store settles',
+      () async {
+    int signedOutCount = 0;
+    final FakeSocketTransport t = FakeSocketTransport()..connectSucceeds = true;
+    final InMemoryAccountStore store = InMemoryAccountStore();
+    final LoginController c = LoginController(
+      transport: t,
+      accountStore: store,
+      saasEndpoint: 'https://saas.test:443',
+      onSignedOut: () => signedOutCount++,
+    );
+    t.ackQueue.add(<String, Object?>{
+      'ok': true,
+      'token': 'jwt-1',
+      'user': <String, Object?>{'email': 'a@b.co'},
+    });
+    await c.login(email: 'a@b.co', password: 'secret12');
+    await t.connect(url: 'https://flowmic.app');
+    expect(signedOutCount, 0, reason: 'login must never fire it');
+
+    t.ackQueue.add(<String, Object?>{'ok': true, 'mode': 'saas'});
+    await c.logout();
+    expect(signedOutCount, 1);
+    await t.close();
+  });
+
+  test('onSignedOut also fires on handleAuthExpired — the OTHER place '
+      '`_account` is cleared', () async {
+    int signedOutCount = 0;
+    final FakeSocketTransport t = FakeSocketTransport()..connectSucceeds = true;
+    final InMemoryAccountStore store = InMemoryAccountStore();
+    final LoginController c = LoginController(
+      transport: t,
+      accountStore: store,
+      saasEndpoint: 'https://saas.test:443',
+      onSignedOut: () => signedOutCount++,
+    );
+    t.ackQueue.add(<String, Object?>{
+      'ok': true,
+      'token': 'jwt-1',
+      'user': <String, Object?>{'email': 'a@b.co'},
+    });
+    await c.login(email: 'a@b.co', password: 'secret12');
+    expect(signedOutCount, 0);
+
+    c.handleAuthExpired();
+    expect(signedOutCount, 1);
+    await t.close();
+  });
+
   // ── Card W-a: logout honesty ────────────────────────────────────────────────
   // logout() now says TWO things and keeps them apart: (1) this device is
   // signed out — always; (2) whether a cloud server confirmed it — asked for
@@ -168,6 +224,17 @@ void main() {
     await t.connect(url: 'https://flowmic.app');
     return c;
   }
+
+  test('onSignedOut omitted (as every OTHER test in this file constructs '
+      'LoginController) — logout() must not throw calling a null callback',
+      () async {
+    final FakeSocketTransport t = FakeSocketTransport()..connectSucceeds = true;
+    final LoginController c = await loggedIn(t, InMemoryAccountStore());
+    t.ackQueue.add(<String, Object?>{'ok': true, 'mode': 'saas'});
+    await c.logout();
+    expect(c.isLoggedIn, isFalse);
+    await t.close();
+  });
 
   test('logout: a saas ack confirms → cleared, idle, no notice', () async {
     final FakeSocketTransport t = FakeSocketTransport()..connectSucceeds = true;

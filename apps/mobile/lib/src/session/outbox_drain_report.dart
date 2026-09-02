@@ -40,6 +40,7 @@ class OutboxDrainReport {
     required this.held,
     required this.refused,
     required this.linkOk,
+    this.busy = false,
   });
 
   final int attempted;
@@ -54,5 +55,23 @@ class OutboxDrainReport {
   /// answer from [held] rather than a shade of it.
   final Map<String, String> refused;
 
-  final bool linkOk;
+  /// 🔴 Card F2 (2026-09-02) — 「the link is down」 and 「someone else is
+  /// already draining」 USED TO BE THE SAME VALUE, and that one value was read
+  /// by `ManualDelivery.deliverText` as grounds to settle the rows the user
+  /// just pressed as ✗ `LINK_DOWN`. The link was never probed on that path;
+  /// nothing measured it; the sentence was invented.
+  ///
+  /// So this is nullable, deliberately: **null means nobody asked the
+  /// question this pass**. It is nullable rather than defaulted-false so the
+  /// compiler refuses `if (!report.linkOk)` and every reader has to say what
+  /// it wants — the same reason [DeliveryOutbox.drain]'s `queued` parameter in
+  /// `status_badge.dart` is required rather than defaulted.
+  final bool? linkOk;
+
+  /// True when this call did nothing because a drain was ALREADY running.
+  ///
+  /// It is not a failure and not a refusal: the ids the caller named were
+  /// merged into the running drain's follow-up pass (see
+  /// [DeliveryOutbox.drain]), so the delivery is still owed and still coming.
+  final bool busy;
 }

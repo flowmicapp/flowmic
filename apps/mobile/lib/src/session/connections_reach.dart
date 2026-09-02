@@ -152,7 +152,12 @@ mixin ConnectionsReachHost on ChangeNotifier {
         ),
         reader: _healthRead,
       );
-    } on Exception {
+    } on Object {
+      // Card P2-9 (2026-09-02) — `on Exception` was the 0.2.35 shape: a
+      // platform/socket failure that surfaces as an `Error` (or anything else
+      // that is not an `Exception` subtype) fell straight through this clause
+      // uncaught instead of degrading to "unreachable" like every other
+      // failure this probe can produce.
       reading = HealthReading.offline; // unreachable IS the answer, not a swallow
     } finally {
       _probing.remove(endpoint);

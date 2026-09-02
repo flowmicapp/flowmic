@@ -596,6 +596,7 @@ void main() {
 String _sentenceFor(AppStrings s, UpdateCheckOutcome o) => switch (o) {
   UpdateCheckOutcome.ownVersionUnknown => s.updateOwnVersionUnknown,
   UpdateCheckOutcome.incompleteInfo => s.updateIncompleteInfo,
+  UpdateCheckOutcome.platformNotCovered => s.updatePlatformNotCovered,
   UpdateCheckOutcome.noManifestHere => s.updateNoManifestHere,
   UpdateCheckOutcome.unavailable => s.updateUnavailable,
   UpdateCheckOutcome.unreachable => s.updateUnreachable,

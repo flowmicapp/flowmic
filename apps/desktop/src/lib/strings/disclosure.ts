@@ -259,7 +259,6 @@ export const DISCLOSURE_TERMS_URL = 'https://flowmic.app/terms';
 
 export const DISCLOSURE_KEYS = [
   'disc_nav',
-  'disc_entry',
   'disc_entry_sub',
   'disc_title',
   'disc_lead',

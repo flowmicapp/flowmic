@@ -591,8 +591,24 @@ pub fn spawn_summon_listener_status(
 mod tests {
     use super::*;
 
+    /// ⚠️ CORRECTED IN PLACE (2026-09-02, B2-Z): used to join `tag` alone onto
+    /// `temp_dir()`, so every call with the same tag named the same file. The
+    /// Mac-side run (commit 7d9a775c) reported
+    /// `second_acquire_is_refused_while_the_first_is_held` failing once
+    /// "under parallel test execution" and passing with `--test-threads=1`:
+    /// two feature-gated `cargo test --lib` invocations running concurrently
+    /// as separate OS processes both open `flowmic-si-test-second.lock` — a
+    /// real flock conflict between two unrelated runs, not a code bug.
+    /// `std::process::id()` + a per-process counter makes every path unique —
+    /// isolation, not a widened timing window.
     fn temp_lock(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("flowmic-si-test-{tag}.lock"))
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        let n = CALLS.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "flowmic-si-test-{tag}-{}-{n}.lock",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -602,6 +618,21 @@ mod tests {
         let lock = acquire(&p);
         assert!(lock.is_some(), "the first instance must acquire the lock");
         assert_eq!(lock.as_ref().unwrap().path(), Some(p.as_path()));
+    }
+
+    /// 🔴 REGRESSION TEST for the `temp_lock` fix above, not for `acquire`
+    /// itself. Before the fix, two calls with the SAME tag returned the SAME
+    /// path — harmless within one test binary (each test used a distinct
+    /// tag), but a real collision the moment two OS processes running this
+    /// suite concurrently (two feature-gated `cargo test` invocations) both
+    /// called `temp_lock("second")`. This asserts the property directly
+    /// rather than only through the flaky-under-concurrency symptom, which a
+    /// single-process run cannot reproduce on demand.
+    #[test]
+    fn temp_lock_is_unique_even_for_the_same_tag() {
+        let a = temp_lock("dup");
+        let b = temp_lock("dup");
+        assert_ne!(a, b, "two calls with the same tag must not name the same file");
     }
 
     // ── the identity is no longer a path ────────────────────────────────────

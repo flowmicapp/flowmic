@@ -74,7 +74,7 @@ const DEF_RE = /(?:^|[{;])\s*(--[A-Za-z0-9_-]+)\s*:/gm;
  *  2026-08-12 on server-core's src/http/ops-routes.ts under the sibling test-file copy
  *  of this same helper: 45% of the file deleted, 7 real code lines gone). Stripping `//`
  *  lines first removes the trigger before the block regex ever sees it. */
-function stripComments(text) {
+export function stripComments(text) {
   return text
     .replace(/^[ \t]*\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -82,6 +82,31 @@ function stripComments(text) {
 
 function skipDir(basename) {
   return DEFAULT_SKIP_DIRS.has(basename);
+}
+
+// Extracted 2026-09-02 (B2-A): everything run() decides about ONE file's
+// text, as a pure function a drill can call directly on a fixture string
+// instead of writing it to disk under apps/desktop/src. Same comment
+// stripping, same DEF_RE/USE_RE, same per-line use tracking. Returns
+// `{ defined: Set<string>, uses: { line, varName }[] }` for that one file;
+// run() below merges these across the whole tree exactly as it did inline.
+export function collectVars(raw) {
+  const text = stripComments(raw);
+  const defined = new Set();
+  DEF_RE.lastIndex = 0;
+  let d;
+  while ((d = DEF_RE.exec(text))) defined.add(d[1]);
+
+  const uses = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    USE_RE.lastIndex = 0;
+    let m;
+    while ((m = USE_RE.exec(lines[i]))) {
+      uses.push({ line: i + 1, varName: m[1] });
+    }
+  }
+  return { defined, uses };
 }
 
 export default async function run() {
@@ -95,20 +120,9 @@ export default async function run() {
     if (!/\.(vue|css|ts)$/.test(r)) continue;
     const raw = await readText(abs);
     if (raw == null) continue;
-    const text = stripComments(raw);
-
-    DEF_RE.lastIndex = 0;
-    let d;
-    while ((d = DEF_RE.exec(text))) defined.add(d[1]);
-
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      USE_RE.lastIndex = 0;
-      let m;
-      while ((m = USE_RE.exec(lines[i]))) {
-        uses.push({ file: r, line: i + 1, varName: m[1] });
-      }
-    }
+    const fileVars = collectVars(raw);
+    for (const v of fileVars.defined) defined.add(v);
+    for (const u of fileVars.uses) uses.push({ file: r, ...u });
   }
 
   const missing = uses.filter((u) => !defined.has(u.varName));

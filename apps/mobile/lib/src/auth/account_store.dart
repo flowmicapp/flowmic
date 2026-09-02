@@ -16,6 +16,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../diag/diag_log.dart';
+
 /// A logged-in cloud account: the JWT bearer plus the public user fields the
 /// account UI renders. Deliberately has NO password field — the credential is
 /// never retained.
@@ -129,7 +131,32 @@ class SecureAccountStore extends AccountStore {
         return CloudAccount.fromJson(decoded.cast<String, Object?>());
       }
       return null;
-    } on Object {
+    } on Object catch (err) {
+      // 🔴 A REFUSED READ IS NOT 「SIGNED OUT」, AND THIS LINE IS THE ONLY PLACE
+      // THAT KNOWS THE DIFFERENCE (P0-IOS, 2026-09-02).
+      //
+      // The contract above says null means「logged out」, and a platform failure
+      // — an iOS Keychain that will not hand the item back, an Android keystore
+      // that cannot decrypt — arrives here as the same null. Downstream,
+      // `LoginController.hydrate` then presents a signed-out app while
+      // `SecureTokenStorage` (a DIFFERENT key in the SAME store, so it can
+      // succeed while this fails) still returns the remembered light-record row
+      // — the exact pair of readings behind the closed loop that
+      // connections_page's `_accountIsTheMissingCredential` now escapes.
+      //
+      // The verdict is deliberately UNCHANGED (returning a fabricated account
+      // would be worse, and there is nothing else to return). What changes is
+      // that it stops being silent: this breadcrumb is what lets the phone's own
+      // diagnostics answer「did the store refuse us, or did the server?」 — a
+      // question that, as of 2026-09-02, no artefact on either side could
+      // answer, because socket-level auth refusals log nothing on the relay
+      // either (apps/server-core/src/auth/middleware.ts).
+      //
+      // The exception's TYPE only: a platform message on this path can carry the
+      // key name and OS-level detail, and this buffer is uploadable.
+      diag('account.store.read_failed', <String, Object?>{
+        'err': err.runtimeType.toString(),
+      });
       return null;
     }
   }

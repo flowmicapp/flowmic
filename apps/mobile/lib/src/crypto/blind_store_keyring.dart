@@ -358,6 +358,42 @@ class BlindStoreKeyring {
     _key = k;
   }
 
+  /// Adopt material some OTHER layer has already PROVEN belongs to this
+  /// device's current account — a byte-exact match against the account's
+  /// server-side keymeta row. See
+  /// `lib/src/timeline/cloud/blind_store_key_provisioner.dart`'s
+  /// `_migrateLegacyIfProven` (AUD-D P1-1): a device that once shared one
+  /// keystore slot across every account now needs a way to move legacy
+  /// material into an account's own slot WITHOUT re-deriving from a
+  /// passphrase, because the proof already happened one layer up.
+  ///
+  /// No key schedule runs here — this is a plain write-through, mirroring
+  /// what [restore] would do on the next launch. If [material] carries a
+  /// cached MasterKey (`masterKeyB64`) that still opens its own sentinel, the
+  /// keyring unlocks immediately; otherwise it is left locked (enrolled, but
+  /// a passphrase is needed before anything can be sealed or opened) — the
+  /// same distinction [restore] draws for the ordinary cold-start path.
+  ///
+  /// 🔴 THIS METHOD DOES NOT PROVE ANYTHING ITSELF. A caller that adopts
+  /// material without first verifying it against the account's own server row
+  /// reopens the exact leak this seam exists to close.
+  Future<void> adoptProvenMaterial(BlindStoreKeyMaterial material) async {
+    await _store.write(material);
+    final String? b64 = material.masterKeyB64;
+    if (b64 == null) return;
+    final Uint8List bytes;
+    try {
+      bytes = base64.decode(b64);
+    } on FormatException {
+      return;
+    }
+    if (bytes.length != kBlindStoreMasterKeyBytes) return;
+    final BlindStoreMasterKey candidate = BlindStoreMasterKey.fromBytes(bytes);
+    if (blindStoreSentinelAccepts(key: candidate, sentinel: material.sentinel)) {
+      _key = candidate;
+    }
+  }
+
   /// The salt + sentinel this device enrolled, for whatever E-B2 builds to move
   /// them to a second device. Returns null when not enrolled. Deliberately does
   /// NOT expose the MasterKey.

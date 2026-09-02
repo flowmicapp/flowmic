@@ -78,13 +78,23 @@ class LoginController extends ChangeNotifier {
     // SecureAccountStore(); tests: newTestLogin() / InMemoryAccountStore().
     required AccountStore accountStore,
     String? saasEndpoint,
+    // AUD-D P2-5/F9: fires the instant this device stops being signed in as
+    // ANY particular account — logout's step 1 and the auth-expired watchdog
+    // both call it BEFORE any await, same discipline as clearing `_account`
+    // itself. main.dart wires it to the blind-store cloud leg's
+    // `detachForAccountChange()`, so a residual key or cloud-sync cursor from
+    // the outgoing account can never be used for whatever comes next. Null in
+    // tests that do not exercise the blind-store leg.
+    VoidCallback? onSignedOut,
   }) : _transport = transport,
        _accountStore = accountStore,
-       _saasEndpoint = saasEndpoint ?? resolveSaasEndpoint();
+       _saasEndpoint = saasEndpoint ?? resolveSaasEndpoint(),
+       _onSignedOut = onSignedOut;
 
   final SocketTransport _transport;
   final AccountStore _accountStore;
   final String _saasEndpoint;
+  final VoidCallback? _onSignedOut;
 
   LoginPhase _phase = LoginPhase.idle;
   LoginPhase get phase => _phase;
@@ -313,6 +323,7 @@ class LoginController extends ChangeNotifier {
     _phase = LoginPhase.idle;
     _errorCode = null;
     _logoutNotice = null;
+    _onSignedOut?.call();
     notifyListeners();
 
     // ── 2. the credential on disk, then report a refusal ───────────────────
@@ -371,6 +382,7 @@ class LoginController extends ChangeNotifier {
     _account = null;
     _phase = LoginPhase.error;
     _errorCode = code;
+    _onSignedOut?.call();
     notifyListeners();
   }
 

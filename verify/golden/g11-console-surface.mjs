@@ -17,7 +17,7 @@
 
 import {
   SERVER_DIST,
-  connect, ack, startSaasServer, verifyRegisteredEmail, PASS, FAIL,
+  connect, ack, startSaasServer, verifyRegisteredEmail, mailFileDir, mailFileEnv, readLatestMail, PASS, FAIL,
 } from './harness.mjs';
 
 export const G11 = {
@@ -27,43 +27,40 @@ export const G11 = {
   async fn() {
     // Starts its OWN saas instance (the console REST is saas-only, same as G9).
     //
-    // 🔴 card M1 (0.3.0) —— `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` is newly added on this line,
-    // and it is also this case's **only honest reading** now. M1 turned `/api/password/forgot`
-    // echoing `reset_token` into default-off (for any **known email**, two anonymous requests
-    // can take over the account), leaving only a strict '1'/'true' internal switch. ⇒ In the default shape
-    // the "forgot password → change password" chain **cannot be walked in this repo at all**: this repo has no mail channel,
-    // the token only lands in `user_settings`, and nobody delivers it to the user's hands (the M1 file header writes this
-    // ledger as-is; card M2 is the one that adds mail).
-    // ⇒ So step 6 below proves the **rotation mechanism itself** (old password dead, new password live),
-    //   not "the user can really self-serve a reset". Those two sentences are far apart; the PASS copy spells it out.
+    // 🔴 **in-place correction (2026-09-02) — this case used to run with
+    // `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO`/`FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO`
+    // set to '1', reading the reset token and verification code straight off
+    // the HTTP response. Both flags are DELETED — owner ordered it
+    // (docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+    // questions.md §3, problem 1): they read per request with NO mode gate at
+    // all, so a single misconfigured `=1` in a production env file was a
+    // two-request account takeover of any known email. Everything this
+    // paragraph's history describes about what step 6 does and does not prove
+    // is UNCHANGED — only HOW the token is read changed.**
     //
-    // 🔴 **in-place correction (2026-08-09, card MAIL-1) — the sentence above "this repo has no mail channel"
-    // is false today, and it was true when it was written. Original text kept, not deleted.**
-    // `apps/server-core/src/mail/` has been built and wired: the forgot route hands every minted
-    // token to the mail channel; a deployment with no mail configured gets the one that **fails by name**
-    // (`unconfiguredPasswordResetMailer`), and **nowhere will ever say "sent"**.
-    // ⚠️ **But step 6's criterion below has not changed by a single word, and must not change**: this case runs a server
-    // **with no `FLOWMIC_MAIL_*` configured**, so it still only proves the **rotation mechanism itself**.
-    // "The user can really self-serve a reset" needs **actually sending a letter**, and owner has not delivered a Resend key
-    // ⇒ that stretch is still **[not measured]** (`apps/server-core/src/mail/resend.ts` file header).
-    // ⇒ Do not read this case's PASS as "reset is usable" just because "there is a mail channel now".
-    // The mail side's criteria live in `apps/server-core/test/mail-password-reset.test.ts`
-    // (injected fake transport, real template, real link), not here.
-    // ⚠️ The default-off half (no echo, and byte-identical to an unknown email) is pinned by
-    //   `apps/server-core/test/console-routes.test.ts` — turning it on explicitly here
-    //   also proves that the switch is actually live (with it off this case would go red on step 6 immediately).
-    // VERIFY-1 (2026-08-11) — the second internal echo flag, same M1 precedent
-    // and the same honest reading: this server has no mail channel, so the
-    // code rides the send response; what step 1b proves is the GATE mechanism
+    // This server now runs with `mailFileEnv(mailDir)` (mail/file.ts): every
+    // outbound message is written to `mailDir` as JSON, and step 6 reads the
+    // reset token out of the mailed link the same way a real recipient would
+    // — `readLatestMail` + a regex on the link, not a response field. That is
+    // STILL not "the user can really self-serve a reset": this is a directory
+    // on disk, not a real inbox, and a real send through Resend remains
+    // [not measured] per `apps/server-core/src/mail/resend.ts`'s own header.
+    // What step 6 proves is the rotation mechanism itself (old password dead,
+    // new password live) plus "the mailed link really carries the token the
+    // server persisted" — one step further than a wire echo ever proved,
+    // because there is no wire echo to fall back on any more.
+    // The mail side's finer-grained criteria live in
+    // `apps/server-core/test/mail-password-reset.test.ts` (injected fake
+    // transport, real template, real link), not here.
+    // VERIFY-1 (2026-08-11): step 1b's code comes from the SAME `mailDir`,
+    // through `verifyRegisteredEmail` — what it proves is the GATE mechanism
     // (unverified walled by name → verified admitted), not "a user really
     // received an email" (that half is test/email-verification.test.ts's fake
     // transport, and a REAL mail remains [not measured] per mail/resend.ts).
+    const mailDir = mailFileDir();
     let saas = null;
     try {
-      saas = await startSaasServer({
-        FLOWMIC_INTERNAL_RESET_TOKEN_ECHO: '1',
-        FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO: '1',
-      });
+      saas = await startSaasServer(mailFileEnv(mailDir));
     } catch (e) {
       return FAIL(`saas server failed to start: ${e.message}`);
     }
@@ -81,14 +78,14 @@ export const G11 = {
       const auth = { authorization: `Bearer ${jwt}` };
 
       // 1b. VERIFY-1 — the console gate, both directions: a fresh registration
-      // is WALLED by name, then the send→confirm flow (real routes, code via
-      // the internal echo) opens it. Without this step every console read
-      // below would now honestly 403 — the gate is the product, not a fixture
-      // inconvenience.
+      // is WALLED by name, then the send→confirm flow (real routes, code read
+      // from the file-mail fixture) opens it. Without this step every console
+      // read below would now honestly 403 — the gate is the product, not a
+      // fixture inconvenience.
       const walled = await jsonGet('/api/cloud/summary', auth);
       if (walled.status !== 403) return FAIL(`unverified summary expected 403 EMAIL_NOT_VERIFIED, got ${walled.status}`);
       if ((await walled.json()).error !== 'EMAIL_NOT_VERIFIED') return FAIL('unverified summary refusal not EMAIL_NOT_VERIFIED');
-      await verifyRegisteredEmail(url, jwt);
+      await verifyRegisteredEmail(url, jwt, mailDir, 'g11@flowmic.test');
 
       // 2. summary + subscription (Bearer) — plan free, quota finite, 0 devices.
       const sumRes = await jsonGet('/api/cloud/summary', auth);
@@ -127,16 +124,24 @@ export const G11 = {
       if (rev2.ok !== true || rev2.revoked !== false) return FAIL(`second (idempotent) revoke wrong: ${JSON.stringify(rev2)}`);
 
       // 6. password reset rotation: forgot → reset → old dead, new logs in.
-      const forgot = await (await jsonPost('/api/password/forgot', { email: 'g11@flowmic.test' })).json();
-      if (typeof forgot.reset_token !== 'string') return FAIL(`forgot did not echo reset_token: ${JSON.stringify(forgot)}`);
-      const reset = await jsonPost('/api/password/reset', { email: 'g11@flowmic.test', reset_token: forgot.reset_token, new_password: 'rotatedpass1' });
+      // 2026-09-02 — the token is read out of the mailed link (mail/file.ts),
+      // never off the response: `forgot` is byte-identical to the
+      // unknown-email shape now (test/console-routes.test.ts pins that).
+      const forgotRes = await jsonPost('/api/password/forgot', { email: 'g11@flowmic.test' });
+      const forgot = await forgotRes.json();
+      if (forgot.ok !== true || 'reset_token' in forgot) return FAIL(`forgot response is not the anti-enumeration shape: ${JSON.stringify(forgot)}`);
+      const resetMail = await readLatestMail(mailDir, 'g11@flowmic.test');
+      const tokenMatch = /[?&]token=([^&\s]+)/.exec(resetMail.text);
+      if (!tokenMatch) return FAIL(`no token= in the mailed reset link: ${resetMail.text}`);
+      const resetToken = tokenMatch[1];
+      const reset = await jsonPost('/api/password/reset', { email: 'g11@flowmic.test', reset_token: resetToken, new_password: 'rotatedpass1' });
       if (reset.status !== 200) return FAIL(`/api/password/reset status ${reset.status}`);
       const oldLogin = await jsonPost('/api/login', { email: 'g11@flowmic.test', password: 'longenough1' });
       if (oldLogin.status !== 401) return FAIL(`old password still logs in after reset (status ${oldLogin.status})`);
       const newLogin = await jsonPost('/api/login', { email: 'g11@flowmic.test', password: 'rotatedpass1' });
       if (newLogin.status !== 200) return FAIL(`new password does NOT log in after reset (status ${newLogin.status})`);
 
-      return PASS('register→login→VERIFY-1 gate (unverified 403 EMAIL_NOT_VERIFIED → send/confirm via internal code echo → admitted)→summary/subscription(Bearer)→cloud pair→devices list(no token leak)→revoke idempotent+续连失效→password reset ROTATION with the M1 internal echo flag explicitly ON (old dead, new logs in) — ⚠️ 这不证明用户能自助重置：本用例这台服务器没有配 FLOWMIC_MAIL_*，且真发信至今【未实测】（邮件链判据在 test/mail-password-reset.test.ts 与 test/email-verification.test.ts，卡 MAIL-1 / VERIFY-1）');
+      return PASS('register→login→VERIFY-1 gate (unverified 403 EMAIL_NOT_VERIFIED → send/confirm via the file-mail fixture → admitted)→summary/subscription(Bearer)→cloud pair→devices list(no token leak)→revoke idempotent+续连失效→password reset ROTATION with the token read from the mailed link, response byte-identical to the unknown-email shape (old dead, new logs in) — ⚠️ 这不证明用户能自助重置：本用例这台服务器写的是文件邮箱而非真发信，真链路至今【未实测】（邮件链判据在 test/mail-password-reset.test.ts 与 test/email-verification.test.ts，卡 MAIL-1 / VERIFY-1）');
     } catch (e) {
       return FAIL(`threw: ${e.message}`);
     } finally {

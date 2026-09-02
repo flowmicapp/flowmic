@@ -467,11 +467,6 @@ export function resetPlanLimits(): void {
   ACTIVE = PLAN_LIMITS;
 }
 
-/** The EFFECTIVE table currently in force (defaults unless overridden). */
-export function currentPlanLimits(): Readonly<Record<Plan, Readonly<PlanLimits>>> {
-  return ACTIVE;
-}
-
 /** Pure limit lookup against the effective table (defaults free for safety). */
 export function planLimits(plan: Plan): PlanLimits {
   return ACTIVE[plan] ?? ACTIVE.free;

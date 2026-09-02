@@ -58,6 +58,15 @@ pub enum FailReason {
     PortOccupiedForeign,
     /// netstat/taskkill of the port listener failed.
     ClearFailed { detail: String },
+    /// The health supervisor (`shell::sidecar_ctl::spawn_health_supervisor`,
+    /// which runs AFTER this machine's own Healthy/AdoptedExternal — this
+    /// variant is never produced by `SidecarMachine` itself) re-ran bring-up
+    /// this many times in a row without the server ever staying up long
+    /// enough to forgive the streak, and gave up rather than crash-looping
+    /// forever (2026-09-02 audit, sidecar supervisor leftovers P2: "no
+    /// backoff and no max"). `last_stderr` is whatever the last dead child
+    /// printed — `None` only if the buffer was never wired for that attempt.
+    SupervisorGaveUp { restarts: u32, last_stderr: Option<String> },
 }
 
 impl std::fmt::Display for FailReason {
@@ -84,6 +93,13 @@ impl std::fmt::Display for FailReason {
                 write!(f, "port 41879 still occupied by a foreign process after one clear")
             }
             FailReason::ClearFailed { detail } => write!(f, "port clear failed: {detail}"),
+            FailReason::SupervisorGaveUp { restarts, last_stderr } => {
+                write!(f, "the local service crashed and was automatically restarted {restarts} time(s) in a row without staying up — giving up rather than restarting forever")?;
+                match last_stderr.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "<none>") {
+                    Some(tail) => write!(f, "; the last exit said: {tail}"),
+                    None => write!(f, "; no stderr output from the last exit"),
+                }
+            }
         }
     }
 }
@@ -496,6 +512,27 @@ mod tests {
             assert!(r.contains("no stderr output"), "silence must be named: {r}");
             assert!(!r.contains("<none>"), "the internal marker must not reach the card: {r}");
         }
+    }
+
+    /// 2026-09-02 (sidecar supervisor leftovers, item 1): the terminal state a
+    /// crash-looping local server lands on must name the restart count AND
+    /// carry the last child's own words, same as `ChildExited` above — this
+    /// is the card the health supervisor writes to when it gives up instead
+    /// of restarting forever.
+    #[test]
+    fn supervisor_gave_up_reason_names_the_streak_and_the_last_words() {
+        let rendered = FailReason::SupervisorGaveUp {
+            restarts: 6,
+            last_stderr: Some("Error: EADDRINUSE".into()),
+        }
+        .to_string();
+        assert!(rendered.contains('6'), "the restart count must survive: {rendered}");
+        assert!(rendered.contains("EADDRINUSE"), "the last child's words must reach the card: {rendered}");
+
+        // Reverse control: no buffered tail must still say something honest,
+        // never silently omit the second half of the sentence.
+        let silent = FailReason::SupervisorGaveUp { restarts: 2, last_stderr: None }.to_string();
+        assert!(silent.contains("no stderr output"), "silence must be named: {silent}");
     }
 
     #[test]

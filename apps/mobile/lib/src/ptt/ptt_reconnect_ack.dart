@@ -314,10 +314,19 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // token was KEPT because the node that refused it may simply not have
         // pulled our row yet, so the one thing this layer owes it is a second
         // ask — the socket is still up, so the reconnect ladder never will.
+        //
+        // 🔴 A11/F2-a (WP-8, 2026-09-02) — `AUTH_TOKEN_UNVERIFIABLE` is added
+        // here as its OWN honest source of the same shape, not folded into the
+        // guard above via `mobile_reconnect_flow.dart`. It ALWAYS arrives with
+        // `invalid == false` (that file's `tokenUnverifiable` branch never
+        // sets `refusedToken`), so `!invalid` is redundant for it but kept for
+        // symmetry with the line above — a future edit that ever set `invalid`
+        // for this code would be a bug this line's shape would not hide.
         s._noteHoldOut(
           error,
           retryAfterMs,
-          suppressedTokenRefusal: error == 'AUTH_TOKEN_INVALID' && !invalid,
+          suppressedTokenRefusal:
+              (error == 'AUTH_TOKEN_INVALID' || error == 'AUTH_TOKEN_UNVERIFIABLE') && !invalid,
         );
         diag('reconnect.refused', <String, Object?>{
           'code': error, 'retry_after_ms': retryAfterMs, 'invalid': invalid,

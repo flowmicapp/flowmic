@@ -65,6 +65,7 @@ const String _token = 'tok-0123456789abcdef0123456789abcdef';
 Future<({bool wiped, bool invalid, String? code})> _refuse({
   required bool ackLevel,
   required bool lagOpen,
+  String refusalCode = 'AUTH_TOKEN_INVALID',
 }) async {
   final FakeSocketTransport transport = FakeSocketTransport();
   final InMemoryTokenStorage storage = InMemoryTokenStorage();
@@ -72,12 +73,12 @@ Future<({bool wiped, bool invalid, String? code})> _refuse({
     const MobileSession(token: _token, endpoint: 'https://srvjp.example'),
   );
   if (ackLevel) {
-    transport.ackQueue.add(<String, Object?>{'error': 'AUTH_TOKEN_INVALID'});
+    transport.ackQueue.add(<String, Object?>{'error': refusalCode});
   } else {
     // No ack at all: the middleware refused the handshake, so the frame never
     // went out and the server's answer is on `lastConnectError`.
     transport.failEmits = true;
-    transport.setLastConnectError('AUTH_TOKEN_INVALID');
+    transport.setLastConnectError(refusalCode);
     transport.pushStatus(SocketStatus.error);
   }
   bool invalid = false;
@@ -224,6 +225,62 @@ void main() {
     });
   });
 
+  // ── A11/F2-a (WP-8, 2026-09-02): the SERVER'S OWN honest code ──────────────
+  //
+  // A different mechanism from the window above, and deliberately tested
+  // apart from it: `ReplicaLagWindow` is this PHONE's guess (a timer started
+  // on `notePaired`), while `AUTH_TOKEN_UNVERIFIABLE` is the SERVER stating
+  // outright that it could not confirm the token (writer unreachable, its own
+  // budget spent, rows that would not land — apps/server-core/src/auth/
+  // middleware.ts's `resolveDetailed` branch). A server new enough to emit
+  // this code needs no client-side guess at all, which is why every test
+  // below pins `lagOpen: false` — proving the survival does NOT depend on the
+  // window being open.
+  group('AUTH_TOKEN_UNVERIFIABLE (A11/F2-a) — the server\'s own honest code',
+      () {
+    test('🔴 ACK-LEVEL: survives with the window CLOSED — this code needs no '
+        'client guess at all', () async {
+      final ({bool wiped, bool invalid, String? code}) r = await _refuse(
+        ackLevel: true,
+        lagOpen: false,
+        refusalCode: 'AUTH_TOKEN_UNVERIFIABLE',
+      );
+      expect(r.wiped, isFalse,
+          reason: 'the server explicitly said it could not confirm the token '
+              '— that is never grounds to delete a credential the user did '
+              'not revoke');
+      expect(r.invalid, isFalse);
+      expect(r.code, 'AUTH_TOKEN_UNVERIFIABLE',
+          reason: 'the server\'s own answer is reported verbatim');
+    });
+
+    test('🔴 HANDSHAKE-LEVEL: survives with the window CLOSED, same', () async {
+      final ({bool wiped, bool invalid, String? code}) r = await _refuse(
+        ackLevel: false,
+        lagOpen: false,
+        refusalCode: 'AUTH_TOKEN_UNVERIFIABLE',
+      );
+      expect(r.wiped, isFalse);
+      expect(r.invalid, isFalse);
+      expect(r.code, 'AUTH_TOKEN_UNVERIFIABLE',
+          reason: 'unlike the plain AUTH_TOKEN_INVALID handshake-level case '
+              'above, this one names itself even with no ack to quote — '
+              'mobile_reconnect_flow.dart re-derives it from '
+              'lastConnectError specifically so this fact is not lost');
+    });
+
+    test('an AUTH_TOKEN_INVALID refusal in the SAME call is unaffected by '
+        'this code existing', () async {
+      // Positive control: the two codes must not bleed into one another.
+      final ({bool wiped, bool invalid, String? code}) r =
+          await _refuse(ackLevel: true, lagOpen: false);
+      expect(r.wiped, isTrue,
+          reason: 'a genuinely-invalid token must still wipe — adding a new '
+              'honest code must not quietly widen the old one\'s meaning');
+      expect(r.invalid, isTrue);
+    });
+  });
+
   // ── the wiring: does PRODUCTION actually ask the window? ───────────────────
   //
   // 🔴 Required separately for the reason CLAUDE.md's anti-façade ① states: the
@@ -289,6 +346,34 @@ void main() {
           reason: 'today\'s behaviour must be unchanged outside the window');
       expect(s.holdOutArmed, isFalse,
           reason: 'a really dead token wants a human, not a timer');
+    });
+
+    test('🔴 A11/F2-a: AUTH_TOKEN_UNVERIFIABLE survives and re-asks too, with '
+        'no window opened at all', () async {
+      final FakeSocketTransport transport = FakeSocketTransport();
+      final PttSession s = session(transport);
+      addTearDown(s.dispose);
+      await s.tokenStorage.addOrUpdatePairing(
+        const MobileSession(token: _token, endpoint: 'http://192.0.2.5:55889'),
+      );
+      // 🔴 Deliberately NOT called: s.reconnect.lagWindow.notePaired(). This
+      // code's survival must not depend on the phone's own guess.
+      transport.ackQueue.add(<String, Object?>{'error': 'AUTH_TOKEN_UNVERIFIABLE'});
+
+      expect(
+        await s.resumePairing(
+          const MobileSession(token: _token, endpoint: 'http://192.0.2.5:55889'),
+        ),
+        isFalse,
+        reason: 'positive control: the reconnect really was refused',
+      );
+      expect((await s.tokenStorage.readPairings()), hasLength(1),
+          reason: 'the server said it could not confirm — that keeps the '
+              'credential regardless of the window');
+      expect(s.paired.value, isFalse);
+      expect(s.holdOutArmed, isTrue,
+          reason: 'same as the suppressed AUTH_TOKEN_INVALID shape: the socket '
+              'stays up, so only this timer will ever ask again');
     });
 
     test('an accepted reconnect closes the window, so a LATER revocation is '

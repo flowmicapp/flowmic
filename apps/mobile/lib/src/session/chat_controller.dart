@@ -27,6 +27,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../destination/destination_controller.dart';
 import '../diag/diag_log.dart';
 import '../favorites/favorites_store.dart';
@@ -119,6 +120,10 @@ part 'chat_explicit_delivery.dart';
 // The exact complement of the file above: rewriting an EXISTING row without
 // re-delivering it.
 part 'chat_row_rewrite.dart';
+// The AI/translate row's plain (non-@override) surface — card B2-O, moved out
+// to buy room for the retained-audio notice wiring below. See that file's
+// header for the one mechanical edit and nothing else.
+part 'chat_ai_row_surface.dart';
 
 // The five inbound routers — one family, one file. See its header.
 part 'chat_inbound_routes.dart';
@@ -216,6 +221,15 @@ class ChatController extends ChangeNotifier
     _conn = session.fsm.connection;
     _sess = session.fsm.session;
     AlbumAway.instance.addListener(_onAlbumAwayChanged); // RV-60
+    // 🔴 AUD-D F6 / P1-6 (2026-09-02) — the retained-audio store's own header
+    // says "callers MUST surface these"; before this line the only listener
+    // anywhere was the boot-time diag line (retained_audio_boot.dart), which
+    // that file's own comment names as "not yet a screen". Null-safe: a phone
+    // whose retention layer failed to open (openRetainedAudioSpill's degrade
+    // path) has no store to listen to, and that is an existing, separately
+    // surfaced degradation — not this listener's problem.
+    session.audio.retainedAudio?.store.lastNotice
+        .addListener(_onRetainedAudioNotice);
   }
 
   // Family bodies: chat_notices.dart. NAMES stay here so call sites are untouched.
@@ -224,6 +238,11 @@ class ChatController extends ChangeNotifier
   /// The server just put this connection into the room ⇒ now, and only now,
   /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
   void _onRoomJoined() => onRoomJoinedRouted(this);
+
+  /// AUD-D F6 / P1-6 — a segment was dropped/evicted/expired out of local
+  /// retention. Body: chat_notices.dart (same family as the other page-level
+  /// transient truths that never touch TimelineEntry).
+  void _onRetainedAudioNotice() => onRetainedAudioNoticeRouted(this);
 
   final PttSession session;
   /// Card PAIR-SUCCESS — raised by main.dart from the connections page's deliberate-entry funnel only.
@@ -535,6 +554,17 @@ class ChatController extends ChangeNotifier
   /// the ONE writer (`onSttStalledRouted`); see [_autoStoppedInstanceId].
   String? _sttStalledInstanceId;
 
+  // AUD-D F6 / P1-6 (2026-09-02) — `RetainedAudioStore` gave up or aged out
+  // unclaimed capture audio. Deliberately NOT instance-scoped like the three
+  // notices above: it describes a FILE on this phone's disk, produced by the
+  // retention layer independently of which PC this screen happens to be
+  // showing (unlike [_autoStopped]/[_sttStalled]/[_utteranceFailure], which
+  // are all about a delivery this phone tried to make TO a specific
+  // instance). The raw [RetainedAudioNotice.code] string, not the model
+  // type, so this class never has to import audio/retained_audio_store.dart —
+  // the same shape [_autoStopReason] already uses for the same reason.
+  String? _retainedAudioNoticeCode;
+
   // ── mode chip ────────────────────────────────────────────────────────
   // All three bodies: chat_mode_chip.dart (moved VERBATIM, RV-92's tag-along
   // split —
@@ -582,28 +612,12 @@ class ChatController extends ChangeNotifier
   // 01 §3.1: in translate/organize the text that gets injected IS the LLM
   // output. The run lives in utterance_compose.dart, the row handling in
   // chat_utterance.dart; what stays here is the state the page reads.
+  //
+  // [translateTarget] / [setTranslateTarget] / [loadTranslateTarget] moved to
+  // chat_ai_row_surface.dart (card B2-O, 800-line cap) — they read/write this
+  // field but implement no interface, so only the FIELD had to stay.
 
   String _translateTarget = kTranslateTargetDefault;
-
-  /// The translate target language (GA-01 ruling 2). DEVICE-LOCAL like the send
-  /// policy — this phone's habit, never a synced settings key. Snapshotted into
-  /// compose:start per utterance, so changing it mid-sentence cannot re-aim the
-  /// sentence already spoken.
-  String get translateTarget => _translateTarget;
-
-  Future<void> setTranslateTarget(String lang) async {
-    if (lang.isEmpty || lang == _translateTarget) return;
-    _translateTarget = lang;
-    notifyListeners();
-    await localPrefs.setTranslateTarget(lang);
-  }
-
-  /// Hydrate the device-local translate target (called with the other
-  /// local-prefs loads at startup).
-  Future<void> loadTranslateTarget() async {
-    _translateTarget = await localPrefs.translateTarget();
-    notifyListeners();
-  }
 
   /// The last utterance-transform failure, held until dismissed. Deliberately
   /// NOT [aiFailure]: that one means 「your buffer is untouched」, this one means
@@ -753,29 +767,10 @@ class ChatController extends ChangeNotifier
   // the picker had two entries and became a contradiction the moment it had nine.
   String get aiTranslateTarget => _translateTarget;
 
-  /// The task currently streaming, or null when the row is idle.
-  ComposeTask? get aiTask => aiCompose.task;
-  bool get isAiComposing => aiCompose.isRunning;
-
-  /// AI-row enable gate. Deliberately NOT gated on [destination] or on a live
-  /// PC: compose is a phone↔server round trip that produces TEXT, not a
-  /// delivery. Greying it out on a cloud instance would disable something that
-  /// demonstrably works there.
-  bool get canAiCompose => aiCompose.canStart;
-
-  AiComposeFailure? startAiCompose(ComposeTask task) => aiCompose.start(task);
-
-  /// 🔴 T-6 (owner supplement #5) — the text a successful organize/translate/polish
-  /// replaced, or
-  /// null. The card draws 「restore original」 iff this is non-null; see
-  /// [AiComposeController.restorableOriginal] for the no-stacking rule.
-  String? get restorableOriginal => aiCompose.restorableOriginal;
-
-  /// Put that text back into the buffer. The notify rides on the controller's
-  /// own `aiNotify`, so the field, the button and the send gate all repaint
-  /// from one write.
-  bool restoreOriginal() => aiCompose.restoreOriginal();
-
+  // [aiTask] / [isAiComposing] / [canAiCompose] / [startAiCompose] /
+  // [restorableOriginal] / [restoreOriginal] moved to chat_ai_row_surface.dart
+  // (card B2-O, 800-line cap) — none of them is required by AiComposeHost, so
+  // only the members above (which are) had to stay.
 
   // ── the five inbound routers ─────────────────────────────────────────
   // Bodies: chat_inbound_routes.dart (a `part` of this library). See that

@@ -52,21 +52,23 @@ export function withdrawalDeadline(contractConcludedAt: string | null): string |
   return new Date(startMs + WITHDRAWAL_WINDOW_DAYS * DAY_MS).toISOString();
 }
 
+// 🔴 2026-09-02 audit F9 — `withdrawalWindow(contractConcludedAt, nowMs)` used
+// to live here (`windowFromDeadline(withdrawalDeadline(contractConcludedAt),
+// nowMs)`, its own dead twin of the function below). Zero production callers:
+// `http/billing-routes.ts` calls `windowFromDeadline` directly against
+// `PlanView.withdrawal_deadline`, never this two-step form against the raw
+// column — see that function's own doc for why THAT is the one the route must
+// use. Deleted rather than kept as an always-agreeing alternate path.
+
 /**
- * The window's state at `nowMs`.
+ * The window's state at `nowMs`, taken from the deadline the plan view already
+ * carries.
  *
  * ⚠️ The boundary is `nowMs < deadline`, i.e. the fourteenth day is INSIDE the
  * window and it closes the instant the deadline is reached. The direction is
  * chosen on purpose: an off-by-one that closes early takes a legal right away
  * from someone entitled to it, while one that closes late costs us one refund.
  * Those two errors are not equally bad and the code should not pretend they are.
- */
-export function withdrawalWindow(contractConcludedAt: string | null, nowMs: number): WithdrawalWindow {
-  return windowFromDeadline(withdrawalDeadline(contractConcludedAt), nowMs);
-}
-
-/**
- * The same verdict, taken from the deadline the plan view already carries.
  *
  * 🔴 THIS IS THE ONE THE ROUTE USES, and the choice is deliberate. The console
  * decides whether to offer the withdrawal function from `PlanView.
@@ -86,29 +88,16 @@ export function windowFromDeadline(deadline: string | null, nowMs: number): With
   return nowMs < ms ? 'open' : 'closed';
 }
 
-/**
- * What may be kept when someone withdraws, given what we can prove they agreed
- * to. Returns the fraction of the payment we are entitled to retain.
- *
- * 🔴 IT IS ALWAYS ZERO TODAY, AND THAT IS THE LAW WORKING, NOT A STUB.
- *
- * CRD art. 14(3) lets a trader keep a pro-rata amount for service already
- * supplied during the withdrawal period — but ONLY where the consumer made an
- * express request for performance to begin during that period AND was told they
- * would owe that amount. Art. 14(4)(a) is the other half: where that request and
- * that information were not obtained, the consumer 「shall bear no cost」.
- *
- * We have never asked for that consent. There is no checkout in this product
- * yet, so there is no screen on which it could have been given, and
- * `billing_consents` (design §3.1) is B5 work. Therefore the honest, and the
- * only lawful, retention today is NOTHING — a full refund.
- *
- * ⚠️ DO NOT 「finish」 THIS BY ADDING A PRO-RATA CALCULATION. The calculation is
- * not the missing piece; the CONSENT is. Wiring arithmetic here before B5 would
- * take money we have no basis to keep, and it would look like a completed
- * feature while doing it. When B5 lands, this function takes the consent record
- * as an argument and this comment gets rewritten with the new rule.
- */
-export function retainableFraction(): 0 {
-  return 0;
-}
+// 🔴 2026-09-02 audit F9 — `retainableFraction(): 0` used to live here (a
+// function that always returned 0, documented at length as "the law working,
+// not a stub" — CRD art. 14(3)'s pro-rata retention needs a consent record
+// this product has never captured, so art. 14(4)(a) makes the retention
+// NOTHING). It had zero callers: `http/billing-routes.ts` narrates the same
+// legal argument in a comment but its withdrawal handler always issues a
+// full refund directly, never through this function. Deleted rather than
+// kept as an unreachable placeholder — see billing-routes.ts and
+// guided-setup.ts for where the legal argument itself is now written
+// (as prose, not as a function nothing calls). When B5 (design §3.1,
+// billing_consents) lands and a pro-rata calculation becomes possible, that
+// work adds a real function taking the consent record as an argument; it
+// does not resurrect this one.

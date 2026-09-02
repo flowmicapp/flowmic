@@ -59,48 +59,7 @@ export 'manual_delivery_host.dart';
 
 part 'manual_delivery_reinject.dart'; // 800-line cap: `reInject` (header there).
 part 'manual_delivery_noted.dart'; // P4: noPcTarget noted commit (header there).
-
-/// ONE delivery awaiting the PC's `inject:result`: which send it was, which
-/// rows its verdict settles, and the deadline that makes its SILENCE visible.
-///
-/// RV-02: this used to be two bare fields — a SINGLE slot for the whole app.
-/// The banner's resend (重发) re-delivers every row a failed send covered, one
-/// [ManualDelivery.reInject] call per row, so the second call overwrote the
-/// first: its watchdog was cancelled and its claim forgotten, leaving row 1 at
-/// ⏳ with nobody left to time it out. One record per in-flight delivery is what
-/// lets N concurrent re-injects each keep their own deadline AND their own
-/// answer — every claim is keyed by ids the PC echoes back verbatim, so there is
-/// no ambiguity to resolve between them.
-class _InFlightSend {
-  _InFlightSend(this.requestId, this.covered, this.instanceId);
-
-  /// 🔴 Card B4-18 — WHICH INSTANCE'S SCREEN this delivery's verdict is news for,
-  /// read ONCE at arm time off `ManualDeliveryHost.deliveryInstanceId`.
-  ///
-  /// The watchdog below fires up to 20 s after the send, and by then this record
-  /// is the only thing that still knows which screen the send was made on.
-  /// Reading the LIVE value inside [_onResultTimeout] would stamp the failure
-  /// with 「whichever instance the user happens to be looking at now」 — the
-  /// RV-91/RV-97 leak in reverse: a banner about instance A's delivery raised
-  /// onto instance B's screen, where nothing the user can see explains it.
-  final String? instanceId;
-
-  /// The key this delivery's verdict will come back under — NOT necessarily the
-  /// frame's `request_id`. For ➤/picture the two coincide; for a deferred
-  /// re-delivery it is the row's own ENTRY id, because
-  /// `InjectResult.correlationId` prefers `entry_id` when the PC echoes both
-  /// (A-58), and as of the RV-72 prerequisite a deferred re-delivery frame
-  /// carries both.
-  /// (It used to say 「which is what history:inject makes the PC echo」 — that
-  /// event is retired; the PC echoes it because the frame carries it.)
-  final String requestId;
-
-  /// The rows this ONE verdict writes back to (§4.0 A: each utterance keeps its
-  /// own row; the Send is one delivery action over them).
-  final List<String> covered;
-
-  Timer? watchdog;
-}
+part 'manual_delivery_result.dart'; // 800-line cap: in-flight claim + inject:result routing (header there).
 
 class ManualDelivery {
   ManualDelivery({
@@ -468,11 +427,35 @@ class ManualDelivery {
       // very press that sent them.
       final OutboxDrainReport report =
           await _host.outbox.drain(userRequestedEntryIds: snapCovered.toSet());
-      if (!report.linkOk) {
-        return failSettled(settle, ComposeSendFailure.linkDown);
-      }
+      if (report.busy) return null; // Card F2: merged into running drain, not failed.
+      if (report.linkOk == false) return failSettled(settle, ComposeSendFailure.linkDown);
+      // ── card B2-M — SAME SHAPE AS chat_utterance.dart's `_deliverDirect`
+      // (card B2-H) ────────────────────────────────────────────────────────
+      //
+      // `report.held` names every item `_attempt` put straight back to
+      // `queued` on this pass (delivery_outbox_attempt.dart's `!ok` branch —
+      // see `_Attempt.held` — never marks a wire miss terminal), so a
+      // `requestId` in here means the outbox STILL OWES this delivery and
+      // will retry it on its own schedule, the same way
+      // `chat_outbox_host.dart`'s own `outboxSend` returning false leaves an
+      // item `queued` rather than settling anything. Fail-settling the row
+      // here would run that ONE wire miss through two doors that do not know
+      // about each other: the row paints ✗ `failed` now (owner ruling ⑩, docs/
+      // rebuild/15 §2.0.1-c — a `failed` row's own status IS its own
+      // verdict), and the outbox's later successful retry silently flips it
+      // back with no user action in between — the exact "flips to ✓ later"
+      // shape B2-H closed on the direct-send path, reached here through the
+      // queued path instead.
+      //
+      // Only a code the outbox itself never retries may fail-settle these
+      // rows: the admission refusal above (`queued == null` ⇒ `noPcTarget`,
+      // no destination to retry against) already does that. `held` is not
+      // that code — it is retryable by construction.
       if (report.held.containsKey(requestId)) {
-        return failSettled(settle, ComposeSendFailure.wireFailed);
+        diag('deliver.wire_failed_queued', <String, Object?>{
+          'request_id': requestId,
+        });
+        return null;
       }
       return null;
     } finally {
@@ -621,203 +604,19 @@ class ManualDelivery {
   }
 
   /// Arm the in-flight claim so ONE inject:result settles every row this send
-  /// covered (§4.0 A: each utterance keeps its own row; the Send is one
-  /// delivery action over them).
-  ///
-  /// This is the COMPOSER/image entry point: it also retires the banner, because
-  /// the words that failed are the words now on their way. Deferred
-  /// re-delivery (补投) arms the same claim through [_armResultWatch] without
-  /// touching the banner — it re-delivers a ROW, and an unrelated visible
-  /// failure must not be swept away by it.
-  void armInFlight(String requestId, List<String> settle) {
-    // Card B4-18: same retirement as before, now refusing to reach across
-    // instances — see [_retireConclusion].
-    _retireConclusion();
-    _armResultWatch(requestId, settle);
-    _host.deliveryNotify();
-  }
+  /// covered. Body moved to manual_delivery_result.dart (800-line cap); header
+  /// there.
+  void armInFlight(String requestId, List<String> settle) =>
+      runArmInFlight(this, requestId, settle);
 
-  /// Register one in-flight delivery and start ITS deadline.
-  ///
-  /// RV-02: per-delivery, not per-app. A newer delivery of the SAME rows takes
-  /// them over (its verdict is the one that counts), and its predecessor is
-  /// released WITHOUT being settled — settling it ✗ would mark a row failed
-  /// while its re-delivery is still in flight. Claims over OTHER rows are left
-  /// strictly alone; that is what makes N-row deferred re-delivery (补投) safe.
-  void _armResultWatch(String requestId, List<String> settle) {
-    _inFlight.removeWhere((_InFlightSend s) {
-      final bool superseded =
-          s.requestId == requestId || s.covered.any(settle.contains);
-      if (superseded) s.watchdog?.cancel();
-      return superseded;
-    });
-    // RV-15 lifetime, applied exactly: the rows THIS delivery re-covers leave
-    // the banner's retry batch (their words are on their way — offering resend
-    // (重发) again would deliver them twice), while the rows it does not touch
-    // stay retryable. A deferred re-delivery (补投) of one row must not retire
-    // the other N-1.
-    if (_lastFailedCoveredIds.isNotEmpty) {
-      _lastFailedCoveredIds = List<String>.unmodifiable(
-        _lastFailedCoveredIds.where((String id) => !settle.contains(id)),
-      );
-    }
-    // Card B4-18: the screen this delivery was made on, frozen with the claim —
-    // read now, never re-derived when the deadline expires.
-    final _InFlightSend send =
-        _InFlightSend(requestId, settle, _host.deliveryInstanceId);
-    _inFlight.add(send);
-    // The PC's pipeline is slow by design (foreground switch, an 80 ms clipboard
-    // settle, up to 700 ms of read-back verification), so the budget is generous
-    // — it exists to catch a result that will NEVER arrive, not a slow one.
-    send.watchdog = Timer(_resultTimeout, () => _onResultTimeout(send));
-  }
+  /// Release every watchdog timer. Body moved to manual_delivery_result.dart
+  /// (800-line cap); header there.
+  void dispose() => disposeInFlightClaims(this);
 
-  void _onResultTimeout(_InFlightSend send) {
-    send.watchdog = null;
-    // Already claimed (or superseded, or disposed): its rows carry a settled
-    // truth now, and re-settling them would be the stale-timer lie.
-    if (!_inFlight.remove(send)) return;
-    diag('watchdog.no_result', <String, Object?>{
-      'request_id': send.requestId,
-      'covered_rows': send.covered.length,
-      'budget_ms': _resultTimeout.inMilliseconds,
-    });
-    // Settle every row this send covered as ✗ with a NAMED reason. Leaving them
-    // at ⏳ is the failure mode being fixed; inventing ✓ would be worse still.
-    for (final String id in send.covered) {
-      _host.store.applyInjectResult(
-        correlationId: id,
-        ok: false,
-        failureReason: 'INJECT_NO_RESULT',
-      );
-    }
-    // RV-15: same as the wire-failure path — the banner gets the whole batch,
-    // not the newest row of it. With one record per delivery this batch is the
-    // rows THAT delivery covered, never a merge of several.
-    _raise(
-      ComposeSendFailure.noResult,
-      covered: List<String>.unmodifiable(send.covered),
-      // 🔴 Card B4-18: the instance THIS DELIVERY was made on, not the one on
-      // screen 20 s later. The rows it just settled as ✗ live on that instance's
-      // timeline (`entriesForInstance`), so a banner about them belongs on that
-      // instance's screen and nowhere else.
-      instanceId: send.instanceId,
-    );
-  }
-
-  /// Release every watchdog timer. Called from ChatController.dispose — a
-  /// disposed controller that kept a live timer would later write an
-  /// INJECT_NO_RESULT into a store nobody is reading any more.
-  void dispose() {
-    for (final _InFlightSend s in _inFlight) {
-      s.watchdog?.cancel();
-      s.watchdog = null;
-    }
-    _inFlight.clear();
-  }
-
-  /// Claim an inbound inject:result for the delivery it belongs to, returning
-  /// the rows it settles (and disarming THAT delivery), or null when the result
-  /// belongs to something else. Whichever correlation key the PC echoes back —
-  /// entry_id (exact) or request_id — resolves: the id list catches the
-  /// request_id echo, and the row's own id / clientId catch the entry_id echo.
-  ///
-  /// RV-02: the echo also decides WHICH in-flight delivery is being answered, so
-  /// three concurrent deferred-re-delivery (补投) verdicts land on three rows
-  /// without any of them disarming the others. Correlation was always exact —
-  /// the single slot was
-  /// the only thing making it ambiguous.
-  List<String>? claimResult(String? correlation) {
-    if (correlation == null || correlation.isEmpty) return null;
-    final int i = _inFlight.indexWhere(
-      (_InFlightSend s) =>
-          s.requestId == correlation || s.covered.contains(correlation),
-    );
-    if (i < 0) return null;
-    final _InFlightSend send = _inFlight.removeAt(i);
-    // The result arrived — disarm, or the watchdog would later re-settle rows
-    // the PC has already answered for.
-    send.watchdog?.cancel();
-    send.watchdog = null;
-    return send.covered;
-  }
-
-  /// Route ONE inbound inject:result to the row(s) it settles — the five-state
-  /// delivery-truth write-back. Lives here rather than in ChatController because
-  /// the branch turns entirely on the in-flight claim this class owns.
-  ///
-  /// A manual send covers N rows with ONE request id; the single truth fans back
-  /// onto each of them through the normal write-back (no new status, no schema
-  /// change). A typed-only send covers zero rows and simply resolves. Either echo
-  /// shape resolves: request_id (what the PC gets for a multi-row manual send) or
-  /// the D10 row's own entry_id (stamped only when the send covers exactly one
-  /// row, so settling the whole list is settling that row).
-  void applyInjectResult(InjectResult r, TimelineStore store) {
-    final String? correlation = r.correlationId;
-    diag('recv.inject_result', <String, Object?>{
-      'ok': r.ok,
-      'correlation': correlation,
-      'error': r.error,
-    });
-    final List<String>? covered = claimResult(correlation);
-    final List<String?> settled = covered ?? <String?>[correlation];
-    for (final String? id in settled) {
-      store.applyInjectResult(
-        correlationId: id,
-        ok: r.ok,
-        target: r.target,
-        pcName: _host.pcDisplayName,
-        failureReason: r.error,
-        // N2 / RV-42: the verdict's OWN word for what happened. `ok:false` with
-        // mode 'cached' means 「没投递，可补投」("not delivered, can be
-        // deferred-re-delivered"), not 「注入失败」("injection failed") — the
-        // field was parsed off the wire all along and dropped at this door,
-        // which is why the phone and the PC capsule described the same event
-        // differently.
-        wireMode: r.mode,
-      );
-    }
-    if (r.ok) _retireFailureContradictedBy(settled);
-  }
-
-  /// 🔴 Card B4-18 ③ — WORDS THAT LANDED MUST NOT LEAVE 「没发出去」("did not go
-  /// out") STANDING.
-  ///
-  /// Red line F2's SECOND direction (must not describe something that
-  /// succeeded as if it had not — 不许把做成的事说成没做成), for text, at the
-  /// one place the PC's own verdict arrives. A failed send does NOT drop its
-  /// delivery: `wireFailed` / `linkDown` / `noResult` all leave the queue item
-  /// still owed, the next drain carries it, the PC types it, the row goes ✓ —
-  /// and the red banner underneath keeps saying the opposite until someone
-  /// taps ✕.
-  ///
-  /// Only `ok` retires it: a failed verdict is not a contradiction. And only a
-  /// verdict for a row THIS banner is about ([lastFailedCoveredIds]) — a blanket
-  /// clear on any success would swallow an unrelated failure.
-  ///
-  /// ⚠️ It is deliberately NOT scoped to the instance on screen. 「这次投递成功
-  /// 了」("this delivery succeeded") is true wherever the user is standing, so
-  /// a parked banner about it is false wherever it is parked.
-  ///
-  /// 📌 THIS SUBSUMES the narrower RV-30 block in `image_send_controller.dart`
-  /// (`onInjectSettled`, the `delivery.failure == noResult` branch): that one
-  /// handles the same contradiction for one reason only, and only on the socket
-  /// route — `image_send_http.dart` calls [applyInjectResult] without ever
-  /// reaching it. Reported for removal rather than deleted here: that file
-  /// belongs to RV-97, which landed in the same window. It is now unreachable,
-  /// not wrong — this runs first (`chat_outbox_host.onInjectResultRouted`).
-  void _retireFailureContradictedBy(List<String?> deliveredIds) {
-    if (_failure == null || _lastFailedCoveredIds.isEmpty) return;
-    final bool contradicted = deliveredIds.any(
-      (String? id) => id != null && _lastFailedCoveredIds.contains(id),
-    );
-    if (!contradicted) return;
-    diag('deliver.banner_retired_by_delivery', <String, Object?>{
-      'reason': _failure!.name,
-      'covered_rows': _lastFailedCoveredIds.length,
-    });
-    dismissFailure();
-  }
+  /// Route ONE inbound inject:result to the row(s) it settles. Body moved to
+  /// manual_delivery_result.dart (800-line cap); header there.
+  void applyInjectResult(InjectResult r, TimelineStore store) =>
+      runApplyInjectResult(this, r, store);
 
   /// One of the four QuickAction keys (⏎ ⌫ ↶ ✕). These act on the PC's FOCUSED
   /// window — they are not local editing. Returns whether the frame left the

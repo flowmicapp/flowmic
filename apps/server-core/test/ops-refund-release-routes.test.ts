@@ -33,7 +33,9 @@ import {
 import {
   PURCHASE_EXTERNAL_REFERENCE_MAX,
   PURCHASE_REFUND_RELEASE_ACTION,
+  PURCHASE_REFUND_RELEASE_NOT_APPLIED_ACTION,
   PURCHASE_REFUND_SETTLE_ACTION,
+  PURCHASE_REFUND_SETTLE_NOT_APPLIED_ACTION,
   PURCHASES_REFUND_RELEASE_ROUTE,
   PURCHASES_REFUND_SETTLE_ROUTE,
   tryHandleOpsRefundReleaseRoutes,
@@ -636,5 +638,104 @@ describe('§6 registration', () => {
     const r = makeRes();
     expect(tryHandleOpsRefundReleaseRoutes(makeReq('POST', '/api/ops/purchases/advance', {}), r.res, deps)).toBe(false);
     expect((await call(deps, 'GET', SETTLE)).owned).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('§7 🔴 2026-09-02 audit P3 — a race the write LOSES must not leave the trail saying it won', () => {
+  // 🔴 THIS IS A DIFFERENT GAP FROM §3. §3 seeds the row already OUT of
+  // 'refund_requested' before the request even starts, so `loadRequestedRefund`
+  // catches it before `auditFirst` ever runs and zero business rows are
+  // written — that path was never broken. The real gap sits BETWEEN
+  // `loadRequestedRefund`'s read and the atomic write a few lines later: a row
+  // that reads 'refund_requested' at the pre-check can still move before the
+  // UPDATE runs. `getOneTimePurchase` is overridden here to move the row via a
+  // SEPARATE, REAL call to `releaseOneTimeRefundRequest` at the exact moment
+  // `loadRequestedRefund` reads it and still return the pre-check's own
+  // reading — the same "mutate from inside the read" technique
+  // service-refund-action.test.ts §1 uses to pin an ordering, pointed at the
+  // opposite ordering bug.
+  function raceInsideThePrecheck(repo: Repo, mutate: () => void): OpsRefundReleaseRoutesDeps['purchases'] {
+    let raced = false;
+    return {
+      getOneTimePurchase: (orderId: string) => {
+        const row = repo.getOneTimePurchase(orderId);
+        if (!raced && row !== null && row.state === 'refund_requested') {
+          raced = true;
+          mutate();
+        }
+        return row;
+      },
+      settleOneTimeRefundByHand: repo.settleOneTimeRefundByHand,
+      releaseOneTimeRefundRequest: repo.releaseOneTimeRefundRequest,
+    };
+  }
+
+  it('settle: the racer\'s release wins, the settle 409s, and the trail gets a second row saying so', async () => {
+    const repo = makeDb();
+    seed(repo);
+    const { deps, rows } = makeDeps(repo, {
+      purchases: raceInsideThePrecheck(repo, () => {
+        repo.releaseOneTimeRefundRequest(
+          'ord_1',
+          { to_state: 'paid', reason: 'provider_declined', released_at: NOW_ISO },
+          NOW_ISO,
+        );
+      }),
+    });
+    const res = await call(deps, 'POST', SETTLE, { order_id: 'ord_1', external_reference: 'R', note: 'n' });
+    expect(res.status).toBe(409);
+    // The racer's write stands — this route changed NOTHING of its own.
+    expect(repo.getOneTimePurchase('ord_1')!.state).toBe('paid');
+    expect(repo.getOneTimePurchase('ord_1')!.refund_external_reference).toBeNull();
+
+    const business = businessRows(rows);
+    expect(business).toHaveLength(2);
+    // 🔴 THE FIRST ROW IS NOT DELETED OR REWRITTEN — it is exactly what
+    // `auditFirst` wrote before the race was known about.
+    expect(business[0]).toMatchObject({ action: PURCHASE_REFUND_SETTLE_ACTION, target_id: 'ord_1' });
+    // 🔴 THE SECOND ROW IS WHAT THIS FIX ADDS: its own action name (never the
+    // first row's action with a 'no_change' buried in `detail` — that would be
+    // one value answering two questions again), naming the same order.
+    expect(business[1]).toMatchObject({
+      action: PURCHASE_REFUND_SETTLE_NOT_APPLIED_ACTION,
+      target_id: 'ord_1',
+    });
+    expect(String(business[1]!.detail)).toContain('did not take effect');
+  });
+
+  it('release: the racer\'s settle wins, the release 409s, and the trail gets a second row saying so', async () => {
+    const repo = makeDb();
+    seed(repo);
+    const { deps, rows } = makeDeps(repo, {
+      purchases: raceInsideThePrecheck(repo, () => {
+        repo.settleOneTimeRefundByHand(
+          'ord_1',
+          { refunded_at: NOW_ISO, external_reference: 'RACER-REF' },
+          NOW_ISO,
+        );
+      }),
+    });
+    const res = await call(deps, 'POST', RELEASE, {
+      order_id: 'ord_1',
+      to_state: 'paid',
+      reason: 'provider_declined',
+      note: 'n',
+    });
+    expect(res.status).toBe(409);
+    // The racer's write stands — the row is 'refunded', not released back.
+    expect(repo.getOneTimePurchase('ord_1')!.state).toBe('refunded');
+    expect(repo.getOneTimePurchase('ord_1')!.refund_external_reference).toBe('RACER-REF');
+    expect(repo.getOneTimePurchase('ord_1')!.refund_released_at).toBeNull();
+
+    const business = businessRows(rows);
+    expect(business).toHaveLength(2);
+    expect(business[0]).toMatchObject({ action: PURCHASE_REFUND_RELEASE_ACTION, target_id: 'ord_1' });
+    expect(business[1]).toMatchObject({
+      action: PURCHASE_REFUND_RELEASE_NOT_APPLIED_ACTION,
+      target_id: 'ord_1',
+    });
+    expect(String(business[1]!.detail)).toContain('did not take effect');
   });
 });

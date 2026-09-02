@@ -16,8 +16,10 @@
 // ── DOMAINS ──────────────────────────────────────────────────────────────────
 // Packet D (p1-packet-D-i18n.md §D3) said the desktop has no domain-chip row.
 // Verified 2026-08-31: ScenarioCard.vue iterates PROFESSIONS / PACKS / terms
-// only; toggleDomain exists but has no production caller. Mapping is
-// professions only.
+// only. `settings-model.ts`'s `toggleDomain` (a caller-less write helper for
+// this same field) was deleted 2026-09-02 on the strength of that finding —
+// `model.card.domains` is still read and preserved (settings-cache-narrow.ts),
+// mobile is the only end that writes it. Mapping is professions only.
 
 import { S } from '../lib/strings';
 

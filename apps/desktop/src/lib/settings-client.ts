@@ -86,6 +86,11 @@ export class SettingsClient {
   /** Keys whose latest value has NOT reached a live wire (failed emit / offline).
    *  This is the fail-loud pending set surfaced as 「已存本地」("saved locally"). */
   private readonly dirty = new Set<string>();
+  /** E4 — keys with a `flushKey` network call currently in flight. Covers the
+   *  gap `dirty` cannot: a key that is neither debounce-armed nor yet failed
+   *  (or succeeded) is, for the duration of the await, indistinguishable from
+   *  "nothing is happening" unless something says otherwise. */
+  private readonly inFlight = new Set<string>();
   private readonly debouncer: KeyedDebouncer;
   private readonly listeners = new Set<() => void>();
   private readonly clock: SettingsStampClock;
@@ -145,8 +150,21 @@ export class SettingsClient {
     return this.dirty.size > 0;
   }
 
+  // E4 (2026-09-02) — `isKeyPending` used to answer ONLY "did the last flush
+  // attempt for this key fail" (`dirty`). That leaves a real window open:
+  // `updateSetting` debounces 200ms before it even TRIES to flush, and the
+  // flush itself awaits a network round trip — for the whole of both spans the
+  // edit is neither flushed nor (yet) marked dirty, so `isKeyPending` said
+  // false about a key the user had, in fact, just changed. `applyServerSettings`
+  // (settings-model.ts) trusts this exact flag to decide whether an incoming
+  // server snapshot should overwrite the local value; a `settings:updated` push
+  // for an UNRELATED key (any key on the same settings:list, since the pull
+  // fetches the whole snapshot) landing inside that window carried the
+  // pre-edit value for THIS key too, and it wrote right over what the user had
+  // just typed — `KeyedDebouncer.pending()` already answered the debounce half
+  // of this and had zero callers (findings-desktop-fe.md P1 #3).
   isKeyPending(key: string): boolean {
-    return this.dirty.has(key);
+    return this.dirty.has(key) || this.debouncer.pending(key) || this.inFlight.has(key);
   }
 
   onPending(cb: () => void): () => void {
@@ -197,11 +215,18 @@ export class SettingsClient {
   }
 
   private async flushKey(key: string): Promise<void> {
+    // E4 — marked BEFORE the await, cleared in `finally` so a throwing
+    // transport still releases it: the whole point is that `isKeyPending`
+    // must see this key as pending for the full lifetime of the network call,
+    // not just once it has already failed.
+    this.inFlight.add(key);
     let ok = false;
     try {
       ok = await this.transport.settingsUpdate(key, this.latest.get(key), this.stamps.get(key));
     } catch {
       ok = false;
+    } finally {
+      this.inFlight.delete(key);
     }
     if (ok) this.dirty.delete(key);
     else this.dirty.add(key);
@@ -219,6 +244,23 @@ export class SettingsClient {
    *  overwrite whatever the phone has done since. With the real edit moment
    *  attached, the server refuses it (the `existingMs > incomingMs` guard in
    *  settings.handler.ts) and hands back the value that won. */
+  // E4 (2026-09-02) test-only escape hatch. `settings` (main-window/store.ts)
+  // is a MODULE SINGLETON shared by every test in a worker process — real
+  // `setTimeout`, not fake, since most of this client's suite runs against
+  // wall-clock debounce. Before `isKeyPending` read the debouncer, an armed
+  // timer left over from a PRECEDING test's `updateSetting` call for the same
+  // key was invisible to `applyServerSettings`; after E4 it correctly answers
+  // "yes, pending" — which surfaced two unrelated tests
+  // (scenario-inference-consent.test.ts, stt-routing-order.test.ts) that call
+  // e.g. `setScenarioInferenceGranted(true)` in one `it()` and then
+  // `applyServerSettings` for that SAME key in the next, with no reset of this
+  // singleton between them and often well under 200ms of real wall-clock time
+  // between the two. That is a test-isolation gap, not a reason to weaken
+  // `isKeyPending` — the fix is here, called from those suites' `beforeEach`.
+  cancelPendingDebouncesForTest(): void {
+    this.debouncer.clearAll();
+  }
+
   async flushPending(): Promise<void> {
     for (const [key, value] of this.latest) {
       let ok = false;

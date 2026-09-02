@@ -158,7 +158,24 @@ export const SttFinalSchema         = z.object({
   polish: z.enum(['applied', 'skipped']).optional(),
   polish_reason: z.string().optional(),
 });
-export const SttErrorSchema         = z.object({ code: NonEmpty, message: NonEmpty, retryable: z.boolean() });
+// WP-9 (2026-09-02, findings-crossend-quota.md #3) — `judged_account` is
+// ADDITIVE and OPTIONAL. Card QTA-2 (audio.handler.ts refuseStart) checks two
+// account ledgers for a `QUOTA_EXCEEDED` refusal — the acting phone's own, and
+// (for a delivery that targets a PC) that PC's owner's — and until this field
+// existed the server judged both but told the phone which one only in a log
+// line nobody on the phone can read. A phone signed into account A, paired to
+// a PC signed into account B whose month is spent, was told the generic
+// 「the monthly transcription quota is used up」 sentence, which reads as
+// THIS PHONE'S OWN quota — a false claim whenever the two accounts differ.
+// `'self'` | `'pc_owner'` names which ledger was actually hit; absent (old
+// server, or any code other than QUOTA_EXCEEDED) is read by the phone as
+// `'self'`, i.e. byte-identical to pre-existing behaviour.
+export const SttErrorSchema         = z.object({
+  code: NonEmpty,
+  message: NonEmpty,
+  retryable: z.boolean(),
+  judged_account: z.enum(['self', 'pc_owner']).optional(),
+});
 export const SttEngineStatusSchema  = z.object({
   provider: NonEmpty,
   status: z.enum(['ready', 'reconnecting', 'failed']),

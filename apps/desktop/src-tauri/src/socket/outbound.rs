@@ -28,7 +28,8 @@ use serde_json::Value;
 
 use crate::events;
 use crate::socket::client::DesktopSocket;
-use crate::socket::pairing::{is_account_auth_failure, ShortCodeState};
+use crate::socket::pairing::{Pairing, ShortCodeState};
+use crate::socket::refusal::is_account_auth_failure;
 use crate::socket::wire;
 
 /// 🔴 A SECOND, WIDER QUESTION THAN `pairing::is_account_auth_failure` — and
@@ -49,6 +50,43 @@ use crate::socket::wire;
 /// below.)
 pub fn is_account_validity_refusal(code: &str) -> bool {
     is_account_auth_failure(code) || code == "ACCOUNT_RESTRICTED"
+}
+
+/// The BODY of `DesktopSocket::note_account_refusal`, pulled out to a free
+/// function that takes `&Pairing` instead of `&self`.
+///
+/// WHY (2026-09-02, WP-6): `emit_settings_update` below is the one ack-bearing
+/// verb whose caller must NOT block waiting for the ack — 07 §8's "save
+/// instantly on change" is a real latency budget on a path a slider can hit
+/// many times a second, and blocking it for `timeout + 500ms` (every other verb
+/// in this file's own pattern) would reintroduce exactly the lag that design
+/// line forbids. So its ack callback runs the refusal report ASYNCHRONOUSLY, on
+/// whichever thread `rust_socketio` invokes it, after `emit_settings_update`
+/// has already returned — which means it cannot go through `&self` (not
+/// `'static`) and must instead close over `Arc<Pairing>`, the SAME instance
+/// every synchronous caller already reaches through `self.pairing`.
+fn note_account_refusal_on(pairing: &Pairing, ctx: &str, code: Option<&str>) {
+    if let Some(code) = code {
+        if is_account_validity_refusal(code) {
+            pairing.report_verb_refusal(ctx, code);
+        } else {
+            // Not an account verdict, so it must not reach the cloud card —
+            // but it must not vanish either. `refresh_pairing_code` below
+            // pays for this lesson at length: the relay said exactly what
+            // was wrong, this layer dropped the sentence, and the machine
+            // holding the answer could not answer from its own log. Applies
+            // in particular to `PC_HANDSHAKE_PENDING`, which is the whole
+            // trace a cold-start race leaves behind now that it no longer
+            // costs the user their Cloud Key. `refresh_pairing_code` keeps
+            // its own richer block (it also names the no-ack case), so that
+            // one verb logs twice — deliberately, rather than by editing a
+            // line another card argued for at length.
+            crate::forensic::record(
+                "socket",
+                &format!("{ctx} refused: {code} (not an account verdict — reported, not acted on)"),
+            );
+        }
+    }
 }
 
 impl DesktopSocket {
@@ -85,12 +123,19 @@ impl DesktopSocket {
     /// ⚠️ On the LAN channel this is a no-op beyond forensic: `auth_failure` is
     /// installed for the cloud channel only (pairing.rs `AuthFailureHook`), and a
     /// standalone sidecar has no accounts to refuse.
+    ///
+    /// 🔴 AND IT REPORTS WITHOUT DECIDING (2026-09-01). This used to call
+    /// `report_refusal`, the same door `pc:register` / `pc:reconnect` use, which
+    /// handed five verbs the authority to DELETE the Cloud Key. `pc:list-mobiles`
+    /// racing a cold start's handshake then signed the user out of a session the
+    /// relay accepted milliseconds later — four times on one machine in three
+    /// days. A verb never observes the handshake, so `AUTH_TOKEN_INVALID` on a
+    /// verb cannot distinguish 「the key was refused」 from 「the key has not been
+    /// presented yet」, and the honest move for a layer that cannot tell two
+    /// things apart is to say what it saw and decide nothing. The screen still
+    /// gets the red line; the credential is now the handshake's business alone.
     fn note_account_refusal(&self, ctx: &str, code: Option<&str>) {
-        if let Some(code) = code {
-            if is_account_validity_refusal(code) {
-                self.pairing.report_refusal(ctx, code);
-            }
-        }
+        note_account_refusal_on(&self.pairing, ctx, code);
     }
 
     /// GA-18: milliseconds until the cached pairing code expires, or `None` when
@@ -330,9 +375,36 @@ impl DesktopSocket {
     /// straight through: this layer neither mints nor re-stamps it, because the
     /// frame may be a replay of an edit made a week ago and re-stamping is exactly
     /// what would let that replay overwrite a newer card on the phone.
+    ///
+    /// 🔴 2026-09-02 (WP-6) — READS THE ACK, but does not BLOCK on it: 07 §8's
+    /// "instant" is a real budget on a path a settings slider can hit many times
+    /// a second, and this is the one ack-bearing verb in this file whose caller
+    /// must return before the ack could possibly have arrived (contrast
+    /// `rename_pc` two verbs up, which blocks for exactly this event name — but
+    /// for a deliberate one-off action, not a hot path). The refusal is still
+    /// surfaced: forensic always, and the account-verdict codes (AUTH_TOKEN_*,
+    /// ACCOUNT_RESTRICTED) reach the cloud card via `note_account_refusal_on`,
+    /// same as every other verb — the callback runs on whichever thread
+    /// `rust_socketio` invokes it, asynchronously, which is why it closes over
+    /// a CLONED `Arc<Pairing>` rather than reaching through `&self`.
+    ///
+    /// Return value UNCHANGED from before this fix (RV-01's own words: "this
+    /// frame failed to go out", never "the server refused it") — widening it to
+    /// mean "and the server accepted it" would turn a NODE_IS_REPLICA refusal
+    /// (routinely fixed by the generic handoff a moment later, WP-6) into a
+    /// permanently-pending edit the retry queue can never clear.
     pub fn emit_settings_update(&self, key: &str, value: Value, updated_at: Option<&str>) -> bool {
+        let pairing = self.pairing.clone();
         self.client
-            .emit(events::SETTINGS_UPDATE, wire::build_settings_update(key, value, updated_at))
+            .emit_with_ack(
+                events::SETTINGS_UPDATE,
+                wire::build_settings_update(key, value, updated_at),
+                Duration::from_secs(5),
+                move |ack, _s| {
+                    let refusal = if let Payload::Text(vals) = &ack { wire::ack_error_code(vals) } else { None };
+                    note_account_refusal_on(&pairing, events::SETTINGS_UPDATE, refusal.as_deref());
+                },
+            )
             .is_ok()
     }
 
@@ -376,3 +448,7 @@ impl DesktopSocket {
     // whose failure is held in a durable queue; the timeline has no queue any more
     // because it has no uplink.
 }
+
+#[cfg(test)]
+#[path = "outbound_tests.rs"]
+mod outbound_tests;

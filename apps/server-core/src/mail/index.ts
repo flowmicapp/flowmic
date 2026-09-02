@@ -7,8 +7,9 @@
 // told, by name, that there isn't one.
 
 import { log } from '../log';
-import { mailConfigFromEnv } from './config';
+import { mailConfigFromEnv, type MailConfig } from './config';
 import { createResendMailProvider } from './resend';
+import { createFileMailProvider } from './file';
 import { makePasswordResetMailer, type PasswordResetMailer } from './password-reset-mailer';
 import { makeEmailVerificationMailer, type EmailVerificationMailer } from './email-verification-mailer';
 import {
@@ -47,6 +48,30 @@ export {
   makeServiceMailer,
 } from './service-mailer';
 export { unconfiguredServiceMailer } from './unconfigured';
+
+/**
+ * 2026-09-02 — the ONE place a `MailConfig` becomes a `MailProvider`, so the
+ * four `resolve*Mailer` functions below cannot drift into deciding the
+ * transport four separate ways. Before this existed each one called
+ * `createResendMailProvider(config)` directly, hard-coded — `config.provider`
+ * was read (and validated) but never actually consulted, so `file` (added the
+ * same round, to retire the reset-token/verification-code echo flags — see
+ * mail/file.ts) would have been silently sent to Resend regardless of what an
+ * operator or a test set `FLOWMIC_MAIL_PROVIDER` to.
+ */
+function createMailProvider(config: MailConfig) {
+  if (config.provider === 'file') {
+    // `mailConfigFromEnv` is the only producer of a `MailConfig`, and its
+    // `file` branch always sets `fileDir` — this narrows a type the compiler
+    // cannot infer from `provider` alone, not a real "was it configured right"
+    // check.
+    if (config.fileDir === null) {
+      throw new Error('mail: provider is "file" but fileDir is null — mailConfigFromEnv should never produce this');
+    }
+    return createFileMailProvider(config.fileDir);
+  }
+  return createResendMailProvider(config);
+}
 
 /**
  * Build the mail channel this process will use. ALWAYS returns a mailer —
@@ -94,7 +119,7 @@ export function resolvePasswordResetMailer(env: NodeJS.ProcessEnv = process.env)
     api_key_len: config.apiKey.length,
   });
   return makePasswordResetMailer({
-    provider: createResendMailProvider(config),
+    provider: createMailProvider(config),
     resetBaseUrl: config.resetBaseUrl,
   });
 }
@@ -139,7 +164,7 @@ export function resolveSubscriptionMailer(env: NodeJS.ProcessEnv = process.env):
     return unconfiguredSubscriptionMailer();
   }
   log.info('mail: subscription channel ready', { provider: config.provider });
-  return makeSubscriptionMailer(createResendMailProvider(config));
+  return makeSubscriptionMailer(createMailProvider(config));
 }
 
 /**
@@ -170,7 +195,7 @@ export function resolveServiceMailer(env: NodeJS.ProcessEnv = process.env): Serv
     return unconfiguredServiceMailer();
   }
   log.info('mail: setup-service channel ready', { provider: config.provider });
-  return makeServiceMailer(createResendMailProvider(config));
+  return makeServiceMailer(createMailProvider(config));
 }
 
 export function resolveEmailVerificationMailer(env: NodeJS.ProcessEnv = process.env): EmailVerificationMailer {
@@ -193,7 +218,7 @@ export function resolveEmailVerificationMailer(env: NodeJS.ProcessEnv = process.
     verify_base_url: config.verifyBaseUrl,
   });
   return makeEmailVerificationMailer({
-    provider: createResendMailProvider(config),
+    provider: createMailProvider(config),
     verifyBaseUrl: config.verifyBaseUrl,
   });
 }

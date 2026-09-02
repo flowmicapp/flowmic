@@ -26,11 +26,11 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::forensic;
 use crate::sidecar::job;
-use crate::sidecar::network;
 pub use crate::sidecar::node_runtime::resolve_node_exe;
 use crate::sidecar::node_runtime::annotate_node_version;
 use crate::sidecar::state::{Action, Event, FailReason, Phase, SidecarMachine};
@@ -180,145 +180,41 @@ pub fn http_get(host: &str, port: u16, path: &str, timeout: Duration) -> std::io
 // sidecar::adopt; re-exported here so existing callers keep their `io::` paths.
 pub use crate::sidecar::adopt::{is_same_script, parse_health_script, probe_existing, ProbeVerdict};
 
-/// Poll `/api/health` until 200 within `timeout` (07 §5: health grace window).
-pub fn await_health(host: &str, port: u16, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if let Ok(r) = http_get(host, port, "/api/health", Duration::from_millis(1000)) {
-            if r.status == 200 && r.body.contains("\"ok\":true") {
-                return true;
-            }
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    false
-}
+// The functions below (health polling + the /api/network readers) moved to
+// sidecar/lan_probe.rs (2026-09-02, file-size cap) — re-exported here so every
+// existing `io::` caller (shell/sidecar_ctl.rs et al.) is unaffected.
+pub use crate::sidecar::lan_probe::{
+    await_health, fetch_lan_candidates, fetch_lan_primary, fetch_lan_tls_fingerprint,
+    is_carryable_fingerprint, parse_lan_ipv4_array, parse_lan_tls_fingerprint,
+};
 
-/// Fetch `/api/network` and return its `primary` LAN IPv4 (07 §5 / F-2343). The
-/// server hands back a private-first, loopback/APIPA-excluded list; we read
-/// `"primary":"…"`. `None` when unreachable or only loopback is available.
-pub fn fetch_lan_candidates(host: &str, port: u16) -> Vec<String> {
-    // GA-21: EVERY address the host has, in the server's default order — not just
-    // its `primary`. The heuristic's first pick is a guess about which NIC the
-    // phone shares, and on the owner's network it guesses wrong (the tablet can
-    // reach 100.64.7.x, which is not RFC1918, so it never ranks first). The
-    // device page lets a human override that guess; hiding the alternatives
-    // would make a wrong guess unrecoverable.
-    let Ok(r) = http_get(host, port, "/api/network", Duration::from_millis(1500)) else {
-        return Vec::new();
-    };
-    if r.status != 200 {
-        return Vec::new();
-    }
-    parse_lan_ipv4_array(&r.body)
-}
-
-/// Pull the `"lan_ipv4":[…]` array out of the /api/network body. A tiny reader
-/// rather than a serde dependency at this call site, matching fetch_lan_primary's
-/// existing style; unroutable entries are dropped so the picker cannot offer an
-/// address that could never work.
-pub fn parse_lan_ipv4_array(body: &str) -> Vec<String> {
-    let key = "\"lan_ipv4\":[";
-    let Some(start) = body.find(key) else { return Vec::new() };
-    let rest = &body[start + key.len()..];
-    let Some(end) = rest.find(']') else { return Vec::new() };
-    rest[..end]
-        .split(',')
-        .map(|s| s.trim().trim_matches('"').to_string())
-        .filter(|ip| !ip.is_empty() && !network::is_unroutable_for_lan(ip))
-        .collect()
-}
-
-/// D2LAN-B2b — the sidecar's LAN TLS public-key fingerprint, from the SAME
-/// `/api/network` read the LAN addresses come from.
-///
-/// 🔴 THIS FUNCTION IS THE TRANSPORT THE FEATURE WAS MISSING. Cards B1 (mint the
-/// certificate, publish its fingerprint) and B2 (put `fp=` on the QR) both landed
-/// complete and the feature was still worth nothing, because the value had no way
-/// to cross this process. The design said 「桌面(Rust) 零改动」("desktop (Rust)
-/// zero changes") — true of TLS
-/// itself (this file speaks plain to loopback and still does), false of the
-/// feature working.
-///
-/// `None` = the server published none: it is serving plain (no LAN TLS home, every
-/// saas deployment, a mint that failed), or it is an older sidecar that does not
-/// know the key. Both degrade to today's QR, never to a QR that cannot connect.
-pub fn fetch_lan_tls_fingerprint(host: &str, port: u16) -> Option<String> {
-    let r = http_get(host, port, "/api/network", Duration::from_millis(1500)).ok()?;
-    if r.status != 200 {
-        return None;
-    }
-    parse_lan_tls_fingerprint(&r.body)
-}
-
-/// Pull `"lan_tls_fp":"…"` out of an /api/network body. Same hand-rolled style as
-/// the two readers above (no serde at this call site). `None` for an absent key
-/// and for `"lan_tls_fp":null`, which are the same fact: no fingerprint on offer.
-///
-/// The literal key is produced by `apps/server-core/src/http/router.ts`, symbol
-/// `publishableLanTlsFingerprint`. Shape is NOT judged here — see
-/// `is_carryable_fingerprint`, which the caller applies so it can tell 「没有」
-/// ("none") from 「有但是坏的」("present but broken") and say the second one out loud.
-pub fn parse_lan_tls_fingerprint(body: &str) -> Option<String> {
-    let key = "\"lan_tls_fp\":";
-    let start = body.find(key)? + key.len();
-    let rest = body[start..].trim_start();
-    // `null` is the server's own 「没有」("none") and must not become the string "null".
-    let quoted = rest.strip_prefix('"')?;
-    let end = quoted.find('"')?;
-    let value = &quoted[..end];
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-/// D2LAN-B2b — can this string be carried to the QR without changing its meaning?
-///
-/// ⚠️ Deliberately NOT a length check, and the omission is the point. The exact
-/// length is the producer's business (`apps/server-core/src/lan-tls/fingerprint.ts`,
-/// symbols `FP_CHARS` / `isWellFormedFingerprint`, which the route already applies)
-/// and hard-coding 24 here would be a second copy of a number that moves the day
-/// FP_BYTES moves — the two would then disagree, and the one that wins would be
-/// whichever ran last. What this layer legitimately owns is 「这个串能不能原样穿过
-/// 二维码」("can this string pass through the QR code unchanged"): the payload is a flat string the phone splits on ',' and '&', so
-/// either character silently turns one value into two, and whitespace cannot
-/// survive the round trip intact. `qrAltHosts` and `isQrSafeValue`
-/// (apps/desktop/src/lib/pairing.ts) refuse the same characters for the same
-/// reason. The bound is a sanity ceiling against a garbled body, not a spec.
-pub fn is_carryable_fingerprint(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
-
-pub fn fetch_lan_primary(host: &str, port: u16) -> Option<String> {
-    let r = http_get(host, port, "/api/network", Duration::from_millis(1500)).ok()?;
-    if r.status != 200 {
-        return None;
-    }
-    // Tiny extraction (no serde dependency at this call site): find "primary":"…".
-    let key = "\"primary\":\"";
-    let start = r.body.find(key)? + key.len();
-    let rest = &r.body[start..];
-    let end = rest.find('"')?;
-    let ip = &rest[..end];
-    if network::is_unroutable_for_lan(ip) {
-        None
-    } else {
-        Some(ip.to_string())
-    }
-}
 
 // ── spawn + handshake ────────────────────────────────────────────────────────
+
+/// The stderr tail buffer a spawned child's reader thread keeps appending to,
+/// shared out so a caller who receives the child LATER (after the handshake
+/// reader thread's `JoinHandle` would otherwise be silently dropped) can still
+/// read what the child printed. See `HandshakeOutcome::Listening`.
+pub(crate) type SharedStderrTail = Arc<Mutex<Vec<String>>>;
 
 /// The outcome of spawning + waiting for the handshake.
 pub enum HandshakeOutcome {
     /// FLOWMIC_LISTENING seen — the live child is handed back for the health poll.
-    Listening { child: Child, port: u16 },
+    ///
+    /// D7 (2026-09-02 audit §3-D): `stderr_tail` and `stderr_reader` travel WITH
+    /// the child now, not just the child. Before this, once `Listening` was
+    /// returned, the buffer the handshake's stderr reader thread had been
+    /// filling — and the `JoinHandle` for that thread — were both local to
+    /// `spawn_and_await_handshake` and went out of scope here, so the reader
+    /// thread became an orphan nobody could read from again (it keeps running
+    /// until the pipe closes, but its output is unreachable). If the child then
+    /// died during the HEALTH probe (`AwaitingHealth`/`ProbeHealth`, a real
+    /// phase, not a hypothetical), the comment at that call site said `None`
+    /// was honest because "nobody is buffering its lines any more" — which was
+    /// true only because this type threw the buffer away, not because the
+    /// child stopped printing anything. Handing both along lets that call site
+    /// report the SAME kind of tail the handshake-exit path already gets.
+    Listening { child: Child, port: u16, stderr_tail: SharedStderrTail, stderr_reader: Option<JoinHandle<()>> },
     /// The child died with EADDRINUSE on its stderr → adopt-first remediation.
     PortInUse,
     /// The child exited before the handshake for a non-port reason. `stderr` is
@@ -486,7 +382,14 @@ pub fn spawn_and_await_handshake(
         match rx.recv_timeout(EXIT_POLL) {
             Ok(HandshakeSignal::Listening { port }) => {
                 forensic::record("sidecar", &format!("handshake: FLOWMIC_LISTENING port={port}"));
-                return HandshakeOutcome::Listening { child, port };
+                // D7: hand the buffer AND the reader thread's handle along with
+                // the child — see `HandshakeOutcome::Listening`'s doc comment.
+                return HandshakeOutcome::Listening {
+                    child,
+                    port,
+                    stderr_tail: stderr_buf,
+                    stderr_reader: stderr_handle,
+                };
             }
             Ok(HandshakeSignal::PortInUse) => {
                 forensic::record("sidecar", "handshake: child stderr EADDRINUSE → PortInUse");
@@ -506,11 +409,8 @@ pub fn spawn_and_await_handshake(
             // The child is dead → its stderr pipe is at EOF; join the reader so the
             // buffer holds every line, then record the tail (≤5, truncated) — the
             // observation layer must never be blind to WHY a child exited early.
-            if let Some(h) = stderr_handle.take() {
-                let _ = h.join();
-            }
             let code = status.code();
-            let tail = annotate_node_version(node_exe, stderr_tail(&stderr_buf, 5));
+            let tail = stderr_tail_after_exit(node_exe, Some(&stderr_buf), &mut stderr_handle);
             forensic::record(
                 "sidecar",
                 &format!("handshake: child exited early (code {code:?}) stderr-tail: {tail}"),
@@ -529,7 +429,14 @@ pub fn spawn_and_await_handshake(
 /// Join the last `max_lines` buffered stderr lines into one forensic-safe string:
 /// each line trimmed + char-truncated to 200 (overflow guard), joined with " | ". `<none>`
 /// when empty. Char-boundary-safe truncation (no mid-UTF-8 panic).
-fn stderr_tail(buf: &Arc<Mutex<Vec<String>>>, max_lines: usize) -> String {
+///
+/// `pub(crate)` (2026-09-02, sidecar supervisor leftovers item 3) so
+/// `shell::sidecar_ctl`'s health supervisor can read the SAME buffer this
+/// module keeps filling for the whole life of a Healthy child, instead of
+/// re-implementing "last N lines, trimmed and capped" a second time — see
+/// `BringUp::stderr_tail`'s doc comment for why nothing downstream could read
+/// it before this.
+pub(crate) fn stderr_tail(buf: &SharedStderrTail, max_lines: usize) -> String {
     let g = buf.lock().unwrap_or_else(|p| p.into_inner());
     if g.is_empty() {
         return "<none>".to_string();
@@ -547,6 +454,35 @@ fn stderr_tail(buf: &Arc<Mutex<Vec<String>>>, max_lines: usize) -> String {
         })
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+/// Report the stderr tail for a child that has ALREADY exited — joining its
+/// reader thread first so the buffer holds every line the pipe ever delivered
+/// (once a process exits, its stderr pipe is at EOF, so the reader thread's
+/// `for line in reader.lines()` loop is at most one iteration from ending on
+/// its own; joining just waits for that instead of racing it).
+///
+/// D7 (2026-09-02 audit §3-D): ONE function, used by both the handshake-exit
+/// path (`spawn_and_await_handshake`'s own loop) and the health-probe-exit
+/// path (`bring_up`'s `Action::ProbeHealth`) — before this card the second
+/// path had no buffer to read at all (see `HandshakeOutcome::Listening`'s doc
+/// comment), so it hardcoded `None`. `buf` is `Option` because the
+/// health-probe path's buffer arrived via an `Option<SharedStderrTail>` that
+/// is only ever `None` if a future caller reaches `AwaitingHealth` without
+/// ever having gone through `Listening` — not a path that exists today, but
+/// this function stays honest about it rather than assuming.
+fn stderr_tail_after_exit(
+    node_exe: &str,
+    buf: Option<&SharedStderrTail>,
+    reader: &mut Option<JoinHandle<()>>,
+) -> String {
+    if let Some(h) = reader.take() {
+        let _ = h.join();
+    }
+    match buf {
+        Some(b) => annotate_node_version(node_exe, stderr_tail(b, 5)),
+        None => "<none>".to_string(),
+    }
 }
 
 enum HandshakeSignal {
@@ -628,6 +564,16 @@ impl Default for BringUpOptions {
 pub struct BringUp {
     pub phase: Phase,
     pub child: Option<Child>,
+    /// D-B2L (2026-09-02 audit, sidecar supervisor leftovers item 3): the
+    /// SAME buffer `HandshakeOutcome::Listening` hands back, carried all the
+    /// way out of `bring_up()` — `None` until a child has completed its
+    /// handshake (a `Failed` bring-up before that point, or `AdoptedExternal`,
+    /// never has one). Before this field existed, the buffer's OWN reader
+    /// thread kept it alive for the child's whole life, but `bring_up()` threw
+    /// away the only handle to it once it returned Healthy — the 0.2.50
+    /// lesson (`stderr_tail` computed, logged once, then thrown away)
+    /// reproduced one layer higher, surviving past bring-up with no reader.
+    pub stderr_tail: Option<SharedStderrTail>,
 }
 
 impl BringUp {
@@ -645,6 +591,12 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
     let mut m = SidecarMachine::new(base_endpoint);
     let mut child: Option<Child> = None;
     let mut server_js: Option<PathBuf> = None;
+    // D7 (2026-09-02 audit §3-D): carried alongside `child` from the moment the
+    // handshake succeeds, so a death during the LATER health probe can still be
+    // explained — see `HandshakeOutcome::Listening`'s doc comment for why this
+    // used to be thrown away at exactly this point.
+    let mut stderr_tail_buf: Option<SharedStderrTail> = None;
+    let mut stderr_reader_handle: Option<JoinHandle<()>> = None;
 
     let mut action = m.start();
     loop {
@@ -661,7 +613,7 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
                     Some(p) => p.clone(),
                     None => {
                         // Should not happen (Resolve precedes Spawn) — fail loud.
-                        return BringUp { phase: Phase::Failed { reason: FailReason::ResolveFailed }, child };
+                        return BringUp { phase: Phase::Failed { reason: FailReason::ResolveFailed }, child, stderr_tail: None };
                     }
                 };
                 match spawn_and_await_handshake(
@@ -672,8 +624,10 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
                     &opts.home,
                     opts.handshake_timeout,
                 ) {
-                    HandshakeOutcome::Listening { child: c, port } => {
+                    HandshakeOutcome::Listening { child: c, port, stderr_tail: tail, stderr_reader: reader } => {
                         child = Some(c);
+                        stderr_tail_buf = Some(tail);
+                        stderr_reader_handle = reader;
                         // The FSM will next ask for a health probe; carry the port.
                         // (We fold Spawned+Listening into a single Listening feed.)
                         let _ = m.on_event(Event::Spawned);
@@ -701,13 +655,27 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
                 if await_health(&opts.host, opts.port, opts.health_timeout) {
                     Event::HealthOk { endpoint: endpoint.clone() }
                 } else if let Some(c) = child.as_mut() {
-                    // Distinguish "child died" from "slow/unhealthy". No stderr tail
-                    // here: this child got as far as printing FLOWMIC_LISTENING, so
-                    // the reader thread has already been handed back and nobody is
-                    // buffering its lines any more. Saying `None` is the honest
-                    // shape — inventing an empty string would read as「它什么都没说」("it said nothing at all").
+                    // Distinguish "child died" from "slow/unhealthy".
+                    //
+                    // D7 (2026-09-02 audit §3-D): this used to say `stderr: None`
+                    // with a comment claiming "the reader thread has already been
+                    // handed back and nobody is buffering its lines any more" —
+                    // that was true only because `HandshakeOutcome::Listening`
+                    // threw the buffer away at the handshake/health boundary, not
+                    // because the child actually stopped printing anything. The
+                    // buffer (`stderr_tail_buf`) now travels alongside `child`
+                    // from that same `Listening` outcome, so a death HERE gets
+                    // the identical tail treatment the handshake-exit path
+                    // (`HandshakeOutcome::Exited`) already gave.
                     match c.try_wait() {
-                        Ok(Some(status)) => Event::ChildExited { code: status.code(), stderr: None },
+                        Ok(Some(status)) => {
+                            let tail = stderr_tail_after_exit(
+                                &opts.node_exe,
+                                stderr_tail_buf.as_ref(),
+                                &mut stderr_reader_handle,
+                            );
+                            Event::ChildExited { code: status.code(), stderr: Some(tail) }
+                        }
                         _ => Event::HealthFailed,
                     }
                 } else {
@@ -749,7 +717,7 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
     if matches!(phase, Phase::AdoptedExternal { .. }) {
         child = None;
     }
-    BringUp { phase, child }
+    BringUp { phase, child, stderr_tail: stderr_tail_buf }
 }
 
 

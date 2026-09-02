@@ -103,7 +103,7 @@ try {
   //     answers `-v` just as confidently as the pinned one (the reverse control
   //     for this block appended one byte to the staged binary: `-v` still said
   //     v22.22.3, only the hash moved), and `resolve_node_exe`
-  //     (src-tauri/src/sidecar/node_runtime.rs:175) prefers the bundled copy
+  //     (src-tauri/src/sidecar/node_runtime.rs:194) prefers the bundled copy
   //     on purpose and does NOT version-probe it — so a bad bundled runtime
   //     shadows a working host Node. Read+hash of the 83 MiB binary measured at
   //     60 ms here (2026-08-05), paid once per release build.

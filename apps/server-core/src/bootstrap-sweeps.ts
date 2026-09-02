@@ -39,6 +39,8 @@ import { serviceRefunder } from './bootstrap-billing-deps';
 import { startServiceRefundSweeper, type ServiceSweeper } from './billing/service-sweep';
 import { PROMISED_DEADLINES } from './billing/guided-setup';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
+import { startGrowthReaper, type GrowthReaper } from './db/reaper';
+import { FORWARD_LEDGER_PRUNE_INTERVAL_MS, type ForwardLedger } from './node/forward-ledger';
 
 
 export interface SweepWiring {
@@ -50,6 +52,11 @@ export interface SweepWiring {
    *  every call fails: a timer that ticks and can never succeed is a timer that
    *  will one day be read as evidence the promise is being kept. */
   refund?: (orderId: string, origin: RefundOrigin) => Promise<ServiceRefundOutcome>;
+  /** F6 — the writer's forward-ledger instance (bootstrap.ts constructs it
+   *  writer-only, so this and POST /api/node/forward's receiver share one).
+   *  Absent on a replica and on every single-node deployment ⇒ no sweep armed,
+   *  which is correct: neither ever creates the table this prunes. */
+  forwardLedger?: ForwardLedger;
   now?: () => number;
   setIntervalFn?: (fn: () => void, ms: number) => unknown;
   clearIntervalFn?: (handle: unknown) => void;
@@ -62,6 +69,22 @@ export interface BackgroundSweeps {
    *  such timer」, never 「skip stopping it」 — same contract as the replica
    *  timers in `ShutdownSteps`. */
   serviceRefunds?: ServiceSweeper;
+  /**
+   * P2-6 (2026-09-02) — the D11 growth reaper (db/reaper.ts). Built and its
+   * test-only `startGrowthReaper` export marked as covered since the card that
+   * wrote it, but NEVER CALLED from anywhere production runs: `pc_devices` and
+   * `paddle_subscriptions` grew forever in every real deployment, and
+   * `reaper.ts`'s own `listStaleOffline` — the read this whole file exists to
+   * feed — never had a writer running against it. Runs in BOTH modes, same
+   * reasoning as retention above: a standalone local DB accumulates stale rows
+   * exactly the same way.
+   */
+  growthReaper: GrowthReaper;
+  /** F6 — the periodic prune for the writer's forward-ledger dedup table.
+   *  ⚠️ ABSENT means the same as `serviceRefunds`'s absence: 「there is no such
+   *  timer」, never 「skip stopping it」 — a replica or single-node deployment
+   *  never had a `forwardLedger` to sweep in the first place. */
+  forwardLedgerPrune?: { stop(): void };
 }
 
 export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
@@ -116,7 +139,37 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
           ...(clearIntervalFn ? { clearIntervalFn } : {}),
         });
 
-  return { retention, ...(serviceRefunds === undefined ? {} : { serviceRefunds }) };
+  // P2-6 — same cadence and mode-agnostic reasoning as retention above; see
+  // db/reaper.ts for the age policy and why it lives in its own file rather
+  // than folded into retention.ts.
+  const growthReaper = startGrowthReaper({
+    pcs: db.pcs,
+    billing: db.billing,
+    ...(now ? { nowMs: now } : {}),
+    ...(setIntervalFn ? { setIntervalFn } : {}),
+    ...(clearIntervalFn ? { clearIntervalFn } : {}),
+  });
+
+  // F6 — no `startXxxSweeper` factory exists for this one (forward-ledger.ts is
+  // node plumbing, not a product table, and deliberately has no such wrapper
+  // of its own — see its file header). The timer is armed here instead, on the
+  // SAME setIntervalFn/clearIntervalFn override every other sweep in this file
+  // takes, so a test driving `sched.tick()` sees this one too.
+  const setI = setIntervalFn ?? ((fn: () => void, ms: number): unknown => setInterval(fn, ms));
+  const clearI = clearIntervalFn ?? ((h: unknown): void => clearInterval(h as ReturnType<typeof setInterval>));
+  const forwardLedgerPrune = w.forwardLedger
+    ? (() => {
+        const ledger = w.forwardLedger as ForwardLedger;
+        const handle = setI(() => ledger.prune(now?.() ?? Date.now()), FORWARD_LEDGER_PRUNE_INTERVAL_MS);
+        return { stop: () => clearI(handle) };
+      })()
+    : undefined;
+
+  return {
+    retention, growthReaper,
+    ...(serviceRefunds === undefined ? {} : { serviceRefunds }),
+    ...(forwardLedgerPrune === undefined ? {} : { forwardLedgerPrune }),
+  };
 }
 
 /** Assemble [SweepWiring] from what bootstrap already holds, then start.
@@ -135,13 +188,16 @@ export function startSweepsForBootstrap(args: {
   db: DbConnection;
   billing: BillingService;
   overrides: Pick<SweepWiring, 'now' | 'setIntervalFn' | 'clearIntervalFn'>;
+  /** F6 — threaded straight through to `SweepWiring.forwardLedger`. */
+  forwardLedger?: ForwardLedger;
 }): BackgroundSweeps {
-  const { config, db, billing, overrides } = args;
+  const { config, db, billing, overrides, forwardLedger } = args;
   const now = overrides.now ? { now: overrides.now } : {};
   const refund = serviceRefunder({ config, db, billing, ...now });
   return startBackgroundSweeps({
     config, db, billing,
     ...(refund === undefined ? {} : { refund }),
+    ...(forwardLedger ? { forwardLedger } : {}),
     ...now,
     ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
     ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),

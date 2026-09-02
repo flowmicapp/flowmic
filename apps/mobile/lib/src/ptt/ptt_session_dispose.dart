@@ -48,6 +48,16 @@ extension PttSessionDispose on PttSession {
     _holdOut.cancel(); roomJoins.dispose();
     _stopPresencePoll(); _pcBusy.dispose(); // G-15①
     micPermission.dispose(); // U2: the face notifier dies with its session.
+    // P2-7 (2026-09-02 audit) — two more `ValueNotifier`s that outlived their
+    // session, the same shape as `_pcBusy`/`roomJoins` above.
+    // `capTimer.disarm()` and `screenWake.release()` are ALREADY covered —
+    // `endContinuous()` at the top of this method calls both unconditionally,
+    // and each is documented as safe to call when not armed/held — so they
+    // are not repeated here; a second call would be a second author for the
+    // same teardown fact. `serverChannel` and `releaseCooldown.tick` had no
+    // caller anywhere in this class that disposed them.
+    serverChannel.dispose();
+    releaseCooldown.tick.dispose();
     // IT-10 / F2: SessionScope is a ChangeNotifier — without dispose it outlives
     // the session (third named leak of this shape; same as `_pcBusy` above).
     // Dispose LAST among the notifiers in this method: nothing below this line

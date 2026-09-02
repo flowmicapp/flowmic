@@ -141,47 +141,63 @@ pub(super) const CLOSING_RELEASE_AFTER_ATTEMPTS: u32 = 2;
 /// The bullet above argues that a successorless CLOUD close is always
 /// deliberate. That is an ASSUMPTION of exactly the kind W8-2 already falsified
 /// once for LAN: the code that tears the session down knows whether the close is
-/// final, and this function does not ask it — it infers the answer from the
-/// channel tag. Measured call graph (`shell/`, 2026-08-16):
+/// final, and this function used to not ask it — it inferred the answer from the
+/// channel tag alone. Measured call graph (`shell/`, 2026-08-16):
 ///   · DELIBERATE, cloud: `channel_session::drop_socket` (`set_socket(Cloud,
 ///     None)`, reached from `shell/cloud.rs` on a refused/removed Cloud Key) and
 ///     `sidecar_ctl::connect_cloud`'s not-dialable arm. A zombie released here
 ///     would re-present an identity the user or the server has withdrawn — the
-///     suppression is right, and it must survive any change.
+///     suppression is right, and it must survive any change. NEITHER site marks
+///     `transient` (see below), so both keep suppressing forever by construction.
 ///   · DELIBERATE, both channels: `shell/offline.rs`'s manual offline switch
 ///     empties BOTH slots. Today the LAN half of that is released by the
 ///     staleness arms, i.e. a stale successorless LAN close taken while the user
 ///     asked to be offline can re-register. [unverified — reasoned from the call
-///     graph, never observed.]
-///   · TRANSIENT: `sidecar_ctl`'s bring-up-failed arm and `channel_session`'s
-///     dial-failed arm also empty a slot, and both want to come back. So
-///     「the slot was emptied」 is NOT the fact 「this close is final」, and a gate
-///     that inferred finality from `sock.is_none()` would re-create W8-2 on the
-///     very path W8-2 came from.
-/// ⇒ The minimal honest shape is to carry the INTENT: `begin_closing(intent)`
-/// stamps it on the `Pairing`, this function takes `final_close: bool` in place
-/// of `channel`, and the deliberate sites above say so. It is not done here
-/// because the intent can only be stated at those sites, which are outside this
-/// change's scope — and an in-fence half (flip the gate to release for any cloud
-/// close nobody marked) would REGRESS the removed-Cloud-Key path: that zombie's
-/// transport is still authenticated at the relay, so releasing it would put the
-/// PC back online on a key the user just removed. Half of this change is worse
-/// than none of it.
-/// ⚠️ The successorless-cloud arm has no consequence test today; the successor
-/// arm does (`pairing_tests::the_f3_protection_holds_forever_once_a_successor_
-/// is_constructed`).
+///     graph, never observed.] This is an existing, LAN-only quirk this change
+///     does not touch — `offline.rs` is out of this fix's scope, and LAN's arm
+///     was never gated on `channel` in the first place.
+///   · TRANSIENT: `sidecar_ctl::rebuild_after_heartbeat_death` (the heartbeat-
+///     death rebuild funnel `channel_session`'s dial-failed arm feeds into) empty
+///     a slot in order to REDIAL it, and want to come back. So 「the slot was
+///     emptied」 is NOT the fact 「this close is final」, and a gate that inferred
+///     finality from `sock.is_none()` would re-create W8-2 on the very path W8-2
+///     came from.
+/// ⇒ IMPLEMENTED (2026-09-02, AUD-D P1-3): the minimal honest shape from the
+/// paragraph this replaced — carry the INTENT. `Pairing::mark_transient_close`
+/// stamps it BEFORE the slot is emptied (idempotent, one-way like `closing`
+/// itself); this function takes the resulting `transient: bool` in ADDITION to
+/// `channel` rather than in place of it, because LAN's arm never depended on the
+/// channel tag being a finality signal — only cloud's did. The rebuild funnel
+/// (`sidecar_ctl::rebuild_after_heartbeat_death`, shared by both channels) marks
+/// the outgoing session transient before calling `set_socket(None)`; the two
+/// deliberate cloud sites above call nothing, so they keep today's suppress-
+/// forever default. This is why the change is safe without touching
+/// `shell/cloud.rs` or `shell/offline.rs`: an in-fence half that instead flipped
+/// the gate to release for any UNMARKED cloud close would have REGRESSED the
+/// removed-Cloud-Key path (that zombie's transport is still authenticated at the
+/// relay, so releasing it would put the PC back online on a key the user just
+/// removed) — marking the TRANSIENT sites instead of the deliberate ones is what
+/// keeps the default safe.
+/// ⚠️ The successorless-cloud arm now HAS a consequence test
+/// (`pairing_tests::a_transient_cloud_close_releases_like_lan_once_stale` and
+/// `..._still_suppresses_forever_when_not_marked_transient`); the successor arm
+/// still has its own (`pairing_tests::the_f3_protection_holds_forever_once_a_
+/// successor_is_constructed`).
 pub(super) fn closing_gate(
     channel: Channel,
     my_generation: u64,
     latest_generation: u64,
     prior_suppressed: u32,
     closed_for: Option<Duration>,
+    transient: bool,
 ) -> ClosingGate {
     if latest_generation > my_generation {
         return ClosingGate::Suppress; // a successor exists — F-3 Fix#1, forever
     }
-    if channel != Channel::Lan {
-        return ClosingGate::Suppress; // cloud: successorless close is deliberate
+    if channel != Channel::Lan && !transient {
+        // Cloud, and nobody marked this close as a redial attempt: deliberate
+        // (Cloud Key refused/removed, not dialable) — never release.
+        return ClosingGate::Suppress;
     }
     let stale = prior_suppressed >= CLOSING_RELEASE_AFTER_ATTEMPTS
         || closed_for.is_some_and(|d| d >= CLOSING_RELEASE_AFTER);

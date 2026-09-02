@@ -36,7 +36,9 @@ jobs:
   verify:
     name: the delivery gate on macOS
     runs-on: macos-15
-    timeout-minutes: 60
+    # 25, not 60 (2026-09-02): six public runs took 4-5 min; macOS bills x10, so a hung
+    # run at 60 would cost 600 of the private mirror's 3,000 monthly minutes.
+    timeout-minutes: 25
 
     steps:
       # Full history for the same reason as verify.yml: verify:scripts contains

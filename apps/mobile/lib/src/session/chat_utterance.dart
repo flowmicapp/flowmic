@@ -412,11 +412,42 @@ Future<void> _deliverDirect(
     ),
   );
   if (ok) return;
-  // The frame never left the device. Say so on the row instead of leaving it
-  // stuck at ⏳ pretending a delivery is still in flight (no silent failures).
-  // The
-  // banner is raised through ManualDelivery so a direct-send wire failure and
-  // a ➤ wire failure are ONE banner, not two competing truths.
+  // ── 🔴 card B2-H (P1-3) — A DIRECT-SEND WIRE FAILURE MUST NOT OUTRUN THE
+  // QUEUE'S OWN VERDICT ──────────────────────────────────────────────────────
+  //
+  // The frame never left the device, but [queued] (persisted a few lines
+  // above, BEFORE the emit) already answers the only question that matters
+  // here: does something still owe this delivery? When it does
+  // (`queued != null`), the item sits `queued` in the outbox exactly as it
+  // would after `chat_outbox_host.dart`'s own `outboxSend` returns false on
+  // the very same kind of emit failure — that call site never fail-settles
+  // the row either, it just returns false and leaves the item `queued` for
+  // the next drain. Fail-settling THIS row as well would run one failure
+  // through two doors that do not know about each other: the row lands on ✗
+  // `EntryStatus.failed` (owner ruling ⑩, docs/rebuild/15 §2.0.1-c — a
+  // `failed` row's own status IS its own verdict, never overridden by the
+  // queue's state) while the outbox is about to retry the SAME request on its
+  // own schedule, and when that retry lands the row silently flips ✗ → ✓ with
+  // no user action in between — the exact "flips to ✓ later" symptom this
+  // card is named for.
+  //
+  // Only when the outbox itself refused the item at the door
+  // (`queued == null` — `DeliveryOutbox._admit`'s one reason is
+  // `NO_DESTINATION`, i.e. the user has since left the session) is there
+  // truly nothing left to retry against; THIS emit was the delivery's only
+  // chance, so the row must say so now.
+  if (queued != null) {
+    diag('utterance.direct_send_wire_failed_queued', <String, Object?>{
+      'request_id': entry.clientId,
+      'entry_id': entry.id,
+    });
+    return;
+  }
+  // The queue could not take this delivery either, so nothing will ever
+  // retry it: say so on the row instead of leaving it stuck at ⏳ pretending a
+  // delivery is still in flight (no silent failures). The banner is raised
+  // through ManualDelivery so a direct-send wire failure and a ➤ wire failure
+  // are ONE banner, not two competing truths.
   c.delivery.failSettled(<String>[entry.id], ComposeSendFailure.wireFailed);
 }
 

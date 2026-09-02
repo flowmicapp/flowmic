@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS paddle_subscriptions (
   scheduled_change_at     TEXT,                  -- RFC3339, when that change takes effect
   next_billed_at          TEXT,                  -- RFC3339, null once a cancel is scheduled
   contract_concluded_at   TEXT,                  -- RFC3339, from the FIRST event that stated it
+  -- 2026-09-02 (audit F4) -- a LOCAL claim, taken BEFORE http/billing-routes.ts
+  -- calls the provider, same order and same reasoning as
+  -- 「one_time_purchases.refund_requested_at」 (billing/service-refund.ts's header
+  -- argues the order at length). Without it, two withdraw clicks a moment apart
+  -- both read this row as 'active' (Paddle's own cancellation only lands here
+  -- LATER, via the webhook) and both call the cancel AND refund provider calls --
+  -- relying on Paddle to reject the second one instead of us ever deciding to.
+  -- 🔴 NOT the same column as 「canceled_at」: that one holds PADDLE'S word about
+  -- when the subscription ended, written by the webhook; this one holds OUR OWN
+  -- claim, taken synchronously, before any webhook could possibly have arrived.
+  -- Collapsing them would be a row answering two questions with one value.
+  withdrawal_claimed_at   TEXT,
   last_event_id       TEXT NOT NULL,
   last_occurred_at    TEXT NOT NULL,             -- ⚠️ out-of-order guard, see below
   created_at          TEXT NOT NULL,
@@ -388,11 +400,42 @@ export const BILLING_ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly str
     'next_billed_at',
     'contract_concluded_at',
     'provider',
+    // 2026-09-02 (audit F4) — see the DDL comment above the column: a local
+    // claim taken before the outbound provider call, not Paddle's own
+    // `canceled_at`. NULL on a legacy row is the truth: nobody has claimed a
+    // withdrawal against that subscription (yet, or ever).
+    'withdrawal_claimed_at',
   ],
   // 2026-08-30 — the withdrawal half of the one-time service. The table is
   // younger than any deployment, but a developer who booted this branch before
   // these columns existed has the old shape on disk, which is what this is for.
   one_time_purchases: [
+    // 🔴 2026-09-02 audit P2-7 — this column shipped in the SAME commit
+    // (94094001) as the comment that introduced it, but `git show 94094001 --
+    // apps/server-core/src/db/schema-billing.ts` proves `early_start_consent_at`
+    // and `withdrawal_waiver_ack_at` were NOT touched by that commit — only this
+    // one column and its comment were added (`+` lines). None of the three was
+    // additive-listed, so a database built from a commit between the table's
+    // founding and 94094001 had `one_time_purchases` WITHOUT `consent_terms_
+    // version` — and the first real purchase's INSERT (which states every
+    // column by name) threw "no such column" rather than recording a sale.
+    //
+    // ⚠️ 2026-09-02 (audit B2-I) IN-PLACE CORRECTION to the sentence this
+    // replaced: it claimed `early_start_consent_at` / `withdrawal_waiver_ack_at`
+    // / `scheduled_at` were "the same shape of gap ... flagged for a follow-up
+    // pass". Checked, that claim is false, and it is worth recording WHY rather
+    // than silently dropping the three names — the next reader would otherwise
+    // re-open a closed question. `git log --diff-filter=A -- .../schema-billing.
+    // ts | grep one_time_purchases` finds exactly one commit that ever created
+    // this table: f7532478. `git show f7532478 -- .../schema-billing.ts` shows
+    // its ORIGINAL `CREATE TABLE` already declaring `early_start_consent_at`,
+    // `withdrawal_waiver_ack_at` AND `scheduled_at` — they were born with the
+    // table, not added to a live one afterwards, so no database has ever held
+    // this table without them (the migration test's own literal legacy fixture,
+    // `test/consent-terms-version-migration.test.ts`, keeps all three present
+    // for exactly this reason — it is the "intermediate commit" shape, and they
+    // are already in it). There is no gap here to close.
+    'consent_terms_version',
     'refund_requested_at',
     'refund_provider_id',
     'refund_status',

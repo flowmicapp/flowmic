@@ -69,7 +69,13 @@ const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
   // whose real consequence — a PC on a replica can never add a phone again —
   // nobody had noticed, which is precisely what this census exists to prevent.
   'registry.refreshShortCode': { verdict: 'forwarded', why: 'pc:refresh-code — minted ON THE WRITER via /api/node/mint-code; the replica falls back to the refusal when it cannot ask' },
-  'registry.revokeMobile': { verdict: 'refused', why: 'pc:release-mobile — a revoke that comes back is a control silently not applied' },
+  // 🔴 2026-09-02 (B5, WP-6) — 'forwarded', same shape as `refreshShortCode`
+  // below: the write still never happens on a replica's own database; it is
+  // performed BY THE WRITER, over the generic POST /api/node/forward-sync
+  // (node/forward-sync.ts `releaseMobileOnWriter`), because a user is waiting
+  // for `pc:release-mobile` to disconnect or revoke a phone. The replica falls
+  // back to this refusal when there is nobody to ask or the ask fails.
+  'registry.revokeMobile': { verdict: 'forwarded', why: 'pc:release-mobile — revoked ON THE WRITER via /api/node/forward-sync; the replica falls back to the refusal when it cannot ask' },
   'registry.pairMobile': { verdict: 'refused', why: 'mobile:pair — mints the pairing row and its token' },
   'registry.admitCloudInstance': { verdict: 'refused', why: 'mobile:pair (cloud-instance variant) — inserts a PC row and a pairing' },
   // 🔴 Its `recordFailedGuess` is IN-MEMORY (room/short-code.ts holds plain Maps),
@@ -79,9 +85,15 @@ const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
   // nothing and the user is told the code is invalid. A false statement, not a
   // lost write.
   'registry.resolvePcForPair': { verdict: 'refused', why: 'mobile:pair — a replica cannot resolve any code (empty in-memory governor) so it calls a correct code invalid' },
-  'registry.retireMobile': { verdict: 'refused', why: 'mobile:unpair — the phone half of the same revoke' },
-  'registry.renamePc': { verdict: 'refused', why: 'settings:update reserved key device.pc_name' },
-  'repo.write': { verdict: 'refused', why: 'settings:update — the KV row the user just changed' },
+  // 🔴 2026-09-02 (B4, WP-6) — 'forwarded', the phone's half of the same fix as
+  // `revokeMobile` above (`unpair_mobile` verb).
+  'registry.retireMobile': { verdict: 'forwarded', why: 'mobile:unpair — retired ON THE WRITER via /api/node/forward-sync; the replica falls back to the refusal when it cannot ask' },
+  // 🔴 2026-09-02 (B6, WP-6) — 'forwarded', the `settings_update` verb
+  // (`applySettingsUpdateOnWriter`'s PC_NAME_KEY branch).
+  'registry.renamePc': { verdict: 'forwarded', why: 'settings:update reserved key device.pc_name — renamed ON THE WRITER via /api/node/forward-sync; the replica falls back to the refusal when it cannot ask' },
+  // 🔴 2026-09-02 (B6, WP-6) — 'forwarded', the same `settings_update` verb's
+  // ordinary KV branch (`applySettingsUpdateOnWriter`).
+  'repo.write': { verdict: 'forwarded', why: 'settings:update — the KV row is written ON THE WRITER via /api/node/forward-sync; the replica falls back to the refusal when it cannot ask' },
   'registry.reapCrossAccountSiblings': {
     verdict: 'refused',
     why: 'reachable ONLY from inside pc:register, which is refused first — so unreachable on a replica',
@@ -117,6 +129,15 @@ const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
   // `pc.presence` forward, and the writer's copy is the one the console reads.
   // So the FACT reaches its reader; only a copy nobody reads is discarded.
   'pcs.touchLastSeen': { verdict: 'forwarded', why: 'heartbeat — forwarded via node-runtime stampPresence so the console can see a remote PC' },
+  // B8/F3 (2026-09-02): the disconnect handler moved to its own file
+  // (socket/handlers/disconnect.handler.ts, 800-line cap on bootstrap.ts) and
+  // is scanned for the first time here. Same story as touchLastSeen above but
+  // the other direction: the local `is_online=0` a replica writes is erased by
+  // the next pull, and BEFORE this card nothing forwarded the `false` either —
+  // the writer's row stayed `is_online=1` forever. Now the same stampPresence
+  // instance carries `false` too, so the writer's copy (what the console and
+  // reaper.ts's listStaleOffline actually read) reaches the truth.
+  'pcs.setOnline': { verdict: 'forwarded', why: 'disconnect handler — forwarded via node-runtime stampPresence(pcId, false, …) so the writer learns a replica PC went offline' },
   // Still lost, and deliberately: a phone's last_seen_at has no cross-node
   // reader. Forwarding it would be work with no consumer — the defect shape this
   // whole file exists to make visible.

@@ -62,7 +62,7 @@ export class FunspeechHttpEngine extends EventEmitter implements SttEngine {
 
   push(chunk: Buffer): void {
     if (this._state !== 'open') {
-      throw new SttEngineError('STT_ENGINE_TIMEOUT', `FunspeechHttpEngine.push: not open (${this._state})`, true);
+      throw new SttEngineError('STT_ENGINE_NOT_OPEN', `FunspeechHttpEngine.push: not open (${this._state})`, true);
     }
     this.chunks.push(chunk);
     this.byteLength += chunk.length;

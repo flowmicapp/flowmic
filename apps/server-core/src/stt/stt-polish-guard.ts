@@ -243,9 +243,35 @@ function diffChars(a: string, b: string): DiffResult {
   return { distance: dp[n]![m]!, hunks };
 }
 
-function stripClosedClassAndPunct(s: string): string {
+/**
+ * 🔴 card A8 — this used to strip EVERY closed-class term with a blanket
+ * `split(term).join('')`, i.e. a plain substring match with no word boundary
+ * at all — even for the WORD_BOUNDARY_TERMS (en/fr/es/de/ko/ru) that
+ * `closedClassMultiset` above already knows must be boundary-checked. A term
+ * like "not" then matched INSIDE "nothing" (`"nothing".split("not").join('')`
+ * → `"hing"`), and "no" matched INSIDE "nowhere" (→ `"where"`) — any word that
+ * happens to start or end with a closed-class term's letters lost that
+ * fragment, whether or not it was ever a separate word. This silently WIDENS
+ * the open-class token-delta gate for exactly the Latin-script languages it
+ * exists to protect, because the stripped remainder is what §3.1's cardinality bound
+ * counts as "real" content.
+ *
+ * Fix: the SAME per-term strategy `closedClassMultiset` uses — word-boundary
+ * regex for `WORD_BOUNDARY_TERMS`, plain substring for everything else
+ * (zh/ja/digits/`n't`, none of which have a script-level word boundary to
+ * check). One rule, read from the same table, so the two cannot drift apart a
+ * second time.
+ */
+export function stripClosedClassAndPunct(s: string): string {
   let out = s;
-  for (const term of CLOSED_CLASS_TERMS) out = out.split(term).join('');
+  for (const term of CLOSED_CLASS_TERMS) {
+    if (WORD_BOUNDARY_TERMS.has(term)) {
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'giu');
+      out = out.replace(re, '');
+    } else {
+      out = out.split(term).join('');
+    }
+  }
   return out.replace(PUNCT_RE, '');
 }
 

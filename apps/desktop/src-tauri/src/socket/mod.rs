@@ -24,12 +24,19 @@ pub mod node_select;
 pub mod node_probe_surface;
 pub mod credentials;
 pub mod dedup;
+/// The on-disk half of `dedup`'s RV-83 typed-request-id ledger — split out
+/// (2026-09-02, file-size cap) when dedup.rs crossed 800 lines. Not part of
+/// this module's public surface; `dedup.rs` is the only intended reader.
+pub(in crate::socket) mod typed_ledger;
 /// The server→frontend fan-out seam (GA-28 primary gate + RV-01 channel stamp),
 /// split out of client.rs at the 800-line cap like inject_ops.rs / pump.rs.
 pub mod fanout;
 /// The inject/control decision core, split out of client.rs at the 800-line cap
 /// (same move that produced pump.rs) — target resolution, allowlist, the two runners.
 pub mod inject_ops;
+/// The transport's own "open"/"close" events, split out of client.rs at the
+/// 800-line cap (same move that produced fanout.rs / inject_ops.rs).
+pub mod lifecycle;
 /// 0.2.27 — Reinject without a wire: the one injection nothing on the socket asked for.
 /// Split from client.rs by responsibility (that file is the socket LIFECYCLE); see its
 /// header for why it must share the session's FSM and dedup table rather than own one.
@@ -69,6 +76,10 @@ pub mod register_watchdog;
 /// is unit-testable without a live rust_socketio client (same reason as
 /// `register_watchdog`). `"open"` stays the only room-entering emitter.
 pub mod hb_death;
+// The refusal vocabulary (`RefusalAuthority`, `AuthFailureHook`,
+// `is_account_auth_failure`) — split out of `pairing` at its 800-line cap.
+pub mod reconnect_ack;
+pub mod refusal;
 pub mod roster_apply;
 /// F3 (owner 2026-08-02 "the tray stays a red dot but I'm not speaking"): the SPEAKING lock's OTHER
 /// local watchdog — the one that times the FSM STATE rather than the `audio:start`
@@ -82,6 +93,11 @@ pub mod speak_liveness;
 /// from "no successor was ever built, and staying quiet erases this PC from the
 /// server". See its header for the real-machine trace that forced it.
 pub mod session_gen;
+/// GA-18 — the cached pairing code + TTL, and its shared cell. Split out of
+/// `pairing.rs` at that file's 800-line cap (2026-09-02); re-exported from
+/// there (`pairing::{ShortCodeState, SharedCode}`) so nothing importing it had
+/// to change.
+pub mod short_code;
 // `timeline_ops` (RV-01's four outbound history verbs + their ack contract) was
 // DELETED in 0.2.27: the server stores no transcripts, so list / update / delete /
 // inject have no object to act on. The PC owns its rows (0.2.26) — it edits and
@@ -101,5 +117,5 @@ pub use credentials::Credentials;
 // is the same façade shape this repo greps for. `socket::dedup::SharedDeduper`
 // is already reachable if an out-of-crate caller ever does need to spell it.
 pub use dedup::{InjectDecision, InjectDeduper};
-pub use pairing::AuthFailureHook;
 pub use reconcile::{ReconcileOutcome, Reconciler};
+pub use refusal::AuthFailureHook;

@@ -13,10 +13,11 @@
 // path needed something `neverWithin` cannot express).
 
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { connect as netConnect } from 'node:net';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -198,6 +199,81 @@ export function startServer() {
   });
 }
 
+// 🔴 2026-09-02 — REPLACES `FLOWMIC_INTERNAL_RESET_TOKEN_ECHO` /
+// `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO`, which owner ordered DELETED
+// (docs/decisions/2026-09-02-owner-plain-language-lan-ci-and-two-security-
+// questions.md §3, problem 1): those two flags read per request with NO mode
+// gate, so a single misconfigured `=1` in a production env file was a
+// two-request account takeover of any known email. This spawns the server
+// with `FLOWMIC_MAIL_PROVIDER=file` (mail/file.ts) instead — a token or code
+// is read out of the mail it actually sent, the same way a real recipient
+// reads their inbox, never off a wire echo.
+//
+// `mkdtempSync` rather than a fixed path: golden cases run concurrently
+// (run-golden.mjs), and two servers writing into the same directory would let
+// one case's mail satisfy another's `readLatestMail` predicate.
+export function mailFileDir() {
+  return mkdtempSync(path.join(tmpdir(), 'flowmic-golden-mail-'));
+}
+
+/** The env block that turns a spawned server's mail channel into the file
+ *  fixture, writing to `dir`. Merge into `startSaasServer`'s `extraEnv`. */
+export function mailFileEnv(dir) {
+  return {
+    FLOWMIC_MAIL_ENABLED: '1',
+    FLOWMIC_MAIL_PROVIDER: 'file',
+    // Required alongside FLOWMIC_MAIL_PROVIDER=file since 2026-09-02
+    // (mail/config.ts `mailConfigFromEnv`): a copied golden `.env` that kept
+    // just the mail lines would otherwise write a real deployment's reset
+    // tokens to disk instead of sending them. This harness IS the declared
+    // bench, so it sets the flag right here beside the provider it gates.
+    FLOWMIC_TEST_BENCH: '1',
+    FLOWMIC_MAIL_FILE_DIR: dir,
+    FLOWMIC_MAIL_FROM: 'FlowMic Golden <noreply@golden.flowmic.test>',
+    FLOWMIC_MAIL_RESET_BASE_URL: 'http://golden.flowmic.test/reset-password',
+  };
+}
+
+/**
+ * Poll `dir` for a mail written to `toEmail`, and return its parsed record
+ * (mail/file.ts's `FileMailRecord`: `{to, subject, text, sent_at}`).
+ *
+ * POLLS rather than reading once: mail/file.ts's write happens inside the
+ * mailer's `send()`, and the password-reset route dispatches it WITHOUT
+ * awaiting (password-reset-routes.ts's own header explains why — an awaited
+ * dispatch would turn the anti-enumeration property into a timing oracle), so
+ * the file can land a few milliseconds after the HTTP response the golden
+ * case already has in hand.
+ */
+export async function readLatestMail(dir, toEmail, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let names = [];
+    try {
+      names = readdirSync(dir).filter((n) => n.endsWith('.json'));
+    } catch {
+      names = []; // dir not created yet — mail/file.ts mkdir's it on first send
+    }
+    const matches = names
+      .map((n) => {
+        try {
+          return JSON.parse(readFileSync(path.join(dir, n), 'utf8'));
+        } catch {
+          return null;
+        }
+      })
+      .filter((r) => r && r.to === toEmail);
+    if (matches.length > 0) {
+      matches.sort((a, b) => a.sent_at.localeCompare(b.sent_at));
+      return matches[matches.length - 1];
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`no mail to ${toEmail} appeared in ${dir} within ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 // G9 (WP-R4-1): a dedicated saas instance — cloud-instance admission needs the
 // account layer (REST + JWT handshake) that standalone does not mount. Hermetic:
 // mock billing on, loopback bind, no LAN. FLOWMIC_JWT_SECRET is a throwaway.
@@ -330,28 +406,39 @@ export async function registerAndPair(url) {
 /** VERIFY-1 (2026-08-11) — pass the console email-verification gate for a
  *  freshly registered account, through the REAL routes.
  *
- *  Requires the server to run with `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO=1`
- *  (the M1 reset-token-echo precedent, extended to this feature for exactly
- *  this harness: a spawned dist server has no mail channel and no reachable DB
- *  handle, so the echo is the only way a golden can learn the code). ONE
- *  definition here rather than per golden — this file's own header says what a
- *  second copy of a wire helper becomes.
+ *  🔴 2026-09-02 — `mailDir` REPLACES the deleted
+ *  `FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO` flag: the caller must have
+ *  started the server with `mailFileEnv(mailDir)` merged into its env, and
+ *  this reads the code out of the mail the send route actually dispatched
+ *  (`readLatestMail`), the same way a real recipient would. ONE definition
+ *  here rather than per golden — this file's own header says what a second
+ *  copy of a wire helper becomes.
  *
  *  Throws (rather than returning a verdict) so a caller's FAIL carries the
  *  step that actually broke. */
-export async function verifyRegisteredEmail(url, jwt) {
+export async function verifyRegisteredEmail(url, jwt, mailDir, email) {
   const post = (p, body) => fetch(`${url}${p}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt}` },
     body: JSON.stringify(body),
   });
-  const send = await post('/api/auth/email-verification/send', {});
-  if (send.status !== 200) throw new Error(`email-verification send status ${send.status}`);
-  const { code } = await send.json();
-  if (typeof code !== 'string') {
-    throw new Error('email-verification send echoed no code — is FLOWMIC_INTERNAL_VERIFICATION_CODE_ECHO=1 on this server?');
-  }
-  const confirm = await post('/api/auth/email-verification/confirm', { code });
+  // 🔴 2026-09-02 — NO explicit `/send` call here any more. `POST /api/register`
+  // already dispatches a verification code the moment `mail/index.ts` has a
+  // real channel configured (auth-routes.ts `dispatchRegistrationVerification`)
+  // — which every caller of this function's server now does, via
+  // `mailFileEnv`. Calling `/send` again here used to be how the deleted echo
+  // flag learned the code (nothing sent it during registration when mail was
+  // unconfigured, in the old no-mail golden env); now that a real code IS
+  // dispatched at registration, a second explicit send instead hits
+  // `VERIFY_COOLDOWN` (60s) — measured, not guessed, while wiring this in.
+  // `readLatestMail` POLLS specifically because registration's dispatch is
+  // fire-and-forget (not awaited by the route, for the same anti-enumeration-
+  // timing reason the password-reset route gives), so the file can land a
+  // few milliseconds after `/api/register`'s 201 already returned.
+  const mail = await readLatestMail(mailDir, email);
+  const m = /\b(\d{6})\b/.exec(mail.text);
+  if (!m) throw new Error(`no 6-digit code in the verification mail to ${email}: ${mail.text}`);
+  const confirm = await post('/api/auth/email-verification/confirm', { code: m[1] });
   if (confirm.status !== 200) throw new Error(`email-verification confirm status ${confirm.status}`);
 }
 

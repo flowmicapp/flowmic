@@ -24,8 +24,8 @@ refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 export const name = 'file-size';
 
 // --- tunable thresholds ---
-const SRC_MAX = 800;
-const TEST_HTML_MAX = 1200;
+export const SRC_MAX = 800;
+export const TEST_HTML_MAX = 1200;
 // --------------------------
 
 const SRC_EXT = new Set(['.ts', '.tsx', '.rs', '.dart', '.vue', '.js', '.mjs', '.cjs']);
@@ -109,7 +109,7 @@ function isExcludedFile(relPath) {
 // round after the open-source cutover, not done here, because a rushed split of
 // nine files during a 30-batch translation is how a mechanical change becomes a
 // behavioural one.
-const TRANSLATION_BLOAT_BASELINE = new Map([
+export const TRANSLATION_BLOAT_BASELINE = new Map([
   // DevicesPage.vue's entry was DELETED 2026-08-26: the presence key moved to
   // lib/per-channel-presence.ts and the SFC came back under the real 800 cap.
   // The debt is paid, not waived — this lint asked for the deletion itself.
@@ -122,7 +122,14 @@ const TRANSLATION_BLOAT_BASELINE = new Map([
   // order the next reader tidies away, and there was no room left in the file to
   // write it. Debt is not only a number — it is the sentence you cannot add.
   ['apps/mobile/lib/src/session/image_send_controller.dart', 803],
-  ['apps/mobile/lib/src/session/manual_delivery.dart', 842],
+  // manual_delivery.dart's entry was DELETED 2026-09-02 (card B2-M): the
+  // in-flight delivery claim registry + inject:result routing family —
+  // `_InFlightSend`, `armInFlight`, `_armResultWatch`, `_onResultTimeout`,
+  // `dispose`, `claimResult`, `applyInjectResult`, `_retireFailureContradictedBy`
+  // — moved VERBATIM to manual_delivery_result.dart and the file came back to
+  // 616, well under the real 800 cap. Repaid in the shape this list asks for,
+  // not waived; the trigger was the SAME card's bug fix (`deliverText`'s
+  // held->failSettled shape) needing a few more lines than 842 allowed.
   // timeline_store.dart's entry was DELETED 2026-08-27 (card NR-3): the delete
   // family — one row / a multi-select batch / a range clear, i.e. every trigger
   // of the one deleter — moved VERBATIM to timeline_store_batch_delete.dart and
@@ -140,12 +147,51 @@ const TRANSLATION_BLOAT_BASELINE = new Map([
   ['apps/mobile/lib/src/ui/status_badge.dart', 907],
 ]);
 
-function isTestFile(relPath) {
+export function isTestFile(relPath) {
   return (
     /(^|\/)(test|tests|__tests__)\//.test(relPath) ||
     /\.(test|spec)\.[tj]sx?$/.test(relPath) ||
     /_test\.(rs|dart)$/.test(relPath)
   );
+}
+
+// Extracted 2026-09-02 (B2-A) as a pure, drillable seam: everything run()
+// decides about ONE file, given its relative path and its line count, without
+// touching the filesystem. `run()` below is unchanged in behaviour — same
+// messages, same precedence (an over-pin file is never also a stale-pin file).
+//
+// Returns one of:
+//   { kind: 'ok' | 'ok-pinned' }                — nothing to report
+//   { kind: 'over', message }                   — over the real cap, unpinned
+//   { kind: 'over-pin', message }                — over its pinned debt ceiling
+//   { kind: 'stale-pin', message }               — pinned but back under the real cap
+export function evaluateFile(relPath, lines, { isHtml = false } = {}) {
+  const cap = isHtml || isTestFile(relPath) ? TEST_HTML_MAX : SRC_MAX;
+  const pinned = TRANSLATION_BLOAT_BASELINE.get(relPath);
+  if (pinned !== undefined) {
+    if (lines > pinned) {
+      return { kind: 'over-pin', pinned, message: `${relPath} (${lines} > pinned ${pinned} — bloat debt may shrink, never grow)` };
+    }
+    if (lines <= cap) {
+      return { kind: 'stale-pin', pinned, message: `${relPath} (${lines} <= ${cap}: back under the real cap, delete its baseline entry)` };
+    }
+    return { kind: 'ok-pinned', pinned };
+  }
+  if (lines > cap) {
+    return { kind: 'over', message: `${relPath} (${lines} > ${cap})` };
+  }
+  return { kind: 'ok' };
+}
+
+// A baseline entry that was never seen during the walk (renamed/deleted file)
+// is the same "stale slot" shape as a debt that shrank back under cap — it
+// just needs the set of relative paths actually seen, gathered by the caller.
+export function unseenPinnedEntries(seenPinned) {
+  const out = [];
+  for (const r of TRANSLATION_BLOAT_BASELINE.keys()) {
+    if (!seenPinned.has(r)) out.push(`${r} (pinned but not scanned — renamed or deleted? drop its baseline entry)`);
+  }
+  return out;
 }
 
 export default async function run() {
@@ -163,20 +209,13 @@ export default async function run() {
     if (text == null) continue;
     checked++;
     const lines = countLines(text);
-    const cap = isHtml || isTestFile(r) ? TEST_HTML_MAX : SRC_MAX;
-    const pinned = TRANSLATION_BLOAT_BASELINE.get(r);
-    if (pinned !== undefined) {
-      seenPinned.add(r);
-      if (lines > pinned) offenders.push(`${r} (${lines} > pinned ${pinned} — bloat debt may shrink, never grow)`);
-      else if (lines <= cap) stalePins.push(`${r} (${lines} <= ${cap}: back under the real cap, delete its baseline entry)`);
-      continue;
-    }
-    if (lines > cap) offenders.push(`${r} (${lines} > ${cap})`);
+    if (TRANSLATION_BLOAT_BASELINE.has(r)) seenPinned.add(r);
+    const ev = evaluateFile(r, lines, { isHtml });
+    if (ev.kind === 'over' || ev.kind === 'over-pin') offenders.push(ev.message);
+    else if (ev.kind === 'stale-pin') stalePins.push(ev.message);
   }
 
-  for (const r of TRANSLATION_BLOAT_BASELINE.keys()) {
-    if (!seenPinned.has(r)) stalePins.push(`${r} (pinned but not scanned — renamed or deleted? drop its baseline entry)`);
-  }
+  stalePins.push(...unseenPinnedEntries(seenPinned));
 
   if (offenders.length > 0) {
     return { status: 'FAIL', detail: `${offenders.length} over cap: ${offenders.slice(0, 20).join('; ')}` };

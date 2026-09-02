@@ -17,7 +17,8 @@
 // where this defect lives, and it is the repo's #1 shape (one value, two
 // questions) for the third time on this wire.
 //
-// THE MECHANISM (what these tests pin):
+// THE MECHANISM AS ORIGINALLY FIXED (2026-08-11, preserved as history — see the
+// 2026-09-02 correction block below for what changed):
 //   1. B arrives          → `previous === null` → `pc:mobile-joined` → PC refuses;
 //   2. server suppresses B for BUSY_SUPPRESS_MS (8 s) and disconnects its socket;
 //   3. the DEAD socket stays in `mobileSockets` — `leaveMobile` is deferred to the
@@ -43,8 +44,53 @@
 //    capsule?」 is not 「is this phone newly present?」 — a socket swap is a NEW
 //    ANSWER to the first and an unchanged answer to the second.
 //
+// 🔴🔴 ORIGINAL DESIGN STATEMENT, NOW SUPERSEDED (kept verbatim, corrected below
+// rather than deleted): the first version of these tests asserted, in so many
+// words, "The server admits it — correctly, on its own terms. The server is
+// not the judge of who holds the capsule (that is the desktop's call by
+// design), and the busy window has honestly lapsed." That sentence was true on
+// 2026-08-11 and is false today.
+//
+// ── CORRECTION (2026-09-02, WP-6, A12/F2-b) ─────────────────────────────────
+//
+// The mechanism above (steps 1-5) required the SERVER to admit a second phone
+// FIRST and rely on the PC to notice and evict it SECOND. `findings-crossend-
+// main.md` F2-b named the consequence this repo had not yet measured: on a
+// replica, before WP-6's generic handoff existed, step 2's `pc:release-mobile`
+// call was ITSELF refused (`NODE_IS_REPLICA`) — so the suppression in step 2
+// was never built, B was never disconnected, and B stayed in the room
+// INDEFINITELY, with every one of its mirrored frames answering
+// `INJECT_NOT_PRIMARY` and no banner ever explaining why. The corpse-squatting
+// window this file was built to catch (step 4) is a NARROWER instance of the
+// same root cause: "the server admits contention and waits for the PC to
+// resolve it" has more than one way to leave a second phone stuck in the room.
+//
+// `mobile.handler.ts`'s `liveContender` (moved to `mobile-room-admission.ts`
+// at the file-size cap) closes this at the root: `mobile:pair` and
+// `mobile:reconnect` now ask the ROSTER — which they have always had — before
+// EITHER verb ever calls `joinAndNotify`. A second, DIFFERENT pairing is
+// refused `PC_BUSY` at that call, with a FRESH `retry_after_ms`, and never
+// enters `mobileSockets` at all. There is no `pc:mobile-joined` to fire, so
+// there is nothing for the desktop's `Admission` FSM to refuse, no
+// `pc:release-mobile` round trip to depend on, no corpse, and no GA-04 grace
+// window for one to hide in — steps 1-5 above describe a class of defect this
+// design change makes structurally unreachable for a genuinely new second
+// phone, rather than a scenario these tests still need to keep green by
+// simulation.
+//
+// WHAT DID NOT CHANGE: `joinAndNotify` itself, and the SAME-pairing swap it
+// exists to get right (A-1's own scenario — one phone's own ladder returning
+// on a new socket) — that mechanism is untouched and is pinned separately in
+// `presence-liveness.test.ts` ("A-1: reconnect seeds focus:state on the new
+// socket"). `pc:release-mobile{reason:'busy'}` also still exists and still
+// works exactly as before — the PC may still actively evict its current
+// holder to make room for someone else; what changed is that a SECOND phone
+// no longer has to be admitted, announced and evicted just to find that out.
+//
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1; GA-26 / GA-28 / GA-29;
-//           docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §R11
+//           docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §R11;
+//           docs/strategy/2026-09-02-full-implementation-audit-and-next-plan.md
+//             §3-B F2-b, §5-4 item 3
 
 import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -178,8 +224,8 @@ beforeEach(() => {
 });
 afterEach(() => db.close());
 
-describe('P0 red line — the capsule verdict must run for EVERY socket that takes the room slot', () => {
-  it('re-announces a phone that returns on a new socket inside the GA-04 grace', async () => {
+describe('A12/F2-b — a second, DIFFERENT phone is refused before it ever occupies the room', () => {
+  it('is refused PC_BUSY on its FIRST attempt, hears no error twice, and never joins', async () => {
     // ── the owner's scene: phone A holds the capsule, phone B wants in ──────
     const { pc, pcSock } = setUpRoom();
     const phoneA = pairPhone(pc.short_code, 'Lenovo TB335ZC');
@@ -189,84 +235,115 @@ describe('P0 red line — the capsule verdict must run for EVERY socket that tak
     const sockA = new FakeSocket('sock-a');
     store.joinMobile(pc.room_uuid, phoneA.mobile.id, sockA as unknown as Socket);
 
-    // ── ① B arrives for the first time: the PC IS told, and refuses ─────────
+    // ── B's FIRST attempt is refused at the wire, before any join ───────────
     const sockB1 = wireMobile(new FakeSocket('sock-b-1'));
     const firstJoin = await sockB1.invoke('mobile:reconnect', { token: phoneB.token });
-    expect(firstJoin.error).toBeUndefined();
-    expect(joinFramesFor(pcSock, phoneB.mobile.id)).toHaveLength(1);
 
-    // The desktop's Admission refuses and the PC sends the busy release. (In
-    // production presence.rs emits this; here the PC socket drives the same
-    // handler over the same wire name — the server cannot tell the difference.)
-    const refusal = await pcSock.invoke('pc:release-mobile', {
-      mobile_id: phoneB.mobile.id,
-      reason: 'busy',
-    });
-    // The ack the forensics saw. Both halves are TRUE — and neither one answers
-    // 「did B give up the capsule?」.
-    expect(refusal).toMatchObject({ ok: true, released: 1, revoked: 0, suppressed_ms: BUSY_SUPPRESS_MS });
-    expect(sockB1.disconnected).toBe(1);
-
-    // ── ② the dead socket LINGERS in the slot ──────────────────────────────
-    // GA-04 defers `leaveMobile` to the end of the mobile-drop grace, so for the
-    // next ~30 s the room still maps B → the socket that was just killed. This
-    // is deliberate and is NOT the bug; it is the precondition for it.
-    const lingering = store.getMobile(pc.room_uuid, phoneB.mobile.id);
-    expect(lingering).toBe(sockB1 as unknown as Socket);
-    expect(lingering?.connected).toBe(false);
-
-    // ── ③ B's ladder returns after the 8 s hold-out but INSIDE the grace ────
-    clock += BUSY_SUPPRESS_MS + 1;
-    const sockB2 = wireMobile(new FakeSocket('sock-b-2'));
-    const secondJoin = await sockB2.invoke('mobile:reconnect', { token: phoneB.token });
-
-    // The server admits it — correctly, on its own terms. The server is not the
-    // judge of who holds the capsule (that is the desktop's call by design), and
-    // the busy window has honestly lapsed.
-    expect(secondJoin.error).toBeUndefined();
-    expect(store.getMobile(pc.room_uuid, phoneB.mobile.id)).toBe(sockB2 as unknown as Socket);
-
-    // ── ④ THE DEFECT ───────────────────────────────────────────────────────
-    // B is back in the room on a live socket. The capsule is still A's. The one
-    // thing that could refuse B is the desktop verdict, and the ONLY trigger for
-    // that verdict is this frame. Without a second one, B squats silently — which
-    // is exactly the eight minutes of `mobiles=2` the forensics recorded.
-    expect(joinFramesFor(pcSock, phoneB.mobile.id)).toHaveLength(2);
+    expect(firstJoin).toMatchObject({ error: 'PC_BUSY', retryable: true, retry_after_ms: BUSY_SUPPRESS_MS });
+    // 🔴 THE STRUCTURAL FIX: the PC never hears about B at all. There is no
+    // verdict for the desktop to run, correctly or otherwise — the question
+    // never reaches it.
+    expect(joinFramesFor(pcSock, phoneB.mobile.id)).toHaveLength(0);
+    // B never took the slot — no corpse, nothing for the GA-04 grace to hold.
+    expect(store.getMobile(pc.room_uuid, phoneB.mobile.id)).toBeNull();
+    // A is completely undisturbed.
+    expect(sockA.connected).toBe(true);
+    expect(store.getMobile(pc.room_uuid, phoneA.mobile.id)).toBe(sockA as unknown as Socket);
   });
 
-  it('a genuine first arrival is still announced exactly once (no double-fire)', async () => {
-    // Guards the fix from the opposite failure: re-announcing must not turn one
-    // arrival into two, or the desktop would refuse a phone it just granted.
-    const { pc, pcSock } = setUpRoom();
-    const phone = pairPhone(pc.short_code, 'Pixel 9');
-
-    const sock = wireMobile(new FakeSocket('sock-only'));
-    await sock.invoke('mobile:reconnect', { token: phone.token });
-
-    expect(joinFramesFor(pcSock, phone.mobile.id)).toHaveLength(1);
-  });
-
-  it('the re-announced frame carries the SAME shape as a first arrival', async () => {
-    // The desktop parses `mobile_id` out of this frame (wire::parse_mobile_id) and
-    // ignores frames it cannot attribute. A re-announcement that dropped the id
-    // would be recorded as 「pc:mobile-joined without mobile_id — ignored」 and the
-    // verdict would be skipped just as silently as before. Same shape, or the fix
-    // is a façade.
-    const { pc, pcSock } = setUpRoom();
+  it('stays refused on every retry for as long as A remains live — no silent readmission window', async () => {
+    // This is the direct replacement for the old "corpse squats in the GA-04
+    // grace" scenario: because B never enters the room, there is no grace
+    // window, no `previous !== null` corpse, and therefore no gap in which B
+    // could be silently readmitted. Proven here by retrying PAST the old
+    // BUSY_SUPPRESS_MS window and asserting the refusal still holds.
+    const { pc } = setUpRoom();
     const phoneA = pairPhone(pc.short_code, 'Holder');
     const phoneB = pairPhone(pc.short_code, 'Second');
     store.joinMobile(pc.room_uuid, phoneA.mobile.id, new FakeSocket('sock-a') as unknown as Socket);
 
     const b1 = wireMobile(new FakeSocket('sock-b-1'));
-    await b1.invoke('mobile:reconnect', { token: phoneB.token });
-    await pcSock.invoke('pc:release-mobile', { mobile_id: phoneB.mobile.id, reason: 'busy' });
+    const first = await b1.invoke('mobile:reconnect', { token: phoneB.token });
+    expect(first).toMatchObject({ error: 'PC_BUSY', retry_after_ms: BUSY_SUPPRESS_MS });
 
+    // Past the window the OLD suppression entry would have lapsed at.
     clock += BUSY_SUPPRESS_MS + 1;
     const b2 = wireMobile(new FakeSocket('sock-b-2'));
-    await b2.invoke('mobile:reconnect', { token: phoneB.token });
+    const second = await b2.invoke('mobile:reconnect', { token: phoneB.token });
 
-    const frames = joinFramesFor(pcSock, phoneB.mobile.id);
-    expect(frames).toHaveLength(2);
-    expect(frames[1]).toEqual(frames[0]);
+    // A is STILL live, so `liveContender` finds it again and mints a FRESH
+    // window — never a silent `{error: undefined}`.
+    expect(second).toMatchObject({ error: 'PC_BUSY', retry_after_ms: BUSY_SUPPRESS_MS });
+    expect(store.getMobile(pc.room_uuid, phoneB.mobile.id)).toBeNull();
+  });
+
+  it('the SAME rule applies to a fresh mobile:pair, not only mobile:reconnect', async () => {
+    const { pc, pcSock } = setUpRoom();
+    const phoneA = pairPhone(pc.short_code, 'Holder');
+    store.joinMobile(pc.room_uuid, phoneA.mobile.id, new FakeSocket('sock-a') as unknown as Socket);
+
+    const sockB = wireMobile(new FakeSocket('sock-b'));
+    const ack = await sockB.invoke('mobile:pair', { short_code: pc.short_code, mobile_name: 'Brand New Phone' });
+
+    // The pairing row IS minted (the token is real and the phone can retry
+    // with it — see PairingInfo/PC_BUSY handling on the mobile side) but the
+    // ROOM is what refuses it.
+    expect(ack).toMatchObject({ error: 'PC_BUSY', retryable: true, retry_after_ms: BUSY_SUPPRESS_MS });
+    expect(joinFramesFor(pcSock, String(ack.pairing_id ?? ''))).toHaveLength(0);
+  });
+
+  it('once A actually leaves, B is admitted and announced normally on its next attempt', async () => {
+    const { pc, pcSock } = setUpRoom();
+    const phoneA = pairPhone(pc.short_code, 'Holder');
+    const phoneB = pairPhone(pc.short_code, 'Second');
+    const sockA = new FakeSocket('sock-a');
+    store.joinMobile(pc.room_uuid, phoneA.mobile.id, sockA as unknown as Socket);
+
+    const refused = await wireMobile(new FakeSocket('sock-b-1')).invoke('mobile:reconnect', { token: phoneB.token });
+    expect(refused.error).toBe('PC_BUSY');
+
+    // A genuinely disconnects (not evicted — just leaves) and the room slot is
+    // vacated the way `disconnect.handler.ts` does it in production.
+    sockA.disconnect(true);
+    store.leaveMobile(pc.room_uuid, phoneA.mobile.id, sockA.id);
+
+    clock += BUSY_SUPPRESS_MS + 1;
+    const admitted = await wireMobile(new FakeSocket('sock-b-2')).invoke('mobile:reconnect', { token: phoneB.token });
+
+    expect(admitted.error).toBeUndefined();
+    expect(joinFramesFor(pcSock, phoneB.mobile.id)).toHaveLength(1);
+  });
+
+  it('a genuine first arrival (no contender at all) is still announced exactly once', async () => {
+    // Guards the fix from the opposite failure: the new gate must not refuse a
+    // phone that is not actually contending with anyone.
+    const { pc, pcSock } = setUpRoom();
+    const phone = pairPhone(pc.short_code, 'Pixel 9');
+
+    const sock = wireMobile(new FakeSocket('sock-only'));
+    const ack = await sock.invoke('mobile:reconnect', { token: phone.token });
+
+    expect(ack.error).toBeUndefined();
+    expect(joinFramesFor(pcSock, phone.mobile.id)).toHaveLength(1);
+  });
+
+  it('a phone reconnecting to its OWN slot is never treated as its own contender', async () => {
+    // `liveContender` excludes `thisPairingId` — the same phone's ladder
+    // returning on a new socket (A-1's own scenario, pinned end-to-end in
+    // presence-liveness.test.ts) must not be refused PC_BUSY against itself.
+    const { pc, pcSock } = setUpRoom();
+    const phone = pairPhone(pc.short_code, 'Pixel 9');
+
+    const sock1 = wireMobile(new FakeSocket('sock-1'));
+    await sock1.invoke('mobile:reconnect', { token: phone.token });
+
+    const sock2 = wireMobile(new FakeSocket('sock-2'));
+    const again = await sock2.invoke('mobile:reconnect', { token: phone.token });
+
+    expect(again.error).toBeUndefined();
+    expect(store.getMobile(pc.room_uuid, phone.mobile.id)).toBe(sock2 as unknown as Socket);
+    // The re-announce mechanism (joinAndNotify's `previous.id !== socket.id`)
+    // still fires for the SAME pairing's socket swap.
+    expect(joinFramesFor(pcSock, phone.mobile.id)).toHaveLength(2);
   });
 });

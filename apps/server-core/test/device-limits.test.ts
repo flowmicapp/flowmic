@@ -370,6 +370,34 @@ describe('GA-16 — mobile pairing ceiling', () => {
     );
   });
 
+  it('🔴 WP-9 (findings-crossend-quota.md #4): one PHYSICAL handset paired to two of the user\'s PCs is ONE mobile, not two', () => {
+    // Before this fix `ensureMobileSlot` summed pairing ROWS across every real
+    // PC — so free's 2-mobile ceiling was already spent by one phone the user
+    // paired to two machines, before a second physical handset ever existed.
+    const registry = makeRegistry('saas', 'free');
+    const pcA = newPc(registry, 'u1', 1).pc;
+    const pcB = newPc(registry, 'u1', 2).pc;
+    // Same device_uid on both pairings: one handset, two of the user's PCs.
+    registry.pairMobile({ ...pairAddr(pcA), mobile_name: 'phone-A', user_id: 'u1', device_uid: 'handset-1' });
+    expect(() =>
+      registry.pairMobile({ ...pairAddr(pcB), mobile_name: 'phone-A', user_id: 'u1', device_uid: 'handset-1' }),
+    ).not.toThrow();
+    // A SECOND, genuinely different handset still fits — the ceiling is 2 devices, not 2 rows already spent by the first.
+    expect(() =>
+      registry.pairMobile({ ...pairAddr(pcA), mobile_name: 'phone-B', user_id: 'u1', device_uid: 'handset-2' }),
+    ).not.toThrow();
+    // A third DEVICE is refused (2/2 devices reached, even though 3 rows exist).
+    expect(db.mobiles.listByPc(pcA.id).length + db.mobiles.listByPc(pcB.id).length).toBe(3);
+    let thrown: unknown;
+    try {
+      registry.pairMobile({ ...pairAddr(pcB), mobile_name: 'phone-C', user_id: 'u1', device_uid: 'handset-3' });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ServerError);
+    expect((thrown as ServerError).code).toBe('MOBILES_LIMIT_EXCEEDED');
+  });
+
   it('pro / standalone are unlimited', () => {
     const pro = makeRegistry('saas', 'pro');
     const pcPro = newPc(pro, 'u1', 1).pc;

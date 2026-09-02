@@ -56,10 +56,16 @@ const CAP_PREFIX_DECL_RE = /export const SETTINGS_CAPABILITY_KEY_PREFIX\s*=\s*([
 
 /** Does `needle` (a constant NAME) appear anywhere under these roots?
  *  Capability keys are referenced through the exported constant rather than a
- *  literal — that is deliberate, and it is what makes them greppable here. */
-async function mentions(relRoots, needle) {
-  for (const relRoot of relRoots) {
-    for (const f of await walk(path.join(ROOT, relRoot))) {
+ *  literal — that is deliberate, and it is what makes them greppable here.
+ *
+ *  Takes ABSOLUTE roots (2026-09-02, B2-A): the ROOT-join used to happen
+ *  inside this function, which made it able to look only at the real repo. It
+ *  now happens at the call site, so a drill can hand it a disposable fixture
+ *  tree instead. Behaviour identical for the real callers below, which just
+ *  moved their `path.join(ROOT, relRoot)` up one level. */
+export async function mentions(rootsAbs, needle) {
+  for (const rootAbs of rootsAbs) {
+    for (const f of await walk(rootAbs)) {
       const ext = path.extname(f).toLowerCase();
       if (!['.ts', '.tsx', '.vue', '.dart', '.js', '.mjs'].includes(ext)) continue;
       const src = await readText(f);
@@ -69,12 +75,12 @@ async function mentions(relRoots, needle) {
   return null;
 }
 
-async function collect(relRoots, re) {
+/** Same ABSOLUTE-roots seam as `mentions` above, same reason. */
+export async function collect(rootsAbs, re) {
   const keys = new Map(); // key -> first "file:line"
   let fileCount = 0;
-  for (const relRoot of relRoots) {
-    const abs = path.join(ROOT, relRoot);
-    for (const f of await walk(abs)) {
+  for (const rootAbs of rootsAbs) {
+    for (const f of await walk(rootAbs)) {
       const ext = path.extname(f).toLowerCase();
       if (!['.ts', '.tsx', '.vue', '.dart', '.js', '.mjs'].includes(ext)) continue;
       const src = await readText(f);
@@ -90,8 +96,10 @@ async function collect(relRoots, re) {
 }
 
 export default async function run() {
-  const set = await collect(UI_ROOTS, SET_RE);
-  const get = await collect(SERVER_ROOTS, GET_RE);
+  const uiRootsAbs = UI_ROOTS.map((r) => path.join(ROOT, r));
+  const serverRootsAbs = SERVER_ROOTS.map((r) => path.join(ROOT, r));
+  const set = await collect(uiRootsAbs, SET_RE);
+  const get = await collect(serverRootsAbs, GET_RE);
 
   if (set.fileCount === 0 && get.fileCount === 0) {
     return { status: 'SKIP', detail: 'no app sources yet (apps/* absent)' };
@@ -132,11 +140,11 @@ export default async function run() {
             `capability keys are synthesised per read and are not storable`,
         );
       }
-      const producer = await mentions(SERVER_ROOTS, constName);
+      const producer = await mentions(serverRootsAbs, constName);
       if (producer === null) {
         orphans.push(`capability '${literal}' (${constName}) has no server producer — nothing synthesises it`);
       }
-      const consumer = await mentions(UI_ROOTS, constName);
+      const consumer = await mentions(uiRootsAbs, constName);
       if (consumer === null) {
         orphans.push(
           `capability '${literal}' (${constName}) has no UI consumer — a fact nobody renders is a façade`,

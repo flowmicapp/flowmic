@@ -79,6 +79,24 @@ pub(super) fn has_socket(app: &AppHandle, channel: Channel) -> bool {
     g.slot(channel).is_some()
 }
 
+/// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — mark whatever session currently
+/// occupies `channel`'s slot as a REDIAL ATTEMPT (see
+/// `DesktopSocket::mark_transient_close`), BEFORE the caller empties that slot
+/// to try dialing a replacement. A no-op if the slot is already empty.
+///
+/// Call this from a funnel that is about to `set_socket(channel, None)` in
+/// order to redial, never from a DELIBERATE teardown (Cloud Key refused/
+/// removed, manual offline) — those must keep the safe suppress-forever
+/// default (`session_gen::closing_gate`'s `transient` arm). LAN sessions are
+/// unaffected either way: their release already never depended on this flag.
+pub(super) fn mark_slot_transient(app: &AppHandle, channel: Channel) {
+    let s: State<SocketState> = app.state();
+    let g = s.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(sock) = g.slot(channel) {
+        sock.mark_transient_close();
+    }
+}
+
 /// Swap ONE channel's session (07 §6 both channels resident — the two slots are independent).
 ///
 /// GA-28: this used to overwrite the single slot, which is why every cloud event

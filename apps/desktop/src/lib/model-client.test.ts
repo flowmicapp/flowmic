@@ -277,6 +277,42 @@ describe('model status reads', () => {
     onSidecarPhaseForModel('healthy', t);
     await vi.waitFor(() => expect(modelStore.reach).toBe('ok'));
   });
+
+  // E5 (2026-09-02) — before this, `onSidecarPhaseForModel` threw the phase away
+  // the instant it decided whether to wake the poller, so LocalModelCard.vue had
+  // no way to distinguish "the sidecar has not answered yet" (quiet, self-
+  // resolving) from "the sidecar's own supervisor already gave up" (never
+  // resolves on its own). Every one of these fails on the pre-fix body (it never
+  // wrote `modelStore.sidecarPhase` at all, so it stayed `null` forever).
+  it('records the sidecar phase even when it is not a wake phase', () => {
+    const t = transport(() => body({ state: 'absent' }));
+    expect(modelStore.sidecarPhase).toBeNull();
+    onSidecarPhaseForModel('failed', t);
+    expect(modelStore.sidecarPhase).toBe('failed');
+    onSidecarPhaseForModel('starting', t);
+    expect(modelStore.sidecarPhase).toBe('starting'); // a later push still overwrites it
+  });
+
+  it('a failed phase with a detail becomes the technical-fold reachReason', () => {
+    const t = transport(() => body({ state: 'absent' }));
+    onSidecarPhaseForModel('failed', t, 'port 34567 already in use');
+    expect(modelStore.sidecarPhase).toBe('failed');
+    expect(modelStore.reachReason).toBe('port 34567 already in use');
+  });
+
+  it('a failed phase with NO detail does not fabricate a reason', () => {
+    const t = transport(() => body({ state: 'absent' }));
+    modelStore.reachReason = 'previous reason';
+    onSidecarPhaseForModel('failed', t, null);
+    expect(modelStore.reachReason).toBe('previous reason'); // left alone, not blanked
+  });
+
+  it('a failed phase still does not wake the poller (it is terminal, not a re-ask signal)', async () => {
+    const t = transport(() => body({ state: 'absent' }));
+    onSidecarPhaseForModel('failed', t);
+    await Promise.resolve();
+    expect(t.calls).toEqual([]);
+  });
 });
 
 describe('the actions', () => {

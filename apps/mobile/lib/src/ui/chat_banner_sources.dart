@@ -140,6 +140,15 @@ BannerQueue _liveSources({
   // `timelineConflict` was passed here until 0.2.27. The
   // uplink whose ack produced it is retired, so no peer can
   // overrule this phone's rows any more (see banner_queue).
+  // AUD-D F6 / P1-6 (card B2-O) — THE PRODUCTION READER of
+  // `RetainedAudioStore.lastNotice` (via `ChatController.retainedAudioNotice`).
+  // Without this line the store's own header ("callers MUST surface these")
+  // stayed answered only by a diag log line — this file is 「where each
+  // primitive comes from」, so a primitive nobody reads from here does not
+  // exist as far as the user is concerned (the same sentence CR-3/CR-9/fix-026
+  // earned their own fields above).
+  retainedAudioNotice: controller.retainedAudioNotice,
+  onDismissRetainedAudioNotice: controller.dismissRetainedAudioNotice,
   onDismissAutoStop: controller.dismissAutoStopped,
   onDismissSttStalled: controller.dismissSttStalled,
   onDismissUtteranceFailure: controller.dismissUtteranceFailure,
