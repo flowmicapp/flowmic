@@ -5,9 +5,22 @@
 // for the EXACT same literal keys — the mechanical "a key has a live reader AND
 // a live writer" proof the anti-façade drift lint gives, verified behaviourally
 // here so the two halves can never silently drift apart.
+//
+// 2026-09-03 (WP-B2) adds a FIFTH: 'scenario.inference'. Its UI half is not an
+// `updateSetting` at all — owner moved the four phone-owned keys off
+// `settings:update` and onto the transcription request, so the phone's SET
+// anchor is `carrySetting('scenario.inference', …)` in
+// apps/mobile/lib/src/settings/phone_prefs_payload.dart. The server half landed
+// in the same merge, which is what the old note in scenario-infer-store.ts
+// asked for by name; this file is where "it really asks the repo for THAT
+// string" is proven rather than asserted in prose.
 
 import { describe, expect, it } from 'vitest';
-import { SETTINGS_KEY_SCENARIO_CARD, SETTINGS_KEY_STT_POLISH } from '@flowmic/protocol';
+import {
+  SETTINGS_KEY_SCENARIO_CARD,
+  SETTINGS_KEY_SCENARIO_INFERENCE,
+  SETTINGS_KEY_STT_POLISH,
+} from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../src/db/repos/settings.repo';
 import { loadRoutings } from '../src/stt/engine-factory';
 import {
@@ -15,6 +28,7 @@ import {
   STT_POLISH_DEFAULT_WITHOUT_LLM,
   readSttPolish,
 } from '../src/stt/stt-polish-settings';
+import { ScenarioInferenceStore } from '../src/compose/scenario-infer-store';
 import { resolveLlmConfigWithSource } from '../src/compose';
 import { ServerError } from '../src/errors';
 
@@ -124,6 +138,39 @@ describe('settings-key-drift GET anchors read the exact literal keys the desktop
       expect(thrown, `expected throw for ${JSON.stringify(bad)}`).toBeInstanceOf(ServerError);
       expect((thrown as ServerError).code).toBe('SETTINGS_SCHEMA_INVALID');
     }
+  });
+
+  it("the scenario-inference store reads 'scenario.inference' (WP-B2 GET anchor) and the literal == the protocol SSOT constant", () => {
+    // The SET half is the phone's `carrySetting('scenario.inference', …)`; this
+    // is the GET half, and the lint refuses either alone. Behavioural, not by
+    // symbol name: what matters is the STRING the repo is asked for.
+    const reads: string[] = [];
+    const repo = recordingRepo(
+      // NOT granted: the read is the point, and a granted row would send the
+      // store on to an LLM this case has no business making.
+      { 'scenario.inference': { granted: false, granted_for: 'external' } },
+      reads,
+    );
+    const store = new ScenarioInferenceStore({
+      settings: repo,
+      // Never reached: the row below says NOT granted, so the gate closes before
+      // any round trip. Present because the deps are required by design (a
+      // defaulted no-op meter is the façade 13-LESSONS-LEARNED §7 F1 ② bans).
+      streamerFor: () => { throw new Error('no LLM call is expected here'); },
+      recordUsage: () => { throw new Error('no metering is expected here'); },
+      schedule: () => { throw new Error('nothing should be scheduled here'); },
+      logLine: () => {},
+    });
+    // No `consent` argument ⇒ the store falls back to its OWN read, which is the
+    // path that carries the anchor.
+    store.resolve({
+      userId: 'u1',
+      processName: 'zzz-not-a-known-app.exe',
+      cfg: { protocol: 'openai-compatible', endpoint: 'http://x/v1', api_key: '', model: 'm' },
+      byok: false,
+    });
+    expect(reads).toContain('scenario.inference');
+    expect(SETTINGS_KEY_SCENARIO_INFERENCE).toBe('scenario.inference');
   });
 
   it('readSttPolish re-snapshots per call (audio:start cadence — a settings:update lands on the NEXT take)', () => {

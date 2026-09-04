@@ -184,33 +184,22 @@ watch(
   { flush: 'sync' },
 );
 
-// The CLOUD connected rising edge → the same replay (owner ruling 2026-08-24).
+// 🔴 THERE IS NO CLOUD RISING-EDGE REPLAY, AND THAT ABSENCE IS THE RULE (owner
+// 2026-09-03, phone-owned preferences).
 //
-// 🔴 THIS IS THE OTHER HALF OF "settings target both legs", and without it that
-// ruling would be half-delivered in the direction nobody would notice. The Rust
-// `settings_update` emits on every LIVE socket and reports success when the
-// sockets that existed accepted the frame — so an edit made while the relay is
-// down is NOT pending (the LAN leg took it, correctly) and would never be sent
-// to the relay again. The relay would then hold a stale copy forever, which is
-// the exact state the ruling exists to end.
+// Between 2026-08-24 and this change a second watcher fired `flushPending()` on
+// the CLOUD edge too, because four preference keys were emitted on both sockets
+// and an edit made while the relay was down would otherwise never reach it. Those
+// keys are the phone's now: they ride the transcription request, no server stores
+// them, and the server refuses them from a PC by name. What this desktop still
+// writes — `stt.routings` / `llm.config` / `device.pc_name` — is pinned to the LAN
+// socket (`shell::settings_route`), so replaying the queue when the RELAY comes up
+// would emit frames at a socket the write door never uses.
 //
-// `flushPending` re-sends EVERY remembered key, not only the dirty ones, so this
-// edge is what carries the whole preference set onto a relay that has just come
-// up. It is safe to re-send: the server upserts, and each key travels with the
-// `updated_at` of its OWN edit, so the regress guard still refuses anything
-// older than what is already there (card C3).
-//
-// ⚠️ A SEPARATE WATCHER, not a combined `lanConnected || cloudConnected`: two
-// edges are two facts, and OR-ing them would swallow the cloud edge whenever LAN
-// was already up — i.e. in the common case. One flag, one question.
-const cloudConnected = computed(() => connByChannel.cloud?.connected === true);
-watch(
-  cloudConnected,
-  (up, was) => {
-    if (up && was !== true) void settings.flushPending();
-  },
-  { flush: 'sync' },
-);
+// ⚠️ Stated as an absence rather than simply deleted, because restoring it 「for
+// symmetry」 is the obvious next edit and it would put back a replay with no
+// receiver. The reverse control is in connection-seed.test.ts: a cloud-only
+// rising edge must call `flushPending` ZERO times.
 
 export const settingsPending = ref(settings.pending);
 settings.onPending(() => {

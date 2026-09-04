@@ -108,6 +108,58 @@ pub(in crate::socket) fn on_forward_speaking(
     })
 }
 
+/// F-1 (2026-09-04) — as [`on_forward_speaking`], plus ONE more observation: was
+/// this utterance's closing final EMPTY?
+///
+/// Only `stt:final` gets this variant, so `stt:interim` / `stt:level` keep the
+/// cheaper handler and nothing else in the fan-out learns to read payload text.
+///
+/// The observation is taken BEFORE the primary gate, for the same reason the
+/// liveness signal is: it feeds THIS channel's own FSM — the one `audio:start`
+/// locked on this same channel — and a channel that is momentarily not primary
+/// must not look, to its own lock, as though its utterance never ended.
+///
+/// A frame we cannot parse is NOT reported as empty. "We could not read the text"
+/// and "there was no text" are two different facts, and only the second one may
+/// release a lock; guessing here would be exactly the fabricated verdict R11
+/// forbids. An unparseable final therefore leaves the latch untouched and the
+/// 32 s starvation backstop still covers it.
+pub(in crate::socket) fn on_forward_final(
+    builder: ClientBuilder,
+    event: &'static str,
+    channel: &'static str,
+    bridge: Option<BridgeSink>,
+    primary: PrimaryGate,
+    liveness: crate::socket::speak_liveness::SpeakLiveness,
+    empty_final: crate::socket::empty_final::EmptyFinalLatch,
+) -> ClientBuilder {
+    builder.on(event, move |payload, _socket| {
+        liveness.signal();
+        if let Payload::Text(vals) = &payload {
+            if let Some(v) = wire::first_arg(vals) {
+                if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+                    // `is_segment` absent ⇒ treat as the utterance-closing final
+                    // (the safe direction: `stop_seen` still has to agree before
+                    // anything is released, and defaulting the other way would
+                    // silently disable the release against any producer that
+                    // omits the field).
+                    let is_segment =
+                        v.get("is_segment").and_then(|s| s.as_bool()).unwrap_or(false);
+                    empty_final.note_final(is_segment, text.trim().is_empty());
+                }
+            }
+        }
+        if !primary.open() {
+            return;
+        }
+        if let Payload::Text(vals) = payload {
+            if let Some(v) = wire::first_arg(&vals) {
+                bridge::forward(&bridge, channel, v.clone());
+            }
+        }
+    })
+}
+
 /// RV-01 — as [`on_forward`], plus the SOURCE CHANNEL stamp every TIMELINE frame
 /// carries (`bridge::tag_channel` explains why the frontend cannot address a row
 /// without it). A frame we cannot stamp is recorded and dropped rather than
@@ -174,11 +226,19 @@ pub(in crate::socket) fn on_capsule_audio_edges(
     builder: ClientBuilder,
     bridge: Option<BridgeSink>,
     gate: PrimaryGate,
+    empty_final: crate::socket::empty_final::EmptyFinalLatch,
 ) -> ClientBuilder {
     let builder = {
         let br_s = bridge.clone();
         let g_s = gate.clone();
         builder.on(crate::events::AUDIO_STOP, move |payload, _socket| {
+            // F-1 (2026-09-04) — RULING 2 IS UNCHANGED: this still does not release.
+            // It only RECORDS that the hold ended, which is one half of the evidence
+            // `EmptyFinalLatch` needs; the release, when it happens, is still the one
+            // in `speaking_watchdog_tick`, and it still cannot happen for an
+            // utterance that produced text. Recorded before the primary gate for the
+            // same reason the liveness signal is (see `on_forward_final`).
+            empty_final.note_audio_stop();
             if !g_s.open() {
                 return;
             }

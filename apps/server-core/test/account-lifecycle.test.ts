@@ -54,6 +54,7 @@ import { tryHandleConsoleRoutes, type ConsoleRoutesDeps } from '../src/http/cons
 import { unconfiguredPasswordResetMailer } from '../src/mail';
 import {
   ACCOUNT_EXPORT_SCHEMA,
+  EXPORT_EXCLUDED_SETTING_KEYS,
   USER_CASCADING_TABLES,
   USER_RETAINED_TABLES,
   buildAccountExport,
@@ -446,7 +447,18 @@ describe('GET /api/account/export', () => {
     ]);
     // The export says what it left out, so an absent field cannot be read as an
     // absent fact.
-    expect(json.omitted.settings_keys).toEqual(['account.password_reset']);
+    // Spelled out rather than compared to the constant: a test that imports the
+    // list and asserts the list equals itself would pass whatever got added.
+    expect(json.omitted.settings_keys).toEqual([
+      'account.password_reset',
+      'scenario.card',
+      'stt.polish',
+      'stt.refine',
+      'stt.dictionary',
+      'scenario.inference',
+    ]);
+    expect(json.omitted.settings_keys).toEqual([...EXPORT_EXCLUDED_SETTING_KEYS]);
+    expect(typeof json.omitted.phone_preferences).toBe('string');
     expect(typeof json.omitted.timeline_blobs).toBe('string');
   });
 
@@ -839,5 +851,46 @@ describe('buildAccountExport — the redaction mirrors the repo it reads from', 
     // walker redacted rather than dropped the whole subtree.
     expect(json).toContain('"name":"x"');
     expect(json).toContain('deeper');
+  });
+
+  // Owner ruling 2026-09-03 (docs/decisions/2026-09-03-owner-web-rulings-phone-
+  // owned-settings.md): the phone-owned preferences are not account data the
+  // server holds — they reach it per connection and are never written. A row
+  // left in the table from before that ruling must not come back out through
+  // the export as if the account held it. The rows are seeded through the repo
+  // so the filter is tested against real leftovers, not against an empty table.
+  it('🔴 leaves the phone-owned preference keys out, and SAYS so — while account configuration still comes out', async () => {
+    const a = await seedAccount('phone@b.co');
+    db.settings.write(a.id, 'scenario.card', { profession: 'PHONE-OWNED-CARD', terms: ['PHONE-OWNED-TERM'] });
+    db.settings.write(a.id, 'stt.polish', { enabled: true, marker: 'PHONE-OWNED-POLISH' });
+    db.settings.write(a.id, 'stt.refine', { enabled: true, marker: 'PHONE-OWNED-REFINE' });
+    db.settings.write(a.id, 'stt.dictionary', [{ term: 'PHONE-OWNED-DICT', weight: 20 }]);
+    db.settings.write(a.id, 'scenario.inference', { consent: true, marker: 'PHONE-OWNED-INFERENCE' });
+    // Positive control: a key the account really does hold on the server.
+    db.settings.write(a.id, 'llm.config', { protocol: 'openai', endpoint: 'https://llm.example.test', model: 'ACCOUNT-OWNED-LLM' });
+    const user = db.users.findById(a.id);
+    if (!user) throw new Error('unreachable');
+    const out = buildAccountExport(user, { pcs: db.pcs, mobiles: db.mobiles, settings: db.settings, usage: db.usage }, NOW);
+    const text = JSON.stringify(out);
+    const keys = out.settings.map((s) => s.key);
+    for (const key of ['scenario.card', 'stt.polish', 'stt.refine', 'stt.dictionary', 'scenario.inference']) {
+      expect(keys, `${key} came out of the export`).not.toContain(key);
+    }
+    // Asserted on the bytes too, so a value echoed under some other name would
+    // still be caught.
+    for (const marker of ['PHONE-OWNED-CARD', 'PHONE-OWNED-TERM', 'PHONE-OWNED-POLISH', 'PHONE-OWNED-REFINE', 'PHONE-OWNED-DICT', 'PHONE-OWNED-INFERENCE']) {
+      expect(text).not.toContain(marker);
+    }
+    // …and the positive control for that negative: the same probe DOES find the
+    // account-owned configuration, so "absent" above means filtered, not blind.
+    expect(keys).toContain('llm.config');
+    expect(keys).toContain('stt.routings');
+    expect(text).toContain('ACCOUNT-OWNED-LLM');
+    // The absence is stated on the wire, not left for the reader to notice.
+    expect(out.omitted.settings_keys).toEqual([...EXPORT_EXCLUDED_SETTING_KEYS]);
+    for (const key of ['scenario.card', 'stt.polish', 'stt.refine', 'stt.dictionary', 'scenario.inference']) {
+      expect(out.omitted.settings_keys).toContain(key);
+    }
+    expect(String(out.omitted.phone_preferences)).toMatch(/phone/);
   });
 });

@@ -66,31 +66,48 @@ import {
 import { inferDescriptor } from './scenario-infer-call';
 
 /**
- * The consent row. Read with a VARIABLE key on purpose — the settings-key-drift
- * lint pairs a literal-keyed server GET anchor with a literal-keyed UI SET anchor
- * in apps/desktop or apps/mobile, and the consent SCREEN is desktop work that
- * this card does not own. Anchoring the literal here would make the lint demand a
- * UI writer that does not exist yet, i.e. a false match. Same stance, same reason
- * as `stt.dictionary` in scenario-context.ts.
+ * The consent row.
  *
- * (This paragraph deliberately does not spell the anchor call shapes out: the
- * lint reads source text, so writing them in prose fabricates an anchor. It
- * caught exactly that on the first run of this file.)
+ * ── THE LITERAL-KEY GET ANCHOR NOW EXISTS (2026-09-03, WP-B2) ─────────────
+ * It was deliberately absent until this day, and the reason is recorded
+ * because it is the same reason it landed: the settings-key-drift lint is
+ * BIDIRECTIONAL, so a literal-keyed server GET with no literal-keyed UI SET
+ * would have been reported as `get-only` — a false alarm — and until WP-B2 no
+ * UI wrote this key through a literal (the desktop goes through a constant).
+ * The phone's bundle builder now names it as a literal
+ * (apps/mobile/lib/src/settings/phone_prefs_payload.dart), so the two halves
+ * land in the SAME merge, which is what that older note asked for by name.
  *
- * Nothing about the write path is missing, though: `settings:update` takes an
- * arbitrary key (socket/handlers/settings.handler.ts), so the row is writable
- * over the existing protocol the moment a consent screen exists. Until then this
- * reads absent ⇒ the feature is off ⇒ zero LLM calls, which is the intended
- * default rather than a gap.
+ * [readConsent] below therefore reads through a one-line `readSetting(key)`
+ * helper — the identical shape stt-refine-settings.ts and stt-polish-settings.ts
+ * already use — and the literal it is called with equals [CONSENT_KEY]. NOTHING
+ * ABOUT THE BEHAVIOUR CHANGED: same repo, same user id, same key, same parse.
+ *
+ * 2026-09-03 (owner Q3 a, design D8): the phone OWNS this consent, and since
+ * that evening's follow-up ruling it rides the transcription request rather
+ * than being stored. The one production caller (compose/index.ts) reads the row
+ * through the session overlay and hands it to [resolve] as `consent: {row}`;
+ * this store parses it exactly as it parses a stored row. The database read
+ * below is kept for callers that pass nothing (tests, and any future caller
+ * with no socket).
  *
  * Shape: `{ "granted": true, "granted_for": "local" | "external" }` — snake_case
  * on the wire/KV side, camelCase in [ScenarioInferenceConsent].
  */
 const CONSENT_KEY = 'scenario.inference';
+/** Exported for the ONE production caller that reads the row through the
+ *  session overlay (compose/index.ts) — the same variable-key stance. */
+export const SCENARIO_INFERENCE_CONSENT_KEY = CONSENT_KEY;
 
 /**
  * The owner's manual per-process corrections: `{ "<exe basename lowercased>":
- * "<descriptor>" }`. Variable-key read for the same reason as CONSENT_KEY.
+ * "<descriptor>" }`. Read with a VARIABLE key — deliberately, and NO LONGER for
+ * the reason CONSENT_KEY used to give. The settings-key-drift lint is
+ * bidirectional: a literal-keyed GET here would demand a literal-keyed UI SET
+ * for this key, and no UI writes it at all (it is the owner's manual
+ * correction table, edited out of band). A literal here would therefore be a
+ * `get-only` false alarm — which is exactly what CONSENT_KEY was avoiding
+ * until the phone gained its own literal SET anchor on 2026-09-03.
  *
  * Criterion 3, "a single wrong judgment would permanently and silently pollute
  * every utterance under that process", is why this outranks the
@@ -218,6 +235,11 @@ export class ScenarioInferenceStore {
      *  production caller (compose/index.ts) always passes the real judgement. */
     byok?: boolean;
     processName?: string;
+    /** 2026-09-03 (design D8) — the consent row AS DATA, wrapped so that
+     *  "the caller resolved it and it is absent" (`{row: undefined}`) and
+     *  "the caller did not say" (argument omitted ⇒ read the database) are
+     *  two different inputs rather than one `undefined` answering both. */
+    consent?: { row: unknown };
   }): ResolvedDescriptor | undefined {
     const name = args.processName?.trim() ?? '';
     // No focus signal at all (no PC in the room, PC never reported, focus
@@ -226,7 +248,9 @@ export class ScenarioInferenceStore {
     const key = name.toLowerCase();
 
     const destination = destinationOf(args.cfg);
-    const consent = this.readConsent(args.userId);
+    const consent = args.consent !== undefined
+      ? this.consentFromValue(args.userId, args.consent.row)
+      : this.readConsent(args.userId);
     const blocked = inferenceBlockedReason(consent, destination);
     this.reconcileFingerprint(args.userId, consentFingerprint(consent, destination), destination);
 
@@ -282,7 +306,18 @@ export class ScenarioInferenceStore {
   // ── settings reads ─────────────────────────────────────────────────────────
 
   private readConsent(userId: string): ScenarioInferenceConsent | undefined {
-    const value = this.deps.settings.read(userId, CONSENT_KEY)?.value;
+    // THE literal-key GET anchor for `scenario.inference` (settings-key-drift
+    // lint) — pairs with the phone's `carrySetting('scenario.inference', …)`
+    // SET anchor in phone_prefs_payload.dart. The literal equals CONSENT_KEY,
+    // which is asserted rather than assumed on the next line.
+    const readSetting = (key: string) => this.deps.settings.read(userId, key);
+    const row = readSetting('scenario.inference');
+    return this.consentFromValue(userId, row?.value);
+  }
+
+  /** The parse half of [readConsent], shared with the overlay path: one
+   *  definition of "what counts as a consent row", wherever the row came from. */
+  private consentFromValue(userId: string, value: unknown): ScenarioInferenceConsent | undefined {
     // Never asked. The default, and the only state every account is in today.
     if (value === null || value === undefined) return undefined;
     if (typeof value !== 'object' || Array.isArray(value)) {

@@ -35,6 +35,7 @@ import { feedReplayBufferTail } from './orchestrator-replay';
 import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, isFunasrFlushFamily, type FlushOutcome } from './flush-final';
 import { noEngineTerminalText } from './terminal-final-text';
 import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
+import { emptyFinalCause } from './empty-final-cause';
 import { coldOpenErrorVerdict } from './cold-open-verdict';
 import { segmentDurationMs as segmentDurationAccountMs } from './segment-duration-account';
 
@@ -104,6 +105,12 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  {@link noEngineReachedError}. */
   private voiceBytesCaptured = 0;
   private sessionFedBytes = 0;
+  /** card EMPTY-1 — the two RECORDING-WIDE facts {@link emptyFinalCause} judges on;
+   *  reset with the byte counters above, being per-recording like those. Why each one
+   *  narrows the claim, and what a missing one would let us say falsely, is argued in
+   *  full on that function — read it before touching either latch. */
+  private engineErrorEmitted = false;
+  private sessionProducedText = false;
   private readonly ladder: EngineSessionReconnectLadder;
   /** card RT-3 — the longest the reconnect ladder can possibly spend before it
    *  either recovers or gives up: the SUM of its own backoff rungs. Audio that
@@ -168,7 +175,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     const hooks: EngineSessionHooks = {
       spawnEngine: () => this.spawnEngine(), closeEngine: () => this.closeEngine(),
       replayBufferTail: () => this.replayBufferTail(), currentEngineId: () => this.engine?.id ?? 'unknown',
-      emitStatus: (p) => this.emit('engine-status', p), emitError: (p) => this.emit(vendorNoAudioIsOurSilence(p.code, this.voiceBytesCaptured) ? 'error-suppressed' : 'error', p), // ENG-4: this class holds the only copy of that counter; rule + production trace + why this is not a silent failure are all on the verdict, and `error-suppressed` is logged by engine/stt-session.ts
+      emitStatus: (p) => this.emit('engine-status', p), emitError: (p) => { this.emitEngineError(p); }, // ENG-4 lives in emitEngineError, not here — this was the ONLY wired site until 2026-09-03 (see that method)
       clearSoftSegmentTimer: () => this.cadence.clear(), isTerminated: () => this.terminated,
     };
     this.ladder = new EngineSessionReconnectLadder(hooks, {
@@ -201,7 +208,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.onlineDraft = '';
     this.accumEmittedByFinal = false;
     this.lastEngineFedSeq = -1;
-    this.engineFedBytes = 0; this.voiceBytesCaptured = 0; this.sessionFedBytes = 0;
+    this.engineFedBytes = 0; this.voiceBytesCaptured = 0; this.sessionFedBytes = 0; this.engineErrorEmitted = false; this.sessionProducedText = false;
     this.session.on('auto_stopped', this.onSessionAutoStopped);
     this.session.on('engine_session_expired', this.onEngineSessionExpired); // card N1-B4
     // no implicit fallback #16: an unreachable engine surfaces a terminal error → engine-status{failed} + stt:error, so audio:start acks fail.
@@ -217,7 +224,7 @@ export class SttEngineOrchestrator extends EventEmitter {
       this.session.off('engine_session_expired', this.onEngineSessionExpired);
       if (err instanceof SttConfigMissingError) throw err;
       this.emit('engine-status', { provider: (this.engine as EngineSubscriber | null)?.id ?? 'unknown', status: 'failed' });
-      this.emit('error', coldOpenErrorVerdict(err));
+      this.engineErrorEmitted = true; this.emit('error', coldOpenErrorVerdict(err)); // deliberately NOT emitEngineError — a cold open has fed nothing yet, so ENG-4 would mute EVERY code here; see that method
       throw err;
     }
     this.replayBufferTail(true); // feed chunks buffered during the cold-open spawn
@@ -624,7 +631,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     // but one (timeout + a captured final that CONTAINS it as a prefix, i.e.
     // strictly more). Recording it here rather than at the two emit sites keeps
     // the fact in one place; {@link emitNoEngineTerminalFinal} is its only reader.
-    this.accumEmittedByFinal = true;
+    this.accumEmittedByFinal = true; if (r.text !== '') this.sessionProducedText = true; // card EMPTY-1: BEFORE both exits, so one site covers segment and terminal finals alike
     if (!isSegment) return this.emitTerminalFinal(r, durationMs);
     // 🔴 card SEG-3 — the one place a segment's text leaves this class, so the one
     // place a full stop the SPAN produced (not the speaker) can be taken back off
@@ -642,7 +649,7 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  unchanged, only the emit stayed behind. */
   private reportSilentEmptyFinal(text: string, timedOut: boolean): void {
     const err = silentEmptyFinalError(this.engineFedBytes, text, timedOut);
-    if (err) this.emit('error', err);
+    if (err) { this.engineErrorEmitted = true; this.emit('error', err); }
   }
 
   /**
@@ -659,34 +666,26 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.emitTerminalFinal({ text, confidence: 0, language: this.startInput?.language ?? '' }, this.segmentDurationMs());
   }
 
-  /**
-   * 🔴 card fix-022 / G-23 asks its verdict HERE, and the site is the point: this
-   * is the one place EVERY terminal exit passes through — `stop()` and
-   * {@link handleAutoStop}, with an engine to flush and without one — behind a
-   * latch that already guarantees once per recording. Asking it at the two
-   * callers instead would be two copies of "this recording has ended, we owe the user some kind of statement",
-   * which is how they drift apart (the shape card RT3-B closed one method over).
-   *
-   * ⚠️ The error goes out BEFORE the final, exactly as `reportSilentEmptyFinal`'s
-   * does. It is safe in this order for a reason the verdict itself guarantees:
-   * it only fires when the transcript is empty, so a phone that closes
-   * PROCESSING on `retryable:false` cannot lose text by acting on it first.
-   */
+  /** 🔴 card fix-022 / G-23 asks its verdict HERE — why this site and why the error
+   *  precedes the final moved VERBATIM to the 「THE VERDICT SITE」
+   *  note at the foot of `empty-final-verdicts.ts` (800-line cap); card EMPTY-1 stamps `empty_reason` from the SAME site and for the same
+   *  reason, and only after `unheard` so it can see whether an error already spoke. */
   private emitTerminalFinal(r: Pick<FinalResult, 'text' | 'confidence' | 'language'>, durationMs: number): boolean {
     if (this.terminalFinalEmitted) return false; this.terminalFinalEmitted = true;
     const unheard = noEngineReachedError(this.voiceBytesCaptured, this.sessionFedBytes, r.text);
-    if (unheard) this.emit('error', unheard);
+    if (unheard) { this.engineErrorEmitted = true; this.emit('error', unheard); }
+    const emptyReason = emptyFinalCause(r.text, this.voiceBytesCaptured, this.engineErrorEmitted, this.sessionProducedText);
     this.emit('final', { text: r.text, confidence: r.confidence, language: r.language, segment_idx: this.currentSegmentIdx,
-      is_segment: false, duration_ms: durationMs }); return true;
+      is_segment: false, duration_ms: durationMs, ...(emptyReason ? { empty_reason: emptyReason } : {}) }); return true;
   }
 
-  /** 🔴 No silent failure, the flush-phase half. The rule, the L2 finding it came from
-   *  and why an engine's own `retryable:false` survives the phase it arrived in
-   *  moved VERBATIM to {@link flushErrorVerdict} (800-line cap) — behaviour
-   *  unchanged, only the latch and the emit stayed behind. */
-  private handleFlushError(err: Error): void {
-    this.flushErrored = true;
-    this.emit('error', flushErrorVerdict(err));
+  /** 🔴 No silent failure, flush-phase half — rule VERBATIM in {@link flushErrorVerdict}; latched ONLY when spoken (why: that module, ENG-4 2026-09-03). */
+  private handleFlushError(err: Error): void { if (this.emitEngineError(flushErrorVerdict(err))) this.flushErrored = true; }
+  /** 🔴 ENG-4 — the ONE exit for a LIVE-LEG engine error (ladder rung, flush phase); the cold open in `start` stays loud on purpose.
+   *  Wired to the ladder hook alone until 2026-09-03; the account is on {@link vendorNoAudioIsOurSilence}. Returns whether the frame went out. */
+  private emitEngineError(p: { code: string; message: string; retryable: boolean }): boolean {
+    if (vendorNoAudioIsOurSilence(p.code, this.voiceBytesCaptured)) { this.emit('error-suppressed', p); return false; } // logged by engine/stt-session.ts
+    this.engineErrorEmitted = true; this.emit('error', p); return true;
   }
 
   private async spawnEngine(): Promise<void> {

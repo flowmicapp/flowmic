@@ -34,6 +34,19 @@
 // ⚠️ NO NEW CODES. `STT_ENGINE_TIMEOUT`, and whatever an `SttEngineError`
 // carries, are existing registered codes; this module only decides which
 // EXISTING sentence rides the frame.
+//
+// 🔴 2026-09-03 (ENG-4, flush phase) — the "passes it through verbatim" branch
+// above is exactly what carried Soniox's `No audio received` (remapped to
+// `STT_NO_ENGINE_REACHED`, retryable:false) to the phone three runs out of
+// three when a held button stayed quiet for the first 3 s: the idle hang-up's
+// flush reached a leg our own gate had fed nothing. This module is UNCHANGED —
+// the verdict is still right for a genuine vendor refusal. What changed is the
+// caller: `handleFlushError` now routes the frame through
+// `SttEngineOrchestrator.emitEngineError`, where `vendorNoAudioIsOurSilence`
+// (empty-final-verdicts.ts, full account there) decides whether it goes out at
+// all, and the `flushErrored` latch is set ONLY when it did. A suppressed refusal
+// that still latched would make `flushAndEmitFinal` withhold the empty terminal
+// final — no banner AND no 「没有听到语音」, which is the banned direction.
 
 import { SttEngineError } from './engines/base';
 

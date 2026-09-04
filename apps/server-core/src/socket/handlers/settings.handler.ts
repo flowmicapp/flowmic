@@ -21,7 +21,9 @@ import {
 } from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../../db/repos/settings.repo';
 import { stampSettingProvenance } from '../../settings/defaults';
+import { RETIRED_SETTING_KEY_STT_DICTIONARY, isPhoneOwnedKey } from '../../settings/session-overlay';
 import { llmCapabilityUsable, sttPolishDefaultFrom } from '../../stt/stt-polish-settings';
+import { log } from '../../log';
 import type { AuthContext } from '../../auth/middleware';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
@@ -217,6 +219,20 @@ export function stampMs(raw: string | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
+// ── phone-owned preferences (2026-09-03, owner rulings Q1/Q2b/Q3a/Q6 note;
+//    follow-up ruling the same day: the carrier is the START frame) ─────────
+//
+// 🔴 THESE KEYS ARE NEVER WRITTEN THROUGH `settings:update` — by ANYONE. The
+// phone carries its scenario card / polish / refine / inference consent INSIDE
+// `audio:start` / `compose:start` (`prefs`, protocol phone-prefs.ts), the
+// receiving handler puts the bundle on the socket for that one session, and
+// the factories read it through settings/session-overlay.ts. Nothing stores it.
+// So a `settings:update` naming one of these keys is refused whoever sends it:
+// a PC (design D4 — an older desktop must not resurrect a row the phone can no
+// longer see) and a MOBILE alike (an older APK that still pushes them would
+// otherwise store a copy nobody reads and the phone believes is honoured). The
+// refusal is named, never a silent `ok:true` (13 §7 F2).
+
 /**
  * Append the keys whose ABSENCE still means something, carrying the value the
  * server would actually use. Today that is `stt.polish` and only `stt.polish`.
@@ -305,18 +321,24 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
       // the same boolean; resolving twice would let them disagree the moment the
       // resolver's inputs change between calls.
       const llmUsable = llmCapabilityUsable(repo, auth.userId);
+      // 🔴 2026-09-03 (design D5) — the MOBILE arm answers `capability.llm` and
+      // nothing else. The phone owns every preference it used to hydrate from
+      // here (scenario.card / stt.polish / stt.refine / scenario.inference), so
+      // there is no server copy to hand back — and handing back a stale
+      // database row would tell a phone that just deleted a preference locally
+      // that the server still holds it. The synthesised `stt.polish` gap-filler
+      // in withEffectiveDefaults stays for the PC arm only, where the desktop's
+      // switch still renders the server's effective default.
+      if (auth.kind === 'mobile') {
+        return safeAck(ack, { items: [{ key: SETTINGS_KEY_CAPABILITY_LLM, value: { usable: llmUsable } }] });
+      }
       const items = withEffectiveDefaults(repo.readAll(auth.userId), sttPolishDefaultFrom(llmUsable), llmUsable);
-      // G2: `updated_at` rides the ack on BOTH arms. This projection is the
-      // whole reason the stamp was invisible for so long — the column, the
-      // upsert and the repo have carried it since the table was created, and
-      // this `.map` dropped it (05 §5.1). Nothing else had to change to expose
-      // it: no migration, no schema, no new column.
-      const out: SettingsUpdatedPayload[] =
-        auth.kind === 'mobile'
-          ? items
-            .filter((it) => !isCredentialBearing(it.key))
-            .map((it) => withStamp({ key: it.key, value: redactApiKeys(it.value) }, it.updated_at))
-          : items.map((it) => withStamp({ key: it.key, value: it.value }, it.updated_at));
+      // G2: `updated_at` rides the ack. This projection is the whole reason the
+      // stamp was invisible for so long — the column, the upsert and the repo
+      // have carried it since the table was created, and this `.map` dropped it
+      // (05 §5.1). Nothing else had to change to expose it: no migration, no
+      // schema, no new column.
+      const out: SettingsUpdatedPayload[] = items.map((it) => withStamp({ key: it.key, value: it.value }, it.updated_at));
       safeAck(ack, { items: out });
     } catch {
       safeAck(ack, { error: 'SETTINGS_SYNC_FAIL' });
@@ -334,6 +356,30 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     // lost, so guarding one of them would fix half a defect.
     const replica = deps.writerOnly();
     const { key, value } = parsed.data;
+
+    // ── phone-owned keys: refused here, for every kind of socket ────────────
+    // Ahead of the replica forward on purpose: a refusal needs no writer, and
+    // forwarding it would ask another process to store what nobody stores.
+    // (The task book placed this "after the PC_NAME_KEY block and before the
+    // replica forward"; in this file the replica forward comes FIRST, and the
+    // two blocks are disjoint on key, so the branch sits ahead of both.)
+    if (key === RETIRED_SETTING_KEY_STT_DICTIONARY) {
+      // Q1: retired. Same disposition as the deleted singular `stt.routing`
+      // below — refused by name, never silently stored as a row nothing reads.
+      return safeAck(ack, {
+        error: 'SETTINGS_SCHEMA_INVALID',
+        message: 'stt.dictionary is retired; put aliases on scenario.card terms',
+      });
+    }
+    if (isPhoneOwnedKey(key)) {
+      log.warn('settings:update refused — key is phone-owned; it rides audio:start/compose:start and is never stored', {
+        key, kind: auth.kind, userId: auth.userId,
+      });
+      return safeAck(ack, {
+        error: 'SETTINGS_SCHEMA_INVALID',
+        message: `${key} is a phone-owned preference; it is set from the phone and never stored on the server`,
+      });
+    }
 
     if (replica) {
       // 🔴 2026-09-02 (B6, WP-6) — THE REFUSAL THAT HAD NO WAY OUT, same family

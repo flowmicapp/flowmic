@@ -67,6 +67,12 @@ extension PttSessionBackfill on PttSession {
   bool beginBackfill({
     required FlowMode mode,
     required String sourceLang,
+    // 🔴 The SAME bundle a live press carries. Recovered speech is transcribed
+    // by the same pipeline, so polish / terms / refine must apply to it exactly
+    // as they would have applied when it was spoken — a recovery that silently
+    // ran on the server's defaults would put two different sets of words in one
+    // article and nothing anywhere would say why.
+    Map<String, Object?>? prefs,
   }) {
     if (fsm.connection != ConnectionState.connected) return false;
     if (!sessionAcceptsPttDown(fsm.session)) return false;
@@ -84,6 +90,7 @@ extension PttSessionBackfill on PttSession {
         // Direct, so each recovered segment settles as it arrives rather than
         // waiting in a buffer nobody is watching.
         sendPolicy: SendPolicy.direct,
+        prefs: prefs,
       ).toJson(),
     );
     diag('audio.backfill.begin', <String, Object?>{'mode': mode.name});

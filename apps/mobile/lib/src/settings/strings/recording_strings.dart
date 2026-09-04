@@ -391,6 +391,18 @@ mixin RecordingStrings on AppStringsLeaves {
   /// is that hunting through their own settings will not help.
   String get sttStallServerFault => _lfSttStallServerFault;
 
+  // Card EMPTY-1 (2026-09-04) — split into `stt_stall_strings.dart` for the
+  // file-size cap, exactly as InjectNoteStrings was split out of ChatStrings.
+  // The REASONING for each sentence lives with it there; these are the
+  // cross-shard signatures this mixin resolves against (the `recordOnly`
+  // pattern above), so the banner mapping below can stay in one piece.
+  String get sttStallHeardNoWords;
+  String sttStallEmptyReasonUnknown(String reason);
+  String get sttStallNetworkDrop;
+  String get sttStallEngineAuthFail;
+  String get sttStallEngineRateLimited;
+  String get sttStallEngineTimeout;
+
   /// An engine error whose code this build has no BESPOKE sentence for, and
   /// whose code the protocol registry ALSO does not recognise (a phone-local
   /// code, or a build that has fallen behind the protocol). States what the
@@ -484,6 +496,15 @@ mixin RecordingStrings on AppStringsLeaves {
       // Neither of these two is an engine speaking — see their own docs above.
       if (code == 'SETTINGS_SCHEMA_INVALID') return sttStallSettingsInvalid;
       if (code == 'SETTINGS_SYNC_FAIL') return sttStallServerFault;
+      // Card EMPTY-1 — four codes that used to reach the bilingual registry
+      // fallback. Ordered after the refusals above and before that fallback, so
+      // the reading order still runs 「was anything configured / did the platform
+      // give us a line / can what we got do the job」 and only then 「what went
+      // wrong on a line we did have」.
+      if (code == 'STT_NETWORK_DROP') return sttStallNetworkDrop;
+      if (code == 'STT_ENGINE_AUTH_FAIL') return sttStallEngineAuthFail;
+      if (code == 'STT_ENGINE_RATE_LIMITED') return sttStallEngineRateLimited;
+      if (code == 'STT_ENGINE_TIMEOUT') return sttStallEngineTimeout;
       if (code != null && code.isNotEmpty) {
         // WP-8 (2026-09-02, F1-b) — a code with no BESPOKE sentence above may
         // still be one the protocol registry has real copy for
@@ -495,6 +516,16 @@ mixin RecordingStrings on AppStringsLeaves {
         if (fromRegistry != null) return fromRegistry;
         return sttStallEngineErrorCoded(code);
       }
+    }
+    // Card EMPTY-1 — the empty-final arm. `null` is the pre-card wire and keeps
+    // the old sentence byte for byte; `'no_voice'` is the SERVER saying the same
+    // thing, and maps to the same string on purpose (「the server said so」 and
+    // 「the phone inferred it from an empty string」 are different facts, and only
+    // the first survives a future where an empty final means something else).
+    if (stall.reason == SttStallReason.emptyTranscript) {
+      final String? why = stall.emptyReason;
+      if (why == 'heard_no_words') return sttStallHeardNoWords;
+      if (why != null && why != 'no_voice') return sttStallEmptyReasonUnknown(why);
     }
     return sttStallMessage(stall.reason);
   }

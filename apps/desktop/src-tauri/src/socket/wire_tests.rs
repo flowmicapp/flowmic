@@ -363,24 +363,28 @@ fn settings_update_wraps_key_and_value_verbatim() {
     assert_eq!(v["value"]["model"], json!("qwen"));
 }
 
-/// Card C3 — the desktop is the SECOND writer of `scenario.card`, so its frames
-/// have to say when the user edited. Before this, the builder emitted no stamp at
-/// all and the server's regress guard could therefore never fire against a
-/// desktop write: a stale offline edit replayed on reconnect still overwrote a
-/// card the phone had edited minutes ago, silently.
+/// Card C3 — a desktop settings frame has to say when the user edited. Before
+/// this, the builder emitted no stamp at all and the server's regress guard could
+/// therefore never fire against a desktop write: a stale offline edit replayed on
+/// reconnect still overwrote a newer value, silently.
+///
+/// ⚠️ Driven on `llm.config` rather than `scenario.card`. The card is the phone's
+/// alone since owner 2026-09-03 and this end has no writer for it, so a test
+/// building that frame here would be pinning a shape nothing produces — the same
+/// reason the desktop's own suite re-pointed its C3 cases.
 #[test]
 fn settings_update_carries_the_edit_moment_when_the_frontend_knows_it() {
     let v = build_settings_update(
-        "scenario.card",
-        json!({ "terms": ["灰度发布"] }),
+        "llm.config",
+        json!({ "model": "qwen-灰度" }),
         Some("2026-08-17T12:00:00.000Z"),
     );
-    assert_eq!(v["key"], json!("scenario.card"));
+    assert_eq!(v["key"], json!("llm.config"));
     assert_eq!(v["updated_at"], json!("2026-08-17T12:00:00.000Z"));
     // Verbatim: this layer neither re-formats nor re-stamps. The frame may be a
     // replay of an edit made a week ago, and re-stamping it here is precisely
     // what would let that replay win.
-    assert_eq!(v["value"]["terms"][0], json!("灰度发布"));
+    assert_eq!(v["value"]["model"], json!("qwen-灰度"));
 }
 
 /// 🔴 ABSENT, NOT NULL. Absent means UNKNOWN and the server writes
@@ -415,7 +419,7 @@ fn pc_name_update_carries_no_stamp() {
 fn settings_list_builds_empty_payload_and_parses_items_array() {
     assert_eq!(build_settings_list(), json!({}));
     // A well-formed ack yields the items array verbatim.
-    let ack = json!({ "items": [{ "key": "stt.routings", "value": [] }, { "key": "scenario.card", "value": {} }] });
+    let ack = json!({ "items": [{ "key": "stt.routings", "value": [] }, { "key": "llm.config", "value": {} }] });
     let items = parse_settings_list_ack(&ack).expect("items present");
     assert!(items.is_array());
     assert_eq!(items.as_array().unwrap().len(), 2);

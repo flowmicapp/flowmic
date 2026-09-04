@@ -199,7 +199,16 @@ function writeSettingsConsts() {
   // hand-copies the key string; the constant NAME below is what
   // verify/lint/settings-key-drift.mjs greps for a UI consumer.
   const capabilityLlmKey = readConstStr(constants, 'SETTINGS_KEY_CAPABILITY_LLM');
+  // 2026-09-03 (phone-owned preferences, WP-B): the three keys the phone now
+  // owns beside the scenario card. Mirrored for the same reason as the card key
+  // — every NON-anchor reference (pending-sync lookups, tests, the backup file's
+  // key names) goes through the constant, and the one literal SET anchor per
+  // key in settings_client.dart is pinned equal to it by a test.
+  const sttPolishKey = readConstStr(constants, 'SETTINGS_KEY_STT_POLISH');
+  const sttRefineKey = readConstStr(constants, 'SETTINGS_KEY_STT_REFINE');
+  const scenarioInferenceKey = readConstStr(constants, 'SETTINGS_KEY_SCENARIO_INFERENCE');
   const maxLabel = readConstInt(scenario, 'SCENARIO_MAX_LABEL_LEN');
+  const maxAliases = readConstInt(scenario, 'SCENARIO_MAX_ALIASES_PER_TERM');
   const maxProf = readConstInt(scenario, 'SCENARIO_MAX_PROFESSIONS');
   const maxDom = readConstInt(scenario, 'SCENARIO_MAX_DOMAINS');
   const maxPacks = readConstInt(scenario, 'SCENARIO_MAX_PACKS');
@@ -232,6 +241,18 @@ class FlowMicSettingsKeys {
   /// {usable: bool}, synthesised by the server on every settings read and
   /// never storable — the phone only ever READS it (settings/llm_capability.dart).
   static const String capabilityLlm = '${dartStr(capabilityLlmKey)}';
+
+  /// settings:update payload key for the AI-polish switch + strength
+  /// ({enabled, strength?}; SETTINGS_KEY_STT_POLISH).
+  static const String sttPolish = '${dartStr(sttPolishKey)}';
+
+  /// settings:update payload key for the two-pass refine switch
+  /// ({enabled}; SETTINGS_KEY_STT_REFINE).
+  static const String sttRefine = '${dartStr(sttRefineKey)}';
+
+  /// settings:update payload key for the scenario-inference consent row
+  /// ({granted, granted_for}; SETTINGS_KEY_SCENARIO_INFERENCE).
+  static const String scenarioInference = '${dartStr(scenarioInferenceKey)}';
 }
 
 /// ScenarioCard array/label caps (master-plan §4.1) — the UI enforces these at
@@ -244,6 +265,8 @@ class FlowMicScenarioLimits {
   static const int maxDomains = ${maxDom};
   static const int maxPacks = ${maxPacks};
   static const int maxTerms = ${maxTerms};
+  /// Aliases one custom term may carry (SCENARIO_MAX_ALIASES_PER_TERM).
+  static const int maxAliasesPerTerm = ${maxAliases};
 }
 
 /// One curated dictionary pack. [id] is the ScenarioCard.packs contract value

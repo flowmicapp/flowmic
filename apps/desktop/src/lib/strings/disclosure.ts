@@ -139,15 +139,24 @@
 //   instead of asserting which value it has. Flipping the default changes nothing
 //   about whether these four sentences are true. Do not reintroduce a default into
 //   them, in any language.
-// ⚠️ 「the switch lives only on your computer」 is load-bearing, not padding: the
-//   phone has no such control 【measured: `polish` has zero hits in the mobile
-//   settings shards】, so a phone-only reader who is not told where it lives can
-//   neither verify nor change what this paragraph describes.
+// 🔴 WHERE THE SWITCH IS — CORRECTED 2026-09-03, AND THE OLD SENTENCE IS KEPT
+//   BELOW BECAUSE IT WAS TRUE WHEN IT WAS WRITTEN. `disc_s3_body` used to point
+//   at 「Settings → Speech recognition, and that row shows its current value」,
+//   with this note explaining that 「the switch lives only on your computer」 was
+//   load-bearing 【measured then: `polish` had zero hits in the mobile settings
+//   shards】. owner's phone-owned-preferences ruling moved the switch to the
+//   PHONE and WP-C deleted the desktop row, so the paragraph now points at
+//   Settings → Recognition and AI in the phone app — and this end can no longer
+//   say 「that row shows its current value」, because it has no row and receives
+//   no copy of the value. The mobile twin says the same words: the pair is
+//   byte-identical in English again and its DIVERGENCES entry was deleted
+//   (verify/lint/disclosure-copy-mirror.mjs, shape D).
 //
 // 🔴 STAGE ③'S SCOPE IS A CONDITION, NOT A MODE LIST. The title used to read
 // 「only Translate / Organize」. Realtime reaches the vendor too, whenever
-// AI polish is on for the account (settings.ts `polish_toggle` → `stt.polish`,
-// DEFAULT in stt/stt-polish-settings.ts):
+// AI polish is on for the session (the phone's own switch, carried on the
+// transcription request; `stt.polish` and its DEFAULT in
+// stt/stt-polish-settings.ts are still what the server resolves it through):
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all

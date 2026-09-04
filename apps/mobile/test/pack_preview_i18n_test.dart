@@ -33,6 +33,7 @@ import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 /// Han + CJK Ext-A. The seed-term leak this card closes is in this range
@@ -69,7 +70,6 @@ class _Rig {
       roomJoins: r.settingsJoins,
     );
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -90,6 +90,8 @@ class _Rig {
           destination: destination,
           session: session,
           portable: newTestPortableController(),
+          prefs: newTestPrefsController(),
+          backup: newTestSettingsBackup(),
           inventory: newTestInventory(
             rows: const <TimelineEntry>[],
             images: InMemoryOutboxBlobStore(),

@@ -8,6 +8,12 @@
 // primary and refuses a second phone (admission.rs).
 
 pub mod admission;
+/// P0 2026-09-03 — the one wrapper every `#[tauri::command(async)]` body runs
+/// inside, so a synchronous socket emit (which drives its own
+/// `Runtime::block_on` deep inside `rust_engineio`) cannot panic the tokio
+/// worker Tauri dispatched the command onto. Its header carries the
+/// measurement; `run_blocking` is the whole public surface.
+pub mod blocking;
 pub mod bridge;
 pub mod channel;
 pub mod client;
@@ -88,6 +94,13 @@ pub mod roster_apply;
 /// decision is a red-line backstop that has to be readable without the pump around
 /// it (same reason register_watchdog left pump.rs).
 pub mod speak_liveness;
+/// 2026-09-04 (F-1): the OTHER exit from `SpeakingLocked`. `speak_liveness` answers
+/// "is audio still flowing"; this one answers "did the hold end with nothing to
+/// inject", which is the case that had no answer at all — an empty utterance
+/// produces no `inject:request`, so the lock sat until the 32 s backstop and the
+/// tray claimed 录音 for ~34 s after a 3 s hold. Its own module for the same reason
+/// as its sibling: a red-line backstop must be readable without the pump around it.
+pub mod empty_final;
 /// W8-2: per-channel count of CONSTRUCTED sessions — the local evidence the F-3
 /// Fix#1 `closing` latch needs to tell "my successor is up, stay quiet forever"
 /// from "no successor was ever built, and staying quiet erases this PC from the

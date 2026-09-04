@@ -33,6 +33,7 @@ export * from './dictionary-packs';
 // branch on the server's version, build it against a real call site.
 export * from './scenario';
 export * from './scenario-consent';
+export * from './phone-prefs';
 export * from './stt-polish';
 export * from './stt-refine';
 export * from './cloud-summary';

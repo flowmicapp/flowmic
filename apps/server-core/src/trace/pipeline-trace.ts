@@ -166,9 +166,20 @@ export type TraceStage =
   | 'hotwords'
   | 'stt.final.raw'
   | 'stt.final.pure'
+  | 'stt.empty.cause'
   | 'polish.request'
   | 'polish.response'
   | 'refine.decision'
+  // The second pass, 2026-09-04 onwards: an LLM smoothing call, so it has the
+  // same request/response pair polish has, plus ONE verdict record. Two verdict
+  // stages and not one boolean field, because 'skipped' always carries a reason
+  // and 'delivered' never does — a fire-and-forget pass that cannot answer 「why
+  // did my long recording not get smoothed」 is the shape this feature spent a
+  // release in.
+  | 'refine.request'
+  | 'refine.response'
+  | 'refine.delivered'
+  | 'refine.skipped'
   | 'delivered'
   | 'compose.scenario'
   | 'compose.request'

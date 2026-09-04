@@ -14,6 +14,7 @@
 
 import { z } from 'zod';
 import { NonEmpty } from './protocol-primitives';
+import { PhonePrefsSchema } from './phone-prefs';
 
 // ─── §3.4 LLM / compose ───────────────────────────────────────────────
 // F-2137: `draft` is the draft-origin marker. When true the originating
@@ -43,6 +44,9 @@ export const ComposeStartSchema     = z.object({
   draft: z.boolean().optional(),
   request_id: NonEmpty.optional(),
   entry_id: NonEmpty.optional(),
+  // 2026-09-03 — same bundle as AudioStartSchema.prefs, for the compose turn
+  // (the scenario card behind the system prompt, the inference consent).
+  prefs: PhonePrefsSchema.optional(),
 });
 // GA-14 — the SECOND-PASS transcript for an utterance that already finished.
 //
@@ -89,6 +93,11 @@ export const SttRefinedSchema       = z.object({
   request_id: NonEmpty.optional(),
   entry_id: NonEmpty.optional(),
   confidence: z.number().min(0).max(1).optional(),
+  // 2026-09-03 (owner ruling Q2 b): the same server-minted `utterance_id`
+  // that rode the terminal `stt:final` of this recording. This is the key the
+  // phone matches on; `request_id`/`entry_id` above stay unpopulated (their
+  // semantics are delivery ids). A frame WITHOUT it is dropped by the phone.
+  utterance_id: NonEmpty.optional(),
 });
 export const ComposeChunkSchema     = z.object({
   delta: z.string(),

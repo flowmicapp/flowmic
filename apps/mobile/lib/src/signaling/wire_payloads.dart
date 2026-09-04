@@ -36,12 +36,27 @@ class AudioStartPayload {
   final String? targetLang;
   final SendPolicy sendPolicy;
   final Delivery delivery;
+
+  /// 🔴 The phone-owned preference bundle (`AudioStartSchema.prefs`, additive
+  /// optional; PhonePrefsSchema). Built by
+  /// `settings/phone_prefs_payload.dart` — THE carrier since owner's
+  /// 2026-09-03 follow-up ruling: these preferences are not stored anywhere and
+  /// are not written with `settings:update` any more, they ride the request
+  /// that starts the transcription cycle and the server uses them for exactly
+  /// that session.
+  ///
+  /// Null / empty ⇒ the key is OMITTED, which is the encoding of 「this phone
+  /// has set none of them」. An old relay that strips the field degrades to the
+  /// server's own defaults, i.e. to the product as it was — the safe direction.
+  final Map<String, Object?>? prefs;
+
   const AudioStartPayload({
     required this.mode,
     required this.sourceLang,
     this.targetLang,
     this.sendPolicy = SendPolicy.direct,
     this.delivery = Delivery.inject,
+    this.prefs,
   });
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -53,6 +68,7 @@ class AudioStartPayload {
     'delivery': delivery.name,
     'source_lang': sourceLang,
     if (targetLang != null) 'target_lang': targetLang,
+    if (prefs != null && prefs!.isNotEmpty) 'prefs': prefs,
   };
 }
 
@@ -348,6 +364,13 @@ class ComposeStartPayload {
   /// Absent for a buffer run, which has no row.
   final String? entryId;
 
+  /// The phone-owned preference bundle (`ComposeStartSchema.prefs`) — the SAME
+  /// object `audio:start` carries and for the same reason; see
+  /// [AudioStartPayload.prefs]. Attached by [ComposeGate.emitAiCompose] rather
+  /// than by the two call sites, so 「what does this phone hold」 has one answer
+  /// on this path too.
+  final Map<String, Object?>? prefs;
+
   const ComposeStartPayload({
     required this.task,
     required this.sourceText,
@@ -355,7 +378,21 @@ class ComposeStartPayload {
     this.targetLang,
     this.sourceLang,
     this.entryId,
+    this.prefs,
   });
+
+  /// A copy carrying [bundle]. Used by the one emitter; a copy rather than a
+  /// mutable field so the DTO stays immutable like every other one here.
+  ComposeStartPayload withPhonePrefs(Map<String, Object?>? bundle) =>
+      ComposeStartPayload(
+        task: task,
+        sourceText: sourceText,
+        requestId: requestId,
+        targetLang: targetLang,
+        sourceLang: sourceLang,
+        entryId: entryId,
+        prefs: bundle,
+      );
 
   Map<String, Object?> toJson() => <String, Object?>{
     'task': task.wire,
@@ -370,6 +407,7 @@ class ComposeStartPayload {
     'draft': true,
     if (requestId.isNotEmpty) 'request_id': requestId,
     if (entryId != null && entryId!.isNotEmpty) 'entry_id': entryId,
+    if (prefs != null && prefs!.isNotEmpty) 'prefs': prefs,
   };
 }
 

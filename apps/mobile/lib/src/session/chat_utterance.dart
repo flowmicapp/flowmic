@@ -134,10 +134,10 @@ void _handleTerminalFinal(ChatController c, SttFinal f) {
     // of a silent one. The watermark still advances so a replay is inert.
     c.session.segments.markSettled(f.segmentIdx);
     if (fromIdx == 0) {
-      // ENG-3: no code/message — this stall has no wire error frame behind it,
-      // and if a NAMED terminal stt:error already stalled this utterance the
-      // routed handler keeps that one (see onSttStalledRouted's race guard).
-      c._onSttStalled(const SttStall(SttStallReason.emptyTranscript));
+      // ENG-3: no code/message — no wire ERROR frame is behind this stall, and a
+      // NAMED one already stalling this utterance is kept by the routed handler.
+      // EMPTY-1: the FINAL frame may say why it is empty — forwarded raw, never re-derived here; null keeps the pre-card sentence byte for byte.
+      c._onSttStalled(SttStall(SttStallReason.emptyTranscript, emptyReason: f.emptyReason));
       return;
     }
     c.ucNotify();
@@ -733,21 +733,54 @@ void _ucFailed(ChatController c, String entryId, AiComposeOutcome outcome) {
 /// it had; this one names its row, and the named row carries its own
 /// `spokenToInstanceId` because this controller built it. Narrowing the list as
 /// well would be a second answer to a question that already has one.
-void _applyRefined(ChatController c, String text) {
+///
+/// 🔴 D7 ③ (2026-09-03, owner ruling Q2 b) — THE CORRELATION EXISTS NOW; the
+/// paragraph above is the record of why it had to. `stt:final` and `stt:refined`
+/// carry the server-minted `utterance_id`, the settlement writes it onto the row
+/// (`TimelineEntry.utteranceId`) and this function selects by it. The temporal
+/// guess (`entries.first`) is GONE, not kept as a fallback: a refine whose utterance
+/// is no longer on top lands on its own row; one that names none is dropped at the wire.
+///
+/// Four guards, each answering one question:
+///   · `entryType == transcript` — a picture / control key / article head is
+///     not an utterance even if an id somehow reached it;
+///   · owner match — `spokenToInstanceId` ∈ this session's owner set: a refine
+///     arrives on the live socket for one PC, and a row born to another is not
+///     its business whatever id it carries;
+///   · `edited` / `processedText` — unchanged from card D-2: a machine opinion
+///     never overwrites a person, and refining a translation's SOURCE would put
+///     raw words in the wrong language on the translated face;
+///   · EXACTLY ONE row carries the id. A long realtime utterance settles as
+///     several segment rows sharing one id, while the refine is a transcript of
+///     the WHOLE utterance with no segment boundary to split on — dropped with a
+///     diag line; an honest open item (the server would have to refine per segment).
+void _applyRefined(ChatController c, SttRefined r) {
   if (c._reprocessingEntryIds.isNotEmpty) return; // a run is already rewriting a row
-  // card D-2: null until this session's first terminal final. A refine with no
-  // utterance behind it has nothing to be about — dropping beats guessing.
-  final String? spoken = c._lastUtteranceEntryId;
-  if (spoken == null) return;
-  final TimelineEntry? row = c.store.entries.isEmpty ? null : c.store.entries.first;
-  if (row == null) return;
-  // Only the utterance this refine belongs to: the newest row must BE the row
-  // this device's last utterance built (card D-2), untouched by a human, and not
-  // already carrying a processed (translate/organize) product — refining a
-  // translation's SOURCE would replace the translated face with raw words in the
-  // wrong language.
-  if (row.id != spoken) return;
+  // The SAME owner set the chat screen scopes its rows by (chat_flow_pager_sync
+  // → `session.scope.ownerIds`), so 「the rows this screen shows」 and 「the rows
+  // a refine may touch」 cannot disagree.
+  final Set<String> owners = c.session.scope.ownerIds;
+  final List<TimelineEntry> candidates = c.store.entries
+      .where((TimelineEntry e) =>
+          e.utteranceId == r.utteranceId &&
+          e.entryType == TimelineEntry.kTranscript &&
+          e.spokenToInstanceId != null &&
+          owners.contains(e.spokenToInstanceId))
+      .toList(growable: false);
+  if (candidates.isEmpty) {
+    diag('stt.refined.dropped', <String, Object?>{'reason': 'no_row'});
+    return;
+  }
+  if (candidates.length > 1) {
+    diag('stt.refined.dropped', <String, Object?>{
+      'reason': 'multi_segment',
+      'rows': candidates.length,
+    });
+    return;
+  }
+  final TimelineEntry row = candidates.single;
   if (row.edited || row.processedText != null) return;
+  final String text = r.text;
   final String current = row.outputText;
   if (current.trim() == text.trim()) return;
   // 0.2.27: an adopted refine used to ride up as a machine `history:update` when

@@ -320,10 +320,24 @@ extension PttSessionInbound on PttSession {
       // GA-14: a better transcript arriving after the fact. No FSM transition,
       // no status change — just text the chat layer may adopt if the row it
       // belongs to has not been touched since.
+      //
+      // 🔴 D7 ③ (2026-09-03): the frame must NAME its utterance. `utterance_id`
+      // is the server-minted id that rode the terminal `stt:final`; a frame
+      // without one — an old relay that strips the additive field, or a server
+      // that predates it — is DROPPED here, with a diag line, and never reaches
+      // the chat layer. Guessing 「the newest row」 in its place is exactly the
+      // path that overwrote pictures and typed notes before card D-2, and the
+      // safe direction in design §2 is 「no id ⇒ no refine」.
       case FlowMicEvents.sttRefined:
         final Object? refined = data['text'];
-        if (refined is String && refined.trim().isNotEmpty && !_refinedCtl.isClosed) {
-          _refinedCtl.add(refined);
+        final Object? utteranceId = data['utterance_id'];
+        if (refined is! String || refined.trim().isEmpty) break;
+        if (utteranceId is! String || utteranceId.isEmpty) {
+          diag('stt.refined.dropped', <String, Object?>{'reason': 'no_utterance_id'});
+          break;
+        }
+        if (!_refinedCtl.isClosed) {
+          _refinedCtl.add(SttRefined(utteranceId: utteranceId, text: refined));
         }
         break;
       case FlowMicEvents.injectResult:

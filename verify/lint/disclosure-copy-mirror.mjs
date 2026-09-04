@@ -31,10 +31,17 @@
 //   · point of view — the phone says 「this phone / your PC」, the desktop says
 //     「your phone / this PC」. Copying either direction puts the reader on the
 //     wrong device.
-//   · what each screen can point AT — the AI-polish switch lives on the desktop,
-//     so the desktop can say 「that row shows its current value」 and the phone
-//     must instead say where the switch is. A phone sentence claiming a row
-//     shows a value would be a sentence about a screen the reader is not on.
+//   · what each screen can point AT — the LAN encryption reading exists on the
+//     phone only, so the phone says 「this connection's state is under …」 while
+//     the desktop has to add 「on the phone」. A desktop sentence claiming its own
+//     screen shows that state would be a sentence about a screen that has no
+//     such indicator.
+//     🔴 THE AI-POLISH PAIR USED TO BE THE EXAMPLE HERE AND IT IS NOW IDENTICAL.
+//     The switch lived on the desktop, so the two screens genuinely had different
+//     things to point at; owner 2026-09-03 moved it to the phone, WP-C deleted
+//     the desktop row, and the declaration was deleted with it. Kept in prose
+//     because 「a pair that was declared and is now identical」 is shape D of the
+//     reverse control below, and this is the first time it happened for real.
 // So the lint pins the DECLARED SET of differences instead: every pair is either
 // byte-identical, or listed below with a reason and a fingerprint of BOTH sides.
 // Edit either side of a declared pair and this goes red — not because the edit
@@ -144,11 +151,6 @@ const DIVERGENCES = {
     mobile: '2bdccff24bec',
     desktop: 'b874b1a6d5e3',
     why: 'point of view — 「1. This phone records audio」 vs 「1. Your phone records audio」. Same as discLead.',
-  },
-  discStep3Body: {
-    mobile: 'd737f61f6fcb',
-    desktop: '8faeec1a377f',
-    why: 'the AI-polish switch lives on the desktop. The desktop points AT the row (「that row shows its current value」); the phone says where the switch is (「on your computer (this phone does not have it)」). The two SUBSTANTIVE sentences the phone was missing — 「While it is off, Realtime sends nothing; provisional words are never sent」 — were added 2026-08-19 and are now on both sides.',
   },
   discStep4LanPlain: {
     mobile: 'f28e87f91808',

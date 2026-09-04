@@ -161,9 +161,20 @@ class DeliveryOutbox {
     );
   }
 
-  /// ⚠️ FORENSICS ONLY — consumer is the `outbox.loaded` diag below. Never a
-  /// banner: a screen-wide number on a per-instance screen IS the RV-91 defect.
+  /// ⚠️ FORENSICS ONLY — consumer is the `outbox.loaded` diag below, plus
+  /// `onDeliveryLinkUpRouted`'s 「is there anything to drain at all」 check.
+  /// Never a banner: a screen-wide number on a per-instance screen IS the RV-91
+  /// defect.
   int get pendingCountTotal => _derived.totalCount;
+
+  bool _loadedOnce = false;
+
+  /// 🔴 Whether [pendingCountTotal] is an ANSWER yet. Before [load] returns it
+  /// is merely the initial value of a derived view, and `0` there means 「not
+  /// asked」, not 「nothing owed」 — a caller that treats the two as the same
+  /// thing would skip the drain that the boot revive exists to feed. Any caller
+  /// deciding whether to act on the count has to consult this first.
+  bool get pendingCountIsKnown => _loadedOnce;
 
   Set<String> get queuedEntryIds => _derived.queuedEntryIds;
 
@@ -312,6 +323,7 @@ class DeliveryOutbox {
       revived++;
     }
     await _refreshDerived();
+    _loadedOnce = true;
     diag('outbox.loaded', <String, Object?>{
       'pending': pendingCountTotal,
       'revived_from_inflight': revived,

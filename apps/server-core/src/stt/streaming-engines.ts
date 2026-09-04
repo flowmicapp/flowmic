@@ -8,8 +8,8 @@
 // needs this answer, and `engine-factory.ts` now imports the pool layer. Leaving
 // it there made `engine-factory → pool-routing → pool-config → engine-factory` a
 // module cycle. `engine-factory.ts` RE-EXPORTS both symbols, so every existing
-// importer (`http/probe-routes.ts`, `stt/batch-transcribe.ts`, tests) keeps its
-// import line unchanged — this move is invisible to them by design.
+// importer (`http/probe-routes.ts`, tests) keeps its import line unchanged —
+// this move is invisible to them by design.
 //
 // The content is unmoved and the trap is unchanged; it is restated here because
 // the next person will read this file, not the one it came from.
@@ -28,12 +28,15 @@ import type { SttEngineId } from '@flowmic/protocol';
  *       streamed to a per-second-billed vendor and paid for;
  *    2. `probeKindFor` (http/probe-routes.ts) → forgetting to add it here ⇒ the diagnostics page
  *       tries a BATCH transcribe against a streaming-only engine;
- *    3. `batchEngineIdFor` (stt/batch-transcribe.ts) → forgetting to add it here ⇒ second-pass
- *       refine picks an engine that has no batch mode at all.
- *  Since 2026-08-02 it drives a FOURTH: `pool-health.ts` only waits out the
- *  in-band settle window for a streaming route, and `pool-config.ts` derives a
- *  route's `streaming` flag (hence whether a failover onto it is a CAPABILITY
- *  DOWNGRADE) from it.
+ *    3. (since 2026-08-02) `pool-health.ts` only waits out the in-band settle
+ *       window for a streaming route, and `pool-config.ts` derives a route's
+ *       `streaming` flag — hence whether a failover onto it is a CAPABILITY
+ *       DOWNGRADE — from it.
+ *  ⚠️ A CONSUMER LEFT ON 2026-09-04, so the count is three and not four:
+ *  `batchEngineIdFor` (stt/batch-transcribe.ts) is gone along with its whole
+ *  file. The second pass used to demand a batch STT mode and pick an engine
+ *  with one; it is now an LLM smoothing pass over the delivered text, so no
+ *  engine capability is consulted for it at all.
  *  `soniox` is streaming (card §3: persistent ws, tokens pushed continuously,
  *  300-minute per-connection ceiling). Acceptance asserts the EFFECTIVE value
  *  (`gated === true`), not just membership — D1's rule. */

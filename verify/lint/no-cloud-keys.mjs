@@ -44,6 +44,11 @@ const FINGERPRINTS = [
   // The LAN copy-audit proxy (scripts/copy-scent-audit.mjs). Added the day the
   // key arrived, 2026-09-01, rather than the day one leaked — the fine-grained
   // PAT rule above was written the other way round and its own comment says so.
+  // That proxy was RETIRED 2026-09-04 (the audit now runs the local cursor-agent
+  // CLI, which has no key), but the pattern STAYS: a key that was live for three
+  // days can still be sitting in somebody's working tree, and a fingerprint that
+  // is deleted the day its service dies protects nobody from the paste that
+  // already happened.
   { vendor: 'cliproxy-copy-audit', re: /cpa_[0-9a-f]{32,}/ },
   { vendor: 'aliyun', re: /LTAI[0-9A-Za-z]{12,}/ },
   { vendor: 'tencent', re: /AKID[0-9A-Za-z]{32}/ },

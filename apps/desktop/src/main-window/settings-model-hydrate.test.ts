@@ -22,45 +22,56 @@ describe('applyServerSettings adopts a server settings:list snapshot into the mo
   beforeEach(() => {
     // Reset the model to a known baseline before each case.
     model.routings = [{ language: 'zh-CN', engine_id: 'funasr' }];
-    model.dictionary = [];
-    model.polishEnabled = false;
-    model.refineEnabled = false;
     model.llm = { preset_id: 'lan-vllm-qwen35', protocol: 'openai-compatible', endpoint: '', api_key: '', model: '' };
-    model.card = { professions: [], domains: [], packs: [], terms: [] };
+    model.llmCapabilityUsable = true;
   });
 
-  it('maps the six owned keys (routings / dictionary / polish / refine / llm.config / scenario.card)', () => {
+  it('maps the keys this PC owns (routings / llm.config) plus the read-only capability fact', () => {
     applyServerSettings([
       { key: 'stt.routings', value: [{ language: 'en', engine_id: 'funasr', endpoint: 'ws://srv:10095' }] },
-      { key: 'stt.dictionary', value: [{ term: 'Kubernetes' }] },
-      { key: 'stt.polish', value: { enabled: true } },
-      { key: 'stt.refine', value: { enabled: true } },
       { key: 'llm.config', value: { protocol: 'openai-compatible', endpoint: 'http://llm:8000/v1', api_key: 'sk-x', model: 'qwen' } },
-      { key: 'scenario.card', value: { professions: ['法律'], domains: [], packs: ['legal'], terms: ['FlowMic'] } },
+      { key: 'capability.llm', value: { usable: false } },
     ]);
     expect(model.routings).toEqual([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://srv:10095' }]);
-    expect(model.dictionary).toEqual([{ term: 'Kubernetes' }]);
-    expect(model.polishEnabled).toBe(true);
-    expect(model.refineEnabled).toBe(true);
     expect(model.llm.endpoint).toBe('http://llm:8000/v1');
     expect(model.llm.model).toBe('qwen');
     expect(model.llm.preset_id).toBe('lan-vllm-qwen35'); // server value has no preset_id — UI's is kept
-    // W-i18n-B: the snapshot still carries the pre-fix Chinese id; read mapping
-    // turns it into the phone slug so the chip lights. Input above is `法律`.
-    expect(model.card.professions).toEqual(['law']);
-    expect(model.card.terms).toEqual(['FlowMic']);
+    expect(model.llmCapabilityUsable).toBe(false);
+  });
+
+  // 🔴 THE PHONE-OWNED KEYS ARE NOT ADOPTED, AND THAT IS THE ASSERTION (owner
+  // 2026-09-03). A relay or a LAN server may still hold rows for them — deleting
+  // the legacy cloud rows is a separate, owner-gated act — and an older build of
+  // this page would have written them into a display cache for screens that no
+  // longer exist. The positive control lives in the SAME call: `stt.routings` is
+  // adopted from it, so a green here cannot be 'applyServerSettings did nothing'.
+  it('🔴 the phone-owned keys are ignored even when the server still holds rows for them', () => {
+    applyServerSettings([
+      { key: 'scenario.card', value: { professions: ['law'], domains: [], packs: ['legal'], terms: ['FlowMic'] } },
+      { key: 'stt.polish', value: { enabled: true, strength: 'smooth' } },
+      { key: 'stt.refine', value: { enabled: true } },
+      { key: 'stt.dictionary', value: [{ term: 'Kubernetes' }] },
+      { key: 'scenario.inference', value: { granted: true, granted_for: 'local' } },
+      { key: 'stt.routings', value: [{ language: 'en', engine_id: 'funasr' }] }, // positive control
+    ]);
+    expect(model.routings).toEqual([{ language: 'en', engine_id: 'funasr' }]);
+    // Nothing on the model answers for the five above — not a stale value, not a
+    // fresh one. The shape of the model itself is the guard.
+    for (const gone of ['card', 'polishEnabled', 'polishStrength', 'refineEnabled', 'dictionary', 'inferenceConsent']) {
+      expect(gone in model, `model.${gone} came back — this end has no screen for it`).toBe(false);
+    }
   });
 
   it('ignores unknown keys and malformed values (never throws, never clobbers)', () => {
     applyServerSettings([
       { key: 'device.pc_name', value: 'Some PC' }, // not owned by this model
       { key: 'stt.routings', value: 'not-an-array' }, // malformed → skip
-      { key: 'stt.polish', value: true }, // legacy boolean shape → skip (must be {enabled})
-      { key: 'scenario.card', value: 42 }, // malformed → skip
+      { key: 'llm.config', value: 42 }, // malformed → skip
+      { key: 'capability.llm', value: { usable: 'yes' } }, // unparseable → keep the last answer
     ]);
     expect(model.routings).toEqual([{ language: 'zh-CN', engine_id: 'funasr' }]); // unchanged
-    expect(model.polishEnabled).toBe(false); // unchanged
-    expect(model.card.professions).toEqual([]); // unchanged
+    expect(model.llm.endpoint).toBe(''); // unchanged
+    expect(model.llmCapabilityUsable).toBe(true); // unchanged
   });
 
   it('llm.config partial value fills only present fields, keeps the rest', () => {
@@ -78,10 +89,14 @@ describe('applyServerSettings adopts a server settings:list snapshot into the mo
   // has to read the SOURCE: every literal in `SETTINGS_ANCHOR_KEYS` — the "keys
   // with a real server reader" registry that file's own header names — must
   // appear as a `case SETTINGS_ANCHOR_KEYS.<name>:` in applyServerSettings.
-  // Reverse control: comment out the stt.refine case in settings-model.ts and
-  // this test fails (`sttRefine` is missing) while the mapping test above stays
-  // green in isolation only because it happens to run before this one in file
-  // order — this test is what makes a REGRESSION visible on its own.
+  // Reverse control: comment out the `stt.routings` case in settings-model.ts and
+  // this test fails (`sttRoutings` is missing).
+  // ⚠️ 2026-09-03: the registry shrank to TWO entries when the phone took the
+  // preference keys, and shrinking it is how this pin keeps meaning what it says.
+  // The alternative — leaving `scenario.card` / `stt.polish` / `stt.refine` in
+  // `SETTINGS_ANCHOR_KEYS` for old times' sake — would have made this test demand
+  // a desktop `case` for a value no desktop screen shows, and the cheapest way to
+  // satisfy it would have been to write one.
   it('every SETTINGS_ANCHOR_KEYS entry has a case in applyServerSettings', () => {
     const source = src('./settings-model.ts');
     const switchBody = source.slice(

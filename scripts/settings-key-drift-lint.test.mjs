@@ -15,7 +15,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { collect, mentions } from '../verify/lint/settings-key-drift.mjs';
+import { collect, mentions, SET_RE, GET_RE } from '../verify/lint/settings-key-drift.mjs';
 import settingsKeyDrift from '../verify/lint/settings-key-drift.mjs';
 
 let failures = 0;
@@ -32,8 +32,11 @@ function put(root, rel, content) {
   writeFileSync(abs, content, 'utf8');
 }
 
-const SET_RE = /(?:setSetting|settings\.set|settings\.update|updateSetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
-const GET_RE = /(?:getSetting|settings\.get|readSetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
+// 2026-09-03 (WP-B2): these two patterns used to be HAND COPIES of the lint's,
+// so this drill could pass green against a regex the lint no longer used - the
+// same two-answers-to-one-question shape the repo keeps paying for. They are
+// imported now, which also means every case below exercises the PRODUCTION
+// pattern rather than a lookalike.
 
 console.log('=== §1 collect: a setSetting call in a fixture file is found (positive control) ===');
 {
@@ -109,7 +112,28 @@ console.log('=== §7 negative control: a key both set and read is not an orphan 
   rmSync(T, { recursive: true, force: true });
 }
 
-console.log('=== §8 the lint itself runs on the real repo and answers ===');
+console.log('=== §8 the phone-owned bundle form is a SET anchor (WP-B2, 2026-09-03) ===');
+{
+  const T = mkdtempSync(join(tmpdir(), 'fmskd-carry-'));
+  // The shape apps/mobile/lib/src/settings/phone_prefs_payload.dart writes: the
+  // key rides the transcription request, not a settings:update. This rule is
+  // what keeps the mobile's four anchors visible after the push was deleted.
+  put(T, 'phone_prefs_payload.dart', "b.carrySetting('scenario.inference', row);\n");
+  const { keys } = await collect([T], SET_RE);
+  check(keys.has('scenario.inference'), 'carrySetting is collected as a SET anchor', JSON.stringify([...keys.keys()]));
+  rmSync(T, { recursive: true, force: true });
+}
+
+console.log('=== §9 negative control: a lookalike verb or a variable key plants NOTHING ===');
+{
+  const T = mkdtempSync(join(tmpdir(), 'fmskd-carry-neg-'));
+  put(T, 'other.dart', "carryThing('scenario.inference', row);\ncarrySetting(someKey, row);\n");
+  const { keys } = await collect([T], SET_RE);
+  check(keys.size === 0, 'no key is invented from a lookalike verb or a variable key', JSON.stringify([...keys.keys()]));
+  rmSync(T, { recursive: true, force: true });
+}
+
+console.log('=== §10 the lint itself runs on the real repo and answers ===');
 {
   const res = await settingsKeyDrift();
   check(res.status === 'PASS', 'the real repo has no drift', JSON.stringify(res));

@@ -85,6 +85,8 @@ extension _ChatFlowScroll on _ChatFlowPageState {
               if (live && i == 0) {
                 return LiveDraftTile(
                   text: controller.liveText,
+                  // The black/grey split — see LiveDraftTile.committedChars.
+                  committedChars: controller.liveCommittedChars,
                   mode: controller.mode,
                   strings: strings,
                   // §4b-8 duration half — the SAME real elapsed-since-audio:start

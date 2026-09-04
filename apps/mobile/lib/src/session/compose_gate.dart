@@ -30,6 +30,7 @@
 
 import '../../generated/flowmic_events.g.dart';
 import '../diag/diag_log.dart';
+import '../settings/phone_prefs_payload.dart';
 import '../signaling/socket_core.dart';
 import '../signaling/wire_payloads.dart';
 
@@ -197,9 +198,26 @@ class AiComposeOutcome {
 }
 
 class ComposeGate {
-  ComposeGate({required SocketTransport transport}) : _transport = transport;
+  ComposeGate({required SocketTransport transport, PhonePrefsSource? phonePrefs})
+    : _transport = transport,
+      _phonePrefs = phonePrefs;
 
   final SocketTransport _transport;
+
+  /// 🔴 THE PHONE-OWNED PREFERENCE BUNDLE, read at emit time.
+  ///
+  /// owner's 2026-09-03 follow-up ruling made the request itself the carrier:
+  /// `compose:start` carries `prefs`, nothing is stored server-side, and the
+  /// server refuses a `settings:update` for these keys. It is attached HERE
+  /// rather than at the two `ComposeStartPayload` call sites (the AI row and
+  /// the buffer run) so both say the same thing about this phone — and the same
+  /// thing `audio:start` says.
+  ///
+  /// Null means 「nobody wired a source」, which sends no `prefs` and therefore
+  /// degrades to the server's own defaults. THE PRODUCTION WIRE IS ONE LINE —
+  /// `ChatController`'s `phonePrefs` argument in main.dart; grep it before
+  /// believing this path is live (13 册 §7 F1 ①).
+  final PhonePrefsSource? _phonePrefs;
 
   /// inject:request. Returns whether the frame actually left the device — false
   /// means the caller MUST surface a failure (never a silent drop).
@@ -261,8 +279,10 @@ class ComposeGate {
   /// therefore run this with the PC asleep and with zero server change; the
   /// room's focus process_name is used purely as an optional scenario hint and
   /// is simply absent when there is no PC.
-  bool emitAiCompose(ComposeStartPayload payload) =>
-      _emit(FlowMicEvents.composeStart, payload.toJson());
+  bool emitAiCompose(ComposeStartPayload payload) => _emit(
+    FlowMicEvents.composeStart,
+    payload.withPhonePrefs(_phonePrefs?.call()).toJson(),
+  );
 
   bool _emit(String event, Object? payload) {
     // RCA-v3: a socket the CLIENT already knows is down must not be handed a

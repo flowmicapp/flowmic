@@ -186,6 +186,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         const LiveDraftTile(
+          committedChars: 0,
           text: 'partial words',
           mode: FlowMode.realtime,
           strings: _en,

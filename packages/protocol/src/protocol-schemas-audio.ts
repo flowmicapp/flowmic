@@ -25,6 +25,7 @@
 
 import { z } from 'zod';
 import { NonEmpty } from './protocol-primitives';
+import { PhonePrefsSchema } from './phone-prefs';
 
 // ─── §3.3 audio / STT ─────────────────────────────────────────────────
 export const ProcessingModeSchema   = z.enum(['realtime', 'translate', 'organize']);
@@ -54,6 +55,11 @@ export const AudioStartSchema       = z.object({
   delivery: z.enum(['inject', 'none']).optional(),
   source_lang: NonEmpty,
   target_lang: NonEmpty.optional(),
+  // 2026-09-03 (owner ruling, phone-owned preferences): the phone's card /
+  // polish / refine / consent for THIS recording, carried in the request that
+  // starts it. Additive + optional; absent = the phone carries no preferences
+  // for this session (an old phone, or a phone that has none). Never stored.
+  prefs: PhonePrefsSchema.optional(),
 });
 export const AudioChunkSchema       = z.object({ seq: z.number().int().nonnegative(), data_b64: NonEmpty, ts_ms: z.number().int() });
 export const AudioPauseSchema       = z.object({ reason: NonEmpty });
@@ -157,6 +163,35 @@ export const SttFinalSchema         = z.object({
   // polish:'skipped') is enforced by the SERVER's wire mapping, not the schema.
   polish: z.enum(['applied', 'skipped']).optional(),
   polish_reason: z.string().optional(),
+  // 2026-09-03 (owner ruling Q2 b, two-pass refine delivered for real): the
+  // server-minted id of the utterance this terminal final closes. It is the
+  // ONLY key a later `stt:refined` frame carries, so the phone can put the
+  // second draft on the right row instead of "the newest row". Additive and
+  // optional: an old relay strips it, the phone then has no id and DROPS the
+  // refine rather than guessing (protocol-schemas-compose.ts, SttRefinedSchema).
+  // Deliberately not `request_id`/`entry_id` — those are delivery ids the
+  // phone mints for inject:request; this one names a recording.
+  utterance_id: NonEmpty.optional(),
+  // 2026-09-04 (card EMPTY-1) — WHY this final carries no text. ADDITIVE and
+  // OPTIONAL: absent on every frame that has text, absent on every server that
+  // predates the card, so an old relay stripping it leaves the phone exactly
+  // where it was (its own local "no speech was heard" sentence).
+  //
+  // 🔴 IT IS NOT A SECOND ERROR CHANNEL. It is only ever set when NOTHING else
+  // on this recording answered the question: an engine/network/auth/quota fault
+  // already travels as `stt:error` with a registered code, and the server
+  // deliberately leaves this field OFF in that case — two authors for one
+  // question is the repo's #1 defect shape. It exists for the one cause no
+  // registered code answers honestly: the gate accepted speech, the engine
+  // finished cleanly, and it returned no words.
+  //
+  // 🔴 A PERMISSIVE STRING, not an enum, for the same reason `polish_reason`
+  // is: additive-field forward-compat means a receiver must never reject a
+  // future value. The canonical domain (`'no_voice' | 'heard_no_words'`) is
+  // enforced by the SERVER's wire mapping (`stt/empty-final-cause.ts`), and the
+  // phone renders an unrecognised value as its generic sentence plus the bare
+  // token rather than inventing a sentence for it (0.2.53 rule).
+  empty_reason: z.string().optional(),
 });
 // WP-9 (2026-09-02, findings-crossend-quota.md #3) — `judged_account` is
 // ADDITIVE and OPTIONAL. Card QTA-2 (audio.handler.ts refuseStart) checks two

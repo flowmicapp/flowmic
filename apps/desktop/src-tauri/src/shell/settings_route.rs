@@ -2,15 +2,33 @@
 //
 // MOVED OUT OF `shell/mod.rs` VERBATIM (2026-08-24) for the 800-line `file-size`
 // lint, the same cap that already split `tray` and the session layer out of this
-// module. No behaviour moved with the code. It earns its own file for a second
-// reason though: this is now the ONE place that answers 「is this key a
-// preference or a server configuration」, and that question has a test below
-// rather than only a comment.
+// module. It keeps its own file because this is the ONE place that answers
+// 「which socket does a settings write go to」, and that question has a test
+// below rather than only a comment.
+//
+// 🔴 THE ANSWER IS AGAIN 「the LAN one, always」 (owner 2026-09-03, phone-owned
+// preferences). Between 2026-08-24 and this change there were TWO answers: four
+// PREFERENCE keys (`stt.dictionary` / `stt.polish` / `stt.refine` /
+// `scenario.card`) were emitted on every live socket, because the desktop owned
+// those switches and a relay user's dictionary was otherwise inert. The owner's
+// ruling removed the premise rather than the mechanism: those preferences now
+// live on the PHONE, travel with each transcription request, and are never
+// stored by any server — so the desktop has no screen that writes them and this
+// side has nothing to fan out. The server refuses them from a PC outright
+// (apps/server-core settings.handler.ts), so keeping the fan-out would only
+// mean writing frames that come back refused.
+//
+// What is LEFT is what owner ⑤ was always about: `stt.routings` / `llm.config` /
+// `device.pc_name` say WHICH ENGINE A SERVER SHALL USE, or name this machine.
+// Pushing those at the relay would let any desktop repoint our managed engine at
+// an arbitrary endpoint — a different feature (BYOK, which has its own audited
+// route) wearing a settings-sync costume.
 
 use serde_json::Value;
 use tauri::State;
+use crate::socket::blocking::run_blocking;
 
-use super::{with_lan_socket, DesktopSocket, SocketState};
+use super::{with_lan_socket, SocketState};
 /// Change-immediately-persist-immediately settings write (07 §8). Returns whether the frame reached the wire;
 /// `false` → the frontend holds it pending and re-flushes on reconnect.
 ///
@@ -24,78 +42,10 @@ use super::{with_lan_socket, DesktopSocket, SocketState};
 /// states that this boundary uses single-word argument names so that
 /// camelCase↔snake_case never has to be reasoned about; `stamp` honours that,
 /// while the WIRE field stays `updated_at`. The two names answer to two layers.
-/// PREFERENCE keys — the ones that describe the USER, not a server.
-///
-/// 🔴 owner 2026-08-24 ruled that the settings page must configure BOTH legs.
-/// This list is the narrowing, and the narrowing is on purpose: owner ⑤'s
-/// original reason (see `with_lan_socket`) was that "the cloud relay's STT
-/// routing and model live in the web console", and that reason is still correct
-/// for the keys it was actually about. `stt.routings` / `llm.config` say WHICH
-/// ENGINE A SERVER SHALL USE — pushing them at the relay would let any desktop
-/// repoint our managed engine at an arbitrary endpoint, which is a different
-/// feature (BYOK, which has its own audited route) wearing a settings-sync
-/// costume.
-///
-/// The four below say nothing about a server. They say what this person's
-/// vocabulary is, whether they want their transcript corrected, and how far.
-/// They were swept into the LAN-only rule with the others, and the measured
-/// consequence was that a personal dictionary, AI polish and two-pass refine
-/// were INERT on the cloud relay — i.e. on the only leg that carries the user
-/// when they are away from home (audit:
-/// docs/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6).
-///
-/// ⚠️ Literals, not the frontend's `SETTINGS_ANCHOR_KEYS` constants: this side
-/// of the IPC boundary has no access to them, and the pairing between the two
-/// is what `settings_key_routing` in the tests below pins.
-const PREFERENCE_SETTING_KEYS: &[&str] = &[
-    "stt.dictionary",
-    "stt.polish",
-    "stt.refine",
-    "scenario.card",
-];
-
-/// Is this key a user preference (both legs) rather than server config (LAN)?
-pub(crate) fn is_preference_setting(key: &str) -> bool {
-    PREFERENCE_SETTING_KEYS.contains(&key)
-}
-
-/// Emit on EVERY live channel. Returns `true` when at least one socket existed
-/// and every socket that existed accepted the frame.
-///
-/// 🔴 THE RETURN VALUE ANSWERS ONE QUESTION AND IT IS NOT "did both legs get
-/// it". A channel with no socket is not a failure — the user may simply not be
-/// signed in to the relay — so an absent slot cannot make this `false`, or every
-/// LAN-only user would sit permanently in the 「saved locally」 state with nothing
-/// wrong. What covers the absent leg instead is the REPLAY: `flushPending`
-/// re-sends every remembered key on a channel's connected rising edge, and the
-/// desktop store watches BOTH edges for exactly this reason. A key that could
-/// not reach the cloud today reaches it the moment the cloud connects, carrying
-/// its own original `updated_at` so the server's regress guard still arbitrates.
-fn with_every_socket(state: &State<'_, SocketState>, f: impl Fn(&DesktopSocket) -> bool) -> bool {
-    let guard = match state.lock() {
-        Ok(g) => g,
-        Err(_) => return false,
-    };
-    let mut seen = false;
-    let mut all_ok = true;
-    for channel in [crate::socket::Channel::Lan, crate::socket::Channel::Cloud] {
-        if let Some(sock) = guard.slot(channel) {
-            seen = true;
-            if !f(sock) {
-                all_ok = false;
-            }
-        }
-    }
-    seen && all_ok
-}
-
 #[tauri::command]
 pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value, stamp: Option<String>) -> bool {
-    // owner ⑤ (server config) vs owner 2026-08-24 (user preferences) — see
-    // PREFERENCE_SETTING_KEYS for why one rule became two.
-    if is_preference_setting(&key) {
-        return with_every_socket(&state, |s| s.emit_settings_update(&key, value.clone(), stamp.as_deref()));
-    }
+    // owner ⑤, restored whole (owner 2026-09-03): there is no per-key branch any
+    // more, so there is no list to quietly grow either.
     with_lan_socket(&state, |s| s.emit_settings_update(&key, value, stamp.as_deref()), false)
 }
 
@@ -106,42 +56,52 @@ pub fn settings_update(state: State<'_, SocketState>, key: String, value: Value,
 /// times out — the frontend then keeps its local cache (never a blank overwrite).
 #[tauri::command(async)]
 pub fn settings_list(state: State<'_, SocketState>) -> Option<Value> {
-    // owner ⑤: hydrate from the LAN server — the one this page configures.
-    with_lan_socket(&state, |s| s.fetch_settings_list(std::time::Duration::from_secs(5)), None)
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on an ack wait (up to 5.5 s). See `socket::blocking`.
+    run_blocking(|| {
+        // owner ⑤: hydrate from the LAN server — the one this page configures.
+        with_lan_socket(&state, |s| s.fetch_settings_list(std::time::Duration::from_secs(5)), None)
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_preference_setting;
-
-    /// The split, stated as a table rather than as prose.
+    /// 🔴 THE RULE IS NOW 「EVERY KEY IS LAN-ONLY」, AND THAT IS WHAT IS ASSERTED —
+    /// by reading this module's own source, because there is no longer a
+    /// predicate to call. `is_preference_setting` / `PREFERENCE_SETTING_KEYS` /
+    /// `with_every_socket` were deleted with the desktop screens that wrote the
+    /// four preference keys (owner 2026-09-03), and a test asserting `false` for
+    /// a function that no longer exists would not compile — while a test that
+    /// merely stopped existing would leave the REVERSE half unguarded.
     ///
-    /// 🔴 The REVERSE half is the one that matters. Adding a key to
-    /// `PREFERENCE_SETTING_KEYS` is how "the desktop can now configure the
-    /// relay's engine" would arrive — silently, in a commit that looked like it
-    /// was about a dictionary. These two assertions are what make that arrival
-    /// loud, so do not delete the `false` rows to "simplify" the test: they are
-    /// the test.
+    /// The reverse half is the whole point and it has not changed shape: a
+    /// per-key branch is how 「the desktop can now configure the relay's engine」
+    /// would arrive — silently, in a commit that looked like it was about a
+    /// dictionary. So the assertion is that `settings_update` has exactly one
+    /// emit site and it is the LAN one.
     #[test]
-    fn preference_keys_travel_on_both_legs_and_server_config_does_not() {
-        for key in ["stt.dictionary", "stt.polish", "stt.refine", "scenario.card"] {
-            assert!(is_preference_setting(key), "{key} is a user preference and must reach both legs");
-        }
-        for key in ["stt.routings", "llm.config"] {
-            assert!(
-                !is_preference_setting(key),
-                "{key} tells a SERVER which engine to use — pushing it at the relay is BYOK wearing a settings-sync costume (owner ⑤)",
-            );
-        }
-    }
-
-    /// An unknown key must default to the CONSERVATIVE leg. A typo'd or
-    /// future key that silently gained relay reach would be the same defect in a
-    /// different costume.
-    #[test]
-    fn an_unrecognised_key_stays_lan_only() {
-        assert!(!is_preference_setting("stt.polishh"));
-        assert!(!is_preference_setting("device.pc_name"));
-        assert!(!is_preference_setting(""));
+    fn every_settings_key_is_lan_only() {
+        let src = include_str!("settings_route.rs");
+        let body = src
+            .split_once("pub fn settings_update(")
+            .expect("settings_update is still this module's write door")
+            .1
+            .split_once("#[tauri::command(async)]")
+            .expect("settings_list still follows it")
+            .0;
+        assert!(
+            body.contains("with_lan_socket"),
+            "settings_update no longer targets the LAN socket (owner ⑤)",
+        );
+        assert_eq!(
+            body.matches("with_lan_socket").count(),
+            1,
+            "settings_update grew a second emit path — one key, one socket",
+        );
+        assert!(
+            !body.contains("with_every_socket"),
+            "a settings key is being fanned out to the relay again; the phone owns the preferences \
+             now and the server refuses these keys from a PC (owner 2026-09-03)",
+        );
     }
 }

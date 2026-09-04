@@ -1,6 +1,6 @@
 [package]
 name = "flowmic-desktop"
-version = "0.3.58"
+version = "0.3.63"
 description = "FlowMic desktop — Tauri 2 shell + Rust injection layer (SendInput / focus tracking / clipboard fallback / window enum) and the socket.io client to server-core."
 edition = "2021"
 # 🔴 RAISED 1.78 → 1.89 (W3, 2026-08-07). This is a CORRECTION, not a new
@@ -92,10 +92,27 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
-# Sync socket.io client — its own background thread, no caller-side tokio
-# runtime. Server-core is socket.io 4.8 (Socket.IO v5 / Engine.IO v4), which
-# this client speaks.
+# Sync socket.io client — it owns its own background thread. Server-core is
+# socket.io 4.8 (Socket.IO v5 / Engine.IO v4), which this client speaks.
+#
+# 🔴 THIS COMMENT USED TO SAY "no caller-side tokio runtime". That was true until
+# `a938e197` (WP-5, 0.3.58) marked twelve commands `#[tauri::command(async)]`,
+# which made every one of their callers a tokio multi-thread worker — and
+# `rust_engineio`'s websocket transport drives each frame with its own
+# `Runtime::block_on`, which panics there. It emptied the paired-phone table for
+# a whole release. The truth now: callers MAY be on a runtime thread, and every
+# such body goes through `socket::blocking::run_blocking` (that module's header
+# has the forensic evidence).
 rust_socketio = "0.6"
+# Direct dependency ONLY for `tokio::task::block_in_place` +
+# `runtime::Handle::try_current`, both used in exactly one place
+# (`src/socket/blocking.rs`). NOT a new package in the tree: tauri already pins
+# tokio 1.53.1 in Cargo.lock, so this adds edges and zero crates — the same trade
+# as `reqwest` and `winreg` below, and `git diff Cargo.lock` after adding it was
+# checked rather than assumed [measured 2026-09-03, dev-pc-a].
+# `rt-multi-thread` is the feature that carries `block_in_place`; `rt` carries
+# the flavour probe that decides whether calling it is legal.
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 # L3 account card: the two account reads (`GET /api/me`, `GET /api/cloud/summary`) go to
 # the RELAY over https, so `sidecar/io.rs`'s hand-rolled loopback GET cannot serve
 # them (its own header says it is `http://127.0.0.1` only, deliberately TLS-free).
@@ -103,9 +120,11 @@ rust_socketio = "0.6"
 # This is NOT a new package in the tree: `rust_engineio` (under rust_socketio,
 # above) already pulls reqwest 0.12.28 with native-tls — promoting it to a direct
 # dependency adds one edge to Cargo.lock and zero crates, the same precedent as
-# `winreg` below. `blocking` because this crate has no caller-side tokio runtime
-# (the socket.io client owns its own thread), and the command runs the fetch on a
-# thread it spawns itself — never on a Tauri runtime thread.
+# `winreg` below. `blocking` is safe here for ONE reason only, and it is not the
+# one this comment used to give ("this crate has no caller-side tokio runtime" —
+# false since WP-5, see `rust_socketio` above): `cloud_account_fetch` runs the
+# fetch on a thread it spawns itself and joins, so the reqwest client is never
+# driven from the Tauri worker. The join is what now sits inside `run_blocking`.
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 # UP-3a online-update hash gate ③: the client recomputes the downloaded installer's SHA256
 # and refuses to hand it onward when it does not match the manifest. Until stage-2

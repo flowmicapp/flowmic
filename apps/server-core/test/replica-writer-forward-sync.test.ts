@@ -425,6 +425,13 @@ describe('mobile:unpair forwarded from a replica (B4)', () => {
 
 // ═════════════════════════════════════ B6 — settings:update ════════════════
 
+// 2026-09-03 — the B6 cases below used to drive `stt.polish`. That key is now
+// PHONE-OWNED (design D1/D4): a PC write is refused BEFORE the replica branch
+// and a mobile write never leaves the socket, so it can no longer exercise the
+// forward at all. The forward itself is unchanged; it is driven through a key
+// that still stores (the PC-side scenario-inference override table).
+const KV_KEY = 'scenario.inference.overrides';
+
 describe('settings:update forwarded from a replica (B6)', () => {
   function wireSettings(forwardSettingsUpdate?: ReturnType<typeof forwardSettingsUpdateVia>) {
     const s = fakeSocket('sock-settings', null);
@@ -492,33 +499,33 @@ describe('settings:update forwarded from a replica (B6)', () => {
     const socket = wireSettings(forwardSettingsUpdateVia(fwd));
     socket.data.auth = { userId: 'default', deviceId: 'irrelevant', kind: 'pc' };
 
-    const ack = await socket.invoke('settings:update', { key: 'stt.polish', value: { enabled: true } });
+    const ack = await socket.invoke('settings:update', { key: KV_KEY, value: { enabled: true } });
 
     expect(ack).toMatchObject({ ok: true });
-    expect(writer.db.settings.read('default', 'stt.polish')?.value).toEqual({ enabled: true });
-    expect(replica.db.settings.read('default', 'stt.polish')).toBeNull();
+    expect(writer.db.settings.read('default', KV_KEY)?.value).toEqual({ enabled: true });
+    expect(replica.db.settings.read('default', KV_KEY)).toBeNull();
   });
 
   it('G2 regress: the OLDER write is refused and the LOSER (this socket) is told', async () => {
     pcFixture();
-    writer.db.settings.write('default', 'stt.polish', { enabled: true }, '2026-09-02T12:00:00.000Z');
+    writer.db.settings.write('default', KV_KEY, { enabled: true }, '2026-09-02T12:00:00.000Z');
 
     const fwd = productionForwardSync();
     const socket = wireSettings(forwardSettingsUpdateVia(fwd));
     socket.data.auth = { userId: 'default', deviceId: 'irrelevant', kind: 'pc' };
 
     const ack = await socket.invoke('settings:update', {
-      key: 'stt.polish', value: { enabled: false }, updated_at: '2026-09-02T11:00:00.000Z',
+      key: KV_KEY, value: { enabled: false }, updated_at: '2026-09-02T11:00:00.000Z',
     });
 
     expect(ack).toMatchObject({ ok: true });
     // The write did NOT land — the writer's newer value survives.
-    expect(writer.db.settings.read('default', 'stt.polish')?.value).toEqual({ enabled: true });
+    expect(writer.db.settings.read('default', KV_KEY)?.value).toEqual({ enabled: true });
     // The loser (this very socket) was told the winner, not left believing its
     // stale value is now authoritative.
     expect(socket.emitted).toContainEqual({
       event: 'settings:updated',
-      payload: { key: 'stt.polish', value: { enabled: true }, updated_at: '2026-09-02T12:00:00.000Z' },
+      payload: { key: KV_KEY, value: { enabled: true }, updated_at: '2026-09-02T12:00:00.000Z' },
     });
   });
 
@@ -527,7 +534,7 @@ describe('settings:update forwarded from a replica (B6)', () => {
     const socket = wireSettings(() => Promise.reject(new WriterUnreachable('ECONNRESET')) as never);
     socket.data.auth = { userId: 'default', deviceId: 'irrelevant', kind: 'pc' };
 
-    const ack = await socket.invoke('settings:update', { key: 'stt.polish', value: { enabled: true } });
+    const ack = await socket.invoke('settings:update', { key: KV_KEY, value: { enabled: true } });
 
     expect(ack).toMatchObject({ error: 'NODE_IS_REPLICA' });
   });
@@ -537,7 +544,7 @@ describe('settings:update forwarded from a replica (B6)', () => {
     const socket = wireSettings();
     socket.data.auth = { userId: 'default', deviceId: 'irrelevant', kind: 'pc' };
 
-    const ack = await socket.invoke('settings:update', { key: 'stt.polish', value: { enabled: true } });
+    const ack = await socket.invoke('settings:update', { key: KV_KEY, value: { enabled: true } });
 
     expect(ack).toMatchObject({ error: 'NODE_IS_REPLICA' });
   });

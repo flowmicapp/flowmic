@@ -254,17 +254,22 @@ const GOLDEN = [
     requires: [SERVER_DIST],
     async fn(url) {
       const { pc, mobile } = await registerAndPair(url);
-      // settings:update from mobile → PC sees settings:updated (save-on-change broadcast).
-      const updatedP = once(pc, 'settings:updated');
-      // WP-R4-6 made stt.polish a REAL typed key ({enabled:boolean}, read at
-      // audio:start) — a bare `true` would poison the shared standalone user's
-      // later audio:start snapshots, so the round-trip uses the valid OFF shape.
-      await ack(mobile, 'settings:update', { key: 'stt.polish', value: { enabled: false } });
+      // settings:update of a STORED key from the PC → the paired mobile sees
+      // settings:updated (save-on-change broadcast).
+      // 2026-09-03: this used to push `stt.polish` FROM the mobile and expect the
+      // PC to hear it. That key is PHONE-OWNED now (owner rulings, design D1):
+      // it rides the phone's socket, is never stored and never broadcast — G22
+      // asserts that contract on both legs. The broadcast mechanism itself is
+      // unchanged, so it is driven here through a key that still stores (the
+      // PC's scenario-inference override table), in the direction that still
+      // exists: PC → phone.
+      const updatedP = once(mobile, 'settings:updated');
+      await ack(pc, 'settings:update', { key: 'scenario.inference.overrides', value: { golden: 'probe' } });
       const broadcast = await updatedP;
-      const ok = broadcast && broadcast.key === 'stt.polish'
-        && broadcast.value && broadcast.value.enabled === false;
+      const ok = broadcast && broadcast.key === 'scenario.inference.overrides'
+        && broadcast.value && broadcast.value.golden === 'probe';
       pc.disconnect(); mobile.disconnect();
-      return ok ? PASS('settings:update fanned out to the peer PC (即改即存)') : FAIL(`no/incorrect settings:updated broadcast: ${JSON.stringify(broadcast)}`);
+      return ok ? PASS('settings:update of a stored key fanned out to the paired phone (即改即存)') : FAIL(`no/incorrect settings:updated broadcast: ${JSON.stringify(broadcast)}`);
     },
   },
   {

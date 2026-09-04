@@ -82,7 +82,10 @@ describe('loadSonioxContext — the same source as the hotwords leg', () => {
 
   it('aliases are deliberately NOT sent — they are what the replacer removes', () => {
     const db = freshDb();
-    db.settings.write(U, 'stt.dictionary', [{ term: 'Kubernetes', aliases: ['库伯'] }]);
+    // 2026-09-03 (owner Q1): aliases ride the card term; `stt.dictionary` is retired.
+    db.settings.write(U, 'scenario.card', {
+      professions: [], domains: [], packs: [], terms: [{ term: 'Kubernetes', aliases: ['库伯'] }],
+    });
     const ctx = loadSonioxContext(db.settings, U)!;
     expect(ctx).toContain('Kubernetes');
     // Feeding 库伯 here would ask the recognizer to produce exactly the string

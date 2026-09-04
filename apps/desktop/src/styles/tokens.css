@@ -11,7 +11,7 @@
 :root {
   --brand: #4f46e5; --brand-hover: #4338ca; --brand-soft: #eef0fe;
   --brand-ink: #4f46e5;         /* brand used as TEXT on surfaces (not fills) */
-  --brand-line: #c7cbf5;        /* brand-tinted selected border (ctx-chip.on) */
+  --brand-line: #c7cbf5;        /* brand-tinted selected border (LocalModelCard .dlblock / .chip.downloading) */
   --on-brand: #fff;             /* text/icons on a --brand fill */
   --teal: #14b8a6; --teal-soft: #e6faf7; --teal-ink: #0f766e;
   --amber: #f59e0b; --amber-soft: #fef6e4; --amber-ink: #b45309;
@@ -170,7 +170,9 @@ input, select, textarea { font-family: inherit; }
    bare edge-to-edge blocks 「有边框、零内边距」("bordered, zero inset"). This is
    now its one true home; components are not allowed to configure a private
    rule of the same name again (guarded by timeline-data-group.test.ts).
-   ScenarioInference's tighter padding is an explicit override, not a duplicate. */
+   A component MAY still tighten it locally as an explicit override — that is not
+   a duplicate. (ScenarioInference.vue was the example until it moved to the
+   phone on 2026-09-03; DataFlowDisclosure.vue carries one today.) */
 .card.pad { padding: 14px 16px; }
 /* The global .sub-h's 20px top margin is redundant for「卡内第一个小标题」
    ("the first subheading inside a card") (0.2.40's card-top whitespace band). */

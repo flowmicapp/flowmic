@@ -35,6 +35,7 @@ import { ServerError } from '../src/errors';
 import { seedDefaultSettings } from '../src/settings/defaults';
 import {
   resolveScenarioContext,
+  resolveReplacementRules,
   buildScenarioBlock,
   resolveLlmConfigWithSource,
   resolveByokLlm,
@@ -89,15 +90,17 @@ describe('resolveScenarioContext — merges the three sources', () => {
     expect(buildScenarioBlock(ctx)).toBe('');
   });
 
-  it('card fields + packs + stt.dictionary all flow into terms (deduped)', () => {
+  it('card fields (terms, with or without aliases) + packs all flow into terms (deduped)', () => {
     const db = freshDb();
     db.settings.write(U, SETTINGS_KEY_SCENARIO_CARD, {
       professions: ['software engineer'],
       domains: ['databases'],
       packs: ['tech-dev'],
-      terms: ['FlowMic', 'API'], // 'API' also in tech-dev → dedupe proof
+      // 'API' also in tech-dev → dedupe proof; gRPC carries an alias (owner
+      // Q1, 2026-09-03: the retired personal dictionary's alias list now
+      // rides the card term) and the prompt block lists the canonical only.
+      terms: ['FlowMic', 'API', { term: 'gRPC', aliases: ['g r p c'] }, 'FlowMic'],
     });
-    db.settings.write(U, 'stt.dictionary', [{ term: 'gRPC', weight: 25 }, { term: 'FlowMic' }]);
 
     // Source ② now arrives as an already-resolved descriptor (V2-08/F2): the
     // override>builtin>inferred decision moved to ScenarioInferenceStore, and
@@ -115,6 +118,7 @@ describe('resolveScenarioContext — merges the three sources', () => {
     for (const e of composeDictionary(['tech-dev'])) expect(ctx.terms).toContain(e.term);
     expect(ctx.terms).toContain('FlowMic');
     expect(ctx.terms).toContain('gRPC');
+    expect(ctx.terms).not.toContain('g r p c'); // aliases are what the replacer removes, never listed
     // dedupe: 'FlowMic' and 'API' appear once each
     expect(ctx.terms.filter((t) => t === 'FlowMic')).toHaveLength(1);
     expect(ctx.terms.filter((t) => t === 'API')).toHaveLength(1);
@@ -130,11 +134,17 @@ describe('resolveScenarioContext — merges the three sources', () => {
     expect((thrown as ServerError).code).toBe('SETTINGS_SCHEMA_INVALID');
   });
 
-  it('stt.dictionary of the wrong shape contributes no terms (hint source, not a schema gate)', () => {
+  it('🔴 a stored stt.dictionary row is NOT read any more (retired, owner Q1 2026-09-03)', () => {
+    // A well-formed row of the retired key — the shape the desktop still
+    // writes until WP-C removes its face. Nothing on the server reads it: the
+    // terms come from the card alone. (This used to assert the opposite —
+    // that a well-formed row DID contribute — and went red on the day the
+    // reader was deleted, which is the measurement this case now pins.)
     const db = freshDb();
-    db.settings.write(U, 'stt.dictionary', 'not-an-array');
+    db.settings.write(U, 'stt.dictionary', [{ term: 'gRPC', weight: 25 }]);
     const ctx = resolveScenarioContext(db.settings, U);
     expect(ctx.terms).toEqual([]);
+    expect(resolveReplacementRules(db.settings, U)).toEqual([]);
   });
 });
 

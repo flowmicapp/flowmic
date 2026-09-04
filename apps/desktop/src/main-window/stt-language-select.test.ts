@@ -111,10 +111,12 @@ describe('the routing table language cell is a fixed list', () => {
       expect(opts, `${code} is not offered`).toContainEqual([code, endonym]);
     }
     // 🔴 And the input that used to hold the language is gone. Scoped to the
-    // ROUTING TABLE, because the section also carries the dictionary's own
-    // `class="input"` box — counting inputs across the whole render measured
-    // that one too and read 2 for a correct table (know your ruler; caught on
-    // the first run of this very assertion).
+    // ROUTING TABLE, and it STAYS scoped even though the section no longer
+    // carries the personal dictionary's own `class="input"` box (that card went
+    // to the phone, owner 2026-09-03). Counting inputs across the whole render
+    // measured the dictionary box too and read 2 for a correct table — know your
+    // ruler; caught on the first run of this very assertion. Widening the scope
+    // now would re-arm exactly that failure the next time this page grows a box.
     const table = html.slice(html.indexOf('<table'), html.indexOf('</table>'));
     expect(table, 'the routing table did not render').toContain('<select');
     const inputs = [...table.matchAll(/<input\b/g)];

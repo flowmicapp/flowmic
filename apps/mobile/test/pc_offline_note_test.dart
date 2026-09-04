@@ -326,43 +326,44 @@ void main() {
       }
     });
 
-    test('🔴 the promised trigger edge must be "this phone reconnects", never written as "wait for the PC to come back"', () {
-      // ── This case covers the half the previous one measured wrong (W5F) ──
+    test('🔴 the promised trigger edge must be the one that exists: 「once the PC is back」, and the promise must not stop at delivery', () {
+      // ── THIS CASE USED TO ASSERT THE EXACT OPPOSITE, AND THAT IS THE POINT ──
       //
-      // The previous case proved "this item returns to `queued`". What it
-      // **did not** prove, and cannot prove, is **"who drains it"** — and
-      // the first-draft sentence credited a subscriber that does not exist:
+      // Until 2026-09-04 it read 「the promised trigger edge must be 'this phone
+      // reconnects', never written as 'wait for the PC to come back'」, and its
+      // reasoning was sound for the code of the day: the only automatic drain
+      // edge was `PttSession.roomJoins`, whose two writers both say 「this phone
+      // entered the room」, and `PcPresence` had no delivery-side consumer at
+      // all — so crediting the PC would have been a promise with no mechanism
+      // (F-1 verbatim). It even carried a measured reverse control.
       //
-      //   first draft: 「**等电脑重新上线后**会自动再送一次。」
+      // 🔴 **It was a correct assertion that had frozen a defect into a
+      // specification** — the 0.2.52 law, third occurrence. On the cloud leg the
+      // relay does not drop when the PC quits, so the phone never leaves its
+      // room and 「the next time this phone reconnects」 never comes: owner
+      // measured a row sitting at 「pending delivery」 for minutes with the PC
+      // already back, and the drain only ran once the phone was forced out of
+      // the room and back in. The sentence was true about the implementation
+      // and false about the product, and this case was the reason nobody
+      // noticed for four weeks: **the copy could not be corrected without
+      // turning it red, and turning it red looked like breaking a rule.**
       //
-      // The only automatic drain edge is `PttSession.roomJoins`
-      // (chat_controller `_onRoomJoined` → `outbox.drain()`); its two
-      // writers (ptt_pair.dart `pair()` success / ptt_reconnect_ack.dart
-      // `onAccepted`) both say **"this phone joined the room"**. **"The PC
-      // came back" triggers nothing**: `PcPresence`'s only consumer
-      // `onPcPresenceChangedRouted` `return`s on the first line of the
-      // `online` branch.
+      // ⇒ The old case's own words on why it had to be written that way —
+      // 「the thing that should really be asserted, 'does PC-online drain', has
+      // no observable product on the phone, because that edge does not exist」 —
+      // are now false: the edge exists (session/delivery_link_up.dart) and is
+      // pinned by test/outbox_drains_when_pc_returns_test.dart with its own
+      // measured reverse control. This case may therefore assert the sentence
+      // that is true, and the two files fail for different reasons: that one if
+      // the mechanism goes away, this one if the sentence stops describing it.
       //
-      // ⇒ On the cloud leg (relay stays up, the phone stays in the room)
-      //   that row would sit **indefinitely** at 「待投递 · 会自动再送」.
-      //   **This is F-1 replayed verbatim**, and it lives on a card that
-      //   cites the F-1 fix as its warrant.
-      //
-      // 🔴 **Why this assertion can only be written this way**: the thing
-      // that should really be asserted — "does PC-online drain" — has no
-      // observable product on the phone, **because that edge does not
-      // exist**, there is nothing to assert. What can be pinned is **this
-      // sentence must not attribute the trigger edge to the PC**, and the
-      // moment it is written back, only this case goes red.
-      // Nine-language expansion (2026-08-14): four Maps + `[locale]!` ⇒
-      // exhaustive switch. The five new languages' "when/once the PC ⋯"
-      // family of clause heads (fr「quand le PC」/ es「cuando el PC」/
-      // de「wenn der PC」/ ru「когда ПК」) — attributing the trigger edge
-      // to the PC starts with these words in those languages, so blocking
-      // the clause head is more rewrite-tolerant than blocking a whole
-      // sentence.
+      // ⚠️ The word lists are REUSED VERBATIM from the old assertion (they were
+      // built per language from real clause heads: fr「dès que le PC」/
+      // es「en cuanto el PC」/ de「sobald der PC」/ ru「как только ПК」). Only the
+      // direction changed — `isNot(contains(...))` for each became 「at least
+      // one of them is present」. Keeping the same lists is deliberate: a
+      // rewrite that drifts off this family is exactly what should go red.
       List<String> pcTriggerWords(AppLocale locale) => switch (locale) {
-        // The 「电脑…上线/回来/恢复」 family — wordings that pin the trigger edge on the PC.
         AppLocale.zh => <String>['电脑重新上线', '电脑回来', '电脑恢复', '电脑上线后'],
         AppLocale.zhTw => <String>['電腦重新上線', '電腦回來', '電腦恢復', '電腦上線後'],
         AppLocale.en => <String>[
@@ -381,45 +382,42 @@ void main() {
       for (final AppLocale locale in AppLocale.values) {
         final String note = AppStrings.of(
           locale,
-        ).deliveryRefusalNote(kPcOffline)!;
-        for (final String w in pcTriggerWords(locale)) {
-          expect(
-            note.toLowerCase(),
-            isNot(contains(w.toLowerCase())),
-            reason:
-                '$locale: attributed the drain trigger edge to "the PC came back", and nothing subscribes to that (F-1 shape)',
-          );
-        }
+        ).deliveryRefusalNote(kPcOffline)!.toLowerCase();
+        expect(
+          pcTriggerWords(locale).any((String w) => note.contains(w.toLowerCase())),
+          isTrue,
+          reason: '$locale: the promise no longer names the edge it depends on — the user is waiting on the PC, and this sentence has to say so',
+        );
       }
-      // Positive control: this sentence **does** name the edge it actually
-      // depends on. Without this, the "contains no PC-trigger word" set
-      // above would also go green on a sentence that **mentions no trigger
-      // at all** — and that would swallow the promise entirely, equally
-      // violating "no silent failure".
-      // Nine-language expansion (2026-08-14): four Maps + `[locale]!` ⇒
-      // exhaustive switch.
-      // ⚠️ de and ru use a **stem** ('dieses handy' / 'этого телефон')
-      // rather than a whole word: this phrase inflects in those two
-      // languages (de genitive 'dieses Handys', ru genitive
-      // 'этого телефона'), and substring match does not decline. Cutting
-      // to the stem is so a grammatical rewrite does not go red as a
-      // false defect — it still pins "what is named is this phone".
-      String phoneTriggerWord(AppLocale locale) => switch (locale) {
-        AppLocale.zh => '这台手机',
-        AppLocale.zhTw => '這臺手機',
-        AppLocale.en => 'this phone',
-        AppLocale.fr => 'ce téléphone',
-        AppLocale.es => 'este teléfono',
-        AppLocale.de => 'dieses handy',
-        AppLocale.ja => 'この端末',
-        AppLocale.ko => '이 휴대폰',
-        AppLocale.ru => 'этого телефон',
+
+      // 🔴 THE SECOND HALF OF THE SAME BEHAVIOUR, NOT A COURTESY NOTE. A
+      // redelivered item is stamped `inject_origin: deferred`, and the PC
+      // deliberately answers it `cached` / `INJECT_DEFERRED_NOT_AUTOINJECTED`
+      // (owner 2026-08-02: 「a message backfilled to the PC, the PC side must
+      // not just inject it casually」). A sentence that promised automatic
+      // delivery and stopped there would leave the reader expecting text to
+      // appear on the PC by itself — the same class of wrong expectation the
+      // old wording created, pointing the other way.
+      //
+      // ⚠️ Stems, not whole clauses, and everyday words rather than
+      // inject-leg vocabulary — the ban on that vocabulary is a separate case
+      // in this same group and still applies to this clause.
+      String noAutoTypingStem(AppLocale locale) => switch (locale) {
+        AppLocale.zh => '不会自动',
+        AppLocale.zhTw => '不會自動',
+        AppLocale.en => 'will not type',
+        AppLocale.fr => 'tout seul',
+        AppLocale.es => 'no se escribirá',
+        AppLocale.de => 'von selbst',
+        AppLocale.ja => '自動で入力され',
+        AppLocale.ko => '저절로',
+        AppLocale.ru => 'само',
       };
       for (final AppLocale locale in AppLocale.values) {
         expect(
           AppStrings.of(locale).deliveryRefusalNote(kPcOffline)!.toLowerCase(),
-          contains(phoneTriggerWord(locale).toLowerCase()),
-          reason: '$locale: the promise did not name the edge it actually depends on (this phone reconnects)',
+          contains(noAutoTypingStem(locale).toLowerCase()),
+          reason: '$locale: promised automatic redelivery without saying the PC will not type it in by itself',
         );
       }
     });

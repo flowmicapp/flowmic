@@ -1,57 +1,38 @@
-// WP-R2-2 settings UI model. Mirrors the mobile pattern: a device-local display
-// cache (localStorage) is the UI source of truth, hydrated from preset-derived
-// defaults, and every edit is pushed to the server through the SettingsClient
-// anchor methods (change-applies-immediately, no save button). The server
-// remains authoritative for compose/STT; loading its snapshot (settings:list)
-// is a later refinement — the mobile likewise drives from a local cache. NO
-// endpoint/IP is hard-coded here: STT/LLM endpoints come from the
+// The settings UI model for the things THIS PC owns: its speech-engine routing
+// table and its language-model configuration. A device-local display cache
+// (localStorage) is the UI source of truth, hydrated from preset-derived
+// defaults, and every edit is pushed to the LAN server through the
+// SettingsClient anchor methods (change-applies-immediately, no save button).
+// NO endpoint/IP is hard-coded here: STT/LLM endpoints come from the
 // @flowmic/protocol presets (goes through the presets package, hard-coding an
 // IP is forbidden).
+//
+// 🔴 WHAT THIS MODEL NO LONGER HOLDS (owner 2026-09-03, phone-owned
+// preferences). The scenario card, AI polish, two-pass refine, the personal
+// dictionary and the scenario-inference consent were all edited here and pushed
+// as settings rows. They are now the PHONE's, they travel with each
+// transcription request, and no server stores them — so the fields, the
+// mutators and the `applyServerSettings` cases for them are gone rather than
+// hidden. A screen that kept writing them would be writing frames the server
+// refuses by name, which is the same defect as a control that changes nothing.
 
 import { reactive } from 'vue';
 import {
-  ADDITIONAL_PRIVATE_CIDRS,
   CUSTOM_PRESET_ID,
-  DICTIONARY_PACK_MAX_ENTRIES,
-  DICTIONARY_PACKS,
-  SCENARIO_MAX_LABEL_LEN,
-  SCENARIO_MAX_PACKS,
-  SCENARIO_MAX_PROFESSIONS,
-  SCENARIO_MAX_TERMS,
-  DEFAULT_POLISH_STRENGTH,
   SETTINGS_KEY_CAPABILITY_LLM,
-  SETTINGS_KEY_SCENARIO_INFERENCE,
   STT_PRESETS,
-  classifyDestination,
   findLlmPreset,
   findSttPreset,
-  inferenceBlockedReason,
   llmPresetsByGroup,
-  scenarioConsentRow,
   sttPresetsByGroup,
-  type InferenceBlockedReason,
-  type ModelDestination,
-  type ScenarioCard,
-  type PolishStrength,
-  type ScenarioInferenceConsent,
   type SttEngineId,
 } from '@flowmic/protocol';
 // The display-cache narrowing layer, moved out whole at the 800-line cap
 // (2026-08-28). That module carries the full argument for every salvage rule;
 // this file is one of its call sites. The two shapes it produces are re-exported
 // below so the existing importers are untouched.
-import {
-  asBoolean,
-  asCard,
-  asConsentRow,
-  asDictionary,
-  asLlmConfig,
-  asPolishStrength,
-  loadWith,
-  type DictEntry,
-  type LlmConfigModel,
-} from './settings-cache-narrow';
-export type { DictEntry, LlmConfigModel };
+import { asLlmConfig, loadWith, type LlmConfigModel } from './settings-cache-narrow';
+export type { LlmConfigModel };
 import { localKv } from '../lib/storage';
 import { CH, fetchServerSettings, onChannel } from '../lib/bridge';
 import type { ServerSettingItem } from '../lib/types';
@@ -63,35 +44,7 @@ import { SETTINGS_ANCHOR_KEYS } from '../lib/settings-client';
 // existing importers are untouched.
 import { asOrderedRoutings, orderedRoutings, type Routing } from './stt-routing-order';
 export { orderedRoutings, type Routing };
-import { S } from '../lib/strings';
 import { settings } from './store';
-import { migrateProfessionList } from './profession-ids';
-// P2 #13 (2026-09-02): migrateProfessionId / PROFESSION_LABELS /
-// PROFESSION_LEGACY_ZH_TO_SLUG used to be re-exported here too, but every real
-// reader of those three imports them straight from './profession-ids'
-// (profession-ids.test.ts) — this module never forwarded a live consumer for
-// them. PROFESSIONS (ScenarioCard.vue) and PROFESSION_OPTIONS
-// (scenario-professions-locale.test.ts) do have consumers through this path,
-// so only those two stay re-exported.
-export { PROFESSION_OPTIONS, PROFESSIONS } from './profession-ids';
-
-// stt.dictionary is read by the server via a VARIABLE key (scenario-context /
-// engine-factory) and is deliberately NOT a drift-lint anchor — so it is pushed
-// through updateSetting with this const key, never a string literal at the call.
-const STT_DICTIONARY_KEY = 'stt.dictionary';
-
-// V2-08 consent row (`scenario.inference`). The server reads it with a VARIABLE
-// key too, so this MUST go out through the constant and never as a literal at the
-// updateSetting call: the settings-key-drift lint pairs literal-keyed UI writes
-// with literal-keyed server reads, and a literal here would be a set-only orphan
-// (a FAIL that would then be "fixed" by inventing a fake server anchor). Same
-// stance and same reason as STT_DICTIONARY_KEY above.
-//
-// Its sibling `scenario.inference.overrides` (the owner's per-process descriptor
-// corrections) is NOT declared here: this card ships no UI for it, and a key
-// constant with no writer is the façade the anti-façade rule is about. Named in
-// prose so the next card does not invent a different spelling.
-const SCENARIO_INFERENCE_KEY = SETTINGS_KEY_SCENARIO_INFERENCE;
 
 // Card POLISH-CFG (2026-08-09) — `capability.llm`, a READ-ONLY fact, not a setting.
 //
@@ -109,37 +62,21 @@ const SCENARIO_INFERENCE_KEY = SETTINGS_KEY_SCENARIO_INFERENCE;
 const CAPABILITY_LLM_KEY = SETTINGS_KEY_CAPABILITY_LLM;
 
 // Local display-cache keys (never travel the wire).
+//
+// ⚠️ The five keys the phone now owns (`flowmic.ui.stt.dictionary`,
+// `flowmic.ui.stt.polish`, `flowmic.ui.stt.polish.strength`,
+// `flowmic.settings.sttRefine`, `flowmic.ui.scenario.card`,
+// `flowmic.ui.scenario.inference`) are NOT read or written any more, and are
+// deliberately not cleared either: this build has no screen that could show
+// them, and deleting a user's stored values on upgrade would be a destructive
+// act performed by a card whose job was to remove a screen. They are named here
+// so the next person does not mint a different spelling for one of them.
 const K_ROUTINGS = 'flowmic.ui.stt.routings';
-const K_DICT = 'flowmic.ui.stt.dictionary';
-const K_POLISH = 'flowmic.ui.stt.polish';
-// Card C8. A SEPARATE local key rather than a second field inside K_POLISH's
-// value: the existing key holds a bare boolean, so widening it would make every
-// already-cached value unparseable on the first launch after an update.
-const K_POLISH_STRENGTH = 'flowmic.ui.stt.polish.strength';
-const K_REFINE = 'flowmic.settings.sttRefine';
 const K_LLM = 'flowmic.ui.llm.config';
-const K_SCENARIO = 'flowmic.ui.scenario.card';
-const K_INFER = 'flowmic.ui.scenario.inference';
 
 function save(key: string, value: unknown): void {
   localKv.set(key, JSON.stringify(value));
 }
-
-/** Labels for the curated dictionary packs (protocol pack ids → UI label).
- *  V2-07.8a: GETTERS reading S — an init-time literal table would freeze the
- *  boot locale and never switch (the status.ts BADGES bug class). */
-export const PACK_LABELS: Record<string, string> = {
-  get 'tech-dev'() { return S.pack_tech_dev; },
-  get medical() { return S.pack_medical; },
-  get legal() { return S.pack_legal; },
-  get finance() { return S.pack_finance; },
-  get 'proper-noun'() { return S.pack_proper_noun; },
-  get 'code-switch'() { return S.pack_code_switch; },
-};
-export const PACKS = DICTIONARY_PACKS.map((p) => ({
-  id: p.id,
-  get label() { return PACK_LABELS[p.id] ?? p.label; },
-}));
 
 export const sttPresets = STT_PRESETS;
 /** The menu, already sectioned (06 §7.1 ②). Re-exported rather than re-derived
@@ -237,19 +174,6 @@ const LLM_UNCONFIGURED: LlmConfigModel = {
   model: '',
 };
 
-const EMPTY_CARD: ScenarioCard = { professions: [], domains: [], packs: [], terms: [] };
-
-/** asCard, then the profession-id read mapping. The only read author for a
- *  card that is about to be shown or saved — local cache load AND the
- *  settings:list snapshot both go through here, so a stored `软件开发` lights
- *  the `software development` chip from either source. Unknown values pass
- *  through (migrateProfessionList). */
-function asCardMigrated(v: unknown): ScenarioCard | null {
-  const c = asCard(v);
-  if (!c) return null;
-  return { ...c, professions: migrateProfessionList(c.professions) };
-}
-
 export const model = reactive({
   /** 🔴 `'zh'`, NOT `'zh-CN'` (owner 2026-08-27 §2-2). One hyphen made this row
    *  unreachable: phone and seeder both say `zh`, routing was string equality,
@@ -257,52 +181,23 @@ export const model = reactive({
    *  region-normalises too — that rescues the `zh-CN` already cached out there,
    *  this stops new ones being minted; either fix alone leaves half broken. */
   routings: loadWith<Routing[]>(K_ROUTINGS, [routingFromPreset(DEFAULT_STT_PRESET, 'zh')], asOrderedRoutings),
-  dictionary: loadWith<DictEntry[]>(K_DICT, [], asDictionary),
-  /**
-   * WP-R4-6 AI polish. 🔴 THE SERVER OWNS THIS VALUE — this field is a CACHE of
-   * the last answer `settings:list` gave, not an opinion of its own.
-   *
-   * The `false` here is the pre-first-sync placeholder only, and it is no longer
-   * load-bearing: as of 0.3.0 L2 the server states `stt.polish` in every
-   * `settings:list` even when the account has no row (settings.handler.ts
-   * `withEffectiveDefaults`), so `applyServerSettings` always overwrites this on
-   * the connected rising edge. It used to be the ONLY answer for an account that
-   * had never touched the switch — and it was the wrong one, because the server's
-   * default is not this constant. That rendered the toggle OFF while polish ran on
-   * every closing final (RT ledger §6.1 item 6; R11).
-   * ⚠️ Do NOT "fix" this by hard-coding `true` when the default flips. A local
-   * mirror of a server-side constant is the defect itself, not the value it was
-   * set to — the mirror goes stale on the deploy that changes the constant, and
-   * this UI ships in a binary that deploy cannot reach.
-   */
-  polishEnabled: loadWith<boolean>(K_POLISH, false, asBoolean),
-  /**
-   * Card C8 — how far the polish layer may go. Only meaningful while
-   * `polishEnabled` is true, and deliberately NOT cleared when the toggle goes
-   * off: a user who turns polish off and back on should find the choice they
-   * made, not a silently reset one.
-   *
-   * ⚠️ The default is the PRODUCT default (`strict`), not a neutral one, and
-   * the difference matters on this side specifically: this value is what a user
-   * sees before the first `settings:list` lands, so a wrong placeholder here
-   * would show `smooth` to someone whose account is on `strict` — the exact
-   * "the switch reports whether a row exists rather than what the server does"
-   * shape that card POLISH-CFG was written to close.
-   */
-  polishStrength: loadWith<PolishStrength>(K_POLISH_STRENGTH, DEFAULT_POLISH_STRENGTH, asPolishStrength),
   /**
    * Card POLISH-CFG — "can a usable language model be resolved," answered by
-   * the SERVER (`capability.llm`, value `{usable:boolean}`) and rendered
-   * beside the polish switch as "the capability AI polish needs is not
-   * configured, and it is not in effect."
+   * the SERVER (`capability.llm`, value `{usable:boolean}`) and rendered on the
+   * language-model section as "Translate / Organize are not supported."
+   *
+   * ⚠️ It used to also gate the sentence beside the AI-polish switch. That
+   * switch moved to the phone (owner 2026-09-03), so this fact now has exactly
+   * one reader on this end — which is why the sentence naming AI polish lives
+   * in `llm_hint`, on the page that owns the configuration polish resolves
+   * through, rather than beside a control that is no longer here.
    *
    * 🔴 WHY THE DESKTOP CANNOT ANSWER THIS ITSELF, i.e. why it is on the wire at
-   * all. The effective `stt.polish` says on/off but never WHY, and this side can
-   * only see the `llm.config` ROW — while the platform's managed default is
-   * env-gated and is never a row. A desktop that inferred "not configured" from
-   * an empty `model.llm.endpoint` would call a working cloud account "not
-   * configured." Book 15 R11: the layer making the claim must hold the fact
-   * the claim needs.
+   * all. This side can only see the `llm.config` ROW — while the platform's
+   * managed default is env-gated and is never a row. A desktop that inferred
+   * "not configured" from an empty `model.llm.endpoint` would call a working
+   * cloud account "not configured." Book 15 R11: the layer making the claim
+   * must hold the fact the claim needs.
    *
    * 🔴 `true` IS THE PRE-FIRST-SYNC VALUE ON PURPOSE, AND IT IS NOT A GUESS AT
    * THE ANSWER — it is the absence of a claim. The sentence renders only on
@@ -319,16 +214,7 @@ export const model = reactive({
    * so there is nothing to write back either.
    */
   llmCapabilityUsable: true,
-  refineEnabled: loadWith<boolean>(K_REFINE, false, asBoolean),
   llm: loadWith<LlmConfigModel>(K_LLM, { ...LLM_UNCONFIGURED }, asLlmConfig),
-  card: loadWith<ScenarioCard>(K_SCENARIO, EMPTY_CARD, asCardMigrated),
-  /** V2-08 — the consent this PC last recorded, or `null` for "never asked,"
-   *  which is the state every install starts in and the state the feature is
-   *  OFF in. NOT a
-   *  boolean: what the user agreed to includes WHICH destination they were shown
-   *  (protocol `ScenarioInferenceConsent`), and dropping that half is how a
-   *  consent given for a LAN box silently becomes one for a vendor. */
-  inferenceConsent: loadWith<ScenarioInferenceConsent | null>(K_INFER, null, asConsentRow),
 });
 
 // ── STT routings ──
@@ -376,74 +262,6 @@ export function updateRoutingField(index: number, field: keyof Routing, value: s
   if (!r) return;
   (r as Record<string, unknown>)[field] = value;
   pushRoutings();
-}
-
-// ── personal dictionary (stt.dictionary — variable key, NOT a drift anchor) ──
-function pushDictionary(): void {
-  save(K_DICT, model.dictionary);
-  settings.updateSetting(STT_DICTIONARY_KEY, model.dictionary.map((d) => ({ ...d })));
-}
-// P2 #15 (2026-09-02) — the "n / 300" the card shows next to S.dict_title was a
-// display-only number: this function never checked it, so the box would keep
-// accepting terms past 300 and the server (HOTWORDS_MAX_ENTRIES /
-// DICTIONARY_MAX_ENTRIES, apps/server-core/src/stt/hotwords.ts) would silently
-// truncate from the front — a term a user just typed could vanish from the
-// dictionary the STT engine actually uses, with the card still showing it in
-// the list. Same at-cap no-op SttSettings.vue already gives a duplicate term
-// (`addTerm` only clears the input on `true`), so the fix is enforcing the
-// SAME cap the "n / 300" label reads, not inventing new feedback.
-export function addDictEntry(term: string): boolean {
-  const t = term.trim();
-  if (t.length === 0 || model.dictionary.some((d) => d.term === t)) return false;
-  if (model.dictionary.length >= DICTIONARY_PACK_MAX_ENTRIES) return false;
-  model.dictionary.push({ term: t });
-  pushDictionary();
-  return true;
-}
-export function removeDictEntry(term: string): void {
-  model.dictionary = model.dictionary.filter((d) => d.term !== term);
-  pushDictionary();
-}
-
-// ── AI polish (stt.polish — literal SET anchor via settings.setSttPolish) ──
-function pushPolish(): void {
-  save(K_POLISH, model.polishEnabled);
-  save(K_POLISH_STRENGTH, model.polishStrength);
-  // 🔴 CARD C8 DEPLOYMENT ORDER LIVES ON THIS LINE. `SttPolishSchema` is
-  // `.strict()`, so a server that predates the `strength` field REJECTS this
-  // write outright (SETTINGS_SCHEMA_INVALID) — the write does not degrade to
-  // "enabled only", it fails, and the user's toggle stops working. Both server
-  // halves therefore ship first: the relay, AND the LAN server that ships
-  // inside this same desktop installer.
-  //
-  // ⚠️ The second half is the one that is easy to miss, and it is also the one
-  // that makes this safe in practice: the LAN server travels in the installer
-  // with this UI, so for the LAN path the two are never out of step by
-  // construction. The exposure is a NEW desktop talking to an OLD relay.
-  settings.setSttPolish({ enabled: model.polishEnabled, strength: model.polishStrength });
-}
-export function setPolishEnabled(enabled: boolean): void {
-  model.polishEnabled = enabled;
-  pushPolish();
-}
-/** Card C8. Deliberately reachable while polish is OFF (the control is rendered
- *  disabled, not hidden) so the value the user picks is the value they get when
- *  they turn it on — rather than a choice silently discarded in between. */
-export function setPolishStrength(strength: PolishStrength): void {
-  model.polishStrength = strength;
-  pushPolish();
-}
-
-// ── two-pass refine (stt.refine — literal SET anchor via settings.setSttRefine) ──
-// GA-14. OFF by default and the default is load-bearing: a second full
-// transcription is a second engine bill for that utterance.
-function pushRefine(): void {
-  save(K_REFINE, model.refineEnabled);
-  settings.setSttRefine({ enabled: model.refineEnabled });
-}
-export function setRefineEnabled(enabled: boolean): void {
-  model.refineEnabled = enabled;
-  pushRefine();
 }
 
 // ── LLM config ──
@@ -496,119 +314,13 @@ export function updateLlmField(field: Exclude<keyof LlmConfigModel, 'preset_id'>
   pushLlm();
 }
 
-// ── scenario card (scenario.card — literal SET anchor via settings.setScenarioCard) ──
-function pushCard(): void {
-  save(K_SCENARIO, model.card);
-  settings.setScenarioCard({ ...model.card });
-}
-function toggleIn(list: string[], value: string, max: number): string[] {
-  if (list.includes(value)) return list.filter((x) => x !== value);
-  if (list.length >= max) return list; // at cap → no-op
-  return [...list, value];
-}
-export function toggleProfession(value: string): void {
-  model.card.professions = toggleIn(model.card.professions, value, SCENARIO_MAX_PROFESSIONS);
-  pushCard();
-}
-// P2 #13 (2026-09-02): `toggleDomain` (the domains analogue of the two
-// functions around it) was deleted here — profession-ids.ts's header already
-// documents why (Packet D §D3: the desktop deliberately has no domain-chip
-// row) and it had zero callers. `model.card.domains` itself is untouched: it
-// is still read and preserved by settings-cache-narrow.ts, because mobile is
-// the end that writes it.
-export function togglePack(id: string): void {
-  model.card.packs = toggleIn(model.card.packs, id, SCENARIO_MAX_PACKS);
-  pushCard();
-}
-export type TermAdd = 'added' | 'duplicate' | 'too-long' | 'at-cap' | 'empty';
-export function addTerm(raw: string): TermAdd {
-  const t = raw.trim();
-  if (t.length === 0) return 'empty';
-  if (t.length > SCENARIO_MAX_LABEL_LEN) return 'too-long';
-  if (model.card.terms.includes(t)) return 'duplicate';
-  if (model.card.terms.length >= SCENARIO_MAX_TERMS) return 'at-cap';
-  model.card.terms = [...model.card.terms, t];
-  pushCard();
-  return 'added';
-}
-export function removeTerm(term: string): void {
-  model.card.terms = model.card.terms.filter((x) => x !== term);
-  pushCard();
-}
-
-// ── V2-08 scenario inference consent (scenario.inference — CONSTANT key, NOT a drift anchor) ──
-//
-// The switch writes a row shaped exactly the way server-core's reader accepts:
-// `{granted, granted_for}` built by the protocol's own [scenarioConsentRow], with
-// `granted_for` computed by the protocol's own [classifyDestination]. Neither is
-// re-derived here, and that is the whole point of the card that added them: a
-// consent row whose `granted_for` is not in the closed vocabulary reads as
-// MALFORMED server-side ⇒ "no setting" ⇒ the feature stays off ⇒ the user has
-// ticked a box that changes nothing, which is worse than not offering the box.
-//
-// SCOPE: `settings:update` is pinned to the LAN socket (src-tauri shell::mod.rs
-// `with_lan_socket`), so this row reaches the self-hosted server only — the same
-// scope every other setting on this page has, which is why the consent card
-// repeats the "the settings below apply to the local LAN channel" note.
-
-/** Where the model that would be shown the executable name lives RIGHT NOW —
- *  derived from the LLM endpoint on screen, so the consent card and the server
- *  gate cannot disagree about which endpoint is in question.
- *
- *  Passes the deployment overlay from presets (`ADDITIONAL_PRIVATE_CIDRS`) so
- *  owner D1's office LAN (`100.64.7.*`) classifies as local here. The
- *  classifier itself never hard-codes that range — omitting the argument would
- *  fall back to RFC1918-only. */
-export function inferenceDestination(): ModelDestination {
-  return classifyDestination(model.llm.endpoint, ADDITIONAL_PRIVATE_CIDRS);
-}
-
-/** Why the feature is not running, or `undefined` when it is. The SAME function
- *  the server gate calls — the desktop must not answer this itself, because every
- *  way the two answers could differ is a lie on screen. */
-export function inferenceBlocked(): InferenceBlockedReason | undefined {
-  return inferenceBlockedReason(model.inferenceConsent ?? undefined, inferenceDestination());
-}
-
-/** What the switch shows. NOT `consent.granted`: a consent granted for a LAN box
- *  while the endpoint now points elsewhere is granted AND not in force, and a
- *  switch rendered from `granted` alone would sit there claiming ON. */
-export function inferenceEnabled(): boolean {
-  return inferenceBlocked() === undefined;
-}
-
-/** Record (or withdraw) consent for the endpoint currently on screen.
- *  Change-applies-immediately — no confirm button, no second step. */
-export function setScenarioInferenceGranted(granted: boolean): void {
-  const consent: ScenarioInferenceConsent = { granted, grantedFor: inferenceDestination() };
-  model.inferenceConsent = consent;
-  const row = scenarioConsentRow(consent);
-  save(K_INFER, row);
-  // Withdrawal is a WRITTEN `granted:false`, not a deleted row: the server drops
-  // this user's whole descriptor cache whenever the consent premises change, and
-  // that is the mechanism behind "once turned off, use stops immediately from
-  // the next sentence on (including any previously-cached inference)."
-  // It also records that the user answered, rather than that we forgot to ask.
-  settings.updateSetting(SCENARIO_INFERENCE_KEY, row);
-}
-
-// `domains` was dropped from this map with `toggleDomain` above (P2 #13,
-// 2026-09-02): the desktop has no domain-chip row to cap (profession-ids.ts
-// §DOMAINS), and nothing here read SCENARIO_CAPS.domains either.
-export const SCENARIO_CAPS = {
-  professions: SCENARIO_MAX_PROFESSIONS,
-  packs: SCENARIO_MAX_PACKS,
-  terms: SCENARIO_MAX_TERMS,
-  labelLen: SCENARIO_MAX_LABEL_LEN,
-};
-
 // ── settings:list bridge (WP-R3.5 — R2-2 deferred refinement) ────────────────
 // On the connected rising edge the desktop pulls the server-authoritative
 // settings snapshot and ADOPTS it into this display cache. This is the observable
 // consumer that closes the R2-2 deferral (07 §8: "loading its snapshot
 // (settings:list) is a later refinement"). Server wins for a key the user has NOT
 // locally edited-and-not-yet-synced (settings.isKeyPending → last-write-wins for
-// an in-flight local edit); only the five keys this model owns are mapped, and a
+// an in-flight local edit); only the keys this model owns are mapped, and a
 // malformed value is skipped (defensive — never throws into the UI). For a PC the
 // server returns unredacted at-rest-decrypted plaintext (settings.handler §3.7),
 // the same shape this model writes via the anchor methods, so adoption is loss-
@@ -638,61 +350,13 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
           save(K_ROUTINGS, model.routings);
         }
         break;
-      case STT_DICTIONARY_KEY: // 'stt.dictionary'
-        if (Array.isArray(value)) {
-          model.dictionary = (value as DictEntry[]).map((d) => ({ ...d }));
-          save(K_DICT, model.dictionary);
-        }
-        break;
-      case SETTINGS_ANCHOR_KEYS.sttPolish: { // 'stt.polish'
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const enabled = (value as { enabled?: unknown }).enabled;
-          if (typeof enabled === 'boolean') {
-            model.polishEnabled = enabled;
-            save(K_POLISH, model.polishEnabled);
-          }
-          // Card C8. ABSENT is a real answer, not a missing one: every row
-          // written before this field existed omits it, and it means `strict`.
-          // Adopting the default here rather than leaving the cached value
-          // alone is what makes the control report what the SERVER will do —
-          // the same rule the `enabled` half already follows, and the reason
-          // `capability.llm` above is documented as the opposite case (there,
-          // unparseable really does mean "no new answer").
-          const strength = asPolishStrength((value as { strength?: unknown }).strength);
-          model.polishStrength = strength ?? DEFAULT_POLISH_STRENGTH;
-          save(K_POLISH_STRENGTH, model.polishStrength);
-        }
-        break;
-      }
-      // E3 (2026-09-02) — this case was MISSING: `stt.refine` has a real server
-      // reader (readSttRefine, stt-refine-settings.ts) and a real SET anchor
-      // (setSttRefine below), but nothing here ever adopted its GET side. The
-      // symptom is silent and one-directional — the toggle only drifts the way a
-      // pending-edit guard can never catch, because `isKeyPending` only protects an
-      // edit THIS window made. A phone flipping `stt.refine` (or a second PC
-      // window) pushed a settings:updated frame that triggered a re-pull here, and
-      // `applyServerSettings` walked straight past the item: the switch fell
-      // through to the `default` no-op with no error, so the settings page kept
-      // showing whatever this window last wrote, forever out of step with what
-      // the server (and hence the ACTUAL transcription session) does.
-      case SETTINGS_ANCHOR_KEYS.sttRefine: { // 'stt.refine' — mirrors sttPolish's `enabled` half
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const enabled = (value as { enabled?: unknown }).enabled;
-          if (typeof enabled === 'boolean') {
-            model.refineEnabled = enabled;
-            save(K_REFINE, model.refineEnabled);
-          }
-        }
-        break;
-      }
       case CAPABILITY_LLM_KEY: { // 'capability.llm' — READ-ONLY `{usable:boolean}`
         // Adopted like any other snapshot value, with ONE difference stated so it
         // is not "tidied up" later: there is no `save(...)` and no push-back. It
         // is a fact the server recomputes per read, not a value this PC owns.
-        // A malformed / missing `usable` leaves the last known answer alone — the
-        // same stance as the consent row: "cannot parse it" is not "the answer
-        // is false," and guessing false here puts "not configured" on screen
-        // for a configured account.
+        // A malformed / missing `usable` leaves the last known answer alone:
+        // "cannot parse it" is not "the answer is false," and guessing false
+        // here puts "not configured" on screen for a configured account.
         if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
           const usable = (value as { usable?: unknown }).usable;
           if (typeof usable === 'boolean') model.llmCapabilityUsable = usable;
@@ -712,28 +376,12 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
           save(K_LLM, model.llm);
         }
         break;
-      case SETTINGS_ANCHOR_KEYS.scenarioCard: { // 'scenario.card'
-        const card = asCardMigrated(value);
-        if (card !== null) {
-          model.card = card;
-          save(K_SCENARIO, model.card);
-        }
-        break;
-      }
-      case SCENARIO_INFERENCE_KEY: { // 'scenario.inference' (V2-08 consent row)
-        // The SERVER's row is the one the gate actually reads, so it wins over
-        // this PC's display cache. A row this narrows to null is left alone
-        // rather than adopted as "not consented": "cannot parse it" and "the
-        // user refused" are two different facts, and only the server's own
-        // reader gets to act on the first one (it does — as off, loudly).
-        const consent = asConsentRow(value);
-        if (consent !== null) {
-          model.inferenceConsent = consent;
-          save(K_INFER, scenarioConsentRow(consent));
-        }
-        break;
-      }
-      // Unknown keys (device.*, preferences.*, …) are not owned by this model — skip.
+      // Unknown keys are not owned by this model — skip. Since owner
+      // 2026-09-03 that set includes `scenario.card` / `stt.polish` /
+      // `stt.refine` / `stt.dictionary` / `scenario.inference`: the phone owns
+      // them, nothing stores them, and a case here would adopt a value this
+      // build has no screen for. Named rather than merely absent, because
+      // 「why is this key missing」 is the question a reader arrives with.
     }
   }
 }

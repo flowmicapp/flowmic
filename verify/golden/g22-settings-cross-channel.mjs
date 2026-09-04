@@ -1,196 +1,270 @@
 // verify/golden/g22-settings-cross-channel.mjs
 //
-// G22 — 🔴 cross-channel settings convergence: **a settings row carries WHEN it was
-// edited, and the server refuses to move it backwards in time** (G2, 04 §3.7-a).
+// G22 — 🔴 phone-owned preferences RIDE THE START FRAME on both channels, are used
+// for exactly that session, and are never storage
+// (owner rulings 2026-09-03, docs/decisions/2026-09-03-owner-web-rulings-phone-owned-settings.md,
+// and the same-day follow-up ruling that the carrier is `audio:start` / `compose:start`;
+// design docs/strategy/2026-09-03-phone-owned-settings-design-and-task-book.md D2/D4).
 //
-// ── 🔴 what this file proves, and what it does not (both sentences, or the PASS line is lying) ─────
+// ── 🔴 what this file proves, and what it does not ─────────────────────────────────
 //
-// The "phone" here, as in G19/G20, is a **bare socket.io client**: no local KV, no
-// reconnect logic, no convergence policy. So:
-//   · proved — that TWO REAL SERVERS OF DIFFERENT MODES can hold different copies of one
-//     key, that a client can push the newer copy onto the stale one, and that the stale
-//     server will NOT accept an older copy over a newer one;
-//   · not proved — that the phone actually pushes on the room-join edge, or that it
-//     picks the right copy to push. That half is the mobile client's, and it is being
-//     built against this contract, not asserted here.
+// The "phone" here, as in G19/G20, is a **bare socket.io client**. So:
+//   · proved — on TWO REAL SERVERS OF DIFFERENT MODES (standalone = the LAN sidecar,
+//     saas = the cloud relay):
+//       ① an `audio:start` carrying `prefs.scenario.card` resolves THAT card for THAT
+//          session (the pipeline trace's `terms.resolved` reports the card's own
+//          term/alias counts — 3/2 — on the production seam);
+//       ② the card NEVER lands in `user_settings` (the PC's `settings:list` lists every
+//          stored row and does not show it; positive control: the same probe shows
+//          `llm.config`, which the PC just stored);
+//       ③ REVERSE CONTROL: the next `audio:start` on the SAME socket WITHOUT `prefs`
+//          resolves NO card (0/0) — a stale bundle never acts on a later utterance;
+//       ④ a `compose:start` carrying the card feeds the scenario block (`compose.scenario`
+//          reports professions=1, term_count=3), and one without it feeds nothing (0/0);
+//       ⑤ a `settings:update('scenario.card')` is refused by name from the MOBILE and
+//          from the PC alike, and still nothing is stored;
+//   · not proved — that the phone actually puts its preferences on every start frame.
+//     That half is the mobile client's (WP-B).
 //
-// ⚠️ **Neither half is "the acceptance test" alone.** Measured while writing the server
-// half: flipping the regress guard's comparison leaves a push-and-re-read client
-// entirely green, because such a client cannot observe WHOSE write survived. The
-// mobile suite would stay green while the data-loss path was wide open.
+// ── 🔴 why ① and ③ are the load-bearing pair ─────────────────────────────────────────
 //
-// ── 🔴 why this needs two servers, and why it is here ────────────────────────────────
+// ② alone is satisfied by a server that drops the bundle; ① alone is satisfied by a
+// server that keeps the LAST bundle forever. Only the pair says "used, then forgotten":
+// the counts are measured on the production seam (engine/stt-factory.ts, level `meta` —
+// counts only, never the words), and ② has just shown the database has nothing that
+// could have produced them.
 //
-// The two channels are two INDEPENDENT servers with two INDEPENDENT KVs (05 §5.2). This
-// is the only file in the repo where a standalone instance and a saas instance exist at
-// the same moment (harness `startServer` / `startSaasServer`), so it is the only place
-// the divergence can be built for real instead of simulated.
+// ⚠️ **Every cloud assertion has a same-shape LAN control** — G20's rule. "The cloud leg
+// went red" and "the feature is entirely broken" look identical without it, and the two
+// dispositions are opposite (redeploy the relay / go back and change the code).
 //
-// And the divergence is not hypothetical: `scenario.card` has TWO writers — the phone
-// AND the desktop — so two writers × two servers = FOUR copies of one card. Once clients
-// converge by pushing their local copy on reconnect, a phone holding a week-old card can
-// clobber a desktop edit made five minutes ago. **The regress guard is what stops the
-// cure from being worse than the disease**, and step ④ is the assertion that it is armed.
+// 🔴 **DEPLOYMENT ORDER IS DETECTABLE HERE.** A relay older than this contract strips the
+// unknown `prefs` key (zod) and resolves no card: ① fails on the cloud leg with 0/0 while
+// the LAN leg passes. The failure message names the order (relay first, then APK).
 //
-// ⚠️ **Every cloud assertion has a same-shape LAN control** — G20's rule. Without it,
-// "the cloud leg went red" and "the feature is entirely broken" look identical, while the
-// two dispositions are opposite (redeploy the relay / go back and change the code).
+// ── REVERSE CONTROLS (executed 2026-09-03, this tree; all three restored byte-identical,
+//    sha256 compared, dist rebuilt from the restored sources and G22 re-run green) ──
 //
-// 🔴 **STRIP DETECTION doubles as the production canary.** `updated_at` is an ADDITIVE
-// optional field, and zod objects silently strip unknown keys — so a server older than
-// this feature answers `settings:list` with the frame intact and the stamp quietly gone.
-// That is indistinguishable from the bug itself, which is why the failure message names
-// the deployment order instead of just reporting a missing key.
-//
-// ── REVERSE CONTROLS (executed 2026-08-16, this tree; both restored byte-identical) ──
-//
-//   1. STRIP: stop copying `it.updated_at` in `withEffectiveDefaults` —
-//        G22  FAIL  cloud/①: 值对了，但 **updated_at 整个不在帧上**。
-//          🔴 部署顺序＝**先中继 + 桌面，最后 APK**。注意服务端有两半 …
-//      i.e. the canary fired on the FIRST read, in the intended voice, and named the
-//      order — not a bare "expected undefined to be '2026-…'".
-//   2. REGRESS: flip the server guard's comparison — asserted in the server suite
-//      (apps/server-core/test/settings-updated-at.test.ts, 4 red). Recorded there
-//      rather than re-run here because that is where the one-line break lives.
-//      🔴 That same break leaves a push-and-re-read MOBILE client entirely green.
-//
-// Both `requires` docs below are `internalOnly`. The first draft required them
-// outright, on a comment claiming docs/rebuild ships in the OSS export — FALSE, the
-// manifest excludes `docs/` wholesale, and the runner's drift check caught it before
-// this file ever ran. Left as a note because the mistake is cheap to repeat.
+//   A. STALE BUNDLE: audio.handler.ts `setSessionPrefs(socket, parsed.data.prefs ?? null)`
+//      → set only when present (a frame without prefs keeps the previous bundle) →
+//        G22  FAIL  lan/③: 不带 prefs 的第二次 audio:start 仍然看到了上一次的情景卡 ——
+//                   terms.resolved 报 rule_count=3 alias_count=2，应为 0/0。
+//      i.e. ① and ② stayed green and ONLY ③ caught it — which is the whole argument for ③.
+//   B. STORAGE: settings.handler.ts — the `isPhoneOwnedKey` refusal deleted →
+//        G22  FAIL  lan/⑤: mobile 写 scenario.card 没有被具名拒收（{"ok":true}）…
+//   C. TRANSIT: engine/stt-factory.ts — `overlaySettings(deps.settings, getSessionPrefs(socket))`
+//      replaced with `deps.settings` (read the database, ignore the frame) →
+//        G22  FAIL  lan/①: audio:start 没有用帧里带的情景卡 —— terms.resolved 报 rule_count=0
+//                   alias_count=0，应为 3/2 …
+//   Each fired on the LAN leg first, on the step built for it, before any cloud step ran.
 
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
-  ROOT, SERVER_DIST,
-  connect, ack, once, registerAndPair, startSaasServer, saasJwt, PASS, FAIL,
+  ROOT, SERVER_CORE, SERVER_DIST,
+  connect, ack, once, startSaasServer, saasJwt, PASS, FAIL,
 } from './harness.mjs';
 import { internalOnly } from './requires.mjs';
 
 const KEY = 'scenario.card';
 
-/** Two instants an hour apart. Fixed, not `Date.now()`: the whole point is that the
- *  ORDER is what decides, and a hard-coded pair makes the intended winner readable. */
-const T1 = '2026-08-16T10:00:00.000Z';
-const T2 = '2026-08-16T11:00:00.000Z';
+/** The card the phone carries: 3 terms, 2 aliases in total, 1 profession. Those
+ *  numbers are what ① and ④ read back off the trace, so they are stated once here. */
+const CARD = {
+  professions: ['golden'],
+  domains: [],
+  packs: [],
+  terms: ['FlowMic', { term: 'Kubernetes', aliases: ['k8s', '库伯'] }, 'Soniox'],
+};
+const CARD_TERMS = 3;
+const CARD_ALIASES = 2;
 
-const card = (tag) => ({ professions: [tag], domains: [], packs: [], terms: [] });
-const tagOf = (value) => value?.professions?.[0];
+const AUDIO = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh', delivery: 'none' };
+const COMPOSE = { task: 'organize', source_text: 'golden probe' };
+/** A stored key the PC may still write; it doubles as the positive control for the
+ *  "no row" probe AND as the LLM config the compose factory needs to get as far as
+ *  the scenario trace (the endpoint is unreachable — the turn ends in compose:error,
+ *  which is fine: the `compose.scenario` record is written before any call). */
+const LLM_CONFIG = { protocol: 'openai-compatible', endpoint: 'http://127.0.0.1:9/v1', api_key: 'EMPTY', model: 'golden-probe' };
 
-async function listCard(sock) {
-  const list = await ack(sock, 'settings:list', {});
-  if (!Array.isArray(list?.items)) return { missing: true };
-  return list.items.find((i) => i.key === KEY) ?? { absent: true };
+/** A standalone server of our own, so the pipeline trace can be switched on for it.
+ *  Same spawn shape as harness.startServer, plus the two trace env vars. */
+function startStandaloneTraced(tracePath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['dist/index.js'], {
+      cwd: SERVER_CORE,
+      env: {
+        ...process.env,
+        FLOWMIC_MODE: 'standalone', FLOWMIC_PORT: '0',
+        FLOWMIC_SETTINGS_SECRET: 'golden-secret-32-bytes-minimum-xxx',
+        FLOWMIC_TRACE_PIPELINE: 'meta', FLOWMIC_TRACE_PATH: tracePath,
+      },
+    });
+    let out = '';
+    child.stdout.on('data', (d) => {
+      out += d;
+      const m = /^(\d+)/.exec(out.trim());
+      if (m) resolve({ child, port: Number(m[1]) });
+    });
+    child.on('exit', (code) => reject(new Error(`standalone server exited early (${code})`)));
+    setTimeout(() => reject(new Error('standalone server start timeout')), 8000);
+  });
 }
 
-/** Read the card back and check BOTH halves: the value that won and the stamp it won
- *  with. Returns an error string, or null. */
-async function expectCard(label, step, sock, tag, stamp) {
-  const item = await listCard(sock);
-  if (item.missing) return `${label}/${step}: settings:list 没有 items 数组`;
-  if (item.absent) {
-    return `${label}/${step}: settings:list 里根本没有 ${KEY} 这个键 —— `
-      + '⚠️ 注意「快照里没有」与「服务端说它是空的」在今天的线上是分不清的两件事（05 §5.2）：'
-      + '这个键不被播种，所以一台从没被写过的服务端会整个不提它。';
-  }
-  if (tagOf(item.value) !== tag) {
-    return `${label}/${step}: 赢的那一份不对（收到 ${JSON.stringify(tagOf(item.value))}，应为 ${JSON.stringify(tag)}）`;
-  }
-  // 🔴 STRIP DETECTION — the canary. Said in G19's voice, and naming the order.
-  if (item.updated_at === undefined) {
-    return `${label}/${step}: 值对了，但 **updated_at 整个不在帧上**。`
-      + '\n  🔴 这个键被在途剥掉了 —— 这台服务端跑的 protocol dist 比 G2 旧（zod 会静默剥掉未知键）。'
-      + '\n  🔴 部署顺序＝**先中继 + 桌面，最后 APK**。注意服务端有两半：'
-      + '云端中继是一半，局域网 sidecar 随**桌面安装包**一起发（tauri.conf.json 的 resources/server.js）'
-      + '⇒ 只升中继与 APK、不升桌面的用户会拿到一个「半边武装」的功能。';
-  }
-  if (item.updated_at !== stamp) {
-    return `${label}/${step}: 戳不对（收到 ${JSON.stringify(item.updated_at)}，应为 ${JSON.stringify(stamp)}）`
-      + ' —— 服务端存的不是写入方给的那个编辑时刻，跨通道比较会拿它去和别人的真实编辑时间比。';
+async function pcSettingsKeys(pc) {
+  const list = await ack(pc, 'settings:list', {});
+  if (!Array.isArray(list?.items)) return null;
+  return list.items.map((i) => i.key);
+}
+
+/** All records of one stage in the trace file. */
+function records(tracePath, stage) {
+  let text;
+  try { text = readFileSync(tracePath, 'utf8'); } catch { return []; }
+  return text.split('\n').filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((r) => r && r.stage === stage);
+}
+
+/** Wait for the stage to gain a record beyond `already`, up to ~3 s. */
+async function nextRecord(tracePath, stage, already) {
+  for (let i = 0; i < 30; i++) {
+    const all = records(tracePath, stage);
+    if (all.length > already) return all[all.length - 1];
+    await new Promise((r) => setTimeout(r, 100));
   }
   return null;
 }
 
+async function startAndStop(mobile, payload) {
+  try { await ack(mobile, 'audio:start', payload); } catch { /* an engine-less server may refuse; the trace is already written */ }
+  try { await ack(mobile, 'audio:stop', {}); } catch { /* same */ }
+}
+
 /**
- * ④ THE REGRESS CONTROL — the load-bearing one.
- *
- * Push the OLDER copy at a server that already holds the newer one. Three things must
- * be true at once, and each one alone is insufficient:
- *   · the stored row does not move (otherwise the convergence fix is a data-loss path);
- *   · the ack is still ok:true (the sender did nothing wrong — this mints no error code);
- *   · a `settings:updated` carrying the WINNER comes back on the PUSHING socket.
- * That third one is「输家必须被告知」: a silent ok:true would leave the phone believing its
- * stale card is now authoritative, which is 没有静默失败 in the direction that says a
- * thing was done when it was not.
+ * The five steps, run identically on one leg. Returns an error string or null.
+ * `label` is 'lan' | 'cloud'; the message names the leg so the two dispositions stay apart.
  */
-async function regressControl(label, sock) {
-  const told = once(sock, 'settings:updated', 3000);
-  const res = await ack(sock, 'settings:update', { key: KEY, value: card('v1'), updated_at: T1 });
-  if (res?.ok !== true) {
-    return `${label}/④: 倒退写被当成了错误（${JSON.stringify(res)}）—— 发起方并没有做错什么，`
-      + '它只是拿着一份旧的；这条路刻意不铸错误码。';
+async function runLeg(label, { pc, mobile, tracePath }) {
+  const stale = `\n  🔴 部署顺序＝**先中继、后 APK**：老中继会把未知的 \`prefs\` 键在途剥掉；若 LAN 腿绿而云端红 ⇒ 是中继没部署，别改代码。`;
+
+  // ── ① audio:start CARRYING the card resolves it for that session ───────────────
+  const n1 = records(tracePath, 'terms.resolved').length;
+  await startAndStop(mobile, { ...AUDIO, prefs: { [KEY]: CARD } });
+  const r1 = await nextRecord(tracePath, 'terms.resolved', n1);
+  if (r1 === null) {
+    return `${label}/①: audio:start 之后 trace 里没有新的 terms.resolved 记录（${tracePath}）——`
+      + ' FLOWMIC_TRACE_PIPELINE=meta 没生效，或 audio:start 根本没走到 stt-factory 的闭包。';
   }
-  let frame;
-  try {
-    frame = await told;
-  } catch (e) {
-    return `${label}/④: **输家没有被告知**（${e.message}）—— 服务端收下了一次注定不生效的写，`
-      + '却让发起方以为自己那份已经是权威的了。';
+  if (r1.rule_count !== CARD_TERMS || r1.alias_count !== CARD_ALIASES) {
+    return `${label}/①: audio:start 没有用帧里带的情景卡 —— terms.resolved 报 rule_count=${r1.rule_count} alias_count=${r1.alias_count}，`
+      + `应为 ${CARD_TERMS}/${CARD_ALIASES}。② 证明库里没有卡，这个数只能来自帧上的 prefs；为 0 ⇒ 要么 audio.handler 没把 bundle 挂上 socket，要么 stt-factory 读的是库。${stale}`;
   }
-  if (tagOf(frame?.value) !== 'v2' || frame?.updated_at !== T2) {
-    return `${label}/④: 回发给输家的不是赢的那一份：${JSON.stringify(frame)}`;
+
+  // ── ② …and it NEVER lands: the PC's settings:list (every stored row) has no card ──
+  //     Positive control first: a key a PC stores DOES show up through the same probe.
+  const stored = await ack(pc, 'settings:update', { key: 'llm.config', value: LLM_CONFIG });
+  if (stored?.ok !== true) return `${label}/②-control: PC 写一个仍然入库的键失败了（${JSON.stringify(stored)}）——探针本身没法证明自己不瞎。`;
+  const keys = await pcSettingsKeys(pc);
+  if (keys === null) return `${label}/②: PC 的 settings:list 没有 items 数组`;
+  if (!keys.includes('llm.config')) return `${label}/②-control: PC 刚存的 llm.config 在 settings:list 里看不见 ⇒ 这个探针是瞎的，下面的「没有」什么都不证明。`;
+  if (keys.includes(KEY)) {
+    return `${label}/②: \`${KEY}\` 落进了 user_settings（PC 的 settings:list 看得见它）。`
+      + '\n  🔴 这台服务端把帧里的 prefs 当成了存储（配置不进云端，owner Q6 备注）。';
   }
-  // …and the row itself really did not move.
-  return expectCard(label, '④-after', sock, 'v2', T2);
+
+  // ── ③ REVERSE CONTROL: the next audio:start WITHOUT prefs sees NO card ──────────
+  const n3 = records(tracePath, 'terms.resolved').length;
+  await startAndStop(mobile, AUDIO);
+  const r3 = await nextRecord(tracePath, 'terms.resolved', n3);
+  if (r3 === null) return `${label}/③: 第二次 audio:start 之后 trace 里没有新的 terms.resolved 记录。`;
+  if (r3.rule_count !== 0 || r3.alias_count !== 0) {
+    return `${label}/③: 不带 prefs 的第二次 audio:start 仍然看到了上一次的情景卡 —— terms.resolved 报 rule_count=${r3.rule_count} alias_count=${r3.alias_count}，应为 0/0。`
+      + '\n  🔴 bundle 在 socket 上残留了：一次请求的配置必须只作用于那一次（替换而不是合并；缺席即清空）。';
+  }
+
+  // ── ④ compose:start carrying the card feeds the scenario block; without it, nothing ─
+  const n4 = records(tracePath, 'compose.scenario').length;
+  mobile.emit('compose:start', { ...COMPOSE, prefs: { [KEY]: CARD } });
+  const r4 = await nextRecord(tracePath, 'compose.scenario', n4);
+  if (r4 === null) return `${label}/④: compose:start 之后 trace 里没有 compose.scenario 记录（LLM 配置没解析出来？② 刚写了 llm.config）。`;
+  if (r4.professions !== 1 || r4.term_count !== CARD_TERMS || r4.block_present !== true) {
+    return `${label}/④: compose:start 没有用帧里带的情景卡 —— compose.scenario 报 professions=${r4.professions} term_count=${r4.term_count} block_present=${r4.block_present}，`
+      + `应为 1/${CARD_TERMS}/true。${stale}`;
+  }
+  const n4b = records(tracePath, 'compose.scenario').length;
+  mobile.emit('compose:start', COMPOSE);
+  const r4b = await nextRecord(tracePath, 'compose.scenario', n4b);
+  if (r4b === null) return `${label}/④-control: 第二次 compose:start 没有留下 compose.scenario 记录。`;
+  if (r4b.professions !== 0 || r4b.term_count !== 0 || r4b.block_present !== false) {
+    return `${label}/④-control: 不带 prefs 的 compose:start 仍然看到了上一次的情景卡（professions=${r4b.professions} term_count=${r4b.term_count}）。`;
+  }
+
+  // ── ⑤ settings:update of the key is refused by name — from the phone AND the PC ──
+  for (const [who, sock] of [['mobile', mobile], ['pc', pc]]) {
+    const refused = await ack(sock, 'settings:update', { key: KEY, value: CARD });
+    if (refused?.error !== 'SETTINGS_SCHEMA_INVALID' || !String(refused?.message ?? '').includes('phone-owned')) {
+      return `${label}/⑤: ${who} 写 ${KEY} 没有被具名拒收（${JSON.stringify(refused)}）—— 这个键只许随 audio:start/compose:start 走，settings:update 一律拒收。`;
+    }
+  }
+  const keysAfter = await pcSettingsKeys(pc);
+  if (keysAfter?.includes(KEY)) return `${label}/⑤: 拒收了却还是落了库。`;
+  return null;
 }
 
 export const G22 = {
   id: 'G22',
-  name: '🔴 cross-channel settings: updated_at survives both legs, and an older copy cannot overwrite a newer one',
+  name: '🔴 phone-owned settings: the card rides audio:start/compose:start on BOTH legs — used for that session only, never stored, settings:update refused',
   requires: [
     SERVER_DIST,
-    // The contract this path enforces.
-    //
-    // ⚠️ MEASURED CORRECTION: the first draft required these two outright, with a
-    // comment claiming 「docs/rebuild ships in the OSS export」. That was FALSE — the
-    // manifest excludes `docs/` WHOLESALE (owner 2026-08-14 P-1), so in an exported
-    // tree this path would have failed forever, on the first command CONTRIBUTING
-    // tells a contributor to run. The runner's own drift check caught it, which is
-    // the second time that mechanism has paid for itself (G20 was the first).
-    // ⇒ evidence cross-links, waived by name; every assertion below still runs in
-    //   an exported tree.
-    internalOnly(path.join(ROOT, 'docs/rebuild/04-PROTOCOL-SPEC.md'),
+    internalOnly(path.join(ROOT, 'docs/decisions/2026-09-03-owner-web-rulings-phone-owned-settings.md'),
       'internal working record: the open-source export EXCLUDEs all of docs/. '
-      + '§3.7-a is the wire contract this path enforces (updated_at, the regress rule, '
-      + 'the deployment order); it pins the reasoning in the private repo and is not an '
-      + 'input to any assertion here.'),
-    internalOnly(path.join(ROOT, 'docs/rebuild/05-DATA-MODEL.md'),
-      'internal working record: the open-source export EXCLUDEs all of docs/. '
-      + '§5.1/§5.2 record that updated_at needed no migration and that two servers = two '
-      + 'KVs converged by clients — same role as the file above, an evidence cross-link.'),
-    // The server half being asserted. NOT a doc: this one is a hard requirement.
+      + 'Q6 note ("配置不进云端") is the ruling this path enforces; an evidence cross-link, not an input.'),
+    internalOnly(path.join(ROOT, 'docs/strategy/2026-09-03-phone-owned-settings-design-and-task-book.md'),
+      'internal working record: D2/D4/D12 — the overlay, the refusal, the deployment order.'),
+    // The halves being asserted. NOT docs: hard requirements.
+    path.join(ROOT, 'packages/protocol/src/phone-prefs.ts'),
     path.join(ROOT, 'apps/server-core/src/socket/handlers/settings.handler.ts'),
+    path.join(ROOT, 'apps/server-core/src/settings/session-overlay.ts'),
   ],
-  async fn(url) {
+  async fn(_sharedUrl) {
     const sockets = [];
+    let lan = null;
     let saas = null;
+    const dir = mkdtempSync(path.join(tmpdir(), 'flowmic-g22-'));
     try {
-      // ── LAN leg (the standalone sidecar the desktop ships) ──────────────────────
-      const lan = await registerAndPair(url);
-      sockets.push(lan.pc, lan.mobile);
-
-      // ── cloud leg (the relay — the only half deployed on its own, hence the only
-      //    one that can be stale relative to a phone) ─────────────────────────────
+      // ── LAN leg: our OWN standalone (the shared one has no trace switched on) ───────
+      const lanTrace = path.join(dir, 'lan-trace.jsonl');
       try {
-        saas = await startSaasServer();
+        lan = await startStandaloneTraced(lanTrace);
+      } catch (e) {
+        return FAIL(`standalone server failed to start: ${e.message}`);
+      }
+      const lanUrl = `http://127.0.0.1:${lan.port}`;
+      const lanPc = await connect(lanUrl);
+      const lanReg = await ack(lanPc, 'pc:register', { device_name: 'G22 LAN PC', client_instance_id: 'inst-g22lan0123456789' });
+      const lanMobile = await connect(lanUrl);
+      const lanJoined = once(lanPc, 'pc:mobile-joined');
+      await ack(lanMobile, 'mobile:pair', { short_code: lanReg.short_code });
+      await lanJoined;
+      sockets.push(lanPc, lanMobile);
+
+      let err = await runLeg('lan', { pc: lanPc, mobile: lanMobile, tracePath: lanTrace });
+      if (err) return FAIL(`${err}\n  ⚠️ LAN 腿就红了 ⇒ 这不是「中继旧了」，是功能本身坏了。`);
+
+      // ── cloud leg (the relay — the only half deployed on its own) ──────────────────
+      const cloudTrace = path.join(dir, 'cloud-trace.jsonl');
+      try {
+        saas = await startSaasServer({ FLOWMIC_TRACE_PIPELINE: 'meta', FLOWMIC_TRACE_PATH: cloudTrace });
       } catch (e) {
         return FAIL(`cloud server failed to start: ${e.message}`);
       }
       const cloudUrl = `http://127.0.0.1:${saas.port}`;
       const jwt = await saasJwt(cloudUrl);
       const pc = await connect(cloudUrl, { jwt });
-      const reg = await ack(pc, 'pc:register', {
-        device_name: 'G22 PC', client_instance_id: 'inst-g22-0123456789ab',
-      });
+      const reg = await ack(pc, 'pc:register', { device_name: 'G22 PC', client_instance_id: 'inst-g22-0123456789ab' });
       const mobile = await connect(cloudUrl);
       const joined = once(pc, 'pc:mobile-joined');
       // 0.2.66 — a saas pairing NAMES its PC; inert on standalone. Same spelling as G20.
@@ -198,46 +272,25 @@ export const G22 = {
       await joined;
       sockets.push(pc, mobile);
 
-      // ── ① the cloud holds v1@T1 ────────────────────────────────────────────────
-      await ack(mobile, 'settings:update', { key: KEY, value: card('v1'), updated_at: T1 });
-      let err = await expectCard('cloud', '①', mobile, 'v1', T1);
-      if (err) return FAIL(`${err}\n  ⚠️ 这是**云端腿**第一步就红了。`);
-
-      // ── ② meanwhile the LAN holds v2@T2 — the divergence, built on two real servers ──
-      await ack(lan.mobile, 'settings:update', { key: KEY, value: card('v2'), updated_at: T2 });
-      err = await expectCard('lan', '②', lan.mobile, 'v2', T2);
-      if (err) return FAIL(`${err}\n  ⚠️ LAN 腿就红了 ⇒ 这不是「中继旧了」，是功能本身坏了。`);
-
-      // ── ③ convergence: the client pushes the NEWER copy at the stale server ─────
-      await ack(mobile, 'settings:update', { key: KEY, value: card('v2'), updated_at: T2 });
-      err = await expectCard('cloud', '③', mobile, 'v2', T2);
-      if (err) return FAIL(`${err}\n  ⚠️ 收敛这一步没成 —— 较新的一份没能覆盖较旧的一份。`);
-
-      // ── ④ the regress control, on BOTH legs (same shape) ───────────────────────
-      err = await regressControl('cloud', mobile);
-      if (err) return FAIL(`${err}\n  ⚠️ LAN 腿见下；若 LAN 绿而云端红 ⇒ **先部署中继**，别改代码。`);
-      err = await regressControl('lan', lan.mobile);
-      if (err) return FAIL(`${err}\n  ⚠️ LAN 腿也红了 ⇒ 是实现本身，不是部署。`);
+      err = await runLeg('cloud', { pc, mobile, tracePath: cloudTrace });
+      if (err) return FAIL(`${err}\n  ⚠️ LAN 腿绿而云端红 ⇒ 先部署中继，别改代码。`);
 
       return PASS(
-        '两台真服务端同时在场（standalone ＋ saas，本仓唯一一处）各跑同一组判据：'
-        + `① 云端存 v1@${T1} 并如实回读；② 局域网存 v2@${T2} —— **分歧是真造出来的，不是模拟的**`
-        + '（两条通道两份独立 KV，05 §5.2）；③ 客户端把较新那份推给陈旧那台，云端收敛到 v2@T2；'
-        + '④ **倒退控制**：在两条腿上各把 v1@T1 再推一次 —— 行都没动、ack 仍是 ok:true'
-        + '（发起方没做错事，刻意不铸错误码）、且**赢的那一份被回发给输家**那条 socket。'
-        + '🔴 ④ 才是承重的那一条：`scenario.card` 有手机与桌面两个写者，两台服务端 ⇒ 四份拷贝，'
-        + '没有这道拒收，「重连即推」会造出一条今天并不存在的数据丢失路径。'
-        + '🔴 每一步都做 **strip detection**：值对而戳不在 ⇒ 直接点名部署顺序'
-        + '（先中继＋桌面、最后 APK；⚠️ 服务端有两半，局域网 sidecar 随桌面安装包发）。'
-        + '🔴 NOT covered here：手机到底在不在进房那条边上推、推的是不是该推的那一份 —— '
-        + '本文件的「手机」是裸 socket.io 客户端。**这一半绿不代表功能成立**：'
-        + '实测把服务端的倒退判据反过来，只推送并回读自己那份的客户端**全绿**。',
+        '两台真服务端（standalone ＋ saas，各自开着 FLOWMIC_TRACE_PIPELINE=meta）各跑同一组判据：'
+        + `① 带 prefs.${KEY} 的 audio:start 在生产缝 terms.resolved 报 rule_count=${CARD_TERMS} alias_count=${CARD_ALIASES}；`
+        + '② **从未落库** —— PC 的 settings:list 列出全部存量行而没有它（正向对照：同一探针看得见 PC 刚存的 llm.config）；'
+        + '③ **反向对照**：同一 socket 下一次不带 prefs 的 audio:start 报 0/0 —— 一次请求的配置只作用于那一次；'
+        + `④ 带 prefs 的 compose:start 让 compose.scenario 报 professions=1 term_count=${CARD_TERMS} block_present=true，不带的报 0/0/false；`
+        + `⑤ 手机与 PC 的 settings:update('${KEY}') 都被具名拒收（SETTINGS_SCHEMA_INVALID + phone-owned），且仍未落库。`
+        + '🔴 NOT covered here：手机到底有没有把配置放进每一帧 audio:start/compose:start —— 本文件的「手机」是裸 socket.io 客户端（WP-B）。',
       );
     } catch (e) {
       return FAIL(`threw: ${e.message}`);
     } finally {
       for (const s of sockets) { try { s.disconnect(); } catch { /* already gone */ } }
       if (saas) saas.child.kill();
+      if (lan) lan.child.kill();
+      rmSync(dir, { recursive: true, force: true });
     }
   },
 };

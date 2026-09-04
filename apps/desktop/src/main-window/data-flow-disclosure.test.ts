@@ -96,18 +96,51 @@ const DEFAULT_VALUE_CLAIMS: Record<Loc, readonly string[]> = {
   ru: ['по умолчанию включ', 'по умолчанию выключ', 'включён по умолчанию'],
 };
 
-/** The clause that replaces them: where the reader can see the current value.
- *  This is the POSITIVE control for the ban above. */
+/** The clause that replaces them: where the reader can find the switch.
+ *  This is the POSITIVE control for the ban above.
+ *
+ *  🔴 THE DESTINATION CHANGED ON 2026-09-03 AND THE TABLE HAD TO CHANGE WITH IT.
+ *  It used to name this app's own 「Settings → Speech recognition」, because the
+ *  AI-polish switch was a row on that page. owner ruled the switch is the user's
+ *  and moved it to the phone; WP-C deleted the desktop row. A table still
+ *  pointing at a page of this app would then have gone on passing while sending
+ *  every reader to a screen with nothing on it — a positive control that grades
+ *  a wrong sentence as a right one, which is worse than not having it.
+ *  ⚠️ Note what is NOT asserted here any more: 「and that row shows its current
+ *  value」. This end receives no copy of the value (the phone hands it to the
+ *  server per request and nothing stores it), so a desktop sentence claiming to
+ *  display it would be R11 in one line.
+ *  ⚠️ The strings are the phone's own path labels, and they must stay byte-equal
+ *  to the mobile catalogue's — verify/lint/disclosure-copy-mirror.mjs now
+ *  requires `discStep3Body` and `disc_s3_body` to be IDENTICAL in English (its
+ *  declared divergence was deleted in the same change). */
 const WHERE_TO_SEE_IT: Record<Loc, string> = {
-  'zh-CN': '设置 → 语音识别',
-  en: 'Settings → Speech recognition',
-  ja: '設定 → 音声認識',
-  ko: '설정 → 음성 인식',
-  'zh-TW': '設定 → 語音辨識',
-  fr: 'Paramètres → Reconnaissance vocale',
-  es: 'Ajustes → Reconocimiento de voz',
-  de: 'Einstellungen → Spracherkennung',
-  ru: 'Настройки → Распознавание речи',
+  'zh-CN': '设置 → 识别与 AI',
+  en: 'Settings → Recognition and AI',
+  ja: '設定 → 認識と AI',
+  ko: '설정 → 인식과 AI',
+  'zh-TW': '設定 → 辨識與 AI',
+  fr: 'Paramètres → Reconnaissance et IA',
+  es: 'Ajustes → Reconocimiento e IA',
+  de: 'Einstellungen → Erkennung und KI',
+  ru: 'Настройки → Распознавание и ИИ',
+};
+
+/** 🔴 …AND WHICH DEVICE IT IS ON. The path alone is not enough: 「Settings →
+ *  Recognition and AI」 reads as an instruction about the screen the reader is
+ *  standing in front of, and this screen is a PC. Each entry is the phrase the
+ *  paragraph uses to say 「on the phone」 in that language, so a future edit that
+ *  keeps the path and drops the device turns this red. */
+const ON_THE_PHONE: Record<Loc, string> = {
+  'zh-CN': '这台手机',
+  en: 'on this phone',
+  ja: 'この電話',
+  ko: '이 휴대폰',
+  'zh-TW': '這支手機',
+  fr: 'ce téléphone',
+  es: 'este teléfono',
+  de: 'diesem Telefon',
+  ru: 'этом телефоне',
 };
 
 /** Phrasings that would turn the present-tense claim back into a plan.
@@ -357,8 +390,12 @@ describe('P1 — the product says where the user’s words go', () => {
       // would grade silence as honesty.
       expect(
         body,
-        `${loc}: step ③ dropped the clause telling the reader where the current value is shown`,
+        `${loc}: step ③ dropped the clause telling the reader where the switch is`,
       ).toContain(WHERE_TO_SEE_IT[loc]);
+      expect(
+        body,
+        `${loc}: step ③ names the path but not the DEVICE — on a PC screen that reads as an instruction about this app`,
+      ).toContain(ON_THE_PHONE[loc]);
     }
   });
 

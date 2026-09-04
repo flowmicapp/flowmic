@@ -124,7 +124,20 @@ class SttStall {
   /// pre-existing sentence), never as a third, unlabelled state.
   final String? judgedAccount;
 
-  const SttStall(this.reason, {this.code, this.message, this.judgedAccount});
+  /// Card EMPTY-1 (2026-09-04) — the `stt:final` frame's additive `empty_reason`,
+  /// verbatim off the wire. Only meaningful for
+  /// [SttStallReason.emptyTranscript]: it is the SERVER'S answer to 「why did
+  /// this final carry no text」, which the phone cannot work out for itself
+  /// (bytes the feed gate accepted, and whether an engine already complained,
+  /// are facts only the server holds — R11).
+  ///
+  /// Null on a server that predates the field, and null on every other stall
+  /// reason — which `sttStallBannerMessage` reads as the pre-existing 「no
+  /// speech was heard」 sentence, never as a third, unlabelled state.
+  final String? emptyReason;
+
+  const SttStall(this.reason,
+      {this.code, this.message, this.judgedAccount, this.emptyReason});
 
   @override
   bool operator ==(Object other) =>
@@ -132,10 +145,12 @@ class SttStall {
       other.reason == reason &&
       other.code == code &&
       other.message == message &&
-      other.judgedAccount == judgedAccount;
+      other.judgedAccount == judgedAccount &&
+      other.emptyReason == emptyReason;
 
   @override
-  int get hashCode => Object.hash(reason, code, message, judgedAccount);
+  int get hashCode =>
+      Object.hash(reason, code, message, judgedAccount, emptyReason);
 
   @override
   String toString() =>

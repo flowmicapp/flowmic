@@ -10,36 +10,17 @@ import 'package:flutter/material.dart';
 
 import 'tokens.dart';
 
-// ── scenario presets (curated quick-picks; values are locale-stable ids) ─────
-// V2-07.7: these used to be ScenarioPreset(value, zh, en) with a label(locale)
-// method — a SHADOW catalogue outside AppStrings, structurally hard-coded to
-// exactly two languages (a fourth would have silently fallen back to English).
-// The labels now live in the catalogue (AppStrings.professionLabel /
-// domainLabel); what remains here is ONLY the STABLE stored value that goes
-// into the ScenarioCard (locale-independent, part of the settings contract).
-
-const List<String> kProfessionPresets = <String>[
-  'software development',
-  'product design',
-  'devops / SRE',
-  'research',
-  'writing / editing',
-  'teaching',
-  'medicine',
-  'law',
-  'finance',
-];
-
-const List<String> kDomainPresets = <String>[
-  'cloud native',
-  'frontend',
-  'backend',
-  'data / ML',
-  'healthcare',
-  'legal',
-  'education',
-  'e-commerce',
-];
+// ── scenario presets ────────────────────────────────────────────────────────
+// The curated quick-picks MOVED to settings/scenario_taxonomy.dart on
+// 2026-09-04 and are not re-exported here on purpose.
+//
+// They lived here as two `const List<String>` of stored VALUES back when the
+// stored value was an English-ish label. It is an id now, paired with an
+// English canonical for the wire and nine catalogue labels for the screen —
+// three strings that have to be defined together or they drift apart, which is
+// precisely how the same profession came to be stored twice in two languages.
+// A UI file is the wrong home for a settings contract; the chip order lives
+// with it (`ScenarioAxis.professions.ids`).
 
 // ── text styles ──────────────────────────────────────────────────────────────
 // Getters, not const: the colours resolve per-read against the active theme
@@ -90,6 +71,49 @@ Widget settingsRow({required Widget child, bool last = false}) => Container(
 // ("reusable") is not
 // a consumer. When a real boolean setting appears, this is ~20 lines of Flutter to
 // write against that design, not a shape to preserve on spec.
+//
+// 2026-09-03: that day came. Three real boolean settings moved to the phone
+// (AI polish, two-pass refine, the scenario-inference consent —
+// settings_general_prefs.dart), so the primitive below is written against
+// THEM, and they are its production callers (grep `settingsSwitchRow`).
+
+/// A titled switch row. [sub] renders under the title when non-empty and may
+/// wrap — the consent sentence is long in every language, and a row that
+/// clipped it would be asking for consent to something the user cannot read.
+Widget settingsSwitchRow({
+  required String title,
+  required bool value,
+  required ValueChanged<bool> onChanged,
+  String sub = '',
+  bool last = false,
+  Key? switchKey,
+}) => settingsRow(
+  last: last,
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: <Widget>[
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(title, style: kRowTitle),
+            if (sub.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 3),
+              Text(sub, style: kRowSub.copyWith(height: 1.35)),
+            ],
+          ],
+        ),
+      ),
+      const SizedBox(width: 10),
+      Switch(
+        key: switchKey,
+        value: value,
+        // Applies-and-persists instantly, no save button (red line).
+        onChanged: onChanged,
+      ),
+    ],
+  ),
+);
 
 Widget settingsDot(Color c) => Container(
   width: 8,

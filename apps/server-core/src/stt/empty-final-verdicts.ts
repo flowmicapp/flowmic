@@ -205,7 +205,51 @@ export function noEngineReachedError(
  * arriving on the measured runs), and the phone then says the true sentence it
  * was already going to say. The refusal is still recorded server-side by the
  * caller, so the ops trail keeps the vendor's own words.
+ *
+ * 🔴 2026-09-03 — ONE WIRED SITE WAS NOT ENOUGH 〔measured three times on the
+ * production relay, 06:50 / 06:54 / 06:57 UTC; trace report
+ * docs/strategy/2026-09-03-realtime-utterance-lifecycle-trace.md §4 / §4-1〕.
+ * This verdict was consulted ONLY by the reconnect ladder's `emitError` hook.
+ * But the shape that produces the refusal in production is not a ladder rung:
+ * a held button that stays quiet for the first ~3 s ⇒ the VAD gate feeds the
+ * managed leg nothing ⇒ the 3.0 s idle hang-up runs `flushAndCloseLegForSilence`
+ * ⇒ the end-of-stream frame reaches a session that never got audio ⇒ Soniox
+ * answers `[invalid_request] No audio received.` with `flushing === true`
+ * ⇒ `handleFlushError` → `flushErrorVerdict` passed it through verbatim and the
+ * phone showed 「This recording reached no speech engine」 three runs out of
+ * three, while the `stt.no-voice` line never printed once.
+ * `SttEngineOrchestrator.emitEngineError` is now the one exit a LIVE leg's error
+ * takes (ladder rung + flush phase) and this predicate runs there. The COLD-OPEN
+ * branch in `start()` deliberately bypasses it (owner-side ruling, 2026-09-03):
+ * at a cold open the counter is 0 by definition, so routing it here would mute
+ * EVERY cold-open code, and the vendor cannot say 「no audio」 before an
+ * end-of-stream frame anyway — only a flush sends one.
+ *
+ * ⚠️ A suppressed refusal must NOT latch `flushErrored`: that latch withholds
+ * the empty terminal final (`flushAndEmitFinal`), and withholding it here would
+ * leave the phone with neither the banner nor 「没有听到语音」 — the banned
+ * direction, one layer down. The user's speech that arrives after a suppressed
+ * silence flush still redials a fresh leg and produces interims; the tests in
+ * test/stt-flush-silence-refusal.test.ts pin all three of these.
  */
 export function vendorNoAudioIsOurSilence(code: string, voiceBytesCaptured: number): boolean {
   return code === 'STT_NO_ENGINE_REACHED' && voiceBytesCaptured === 0;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE VERDICT SITE — moved VERBATIM from `orchestrator-core.ts`'s
+// `emitTerminalFinal` doc (800-line cap, card EMPTY-1). Behaviour unchanged;
+// only the prose moved, and card EMPTY-1's `empty_reason` stamp now shares the
+// site for exactly the reason the first paragraph gives.
+//
+// 🔴 card fix-022 / G-23 asks its verdict HERE, and the site is the point: this
+// is the one place EVERY terminal exit passes through — `stop()` and
+// `handleAutoStop`, with an engine to flush and without one — behind a
+// latch that already guarantees once per recording. Asking it at the two
+// callers instead would be two copies of "this recording has ended, we owe the user some kind of statement",
+// which is how they drift apart (the shape card RT3-B closed one method over).
+//
+// ⚠️ The error goes out BEFORE the final, exactly as `reportSilentEmptyFinal`'s
+// does. It is safe in this order for a reason the verdict itself guarantees:
+// it only fires when the transcript is empty, so a phone that closes
+// PROCESSING on `retryable:false` cannot lose text by acting on it first.

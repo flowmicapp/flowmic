@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use tauri::State;
+use crate::socket::blocking::run_blocking;
 
 use super::SocketState;
 use crate::socket::Credentials;
@@ -71,46 +72,50 @@ pub(crate) fn persist_pc_name_on_disk(path: &Path, name: &str) -> bool {
 /// precisely the state that produced the bug, so it must not report success.
 #[tauri::command(async)]
 pub fn pc_rename(state: State<'_, SocketState>, name: String) -> bool {
-    let Some(clean) = crate::pc_name::sanitize_pc_name(&name) else {
-        return false;
-    };
-    let channels = [crate::socket::Channel::Lan, crate::socket::Channel::Cloud];
-    let mut attempted = 0usize;
-    let mut succeeded = 0usize;
-    for channel in channels {
-        let path = crate::socket::channel::credentials_path(channel);
-        let outcome = {
-            let guard = match state.lock() {
-                Ok(g) => g,
-                Err(p) => p.into_inner(),
-            };
-            guard
-                .slot(channel)
-                .map(|s| s.rename_pc(&clean, &path, std::time::Duration::from_secs(5)))
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on one ack wait per channel (up to 5.5 s each). See `socket::blocking`.
+    run_blocking(|| {
+        let Some(clean) = crate::pc_name::sanitize_pc_name(&name) else {
+            return false;
         };
-        match outcome {
-            Some(ok) => {
-                attempted += 1;
-                if ok {
-                    succeeded += 1;
+        let channels = [crate::socket::Channel::Lan, crate::socket::Channel::Cloud];
+        let mut attempted = 0usize;
+        let mut succeeded = 0usize;
+        for channel in channels {
+            let path = crate::socket::channel::credentials_path(channel);
+            let outcome = {
+                let guard = match state.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                guard
+                    .slot(channel)
+                    .map(|s| s.rename_pc(&clean, &path, std::time::Duration::from_secs(5)))
+            };
+            match outcome {
+                Some(ok) => {
+                    attempted += 1;
+                    if ok {
+                        succeeded += 1;
+                    }
                 }
-            }
-            // Not resident: still persist the machine name on disk so a later
-            // connect_socket / reassert_pc_name carries it. Skipping here was C-1
-            // — `attempted` stayed at 1, success returned true, cloud stayed wrong.
-            None => {
-                attempted += 1;
-                if persist_pc_name_on_disk(&path, &clean) {
-                    succeeded += 1;
+                // Not resident: still persist the machine name on disk so a later
+                // connect_socket / reassert_pc_name carries it. Skipping here was C-1
+                // — `attempted` stayed at 1, success returned true, cloud stayed wrong.
+                None => {
+                    attempted += 1;
+                    if persist_pc_name_on_disk(&path, &clean) {
+                        succeeded += 1;
+                    }
                 }
             }
         }
-    }
-    crate::forensic::record(
-        "rename",
-        &format!("pc_rename → {succeeded}/{attempted} channel slot(s) accepted"),
-    );
-    attempted > 0 && succeeded == attempted
+        crate::forensic::record(
+            "rename",
+            &format!("pc_rename → {succeeded}/{attempted} channel slot(s) accepted"),
+        );
+        attempted > 0 && succeeded == attempted
+    })
 }
 
 #[cfg(test)]

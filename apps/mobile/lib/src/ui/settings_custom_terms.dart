@@ -55,15 +55,27 @@ extension SettingsPageCustomTerms on SettingsPage {
         settingsCard(
           child: Column(
             children: <Widget>[
-              for (final String term in card.terms)
+              // 2026-09-03 (owner Q1): a term may carry the other spellings it
+              // stands for; they render as a second line under the term so
+              // the row still reads as ONE entry with one ✕.
+              for (final ScenarioTerm term in card.terms)
                 settingsRow(
                   child: Row(
                     children: <Widget>[
                       Expanded(
-                        child: Text(term, style: TextStyle(color: FlowMicColors.t1, fontSize: 13)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(term.term, style: TextStyle(color: FlowMicColors.t1, fontSize: 13)),
+                            if (term.aliases.isNotEmpty) ...<Widget>[
+                              const SizedBox(height: 2),
+                              Text(s.termAliasesLabel(term.aliases.join(', ')), style: kRowSub),
+                            ],
+                          ],
+                        ),
                       ),
                       InkWell(
-                        onTap: () => scenario.removeTerm(term),
+                        onTap: () => scenario.removeTerm(term.term),
                         child: Icon(Icons.close, size: 15, color: FlowMicColors.t3),
                       ),
                     ],
@@ -106,44 +118,102 @@ extension SettingsPageCustomTerms on SettingsPage {
   }
 
   Future<void> _showAddTerm(BuildContext context, AppStrings s) async {
-    final TextEditingController tc = TextEditingController();
-    final String? entered = await showDialog<String>(
+    // 2026-09-03 (owner Q1): an optional second field for the other spellings,
+    // comma-separated. The dialog returns BOTH texts so the pair is added in
+    // one commit; splitting and trimming is the model's job (ScenarioCard.addTerm).
+    //
+    // The two TextEditingControllers live in the dialog's own State now, not
+    // in this method: disposing them the moment `showDialog` returned — the
+    // one-field version's shape — left the fields rebuilding against a
+    // disposed controller during the route's exit animation (measured in
+    // settings_general_prefs_widget_test.dart as 「A TextEditingController was
+    // used after being disposed」 on the aliases field).
+    final ({String term, String aliases})? entered =
+        await showDialog<({String term, String aliases})>(
       context: context,
-      builder: (BuildContext ctx) => AlertDialog(
-        backgroundColor: FlowMicColors.surface,
-        title: Text(s.addTerm, style: TextStyle(color: FlowMicColors.t1, fontSize: 15)),
-        content: TextField(
-          controller: tc,
-          autofocus: true,
-          maxLength: FlowMicScenarioLimits.maxLabelLen,
-          style: TextStyle(color: FlowMicColors.t1),
-          decoration: InputDecoration(
-            hintText: s.termInputHint,
-            hintStyle: TextStyle(color: FlowMicColors.t3),
-            counterStyle: TextStyle(color: FlowMicColors.t3),
-          ),
-          onSubmitted: (String v) => Navigator.of(ctx).pop(v),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(s.cancel, style: TextStyle(color: FlowMicColors.t2)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(tc.text),
-            child: Text(s.add, style: TextStyle(color: FlowMicColors.brand)),
-          ),
-        ],
-      ),
+      builder: (BuildContext ctx) => _AddTermDialog(strings: s),
     );
-    tc.dispose();
     if (entered == null) return;
-    final TermAddOutcome outcome = scenario.addTerm(entered);
+    final TermAddOutcome outcome = scenario.addTerm(
+      entered.term,
+      aliases: entered.aliases.split(','),
+    );
     if (outcome != TermAddOutcome.added && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.termAddError(_feedback(outcome)))),
       );
     }
+  }
+}
+
+/// The add-term dialog: the term, and the other spellings it stands for.
+/// Owns its two controllers so their lifetime is the dialog's (see _showAddTerm).
+class _AddTermDialog extends StatefulWidget {
+  const _AddTermDialog({required this.strings});
+  final AppStrings strings;
+
+  @override
+  State<_AddTermDialog> createState() => _AddTermDialogState();
+}
+
+class _AddTermDialogState extends State<_AddTermDialog> {
+  final TextEditingController _term = TextEditingController();
+  final TextEditingController _aliases = TextEditingController();
+
+  @override
+  void dispose() {
+    _term.dispose();
+    _aliases.dispose();
+    super.dispose();
+  }
+
+  void _submit() =>
+      Navigator.of(context).pop((term: _term.text, aliases: _aliases.text));
+
+  @override
+  Widget build(BuildContext context) {
+    final AppStrings s = widget.strings;
+    return AlertDialog(
+      backgroundColor: FlowMicColors.surface,
+      title: Text(s.addTerm, style: TextStyle(color: FlowMicColors.t1, fontSize: 15)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          TextField(
+            controller: _term,
+            autofocus: true,
+            maxLength: FlowMicScenarioLimits.maxLabelLen,
+            style: TextStyle(color: FlowMicColors.t1),
+            decoration: InputDecoration(
+              hintText: s.termInputHint,
+              hintStyle: TextStyle(color: FlowMicColors.t3),
+              counterStyle: TextStyle(color: FlowMicColors.t3),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          TextField(
+            key: const ValueKey<String>('settings.term.aliases'),
+            controller: _aliases,
+            style: TextStyle(color: FlowMicColors.t1),
+            decoration: InputDecoration(
+              hintText: s.termAliasesHint,
+              hintStyle: TextStyle(color: FlowMicColors.t3),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(s.cancel, style: TextStyle(color: FlowMicColors.t2)),
+        ),
+        TextButton(
+          onPressed: _submit,
+          child: Text(s.add, style: TextStyle(color: FlowMicColors.brand)),
+        ),
+      ],
+    );
   }
 }
 
@@ -157,6 +227,10 @@ TermFeedback _feedback(TermAddOutcome o) {
       return TermFeedback.duplicate;
     case TermAddOutcome.atCap:
       return TermFeedback.atCap;
+    case TermAddOutcome.aliasTooLong:
+      return TermFeedback.aliasTooLong;
+    case TermAddOutcome.tooManyAliases:
+      return TermFeedback.tooManyAliases;
     case TermAddOutcome.added:
       return TermFeedback.empty; // unreachable — added never surfaces an error
   }

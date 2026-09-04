@@ -180,6 +180,12 @@ fn the_connection_frame_no_longer_calls_a_token_a_registration() {
 
 /// One pump tick of the SPEAKING-lock watchdog, at an injected `now`. Returns what
 /// the tray is told this tick.
+///
+/// F-1 (2026-09-04): the tick also reads an `EmptyFinalLatch`. This helper hands it
+/// a FRESH, never-observed one, so every pre-existing test below keeps measuring
+/// exactly the starvation watchdog it was written for — an unarmed latch is inert
+/// by construction (empty_final.rs: neither flag alone arms it). Tests that mean to
+/// drive the new path use `tick_with_latch`.
 fn tick(
     fsm: &Mutex<FocusStateMachine>,
     deadline: &Mutex<Option<Instant>>,
@@ -188,7 +194,19 @@ fn tick(
     now: Instant,
     cap: Duration,
 ) -> bool {
-    speaking_watchdog_tick(fsm, deadline, liveness, since, now, cap, "test")
+    tick_with_latch(fsm, deadline, liveness, &EmptyFinalLatch::new(), since, now, cap)
+}
+
+fn tick_with_latch(
+    fsm: &Mutex<FocusStateMachine>,
+    deadline: &Mutex<Option<Instant>>,
+    liveness: &SpeakLiveness,
+    empty_final: &EmptyFinalLatch,
+    since: &mut Option<Instant>,
+    now: Instant,
+    cap: Duration,
+) -> bool {
+    speaking_watchdog_tick(fsm, deadline, liveness, empty_final, since, now, cap, "test")
 }
 
 /// 🔴 THE GAP 0.2.48 SHIPPED. `lock_deadline` has exactly ONE arming site —
@@ -416,4 +434,198 @@ fn expired_watchdog_force_releases_a_wedged_lock_and_disarms() {
     }
     assert_eq!(fsm.lock().unwrap().state(), &FocusState::Idle, "lock self-released");
     assert!(deadline.lock().unwrap().is_none(), "watchdog disarmed");
+}
+
+// ── F-1 (2026-09-04): the ~34 s red dot after a 3 s SILENT hold ───────────────
+//
+// An utterance that produced NO TEXT produces no `inject:request`, so
+// `InjectStarted`/`InjectFinished` never run and nothing leaves `SpeakingLocked`.
+// `audio:stop` deliberately does not release (ruling 2) and `stt:final` only fed
+// liveness, so the only exit was the 32 s starvation cap — 3 s of holding plus a
+// 32 s wait, with the tray claiming recording the whole time. focus/state.rs
+// already named "empty final" as a case the backstop covers, which is precisely
+// the admission that the case had no answer of its own.
+//
+// The assertions land on the TRAY STATE and the FSM STATE, for the reason the F3
+// block above states: the bug is that release functions existed and the icon
+// stayed red anyway, so "a function was called" proves nothing here.
+//
+// 🔴 REVERSE CONTROL, RUN 2026-09-04 (machine: dev-pc-a). The new release
+// branch in `speaking_watchdog_tick` was disabled (its condition forced to
+// `false`) and `an_empty_final_after_audio_stop_releases_within_one_tick` went red,
+// verbatim:
+//
+//     assertion `left == right` failed: an empty utterance must not hold the tray
+//     red — the whole point of F-1
+//       left: "recording"
+//      right: "connected-idle"
+//
+// Restored immediately; the branch is back and the suite is green.
+
+/// The owner-visible symptom: hold for 3 s, say nothing, let go. One tick after the
+/// empty final the tray must stop claiming recording — not 32 s later.
+#[test]
+fn an_empty_final_after_audio_stop_releases_within_one_tick() {
+    let fsm = Arc::new(Mutex::new(FocusStateMachine::new(300)));
+    fsm.lock().unwrap().force_lock(0xBEEF, "cursor".into(), "editor".into());
+    let cap = Duration::from_secs(32);
+    let t0 = Instant::now();
+    // audio:start armed the deadline and signalled liveness.
+    let deadline: Mutex<Option<Instant>> = Mutex::new(Some(t0 + cap));
+    let liveness = SpeakLiveness::new();
+    liveness.signal_at(t0);
+    let latch = EmptyFinalLatch::new();
+    let mut since = Some(t0);
+
+    // 3 s of holding. Audio is flowing, so the lock stands — as it must.
+    let three_s = t0 + Duration::from_secs(3);
+    liveness.signal_at(three_s);
+    let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, three_s, cap);
+    assert_eq!(tray_state_zh(true, true, 1, rec).0, "recording", "still holding");
+
+    // Let go: audio:stop, then the engine's utterance-closing final with no text.
+    latch.note_audio_stop();
+    latch.note_final(false, true);
+
+    // ONE tick later — 500 ms in production, and nowhere near the 32 s cap.
+    let t_release = three_s + Duration::from_millis(500);
+    assert!(
+        !watchdog_expired(*deadline.lock().unwrap(), t_release),
+        "the armed deadline has NOT expired — this release owes nothing to the backstop"
+    );
+    let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, t_release, cap);
+    assert_eq!(
+        tray_state_zh(true, true, 1, rec).0,
+        "connected-idle",
+        "an empty utterance must not hold the tray red — the whole point of F-1"
+    );
+    assert_eq!(fsm.lock().unwrap().state(), &FocusState::Idle);
+    assert!(deadline.lock().unwrap().is_none(), "the armed deadline is disarmed with it");
+}
+
+/// The other arrival order. `audio:stop` is the phone's frame and `stt:final` is the
+/// engine's; they travel independently, so the engine can win the race. The latch is
+/// two sticky flags read together precisely so this order is not a second bug.
+#[test]
+fn an_empty_final_before_audio_stop_releases_once_the_stop_arrives() {
+    let fsm = Arc::new(Mutex::new(FocusStateMachine::new(300)));
+    fsm.lock().unwrap().force_lock(0xC0DE, "notepad".into(), "n".into());
+    let cap = Duration::from_secs(32);
+    let t0 = Instant::now();
+    let deadline: Mutex<Option<Instant>> = Mutex::new(Some(t0 + cap));
+    let liveness = SpeakLiveness::new();
+    liveness.signal_at(t0);
+    let latch = EmptyFinalLatch::new();
+    let mut since = Some(t0);
+
+    // The empty final lands FIRST. On its own it must change nothing: an empty
+    // final with the hold still running is a mid-utterance silence, not an end.
+    latch.note_final(false, true);
+    let t1 = t0 + Duration::from_secs(1);
+    let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, t1, cap);
+    assert_eq!(
+        tray_state_zh(true, true, 1, rec).0,
+        "recording",
+        "a final alone is not evidence the hold ended"
+    );
+    assert!(matches!(fsm.lock().unwrap().state(), FocusState::SpeakingLocked { .. }));
+
+    // …and then the stop arrives.
+    latch.note_audio_stop();
+    let t2 = t1 + Duration::from_millis(500);
+    let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, t2, cap);
+    assert_eq!(tray_state_zh(true, true, 1, rec).0, "connected-idle");
+    assert_eq!(fsm.lock().unwrap().state(), &FocusState::Idle);
+}
+
+/// 🔴 REVERSE CONTROL, and the one that matters most: ruling 2 is not weakened.
+/// A hold that DID produce text must keep its lock until the inject path releases
+/// it — releasing at `audio:stop` is the unlock-before-inject race, and this new
+/// branch must not have reopened it under another name.
+#[test]
+fn a_non_empty_final_after_audio_stop_still_holds_the_lock_until_inject_finishes() {
+    use crate::focus::FocusEvent;
+
+    let fsm = Arc::new(Mutex::new(FocusStateMachine::new(300)));
+    fsm.lock().unwrap().force_lock(0xFACE, "word".into(), "doc".into());
+    let cap = Duration::from_secs(32);
+    let t0 = Instant::now();
+    let deadline: Mutex<Option<Instant>> = Mutex::new(Some(t0 + cap));
+    let liveness = SpeakLiveness::new();
+    liveness.signal_at(t0);
+    let latch = EmptyFinalLatch::new();
+    let mut since = Some(t0);
+
+    // The user said something. Stop, then a final WITH text.
+    latch.note_audio_stop();
+    latch.note_final(false, false);
+
+    // Several ticks pass while the LLM and the inject round trip run. The lock is
+    // the user's window reservation for exactly this span; nothing here may free it.
+    let mut now = t0;
+    for _ in 0..4 {
+        now += Duration::from_millis(500);
+        liveness.signal_at(now);
+        let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, now, cap);
+        assert_eq!(
+            tray_state_zh(true, true, 1, rec).0,
+            "recording",
+            "an utterance with text keeps its lock until the inject path resolves"
+        );
+        assert!(matches!(fsm.lock().unwrap().state(), FocusState::SpeakingLocked { .. }));
+    }
+
+    // The inject path is the release authority here, exactly as before F-1.
+    {
+        let mut m = fsm.lock().unwrap();
+        m.handle(FocusEvent::InjectStarted, 1).unwrap();
+        assert!(matches!(m.state(), FocusState::Injecting { .. }));
+    }
+    // …and even mid-inject the latch may not reach in: `Injecting` is deliberately
+    // outside the branch's guard.
+    now += Duration::from_millis(500);
+    liveness.signal_at(now);
+    let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, now, cap);
+    assert_eq!(tray_state_zh(true, true, 1, rec).0, "recording");
+    {
+        let mut m = fsm.lock().unwrap();
+        m.handle(FocusEvent::InjectFinished { now_ms: 2 }, 2).unwrap();
+    }
+    // Cooldown, not Idle: the FSM's own post-inject settle window. What matters
+    // here is that the lock is gone and the tray stops claiming recording — and
+    // that it was the INJECT PATH that did it, not this tick's latch branch.
+    assert!(!fsm_is_recording(&fsm), "the inject path released it");
+}
+
+/// A mid-hold segment rollover must not release. The server emits `is_segment=true`
+/// finals while the user is still talking (orchestrator-core.ts), and one of those
+/// can legitimately carry no text; releasing there would move the inject target
+/// mid-sentence — hole ② of the old absolute watchdog, re-created by hand.
+#[test]
+fn a_mid_hold_empty_segment_rollover_never_releases() {
+    let fsm = Arc::new(Mutex::new(FocusStateMachine::new(300)));
+    fsm.lock().unwrap().force_lock(0x5EE5, "chrome".into(), "x".into());
+    let cap = Duration::from_secs(32);
+    let t0 = Instant::now();
+    let deadline: Mutex<Option<Instant>> = Mutex::new(Some(t0 + cap));
+    let liveness = SpeakLiveness::new();
+    let latch = EmptyFinalLatch::new();
+    let mut since = Some(t0);
+    let mut now = t0;
+
+    // A minute of speech with an empty soft-segment final every 10 s, no stop.
+    for i in 0..120 {
+        liveness.signal_at(now);
+        if i % 20 == 0 {
+            latch.note_final(true, true);
+        }
+        now += Duration::from_millis(500);
+        let rec = tick_with_latch(&fsm, &deadline, &liveness, &latch, &mut since, now, cap);
+        assert_eq!(
+            tray_state_zh(true, true, 1, rec).0,
+            "recording",
+            "the user is still talking — a rollover is not the end of the hold"
+        );
+    }
+    assert!(matches!(fsm.lock().unwrap().state(), FocusState::SpeakingLocked { .. }));
 }

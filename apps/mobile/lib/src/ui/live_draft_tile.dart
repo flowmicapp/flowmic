@@ -54,12 +54,31 @@ class LiveDraftTile extends StatelessWidget {
   const LiveDraftTile({
     super.key,
     required this.text,
+    required this.committedChars,
     required this.mode,
     required this.strings,
     required this.elapsed,
   });
 
   final String text;
+
+  /// How many characters at the head of [text] the SERVER has already
+  /// finalised. Everything before it is BLACK (confirmed, and already through
+  /// normalisation/dictionary/punctuation/polish); everything after it is GREY
+  /// (still being transcribed).
+  ///
+  /// 🔴 THE SAME TWO COLOURS MEAN THE SAME TWO THINGS ON THE PC CAPSULE
+  /// (owner, 2026-09-04). The model and the frame semantics behind it are
+  /// written out once, in apps/desktop/src/capsule/utterance-view.ts; the phone
+  /// half is `UtteranceView` and the two are pinned to one shared fixture,
+  /// verify/fixtures/utterance-view-parity.json. This tile used to paint the
+  /// WHOLE draft `t3` (grey), so a segment the server had finalised and a
+  /// half-heard interim looked identical.
+  ///
+  /// REQUIRED, not defaulted — the same reasoning the rest of this class's
+  /// parameters give: a friendly default (0) would silently paint a finished
+  /// transcript as unconfirmed and nothing would ever say so.
+  final int committedChars;
   final FlowMode mode;
 
   /// See [ChatMessageTile.strings].
@@ -117,10 +136,46 @@ class LiveDraftTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 3),
-          Text(
-            text.isEmpty ? '…' : text,
-            style: TextStyle(color: FlowMicColors.t3, fontSize: 13.5),
-          ),
+          // ⚠️ ONE Text, TWO spans — never two Text widgets. The split is a
+          // slice of a single string, so the black half and the grey half wrap
+          // as one paragraph and cannot disagree about which characters exist.
+          // No maxLines / no overflow: the draft may grow, and the reversed
+          // list keeps its tail (the newest words) against the bottom of the
+          // screen while the head scrolls out of view. An ellipsis here would
+          // drop words the user actually said.
+          _draftText(),
+        ],
+      ),
+    );
+  }
+
+  Widget _draftText() {
+    if (text.isEmpty) {
+      return Text(
+        '…',
+        style: TextStyle(color: FlowMicColors.t3, fontSize: 13.5),
+      );
+    }
+    // Clamped rather than trusted: a split that ran past the end of the string
+    // would throw in front of the user, and 「all grey」 is the honest fallback
+    // (grey claims nothing; black claims the server finalised it).
+    final int cut = committedChars < 0
+        ? 0
+        : (committedChars > text.length ? 0 : committedChars);
+    const TextStyle base = TextStyle(fontSize: 13.5);
+    return Text.rich(
+      TextSpan(
+        children: <InlineSpan>[
+          if (cut > 0)
+            TextSpan(
+              text: text.substring(0, cut),
+              style: base.copyWith(color: FlowMicColors.t1),
+            ),
+          if (cut < text.length)
+            TextSpan(
+              text: text.substring(cut),
+              style: base.copyWith(color: FlowMicColors.t3),
+            ),
         ],
       ),
     );

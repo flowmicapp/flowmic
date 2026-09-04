@@ -13,7 +13,7 @@
 // The deterministic-replacement half of the "deterministic replacement + LLM
 // reference" dual dictionary channel (§4.1 source ③). Given the user's
 // preferred-terminology sources
-// (scenario-card custom terms + enabled dictionary packs + stt.dictionary), it
+// (scenario-card custom terms with their aliases + enabled dictionary packs), it
 // maps every configured surface form (the canonical term itself AND each alias)
 // back to the canonical spelling on a piece of text — BEFORE the LLM correction
 // stage sees it, so the model is anchored on the exact preferred spellings.

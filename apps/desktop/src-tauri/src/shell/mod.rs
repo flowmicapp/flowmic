@@ -18,6 +18,7 @@
 
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::ShellExt;
+use crate::socket::blocking::run_blocking;
 
 use crate::socket::DesktopSocket;
 
@@ -194,8 +195,10 @@ pub(crate) fn current_channel(state: &State<'_, SocketState>) -> crate::socket::
 
 /// The settings write/read route (which server a settings verb is addressed to)
 /// — moved out VERBATIM for the 800-line cap, same technique as `tray` below.
-/// It owns `PREFERENCE_SETTING_KEYS`, i.e. the split between 「what this user
-/// prefers」 (both legs) and 「what a server shall do」 (LAN only).
+/// Since owner 2026-09-03 it owns ONE rule again: every settings key this
+/// desktop still writes describes what a SERVER shall do (`stt.routings` /
+/// `llm.config`) or names this machine, so all of them go to the LAN socket.
+/// The user's own preferences moved to the phone and are never stored.
 pub mod settings_route;
 
 
@@ -285,50 +288,54 @@ pub fn release_mobile(
     revoke: bool,
     channel: Option<String>,
 ) -> bool {
-    // v0.2.7 — send it to the channel that OWNS the row.
-    //
-    // owner 2026-07-29:「PC 端这条无法撤销，提示成功，但仍然还在」 ("this row on
-    // the PC side cannot be revoked, it reports success but the row is still
-    // there"). This used
-    // `with_socket`, i.e. the PRIMARY channel — but the two channels are two
-    // servers with two `mobile_pairings` tables, which is exactly why
-    // `list_paired_mobiles` was changed in v0.2.1 to ask BOTH and tag every row
-    // with its channel. The table has carried that tag ever since; the revoke
-    // button never used it. With cloud primary, revoking a local-LAN row asked
-    // the relay to delete a pairing it has never heard of.
-    //
-    // The server then answered `{ok:true, revoked:0}` — well-formed request, no
-    // row removed — and the desktop read only `ok`. Two independent defects
-    // producing one symptom; both are fixed, because either one alone would
-    // still leave a way to claim a deletion that did not happen.
-    //
-    // `None` (an older frontend, or a row with no tag) falls back to the primary
-    // socket — the exact pre-0.2.7 behaviour, never a silent no-op.
-    let target = channel.as_deref().and_then(crate::socket::Channel::from_tag);
-    let Some(channel) = target else {
-        let ok = with_socket(&state, |s| s.release_mobile(&id, revoke, RELEASE_TIMEOUT), false);
-        if ok {
-            if let Ok(g) = state.lock() {
-                free_capsule_after_release(&g.admission, &id, revoke);
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on an ack wait (up to 5.5 s). See `socket::blocking`.
+    run_blocking(|| {
+        // v0.2.7 — send it to the channel that OWNS the row.
+        //
+        // owner 2026-07-29:「PC 端这条无法撤销，提示成功，但仍然还在」 ("this row on
+        // the PC side cannot be revoked, it reports success but the row is still
+        // there"). This used
+        // `with_socket`, i.e. the PRIMARY channel — but the two channels are two
+        // servers with two `mobile_pairings` tables, which is exactly why
+        // `list_paired_mobiles` was changed in v0.2.1 to ask BOTH and tag every row
+        // with its channel. The table has carried that tag ever since; the revoke
+        // button never used it. With cloud primary, revoking a local-LAN row asked
+        // the relay to delete a pairing it has never heard of.
+        //
+        // The server then answered `{ok:true, revoked:0}` — well-formed request, no
+        // row removed — and the desktop read only `ok`. Two independent defects
+        // producing one symptom; both are fixed, because either one alone would
+        // still leave a way to claim a deletion that did not happen.
+        //
+        // `None` (an older frontend, or a row with no tag) falls back to the primary
+        // socket — the exact pre-0.2.7 behaviour, never a silent no-op.
+        let target = channel.as_deref().and_then(crate::socket::Channel::from_tag);
+        let Some(channel) = target else {
+            let ok = with_socket(&state, |s| s.release_mobile(&id, revoke, RELEASE_TIMEOUT), false);
+            if ok {
+                if let Ok(g) = state.lock() {
+                    free_capsule_after_release(&g.admission, &id, revoke);
+                }
             }
+            return ok;
+        };
+        let guard = match state.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let ok = match guard.slot(channel) {
+            Some(sock) => sock.release_mobile(&id, revoke, RELEASE_TIMEOUT),
+            // That channel is not resident, so nobody can carry the request. FALSE,
+            // never true — the page must say it failed rather than leave a row the
+            // user believes is gone.
+            None => false,
+        };
+        if ok {
+            free_capsule_after_release(&guard.admission, &id, revoke);
         }
-        return ok;
-    };
-    let guard = match state.lock() {
-        Ok(g) => g,
-        Err(p) => p.into_inner(),
-    };
-    let ok = match guard.slot(channel) {
-        Some(sock) => sock.release_mobile(&id, revoke, RELEASE_TIMEOUT),
-        // That channel is not resident, so nobody can carry the request. FALSE,
-        // never true — the page must say it failed rather than leave a row the
-        // user believes is gone.
-        None => false,
-    };
-    if ok {
-        free_capsule_after_release(&guard.admission, &id, revoke);
-    }
-    ok
+        ok
+    })
 }
 
 /// B5 (owner report, 2026-08-20) — hand the capsule back the moment the PC
@@ -390,13 +397,17 @@ pub fn refresh_pairing_code(
     state: State<'_, SocketState>,
     channel: Option<String>,
 ) -> Option<String> {
-    let target = connection::resolve_pairing_channel(channel.as_deref(), current_channel(&state));
-    with_channel_socket(
-        &state,
-        target,
-        |s| s.refresh_pairing_code(std::time::Duration::from_secs(5)),
-        None,
-    )
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on an ack wait (up to 5.5 s). See `socket::blocking`.
+    run_blocking(|| {
+        let target = connection::resolve_pairing_channel(channel.as_deref(), current_channel(&state));
+        with_channel_socket(
+            &state,
+            target,
+            |s| s.refresh_pairing_code(std::time::Duration::from_secs(5)),
+            None,
+        )
+    })
 }
 
 // ── capsule window lifecycle (07 §1 sizes / §4 morph + click-through) ────────

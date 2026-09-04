@@ -343,27 +343,42 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // greppable, and pinned by a test:
       // `isTerminalRefusalCode` returns false for this code ⇒
       // `outboxSettle` takes the retryable `else` at the end,
-      // the item goes back to `queued` ⇒ the next drain on rejoining the room will send it again
-      // (since 0.2.52 the drain hangs off `PttSession.roomJoins`, which has
-      // been honored on a real device).
+      // the item goes back to `queued` ⇒ the next drain sends it again.
       //
-      // 🔴 **And the subject must be 「this phone」, not 「the computer」 —
-      // otherwise it's a verbatim repeat of F-1.**
-      // The first draft read 「will automatically send again once the
-      // **computer** comes back online」, while the mechanism the previous
-      // paragraph honors is
-      // **a different edge**: `roomJoins`'s two writers (`pair()`
-      // succeeding / `onAccepted`) both say
-      // 「**this phone** entered the room」; 「the computer came back」
-      // triggers nothing — `PcPresence`'s only consumer,
-      // `chat_notices.onPcPresenceChangedRouted`, `return`s on the very
-      // first line of its `online` branch.
-      // ⇒ On the cloud leg (relay never drops, the phone stays in the room
-      // the whole time), that row would stay stuck **indefinitely** at
-      // 「pending delivery · will auto-
-      // resend」. The full argument and the four-language criteria are in
-      // test/pc_offline_note_test.dart on the
-      // 「trigger edge of the promise」 test (including a measured reverse control).
+      // 🔴 **CORRECTION IN PLACE (2026-09-04) — THIS SENTENCE USED TO NAME
+      // THE WRONG EDGE, AND THE PARAGRAPH BELOW EXPLAINED WHY IT HAD TO.**
+      // It read 「it will be sent again the next time **this phone**
+      // reconnects」, and the argument for that subject was: the only
+      // automatic drain edge is `PttSession.roomJoins`, whose two writers
+      // (`pair()` succeeding / `onAccepted`) both say 「this phone entered
+      // the room」, while 「the computer came back」 triggered nothing,
+      // because `PcPresence` had no delivery-side consumer at all.
+      //
+      // **That argument was correct and its conclusion was a defect.** On
+      // the cloud leg the relay does not drop when the PC quits, so the
+      // phone never leaves its room and that edge never fires again:
+      // owner measured a row sitting at 「pending delivery」 for minutes with
+      // the PC already back, and the drain only ran once the phone was made
+      // to leave and re-enter the room. The sentence was true about the
+      // implementation and false about the product.
+      //
+      // ⇒ The fix was to give the promise the edge it was always describing,
+      // not to keep writing around the missing one: the drain now subscribes
+      // to `DeliveryLinkUp` (session/delivery_link_up.dart), which
+      // `roomJoins` **and** the PC-back-in-its-room transition both feed. So
+      // this sentence may now say 「once the PC is back」 — and it must,
+      // because that is the edge the user is actually waiting on.
+      //
+      // 🔴 **The third clause is not a stray honesty note, it is the other
+      // half of the same behaviour**: a redelivered item is stamped
+      // `inject_origin: deferred`, and the PC deliberately answers it
+      // `cached` / `INJECT_DEFERRED_NOT_AUTOINJECTED` (owner 2026-08-02).
+      // Promising automatic delivery without it would leave the reader
+      // expecting text to appear on the PC by itself.
+      // ⚠️ It is written in everyday words on purpose — **no inject-leg
+      // vocabulary** (doc 15 §2.0): this stretch answers 「did it get
+      // delivered」, and the ban is pinned per language in
+      // test/pc_offline_note_test.dart.
       //
       // ⚠️ Deliberately **does not write** an imperative sentence like
       // 「please wait」: owner's ruling ⑩ makes it clear
@@ -411,11 +426,13 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // 🔴 WHY IT DOES **NOT** PROMISE AN AUTOMATIC RETRY, although one exists
       // in a narrow sense. Leaving the item unsettled means the 45 s local
       // watchdog (`outboxArmItemWatchdog`, `kOutboxInflightTimeout`) eventually
-      // returns it to `queued` — but a queued item still needs a DRAIN, and
-      // since 0.2.52 the drain edge is `PttSession.roomJoins`. On a connection
-      // that never drops, that edge does not fire, so 「will auto-resend」 would be a
-      // wait with no mechanism to honour it on the very leg that produces this
-      // code — the F-1 red line, verbatim. The neighbour above may promise it
+      // returns it to `queued` — but a queued item still needs a DRAIN, and the
+      // drain edge is `DeliveryLinkUp` (2026-09-04; before that, `roomJoins`
+      // alone). This code is produced while the relay is up and the PC is in
+      // its room, so **neither** half of that edge fires: the phone did not
+      // leave the room, and the PC never went away. 「Will auto-resend」 would
+      // therefore still be a wait with no mechanism to honour it on the very
+      // leg that produces this code — the F-1 red line, verbatim. The neighbour above may promise it
       // because its promise is pinned to that exact edge and was cashed on a
       // real device; this one is not, so it states the fact and names the
       // action the user can actually take.

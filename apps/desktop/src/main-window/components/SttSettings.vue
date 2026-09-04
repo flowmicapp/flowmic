@@ -7,18 +7,12 @@ import ProbePanel from './ProbePanel.vue';
 // under the routing table because that table is where the built-in engine is
 // chosen, and the card is the answer to 「I chose it — now what?」.
 import LocalModelCard from './LocalModelCard.vue';
-import { DICTIONARY_PACK_MAX_ENTRIES, POLISH_STRENGTHS } from '@flowmic/protocol';
 import { S } from '../../lib/strings';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
 import {
-  addDictEntry,
   addRouting,
   model,
-  removeDictEntry,
   removeRouting,
-  setPolishEnabled,
-  setPolishStrength,
-  setRefineEnabled,
   setPresetForRouting,
   sttPresetSections,
   sttPresets,
@@ -161,11 +155,6 @@ function goToModelCard(language: string): void {
   focusLocalModelCard(language === FALLBACK_LANG ? '' : baseSpokenLang(language));
 }
 
-const newTerm = ref('');
-function addTerm(): void {
-  if (addDictEntry(newTerm.value)) newTerm.value = '';
-}
-
 // GA-12 — "test connection." One button, but one reading PER LANGUAGE ROW: the server
 // resolves each language through the production §4 routing algorithm, so the
 // probe tests the resolution as well as the endpoint. What is probed is exactly
@@ -216,13 +205,15 @@ onBeforeUnmount(() => watcher?.disconnect());
 
 <template>
   <div class="set-sec" ref="root">
-    <!-- E6 (2026-09-02): this page mixes a LAN-only section (routing table,
-         `stt.routings`) with three both-legs sections since owner 2026-08-24
-         (dictionary/polish/refine) — `S.settings_scope_lan` alone would tell a
-         cloud-relay user their dictionary/polish/refine edits do nothing on the
-         relay, which the wire contradicts (settings_route.rs
-         PREFERENCE_SETTING_KEYS). This note says both facts. -->
-    <div class="scope-note">{{ S.stt_settings_scope_note }}</div>
+    <!-- 🔴 BACK TO `settings_scope_lan`, and the reason is that the exception
+         is gone (owner 2026-09-03). E6 (2026-09-02) introduced
+         `stt_settings_scope_note` because this page then mixed the LAN-only
+         routing table with three sections whose keys travelled on BOTH legs
+         (dictionary / AI polish / two-pass refine) — so the single-fact note
+         would have told a relay user their edits did nothing, which the wire
+         contradicted. Those three sections moved to the phone, this page is
+         LAN-only again, and the two-fact note would now be the untrue one. -->
+    <div class="scope-note">{{ S.settings_scope_lan }}</div>
     <h3>{{ S.stt_title }}</h3>
     <p class="hint">{{ S.stt_hint }}</p>
 
@@ -342,114 +333,18 @@ onBeforeUnmount(() => watcher?.disconnect());
          through to anything a scroll could find). -->
     <LocalModelCard />
 
-    <div class="sub-h">{{ S.polish_title }}
-      <span class="muted" style="font-weight:400">{{ S.polish_hint }}</span>
-    </div>
-    <div class="card" style="margin-bottom:12px">
-      <div class="chkrow" @click="setPolishEnabled(!model.polishEnabled)">
-        <span class="chk" :class="{ on: model.polishEnabled }"><Icon name="check" /></span>
-        <div>
-          <div>{{ S.polish_toggle }}</div>
-          <div class="sub">{{ model.polishEnabled ? S.stt_sub_on : S.stt_sub_off_default }}</div>
-        </div>
-      </div>
-      <!-- Card POLISH-CFG: the precondition, stated on the row itself — same
-           treatment as refine_precondition below, deliberately not a new visual.
-           The switch alone cannot say this: `stt.polish` answers on/off and the
-           server derives its default from "is there a usable language model,"
-           so without this line a user with no model sees a switch that is ON
-           and does nothing. The fact comes from the SERVER (`capability.llm`);
-           this side never infers it from an empty llm.config — see settings-model.ts. -->
-      <div class="sub" style="padding:0 14px 12px" v-if="!model.llmCapabilityUsable">{{ S.polish_no_llm }}</div>
-      <!-- Card C8: correction strength. NOT a fourth mode — a dial inside this
-           same toggle, so the three-mode lock is untouched.
-
-           🔴 Rendered DISABLED rather than hidden while polish is off. Hiding it
-           would make the control appear only after the toggle is flipped, so a
-           user could not see what they were about to get before getting it; and
-           `setPolishStrength` deliberately still stores the choice, so turning
-           polish off and on again returns the value they picked rather than a
-           silently reset one.
-
-           🔴 The hint states the TRADE, not a ranking. `smooth` is not "better":
-           it gives up word-for-word fidelity for readability, and someone
-           dictating a quotation needs that written down where they can read it
-           BEFORE choosing. -->
-      <div class="polish-strength" :class="{ off: !model.polishEnabled }">
-        <div class="sub">{{ S.polish_strength_label }}</div>
-        <div class="seg">
-          <button
-            v-for="s in POLISH_STRENGTHS"
-            :key="s"
-            class="pick"
-            type="button"
-            :class="{ on: model.polishStrength === s }"
-            :disabled="!model.polishEnabled"
-            @click="setPolishStrength(s)"
-          >{{ s === 'smooth' ? S.polish_strength_smooth : S.polish_strength_strict }}</button>
-        </div>
-        <div class="sub note">{{ S.polish_strength_hint }}</div>
-        <!-- R-2乙 (owner 2026-08-29): what smooth's meaning check can see,
-             shown only to the person who chose smooth. WP8 P1-2 extended
-             the closed-class tables to the spoken set; the copy names that
-             coverage rather than a zh/en-only pair. Not derived from the
-             user's own routing rows: the desktop can hold several language
-             rows at once, so 「your language is covered」 would be a claim
-             about a set, not about this utterance. -->
-        <div v-if="model.polishStrength === 'smooth'" class="sub note coverage">
-          {{ S.polish_strength_smooth_coverage }}
-        </div>
-      </div>
-    </div>
-
-    <!-- GA-14 two-pass refine. The precondition is stated on the row itself:
-         a second pass needs a BATCH engine, and a user whose routing is
-         funasr/deepgram/openai-realtime would otherwise flip a switch that
-         quietly does nothing. -->
-    <div class="sub-h">{{ S.refine_title }}
-      <span class="muted" style="font-weight:400">{{ S.refine_hint }}</span>
-    </div>
-    <div class="card" style="margin-bottom:12px">
-      <div class="chkrow" @click="setRefineEnabled(!model.refineEnabled)">
-        <span class="chk" :class="{ on: model.refineEnabled }"><Icon name="check" /></span>
-        <div>
-          <div>{{ S.refine_toggle }}</div>
-          <div class="sub">{{ model.refineEnabled ? S.stt_sub_on : S.stt_sub_off_default }}</div>
-        </div>
-      </div>
-      <div class="sub" style="padding:0 14px 12px">{{ S.refine_precondition }}</div>
-    </div>
-
-    <div class="sub-h">{{ S.dict_title }} <span class="muted" style="font-weight:400">{{ SETTINGS_MSG.dictCount(model.dictionary.length, DICTIONARY_PACK_MAX_ENTRIES) }}</span></div>
-    <div class="card" v-if="model.dictionary.length > 0">
-      <div class="dict-row" v-for="d in model.dictionary" :key="d.term">
-        <span class="term">{{ d.term }}</span>
-        <span class="alias" v-if="d.aliases && d.aliases.length">{{ SETTINGS_MSG.dictAliases(d.aliases) }}</span>
-        <span class="alias" v-else>{{ S.dict_no_alias }}</span>
-        <button class="rm" :title="S.op_delete" @click="removeDictEntry(d.term)"><Icon name="x" /></button>
-      </div>
-    </div>
-    <div class="term-input">
-      <input class="input" v-model="newTerm" :placeholder="S.dict_add" @keyup.enter="addTerm" />
-      <button class="btn ghost sm" @click="addTerm"><Icon name="plus" />{{ S.dict_add }}</button>
-    </div>
+    <!-- 🔴 THREE CARDS ENDED HERE ON 2026-09-03, and none of them was replaced:
+         AI polish (switch + strength), two-pass refine, and the personal
+         dictionary. They are the phone's now (owner ruling), the phone hands
+         them to whichever server is transcribing, and no server stores them —
+         so this page cannot show a current value for any of them, and a
+         read-only mirror would be a value with no author. `LocalModelCard`
+         above is the last thing on this page for the same reason it was the
+         first: the models are files on THIS machine. -->
   </div>
 </template>
 
 <style scoped>
-.polish-strength { padding: 0 14px 12px; }
-/* Same .seg/.pick vocabulary as TimelineClear's segmented control — this is the
-   app's existing two-choice idiom, not a new visual. */
-.polish-strength .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
-.polish-strength .pick { border: 1px solid var(--line); background: transparent; color: var(--t2);
-  border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
-.polish-strength .pick.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
-/* Disabled rather than hidden while polish is off: the user can read what the
-   choice means before turning the feature on. */
-.polish-strength .pick:disabled { cursor: default; opacity: 0.55; }
-.polish-strength.off { opacity: 0.7; }
-.polish-strength .note { line-height: 1.6; }
-.polish-strength .coverage { margin-top: 6px; opacity: 0.85; }
 .ops-del { color: var(--t3); width: 26px; height: 26px; border-radius: 7px; }
 .ops-del:hover { color: var(--red); background: var(--line-soft); }
 .ops-del .icon { width: 14px; height: 14px; }

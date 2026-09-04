@@ -34,6 +34,7 @@ import coordinateAnchors from './coordinate-anchors.mjs';
 import noLanIp from './no-lan-ip.mjs';
 import androidProviderClasses from './android-provider-classes.mjs';
 import androidInstallPermission from './android-install-permission.mjs';
+import flutterTemplateIcons from './flutter-template-icons.mjs';
 import platformCfgCount from './platform-cfg-count.mjs';
 import adminLimitMirror from './admin-limit-mirror.mjs';
 import passwordPolicyMirror from './password-policy-mirror.mjs';
@@ -68,6 +69,7 @@ const LINTS = [
   { name: 'no-lan-ip', run: noLanIp },
   { name: 'android-provider-classes', run: androidProviderClasses },
   { name: 'android-install-permission', run: androidInstallPermission },
+  { name: 'flutter-template-icons', run: flutterTemplateIcons },
   { name: 'platform-cfg-count', run: platformCfgCount },
   { name: 'admin-limit-mirror', run: adminLimitMirror },
   { name: 'password-policy-mirror', run: passwordPolicyMirror },

@@ -175,7 +175,24 @@ export const USER_RETAINED_TABLES = [
  *  match: "exclude everything that starts with account." would also swallow legitimate account
  *  preferences, and a rule that hides more than it says is how an export starts
  *  quietly omitting things nobody decided to omit. */
-export const EXPORT_EXCLUDED_SETTING_KEYS: readonly string[] = ['account.password_reset'];
+export const EXPORT_EXCLUDED_SETTING_KEYS: readonly string[] = [
+  'account.password_reset',
+  // The phone-owned preferences. Owner ruling 2026-09-03
+  // (docs/decisions/2026-09-03-owner-web-rulings-phone-owned-settings.md, item 6
+  // and the closing note): the scenario card, the polish and refine switches,
+  // the situational-inference consent and the retired personal dictionary live
+  // on the phone and reach a server only for the length of one connection,
+  // never the database. A row still sitting under one of these keys is a
+  // leftover from before that ruling, not something the account holds today,
+  // so the export does not present it as account data. Named one by one, for
+  // the same reason as the comment above; `omitted.phone_preferences` says on
+  // the wire where these actually are.
+  'scenario.card',
+  'stt.polish',
+  'stt.refine',
+  'stt.dictionary',
+  'scenario.inference',
+];
 
 /** What a redacted secret reads as in the export. A sentence rather than `null`:
  *  `null` would say "you haven't configured this", which is a different fact. */
@@ -317,6 +334,8 @@ export function buildAccountExport(user: UserRecord, stores: AccountExportStores
       mobile_token: 'never exported — a live key to your phone pairing',
       settings_api_keys: `redacted in place as ${JSON.stringify(REDACTED)} — encrypted at rest under a server-held key`,
       settings_keys: EXPORT_EXCLUDED_SETTING_KEYS,
+      phone_preferences:
+        'not exported — your scenario card, AI polish, second-pass refinement, situational-inference consent and custom terms live on your phone; a server only holds them for the length of one connection. The phone can save them to a file itself',
       account_flags:
         'not exported — the admin bit and the permanent-free exemption are our operational classification of this account, not data about you, and the privacy policy does not list them among what we hold',
       timeline_blobs:

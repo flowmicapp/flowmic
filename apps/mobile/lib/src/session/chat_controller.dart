@@ -34,6 +34,7 @@ import '../favorites/favorites_store.dart';
 import '../ptt/ptt_session.dart';
 import '../settings/app_settings.dart';
 import '../settings/local_prefs.dart';
+import '../settings/phone_prefs_payload.dart';
 import '../signaling/album_away.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/state_machine.dart';
@@ -41,6 +42,7 @@ import 'link_recovery.dart';
 import '../signaling/wire_payloads.dart';
 import '../stt/segment_buffer.dart';
 import '../stt/stt_stream.dart';
+import '../stt/utterance_view.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
 import '../timeline/timeline_sync.dart';
@@ -51,6 +53,7 @@ import '../ui/banner_queue.dart' show BannerIds;
 import 'ai_compose_controller.dart';
 import 'backfill_runner.dart';
 import 'compose_gate.dart';
+import 'delivery_link_up.dart';
 import 'delivery_outbox.dart';
 import 'outbox_blob_store.dart';
 import 'outbox_destination.dart';
@@ -127,6 +130,8 @@ part 'chat_ai_row_surface.dart';
 
 // The five inbound routers — one family, one file. See its header.
 part 'chat_inbound_routes.dart';
+// The G-20 scope judgement — 「which screen is this notice news for」. Its header says why.
+part 'chat_notice_scope.dart';
 
 class ChatController extends ChangeNotifier
     implements
@@ -146,6 +151,7 @@ class ChatController extends ChangeNotifier
     required OutboxBlobStore outboxBlobs,
     this.appSettings,
     this.llmCapability,
+    this.phonePrefs,
     ComposeGate? composeGate,
     ImagePickerPort? imagePicker,
     DateTime Function()? clock,
@@ -154,7 +160,9 @@ class ChatController extends ChangeNotifier
     // run on a collapsed window instead of sleeping through the real one.
     this.sessionLostAfter = kSessionLostAfter,
   }) : favorites = FavoritesStore(prefs: localPrefs),
-       composeGate = composeGate ?? ComposeGate(transport: session.transport) {
+       composeGate =
+           composeGate ??
+           ComposeGate(transport: session.transport, phonePrefs: phonePrefs) {
     recording = RecordingTelemetry(clock: clock ?? DateTime.now, onTick: notifyListeners);
     aiCompose = AiComposeController(host: this, gate: this.composeGate);
     utteranceCompose = UtteranceComposeController(host: this, gate: this.composeGate);
@@ -180,9 +188,12 @@ class ChatController extends ChangeNotifier
     _focusSub = session.focusStates.listen(_onFocusState);
     session.pcPresence.addListener(_onPcPresenceChanged); // RV-92, chat_notices.dart
     session.pcBusyListenable.addListener(notifyUi); // Card L7, BannerIds.pcBusy
-    // 🔴 F-1 — the drain's trigger edge is **joining the room**, not the socket
-    // connecting (chat_outbox_host.dart).
+    // 🔴 F-1 — never the socket edge. Since 2026-09-04 「joined the room」 is one
+    // of TWO edges of one fact and the drain subscribes to the FACT
+    // ([deliveryLink]); this listener keeps only the pairing confirmation.
     session.roomJoins.addListener(_onRoomJoined);
+    deliveryLink = DeliveryLinkUp(roomJoins: session.roomJoins, pcPresence: session.pcPresence);
+    deliveryLink.addListener(_onDeliveryLinkUp);
     // 🔴 W8-3 — the RECEIPT half of the pair `ptt_inbound.dart` writes at the
     // emit. Together they cut the 「the recording stopped on its own and the
     // user was told nothing」 path in two:
@@ -238,6 +249,7 @@ class ChatController extends ChangeNotifier
   /// The server just put this connection into the room ⇒ now, and only now,
   /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
   void _onRoomJoined() => onRoomJoinedRouted(this);
+  void _onDeliveryLinkUp() => onDeliveryLinkUpRouted(this);
 
   /// AUD-D F6 / P1-6 — a segment was dropped/evicted/expired out of local
   /// retention. Body: chat_notices.dart (same family as the other page-level
@@ -250,6 +262,16 @@ class ChatController extends ChangeNotifier
   /// Card LLM-NOTICE — the PC's `capability.llm` (settings/llm_capability.dart):
   /// null = not told · false = no usable model (mode note renders) · true = silent.
   final ValueListenable<bool?>? llmCapability;
+
+  /// 🔴 What this phone holds for `scenario.card` / `stt.polish` / `stt.refine`
+  /// / `scenario.inference`, read at every emit. Owner ruled 2026-09-03 that the
+  /// carrier is the REQUEST: it rides `audio:start` and `compose:start`, nothing
+  /// is stored, and there is no `settings:update` for these keys any more.
+  /// THE PRODUCTION WIRE IS ONE LINE — `_settingsRoot.phonePrefs.frame` in
+  /// main.dart — and it feeds all three emitters below (the PTT edge, the
+  /// backfill runner and the compose gate) from one source, so no two frames
+  /// can disagree about this phone. Null (tests) sends no `prefs`.
+  final PhonePrefsSource? phonePrefs;
   @override
   final TimelineStore store;
 
@@ -259,7 +281,7 @@ class ChatController extends ChangeNotifier
   /// and a recording ending — because those are the only two moments at which
   /// the answer to 「is anything owed」 can have changed.
   late final BackfillRunner backfill =
-      BackfillRunner(session: session, store: store);
+      BackfillRunner(session: session, store: store, phonePrefs: phonePrefs);
 
   final DestinationController destination;
   @override
@@ -301,6 +323,9 @@ class ChatController extends ChangeNotifier
   @override
   late final DeliveryOutbox outbox;
 
+  /// 2026-09-04 — the ONE fact the drain subscribes to (delivery_link_up.dart).
+  late final DeliveryLinkUp deliveryLink;
+
   /// RV-93 — the timeline's pictures. Exposed BESIDE [outbox], not through it:
   /// the bytes belong to the row (row_image_lookup.dart). Consumer:
   /// `chat_flow_page` → `rowImageBytes` → opening the full-size image.
@@ -315,7 +340,7 @@ class ChatController extends ChangeNotifier
   StreamSubscription<FlowmicStateSnapshot>? _fsmSub;
   StreamSubscription<double>? _amplitudeSub;
   StreamSubscription<AiComposeEvent>? _aiComposeSub;
-  StreamSubscription<String>? _refinedSub;
+  StreamSubscription<SttRefined>? _refinedSub;
 
   // ── mode + buffer ────────────────────────────────────────────────────
   FlowMode _mode = FlowMode.realtime;
@@ -438,31 +463,14 @@ class ChatController extends ChangeNotifier
   FlowMode _activeMode = FlowMode.realtime;
   int _utteranceSeq = 0;
 
-  /// Card D-2 — the row THE MOST RECENT TERMINAL FINAL BUILT, and the only row a
-  /// late `stt:refined` is allowed to land on ([_applyRefined]).
-  ///
-  /// Written at exactly one place (`_handleTerminalFinal`, right after
-  /// `store.buildFromUtterance`) because that is the one place in this app that
-  /// knows a row was made out of speech. `buildFromUtterance` has FIVE callers
-  /// and four of them are not utterances (a picture sent to the PC, a
-  /// lightweight-record
-  /// picture, a typed ➤ note, a Favorites-phrase tap) — they are indistinguishable from a
-  /// spoken row by the fields on `TimelineEntry`, which is precisely why
-  /// 「the newest row」 was the wrong answer to 「which row is this refine for」.
-  ///
-  /// ⚠️ THIS IS NOT A CORRELATION KEY, and it must not grow into one. Nothing on
-  /// the wire is being matched: `stt:refined` carries `{text}` and nothing else,
-  /// and no utterance id exists on `stt:final` to correlate with (see the
-  /// 2026-08-07 correction block on `SttRefinedSchema`). This value answers a
-  /// strictly local question — 「did MY last utterance build the row that is
-  /// currently on top?」 — so the temporal guess is unchanged and only its blast
-  /// radius shrinks. Minting a wire key here would be the same defect one layer
-  /// along: a correlation that looks available and is not.
-  ///
-  /// In-memory only, and deliberately so: a refine can only arrive on the live
-  /// socket that carried the utterance, so a value that did not survive a
-  /// restart never had a frame to answer.
-  String? _lastUtteranceEntryId;
+  // Card D-2's `_lastUtteranceEntryId` — 「the row the most recent terminal
+  // final built」, the temporal guess a late `stt:refined` used to land on —
+  // was DELETED on 2026-09-03 (design D7 ③). Its own doc said it 「must not
+  // grow into a correlation key」 because no wire key existed; one exists now
+  // (`utterance_id` on `stt:final` and `stt:refined`, stored on the row as
+  // `TimelineEntry.utteranceId`), and `_applyRefined` matches on that key
+  // alone. Keeping the guess beside the key would have given 「which row is
+  // this refine for」 two answers.
 
   // WP-R4-6 ⑦: polish-skipped honest signal. Held here (NOT on TimelineEntry)
   // so the five-state status face stays delivery-truth only. The lead's ruling
@@ -494,20 +502,8 @@ class ChatController extends ChangeNotifier
   /// for the whole family, not six near-misses (ruling G-20, 2026-08-05).
   String? _autoStoppedInstanceId;
 
-  /// G-20 — 「does this transient notice belong to this screen」. THE one equality judgement for the
-  /// six per-instance transient notices this controller family holds; the
-  /// stamped value and `session.connectedInstanceId` are the same vocabulary
-  /// RV-91/RV-97/B4-18 already compare. ⚠️ `null == null` is a REAL match, not
-  /// a wildcard: two cloud instances cannot be told apart, and the honest
-  /// disposition is to keep showing the notice rather than swallow it.
-  bool _noticeOnScreen(String? stampedInstanceId) =>
-      stampedInstanceId == session.connectedInstanceId;
-
-  /// G-20 ① — the gate [ChatStatusSurface.autoStopped] and [autoStopReason]
-  /// share, so 「whether the banner is drawn」 and 「whether the reason is
-  /// handed out」 can never answer differently.
-  bool get _autoStoppedOnScreen =>
-      _autoStopped && _noticeOnScreen(_autoStoppedInstanceId);
+  // [_noticeOnScreen] (G-20's ONE equality judgement) and [_autoStoppedOnScreen]
+  // moved VERBATIM to chat_notice_scope.dart — the fields stay, see its header.
 
   // 🔴 fix-026 — WHY it stopped, in the server's own wire vocabulary
   // (`AudioAutoStoppedSchema.reason`). A SECOND value beside [_autoStopped]
@@ -522,23 +518,7 @@ class ChatController extends ChangeNotifier
   // stand-in for a real reason.
   String _autoStopReason = '';
 
-  /// The wire `reason` behind the auto-stop notice **currently on screen**, or
-  /// null when there is no such notice.
-  ///
-  /// 🔴 Gated on [_autoStopped] rather than exposing the raw field: a reason
-  /// that outlives the banner it explains is a value describing a fact that is
-  /// no longer true, and the three writers that clear the flag would each have
-  /// to remember to clear this one too. Gating makes that impossible by
-  /// construction instead of by discipline.
-  ///
-  /// Consumer: `chat_banner_sources.dart` → `buildChatBanners(autoStopReason:)`
-  /// → `AppStrings.recordingAutoStoppedMessage`. Declared in the class body
-  /// rather than beside `autoStopped` in chat_status_surface.dart only because
-  /// that file is outside this card's ownership.
-  ///
-  /// G-20 ①: gated on [_autoStoppedOnScreen] (not the raw flag) so a reason can
-  /// never be handed out for a banner parked on another instance's screen.
-  String? get autoStopReason => _autoStoppedOnScreen ? _autoStopReason : null;
+  // [autoStopReason] moved VERBATIM to chat_notice_scope.dart, with the gate it reads.
 
   // GA-03: fail-loud "PTT produced nothing" notice. The FSM closed PROCESSING
   // without a terminal stt:final (15 s safety net, or a terminal stt:error).
@@ -629,14 +609,8 @@ class ChatController extends ChangeNotifier
   /// Written only through [_raiseUtteranceFailure]; see [_autoStoppedInstanceId].
   String? _utteranceFailureInstanceId;
 
-  /// G-20 ③ — the ONE writer of [_utteranceFailure], so the value and its
-  /// screen stamp are decided in the same statement and can never drift apart
-  /// (the `ManualDelivery._raise` precedent). The four raise sites live in
-  /// chat_utterance.dart; grep them if this claim ever needs re-checking.
-  void _raiseUtteranceFailure(AiComposeOutcome outcome) {
-    _utteranceFailure = outcome;
-    _utteranceFailureInstanceId = session.connectedInstanceId;
-  }
+  // [_raiseUtteranceFailure] — G-20 ③'s ONE writer — moved VERBATIM to
+  // chat_notice_scope.dart, the file about the scope it stamps.
 
   @override
   void ucNotify() => notifyListeners();

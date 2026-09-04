@@ -184,9 +184,8 @@ export const defaultEngineFactory: EngineFactory = (
 
 /** 🔴 MOVED to `./streaming-engines` 2026-08-02 (L2) to break a module cycle —
  *  the pool layer needs this answer and this file now imports the pool layer.
- *  RE-EXPORTED here so every existing importer (`http/probe-routes.ts`,
- *  `stt/batch-transcribe.ts`, tests) is untouched. The §4a trap warning moved
- *  with the code; read it there. */
+ *  RE-EXPORTED here so every existing importer (`http/probe-routes.ts`, tests)
+ *  is untouched. The §4a trap warning moved with the code; read it there. */
 export { STREAMING_ENGINES, isStreamingEngine } from './streaming-engines';
 
 /** Load the user's stt.routings snapshot. Empty/absent → [] (the router then
@@ -222,14 +221,13 @@ export function loadRoutings(settings: SettingsRepo, userId: string): Routing[] 
  *
  * 🔴 The source is `resolveReplacementRules` — the SAME three-source merge the
  * LLM-reference block and the deterministic replacer already use (card terms ∪
- * dictionary packs ∪ stt.dictionary). It used to read `stt.dictionary` ALONE,
- * which is the narrowest of the three, and the consequence landed on the primary
- * persona: a MOBILE user's custom terms UI writes exclusively to
- * `scenario.card.terms`, and the phone has no way to reach `stt.dictionary` at
- * all — so their terminology never reached any engine. Dictionary packs never
- * reached an engine from any client either. (This is NOT "a source with no write
- * surface": `stt.dictionary` does have a mounted desktop UI. It is "engine
- * biasing read the narrowest source".)
+ * dictionary packs). It used to read the retired personal dictionary key
+ * ALONE, which was the narrowest of the sources, and the consequence landed on
+ * the primary persona: a MOBILE user's custom terms UI writes exclusively to
+ * `scenario.card.terms`, so their terminology never reached any engine.
+ * Dictionary packs never reached an engine from any client either. (2026-09-03,
+ * owner ruling Q1: the personal dictionary is retired outright — its aliases
+ * now live on the card's terms, and the card is what the phone pushes.)
  *
  * Threading cost: zero. This function already had exactly the two arguments
  * `resolveReplacementRules` takes, of identical type, and its one call site
@@ -237,7 +235,7 @@ export function loadRoutings(settings: SettingsRepo, userId: string): Routing[] 
  * `compose/` never imports `stt/`.
  *
  * MERGE ORDER + CAP, stated as decisions rather than left as accidents:
- *  • Order is card terms → packs → stt.dictionary, inherited verbatim from
+ *  • Order is card terms → packs, inherited verbatim from
  *    resolveReplacementRules so the two consumers can never disagree about what
  *    "the user's terminology" is.
  *  • `buildHotwords` truncates at HOTWORDS_MAX_ENTRIES (300) from the FRONT, so
@@ -257,9 +255,9 @@ export function loadRoutings(settings: SettingsRepo, userId: string): Routing[] 
  *    differ. Kept deliberately: the cap exists to bound what we hand the FST,
  *    and re-deriving it from output keys would change a shipped, tested rule for
  *    no engine-side benefit.
- *  • Last write wins on a duplicate term, so an `stt.dictionary` weight beats a
- *    pack weight for a colliding term — the user's own entry is the more
- *    specific authority, and it is the later leg.
+ *  • Last write wins on a duplicate term. Card terms carry no weight (the
+ *    consumer's default applies), so a pack's authored weight wins a collision
+ *    with a bare card term — the pack is the leg that actually states one.
  */
 export function loadHotwords(settings: SettingsRepo, userId: string): string | undefined {
   // Fails LOUD on a present-but-malformed scenario.card (SETTINGS_SCHEMA_INVALID),
@@ -411,7 +409,18 @@ export function makeManagedDefaultResolver(
 
 export function makeSttOrchestratorFactory(
   deps: SttOrchestratorFactoryDeps,
-): (session: AudioSession, language: string, userId: string, vad?: VadGate) => BuiltOrchestrator {
+): (
+  session: AudioSession,
+  language: string,
+  userId: string,
+  vad?: VadGate,
+  /** 2026-09-03 (design D2/WP-A 4) — the per-session settings view for the
+   *  PHONE-OWNED terminology (hotwords + Soniox context read the scenario
+   *  card). `stt.routings` deliberately stays on `deps.settings`: the engine
+   *  routing is the PC's / the account's configuration, not the phone's. Absent
+   *  ⇒ the database repo for everything (old callers, tests, old phones). */
+  overrides?: { settings?: SettingsRepo },
+) => BuiltOrchestrator {
   const engineFactory = deps.engineFactory ?? defaultEngineFactory;
   // 🔴 A6-3 WIRING (2026-08-02, L2). The managed default is now resolved BY THE
   // POOL — `makePoolManagedDefault` → `resolvePoolRouting` → `selectRoute`. This
@@ -437,10 +446,11 @@ export function makeSttOrchestratorFactory(
   // instead (apps/server-core/test/stt-pool-refusal.test.ts injects no resolver).
   const pooled = deps.managedDefault ? null : makePoolManagedDefault({ factory: engineFactory });
   const managedDefault = deps.managedDefault ?? pooled!.resolve;
-  return (session, language, userId, vad) => {
+  return (session, language, userId, vad, overrides) => {
     const routings = loadRoutings(deps.settings, userId);
-    const hotwords = loadHotwords(deps.settings, userId);
-    const factory = withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(deps.settings, userId));
+    const terminology = overrides?.settings ?? deps.settings;
+    const hotwords = loadHotwords(terminology, userId);
+    const factory = withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(terminology, userId));
     const router = makeEngineRouter({ managedDefault });
     // #16 fail-fast: no matching routing → throw synchronously so the sync
     // sttFactory call surfaces stt:error (no implicit fallback engine).

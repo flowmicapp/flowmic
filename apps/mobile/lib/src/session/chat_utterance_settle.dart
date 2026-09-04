@@ -93,6 +93,10 @@ void _settleSpan(
     origin: c.destination.isFixed ? 'cloud' : 'paired',
     articleId: place?.articleId,
     articleOffsetMs: place?.offsetMs,
+    // D7 ③ — the server-minted utterance id off this final, so a later
+    // `stt:refined` can name this row. Null when the relay predates ids, in
+    // which case no refine will ever match it, which is the safe direction.
+    utteranceId: f.utteranceId,
   );
   // The head is minted LAZILY, on the first segment that settles, and never
   // before: a recording nobody said anything into leaves nothing behind,
@@ -114,13 +118,9 @@ void _settleSpan(
   // against a watermark that already includes this row.
   segs.markSettled(f.segmentIdx);
   c._liveText = '';
-  // Card D-2 — the ONE place that knows a row was made out of speech. Written
-  // here rather than derived later because nothing on the row records it:
-  // `entry_type` is 'transcript' for a typed note and a favorite-phrase (常用语)
-  // tap too, and `segments_count` / `duration_ms` are engine readings, not
-  // provenance. See [ChatController._lastUtteranceEntryId] for why this is not
-  // a wire key.
-  c._lastUtteranceEntryId = entry.id;
+  // Card D-2's `c._lastUtteranceEntryId = entry.id` stood here until
+  // 2026-09-03: the row now carries the server's `utterance_id` (built in
+  // above), which is the key a refine matches on — see `_applyRefined`.
   // Honest signal only — does not touch entry.status / timeline schema. The
   // mark is per-entry and session-persistent (lead's ruling): once an utterance
   // reports polish:skipped its bubble keeps the mark; later utterances never

@@ -87,7 +87,19 @@ body { font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif; color: 
    rest, so the words arriving right now were the ones you could not see. The
    box scrolls and is pinned to the bottom (controller keeps it there), which is
    the only reading that matches a live transcript. */
-.interim { font-size: 13px; color: var(--t3); max-height: 66px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; overscroll-behavior: contain; }
+/* 🔴 THE COLOUR RULE, and it means the same thing on the phone (2026-09-04):
+   `--t3` (grey) = still being transcribed — the open segment's latest interim;
+   `.fin` / `--t1` (black) = the server has finalised this span and it has been
+   through post-processing. Nothing else may be painted in either colour here.
+   `white-space: pre-wrap` is load-bearing, not typography: the assembly's
+   joiner puts a real '\A' between two sentences (SegmentBuffer._joinerBetween
+   / utterance-view.ts `joinerBetween`), and the default `normal` would collapse
+   it — the capsule would then run two sentences together while the phone broke
+   them, i.e. the two ends would not be character-identical on screen.
+   `overflow-y: auto` + the bottom pin in CapsuleApp.vue is what keeps the TAIL
+   visible on an utterance taller than the box: the head scrolls out of view,
+   nothing is dropped. */
+.interim { font-size: 13px; color: var(--t3); max-height: 66px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; }
 .interim .fin { color: var(--t1); }
 .ministat { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: var(--t2); align-items: center; }
 .ministat .icon { width: 11px; height: 11px; }

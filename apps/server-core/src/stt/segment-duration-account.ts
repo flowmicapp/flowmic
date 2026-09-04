@@ -42,19 +42,26 @@
  * than deleted, because the account was real and the fix it PROPOSED was wrong:
  *
  * The account: the bridge's `kickRefine` passed this same number to
- * `shouldRefine`, whose floor is "only re-transcribe an utterance of at least N
- * seconds" while `RetainedAudio` holds the WHOLE utterance ⇒ a per-segment
+ * `shouldRefine`, whose floor is "only run a second pass on an utterance of at
+ * least N seconds" while the utterance itself ran for minutes ⇒ a per-segment
  * duration made that gate read one segment and judge the whole. Real defect:
  * release a few seconds past a rollover and refine silently never ran, on
- * exactly the long recordings GA-14 exists to improve.
+ * exactly the long recordings the second pass exists to improve.
  *
- * 🔴 Why the replacement proposed here was REJECTED — keep this, or it will be
- * proposed again: `totalAudioMs` counts every byte the phone offered, INCLUDING
- * bytes `RetainedAudio` refused (cap) and replayed reconnect chunks. On an
- * overflowed buffer it would clear the floor and then hand `take()` an empty
- * buffer — re-creating the very "the gate judges something other than what it
- * bills" shape it was meant to close. The number that cannot disagree with
- * `take()` is the retained buffer's own length, and that is what shipped.
+ * 🔴 THE REPLACEMENT THIS BLOCK ONCE REJECTED IS NOW WHAT SHIPS, AND THE REASON
+ * IT WAS REJECTED IS GONE — recorded rather than quietly reversed. The rejection
+ * read: "`totalAudioMs` counts every byte the phone offered, INCLUDING bytes
+ * `RetainedAudio` refused (cap) and replayed reconnect chunks. On an overflowed
+ * buffer it would clear the floor and then hand `take()` an empty buffer." Every
+ * clause of that was about the RETAINED BUFFER, and owner's 2026-09-04 ruling
+ * deleted it: the second pass smooths the delivered TEXT with an LLM, so there
+ * is no `take()` left to disagree with and no cap left to overflow.
+ *
+ * ⚠️ What survives of the objection, stated so it is not rediscovered as a bug:
+ * `totalAudioMs` can still over-count slightly (replayed reconnect chunks). The
+ * consequence today is that an utterance a little under the floor may be
+ * smoothed anyway — one extra LLM call, no wrong text — which is a different
+ * and much cheaper failure than the one the rejection was protecting against.
  *
  * ⚠️ Nothing here reads a final's `duration_ms` for that decision any more, so
  * this function is once again free to mean only what its name says.

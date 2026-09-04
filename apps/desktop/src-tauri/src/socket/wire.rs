@@ -434,19 +434,24 @@ pub fn build_heartbeat(ts_ms: i64) -> Value {
 //    settings.handler / history.handler expects. ──────────────────────────────
 
 /// settings:update{key, value, updated_at?}. `value` is the raw JSON the settings
-/// UI produced (an LlmConfig / stt.routings array / ScenarioCard object) — passed
-/// verbatim.
+/// UI produced (an LlmConfig or an stt.routings array) — passed verbatim.
 ///
 /// 🔴 `updated_at` (04 §3.7-a, card C3) is WHEN THE USER MADE THE EDIT. It is
 /// authored by the frontend (`apps/desktop/src/lib/settings-client.ts`, minted at
 /// the edit and persisted with the durable queue) and carried through here
 /// unchanged — this layer must never mint one, because "when the frame left the
 /// desktop" and "when the human changed the value" are different facts and only
-/// the second can arbitrate. `scenario.card` has two writers, the phone and this
-/// machine, and until C3 this builder emitted no stamp at all: with nothing to
-/// compare, the server's regress guard could never fire against a desktop write,
-/// so an offline edit replayed a day later still overwrote a card the phone had
-/// edited minutes ago.
+/// the second can arbitrate. Until C3 this builder emitted no stamp at all: with
+/// nothing to compare, the server's regress guard could never fire against a
+/// desktop write, so an offline edit replayed a day later still overwrote a
+/// newer value, silently.
+///
+/// ⚠️ The key that PROVOKED C3 was `scenario.card`, which had two writers (the
+/// phone and this machine). It is the phone's alone since owner 2026-09-03, so
+/// the writers this builder still serves are `llm.config` / `stt.routings` /
+/// `device.pc_name`. The stamp stays: a second PC on the same account is a
+/// second writer of `llm.config`, and the durable queue can still replay a
+/// week-old routing edit.
 ///
 /// ⚠️ `None` OMITS THE KEY rather than emitting `null`, and the difference is not
 /// cosmetic. Absent is UNKNOWN — the server writes unconditionally, i.e. exactly

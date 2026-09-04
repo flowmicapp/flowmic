@@ -86,7 +86,17 @@ function harness(kind: AuthContext['kind'] = 'pc') {
   return { db, update, list, emittedToOrigin, broadcastToPeer };
 }
 
-const KEY = 'scenario.card';
+// 🔴 2026-09-03 — KEY used to be `scenario.card`. That key became PHONE-OWNED
+// (owner rulings, design D1): a mobile write is transit on the socket and a PC
+// write is refused, so it never reaches the regress guard at all
+// (test/settings-phone-owned.test.ts owns that contract). The G2 mechanism is
+// UNCHANGED for every key that is still stored, so this file now drives it
+// through the one same-family key that still stores: the PC's own
+// scenario-inference override table. The `card()` value shape is kept — the
+// guard compares stamps, never values, so the shape is inert here. The header
+// paragraph about `scenario.card` having two writers is therefore HISTORY:
+// it is the reason the guard was built, and it no longer describes that key.
+const KEY = 'scenario.inference.overrides';
 const card = (tag: string) => ({ professions: [tag], domains: [], packs: [], terms: [] });
 const T1 = '2026-08-16T10:00:00.000Z';
 const T2 = '2026-08-16T11:00:00.000Z';
@@ -236,14 +246,16 @@ describe('G2 settings:list puts the stamp on the wire', () => {
     expect(item?.updated_at).toBe(T1);
   });
 
-  it('🔴 the mobile arm carries it too — that arm is the one that has to converge', async () => {
-    // The phone is the client with two channels to reconcile. Dropping the stamp
-    // on exactly the arm that needs it is the shape this whole card exists to
-    // remove, and it would look identical to "the feature works" from the PC.
+  it('🔴 2026-09-03 — the mobile arm no longer lists stored rows at all: only capability.llm', async () => {
+    // This case used to assert the stamp reached the MOBILE arm ("that arm is
+    // the one that has to converge"). Design D5 removed the thing it converged:
+    // the phone owns its preferences and holds no server copy, so settings:list
+    // hands it the one PC fact it still needs and nothing that could be mistaken
+    // for a preference it should adopt.
     const h = harness('mobile');
     await h.update({ key: KEY, value: card('v1'), updated_at: T1 });
     const listed = await h.list();
-    const item = listed.items.find((i) => i.key === KEY);
-    expect(item?.updated_at).toBe(T1);
+    expect(listed.items.map((i) => i.key)).toEqual(['capability.llm']);
+    expect(listed.items[0]?.updated_at).toBeUndefined(); // computed, never stored — no stamp to report
   });
 });

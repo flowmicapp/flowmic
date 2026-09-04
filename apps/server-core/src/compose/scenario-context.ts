@@ -5,8 +5,8 @@
 //     (personal terms as a "prefer these" list))
 //   @flowmic/protocol ScenarioCardSchema / SETTINGS_KEY_SCENARIO_CARD /
 //     composeDictionary + DICTIONARY_PACKS
-//   docs/rebuild/05-DATA-MODEL.md §5 (stt.dictionary KV — the effective merged
-//     dictionary the client ships via settings:update)
+//   docs/decisions/2026-09-03-owner-web-rulings-phone-owned-settings.md Q1
+//     (the personal dictionary retires; aliases move onto the card's terms)
 //   CLAUDE.md red line: no silent failures (bad scenario.card → fail loud, NOT silent skip)
 //
 // Reads the settings that back the scenario context and merges the three
@@ -22,14 +22,19 @@
 // mobile's `updateSetting('scenario.card')` writer — the mechanical "key has a
 // live reader AND a live writer" proof (the old variable-key stance existed only
 // while there was no UI set face, and is now retired). The literal here is the
-// SETTINGS_KEY_SCENARIO_CARD SSOT value (asserted in compose-scenario.test). By
-// contrast stt.dictionary keeps its VARIABLE-key read (STT_DICTIONARY_KEY): it
-// still has no UI set surface this phase, so anchoring it would be a false match.
+// SETTINGS_KEY_SCENARIO_CARD SSOT value (asserted in compose-scenario.test).
+//
+// 2026-09-03 (owner ruling Q1): the personal dictionary (`stt.dictionary`) is
+// RETIRED. This file used to read it as a third terminology source; that read
+// is gone, its aliases now ride the card's terms (protocol scenario.ts), and
+// the session overlay answers null for the key so no stale row can act.
 
 import {
   ScenarioCardSchema,
   composeDictionary,
   type ScenarioCard,
+  aliasesOf,
+  termOf,
 } from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../db/repos/settings.repo';
 import { ServerError } from '../errors';
@@ -37,9 +42,6 @@ import type { ResolvedDescriptor } from './scenario-inference';
 import type { ScenarioContext } from './scenario';
 import type { TermRule } from './dictionary-replace';
 
-// The effective personal dictionary the client ships (05 §5). Read as a
-// variable — not a settings-key-drift get-site.
-const STT_DICTIONARY_KEY = 'stt.dictionary';
 // Upper bound on preferred-terminology entries injected into the prompt. The
 // packs/dictionary are already capped at 300 upstream; this keeps the block
 // bounded even if a user pastes a huge custom term list.
@@ -64,43 +66,6 @@ function readCard(repo: SettingsRepo, userId: string): ScenarioCard {
   return parsed.data;
 }
 
-/** Best-effort extraction of {term, weight, aliases} from the stt.dictionary
- *  value. The effective dictionary is an array of {term, weight?, aliases?};
- *  anything else contributes nothing (the dictionary is a hint source, not a
- *  hard schema gate here — the STT layer owns its validation). Aliases are kept
- *  so the deterministic-replacement leg can map a homophone/variant → the
- *  canonical; the weight is kept for the FunASR-hotwords consumer (it is inert
- *  in the replacer — see TermRule.weight). A non-finite weight is dropped, not
- *  coerced: the hotword builder's own clamp already owns "absent → default 20",
- *  and forwarding a NaN would ask it to answer a question it was not asked. */
-function readDictionaryEntries(repo: SettingsRepo, userId: string): { term: string; weight?: number; aliases?: string[] }[] {
-  const row = repo.read(userId, STT_DICTIONARY_KEY);
-  const value = row?.value;
-  if (!Array.isArray(value)) return [];
-  const out: { term: string; weight?: number; aliases?: string[] }[] = [];
-  for (const e of value) {
-    if (e && typeof e === 'object' && typeof (e as { term?: unknown }).term === 'string') {
-      const rawAliases = (e as { aliases?: unknown }).aliases;
-      const aliases = Array.isArray(rawAliases)
-        ? rawAliases.filter((a): a is string => typeof a === 'string')
-        : undefined;
-      const rawWeight = (e as { weight?: unknown }).weight;
-      const weight = typeof rawWeight === 'number' && Number.isFinite(rawWeight) ? rawWeight : undefined;
-      out.push({
-        term: (e as { term: string }).term,
-        ...(weight !== undefined ? { weight } : {}),
-        ...(aliases && aliases.length > 0 ? { aliases } : {}),
-      });
-    }
-  }
-  return out;
-}
-
-/** The term strings only (source ③ of the LLM-reference channel). */
-function readDictionaryTerms(repo: SettingsRepo, userId: string): string[] {
-  return readDictionaryEntries(repo, userId).map((e) => e.term);
-}
-
 function dedupeNonEmpty(items: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -117,8 +82,8 @@ function dedupeNonEmpty(items: string[]): string[] {
  * Resolve the three-source scenario context for a user:
  *   ① card.professions / card.domains (structured)
  *   ② `appScenario` — the ALREADY-RESOLVED app descriptor (optional)
- *   ③ preferred terms = card.terms ∪ composeDictionary(card.packs) ∪
- *      stt.dictionary terms (deduped, capped)
+ *   ③ preferred terms = card.terms ∪ composeDictionary(card.packs)
+ *      (deduped, capped)
  *
  * V2-08/F2 changed source ② from a process NAME to a resolved DESCRIPTOR. The
  * mapping used to be one call to `appCategoryDescriptor` right here; it is now
@@ -136,8 +101,10 @@ export function resolveScenarioContext(
 ): ScenarioContext {
   const card = readCard(repo, userId);
   const packTerms = composeDictionary(card.packs).map((e) => e.term);
-  const dictTerms = readDictionaryTerms(repo, userId);
-  const terms = dedupeNonEmpty([...card.terms, ...packTerms, ...dictTerms]).slice(0, MAX_PROMPT_TERMS);
+  // Card terms may carry aliases since 2026-09-03 (owner ruling Q1); the prompt
+  // block lists canonical spellings only, exactly as before.
+  const cardTerms = card.terms.map(termOf);
+  const terms = dedupeNonEmpty([...cardTerms, ...packTerms]).slice(0, MAX_PROMPT_TERMS);
   // The SOURCE (override/builtin/inferred) is deliberately NOT rendered: the
   // block is a stable prompt prefix, and making its bytes depend on where a
   // descriptor came from would cost a prefix-cache miss to tell the model
@@ -157,14 +124,13 @@ export function resolveScenarioContext(
  * "deterministic replacement" (确定性替换) leg) for a user — the SAME three
  * terminology sources the LLM-reference block
  * uses, but keeping each source's alias→canonical mapping:
- *   ① scenario-card custom terms — canonical only (Latin casing normalisation)
+ *   ① scenario-card custom terms — canonical + the user's own aliases (Q1)
  *   ② enabled dictionary packs   — term + curated homophone aliases + weight
- *   ③ stt.dictionary entries     — user term + aliases + weight
  * Reuses readCard, so a present-but-malformed card fails loud here too (same
  * SETTINGS_SCHEMA_INVALID contract as resolveScenarioContext).
  *
- * Rules carry an OPTIONAL `weight` (legs ② and ③ only — the scenario card has
- * no weight field, so ① is left to the consumer's default). It is inert for the
+ * Rules carry an OPTIONAL `weight` (leg ② only — the scenario card has no
+ * weight field, so ① is left to the consumer's default). It is inert for the
  * deterministic replacer, which reads canonical/aliases only; the consumer that
  * reads it is `stt/engine-factory.ts loadHotwords`, which turns these rules into
  * the FunASR open-frame hotword weights. See TermRule.weight for why the field
@@ -175,20 +141,18 @@ export function resolveReplacementRules(repo: SettingsRepo, userId: string): Ter
   const card = readCard(repo, userId);
   const rules: TermRule[] = [];
   for (const t of card.terms) {
-    const canonical = t.trim();
-    if (canonical.length > 0) rules.push({ canonical });
+    const canonical = termOf(t).trim();
+    if (canonical.length === 0) continue;
+    // Aliases on a card term (owner ruling Q1, 2026-09-03): the retired
+    // personal dictionary's alias list now lives here. No weight — the
+    // consumer's default applies, same as a bare card term.
+    const aliases = aliasesOf(t).map((a) => a.trim()).filter((a) => a.length > 0);
+    rules.push({ canonical, ...(aliases.length > 0 ? { aliases } : {}) });
   }
   for (const e of composeDictionary(card.packs)) {
     rules.push({
       canonical: e.term,
       ...(typeof e.weight === 'number' ? { weight: e.weight } : {}),
-      ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}),
-    });
-  }
-  for (const e of readDictionaryEntries(repo, userId)) {
-    rules.push({
-      canonical: e.term,
-      ...(e.weight !== undefined ? { weight: e.weight } : {}),
       ...(e.aliases && e.aliases.length > 0 ? { aliases: e.aliases } : {}),
     });
   }

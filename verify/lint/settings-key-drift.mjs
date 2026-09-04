@@ -23,10 +23,55 @@ refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 export const name = 'settings-key-drift';
 
-// UI side: keys pushed into the settings store.
-const SET_RE = /(?:setSetting|settings\.set|settings\.update|updateSetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
-// Server side: keys pulled out of the settings store.
-const GET_RE = /(?:getSetting|settings\.get|readSetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
+// UI side: keys the UI puts on the wire under their own name.
+//
+// FOUR OLD FORMS + ONE ADDED 2026-09-03 (`carrySetting`). The first four are
+// STORE WRITES - `settings:update`, a key/value the server persists. The fifth
+// is not a write at all, and the rule had to grow because the CARRIER changed,
+// not because a new spelling was invented:
+//
+//   owner's follow-up ruling that day (docs/decisions/2026-09-03-owner-web-
+//   rulings-phone-owned-settings.md, ruling two item 2) moved four keys -
+//   `scenario.card`, `stt.polish`, `stt.refine`, `scenario.inference` - OFF
+//   `settings:update` and INTO the request that starts a transcription cycle:
+//   an optional `prefs` object on `audio:start` / `compose:start`, used for
+//   that session and never stored. The server now REFUSES a `settings:update`
+//   of those keys from any client.
+//
+// Without this alternation the mobile's four literal anchors would have
+// vanished from the SET side the moment `settings_client.dart`'s `push*`
+// methods were deleted - and this lint would have gone GREEN by having nothing
+// left to check on three of them (the desktop still writes those, for now) and
+// no opinion at all on the fourth. That is the exact silence the
+// capability-prefix rule below was written to prevent, arriving through a
+// different door.
+//
+// The form is `bundle.carrySetting('<dotted key>', value)` - one function,
+// declared in apps/mobile/lib/src/settings/phone_prefs_payload.dart, whose
+// whole body is "put this key on the wire unless the value is null". The keys
+// are spelled as literals there for this rule's benefit and are pinned == the
+// generated FlowMicSettingsKeys constants by
+// apps/mobile/test/phone_prefs_payload_test.dart.
+//
+// WHAT THIS ALTERNATION DOES NOT SAY: that the key is STORED. It says the UI
+// names that key on the wire and something server-side reads it under the same
+// name - which is, and always was, the only property this lint measures.
+//
+// REVERSE CONTROL, executed 2026-09-03 on the tree that added this: swap the
+// server's new literal back to its constant
+// (`readSetting(CONSENT_KEY)` in apps/server-core/src/compose/scenario-infer-store.ts)
+// and this lint answers, verbatim:
+//   {"status":"FAIL","detail":"1 drift: set-only 'scenario.inference' @
+//    apps/mobile/lib/src/settings/phone_prefs_payload.dart:102"}
+// Restored: PASS, 6 set / 6 get keys matched. Both halves land together or
+// neither does - which is what the note in scenario-infer-store.ts asked for
+// by name, a month before it was possible.
+export const SET_RE = /(?:setSetting|settings\.set|settings\.update|updateSetting|carrySetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
+// Server side: keys pulled out of the settings store - or, since the carrier
+// change above, out of the per-session bundle, which the readers reach through
+// the same literal-keyed read shape (settings/session-overlay.ts hands them one
+// repo either way).
+export const GET_RE = /(?:getSetting|settings\.get|readSetting)\s*\(\s*(['"`])([a-zA-Z][\w.-]*)\1/g;
 
 const UI_ROOTS = ['apps/desktop', 'apps/mobile'];
 const SERVER_ROOTS = ['apps/server-core'];

@@ -8,7 +8,7 @@
 // THE SECOND TERMINOLOGY DESTINATION.
 //
 // The three terminology sources (scenario-card terms, dictionary packs,
-// stt.dictionary) have always been resolved for every engine. Only FunASR was
+// the retired personal dictionary) have always been resolved for every engine. Only FunASR was
 // ever TOLD about them: `withHotwords` handed the payload to `funasr` and
 // stripped it for everyone else, which is correct — a `{term:weight}` JSON
 // string means nothing to a vendor that does not parse it — but it left the

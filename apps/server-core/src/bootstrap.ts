@@ -35,7 +35,7 @@ import { makeQuotaGuard } from './billing/quota-guard';
 import { BillingService } from './billing/billing-service';
 import { makeHttpHandler } from './http/router';
 import { composeHttpDeps } from './bootstrap-http-deps';
-import { getAccount, getAccountAuthError, type ActingIdentity } from './socket/wire';
+import { getAccount, getAccountAuthError, getSessionPrefs, type ActingIdentity } from './socket/wire';
 import { registerPcHandlers } from './socket/handlers/pc.handler';
 import { registerMobileHandlers } from './socket/handlers/mobile.handler';
 import { makeDisconnectHandler } from './socket/handlers/disconnect.handler';
@@ -77,7 +77,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.58';
+export const SERVER_VERSION = '0.3.63';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -656,7 +656,13 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       pcOwnerUserId: (pcId) => registry.findPc(pcId)?.user_id ?? null,
       verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
     });
-    registerComposeHandlers(socket, { io, guard: quotaGuard, usageTracker, store, composeFactory, verificationGrace: verificationGraceGuard });
+    // 2026-09-03 (design D2) — socket-closing, like `sttFactory` above: the
+    // compose turn reads the phone-owned scenario card / consent from THIS
+    // socket's bundle (settings/session-overlay.ts), never from the database.
+    registerComposeHandlers(socket, {
+      io, guard: quotaGuard, usageTracker, store, verificationGrace: verificationGraceGuard,
+      composeFactory: (args) => composeFactory({ ...args, sessionPrefs: getSessionPrefs(socket) }),
+    });
     registerRelayHandlers(socket, {
       store, pending: injectPending, cloudImages,
       // B3, WP-6: same `socketNodeId`/`registry` the mobile handler above uses

@@ -5,10 +5,12 @@
 //   Ported from legacy stt/hotwords.ts (mechanism follows the legacy line).
 //
 // Pure builder for the FunASR FST `hotwords` open-frame field. Given the
-// `stt.dictionary` entries, emits the FunASR-wire `hotwords` value: a JSON
-// STRING of `{term: weight}` pairs (NOT a nested object), e.g. '{"FlowMic":20}'.
+// terminology entries (card terms ∪ packs — engine-factory.ts loadHotwords;
+// the `stt.dictionary` key named in 06 §5 retired 2026-09-03, owner Q1), emits
+// the FunASR-wire `hotwords` value: a JSON STRING of `{term: weight}` pairs
+// (NOT a nested object), e.g. '{"FlowMic":20}'.
 
-/** A single `stt.dictionary` entry. Only `term`/`weight` participate here. */
+/** A single terminology entry. Only `term`/`weight` participate here. */
 export interface SttDictionaryEntry {
   term: string;
   weight?: number;

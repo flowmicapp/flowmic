@@ -61,6 +61,7 @@ import type { Registry } from '../room/registry';
 import type { ReleaseSuppression } from '../room/release-suppression';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import { stampSettingProvenance } from '../settings/defaults';
+import { RETIRED_SETTING_KEY_STT_DICTIONARY, isPhoneOwnedKey } from '../settings/session-overlay';
 import { PC_NAME_KEY, SETTINGS_STAMP_MAX_SKEW_MS, parsePcName, stampMs } from '../socket/handlers/settings.handler';
 import type {
   ReleaseMobileOutcome,
@@ -143,6 +144,14 @@ export function applySettingsUpdateOnWriter(
   }
 
   if (req.key === 'stt.routing') return { kind: 'invalid', error: 'SETTINGS_SCHEMA_INVALID' };
+  // 2026-09-03 — phone-owned keys are transit on the replica's own socket and
+  // never reach this forward (settings.handler.ts answers them before the
+  // replica branch). A request that still names one comes from a replica
+  // older than that branch; the writer refuses it for the same reason the
+  // handler does, so no node can be talked into storing one of these rows.
+  if (req.key === RETIRED_SETTING_KEY_STT_DICTIONARY || isPhoneOwnedKey(req.key)) {
+    return { kind: 'invalid', error: 'SETTINGS_SCHEMA_INVALID' };
+  }
 
   let stamped: unknown;
   try {

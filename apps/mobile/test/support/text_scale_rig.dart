@@ -40,6 +40,7 @@ import 'di.dart';
 import 'fakes.dart';
 import 'legibility.dart';
 import 'portable_fakes.dart';
+import 'settings_fakes.dart';
 import 'update_fakes.dart';
 
 const String kTextScalePrefKey = 'flowmic.pref.textScale';
@@ -131,7 +132,6 @@ class TextScaleSettingsRig {
     r.settingsClient = SettingsClient(
         transport: r.settingsTransport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -154,6 +154,8 @@ class TextScaleSettingsRig {
       destination: destination,
       session: session,
       portable: newTestPortableController(),
+      prefs: newTestPrefsController(),
+      backup: newTestSettingsBackup(),
       inventory: newTestInventory(
         rows: const <TimelineEntry>[],
         images: newTestOutboxBlobs(),

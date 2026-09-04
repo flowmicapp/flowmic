@@ -24,7 +24,7 @@ import { type ComposeStartArgs, readComposeUsage, readComposeOutput, ComposeOutp
 import { errorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import { log } from '../../log';
-import { getAuth, getRoomUuid, safeAck } from '../wire';
+import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
 
 export type { ComposeStartArgs };
 
@@ -120,6 +120,11 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       });
       return safeAck(ack, { error: 'LLM_INVALID_MODEL', message: 'invalid compose:start payload' });
     }
+    // 2026-09-03 (phone-owned preferences) — the bundle THIS turn carries, or
+    // null; replace, never merge (see audio.handler.ts for the same line and
+    // why it is unconditional). The compose factory bootstrap closes over the
+    // socket reads it back (compose/index.ts sessionPrefs).
+    setSessionPrefs(socket, parsed.data.prefs ?? null);
     const requestId = parsed.data.request_id;
     const entryId = parsed.data.entry_id;
     const echo = {

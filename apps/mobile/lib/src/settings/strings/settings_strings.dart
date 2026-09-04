@@ -65,13 +65,20 @@ mixin SettingsStrings on AppStringsLeaves {
   String get profession => _lfProfession;
   String get domain => _lfDomain;
   String get scenarioHint => _lfScenarioHint;
-  String get syncPendingNote => _lfSyncPendingNote;
 
-  /// GA-11: a server value (connect-time snapshot or a desktop edit) replaced a
-  /// card the user could already see. Shown instead of silently swapping it.
+  /// GA-11's 「updated from your PC」 note. Its reader on the settings page was
+  /// deleted 2026-09-03 with the server copy it described (owner ruling: the
+  /// card lives only on this phone, so nothing can replace it from outside).
+  /// The leaf stays in the catalogue for the rendered-copy golden; nothing
+  /// renders it.
   String get scenarioRemoteNote => _lfScenarioRemoteNote;
   String get addTerm => _lfAddTerm;
   String get termInputHint => _lfTermInputHint;
+
+  /// 2026-09-03 (owner Q1): the optional second field of the add-term dialog
+  /// and the 「also written as」 line under a term that has other spellings.
+  String get termAliasesHint => _lfTermAliasesHint;
+  String termAliasesLabel(String aliases) => _lfTermAliasesLabel(aliases);
   String termCounter(int n, int max) => '$n / $max';
   String get termMaxHint => _lfTermMaxHint;
   String get add => _lfAdd;
@@ -87,8 +94,33 @@ mixin SettingsStrings on AppStringsLeaves {
         return _lfTermAddError__3;
       case TermFeedback.atCap:
         return _lfTermAddError__4;
+      case TermFeedback.aliasTooLong:
+        return _lfTermAddError__5;
+      case TermFeedback.tooManyAliases:
+        return _lfTermAddError__6;
     }
   }
+
+  // ── recognition and AI (phone-owned since 2026-09-03) ───────────────────
+  // owner rulings Q2 b / Q3 a: AI polish, the two-pass refine and the
+  // scenario-inference consent are the phone's switches now. The section and
+  // the three rows live in settings_general_prefs.dart.
+  String get secRecognition => _lfSecRecognition;
+  String get polishTitle => _lfPolishTitle;
+  String get polishSub => _lfPolishSub;
+  String get polishStrengthTitle => _lfPolishStrengthTitle;
+  String get polishStrict => _lfPolishStrict;
+  String get polishSmooth => _lfPolishSmooth;
+  String get polishStrengthNote => _lfPolishStrengthNote;
+  String get refineTitle => _lfRefineTitle;
+  String get refineSub => _lfRefineSub;
+  String get inferenceTitle => _lfInferenceTitle;
+
+  /// 🔴 The consent sentence (design D8). It must say the three things the
+  /// user is agreeing to — WHO sends (my computer), TO WHOM (the model service
+  /// it uses), WHAT (which app is in the foreground) — and what is NOT sent.
+  /// A phone cannot show the PC's endpoint, so this sentence IS the consent.
+  String get inferenceSub => _lfInferenceSub;
 
   // ── scenario presets / dictionary packs (V2-07.7 absorbed a shadow
   //    catalogue) ────────────────────────────────────────────────────────
@@ -289,11 +321,14 @@ mixin SettingsStrings on AppStringsLeaves {
   String get spokenLangTitle =>
       _lfSpokenLangTitle;
 
-  /// 🔴 The user-visible face of owner's ruling: this item only governs
-  /// transcription on the **cloud relay** path. When connected to your own
-  /// PC, which engine is used is decided by that PC's own engine settings
-  /// (`stt.routings`) — without this sentence, a LAN user would think this
-  /// setting could swap out the recognition engine on their own machine.
+  /// 🔴 The user-visible face of owner ruling Q5 (2026-09-03, design D6): the
+  /// language chosen here rides `audio:start.source_lang` on BOTH channels.
+  /// On the LAN the PC picks its own local model for that language and, when
+  /// it has none, refuses by name (`STT_LANGUAGE_UNSUPPORTED`) instead of
+  /// quietly using another one (the 2026-08-29 no-silent-fallback ruling).
+  /// The sentence this replaced said the PC's engine settings decided on the
+  /// LAN — true until Q5, and a LAN user reading it would have thought this
+  /// row did nothing for them.
   String get spokenLangNote => _lfSpokenLangNote;
 
   /// The spoken-language chip's copy = **endonym + the tag it ships as**,
@@ -499,6 +534,39 @@ mixin SettingsStrings on AppStringsLeaves {
   String get importTitle =>
       _lfImportTitle;
   String get importSub => _lfImportSub;
+
+  // ── settings backup / restore (owner 2026-09-03 Q6 note + Q8 a) ─────────
+  // One local file, chosen by the user, holding every preference this phone
+  // owns. Same sentence shapes as the record export/import above: a cancel
+  // is a cancel, a failure names its cause, a success names WHERE.
+  String get settingsBackupTitle => _lfSettingsBackupTitle;
+  String get settingsBackupSub => _lfSettingsBackupSub;
+  String get settingsBackupAction => _lfSettingsBackupAction;
+  String get settingsRestoreTitle => _lfSettingsRestoreTitle;
+  String get settingsRestoreSub => _lfSettingsRestoreSub;
+  String get settingsRestoreAction => _lfSettingsRestoreAction;
+  String settingsBackupDone(String where) => _lfSettingsBackupDone(where);
+  String get settingsBackupCancelled => _lfSettingsBackupCancelled;
+  String settingsBackupFailed(String detail) => _lfSettingsBackupFailed(detail);
+  String settingsRestoreDone(int count) => _lfSettingsRestoreDone(count);
+  String get settingsRestoreCancelled => _lfSettingsRestoreCancelled;
+  String settingsRestoreFailed(String detail) => _lfSettingsRestoreFailed(detail);
+
+  /// Which end a refused backup came from, in the reader's language — the
+  /// SAME two leaves the record import uses for its end mismatch, so 「a PC」
+  /// is spelled once per language.
+  String settingsRestoreRefused(SettingsRestoreRefusal r, String? otherEnd) {
+    switch (r) {
+      case SettingsRestoreRefusal.notASettingsFile:
+        return _lfSettingsRestoreRefused__1;
+      case SettingsRestoreRefusal.otherEnd:
+        final String where =
+            (otherEnd == 'pc' || otherEnd == 'desktop') ? _lf_endMismatch__1 : _lf_endMismatch__2;
+        return _lfSettingsRestoreRefused__2(where);
+      case SettingsRestoreRefusal.newerFormat:
+        return _lfSettingsRestoreRefused__3;
+    }
+  }
 
   /// 🔴 §7-1 —— must state plainly, before exporting, what this actually
   /// is. ⛔ Never swap it for 「keep it somewhere safe」.

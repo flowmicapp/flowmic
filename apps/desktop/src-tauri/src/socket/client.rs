@@ -350,6 +350,9 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     let fsm: SharedFsm = Arc::new(Mutex::new(FocusStateMachine::new(FSM_COOLDOWN_MS)));
     let lock_deadline: SharedDeadline = Arc::new(Mutex::new(None));
     let liveness = SpeakLiveness::new(); // F3: 「音频还在流吗」("is the audio still flowing") for the STATE watchdog
+    // F-1: "did this hold end with nothing to inject" — the OTHER exit from the
+    // SPEAKING lock, observed by audio:stop + stt:final and acted on by the pump.
+    let empty_final = crate::socket::empty_final::EmptyFinalLatch::new();
     if let Some(seed) = WindowsWinEventSource.seed_current() {
         let n = now_millis().max(0) as u64;
         let _ = fsm.lock().unwrap().handle(seed, n);
@@ -400,7 +403,8 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     //    broadcast — each forwarded verbatim to the Vue windows (07 §4/§9). ──
     // F3: these three are ALSO the SPEAKING-lock watchdog's liveness evidence (fanout::on_forward_speaking).
     builder = on_forward_speaking(builder, events::STT_INTERIM, bridge::channel::STT_INTERIM, bridge.clone(), gate.clone(), liveness.clone());
-    builder = on_forward_speaking(builder, events::STT_FINAL, bridge::channel::STT_FINAL, bridge.clone(), gate.clone(), liveness.clone());
+    // F-1: stt:final ALSO answers "was this utterance empty" (fanout::on_forward_final).
+    builder = fanout::on_forward_final(builder, events::STT_FINAL, bridge::channel::STT_FINAL, bridge.clone(), gate.clone(), liveness.clone(), empty_final.clone());
     builder = on_forward_speaking(builder, events::STT_LEVEL, bridge::channel::STT_LEVEL, bridge.clone(), gate.clone(), liveness.clone());
     // R6-R2: forward engine health to the capsule diagnostic (honest STT row).
     builder = on_forward(builder, events::STT_ENGINE_STATUS, bridge::channel::STT_ENGINE_STATUS, bridge.clone(), gate.clone());
@@ -421,7 +425,25 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     // `row_transit::mint_row`, below, which builds a row from each delivery frame.
     builder = on_forward_tagged(builder, events::HISTORY_UPDATED, bridge::channel::HISTORY_UPDATED, bridge.clone(), my_channel);
     builder = on_forward_tagged(builder, events::HISTORY_DELETED, bridge::channel::HISTORY_DELETED, bridge.clone(), my_channel);
-    builder = on_forward(builder, events::SETTINGS_UPDATED, bridge::channel::SETTINGS_UPDATED, bridge.clone(), gate.clone());
+    // ── settings:updated — the LAN leg ONLY (owner 2026-09-03) ──────────────
+    //
+    // 🔴 THIS FORWARD FEEDS A RE-PULL, AND THE PULL CAN ONLY REACH ONE SERVER.
+    // `settings-model.ts` answers this frame by calling `settings_list`, which is
+    // pinned to the LAN socket (`shell::settings_route`). Forwarded from the
+    // relay it therefore says 「something changed」 and then makes the window
+    // re-read a DIFFERENT server — a notification about one machine answered
+    // with another machine's snapshot.
+    //
+    // It used to be gated on `PrimaryGate` instead, which answers a different
+    // question (「is this channel driving the UI」): with the relay primary the
+    // gate was open and the LAN frames were the ones being dropped — the exact
+    // inversion of what the puller needs. The phone's preferences no longer
+    // travel as settings rows at all (they ride the transcription request and
+    // are never stored), so the relay has nothing left to notify this window
+    // about.
+    if my_channel == Channel::Lan {
+        builder = on_forward(builder, events::SETTINGS_UPDATED, bridge::channel::SETTINGS_UPDATED, bridge.clone(), gate.clone());
+    }
 
     // ── auth:expired: dead session — clear token, drain, re-register ──
     {
@@ -502,7 +524,7 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     // `on_capsule_audio_edges` there for Ruling 2 (audio:stop never releases the
     // lock) and for card F1 / owner ruling ① (pause ≠ leave: capsule only, never
     // admission / presence / the room / the SPEAKING lock).
-    builder = fanout::on_capsule_audio_edges(builder, bridge.clone(), gate.clone());
+    builder = fanout::on_capsule_audio_edges(builder, bridge.clone(), gate.clone(), empty_final.clone());
 
     // ── inject:request → dedup → FSM target → pipeline → truthful result ──
     {
@@ -730,6 +752,8 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
         reconciler.clone(),
         // F3: the audio-liveness clock the handlers above feed, for the STATE watchdog.
         liveness,
+        // F-1: the empty-utterance latch the audio:stop + stt:final handlers above feed.
+        empty_final,
         // WP2 Card 7: consecutive heartbeat-emit failures rebuild the session
         // through ensure_dialed so this `open` handler re-enters the room.
         config.on_dead_transport,

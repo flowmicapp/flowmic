@@ -29,6 +29,7 @@ import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 class _Rig {
@@ -49,7 +50,6 @@ class _Rig {
     r.settingsClient =
         SettingsClient(transport: transport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -74,6 +74,8 @@ class _Rig {
           destination: destination,
           session: session,
           portable: newTestPortableController(),
+          prefs: newTestPrefsController(),
+          backup: newTestSettingsBackup(),
           inventory: newTestInventory(
             rows: const <TimelineEntry>[],
             images: InMemoryOutboxBlobStore(),

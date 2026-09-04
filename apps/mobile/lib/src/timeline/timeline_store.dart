@@ -353,6 +353,9 @@ class TimelineStore extends ChangeNotifier {
     // Null for every row outside an article, which is almost all of them.
     String? articleId,
     int? articleOffsetMs,
+    // D7 ③ — the server-minted utterance id off the terminal final, so a
+    // late `stt:refined` can name this row. Null for every non-speech caller.
+    String? utteranceId,
   }) {
     final TimelineEntry? existing = findByClientId(clientId);
     if (existing != null) return existing;
@@ -376,6 +379,7 @@ class TimelineStore extends ChangeNotifier {
       thumbB64: thumbB64,
       articleId: articleId,
       articleOffsetMs: articleOffsetMs,
+      utteranceId: utteranceId,
       // V2-06a-1: snapshot 「这条是对谁说的」("who this entry was spoken to") at
       // BIRTH, not at delivery. Doing it
       // here is what makes noted rows (「留在手机」("kept on the phone"), which

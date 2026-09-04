@@ -342,6 +342,20 @@ class AppSettingsController extends ChangeNotifier {
   static const String _kLocale = 'flowmic.pref.locale';
   static const String _kThemeMode = 'flowmic.pref.themeMode';
 
+  /// The four preference keys, PUBLIC for exactly one reader: the settings
+  /// backup (portable/settings_backup.dart) copies them to and from a file and
+  /// must name the same strings this controller reads on boot. They alias the
+  /// private constants rather than replacing them so every existing reference
+  /// in this file stays byte-identical.
+  static const String kLocaleKey = _kLocale;
+  static const String kThemeModeKey = _kThemeMode;
+  static const String kSpokenLangKey = _kSpokenLang;
+  static const String kTextScaleKey = _kTextScale;
+
+  /// The first-run bookkeeping keys, exposed so the backup's test can assert
+  /// that a restore never wrote either of them (see [_firstRunMarkers]).
+  static const Set<String> firstRunMarkerKeys = _firstRunMarkers;
+
   /// U1 — "has the first-run language question been settled?"
   ///
   /// 🔴 A SECOND KEY, and that is the point rather than a duplication:

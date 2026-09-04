@@ -518,16 +518,16 @@ class PttSession {
   final _autoStoppedCtl = StreamController<String>.broadcast();
   final _aiComposeCtl = StreamController<AiComposeEvent>.broadcast();
   /// GA-14 stt:refined — a LATE, better version of an utterance that already
-  /// settled. Deliberately its own stream: it carries no FSM meaning, and
-  /// routing it through the final path would hand a finished utterance a second
-  /// terminal (the wedging class GA-03 fixed).
-  final _refinedCtl = StreamController<String>.broadcast();
+  /// settled. Deliberately its own stream: it carries no FSM meaning, and routing
+  /// it through the final path would hand a finished utterance a second terminal
+  /// (the wedging class GA-03 fixed).
+  final _refinedCtl = StreamController<SttRefined>.broadcast();
 
   /// inject:result truth for the chat-flow badges (five-state write-back).
   Stream<InjectResult> get injectResults => _injectResultCtl.stream;
 
-  /// GA-14: the second-pass transcript for the MOST RECENT utterance.
-  Stream<String> get refinedTexts => _refinedCtl.stream;
+  /// GA-14 / D7 ③: the second-pass transcript, NAMED by its utterance id (frames without one never reach here).
+  Stream<SttRefined> get refinedTexts => _refinedCtl.stream;
 
   /// focus:state — the transient PC focus-app mirror for the header badge.
   Stream<FocusState> get focusStates => _focusStateCtl.stream;

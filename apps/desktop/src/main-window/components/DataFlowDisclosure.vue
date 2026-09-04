@@ -3,10 +3,13 @@
 //
 // WHY THIS EXISTS. Before this card, the ONLY surface in either end that
 // explained what leaves the device was the scenario-inference consent panel —
-// and that panel covers one optional feature (the focused executable's
+// and that panel covered one optional feature (the focused executable's
 // basename). The core path (audio → recognition → optional language-model
 // processing → injection into the PC) had no in-product description at all, and
 // `soniox` / `deepseek` appeared ZERO times in either end's source.
+// ⚠️ That consent panel is GONE from this end (owner 2026-09-03: the consent is
+// the user's, so it moved to the phone), which makes this section the only
+// answer this end has to 「where did what I said go」 — not merely the fullest.
 //
 // WHAT THIS IS NOT. It is not a second source of truth. The five steps are the
 // product-side summary of what THIS machine does; the shard
@@ -25,8 +28,12 @@
 // https://flowmic.app/privacy and /terms in the system browser — the same
 // `openExternalUrl` door PairingModal and UpdateBlock also go through — the
 // `<a target=_blank>` this line used to describe never opened anything.
-// State-aware sentences (which engine, LAN pin, polish switch) STAY here:
-// the website cannot know this machine's configuration.
+// State-aware sentences (which engine, the LAN pin) STAY here: the website
+// cannot know this machine's configuration.
+// ⚠️ THE POLISH SWITCH IS NO LONGER ONE OF THEM (owner 2026-09-03). It is the
+// phone's, and it reaches the server on each transcription request rather than
+// being stored — so this end holds no value to be state-aware about, and step
+// ③ says where the switch is instead of what it currently reads.
 import { ref } from 'vue';
 import { S } from '../../lib/strings';
 import { DISCLOSURE_PRIVACY_URL, DISCLOSURE_TERMS_URL } from '../../lib/strings/disclosure';

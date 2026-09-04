@@ -1,7 +1,7 @@
 // The devices page's "sidecar (self-hosted server) status" family — 07 §5,
 // WP-R2-4. Moved out whole at the 800-line cap (2026-09-02, same reason and
-// same VERBATIM-move discipline as settings-model.ts's stt-routing-order.ts /
-// profession-ids.ts splits): the ref, the three derived facts, and the one
+// same VERBATIM-move discipline as settings-model.ts's stt-routing-order.ts
+// split): the ref, the three derived facts, and the one
 // action (retry) that touches it all belong together and have no other
 // caller, so a composable is the honest boundary rather than a second file
 // that only half-owns the state.

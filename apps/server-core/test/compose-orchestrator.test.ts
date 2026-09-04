@@ -203,10 +203,12 @@ describe('app-scenario focus (§4.1 source ②) — processName threads into the
 });
 
 describe('deterministic dictionary replacement (§4.1 source ③) — the correction input sees replaced text', () => {
-  it('an stt.dictionary alias is rewritten to the canonical BEFORE the LLM (correction) sees it', async () => {
+  it('a card-term alias (owner Q1: the retired dictionary alias now lives on the card) is rewritten to the canonical BEFORE the LLM (correction) sees it', async () => {
     const db = freshDb();
     seedLlm(db);
-    db.settings.write(U, 'stt.dictionary', [{ term: 'Kubernetes', aliases: ['k8s'] }]);
+    db.settings.write(U, SETTINGS_KEY_SCENARIO_CARD, {
+      professions: [], domains: [], packs: [], terms: [{ term: 'Kubernetes', aliases: ['k8s'] }],
+    });
     let seen: { system: string; user: string } | undefined;
     const factory = createComposeFactory({ settings: db.settings, usage: NOOP_USAGE, streamerFor: fakeStreamer([{ kind: 'done', full: '' }], (o) => { seen = o; }) });
     const orch = factory({ userId: U, task: 'organize', sourceText: 'deploy k8s to prod' });

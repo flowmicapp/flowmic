@@ -79,29 +79,51 @@ describe('standalone golden path', () => {
     const joined = (await joinedP) as { mobile_id: string };
     expect(joined.mobile_id).toBe(pair.pairing_id);
 
-    // 3. Settings save-on-change: mobile updates a key, PC sees the broadcast. WP-R4-6
-    // made stt.polish a REAL typed key read at audio:start (SttPolishSchema), so
-    // this round-trip uses its valid {enabled:false} value — a bare `true` would
-    // now poison the later audio:start snapshot for the shared standalone user.
-    const updatedOnPc = once(pc, 'settings:updated');
-    const upd = await ack<Record<string, unknown>>(mobile, 'settings:update', { key: 'stt.polish', value: { enabled: false } });
+    // 3. Settings save-on-change for a STORED key: the PC updates its own
+    // scenario-inference override table, the phone sees the broadcast.
+    // (2026-09-03: this step used to push `stt.polish` FROM the phone and expect
+    // the PC to hear it. That key is phone-owned now — it rides the phone's
+    // socket and is never stored or broadcast — so the stored-key round trip is
+    // driven from the PC, and the phone-owned contract is asserted in 3b.)
+    const updatedOnMobile = once(mobile, 'settings:updated');
+    const upd = await ack<Record<string, unknown>>(pc, 'settings:update', { key: 'scenario.inference.overrides', value: { chrome: 'browsing' } });
     expect(upd.ok).toBe(true);
-    const broadcast = (await updatedOnPc) as { key: string; value: unknown; updated_at?: string };
+    const broadcast = (await updatedOnMobile) as { key: string; value: unknown; updated_at?: string };
     // 🔴 G2 (04 §3.7-a) widened this payload with `updated_at`. The old strict
     // `toEqual` asserted 「these two keys and nothing else」, which is the promise
     // that changed — so the shape is updated deliberately, not patched around.
     // The stamp's VALUE is not pinned here (this is a live server with a real
     // clock); what is pinned is that it crossed the wire at all, because a
     // stripped stamp is this feature's whole failure mode and it is silent.
-    expect(broadcast.key).toBe('stt.polish');
-    expect(broadcast.value).toEqual({ enabled: false });
+    expect(broadcast.key).toBe('scenario.inference.overrides');
+    expect(broadcast.value).toEqual({ chrome: 'browsing' });
     expect(typeof broadcast.updated_at).toBe('string');
 
-    // 4. settings:list reflects the write (+ seeded defaults).
-    const list = await ack<{ items: { key: string; value: unknown }[] }>(mobile, 'settings:list', {});
+    // 3b. A PHONE-OWNED key from the phone over settings:update is REFUSED by
+    // name (owner follow-up 2026-09-03: the bundle rides audio:start /
+    // compose:start, see phone-prefs-carrier.test.ts) — the PC's settings:list
+    // (which lists every stored row) must never show it, and the PC hears no
+    // broadcast. `scenario.card` rather than `stt.polish` here, because the PC
+    // arm SYNTHESISES an stt.polish default and the absence of a row would be
+    // invisible behind it.
+    const pcHeard: unknown[] = [];
+    pc.on('settings:updated', (p: unknown) => pcHeard.push(p));
+    const own = await ack<Record<string, unknown>>(mobile, 'settings:update', {
+      key: 'scenario.card', value: { professions: ['golden'], domains: [], packs: [], terms: [] },
+    });
+    expect(own.error).toBe('SETTINGS_SCHEMA_INVALID');
+    expect(String(own.message)).toContain('phone-owned');
+
+    // 4. settings:list reflects the STORED write (+ seeded defaults) on the PC arm …
+    const list = await ack<{ items: { key: string; value: unknown }[] }>(pc, 'settings:list', {});
     const keys = list.items.map((i) => i.key);
-    expect(keys).toContain('stt.polish');
+    expect(keys).toContain('scenario.inference.overrides');
     expect(keys).toContain('stt.routings'); // seeded default present
+    expect(keys).not.toContain('scenario.card'); // 3b never landed
+    expect(pcHeard).toEqual([]);
+    // … and the MOBILE arm answers the one PC fact it still needs, nothing else (D5).
+    const mobileList = await ack<{ items: { key: string; value: unknown }[] }>(mobile, 'settings:list', {});
+    expect(mobileList.items.map((i) => i.key)).toEqual(['capability.llm']);
 
     // 5. PC disconnects, then reconnects by token → same room.
     pc.disconnect();

@@ -46,6 +46,10 @@ import '../session/image_send_controller.dart'
 // message never freezes into whichever language happened to be selected when
 // the delivery failed.
 import '../session/outbox_failure_text.dart' show OutboxTerminal;
+// 2026-09-03 — the settings backup's own refusal vocabulary, for the same
+// reason as the two above: the portable layer owns the FACT (why a file was
+// refused), this catalogue owns the sentence.
+import '../portable/settings_backup.dart' show SettingsRestoreRefusal;
 // B4-15 — the same reason as the two imports above: the SESSION layer owns the
 // fact 「试了这几个地址，每个的结果是什么」("which addresses were tried, and what
 // was the result for each") and encodes it into the error code, and
@@ -104,6 +108,7 @@ part 'strings/cloud_strings.dart';
 part 'strings/connection_strings.dart';
 part 'strings/pairing_strings.dart';
 part 'strings/recording_strings.dart';
+part 'strings/stt_stall_strings.dart'; // EMPTY-1: split out of RecordingStrings (file-size cap)
 part 'strings/compose_strings.dart';
 part 'strings/chat_strings.dart';
 part 'strings/inject_note_strings.dart'; // G-16-b: two per-code human-readable tables (originally in chat_strings)
@@ -154,6 +159,10 @@ abstract class AppStrings extends AppStringsLeaves
         ConnectionStrings,
         PairingStrings,
         RecordingStrings,
+        // Split out of RecordingStrings (file-size cap), placed immediately
+        // after it so the `with` order still reads as one family — the same
+        // arrangement, and the same reason, as InjectNoteStrings below.
+        SttStallStrings,
         ComposeStrings,
         ChatStrings,
         // Split out of ChatStrings (file-size cap). Placed immediately after it
@@ -278,4 +287,4 @@ abstract class AppStrings extends AppStringsLeaves
 
 /// Client-side term-add feedback (mirrors ScenarioCard.TermAddOutcome, kept as a
 /// UI-facing enum so app_strings does not import the model).
-enum TermFeedback { empty, tooLong, duplicate, atCap }
+enum TermFeedback { empty, tooLong, duplicate, atCap, aliasTooLong, tooManyAliases }

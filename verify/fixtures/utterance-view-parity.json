@@ -1,0 +1,72 @@
+{
+  "_readme": [
+    "ONE recorded-style frame sequence, read VERBATIM by BOTH ends:",
+    "  · apps/desktop/src/capsule/utterance-view.test.ts   (vitest)",
+    "  · apps/mobile/test/utterance_view_parity_test.dart  (flutter test)",
+    "Each step feeds one frame into the utterance-view reducer and pins the three",
+    "strings the reducer must produce. If the two ends disagree at ANY step, one",
+    "of the two suites goes red on the same line of the same file.",
+    "Frame semantics this fixture encodes are documented in",
+    "apps/desktop/src/capsule/utterance-view.ts (file header)."
+  ],
+  "scenarios": [
+    {
+      "name": "zh realtime — two segments, the settling one leaves the view",
+      "mode": "realtime",
+      "steps": [
+        { "frame": "audio:start", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 0, "text": "今天我", "committed": "", "pending": "今天我", "display": "今天我" },
+        { "frame": "stt:interim", "idx": 0, "text": "今天我们", "committed": "", "pending": "今天我们", "display": "今天我们" },
+        { "frame": "stt:interim", "idx": 0, "text": "今天我", "note": "retraction the prior contains — ignored", "committed": "", "pending": "今天我们", "display": "今天我们" },
+        { "frame": "stt:final", "idx": 0, "text": "今天我们开会。", "is_segment": true, "note": "realtime settles this span into a row ⇒ it leaves the live view on BOTH ends", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 1, "text": "地点", "committed": "", "pending": "地点", "display": "地点" },
+        { "frame": "stt:interim", "idx": 0, "text": "今天我们开会", "note": "late interim for a closed+settled slot — ignored", "committed": "", "pending": "地点", "display": "地点" },
+        { "frame": "stt:interim", "idx": 1, "text": "地点在三楼", "committed": "", "pending": "地点在三楼", "display": "地点在三楼" },
+        { "frame": "stt:final", "idx": 1, "text": "地点在三楼。", "is_segment": false, "committed": "地点在三楼。", "pending": "", "display": "地点在三楼。" }
+      ]
+    },
+    {
+      "name": "zh translate — nothing settles mid-hold, so both segments stay on screen",
+      "mode": "translate",
+      "steps": [
+        { "frame": "audio:start", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 0, "text": "这个方案", "committed": "", "pending": "这个方案", "display": "这个方案" },
+        { "frame": "stt:final", "idx": 0, "text": "这个方案可以。", "is_segment": true, "committed": "这个方案可以。", "pending": "", "display": "这个方案可以。" },
+        { "frame": "stt:interim", "idx": 1, "text": "我们下周", "note": "joiner after 。 is a newline", "committed": "这个方案可以。", "pending": "我们下周", "display": "这个方案可以。\n我们下周" },
+        { "frame": "stt:interim", "idx": 1, "text": "我们下周开始", "committed": "这个方案可以。", "pending": "我们下周开始", "display": "这个方案可以。\n我们下周开始" },
+        { "frame": "stt:final", "idx": 1, "text": "我们下周开始。", "is_segment": false, "committed": "这个方案可以。\n我们下周开始。", "pending": "", "display": "这个方案可以。\n我们下周开始。" }
+      ]
+    },
+    {
+      "name": "en realtime — one segment, late interim after the terminal final is ignored",
+      "mode": "realtime",
+      "steps": [
+        { "frame": "audio:start", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 0, "text": "hello", "committed": "", "pending": "hello", "display": "hello" },
+        { "frame": "stt:interim", "idx": 0, "text": "hello world", "committed": "", "pending": "hello world", "display": "hello world" },
+        { "frame": "stt:final", "idx": 0, "text": "Hello, world.", "is_segment": false, "committed": "Hello, world.", "pending": "", "display": "Hello, world." },
+        { "frame": "stt:interim", "idx": 0, "text": "hello world again", "note": "the slot is closed — a replayed interim may not re-open it", "committed": "Hello, world.", "pending": "", "display": "Hello, world." }
+      ]
+    },
+    {
+      "name": "en translate — two segments, ASCII seam takes a single space",
+      "mode": "translate",
+      "steps": [
+        { "frame": "audio:start", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 0, "text": "let us", "committed": "", "pending": "let us", "display": "let us" },
+        { "frame": "stt:final", "idx": 0, "text": "Let us begin", "is_segment": true, "committed": "Let us begin", "pending": "", "display": "Let us begin" },
+        { "frame": "stt:interim", "idx": 1, "text": "with the", "committed": "Let us begin", "pending": "with the", "display": "Let us begin with the" },
+        { "frame": "stt:final", "idx": 1, "text": "with the first item.", "is_segment": false, "committed": "Let us begin with the first item.", "pending": "", "display": "Let us begin with the first item." }
+      ]
+    },
+    {
+      "name": "zh realtime — an EMPTY final keeps what the slot already had",
+      "mode": "realtime",
+      "steps": [
+        { "frame": "audio:start", "committed": "", "pending": "", "display": "" },
+        { "frame": "stt:interim", "idx": 0, "text": "半句话", "committed": "", "pending": "半句话", "display": "半句话" },
+        { "frame": "stt:final", "idx": 0, "text": "", "is_segment": false, "note": "flush timeout empties the final — the accumulated text must NOT be wiped", "committed": "半句话", "pending": "", "display": "半句话" }
+      ]
+    }
+  ]
+}

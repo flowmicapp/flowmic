@@ -55,6 +55,30 @@ extension ChatPttLifecycle on ChatController {
       ? utteranceCompose.liveText
       : _liveText;
 
+  /// How many characters at the head of [liveText] the SERVER has already
+  /// finalised — the black run; the rest is grey ("still being transcribed").
+  ///
+  /// 🔴 THE COLOUR MEANS THE SAME THING ON THE PC CAPSULE (2026-09-04). The
+  /// model, the frame semantics it is derived from, and the shared fixture that
+  /// pins the two ends together are documented in
+  /// apps/desktop/src/capsule/utterance-view.ts; the phone half is
+  /// [UtteranceView], a pure view over the SegmentBuffer that already assembles
+  /// this text.
+  ///
+  /// ⚠️ FAIL-SAFE TO ALL GREY, never to all black. A compose run replaces
+  /// [liveText] with partial LLM output, which is not a finalised transcript
+  /// and must not be painted as one; and if the two strings ever stop lining up
+  /// the honest answer is 「we do not know yet」. Grey claims nothing.
+  int get liveCommittedChars {
+    if (utteranceCompose.isRunning) return 0;
+    final UtteranceView v = UtteranceView.of(session.segments);
+    if (v.committed.isEmpty) return 0;
+    final String t = _liveText;
+    if (!t.startsWith(v.committed)) return 0;
+    final int n = v.committedChars;
+    return n <= t.length ? n : 0;
+  }
+
   /// True while the LLM leg of a translate/organize utterance is in flight —
   /// the 「翻译中…」("translating…")/「整理中…」("organizing…") face and the held PTT button.
   bool get isProcessingUtterance => utteranceCompose.isRunning;
@@ -165,6 +189,12 @@ extension ChatPttLifecycle on ChatController {
       sourceLang: appSettings?.spokenLang ?? kSpokenLangDefault,
       delivery: _activeDelivery,
       sendPolicy: _activeSendPolicy,
+      // Read in place, on the same line-for-line rule as `source_lang` above:
+      // the bundle this utterance is transcribed under is the one this phone
+      // holds NOW, so a switch flipped a second ago is already true here and no
+      // reconnect is involved (owner ruling 2026-09-03 — the request is the
+      // carrier). Null ⇒ `prefs` is omitted and the server defaults.
+      prefs: phonePrefs?.call(),
     );
     if (!ok) {
       _activeClientId = null;

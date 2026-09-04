@@ -157,6 +157,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '你好',
             mode: FlowMode.realtime,
             strings: zh,
@@ -169,6 +170,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '你好世界朋友',
             mode: FlowMode.realtime,
             strings: zh,
@@ -191,6 +193,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '',
             mode: FlowMode.realtime,
             strings: zh,
@@ -203,6 +206,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '',
             mode: FlowMode.realtime,
             strings: zh,
@@ -226,6 +230,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '',
             mode: FlowMode.realtime,
             strings: zh,
@@ -241,6 +246,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LiveDraftTile(
+          committedChars: 0,
             text: '',
             mode: FlowMode.realtime,
             strings: zh,

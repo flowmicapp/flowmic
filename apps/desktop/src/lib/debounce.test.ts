@@ -129,18 +129,25 @@ describe('SettingsClient — the real @click path (B3-6 blast radius)', () => {
     }
   }
 
-  // This is the exact chain owner hit: ScenarioCard.vue @click → toggleProfession
-  // → settings.setScenarioCard → updateSetting → debouncer.run → BOOM. Under the
+  // The exact chain owner hit was ScenarioCard.vue @click → toggleProfession →
+  // settings.setScenarioCard → updateSetting → debouncer.run → BOOM. Under the
   // old code the throw escaped `updateSetting` AFTER persist() had already
   // succeeded, so the value was cached locally, the wire push never happened, and
   // `dirty` was never marked — «saved locally / SETTINGS_SYNC_FAIL» (已存本地/SETTINGS_SYNC_FAIL) could not light up.
-  it('setScenarioCard does not throw, and DOES reach the wire', async () => {
+  //
+  // 🔴 THAT SCREEN AND THAT ANCHOR ARE GONE (owner 2026-09-03: the scenario card
+  // is the phone's). The chain is re-pointed at `setSttRoutings`, which is the
+  // same chain — an @click on the routing table's language cell reaches
+  // `updateRoutingField` → `pushRoutings` → `settings.setSttRoutings` →
+  // `updateSetting` → `debouncer.run`. What is under test is the debouncer's
+  // receiver, and every anchor method reaches it identically; re-pointing keeps
+  // the guard on a path a user can still walk, which is the whole reason this
+  // file drives the CLIENT rather than the debouncer alone.
+  it('setSttRoutings does not throw, and DOES reach the wire', async () => {
     const t = new RecordingTransport();
     const c = new SettingsClient(t, new MemStore(), 1);
-    expect(() =>
-      c.setScenarioCard({ professions: ['法律'], domains: [], packs: [], terms: [] }),
-    ).not.toThrow();
+    expect(() => c.setSttRoutings([{ language: 'zh', engine_id: 'funasr' }])).not.toThrow();
     await new Promise((r) => nativeSetTimeout(r, 20));
-    expect(t.calls.map((x) => x.key)).toContain('scenario.card');
+    expect(t.calls.map((x) => x.key)).toContain('stt.routings');
   });
 });

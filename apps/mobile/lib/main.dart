@@ -1,10 +1,9 @@
 // FlowMic mobile entrypoint.
 //
 // WP-R3-3 grows the composition root to own the settings surface: the scenario-
-// card controller (writes settings:update{scenario.card}), the app-settings
-// controller (the explicit locale + theme — instant-apply, instant-persist
-// device-local prefs), the
-// login controller (mobile:login, fail-loud) and the settings client.
+// card controller (PHONE-OWNED since owner 2026-09-03 — the card rides the
+// transcription request, never settings:update), the app-settings controller
+// (explicit locale + theme, instant-apply/persist), login and settings clients.
 // The gear on the chat header pushes the settings screen. The theme is the
 // user's tri-state choice (default follow-system; V2-07.4 wired the real selector —
 // an earlier dark-only façade selector had been removed), resolved through
@@ -42,12 +41,10 @@ import 'src/portable/portable_export.dart';
 import 'src/portable/portable_import.dart';
 import 'src/portable/timeline_import_sink.dart';
 import 'src/portable/unknown_field_vault.dart';
-import 'src/settings/llm_capability.dart';
 import 'src/settings/local_prefs.dart';
 import 'src/update/update_controller.dart';
 import 'src/update/update_prefs.dart';
-import 'src/settings/scenario_card_controller.dart';
-import 'src/settings/settings_client.dart';
+import 'src/settings/settings_root.dart';
 import 'src/session/chat_controller.dart';
 import 'src/session/outbox_blob_store.dart';
 import 'src/session/instance_machine_map.dart';
@@ -227,9 +224,9 @@ class _FlowMicAppState extends State<FlowMicApp> {
   late final TimelineStore _store;
   late final DestinationController _destination;
   late final TimelineSyncGate _syncGate;
-  late final SettingsClient _settingsClient;
-  late final LlmCapability _llmCapability; // card LLM-NOTICE: the capability.llm reader
-  late final ScenarioCardController _scenario;
+  /// The settings family (client · capability reader · card · switches ·
+  /// backup) — composed in settings_root.dart, whose header says why.
+  late final SettingsRoot _settingsRoot;
   late final LoginController _login;
 
   /// The settings cloud card's quota read-out (owner 2026-08-27). Built here so
@@ -318,10 +315,21 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // gate's remaining jobs are the delivery link probe and the http image
     // ingress's item shape.
     _syncGate = TimelineSyncGate(transport: _session.transport);
-    _settingsClient = SettingsClient(transport: _session.transport, roomJoins: _session.roomJoins);
-    // Card LLM-NOTICE: the SERVER's capability.llm fact, never inferred locally.
-    _llmCapability = LlmCapability(settingsClient: _settingsClient);
-    _scenario = ScenarioCardController(settingsClient: _settingsClient, cache: SharedPrefsScenarioCardCache(widget.prefs));
+    _settingsRoot = SettingsRoot(
+      prefs: widget.prefs,
+      transport: _session.transport,
+      roomJoins: _session.roomJoins,
+      destination: const SafExportDestination(),
+      source: const SafImportSource(),
+      version: const PackageAppVersion(),
+      workDir: widget.portableWorkDir,
+      deviceName: cachedDeviceLabel(),
+      // A restored file also carries the phone-local habits (settings_root.dart).
+      reloadLocalHabits: () async {
+        await widget.appSettings.load();
+        await Future.wait(<Future<void>>[_controller.loadSendPolicy(), _controller.loadTranslateTarget(), _controller.favorites.load()]);
+      },
+    );
     // Persist the SaaS JWT + public user (never the password) across launches so
     // the account area shows email/plan on boot (hydrate below).
     _login = LoginController(
@@ -345,7 +353,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // **SAME instance** the settings page reads, so 「what was chosen in
       // settings」 and 「what the next utterance sends on the wire」 cannot disagree.
       appSettings: widget.appSettings,
-      llmCapability: _llmCapability, // card LLM-NOTICE: the mode row's standing note
+      llmCapability: _settingsRoot.llmCapability, // card LLM-NOTICE: the mode row's standing note
+      phonePrefs: _settingsRoot.phonePrefs.frame, // 🔴 THE production wire for the phone-owned bundle: without this line every audio:start/compose:start leaves without `prefs` and the server silently defaults (chat_controller.dart says the rest)
       // Window B3-2a — the delivery queue's disk.
       //
       // ⚠️ THE FALLBACK IS EXPLICIT AND IS A REAL DEGRADATION. When SQLite could
@@ -407,7 +416,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
       login: _login,
       // GA-11: a first pairing gets its identity mid-connection, after the
       // connected edge that normally pulls the settings snapshot.
-      onPaired: () => unawaited(_settingsClient.hydrate()),
+      onPaired: () => unawaited(_settingsRoot.client.hydrate()),
     );
     // UP-2 in-app update. 🔴 `version:` and the 「About」 section, the export
     // metadata, are the **SAME** port
@@ -523,7 +532,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // does not exist). Pinned by a test that asserts SOMEBODY CALLS IT, not just
     // that it works when called.
     unawaited(_controller.outbox.load());
-    _scenario.load();
+    unawaited(_settingsRoot.load());
     // R6 T-3a: rehydrate the device-local send policy (⚡ direct / ➤ manual) so
     // the habit survives a relaunch. Defaults to direct when never set (08 §5).
     _controller.loadSendPolicy();
@@ -550,9 +559,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // already paid for once (`_pcBusy`, 0.2.51).
     _cloudSummary.dispose();
     _login.dispose();
-    _scenario.dispose();
-    _llmCapability.dispose();
-    _settingsClient.dispose();
+    _settingsRoot.dispose();
     _destination.dispose();
     _store.dispose();
     unawaited(_networkWatch.dispose());
@@ -562,7 +569,9 @@ class _FlowMicAppState extends State<FlowMicApp> {
   }
 
   SettingsPage _buildSettings() => SettingsPage(
-    scenario: _scenario,
+    scenario: _settingsRoot.scenario,
+    prefs: _settingsRoot.prefs,
+    backup: _settingsRoot.backup,
     appSettings: widget.appSettings,
     login: _login,
     destination: _destination,

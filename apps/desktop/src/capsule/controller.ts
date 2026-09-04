@@ -82,6 +82,7 @@ export {
 // connection-directory.ts would otherwise create — see that file's header).
 // Re-exported here so no import site moved.
 import { morph, state, vis, watchdog } from './capsule-state';
+import { UtteranceView } from './utterance-view';
 export { morph, state, vis, watchdog } from './capsule-state';
 
 let speakStart = 0;
@@ -110,13 +111,41 @@ function pick(obj: unknown, ...keys: string[]): unknown {
   return undefined;
 }
 
-function onAudioStart(_p: unknown): void {
+/** 🔴 THE utterance view — one model, two ends. Everything about the frame
+ *  semantics, the black/grey rule and why a settled span leaves the view is in
+ *  utterance-view.ts's header; the parity with the phone is pinned by the
+ *  shared fixture verify/fixtures/utterance-view-parity.json.
+ *
+ *  This replaced two flat strings (`state.finalText = text` on every final,
+ *  `state.interim = text` on every interim, both blind to `segment_idx` and
+ *  `is_segment`). That pair DELETED earlier segments — a two-segment utterance
+ *  ended up showing only the last one — and never cleared the interim its own
+ *  final had just superseded, so the black final was trailed by its own stale
+ *  grey copy. Owner report 2026-09-04: 「often NOT the whole utterance and
+ *  mostly grey」. */
+const utteranceView = new UtteranceView();
+
+/** Publish the view onto the two rendered fields. `finalText + interim` is
+ *  EXACTLY `view.display`, by construction — the split is a slice of one
+ *  string, so the black half and the grey half can never disagree about which
+ *  characters exist (CapsuleApp.vue renders them as two spans of one line). */
+function publishUtteranceView(): void {
+  const d = utteranceView.display;
+  const n = utteranceView.committedChars;
+  state.finalText = d.slice(0, n);
+  state.interim = d.slice(n);
+}
+
+function onAudioStart(p: unknown): void {
   const now = Date.now();
   morph.onSpeakingStart();
   vis.onAudioStart(now);
   watchdog.start(now);
-  state.interim = '';
-  state.finalText = '';
+  // `mode` decides whether a soft-segment final settles a row on the phone
+  // and therefore leaves this view — the SAME predicate, read off the SAME
+  // fact both ends have (AudioStartSchema.mode). See utterance-view.ts.
+  utteranceView.reset(str(pick(p, 'mode')));
+  publishUtteranceView();
   state.segs = 0;
   state.injected = null;
   state.injectFailed = null;
@@ -192,11 +221,20 @@ export function capsuleVisibleForTest(): boolean {
 
 function onInterim(p: unknown): void {
   morph.onSpeakingStart();
-  state.interim = str(pick(p, 'text'));
+  utteranceView.onInterim(num(pick(p, 'segment_idx')), str(pick(p, 'text')));
+  publishUtteranceView();
   watchdog.signal(Date.now());
 }
 function onFinal(p: unknown): void {
-  state.finalText = str(pick(p, 'text'));
+  // `is_segment` is what tells a mid-hold boundary from the one that closes the
+  // utterance; reading only `text` (what this did before) is what made segment 0
+  // vanish when segment 1 closed.
+  utteranceView.onFinal(
+    num(pick(p, 'segment_idx')),
+    str(pick(p, 'text')),
+    pick(p, 'is_segment') === true,
+  );
+  publishUtteranceView();
   state.segs += 1;
   watchdog.signal(Date.now());
 }
@@ -255,7 +293,9 @@ export function onInjectResult(p: unknown): void {
       // `speakStart` was still its initial 0).
       metrics: utteranceHadAudio
         ? {
-            chars: [...(state.finalText || state.interim)].length,
+            // The WHOLE utterance, not whichever half happened to be non-empty:
+            // since the view landed, `finalText + interim` IS `view.display`.
+            chars: [...(state.finalText + state.interim)].length,
             seconds: Math.max(0, (now - speakStart) / 1000),
           }
         : null,
@@ -456,6 +496,8 @@ function onLatchStarved(): void {
   morph.onSpeakingEnd();
   vis.onSettled();
   state.locked = false;
+  // Clear the GREY half only: a starved latch means no more frames are coming,
+  // not that the segments the server already finalised were untrue.
   state.interim = '';
   appendForensic('capsule', 'latch-watchdog force-clear (6s signal starvation)');
 }
@@ -472,8 +514,17 @@ export function fireAudioStartForTest(): void {
  *  visibility half `fireAudioStartForTest` above touches), so a test can put
  *  `utteranceHadAudio` into its true production-only state before asserting on
  *  `state.injected.metrics`. */
-export function fireRealAudioStartForTest(): void {
-  onAudioStart({});
+export function fireRealAudioStartForTest(p: unknown = {}): void {
+  onAudioStart(p);
+}
+/** Utterance-view seams: drive the REAL private stt handlers, so a test asserts
+ *  the wiring (payload -> view -> the two rendered fields) and not a hand-built
+ *  copy of it. Same precedent as [fireRealAudioStartForTest]. */
+export function fireSttInterimForTest(p: unknown): void {
+  onInterim(p);
+}
+export function fireSttFinalForTest(p: unknown): void {
+  onFinal(p);
 }
 export function speakingForTest(): boolean {
   return vis.isSpeaking();

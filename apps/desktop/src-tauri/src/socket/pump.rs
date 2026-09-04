@@ -37,7 +37,7 @@ use crate::socket::reconcile::Reconciler;
 use crate::socket::register_watchdog::{RegisterAction, RegisterWatchdog, REGISTER_RETRY_CEIL, REGISTER_RETRY_MAX};
 // F3: the SPEAKING lock's STATE-timed local watchdog and its audio-liveness clock.
 // Same split rationale as register_watchdog above.
-use crate::socket::speak_liveness::{lock_starved, SpeakLiveness};
+use crate::socket::{empty_final::{self, EmptyFinalLatch}, speak_liveness::{lock_starved, SpeakLiveness}};
 use crate::socket::wire;
 
 type SharedCreds = Arc<Mutex<Credentials>>;
@@ -116,10 +116,13 @@ pub fn tray_showing_snapshot() -> Option<String> {
 /// With this seam, breaking the watchdog turns the TRAY assertions red.
 ///
 /// `now` is injected so a 32 s cap is testable without waiting 32 s.
+// F-1 made this 8; splitting it out would give the lock a SECOND release site.
+#[allow(clippy::too_many_arguments)]
 fn speaking_watchdog_tick(
     fsm: &Mutex<FocusStateMachine>,
     lock_deadline: &Mutex<Option<Instant>>,
     liveness: &SpeakLiveness,
+    empty_final: &EmptyFinalLatch,
     speaking_since: &mut Option<Instant>,
     now: Instant,
     cap: Duration,
@@ -127,9 +130,23 @@ fn speaking_watchdog_tick(
 ) -> bool {
     if !fsm_is_recording(fsm) {
         *speaking_since = None;
+        empty_final.reset(); // no lock held ⇒ no evidence may survive into the next one
+
         return false;
     }
     let entered = *speaking_since.get_or_insert(now);
+    // F-1: an empty utterance produces no inject:request, so nothing ever left
+    // SpeakingLocked but the 32 s cap below. Injecting is deliberately NOT
+    // covered — that lock is the inject path's (ruling 2). Why: empty_final.rs.
+    let locked = matches!(fsm.lock().unwrap_or_else(|p| p.into_inner()).state(), FocusState::SpeakingLocked { .. });
+    if locked && empty_final.take_if_armed() {
+        fsm.lock().unwrap_or_else(|p| p.into_inner()).force_release();
+        *lock_deadline.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *speaking_since = None; // the guard above is a statement temporary, already dropped
+        let held = now.saturating_duration_since(entered);
+        forensic::record("lock", &empty_final::release_note(tag, held, cap));
+        return false;
+    }
     // Kept as EVIDENCE, not as the verdict: "is this lock the one from audio:start" is what
     // tells hole ① apart from hole ② in the log below.
     let was_armed = watchdog_expired(*lock_deadline.lock().unwrap_or_else(|p| p.into_inner()), now);
@@ -391,6 +408,8 @@ pub(super) fn spawn(
     // handlers. The STATE watchdog below runs on it; see speak_liveness.rs for why an
     // absolute deadline armed at audio:start could not do this job.
     liveness: SpeakLiveness,
+    // F-1: "did this hold end with nothing to inject" (fanout.rs feeds it).
+    empty_final: EmptyFinalLatch,
     // WP2 Card 7: consecutive heartbeat-emit failures on a still-wanted session.
     // `None` (tests / golden) skips reconstruction; the detector still clears.
     on_dead_transport: Option<crate::socket::hb_death::DeadTransportHook>,
@@ -503,6 +522,7 @@ pub(super) fn spawn(
                 &fsm,
                 &lock_deadline,
                 &liveness,
+                &empty_final,
                 &mut speaking_since,
                 Instant::now(),
                 lock_cap,

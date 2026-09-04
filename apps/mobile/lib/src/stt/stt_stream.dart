@@ -66,6 +66,25 @@ class SttFinal {
   final int durationMs;
   final SttPolish? polish;
   final String? polishReason;
+
+  /// D7 (2026-09-03) — the server-minted id of the utterance this final
+  /// belongs to (additive optional on the wire; an older relay strips it and
+  /// this reads null). Stored on the row the terminal final builds so a later
+  /// [SttRefined] carrying the same id can find it.
+  final String? utteranceId;
+
+  /// Card EMPTY-1 (2026-09-04) — WHY this final carries no text, verbatim off
+  /// the wire (`stt:final.empty_reason`). Null on every final that HAS text, on
+  /// every recording whose emptiness an `stt:error` already explained, and on
+  /// every server that predates the card — so null keeps the pre-card behaviour
+  /// exactly (the phone's own 「no speech was heard」 sentence).
+  ///
+  /// 🔴 KEPT AS A RAW STRING, deliberately NOT parsed into a Dart enum. A second
+  /// hand-maintained mirror of a server-side domain is the thing nothing binds
+  /// (the open account behind the 0.2.53 defect); the copy table decides what it
+  /// recognises, and an unrecognised value gets the generic sentence plus this
+  /// token rather than a sentence invented for it.
+  final String? emptyReason;
   const SttFinal({
     required this.text,
     required this.confidence,
@@ -75,12 +94,15 @@ class SttFinal {
     required this.durationMs,
     this.polish,
     this.polishReason,
+    this.utteranceId,
+    this.emptyReason,
   });
 
   static SttFinal? tryFromJson(Map<String, Object?> j) {
     final Object? text = j['text'];
     final Object? idx = j['segment_idx'];
     if (text is! String || idx is! int) return null;
+    final Object? utt = j['utterance_id'];
     final SttPolish? polish = switch (j['polish']) {
       'applied' => SttPolish.applied,
       'skipped' => SttPolish.skipped,
@@ -100,8 +122,24 @@ class SttFinal {
       durationMs: (j['duration_ms'] as num?)?.toInt() ?? 0,
       polish: polish,
       polishReason: polishReason,
+      utteranceId: utt is String && utt.isNotEmpty ? utt : null,
+      emptyReason: switch (j['empty_reason']) {
+        final String r when r.isNotEmpty => r,
+        _ => null,
+      },
     );
   }
+}
+
+/// stt:refined — a LATE, better transcript of one utterance, named by the
+/// same server-minted [utteranceId] its terminal `stt:final` carried (D7).
+/// Only frames that name their utterance reach this type: ptt_inbound.dart
+/// drops the rest at the wire, because a refine that names nothing has no row
+/// it can honestly be applied to.
+class SttRefined {
+  const SttRefined({required this.utteranceId, required this.text});
+  final String utteranceId;
+  final String text;
 }
 
 /// The typed STT stream layer. The socket event loop feeds raw payloads in;

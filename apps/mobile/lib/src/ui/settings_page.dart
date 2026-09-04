@@ -29,14 +29,17 @@ import '../portable/stats_clear_sheet.dart';
 import '../portable/portable_controller.dart';
 import '../portable/portable_import.dart';
 import '../portable/portable_ports.dart' show AppVersionPort;
+import '../portable/settings_backup.dart';
 import '../ptt/ptt_session.dart';
 import '../auth/saas_endpoint.dart' show resolveSaasEndpoint;
 import '../session/node_latency.dart' show probeNode;
 import 'node_latency_panel.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
+import '../settings/prefs_controller.dart';
 import '../settings/scenario_card.dart';
 import '../settings/scenario_card_controller.dart';
+import '../settings/scenario_taxonomy.dart';
 import '../support/help_link.dart' show kHelpUrl;
 import '../update/update_controller.dart' show UpdateController;
 import 'onboarding/first_run_onboarding_page.dart' show OnboardingReviewPage;
@@ -49,6 +52,9 @@ part 'settings_custom_terms.dart';
 // W5a Lane 1 — the preferences card and about card moved here; the reason
 // (including the verbatim-move discipline) is written in that file's header.
 part 'settings_preferences.dart';
+// 2026-09-03 — the phone-owned recognition switches and the settings backup
+// rows; that file's header says why it is a part and what each row is.
+part 'settings_general_prefs.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
@@ -64,9 +70,22 @@ class SettingsPage extends StatelessWidget {
     required this.version,
     required this.update,
     required this.cloudSummary,
+    required this.prefs,
+    required this.backup,
   });
 
   final ScenarioCardController scenario;
+
+  /// 2026-09-03 — the phone-owned recognition switches (AI polish, two-pass
+  /// refine, scenario-inference consent). REQUIRED, no default, same reason
+  /// as [portable]: a card rendered against nothing would show three switches
+  /// that change nothing.
+  final PrefsController prefs;
+
+  /// 2026-09-03 — settings backup / restore (owner Q6 note, Q8 a). REQUIRED,
+  /// no default: two rows that open no file picker are the façade shape this
+  /// page's other ports already refuse.
+  final SettingsBackupPort backup;
   final AppSettingsController appSettings;
   final LoginController login;
   final DestinationController destination;
@@ -129,6 +148,7 @@ class SettingsPage extends StatelessWidget {
           listenable: Listenable.merge(<Listenable>[
             appSettings,
             scenario,
+            prefs,
             login,
             destination,
             portable,
@@ -148,6 +168,11 @@ class SettingsPage extends StatelessWidget {
                       _scenarioChipsCard(s),
                       _packsCard(s),
                       _customTermsSection(context, s),
+                      // owner 2026-09-03 (Q2 b / Q3 a): the three switches
+                      // that used to live on the PC. Right under the card
+                      // they act with, above the data section.
+                      settingsSection(s.secRecognition),
+                      _generalPrefsCard(s),
                       settingsSection(s.secData),
                       _dataCard(context, s),
                       settingsSection(s.secPreferences),
@@ -461,52 +486,33 @@ class SettingsPage extends StatelessWidget {
                 Text('${s.profession} / ${s.domain}', style: kRowTitle),
                 const SizedBox(height: 2),
                 Text(s.scenarioHint, style: kRowSub),
-                if (scenario.syncPending) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(Icons.cloud_off_outlined, size: 12, color: FlowMicColors.amber),
-                      const SizedBox(width: 4),
-                      Text(
-                        s.syncPendingNote,
-                        style: TextStyle(color: FlowMicColors.amber, fontSize: 10.5),
-                      ),
-                    ],
-                  ),
-                ]
-                // GA-11: the card below is the SERVER's value, and it displaced
-                // one the user had already seen — say so rather than swapping it
-                // under them. Mutually exclusive with the pending note: pending
-                // means the local edit won and nothing was displaced.
-                else if (scenario.remoteRefreshed) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(Icons.sync, size: 12, color: FlowMicColors.teal),
-                      const SizedBox(width: 4),
-                      Text(
-                        s.scenarioRemoteNote,
-                        style: TextStyle(color: FlowMicColors.teal, fontSize: 10.5),
-                      ),
-                    ],
-                  ),
-                ],
+                // TWO notes stood here and both are gone, for the same
+                // reason at two removes. GA-11's 「updated from your PC」 went
+                // on 2026-09-03 (owner Q6/Q7: the card lives only on this
+                // phone, so nothing can displace it from outside). The
+                // 「saved locally · pending sync」 note went the same evening,
+                // when owner made the transcription request the carrier: an
+                // edit is never in flight to anywhere, so there is no state
+                // in which that sentence would be true.
               ],
             ),
           ),
+          // 🔴 The chip is keyed by ID and rendered by LABEL (2026-09-04).
+          // `isOn` compares the id, so flipping the UI language re-renders
+          // every chip in the new language WITHOUT losing the selection —
+          // before ids, the stored label simply stopped matching and the whole
+          // row went blank. `onToggle` stores the id for the same reason.
           _chipGroup(
             title: s.profession,
-            presets: kProfessionPresets,
-            label: s.professionLabel,
+            presets: ScenarioAxis.professions.ids,
+            label: (String id) => ScenarioAxis.professions.label(s, id),
             isOn: card.hasProfession,
             onToggle: scenario.toggleProfession,
           ),
           _chipGroup(
             title: s.domain,
-            presets: kDomainPresets,
-            label: s.domainLabel,
+            presets: ScenarioAxis.domains.ids,
+            label: (String id) => ScenarioAxis.domains.label(s, id),
             isOn: card.hasDomain,
             onToggle: scenario.toggleDomain,
             last: true,
@@ -655,8 +661,10 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
         // Same stacked shape as the export row above, same measurements.
+        // 2026-09-03: no longer the last row — `last` moved to the settings
+        // restore row appended below (settings_general_prefs.dart says why
+        // that one line is not decoration).
         settingsRow(
-          last: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
@@ -688,6 +696,10 @@ class SettingsPage extends StatelessWidget {
             ],
           ),
         ),
+        // owner 2026-09-03 (Q6 note / Q8 a): the settings backup and restore
+        // rows, bodies in settings_general_prefs.dart. The restore row owns
+        // `last: true`.
+        ..._settingsBackupRows(context, s),
       ],
     ),
   );

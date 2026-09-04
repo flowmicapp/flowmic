@@ -209,21 +209,25 @@ describe('loadHotwords — reads the same three terminology sources as everythin
   //   arrives; the two it did not are gone. This test is therefore not passing
   //   for some incidental reason.
   //   Restored; all 14 green.
-  it('card terms, packs and stt.dictionary all reach the engine frame', () => {
+  //
+  // 2026-09-03 (owner Q1): the THIRD source retired. `stt.dictionary` is no
+  // longer read by anything on the server; a card term may now carry the
+  // aliases that row used to hold. The case below therefore asserts the two
+  // remaining sources AND that a stored dictionary row no longer reaches the
+  // frame — the reverse of what the same line asserted before this date.
+  it('card terms (with aliases) and packs reach the engine frame; a stored stt.dictionary row does not', () => {
     const db = freshDb();
     db.settings.write(U, SETTINGS_KEY_SCENARIO_CARD, {
-      professions: [], domains: [], packs: ['tech-dev'], terms: ['FlowMic'],
+      professions: [], domains: [], packs: ['tech-dev'], terms: ['FlowMic', { term: 'gRPC', aliases: ['g r p c'] }],
     });
-    db.settings.write(U, 'stt.dictionary', [{ term: 'gRPC', weight: 25 }]);
+    db.settings.write(U, 'stt.dictionary', [{ term: 'Retired', weight: 25 }]);
 
     const map = hotwordMap(loadHotwords(db.settings, U));
-    // gRPC FIRST, deliberately: it is the one source the old code did read, so
-    // asserting it ahead of the others makes the asymmetry visible in the revert
-    // run — the failure lands on FlowMic, which proves gRPC passed rather than
-    // merely never having been reached.
-    expect(map.gRPC).toBe(25);         // ③ stt.dictionary
+    expect(map.gRPC).toBe(20);         // ① scenario card, alias-bearing term (no weight → default)
     expect(map.FlowMic).toBe(20);      // ① scenario card (no weight → default)
     expect(map.Kubernetes).toBe(20);   // ② curated pack
+    expect(map.Retired).toBeUndefined(); // the retired key is not a source any more
+    expect(map['g r p c']).toBeUndefined(); // aliases are never hotwords
   });
 
   // T5. WEIGHT PRESERVATION. TermRule gained an optional `weight` for this: the

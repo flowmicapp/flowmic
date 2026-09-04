@@ -25,7 +25,8 @@ import { renderSystemPrompt } from './prompt';
 import { createComposeRun } from './orchestrator';
 import { buildDictionaryReplacer } from './dictionary-replace';
 import { COMPOSE_BUDGET_MS } from './mode';
-import { ScenarioInferenceStore, type ScenarioInferenceSeams } from './scenario-infer-store';
+import { ScenarioInferenceStore, SCENARIO_INFERENCE_CONSENT_KEY, type ScenarioInferenceSeams } from './scenario-infer-store';
+import { overlaySettings, type SessionPrefs } from '../settings/session-overlay';
 import { newTraceId, trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 
 /** Args the compose handler passes per compose:start. `processName` is the
@@ -38,6 +39,13 @@ export interface ComposeStartArgs {
   sourceLang?: string;
   targetLang?: string;
   processName?: string;
+  /** 2026-09-03 (design D2) — the bundle THIS compose:start carried in its
+   *  `prefs` field (compose.handler.ts → wire.ts setSessionPrefs). The scenario
+   *  card, its terms and the inference consent are read from it through
+   *  `overlaySettings`; `llm.config` stays on the database. `null`/absent ⇒
+   *  an old phone ⇒ the database, exactly as before. Bootstrap closes the
+   *  factory over the socket to supply it; the handler is untouched. */
+  sessionPrefs?: SessionPrefs | null;
 }
 
 export interface ComposeFactoryDeps {
@@ -98,6 +106,11 @@ export function createComposeFactory(
     ...(deps.inference ?? {}),
   });
   return (args: ComposeStartArgs): ComposeOrchestrator => {
+    // 🔴 2026-09-03 — the phone-owned reads (card, terms, consent) go through
+    // this overlay; `llm.config` deliberately stays on `deps.settings` below,
+    // because the model endpoint is the account's configuration, not the
+    // phone's. Same object shape either way, so the resolvers are unchanged.
+    const settings = overlaySettings(deps.settings, args.sessionPrefs ?? null);
     // M4: provenance-carrying resolution (T7). `selected` answers "who gave it" —
     // the BYOK judgement below must never degrade to key shape.
     const selected = resolveLlmConfigWithSource(deps.settings, args.userId);
@@ -107,13 +120,19 @@ export function createComposeFactory(
     // inference synchronously; on a miss it schedules ONE off-band LLM call
     // (behind the consent gate) and returns undefined, so this turn contributes
     // no app-scenario line rather than waiting for a model.
+    // Design D8: the consent is handed to the store AS DATA, read through the
+    // overlay — the phone owns it (owner Q3 a). The store still parses and
+    // gates it; only WHERE the row comes from changed. Variable key on purpose
+    // (no settings-key-drift anchor until a UI SET literal exists — see the
+    // CONSENT_KEY doc in scenario-infer-store.ts).
     const appScenario = inference.resolve({
       userId: args.userId,
       cfg,
       byok,
+      consent: { row: settings.read(args.userId, SCENARIO_INFERENCE_CONSENT_KEY)?.value },
       ...(args.processName !== undefined ? { processName: args.processName } : {}),
     });
-    const ctx = resolveScenarioContext(deps.settings, args.userId, appScenario);
+    const ctx = resolveScenarioContext(settings, args.userId, appScenario);
     const scenarioBlock = buildScenarioBlock(ctx);
     const system = renderSystemPrompt(
       {
@@ -129,7 +148,7 @@ export function createComposeFactory(
     // LLM sees it — the pipeline's `dictionary replacement` step, sitting ahead of the scenario
     // correction. The raw source_text ROW (as spoken) is never rewritten by this
     // (the server compose reads source_text, it does not persist it).
-    const replacer = buildDictionaryReplacer(resolveReplacementRules(deps.settings, args.userId));
+    const replacer = buildDictionaryReplacer(resolveReplacementRules(settings, args.userId));
     // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
     // The compose turn's own correlation id. It is NOT the audio session's:
     // compose:start is a separate client verb that may arrive for text the user

@@ -64,7 +64,7 @@ extension ChatRowRewrite on ChatController {
 
   /// GA-14 — adopt a second-pass transcript (body in chat_utterance.dart, the
   /// same-library part file the utterance terminals already live in).
-  void _onRefined(String text) => _applyRefined(this, text);
+  void _onRefined(SttRefined r) => _applyRefined(this, r);
 
   /// Delete (C5 §4 — body in chat_row_uplink.dart, beside the edit uplink it
   /// shares its 「whether the server still has this row」 question with).

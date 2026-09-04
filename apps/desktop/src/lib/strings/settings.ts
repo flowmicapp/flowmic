@@ -1,6 +1,13 @@
 // S string catalogue shard: settings page (account / preferences / about /
-// STT / dictionary / polish / two-pass refine / LLM / scenario cards / save
-// receipts). Merged and exported by ../strings.ts.
+// STT routing / local models / LLM / save receipts). Merged and exported by
+// ../strings.ts.
+//
+// 🔴 SIXTY LEAVES LEFT THIS SHARD ON 2026-09-03 (owner ruling, phone-owned
+// preferences): the AI-polish card, two-pass refine, the personal dictionary,
+// the scenario card (professions, packs, terms) and the scenario-inference
+// consent, plus the five counted `settingsMsg` sentences those two lists used.
+// The screens went with them. Nothing was replaced by a read-only mirror — this
+// end cannot state a current value for a setting it neither stores nor receives.
 // V2-07.8a: per-locale catalogue (zh-CN baseline + en).
 import { getLocale, type UiLocale } from './locale';
 import { shardCatalogue } from './shard';
@@ -170,107 +177,9 @@ export const SETTINGS_KEYS = [
   'stt_model_missing_action',
   'col_language',
   'col_endpoint',
-  'dict_title',
-  'dict_add',
-  'polish_title',
-  'polish_hint',
-  'polish_toggle',
-  // Card POLISH-CFG — the Chinese original is owner's word-for-word ruling
-  // from 2026-08-09.
-  //
-  // 🔴 It answers the question the toggle itself can't answer. The toggle
-  // only says "on / off"; once the server wires `stt.polish`'s default to
-  // "is there a usable language model," an account with no model
-  // configured sees a toggle that's "on" and does nothing — the exact
-  // status-surface shape of the red line "don't describe something
-  // unfinished as done." This sentence supplies the "why."
-  //
-  // ⚠️ A statement of fact, no imperative, no "go configure it in
-  // settings": this layer only has `capability.llm`'s usable boolean, and
-  // it doesn't know which one to configure (the locally self-hosted
-  // `llm.config`? or the key behind the platform-managed env gate?) —
-  // inventing a pointer would mean inventing a fact we don't have.
-  // Precedent = `INJECT_PC_MISMATCH`'s copy discipline.
-  // ⚠️ Also may not be written as an assertion of the default value, like
-  // "off by default" / "on by default": that default lives in a constant
-  // on the server, while this sentence is compiled into a binary the
-  // server can't reach (data-flow-disclosure.test.ts's DEFAULT_VALUE_CLAIMS
-  // exists precisely for this rule).
-  'polish_no_llm',
-  // ─── card C8: the correction-strength dial (owner ruling 2026-08-17) ───────
-  //
-  // 🔴 `polish_strength_hint` MUST STATE THE TRADE, and the trade is not a
-  // quality ranking. `smooth` is not "better polish": it buys readability by
-  // giving up the guarantee that the text on screen is word-for-word what was
-  // said. Someone dictating a quotation, a name list, or evidence needs to be
-  // able to read that off the screen and choose `strict`, so the sentence names
-  // both halves ("easier to read, but no longer word-for-word") rather than
-  // describing smooth as an improvement.
-  //
-  // ⚠️ Statement of fact, no imperative — the same copy discipline as
-  // `polish_no_llm` above and `INJECT_PC_MISMATCH`. This layer knows what the
-  // two values do; it does not know which one this user should want.
-  //
-  // ⚠️ Deliberately NOT a claim about the default. The effective value comes
-  // from the server on every `settings:list`, and a sentence like "strict by
-  // default" compiled into this binary is exactly the shape
-  // data-flow-disclosure.test.ts's DEFAULT_VALUE_CLAIMS exists to catch.
-  'polish_strength_label',
-  'polish_strength_strict',
-  'polish_strength_smooth',
-  'polish_strength_hint',
-  // ─── R-2乙 (owner 2026-08-29): smooth's supervision used to be weaker
-  //     outside zh/en; WP8 P1-2 extended the closed-class tables to the
-  //     spoken set, so the sentence now states that coverage rather than
-  //     the old zh/en-only gap ──────────────────────────────────────────────
-  //
-  // The meaning-preservation guard behind polish has TWO parts. The cardinality
-  // bound (§3.1) is language-independent. The closed-class check (§3.2) — the
-  // one that catches a dropped negation — is the table in
-  // `CLOSED_CLASS_GUARDED_LANGS` (stt-polish-guard-terms.ts), kept honest by
-  // `stt-polish-guard-coverage.test.ts`.
-  //
-  // 🔴 SHOWN ONLY WHEN `smooth` IS SELECTED, because that is when the
-  // cardinality bound is the looser of the two strengths; the closed-class
-  // half is strength-independent and this sentence is what it can see.
-  //
-  // ⚠️ Statement of fact, no imperative, and NO claim about the default — same
-  // discipline as `polish_strength_hint` above (data-flow-disclosure.test.ts's
-  // DEFAULT_VALUE_CLAIMS exists to catch the latter). It does not say which
-  // strength to choose; it says what the check can and cannot see.
-  //
-  // ⚠️ Deliberately NOT conditioned on the user's own routing rows. The desktop
-  // can hold several language rows at once, so 「your language is covered」 would
-  // be a claim about a set, not about this utterance. Naming the spoken set
-  // is true regardless of what happens to be configured.
-  'polish_strength_smooth_coverage',
-  // owner 2026-07-26 ⑤ — where these settings actually apply. Stated on the LLM
-  // section and the scenario-inference consent section, whose keys
-  // (`llm.config` / `scenario.inference`) are STILL LAN-only today (verified by
-  // grep: neither is in `PREFERENCE_SETTING_KEYS`,
-  // apps/desktop/src-tauri/src/shell/settings_route.rs).
-  //
-  // ⚠️ IT USED TO ALSO BE TRUE OF `SttSettings.vue`'s note (see
-  // `stt_settings_scope_note` below for why that page no longer uses this key).
+  // 🔴 `dict_title` / `dict_add` / `dict_no_alias` and the whole polish and
+  // two-pass-refine block used to sit here. Deleted 2026-09-03 with their cards.
   'settings_scope_lan',
-  // E6 (2026-09-02) — `SttSettings.vue` renders FOUR sections on one page: the
-  // routing table (`stt.routings`, still LAN-only) plus the dictionary/AI-polish/
-  // two-pass-refine controls (`stt.dictionary`/`stt.polish`/`stt.refine`), which
-  // owner 2026-08-24 moved onto BOTH legs (verified by grep:
-  // `PREFERENCE_SETTING_KEYS` in settings_route.rs lists exactly those three plus
-  // `scenario.card`). The page used to show `settings_scope_lan` above ALL FOUR
-  // sections, so since 08-24 it told a cloud-relay user their dictionary/polish/
-  // refine choices "have no effect on the cloud relay" while the wire sent them
-  // there anyway — the opposite of true, and exactly the shape CLAUDE.md's
-  // 反 façade ④ names (a sentence asserting behaviour elsewhere that stopped
-  // being true when that elsewhere changed). This key names both facts
-  // instead of the one that stopped being universal.
-  'stt_settings_scope_note',
-  // GA-14 two-pass refine
-  'refine_title',
-  'refine_hint',
-  'refine_toggle',
-  'refine_precondition',
   'llm_title',
   // 🔴 REQ-13-09 — 「AI 润色」("AI polish") IS ON THIS LIST, and leaving it off
   // was the exact shape the card is about: the two legs (speech vs language
@@ -278,33 +187,38 @@ export const SETTINGS_KEYS = [
   //   · anchor: apps/server-core/src/engine/stt-factory.ts resolvePolishDep()
   //     resolves through the SAME resolveLlmConfigWithSource() the compose turn
   //     uses — polish has no configuration of its own, it consumes this one.
-  // Before this line, the ONLY place the dependency was stated was
-  // `polish_no_llm` on the OTHER page (Speech Recognition), which fires
-  // after the fact and deliberately carries no imperative. So a reader on
-  // this page could not learn that emptying these fields also turns polish off.
-  // ⚠️ It names the FEATURE, not a value of its switch: whether polish is on
-  // lives in a server-side default this binary cannot read (the same rule that
-  // governs `stt_sub_off_default` and disclosure step ③). The literal is
-  // 「AI 润色」 = `polish_title` verbatim, and polish-capability-notice.test.ts
-  // asserts that equality per locale, so renaming the feature reddens a test
-  // rather than orphaning this sentence.
-  'llm_hint',
-  // ── card LLM-NOTICE (owner 2026-08-25 D1/D2) — three sentences, three subjects ──
   //
-  // THREE SEPARATE STATEMENTS, NEVER MERGED, because they are three different
-  // truths about one missing model (execution plan §1.1, measured):
-  //   · Translate / Organize  → NOT SUPPORTED  (`llm_modes_unsupported`, LLM section)
-  //   · AI polish             → NOT IN EFFECT  (`polish_no_llm`, already above)
-  //   · the scenario card     → its terms STILL WORK: stt/engine-factory.ts feeds
-  //     `scenario.card.terms` to the SPEECH engine as hotwords/replacements; only
-  //     the half that rides into the polish prompt (stt-polish.ts) goes down
-  //     (`scenario_terms_still_work`, on the card itself). Calling the card
-  //     "not supported" would be false, and a wrong status word is R11 territory.
-  // All three render ONLY on the server-supplied `capability.llm` fact — never
-  // inferred from an empty endpoint (a managed cloud account has no row).
-  // None may assert a DEFAULT VALUE of any switch (DEFAULT_VALUE_CLAIMS rule).
+  // 🔴 REWRITTEN 2026-09-03, and NOT by dropping the claim. The switch moved to
+  // the phone (owner ruling, phone-owned preferences), so the old sentence's
+  // reader had no way to find it; the sentence now says where it is and that the
+  // phone hands the value over on each connection. What must NOT happen is the
+  // feature name disappearing from this page: emptying these fields still turns
+  // AI polish off, and this is the only page that can say so — the sentence that
+  // used to say it beside the switch (`polish_no_llm`) went with the switch.
+  // ⚠️ It names the FEATURE, never a value of its switch: whether polish is on
+  // is now the phone's answer and this binary cannot read it.
+  // ⚠️ The old `polish_title == llm_hint substring` equality pin went with
+  // `polish_title`. Renaming the feature no longer reddens a test, so the name
+  // is spelled out here as the thing to keep in step with the phone's own
+  // catalogue (i18n/mobile: `settingsAiPolish`).
+  'llm_hint',
+  // ── card LLM-NOTICE (owner 2026-08-25 D1/D2) — ONE sentence left of three ──
+  //
+  // It was three statements about one missing model, never merged, because they
+  // were three different truths (execution plan §1.1, measured):
+  //   · Translate / Organize  → NOT SUPPORTED  (`llm_modes_unsupported`, here)
+  //   · AI polish             → NOT IN EFFECT  (`polish_no_llm`, deleted 2026-09-03)
+  //   · the scenario card     → its terms STILL WORK  (`scenario_terms_still_work`,
+  //     deleted 2026-09-03)
+  // 🔴 THE OTHER TWO WERE NOT MERGED INTO THIS ONE — their SCREENS left. The
+  // polish switch and the scenario card are the phone's, so a desktop sentence
+  // about either would be about a screen the reader is not on. The card's terms
+  // still reach the speech engine as hotwords (stt/engine-factory.ts) exactly as
+  // before; nothing about the MECHANISM changed, only who shows the control.
+  // ⚠️ This one still renders ONLY on the server-supplied `capability.llm` fact
+  // — never inferred from an empty endpoint (a managed cloud account has no row)
+  // — and may not assert a DEFAULT VALUE of any switch (DEFAULT_VALUE_CLAIMS).
   'llm_modes_unsupported',
-  'scenario_terms_still_work',
   // The dismissible first-run card (owner D2): a title, a body that names what
   // works without a model and what does not, two buttons that JUMP to the speech
   // model and language model configurations, and a remembered dismissal.
@@ -351,82 +265,17 @@ export const SETTINGS_KEYS = [
   'llm_model',
   'llm_apikey',
   'llm_apikey_ph',
-  'scenario_title',
-  'scenario_hint',
-  'scenario_professions',
-  'scenario_packs',
-  'scenario_terms',
-  'scenario_add_term',
-  'scenario_term_ph',
-  // V2-08 scenario-inference consent screen. All three sentences are
-  // mandatory: what is collected / what is not collected / where it is sent.
-  // RV-55 (owner 2026-07-30): the classifier answers 「is this INSIDE the
-  // private ranges (RFC1918 + optional deployment overlay)?」, not 「is this
-  // yours?」 and not 「is this a third party」. The two copy branches name the
-  // standard ranges; D1 may flip which branch an address takes, but must not
-  // rewrite these sentences or invent a third-party warning.
-  'infer_title',
-  'infer_hint',
-  'infer_collect',
-  'infer_no_screen',
-  'infer_sends_to',
-  // Why clarify "standard ranges": a bare 「是私网」("this is a private
-  // network") hides the rule the other
-  // branch has to explain; naming the ranges keeps both verdicts symmetric.
-  'infer_dest_private',
-  'infer_dest_unprovable',
-  // 0.3.0 P3. Rendered ONLY on the unprovable branch, never on the private one.
-  // It names the consequence the verdict above stops short of: an address the
-  // classifier cannot place may belong to someone else, and if it does, this is
-  // a real third party. Saying so is honest here and would be a lie one branch
-  // over — which is exactly the line scenario-inference-consent.test.ts draws.
-  'infer_dest_unprovable_note',
-  'infer_endpoint_unset',
-  'infer_toggle',
-  'infer_off_note',
-  'infer_widened_note',
-  // V2-07.8a hardcoded-value extraction (originally inline Chinese in the
-  // SttSettings / ScenarioCard templates).
+  // 🔴 The scenario card's nine keys and the twelve scenario-inference keys
+  // ended here on 2026-09-03, together with their two screens.
   'stt_builtin_no_endpoint',
   'stt_engine_custom',
-  'stt_sub_on',
-  // 🔴 THE KEY NAME IS LEGACY — the copy no longer claims a default, and must
-  // not go back to claiming one. This ONE string is rendered under THREE
-  // different toggles (SttSettings.vue polish + refine, ScenarioInference.vue),
-  // so 「off by default」 was a per-toggle fact riding on a shared label: it was
-  // right for two of them and became wrong for polish the moment owner ruled
-  // 「AI 改顺默认全开」("AI polish reordering defaults to fully on") (2026-08-08). A shared label can only carry what is true
-  // of every toggle that shows it — here, that the switch is off right now.
-  // Renaming the key would touch ScenarioInference.vue, which is not this
-  // lane's file; the name is inert, the sentence was not.
-  'stt_sub_off_default',
-  'dict_no_alias',
-  'scenario_term_exists',
-  // V2-07.8a built-in term-pack labels (originally the PACK_LABELS
-  // hardcoded table in settings-model.ts).
-  'pack_tech_dev',
-  'pack_medical',
-  'pack_legal',
-  'pack_finance',
-  'pack_proper_noun',
-  'pack_code_switch',
-  // 2026-08-30 owner defect: the profession chip row rendered its stored
-  // value (then Chinese text, doubling as both id and label) directly, so
-  // every UI locale but zh-CN showed Chinese chips. W-i18n-B (2026-08-31)
-  // switched the stored ids to the phone's English slugs
-  // (profession-ids.ts / kProfessionPresets); these remain pure display
-  // overrides, same split PACK_LABELS already draws above.
-  // `profession_writing` is the overlay for the phone-only id
-  // `writing / editing` — the eight older chips reuse the keys below.
-  'profession_swdev',
-  'profession_cloud_ops',
-  'profession_product_design',
-  'profession_finance',
-  'profession_healthcare',
-  'profession_law',
-  'profession_education',
-  'profession_research',
-  'profession_writing',
+  // 🔴 `stt_sub_on` / `stt_sub_off_default` ended here too. That pair was the
+  // 「on right now / off right now」 sub-label under THREE toggles (AI polish,
+  // two-pass refine, inference consent) and this end has none of them left. Its
+  // long note is worth carrying forward as prose, because it is the reason the
+  // pair could not simply be renamed: a shared label can only carry what is true
+  // of every toggle that shows it, which is why 「off by default」 had to come out
+  // of it in 2026-08-08 rather than being fixed per toggle.
   'saved',
   'saved_local',
   // SETTINGS_SYNC_FAIL fail-loud note
@@ -451,15 +300,11 @@ export const SETTINGS_STRINGS = shardCatalogue(SETTINGS_KEYS);
 
 
 export const SETTINGS_MSG: SettingsMsg = {
-  termTooLong: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].termTooLong(n),
-  termsAtCap: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].termsAtCap(n),
-  termsCapNote: (n) => SETTINGS_MSG_BY_LOCALE[getLocale()].termsCapNote(n),
-  dictCount: (n, cap) => SETTINGS_MSG_BY_LOCALE[getLocale()].dictCount(n, cap),
-  dictAliases: (aliases) => SETTINGS_MSG_BY_LOCALE[getLocale()].dictAliases(aliases),
-  // The built-in speech model's five count-bearing sentences (2026-08-19 §5-A).
-  // Same one-line-per-member shape as the five above, and the same reason it is
-  // written out rather than spread: this list is what proves each generated arm
-  // has a production reader.
+  // The built-in speech model's six count-bearing sentences (2026-08-19 §5-A).
+  // 🔴 The five term/dictionary members that used to head this list left on
+  // 2026-09-03 with the scenario card and the personal dictionary. One line per
+  // member is still deliberate: this list is what proves each generated arm has
+  // a production reader.
   modelDownloadSize: (size) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelDownloadSize(size),
   modelResume: (pct) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelResume(pct),
   modelFiles: (done, total) => SETTINGS_MSG_BY_LOCALE[getLocale()].modelFiles(done, total),

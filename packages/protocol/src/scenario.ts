@@ -42,6 +42,27 @@ const PackId = z.string().min(1).max(SCENARIO_MAX_LABEL_LEN);
 // surrounding whitespace so a whitespace-only term ("   ") is rejected — this
 // is the master plan's "每条 trim ≥1 且 ≤40" ("each entry trim ≥1 and ≤40") rule.
 const Term = z.string().trim().min(1).max(SCENARIO_MAX_LABEL_LEN);
+// 2026-09-03 (owner ruling Q1, phone-owned preferences): the personal
+// dictionary (`stt.dictionary`: term + aliases + weight) retires and merges
+// into the card's terms. A term entry is therefore EITHER the bare string it
+// has always been OR `{term, aliases?}` — additive, so every card already
+// stored or cached on a phone still parses. Weight is not user-facing any
+// more; the server applies its default. Cap on aliases mirrors the old
+// dictionary's intent (a handful of spellings, not a thesaurus).
+export const SCENARIO_MAX_ALIASES_PER_TERM = 8;
+export const TermEntrySchema = z.union([
+  Term,
+  z.object({ term: Term, aliases: z.array(Term).max(SCENARIO_MAX_ALIASES_PER_TERM).optional() }),
+]);
+export type TermEntry = z.infer<typeof TermEntrySchema>;
+/** Canonical spelling of a term entry regardless of which shape it took. */
+export function termOf(entry: TermEntry): string {
+  return typeof entry === 'string' ? entry : entry.term;
+}
+/** Aliases of a term entry; the bare-string shape has none. */
+export function aliasesOf(entry: TermEntry): readonly string[] {
+  return typeof entry === 'string' ? [] : (entry.aliases ?? []);
+}
 
 /** Structured scenario card (master-plan §4.1). All four arrays are required
  *  but may be empty (an empty card is valid). Non-strict, matching every other
@@ -51,7 +72,7 @@ export const ScenarioCardSchema = z.object({
   professions: z.array(Label).max(SCENARIO_MAX_PROFESSIONS),
   domains: z.array(Label).max(SCENARIO_MAX_DOMAINS),
   packs: z.array(PackId).max(SCENARIO_MAX_PACKS),
-  terms: z.array(Term).max(SCENARIO_MAX_TERMS),
+  terms: z.array(TermEntrySchema).max(SCENARIO_MAX_TERMS),
 });
 
 export type ScenarioCard = z.infer<typeof ScenarioCardSchema>;

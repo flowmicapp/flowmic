@@ -20,7 +20,8 @@ import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { QuotaGuard } from '../billing/quota-guard';
 import type { RoomStore } from '../room/store';
 import { markFlushSent, markSttFinal } from '../obs/latency';
-import { getRoomUuid } from '../socket/wire';
+import { getRoomUuid, getSessionPrefs } from '../socket/wire';
+import { overlaySettings } from '../settings/session-overlay';
 import type { SttStartArgs } from '../socket/handlers/audio.handler';
 import type { SttOrchestrator } from './orchestrator';
 import { SttSessionBridge, type SttEmitter, type SttSessionDeps } from './stt-session';
@@ -32,7 +33,8 @@ import { readOrchestratorTuningFromEnv, assertSttTuningEnv } from '../stt/tuning
 import { makeFinalTextPipeline } from '../stt/final-text-pipeline';
 import { readSttPolish } from '../stt/stt-polish-settings';
 import { readSttRefine } from '../stt/stt-refine-settings';
-import { batchEngineIdFor, transcribeBatch } from '../stt/batch-transcribe';
+import { refineFloorMs } from '../stt/stt-refine';
+import type { RefineLlmDeps } from '../stt/stt-refine-llm';
 import { buildDictionaryReplacer } from '../compose/dictionary-replace';
 import { resolveReplacementRules, resolveScenarioContext } from '../compose/scenario-context';
 import { buildScenarioBlock } from '../compose/scenario';
@@ -209,6 +211,18 @@ export function makeSttSessionFactory(
     // too. A room switch mid-utterance would otherwise silently redirect
     // content — the session is torn down on that edge instead.
     const roomUuid = getRoomUuid(socket);
+    // 🔴 2026-09-03 (owner Q6 note, design D2) — THE PHONE'S PREFERENCES COME
+    // FROM THIS audio:start's `prefs` (audio.handler.ts → setSessionPrefs), NOT
+    // THE DATABASE. Every read of a phone-owned key on this
+    // audio:start (card terms, polish, refine, the card behind the polish
+    // prompt) goes through this overlay; a phone that pushed a bundle is
+    // answered from it and NEVER from a stored row, and a frame that carried
+    // none (old APK) gets `deps.settings` back unchanged. `stt.routings` and
+    // `llm.config` are not phone-owned and keep reading the database through
+    // the same object (the overlay delegates them), so the resolvers below take
+    // ONE repo and there is no second answer to "which settings does this
+    // session use". Snapshotted per audio:start, same cadence as before.
+    const settings = overlaySettings(deps.settings, getSessionPrefs(socket));
     const emitter = makeSttEmitter({
       // GA-04: the audio handler supplies a resolver that follows the session
       // across a reconnect; without one (unpaired/local session) the emitter
@@ -234,8 +248,8 @@ export function makeSttSessionFactory(
     // layer knows about money, not about how long a vendor session may run.
     const quotaBudgetMs = deps.quota.remainingSttMs(args.userId);
     // FINAL pipeline (06 §5), snapshotted at audio:start: resolve THIS user's
-    // preferred-terminology rules (scenario-card terms ∪ dictionary packs ∪
-    // stt.dictionary) ONCE and build the pure alias→canonical replacer, then
+    // preferred-terminology rules (scenario-card terms with their aliases ∪
+    // dictionary packs) ONCE and build the pure alias→canonical replacer, then
     // compose it with the F-2249 normalizer. Per-session snapshot (not a cached
     // singleton): each audio:start re-reads settings, so a settings:update
     // between recordings is naturally picked up on the next take, while a single
@@ -243,18 +257,21 @@ export function makeSttSessionFactory(
     // resolveReplacementRules fails LOUD on a corrupt scenario.card (same
     // SETTINGS_SCHEMA_INVALID contract as compose) — the audio handler's catch
     // surfaces it as stt:error, never a silent empty replacer (red line: no silent failure).
-    const replacementRules = resolveReplacementRules(deps.settings, args.userId);
+    const replacementRules = resolveReplacementRules(settings, args.userId);
     const finalText = makeFinalTextPipeline(buildDictionaryReplacer(replacementRules));
     // WP-R4-6 ⑤⑥ + M4/M6: per-session stt.polish snapshot — see resolvePolishDep
     // for the full contract (fail-loud settings, provenance, the llm valve).
-    const polish = resolvePolishDep(deps, args.userId, replacementRules.map((r) => r.canonical), args.sourceLang);
-    // GA-14 ⑤: per-session `stt.refine` snapshot, same cadence + fail-loud
-    // discipline as the polish leg. Refine needs a BATCH engine (whole-utterance
-    // POST); a streaming routing has no whole-utterance mode, so no substitute is
-    // invented — the dep is simply absent and the reason is LOGGED, because a
-    // switch that is on and does nothing must at least be explainable.
-    const refineSetting = readSttRefine(deps.settings, args.userId);
-    const refine = refineSetting.enabled ? resolveRefine(deps, args, refineSetting, managedDefault) : undefined;
+    const polish = resolvePolishDep({ settings, quota: deps.quota }, args.userId, replacementRules.map((r) => r.canonical), args.sourceLang);
+    // Per-session `stt.refine` snapshot, same cadence + fail-loud discipline as
+    // the polish leg. Since 2026-09-04 the second pass is an LLM smoothing pass
+    // over the delivered text, so it needs an llm.config and a live llm_tokens
+    // valve — NOT a batch STT engine. When either is missing the dep is simply
+    // absent and the reason is LOGGED, because a switch that is on and does
+    // nothing must at least be explainable.
+    const refineSetting = readSttRefine(settings, args.userId);
+    const refine = refineSetting.enabled
+      ? resolveRefine(deps, args.userId, refineSetting, replacementRules.map((r) => r.canonical), args.sourceLang)
+      : undefined;
     // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
     // Everything below is gathered ONLY when tracing is on, so the untraced path
     // pays nothing: `selectRouting` re-reads settings, and doing that on every
@@ -279,13 +296,13 @@ export function makeSttSessionFactory(
         engine: engineId ?? '(no routing matched)',
         model: tracedRouting?.model,
         polish: polish.armed
-          ? { armed: true, strength: readSttPolish(deps.settings, args.userId).strength ?? DEFAULT_POLISH_STRENGTH }
+          ? { armed: true, strength: readSttPolish(settings, args.userId).strength ?? DEFAULT_POLISH_STRENGTH }
           : { armed: false, reason: polish.unavailable ?? '(switch is off)' },
         refine: refineSetting.enabled
           ? {
               requested: true,
               armed: refine !== undefined,
-              batch_engine: engineId === undefined ? null : batchEngineIdFor(engineId),
+              floor_ms: refineFloorMs(refineSetting),
             }
           : { requested: false },
       });
@@ -311,7 +328,11 @@ export function makeSttSessionFactory(
     return new SttSessionBridge({
       traceId,
       build: (session, language, userId, vad) => {
-        const built = withQuotaBudget(build, quotaBudgetMs, deps.quota)(session, language, userId, vad);
+        // The terminology the ENGINE is told (FunASR hotwords / Soniox context)
+        // comes from the same overlay as the replacer above — one card, both
+        // destinations. Routings inside `build` stay on the database.
+        const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings });
+        const built = withQuotaBudget(buildWithPrefs, quotaBudgetMs, deps.quota)(session, language, userId, vad);
         // WP2-6a: one author of the flush-sent stamp is raceFlushFinal; this
         // is only the room wiring. Soft-segment flushes before audio:stop
         // no-op inside markFlushSent (no pending leg yet).
@@ -604,39 +625,69 @@ export function resolvePolishDep(
   };
 }
 
-/** Build the GA-14 refine dep, or `undefined` when this routing cannot do a
- *  second pass. Every `undefined` here is logged with its reason. */
-// Exported (not just internal) so card A7's fix can be pinned directly: the
-// routing decision is fully observable through the WARN it logs (below) and
-// whether it returns `undefined`, with no need to invoke `transcribe` and
-// therefore no need to fake a real vendor connection in a test.
+/**
+ * Build the refine dep — the LLM leg of the second pass — or `undefined` when
+ * this session cannot run one. Every `undefined` here is logged with its reason.
+ *
+ * 🔴 2026-09-04: THIS USED TO PICK AN STT ENGINE, AND THAT IS WHY THE FEATURE
+ * NEVER RAN. It resolved the session's routing and demanded a whole-utterance
+ * BATCH mode; funasr / soniox / deepgram / openai-realtime have none, so on
+ * production the switch was ON and the log said 「streaming-only — no second
+ * pass」 forever. The pass now smooths TEXT with an LLM (stt/stt-refine-llm.ts),
+ * so there is no engine question left to ask — it works on every routing.
+ *
+ * Shaped deliberately like [[resolvePolishDep]], because it degrades for the
+ * same reasons and must degrade the same way: an unusable LLM config or an
+ * exhausted llm_tokens valve turns the second pass OFF for this session, loudly
+ * in the log, and NEVER refuses the recording. The user keeps the delivered
+ * text, which is the whole product; the smoothing is an improvement on top of
+ * it.
+ */
 export function resolveRefine(
-  deps: SttFactoryDeps,
-  args: SttStartArgs,
+  deps: Pick<SttFactoryDeps, 'settings' | 'quota'>,
+  userId: string,
   cfg: SttRefine,
-  managedDefault: (language: string) => Routing | null,
-): { cfg: SttRefine; transcribe: (pcm: Buffer) => Promise<string> } | undefined {
-  const routings = loadRoutings(deps.settings, args.userId);
-  // The SAME selection the live session used — refine must not quietly pick a
-  // different engine than the one that produced the first pass. card A7: this
-  // MUST include managedDefault, or tier 3 (the platform pool — what almost
-  // every production session actually runs on) is unreachable here and refine
-  // silently re-transcribes with a SEEDED fallback engine instead.
-  const routing = selectRouting(args.sourceLang, routings, managedDefault);
-  if (routing === null) {
-    log.warn('stt.refine is ON but no routing matches — no second pass', { language: args.sourceLang });
-    return undefined;
-  }
-  const batchId = batchEngineIdFor(routing.engine_id);
-  if (batchId === null) {
-    // The honest limit: funasr / deepgram / openai-realtime stream and have no
-    // whole-utterance mode. Refine stays off for this session.
-    log.warn('stt.refine is ON but the routed engine is streaming-only — no second pass', {
-      engine: routing.engine_id,
-      language: args.sourceLang,
+  protectedTerms: readonly string[],
+  sourceLang?: string,
+): { cfg: SttRefine; llm: SelectedLlmConfig; deps: RefineLlmDeps } | undefined {
+  let llm: SelectedLlmConfig;
+  try {
+    llm = resolveLlmConfigWithSource(deps.settings, userId);
+  } catch (err) {
+    // Enough to ACT on: WHICH failure (a missing row vs a malformed one vs a bad
+    // managed env all arrive here), which field, and whose account.
+    log.warn('stt.refine disabled for this session — llm.config is unusable (no second pass)', {
+      userId,
+      code: err instanceof ServerError ? err.code : 'non-ServerError',
+      detail: err instanceof Error ? err.message : String(err),
     });
     return undefined;
   }
-  const engineCfg = configFromRouting(routing, args.sourceLang);
-  return { cfg, transcribe: (pcm: Buffer) => transcribeBatch(engineCfg, pcm) };
+  try {
+    deps.quota.ensureQuota(userId, 'llm');
+  } catch (err) {
+    if (err instanceof ServerError && err.code === 'QUOTA_EXCEEDED') {
+      log.warn('stt.refine disabled for this session — llm_tokens valve exhausted', { userId, detail: err.message });
+      return undefined;
+    }
+    throw err;
+  }
+  return {
+    cfg,
+    llm,
+    deps: {
+      protectedTerms: [...protectedTerms],
+      // The SAME block the polish and compose paths get, from the same builder:
+      // one card, and three consumers that cannot describe the speaker
+      // differently. Built at the audio:start snapshot so a settings:update
+      // mid-recording cannot change what this utterance is smoothed against.
+      scenarioBlock: buildScenarioBlock(resolveScenarioContext(deps.settings, userId)),
+      // 🔴 Reaches the PROMPT here, unlike PolishDeps.language which is
+      // diagnostic only — a smoothing pass over a whole paragraph is where
+      // language drift actually happens. An unknown tag still says nothing (see
+      // refineLanguageRule): English is what WE speak when we have none of the
+      // user's, never what we rewrite the user into.
+      ...(sourceLang !== undefined ? { language: sourceLang } : {}),
+    },
+  };
 }

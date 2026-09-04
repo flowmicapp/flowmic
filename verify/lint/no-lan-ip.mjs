@@ -375,9 +375,12 @@ export const WAIVERS = [
   {
     file: 'apps/desktop/src/main-window/settings-model.ts',
     code: 0,
-    comments: 3,
+    comments: 2,
     why: 'OSS-DEFAULTS itself: the addresses the defaults USED to be, named so the '
-      + 'change is legible. Removing them would leave 「was a preset」 with no referent.',
+      + 'change is legible. Removing them would leave 「was a preset」 with no referent. '
+      + 'Was 3 until 2026-09-03: the third sat in the scenario-inference consent '
+      + 'block (owner D1 office LAN as the classifier overlay example), which left '
+      + 'with that card when the consent moved to the phone.',
   },
   {
     file: 'apps/desktop/src-tauri/src/sidecar/lan_probe.rs',

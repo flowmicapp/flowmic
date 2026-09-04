@@ -65,16 +65,12 @@ export type PcInjectionCode = {
  *  locale — same culture as TL_BATCH_MSG: word order is per-locale, so a
  *  composed sentence lives in exactly one place. */
 export interface SettingsMsg {
-  /** zh `超过 40 字符` / en `Over 40 characters` — ScenarioCard term reject. */
-  termTooLong(n: number): string;
-  /** zh `已达 20 条上限` / en `Already at the 20-term cap`. */
-  termsAtCap(n: number): string;
-  /** zh `每条 ≤40 字符` / en `≤40 chars each` — the cap note under Custom Terms (自定义术语). */
-  termsCapNote(n: number): string;
-  /** zh `3 / 300 条` / en `3 / 300` — dictionary usage under Personal Dictionary (个人词典). */
-  dictCount(n: number, cap: number): string;
-  /** zh `别名：甲、乙` / en `Aliases: alpha, beta` — label + locale separator. */
-  dictAliases(aliases: string[]): string;
+  // 🔴 FIVE MEMBERS ENDED HERE ON 2026-09-03 — `termTooLong`, `termsAtCap`,
+  // `termsCapNote`, `dictCount`, `dictAliases`. They composed the counted
+  // sentences of the scenario card's term list and the personal dictionary,
+  // both of which are the phone's now (owner ruling, phone-owned preferences).
+  // The phone has its own catalogue for them; a desktop copy with no renderer
+  // would be nine languages of a sentence nobody can reach.
 
   // ── the built-in speech model (2026-08-19 design book §5-A) ───────────────
   //

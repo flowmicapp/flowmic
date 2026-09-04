@@ -78,6 +78,10 @@ Map<String, Object?> timelineEntryToJson(TimelineEntry e) =>
   // row's payload would grow the ciphertext of a feature most rows never use.
   if (e.articleId != null) 'article_id': e.articleId,
   if (e.articleOffsetMs != null) 'article_offset_ms': e.articleOffsetMs,
+  // D7 ③ (2026-09-03) — absent, not null, on every row not born from speech,
+  // for the same reason as `article_id` above. Rides the one `payload` column;
+  // nothing SELECTs by it, so no projected column and no migration.
+  if (e.utteranceId != null) 'utterance_id': e.utteranceId,
   // Device-local payload key; SQLite stores this JSON as-is (no schema migrate).
   'failure_reason': e.failureReason,
   // N2, same deal: the sqlite row is one JSON `payload` column, so a new
@@ -166,6 +170,12 @@ TimelineEntry? timelineEntryFromJson(Map<String, Object?> j) {
         ? j['article_id'] as String
         : null,
     articleOffsetMs: (j['article_offset_ms'] as num?)?.toInt(),
+    // D7 ③ — absent on every row written before ids existed → null, and no
+    // migration could invent one; a refine for such a row is simply dropped.
+    utteranceId:
+        j['utterance_id'] is String && (j['utterance_id'] as String).isNotEmpty
+        ? j['utterance_id'] as String
+        : null,
     // Absent on every row written before REQ-12-13 → null, which is the truth:
     // those rows are not keypresses.
     controlKind:

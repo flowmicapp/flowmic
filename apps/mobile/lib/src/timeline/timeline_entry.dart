@@ -142,7 +142,26 @@ class TimelineEntry {
     this.lastResentAt,
     this.articleId,
     this.articleOffsetMs,
+    this.utteranceId,
   });
+
+  /// 2026-09-03 (owner ruling Q2 b, design D7 ③) — the server-minted id of the
+  /// utterance this row was settled from, copied off the terminal `stt:final`
+  /// that built it. It is the ONE key a later `stt:refined` may match on
+  /// (chat_utterance.dart `_applyRefined`): a refine names its utterance, the
+  /// row that carries that name is the row it is for, and a refine that names
+  /// nothing is dropped rather than aimed at the newest row.
+  ///
+  /// Null on every row not born from speech (a picture, a typed note, a saved
+  /// phrase, a control key) and on every row written before the server sent
+  /// ids — which is the truth: there is no utterance to correlate those with.
+  /// Written once at build time and never revised (no [copyWith] parameter):
+  /// which recording a row came from is its identity, not a fact about it.
+  ///
+  /// Device-local payload key (`utterance_id`), not a projected column and not
+  /// on the wire: the lookup scans the rows already in memory, and nothing
+  /// SELECTs by it.
+  final String? utteranceId;
 
   /// [entryType] values. The first pair mirrors `TimelineEntry.entry_type` in
   /// packages/protocol/src/types.ts — the SAME two values, deliberately not a
@@ -605,6 +624,8 @@ class TimelineEntry {
     // row. An edit changes the words; it does not move the row in time.
     articleId: articleId,
     articleOffsetMs: articleOffsetMs,
+    // Same rule: which utterance settled this row is its identity.
+    utteranceId: utteranceId,
     // Null cannot clear — see [failureReason] field comment.
     failureReason: failureReason ?? this.failureReason,
     // `false` DOES clear (only null means 「不变」/ "unchanged") — a row put

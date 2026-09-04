@@ -10,6 +10,7 @@
 // worse than no control.
 
 use tauri::AppHandle;
+use crate::socket::blocking::run_blocking;
 
 use crate::forensic;
 use crate::socket::node_probe_surface::{self, RelayLatencyDto, SurfaceHttp};
@@ -18,15 +19,19 @@ use super::{cloud, sidecar_ctl};
 
 #[tauri::command(async)]
 pub fn relay_latency_check(app: AppHandle) -> RelayLatencyDto {
-    let endpoint = cloud::snapshot(&app).endpoint;
-    let current = sidecar_ctl::current_node_id();
-    let dto = match SurfaceHttp::new() {
-        Some(http) => node_probe_surface::check_live(&http, &endpoint, current.as_deref()),
-        None => RelayLatencyDto { nodes: Vec::new() },
-    };
-    forensic::record(
-        "relay",
-        &format!("latency check: {} node(s)", dto.nodes.len()),
-    );
-    dto
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on reqwest::blocking probes of every relay node. See `socket::blocking`.
+    run_blocking(|| {
+        let endpoint = cloud::snapshot(&app).endpoint;
+        let current = sidecar_ctl::current_node_id();
+        let dto = match SurfaceHttp::new() {
+            Some(http) => node_probe_surface::check_live(&http, &endpoint, current.as_deref()),
+            None => RelayLatencyDto { nodes: Vec::new() },
+        };
+        forensic::record(
+            "relay",
+            &format!("latency check: {} node(s)", dto.nodes.len()),
+        );
+        dto
+    })
 }

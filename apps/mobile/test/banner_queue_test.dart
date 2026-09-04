@@ -478,15 +478,32 @@ void main() {
     // already had a real sentence for. gen-protocol-error-sentences-dart.mjs's
     // generated fallback closes that gap without hand-writing bespoke copy for
     // each — see recording_strings.dart's sttStallBannerMessage.
+    // SUPERSEDED IN PART BY CARD EMPTY-1 (2026-09-04), and the reason is written
+    // here rather than in the new file because THIS is the assertion that would
+    // otherwise be read as a rule. The generated fallback is deliberately
+    // bilingual (zh_CN + en) — the registry never spoke the other seven, and
+    // gen-protocol-error-sentences-dart.mjs refuses to put words in its mouth.
+    // Right for a fallback, wrong as a destination: a French, Korean or Russian
+    // user read ENGLISH at the exact moment a recording was lost. EMPTY-1 gave
+    // these four the same nine-language phone MIRROR the six other codes in
+    // recording_strings.dart already had, so this row now asserts the mirror —
+    // and keeps asserting the half that was always the point: never a bare
+    // identifier, in every language rather than in two.
+    //
+    // The FALLBACK ITSELF is still pinned, by a code that genuinely has no
+    // bespoke phone sentence — the STT_PROBE_FAIL row underneath. Without it,
+    // moving these four would have quietly retired the whole WP-8 mechanism with
+    // every test in this file still green.
     for (final String code in <String>[
       'STT_ENGINE_AUTH_FAIL',
       'STT_ENGINE_RATE_LIMITED',
       'STT_ENGINE_TIMEOUT',
       'STT_NETWORK_DROP',
     ]) {
-      test('WP-8 F1-b: $code renders the registry\'s own sentence, not a bare '
-          'identifier', () {
-        for (final AppLocale locale in <AppLocale>[AppLocale.zh, AppLocale.en]) {
+      test('WP-8/EMPTY-1: $code renders a sentence of this build\'s own, in '
+          'every language, never a bare identifier', () {
+        final Set<String> seen = <String>{};
+        for (final AppLocale locale in AppLocale.values) {
           final AppStrings s = AppStrings.of(locale);
           final BannerQueue q = buildChatBanners(
             connection: ConnectionState.connected,
@@ -500,14 +517,38 @@ void main() {
             isNot(s.sttStallEngineErrorCoded(code)),
             reason: '$locale: must not be the labelled-identifier fallback',
           );
-          expect(
-            q.top!.message,
-            protocolErrorSentence(code, preferZh: locale == AppLocale.zh),
-            reason: '$locale: must be exactly the registry\'s own sentence',
-          );
+          expect(q.top!.message.trim(), isNotEmpty, reason: '$locale');
+          seen.add(q.top!.message);
         }
+        // Nine locales, nine distinct sentences: a generated catalogue falls
+        // back to English STRUCTURALLY, so a leaf nobody translated reads fine
+        // and only an equality can tell 「translated」 from 「fell back」.
+        expect(seen, hasLength(AppLocale.values.length), reason: code);
       });
     }
+
+    test('WP-8 F1-b: the registry fallback still answers a code with no phone '
+        'sentence of its own', () {
+      // STT_PROBE_FAIL is registered server-side and has no bespoke arm in
+      // recording_strings.dart, so it is what keeps the generated fallback
+      // honest now that the four codes above have moved off it.
+      const String code = 'STT_PROBE_FAIL';
+      for (final AppLocale locale in <AppLocale>[AppLocale.zh, AppLocale.en]) {
+        final AppStrings s = AppStrings.of(locale);
+        final BannerQueue q = buildChatBanners(
+          connection: ConnectionState.connected,
+          autoStopped: false,
+          strings: s,
+          sttStalled: const SttStall(SttStallReason.engineError, code: code),
+        );
+        expect(q.top!.message, isNot(contains(code)), reason: '$locale');
+        expect(
+          q.top!.message,
+          protocolErrorSentence(code, preferZh: locale == AppLocale.zh),
+          reason: '$locale: must be exactly the registry\'s own sentence',
+        );
+      }
+    });
 
     // ── 2026-08-16: two codes that reach this banner without an engine ─────
     //

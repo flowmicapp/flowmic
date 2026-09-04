@@ -6,6 +6,7 @@
 
 use serde_json::Value;
 use tauri::State;
+use crate::socket::blocking::run_blocking;
 
 use crate::socket::channel::CloudReadiness;
 use crate::socket::Channel;
@@ -78,50 +79,54 @@ pub fn list_paired_mobiles(
     state: State<'_, SocketState>,
     cloud: State<'_, cloud::CloudState>,
 ) -> PairedMobilesView {
-    let mut rows: Vec<Value> = Vec::new();
-    let mut unreachable: Vec<&'static str> = Vec::new();
-    // Read once, outside the loop: the verdict must not change between the two
-    // channels of a single answer.
-    let cloud_readiness = cloud
-        .snapshot()
-        .readiness(crate::socket::channel::now_secs());
-    for channel in [crate::socket::Channel::Lan, crate::socket::Channel::Cloud] {
-        let tag = channel.tag();
-        let answered = {
-            let guard = match state.lock() {
-                Ok(g) => g,
-                Err(p) => p.into_inner(),
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on TWO ack waits (LAN + cloud, up to 5.5 s each). See `socket::blocking`.
+    run_blocking(|| {
+        let mut rows: Vec<Value> = Vec::new();
+        let mut unreachable: Vec<&'static str> = Vec::new();
+        // Read once, outside the loop: the verdict must not change between the two
+        // channels of a single answer.
+        let cloud_readiness = cloud
+            .snapshot()
+            .readiness(crate::socket::channel::now_secs());
+        for channel in [crate::socket::Channel::Lan, crate::socket::Channel::Cloud] {
+            let tag = channel.tag();
+            let answered = {
+                let guard = match state.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                guard
+                    .slot(channel)
+                    .map(|s| s.fetch_paired_mobiles(std::time::Duration::from_secs(5)))
             };
-            guard
-                .slot(channel)
-                .map(|s| s.fetch_paired_mobiles(std::time::Duration::from_secs(5)))
-        };
-        match answered {
-            // No live session on this channel. Two very different states share
-            // this arm, so ask which one it is (#6, see
-            // [`absent_slot_is_unreachable`]): a channel that is configured but
-            // auth-dead is 「问不到」("can't be reached") and must be stated; a channel that was never
-            // configured is genuinely nothing to report.
-            None => {
-                if absent_slot_is_unreachable(channel, &cloud_readiness) {
-                    unreachable.push(tag);
-                }
-            }
-            Some(None) => unreachable.push(tag),
-            Some(Some(value)) => {
-                let list = value.as_array().cloned().unwrap_or_default();
-                for mut row in list {
-                    if let Some(obj) = row.as_object_mut() {
-                        // Stamped HERE rather than trusted from the ack: the
-                        // server has no idea which of our two sockets asked it.
-                        obj.insert("channel".to_string(), Value::String(tag.to_string()));
+            match answered {
+                // No live session on this channel. Two very different states share
+                // this arm, so ask which one it is (#6, see
+                // [`absent_slot_is_unreachable`]): a channel that is configured but
+                // auth-dead is 「问不到」("can't be reached") and must be stated; a channel that was never
+                // configured is genuinely nothing to report.
+                None => {
+                    if absent_slot_is_unreachable(channel, &cloud_readiness) {
+                        unreachable.push(tag);
                     }
-                    rows.push(row);
+                }
+                Some(None) => unreachable.push(tag),
+                Some(Some(value)) => {
+                    let list = value.as_array().cloned().unwrap_or_default();
+                    for mut row in list {
+                        if let Some(obj) = row.as_object_mut() {
+                            // Stamped HERE rather than trusted from the ack: the
+                            // server has no idea which of our two sockets asked it.
+                            obj.insert("channel".to_string(), Value::String(tag.to_string()));
+                        }
+                        rows.push(row);
+                    }
                 }
             }
         }
-    }
-    PairedMobilesView { rows, unreachable }
+        PairedMobilesView { rows, unreachable }
+    })
 }
 
 #[cfg(test)]

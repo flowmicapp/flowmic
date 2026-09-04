@@ -8,18 +8,24 @@
 //
 // The desktop → server settings writer, mirroring apps/mobile SettingsClient:
 //
-//  1. LITERAL-KEY SET ANCHORS (settings-key-drift lint). `setLlmConfig` /
-//     `setSttRoutings` / `setScenarioCard` / `setSttPolish` are the ONLY places
-//     in apps/desktop that name a settings key as a string literal —
-//     `updateSetting('llm.config' | …)` — so the drift lint's SET regex has real
-//     writers to pair with the server's readSetting('llm.config') /
-//     readSetting('stt.routings') / readSetting('scenario.card') /
-//     readSetting('stt.polish') GET anchors. Every other reference uses the
-//     SETTINGS_ANCHOR_KEYS constants; a test pins each literal == its constant
-//     (and scenario.card == the SETTINGS_KEY_SCENARIO_CARD protocol SSOT). A key
-//     with no server reader (e.g. stt.dictionary) MUST NOT use this literal form
-//     (it would be a set-only orphan) — it goes through updateSetting with a
-//     variable key.
+//  1. LITERAL-KEY SET ANCHORS (settings-key-drift lint). `setLlmConfig` and
+//     `setSttRoutings` are the ONLY places in apps/desktop that name a settings
+//     key as a string literal — `updateSetting('llm.config' | …)` — so the drift
+//     lint's SET regex has real writers to pair with the server's
+//     readSetting('llm.config') / readSetting('stt.routings') GET anchors. Every
+//     other reference uses the SETTINGS_ANCHOR_KEYS constants; a test pins each
+//     literal == its constant. A key with no server reader MUST NOT use this
+//     literal form (it would be a set-only orphan) — it goes through
+//     updateSetting with a variable key.
+//     🔴 THE OTHER THREE ANCHORS LEFT ON 2026-09-03 (owner ruling, phone-owned
+//     preferences). `setScenarioCard` / `setSttPolish` / `setSttRefine` were
+//     deleted with the screens that called them; `scenario.card` / `stt.polish`
+//     / `stt.refine` are still READ by the server, and their literal SET anchors
+//     now live on the phone (apps/mobile/lib/src/settings/settings_client.dart
+//     `pushScenarioCard` / `pushPolish` / `pushRefine`). The drift lint scans
+//     apps/desktop AND apps/mobile as one UI side, so the pairs are intact —
+//     and a fake anchor invented here to 「keep the lint happy」 would be a
+//     writer for a key this server refuses from a PC.
 //
 //  2. Save-on-change (即改即存) = cache-first (durable) + 200ms-debounced wire push + fail-loud
 //     offline. updateSetting writes the durable cache synchronously (survives a
@@ -28,15 +34,20 @@
 //     「已存本地」("saved locally"), never a silent drop — and is re-flushed the instant the socket
 //     reconnects (call flushPending on the connected rising edge).
 //
-//  3. 🔴 `updated_at` — WHEN THE USER EDITED, minted HERE (card C3). This client
-//     is the SECOND writer of `scenario.card`; the phone is the first
-//     (apps/mobile/lib/src/settings/scenario_card_controller.dart). Until this
+//  3. 🔴 `updated_at` — WHEN THE USER EDITED, minted HERE (card C3). Until this
 //     card the desktop sent no stamp at all, and the consequence was not
 //     symmetry but a one-directional guard: with nothing to compare, the
 //     server's regress check — the `existingMs > incomingMs` guard in
 //     settings.handler.ts — can never fire against a desktop write, so a stale
-//     offline edit replayed on reconnect still clobbers a card the phone edited
-//     five minutes ago.
+//     offline edit replayed on reconnect still clobbers a newer value.
+//     ⚠️ It was written FOR `scenario.card`, which had two writers. That key is
+//     the phone's alone since 2026-09-03, so the two remaining keys have one
+//     writer each per server and the guard has nothing to arbitrate TODAY. The
+//     stamp is kept anyway, and not because of symmetry: a second PC signed into
+//     the same account is a second writer of `llm.config`, and the durable queue
+//     can still replay a week-old `stt.routings` edit onto a server that has
+//     moved on. Removing it would restore exactly the one-directional guard
+//     described above.
 //     · The stamp is minted in `updateSetting`, i.e. at the moment of the edit,
 //       and it is what the DRAIN sends. A queue that re-stamped on drain would
 //       say "the user changed this the instant the network came back", which is
@@ -54,17 +65,56 @@ import type { KvStore, SettingsTransport } from './types';
 import { KeyedDebouncer } from './debounce';
 import { SettingsStampClock } from './settings-stamp';
 
-/** The keys with a real server reader — each gets one literal SET anchor. */
+/** The keys THIS end writes and the server reads — each gets one literal SET
+ *  anchor below. The phone-owned keys (`scenario.card` / `stt.polish` /
+ *  `stt.refine`) are deliberately absent: they are read by the server and
+ *  written by the phone, and listing them here would make
+ *  `applyServerSettings`'s exhaustiveness pin demand a desktop case for a value
+ *  no desktop screen shows. */
 export const SETTINGS_ANCHOR_KEYS = {
   llmConfig: 'llm.config',
   sttRoutings: 'stt.routings',
-  scenarioCard: 'scenario.card',
-  sttPolish: 'stt.polish',
-  sttRefine: 'stt.refine',
 } as const;
 
 /** Durable queue localStorage key (a device-local cache — never the wire). */
 const QUEUE_KEY = 'flowmic.settings.queue';
+
+/** 🔴 KEYS THIS END MUST NEVER SEND AGAIN (owner ruling, 2026-09-03).
+ *
+ *  The server-side twin is `PHONE_OWNED_SETTING_KEYS` +
+ *  `RETIRED_SETTING_KEY_STT_DICTIONARY` in
+ *  apps/server-core/src/settings/session-overlay.ts, and the settings handler
+ *  refuses every one of them from a PC socket ("key is phone-owned").
+ *  Deliberately literal strings rather than an import: the protocol package
+ *  exports `PhonePrefsSchema` (the four keys as a zod SHAPE, for the wire
+ *  bundle) but no key LIST, and it knows nothing about the retired
+ *  `stt.dictionary` — so this is a local statement pinned against
+ *  `PhonePrefsSchema.shape` in settings-client.test.ts rather than a copy
+ *  nobody checks.
+ *
+ *  Why the prune has to exist at all: `latest` is DURABLE. A queue written by
+ *  a build <= 0.3.59 — which still had the desktop panes for these keys — is
+ *  hydrated by this build and replayed by `flushPending` on EVERY LAN
+ *  `connected` rising edge. The server refuses each one, `flushPending` marks
+ *  the key dirty, and `pending` latches "saved locally" forever for a value no
+ *  desktop screen shows and no server will ever store. Observed on a real
+ *  device: the LAN sidecar's server.log logs
+ *  `settings:update refused — key is phone-owned … {"key":"stt.polish"}`
+ *  seconds after every desktop launch.
+ *
+ *  ⚠️ Scope: the durable CHANGE QUEUE only. The `flowmic.ui.*` display caches
+ *  are untouched — they are read-side mirrors, never a wire replay source. */
+const RETIRED_PHONE_OWNED_KEYS: readonly string[] = [
+  'scenario.card',
+  'stt.polish',
+  'stt.refine',
+  'scenario.inference',
+  'stt.dictionary',
+];
+
+function isRetiredPhoneOwnedKey(key: string): boolean {
+  return RETIRED_PHONE_OWNED_KEYS.includes(key);
+}
 
 interface QueueSnapshot {
   latest: Record<string, unknown>;
@@ -111,11 +161,27 @@ export class SettingsClient {
     if (raw === null) return;
     try {
       const snap = JSON.parse(raw) as QueueSnapshot;
-      for (const [k, v] of Object.entries(snap.latest ?? {})) this.latest.set(k, v);
-      for (const k of snap.dirty ?? []) this.dirty.add(k);
-      for (const [k, s] of Object.entries(snap.stamps ?? {})) {
-        if (typeof s === 'string' && s.length > 0) this.stamps.set(k, s);
+      let pruned = false;
+      const keep = (k: string): boolean => {
+        if (!isRetiredPhoneOwnedKey(k)) return true;
+        pruned = true;
+        return false;
+      };
+      for (const [k, v] of Object.entries(snap.latest ?? {})) {
+        if (keep(k)) this.latest.set(k, v);
       }
+      for (const k of snap.dirty ?? []) {
+        if (keep(k)) this.dirty.add(k);
+      }
+      for (const [k, s] of Object.entries(snap.stamps ?? {})) {
+        if (typeof s === 'string' && s.length > 0 && keep(k)) this.stamps.set(k, s);
+      }
+      // One-time cache migration: write the pruned snapshot back NOW rather
+      // than waiting for the next edit. Without this, a build that only
+      // filtered on the way out would still carry the dead keys in storage,
+      // and any future code path that reads the raw snapshot (or a rollback to
+      // <= 0.3.59) would resurrect the replay loop.
+      if (pruned) this.persist();
     } catch {
       // Corrupt cache degrades to empty — never throws into the UI.
     }
@@ -179,6 +245,19 @@ export class SettingsClient {
   /** Generic settings:update — VARIABLE key. The sole literal-key callers are the
    *  four anchor methods below, by design (drift-lint SET anchors). */
   updateSetting(key: string, value: unknown): void {
+    // A phone-owned / retired key never enters the durable queue. No-op with a
+    // console warning rather than a throw: this client's other failure mode
+    // (a corrupt cache) also degrades quietly and "never throws into the UI",
+    // and there is no user-facing story here — no desktop screen writes these
+    // keys any more, so a caller reaching this line is a code defect, not a
+    // user action to report.
+    if (isRetiredPhoneOwnedKey(key)) {
+      console.warn(
+        `[settings] refusing to queue '${key}': phone-owned/retired key; `
+        + 'the server refuses it from a PC and no desktop screen writes it',
+      );
+      return;
+    }
     this.latest.set(key, value);
     // THE stamp is minted here and nowhere else: this call IS the moment a human
     // changed the value, which is the only thing `updated_at` is allowed to
@@ -192,26 +271,12 @@ export class SettingsClient {
     });
   }
 
-  // ── the four literal-key SET anchors (settings-key-drift lint) ──
+  // ── the two literal-key SET anchors (settings-key-drift lint) ──
   setLlmConfig(value: unknown): void {
     this.updateSetting('llm.config', value);
   }
   setSttRoutings(value: unknown): void {
     this.updateSetting('stt.routings', value);
-  }
-  setScenarioCard(value: unknown): void {
-    this.updateSetting('scenario.card', value);
-  }
-  /** WP-R4-6 ⑥ — opt-in AI polish; wire value is `{enabled: boolean,
-   *  strength?: 'strict'|'smooth'}` (`SttPolishSchema` is the contract; C8
-   *  added `strength`, absent means strict). */
-  setSttPolish(value: unknown): void {
-    this.updateSetting('stt.polish', value);
-  }
-  /** GA-14 — opt-in two-pass refine; wire value is
-   *  `{enabled: boolean, min_utterance_ms?: number}`. */
-  setSttRefine(value: unknown): void {
-    this.updateSetting('stt.refine', value);
   }
 
   private async flushKey(key: string): Promise<void> {
@@ -251,8 +316,8 @@ export class SettingsClient {
   // timer left over from a PRECEDING test's `updateSetting` call for the same
   // key was invisible to `applyServerSettings`; after E4 it correctly answers
   // "yes, pending" — which surfaced two unrelated tests
-  // (scenario-inference-consent.test.ts, stt-routing-order.test.ts) that call
-  // e.g. `setScenarioInferenceGranted(true)` in one `it()` and then
+  // (stt-routing-order.test.ts and, until 2026-09-03, the consent suite) that
+  // write a key in one `it()` and then call
   // `applyServerSettings` for that SAME key in the next, with no reset of this
   // singleton between them and often well under 200ms of real wall-clock time
   // between the two. That is a test-isolation gap, not a reason to weaken
@@ -263,6 +328,15 @@ export class SettingsClient {
 
   async flushPending(): Promise<void> {
     for (const [key, value] of this.latest) {
+      // Belt and braces with the hydrate-time prune: this is the loop that ran
+      // on every reconnect, so it refuses the dead keys itself rather than
+      // trusting that nothing upstream put one back into `latest`.
+      if (isRetiredPhoneOwnedKey(key)) {
+        this.latest.delete(key);
+        this.dirty.delete(key);
+        this.stamps.delete(key);
+        continue;
+      }
       let ok = false;
       try {
         ok = await this.transport.settingsUpdate(key, value, this.stamps.get(key));

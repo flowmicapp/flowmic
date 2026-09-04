@@ -313,6 +313,29 @@ class SegmentBuffer {
   bool get isEmpty => _texts.isEmpty;
   Iterable<int> get finalizedSlots => _finalized;
 
+  /// Slots that still belong to the LIVE view (not yet on a row) and actually
+  /// carry text, lowest index first — the exact key sequence [joinedFrom]
+  /// folds over for `minIdx == nextUnsettledIdx`.
+  ///
+  /// Read-only, and deliberately derived rather than stored: `utterance_view
+  /// .dart` needs to know WHERE inside that fold the finalised prefix ends so
+  /// the two halves can be coloured, and a second copy of the slot list is how
+  /// the fold and the colouring would come to disagree about which characters
+  /// exist.
+  List<int> get liveSlots {
+    final List<int> keys =
+        _texts.keys
+            .where(
+              (int k) => k >= nextUnsettledIdx && (_texts[k] ?? '').isNotEmpty,
+            )
+            .toList()
+          ..sort();
+    return keys;
+  }
+
+  /// The text in one slot ('' when the slot is empty or absent).
+  String textAt(int idx) => _texts[idx] ?? '';
+
   // ── N1-B2 settlement bookkeeping ───────────────────────────────────────────
 
   /// The lowest `segment_idx` that has not been settled yet.

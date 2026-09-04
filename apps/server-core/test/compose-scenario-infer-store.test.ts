@@ -783,7 +783,7 @@ describe('scenario.inference is writable over the live settings:update event', (
     });
   }
 
-  it('a PC can set the consent row and read it back verbatim — no protocol change needed', async () => {
+  it('2026-09-03 — a PC can NO LONGER set the consent row (phone-owned, owner Q3 a); the override table still writes', async () => {
     const config = loadConfig({ port: 0, dbPath: ':memory:', secret: 'infer-store-integration-secret-32b' });
     server = await startServer(config);
     const pc = await connect(`http://localhost:${server.port}`);
@@ -792,18 +792,19 @@ describe('scenario.inference is writable over the live settings:update event', (
       client_instance_id: 'inst-abcdef0123456789',
     });
 
-    const written = await ack<{ ok?: boolean; error?: string }>(pc, 'settings:update', {
+    // This case used to assert `{ok:true}` and read the row back. The consent
+    // is the USER's authorisation, not the machine's (owner Q3 a), so it is
+    // pushed from the phone onto its socket (test/settings-phone-owned.test.ts)
+    // and a PC write is refused by name — never silently stored.
+    const written = await ack<{ ok?: boolean; error?: string; message?: string }>(pc, 'settings:update', {
       key: 'scenario.inference',
       value: { granted: true, granted_for: 'local' },
     });
-    expect(written).toEqual({ ok: true });
+    expect(written.error).toBe('SETTINGS_SCHEMA_INVALID');
+    expect(written.message).toContain('phone-owned');
 
     const listed = await ack<{ items: { key: string; value: unknown }[] }>(pc, 'settings:list', {});
-    const row = listed.items.find((i) => i.key === 'scenario.inference');
-    // Verbatim: the store parses `granted` + `granted_for`, so a value the
-    // transport reshaped would read as malformed and the feature would stay off
-    // for a reason nobody could see from here.
-    expect(row?.value).toEqual({ granted: true, granted_for: 'local' });
+    expect(listed.items.find((i) => i.key === 'scenario.inference')).toBeUndefined();
 
     // The overrides row too — same key namespace, same generic write path.
     const ov = await ack<{ ok?: boolean }>(pc, 'settings:update', {

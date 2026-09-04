@@ -133,6 +133,7 @@ import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/legibility.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 /// Same witness as `first_run_locale_test.dart` — the real key, not a stand-in:
@@ -189,7 +190,6 @@ class _SettingsRig {
     r.settingsClient = SettingsClient(
         transport: r.settingsTransport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -210,6 +210,8 @@ class _SettingsRig {
       destination: destination,
       session: session,
       portable: newTestPortableController(),
+      prefs: newTestPrefsController(),
+      backup: newTestSettingsBackup(),
       inventory: newTestInventory(
         rows: const <TimelineEntry>[],
         images: InMemoryOutboxBlobStore(),

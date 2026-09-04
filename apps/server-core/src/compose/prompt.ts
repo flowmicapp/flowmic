@@ -55,9 +55,39 @@ function dataRegionNote(verb: string, result: string): string {
   );
 }
 
+// ─── the OUTPUT-LANGUAGE clause, and the failure it was measured against ────
+//
+// 🔴 THE DEFECT. A scenario card whose professions/terms are written in the
+// user's own language sits at the HEAD of the system prompt (scenario.ts: the
+// block is a stable prefix). Measured 2026-09-03 against the DEPLOYED managed
+// model (`deepseek-v4-flash`, `api.deepseek.com/v1`, stream:true, temperature 0,
+// `{"thinking":{"type":"disabled"}}`) with the OWNER'S OWN card read out of the
+// production settings row, source zh → target en:
+//
+//   without this clause : 10 of 20 runs came back in Chinese, untranslated
+//   with this clause    :  0 of 20
+//
+// The failing output was the source sentence lightly reworded — 20 characters
+// against a 20-character input — which is exactly the `output_chars` the five
+// production `target_script_absent` rejections carry
+// (2026-09-03 03:34–03:37, JP relay server.log). So this is the cause of those
+// rejections; the guard was reporting a real failure, not committing one.
+//
+// ⚠️ WHY IT IS PHRASED ABOUT THE BLOCK RATHER THAN JUST REPEATING THE TARGET.
+// A bare "reply in {target_lang}" tail was measured too: 1/12 still came back
+// untranslated. What moved the number to zero was naming the pull — the block's
+// language — rather than restating the destination. Both were measured; only
+// the one that reached zero shipped.
+//
+// ⚠️ NOT a guard change. The guard (`output-guard.ts` rule 4,
+// `target_script_absent`) is what made this visible at all, and it stays exactly
+// as it is: it rejected an untranslated echo, which is its job.
 const TRANSLATE_TEMPLATE =
   'You are a faithful translator. Translate the user\'s text from {source_lang} ' +
-  'to {target_lang}. Output the translated text only — no preface, no commentary, ' +
+  'to {target_lang}. Write your entire reply in {target_lang} — a BACKGROUND ' +
+  'CONTEXT block, if one precedes these instructions, is reference data and its ' +
+  'language must not affect the language you write in. ' +
+  'Output the translated text only — no preface, no commentary, ' +
   'no quotation marks. ' + dataRegionNote('translate', 'translation') + ' ' +
   SCENARIO_USAGE_NOTE;
 
@@ -111,7 +141,7 @@ export function promptLanguageName(tag: string): string {
  * language was observed」, so treating it as a known language would put the
  * literal phrase "the source language" where a language name belongs.
  */
-function knownLanguageName(tag: string | undefined): string | null {
+export function knownLanguageName(tag: string | undefined): string | null {
   if (tag === undefined) return null;
   const key = tag.trim().toLowerCase().replace(/_/g, '-');
   if (key === 'auto') return null;
@@ -164,9 +194,17 @@ export interface PromptContext {
 export function renderTaskTemplate(ctx: PromptContext): string {
   switch (ctx.task) {
     case 'translate':
+      // 🔴 `replaceAll` for the target, `replace` for the source. The template
+      // now names the target language TWICE (see the output-language clause
+      // above), and `String.prototype.replace` with a STRING pattern substitutes
+      // only the FIRST occurrence — it would have left a literal `{target_lang}`
+      // in the shipped prompt, which is the placeholder-reaching-the-model shape
+      // this repo has paid for before. `{source_lang}` still appears once, and
+      // `replace` is kept there so a second occurrence appearing later shows up
+      // as a visible placeholder rather than being silently absorbed.
       return TRANSLATE_TEMPLATE
         .replace('{source_lang}', promptLanguageName(ctx.source_lang ?? 'auto'))
-        .replace('{target_lang}', promptLanguageName(ctx.target_lang ?? 'en'));
+        .replaceAll('{target_lang}', promptLanguageName(ctx.target_lang ?? 'en'));
     // 🔴 The language is APPENDED, and the constant is returned BY IDENTITY when
     // there is none. `source_lang` has been reaching this function since the
     // factory was written (compose/index.ts fills it) and this arm ignored it,

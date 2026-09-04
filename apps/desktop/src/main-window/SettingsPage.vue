@@ -3,8 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Icon from './components/Icon.vue';
 import SttSettings from './components/SttSettings.vue';
 import LlmSettings from './components/LlmSettings.vue';
-import ScenarioCard from './components/ScenarioCard.vue';
-import ScenarioInference from './components/ScenarioInference.vue';
 import PrefsAppearance from './components/PrefsAppearance.vue';
 import DataFlowDisclosure from './components/DataFlowDisclosure.vue';
 // UP-3b in-app update — hangs below the existing "About" section, no new page
@@ -386,19 +384,25 @@ onUnmounted(() => {
           />
         </section>
 
-        <!-- Speech recognition (existing component, includes the scenario card) -->
+        <!-- Speech recognition: the routing table and this PC's local models.
+             🔴 The scenario card that used to hang below it is GONE (owner
+             2026-09-03): professions, term packs and custom terms are the
+             phone's, they travel with each transcription request, and no server
+             stores them. No placeholder and no 「manage this on your phone」
+             card is left behind — a section that promises a group of
+             functionality it does not have is worse than no section. -->
         <div id="set-stt">
           <SttSettings />
-          <ScenarioCard />
         </div>
 
-        <!-- Language model + V2-08 scenario-inference consent (the consent is
-             specifically about the LLM endpoint above, so this card sits right
-             below the endpoint input box, where the user can see what they're
-             consenting to) -->
+        <!-- Language model. The V2-08 scenario-inference CONSENT card used to sit
+             here, directly under the endpoint box, so the user could see what
+             they were consenting to. owner 2026-09-03 moved the consent to the
+             phone (it is the user's authorisation, not the machine's); this end
+             keeps only the collection mechanism, which is gated server-side on
+             that consent. -->
         <div id="set-llm">
           <LlmSettings />
-          <ScenarioInference />
         </div>
 
         <!-- Preferences: only genuinely actionable items -->
@@ -469,9 +473,12 @@ onUnmounted(() => {
         </section>
         <!-- 0.3.0 P1 privacy and data — the core path (audio → recognition → optional
              language-model processing → injection into this PC) plus the
-             privacy-policy / terms entry. The scenario-inference consent card
-             above covers ONE optional feature; this section covers the path
-             every single sentence takes. -->
+             privacy-policy / terms entry.
+             ⚠️ This is now the ONLY surface on this end that describes what
+             leaves the machine. Until 2026-09-03 the scenario-inference consent
+             card carried one optional feature's disclosure alongside it; that
+             card moved to the phone, so nothing else here answers the question
+             and this section cannot be trimmed on the assumption that it does. -->
         <section id="set-privacy" class="set-sec">
           <h3>{{ S.disc_title }}</h3>
           <p class="hint">{{ S.disc_entry_sub }}</p>

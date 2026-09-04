@@ -61,6 +61,7 @@ import 'support/cloud_summary_fakes.dart';
 import 'support/fakes.dart';
 import 'support/di.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 /// Real data layer + real AppSettingsController (mock prefs); only socket /
@@ -327,7 +328,6 @@ void main() {
       final SettingsClient settingsClient =
           SettingsClient(transport: t, roomJoins: ValueNotifier<int>(0));
       final ScenarioCardController scenario = ScenarioCardController(
-        settingsClient: settingsClient,
         cache: InMemoryScenarioCardCache(),
       );
       await scenario.load();
@@ -356,6 +356,8 @@ void main() {
             destination: destination,
             session: session,
             portable: newTestPortableController(),
+            prefs: newTestPrefsController(),
+            backup: newTestSettingsBackup(),
             inventory: newTestInventory(
               rows: const <TimelineEntry>[],
               images: InMemoryOutboxBlobStore(),
@@ -377,8 +379,9 @@ void main() {
       await tester.scrollUntilVisible(find.text(s.spokenLangTitle), 200);
       await tester.pumpAndSettle();
       expect(find.text(s.spokenLangNote), findsOneWidget,
-          reason: '🔴 owner ruling: must say clearly that this governs the cloud-relay path, '
-              'otherwise LAN users will think this can swap the engine on their own machine');
+          reason: '🔴 owner ruling Q5 (2026-09-03): must say that this language applies on BOTH '
+              'connections and that a PC without a local model for it will say so — '
+              'the old sentence told LAN users this row did nothing for them');
 
       final Finder spokenRow = find
           .ancestor(of: find.text(s.spokenLangTitle), matching: find.byType(Column))
@@ -443,7 +446,6 @@ void main() {
       final SettingsClient settingsClient =
           SettingsClient(transport: t, roomJoins: ValueNotifier<int>(0));
       final ScenarioCardController scenario = ScenarioCardController(
-        settingsClient: settingsClient,
         cache: InMemoryScenarioCardCache(),
       );
       await scenario.load();
@@ -472,6 +474,8 @@ void main() {
             destination: destination,
             session: session,
             portable: newTestPortableController(),
+            prefs: newTestPrefsController(),
+            backup: newTestSettingsBackup(),
             inventory: newTestInventory(
               rows: const <TimelineEntry>[],
               images: InMemoryOutboxBlobStore(),

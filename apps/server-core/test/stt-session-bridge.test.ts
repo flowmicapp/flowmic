@@ -27,6 +27,7 @@ import type { FinalTextTransform } from '../src/stt/final-text-pipeline';
 import type { LlmEvent, LlmStreamer } from '../src/compose/llm';
 import type { LlmConfigSource, SelectedLlmConfig } from '../src/compose/llm-config';
 import type { PolishDeps, PolishSkipReason } from '../src/stt/stt-polish';
+import type { RefineLlmDeps } from '../src/stt/stt-refine-llm';
 
 class FakeEngine extends EventEmitter implements SttEngine {
   private _state: EngineState = 'closed';
@@ -56,6 +57,15 @@ function polishWith(events: LlmEvent[], source: LlmConfigSource = 'user'): { llm
   return { llm: { cfg: CFG, source }, deps: { streamerFor: fakeStreamerFor(events) } };
 }
 
+/**
+ * The second pass's dep (owner 2026-09-04): an LLM smoothing pass, so the seam a
+ * test drives is the SAME streamer seam polish uses — not a `transcribe(pcm)`
+ * callback. The old shape could not exist any more: the pass never sees audio.
+ */
+function refineWith(full: string, cfg: SttRefine = { enabled: true, min_utterance_ms: 1 }): { cfg: SttRefine; llm: SelectedLlmConfig; deps: RefineLlmDeps } {
+  return { cfg, llm: { cfg: CFG, source: 'user' }, deps: { streamerFor: fakeStreamerFor([{ kind: 'done', full }]) } };
+}
+
 const SR = 16_000;
 const sine = (ms: number, amp = 0.3): Buffer => {
   const n = (SR * ms) / 1000; const b = Buffer.alloc(n * 2);
@@ -73,7 +83,7 @@ interface BridgeOver {
   polish?: { llm: SelectedLlmConfig; deps?: PolishDeps };
   polishUnavailable?: PolishSkipReason;
   polishDelivery?: 'sync' | 'detached';
-  refine?: { cfg: SttRefine; transcribe: (pcm: Buffer) => Promise<string> };
+  refine?: { cfg: SttRefine; llm: SelectedLlmConfig; deps?: RefineLlmDeps };
   onPolishUsage?: (tIn: number, tOut: number, byok: boolean) => void;
 }
 function makeBridge(over: BridgeOver = {}): {
@@ -548,7 +558,7 @@ describe('SttSessionBridge — RT-1: the detached pass never delivers on stt:ref
     // about polish and not about a dead seam. The auto-stop path is used because
     // it is the one where GA-14's `disposed` gate lets a frame through.
     const { bridge, emitted, orch } = makeBridge({
-      refine: { cfg: refineCfg, transcribe: async () => '重转出来的整句' },
+      refine: refineWith('重转出来的整句', refineCfg),
     });
     await tick();
     bridge.pushChunk(0, b64(sine(300)), 0);
@@ -562,35 +572,51 @@ describe('SttSessionBridge — RT-1: the detached pass never delivers on stt:ref
     // data['text'] only; the desktop does not subscribe at all), and a key that is
     // not in the schema is a key no receiver may rely on.
     const { bridge, emitted, orch } = makeBridge({
-      refine: { cfg: refineCfg, transcribe: async () => '重转出来的整句' },
+      refine: refineWith('重转出来的整句', refineCfg),
     });
     await tick();
     bridge.pushChunk(0, b64(sine(300)), 0);
     orch().emit('final', { text: RAW, confidence: 1, language: 'zh', segment_idx: 0, is_segment: false, duration_ms: 1234 });
     await settleDetached();
     const frame = emitted.find((e) => e.event === 'stt:refined')?.payload as Record<string, unknown>;
-    expect(Object.keys(frame).sort()).toEqual(['text']);
+    // 2026-09-03 (owner Q2 b, D7 ①): `utterance_id` joined the schema and is the
+    // key the phone matches the second draft on; it equals the terminal final's.
+    expect(Object.keys(frame).sort()).toEqual(['text', 'utterance_id']);
+    const terminal = emitted.find((e) => e.event === 'stt:final' && (e.payload as { is_segment: boolean }).is_segment === false)?.payload as Record<string, unknown>;
+    expect(frame.utterance_id).toBe(terminal.utterance_id);
   });
 
-  it('🔴 GA-14 on the normal stop path is eaten by dispose() — measured, and left alone', async () => {
-    // The audio handler runs `finish().finally(() => s.dispose())`, so `disposed`
-    // is true milliseconds after the terminal final while a batch re-transcription
-    // takes seconds. This is a real defect AND it is currently the only thing
-    // keeping the corruption path above shut for GA-14, so this card does not
-    // touch it. Asserted so the fact is a measurement, not a paragraph.
+  it('✅ 2026-09-03 (owner Q2 b, D7 ②) — GA-14 on the normal stop path is DELIVERED after finish() → dispose()', async () => {
+    // This case used to be titled 「eaten by dispose() — measured, and left
+    // alone」 and asserted `[]`: the audio handler runs
+    // `finish().finally(() => s.dispose())`, so `disposed` was true milliseconds
+    // after the terminal final while the smoothing pass takes seconds, and
+    // the old `disposed` gate ate every normal-path refine. The gate is now the
+    // emitter-closed latch, set only on the socket-gone dispose paths. The full
+    // account, the utterance_id join and the reverse control that restores the
+    // old gate live in test/stt-session-refine-delivery.test.ts.
     let release = (): void => {};
     const gate = new Promise<void>((r) => { release = r; });
     const { bridge, eng, emitted } = makeBridge({
-      refine: { cfg: refineCfg, transcribe: async () => { await gate; return '重转出来的整句'; } },
+      refine: {
+        cfg: refineCfg,
+        llm: { cfg: CFG, source: 'user' },
+        deps: {
+          streamerFor: (_p) => async function* (): AsyncGenerator<LlmEvent> {
+            await gate;
+            yield { kind: 'done', full: '重转出来的整句' };
+          },
+        },
+      },
     });
     await tick();
     bridge.pushChunk(0, b64(sine(300)), 0);
     eng.finalOnFlush = RAW;
     await bridge.finish();
     bridge.dispose();          // exactly what audio.handler does next
-    release();                 // the batch engine answers, seconds later
+    release();                 // the model answers, seconds later
     await settleDetached();
-    expect(refinedTexts(emitted)).toEqual([]);
+    expect(refinedTexts(emitted)).toEqual(['重转出来的整句']);
   });
 
   it('🔴 owner RT-4 — nothing on this path touches the inject leg', async () => {
@@ -933,11 +959,11 @@ describe("SttSessionBridge — RT-1 D-4: the 'detached' task cannot take the pro
     expect(rejections).toEqual([]);
   });
 
-  it('🔴 GA-14 refine: a throwing emitter in the .then handler is contained (the missing .catch)', async () => {
-    // `void runRefine({...}).then(...)` shipped with NO `.catch`. runRefine
-    // swallows the TRANSCRIBER's failures, but the handler emits on a socket and
-    // writes a log — either can throw. Dormant only because stt.refine defaults
-    // OFF, which is not the same as impossible.
+  it('🔴 refine: a throwing emitter in the .then handler is contained (the missing .catch)', async () => {
+    // The kick shipped with NO `.catch`. The pass swallows the MODEL's failures,
+    // but the handler emits on a socket and writes a log — either can throw.
+    // Dormant only because stt.refine defaults OFF, which is not the same as
+    // impossible.
     const { rejections } = await withRejectionWatch(async () => {
       const eng = new FakeEngine();
       const bridge = new SttSessionBridge({
@@ -948,7 +974,7 @@ describe("SttSessionBridge — RT-1 D-4: the 'detached' task cannot take the pro
         emitter: { emit: (event) => { if (event === 'stt:refined') throw new Error('socket write failed'); } },
         userId: 'u', mode: 'realtime', sourceLang: 'zh',
         onComplete: () => {},
-        refine: { cfg: { enabled: true, min_utterance_ms: 1 }, transcribe: async () => '重转版本' },
+        refine: refineWith('重转出来的整句'),
         levelIntervalMs: 0,
       });
       await tick();

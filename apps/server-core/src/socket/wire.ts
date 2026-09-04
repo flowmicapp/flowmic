@@ -13,6 +13,7 @@
 import type { Socket } from 'socket.io';
 import type { Plan } from '@flowmic/protocol';
 import type { AuthContext } from '../auth/middleware';
+import type { SessionPrefs } from '../settings/session-overlay';
 
 export type Ack = (payload: unknown) => void;
 
@@ -94,4 +95,31 @@ export function setRoomUuid(socket: Socket, roomUuid: string): void {
 
 export function setAuth(socket: Socket, auth: AuthContext): void {
   (socket.data as { auth?: AuthContext | null }).auth = auth;
+}
+
+// ── phone-owned preferences (2026-09-03, owner follow-up: the carrier is the
+//    request that starts a cycle) ────────────────────────────────────────────
+//
+// The phone's scenario card / polish / refine / inference-consent ride INSIDE
+// `audio:start` / `compose:start` (`prefs`, protocol phone-prefs.ts), never the
+// database and never `settings:update` (a mobile write of one of these keys is
+// REFUSED — settings.handler.ts). The handler that receives the start frame
+// puts the whole bundle on the socket for THAT session, and the STT / compose
+// factories read it back through `overlaySettings` (settings/session-overlay.ts).
+// REPLACE, never merge: a start frame without `prefs` clears whatever the
+// previous request carried, so a stale bundle can never act on a later one.
+
+
+/** Set (or, with null, clear) the bundle for the session that is starting.
+ *  Non-null is what tells the overlay "this request carries the phone's
+ *  preferences — do not read the database for these keys"; null is an old
+ *  phone, or a request that carried none. */
+export function setSessionPrefs(socket: Socket, prefs: SessionPrefs | null): void {
+  (socket.data as { sessionPrefs?: SessionPrefs | null }).sessionPrefs = prefs;
+}
+
+/** The bundle the current request carried, or null (the overlay then returns
+ *  the database repo unchanged). */
+export function getSessionPrefs(socket: Socket): SessionPrefs | null {
+  return (socket.data as { sessionPrefs?: SessionPrefs | null }).sessionPrefs ?? null;
 }

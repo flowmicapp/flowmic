@@ -3745,6 +3745,38 @@
       "params": []
     },
     {
+      "key": "sttStallHeardNoWords",
+      "leaf": "_lfSttStallHeardNoWords",
+      "params": []
+    },
+    {
+      "key": "sttStallEmptyReasonUnknown",
+      "leaf": "_lfSttStallEmptyReasonUnknown",
+      "params": [
+        "reason"
+      ]
+    },
+    {
+      "key": "sttStallNetworkDrop",
+      "leaf": "_lfSttStallNetworkDrop",
+      "params": []
+    },
+    {
+      "key": "sttStallEngineAuthFail",
+      "leaf": "_lfSttStallEngineAuthFail",
+      "params": []
+    },
+    {
+      "key": "sttStallEngineRateLimited",
+      "leaf": "_lfSttStallEngineRateLimited",
+      "params": []
+    },
+    {
+      "key": "sttStallEngineTimeout",
+      "leaf": "_lfSttStallEngineTimeout",
+      "params": []
+    },
+    {
       "key": "sttStallMessage__4",
       "leaf": "_lfSttStallMessage__4",
       "params": []
@@ -3787,11 +3819,6 @@
     {
       "key": "sttStallVerifyEmail",
       "leaf": "_lfSttStallVerifyEmail",
-      "params": []
-    },
-    {
-      "key": "syncPendingNote",
-      "leaf": "_lfSyncPendingNote",
       "params": []
     },
     {
@@ -4139,6 +4166,168 @@
       "leaf": "_lfUtteranceComposeError__7",
       "params": [
         "why"
+      ]
+    },
+    {
+      "key": "secRecognition",
+      "leaf": "_lfSecRecognition",
+      "params": []
+    },
+    {
+      "key": "polishTitle",
+      "leaf": "_lfPolishTitle",
+      "params": []
+    },
+    {
+      "key": "polishSub",
+      "leaf": "_lfPolishSub",
+      "params": []
+    },
+    {
+      "key": "polishStrengthTitle",
+      "leaf": "_lfPolishStrengthTitle",
+      "params": []
+    },
+    {
+      "key": "polishStrict",
+      "leaf": "_lfPolishStrict",
+      "params": []
+    },
+    {
+      "key": "polishSmooth",
+      "leaf": "_lfPolishSmooth",
+      "params": []
+    },
+    {
+      "key": "polishStrengthNote",
+      "leaf": "_lfPolishStrengthNote",
+      "params": []
+    },
+    {
+      "key": "refineTitle",
+      "leaf": "_lfRefineTitle",
+      "params": []
+    },
+    {
+      "key": "refineSub",
+      "leaf": "_lfRefineSub",
+      "params": []
+    },
+    {
+      "key": "inferenceTitle",
+      "leaf": "_lfInferenceTitle",
+      "params": []
+    },
+    {
+      "key": "inferenceSub",
+      "leaf": "_lfInferenceSub",
+      "params": []
+    },
+    {
+      "key": "termAliasesHint",
+      "leaf": "_lfTermAliasesHint",
+      "params": []
+    },
+    {
+      "key": "termAliasesLabel",
+      "leaf": "_lfTermAliasesLabel",
+      "params": [
+        "aliases"
+      ]
+    },
+    {
+      "key": "termAddError__5",
+      "leaf": "_lfTermAddError__5",
+      "params": []
+    },
+    {
+      "key": "termAddError__6",
+      "leaf": "_lfTermAddError__6",
+      "params": []
+    },
+    {
+      "key": "settingsBackupTitle",
+      "leaf": "_lfSettingsBackupTitle",
+      "params": []
+    },
+    {
+      "key": "settingsBackupSub",
+      "leaf": "_lfSettingsBackupSub",
+      "params": []
+    },
+    {
+      "key": "settingsBackupAction",
+      "leaf": "_lfSettingsBackupAction",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreTitle",
+      "leaf": "_lfSettingsRestoreTitle",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreSub",
+      "leaf": "_lfSettingsRestoreSub",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreAction",
+      "leaf": "_lfSettingsRestoreAction",
+      "params": []
+    },
+    {
+      "key": "settingsBackupDone",
+      "leaf": "_lfSettingsBackupDone",
+      "params": [
+        "where"
+      ]
+    },
+    {
+      "key": "settingsBackupCancelled",
+      "leaf": "_lfSettingsBackupCancelled",
+      "params": []
+    },
+    {
+      "key": "settingsBackupFailed",
+      "leaf": "_lfSettingsBackupFailed",
+      "params": [
+        "detail"
+      ]
+    },
+    {
+      "key": "settingsRestoreDone",
+      "leaf": "_lfSettingsRestoreDone",
+      "params": [
+        "count"
+      ]
+    },
+    {
+      "key": "settingsRestoreCancelled",
+      "leaf": "_lfSettingsRestoreCancelled",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreRefused__1",
+      "leaf": "_lfSettingsRestoreRefused__1",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreRefused__2",
+      "leaf": "_lfSettingsRestoreRefused__2",
+      "params": [
+        "where"
+      ]
+    },
+    {
+      "key": "settingsRestoreRefused__3",
+      "leaf": "_lfSettingsRestoreRefused__3",
+      "params": []
+    },
+    {
+      "key": "settingsRestoreFailed",
+      "leaf": "_lfSettingsRestoreFailed",
+      "params": [
+        "detail"
       ]
     }
   ]

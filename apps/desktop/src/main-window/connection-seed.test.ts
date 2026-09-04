@@ -121,26 +121,31 @@ describe('applyConnectionRows — the seed the race made necessary', () => {
 // could come back and nothing flushed, so a "saved locally" edit waited for a
 // cloud reconnect or a restart. Watching the LAN edge specifically was the fix.
 //
-// 🔴 THE SECOND HALF OF THIS RULE WAS RETIRED BY owner ON 2026-08-24, and the
-// two assertions that encoded it went red on the day it changed — which is the
-// behaviour a reverse control is supposed to have. The retired sentence, kept
-// verbatim because it was true when it was written, was:
+// 🔴 THIS RULE HAS NOW BEEN WRITTEN TWICE AND THE SECOND WRITING IS BACK AT THE
+// FIRST — and both times the assertions turned red on the day the rule changed,
+// which is the behaviour a reverse control is supposed to have. The history, kept
+// because each sentence was true when it was written:
 //
-//     「a CLOUD-only rising edge does NOT flush — that socket cannot carry settings」
+//   · until 2026-08-24: 「a CLOUD-only rising edge does NOT flush — that socket
+//     cannot carry settings」;
+//   · 2026-08-24 → 2026-09-03: four PREFERENCE keys (stt.dictionary / stt.polish /
+//     stt.refine / scenario.card) travelled on BOTH legs, so an edit made while
+//     the relay was down had to be replayed when the relay came up or the relay
+//     kept a stale copy forever. Measured consequence of the OLDER rule, and the
+//     reason owner changed it: a personal dictionary, AI polish and two-pass
+//     refine were INERT on the cloud relay
+//     (docs/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6);
+//   · from 2026-09-03: those four keys are the PHONE's. They ride the
+//     transcription request, no server stores them, and the server refuses them
+//     from a PC by name — so the desktop has no key left that the relay would
+//     accept, `settings_update` is `with_lan_socket` again, and a replay aimed at
+//     the relay would emit frames the write door never uses.
 //
-// It stopped being true when PREFERENCE keys (stt.dictionary / stt.polish /
-// stt.refine / scenario.card) started travelling on BOTH legs: that socket now
-// carries settings, so an edit made while the relay was down has to be replayed
-// when the relay comes up, or the relay keeps a stale copy forever. Measured
-// consequence of the old rule, and the reason owner changed it: a personal
-// dictionary, AI polish and two-pass refine were INERT on the cloud relay
-// (docs/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6).
-//
-// ⚠️ What did NOT change, and is still asserted below: SERVER-CONFIG keys
-// (`stt.routings` / `llm.config`) remain LAN-only in Rust. owner ⑤'s original
-// reason — the relay's engine and model are not the desktop's to set — is
-// unchanged for those, and `shell/mod.rs is_preference_setting` is the split.
-describe('RV-16 settings flush edge follows EITHER channel (owner 2026-08-24)', () => {
+// ⚠️ The cloud case below is a NEGATIVE assertion with a positive control beside
+// it (the LAN case). A zero that came from `flushPending` never being spied, or
+// from `applyConnectionRows` doing nothing at all, would pass an unguarded
+// negative — which is the whole reason the two cases sit together.
+describe('RV-16 the settings flush edge is the LAN one, and only the LAN one', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -152,17 +157,24 @@ describe('RV-16 settings flush edge follows EITHER channel (owner 2026-08-24)', 
       row({ channel: 'lan', primary: false, connected: true }),
     ]);
     expect(lanConnected.value).toBe(true);
-    // Two edges rose in this batch (cloud AND lan), and each is its own fact —
-    // see the two separate watchers in store.ts and why they are not OR-ed.
-    expect(flush).toHaveBeenCalledTimes(2);
+    // Both edges rose in this batch and only ONE of them is a settings edge. The
+    // count was 2 between 2026-08-24 and 2026-09-03, when the cloud watcher
+    // existed; it is the LAN watcher alone that survives.
+    expect(flush).toHaveBeenCalledTimes(1);
   });
 
-  it('a CLOUD-only rising edge DOES flush — that socket now carries preferences', () => {
+  it('🔴 a CLOUD-only rising edge does NOT flush — the write door never uses that socket', () => {
     const flush = vi.spyOn(settings, 'flushPending').mockResolvedValue(undefined);
     applyConnectionRows([row({ channel: 'cloud', primary: true, connected: true })]);
-    // The LAN leg is genuinely down here; the point is that the relay coming up
-    // is now sufficient on its own.
+    // The LAN leg is genuinely down here, which is what makes the zero mean
+    // something: there was a real rising edge to react to, and the relay is not
+    // an address any settings key this desktop writes can reach.
     expect(lanConnected.value).toBe(false);
+    expect(flush).toHaveBeenCalledTimes(0);
+    // POSITIVE CONTROL, in the same case: bring the LAN leg up and the very same
+    // spy fires. Without this line a green above could equally mean 'the spy was
+    // never wired' or 'applyConnectionRows raised no edge at all'.
+    applyConnectionRows([row({ channel: 'lan', primary: false, connected: true })]);
     expect(flush).toHaveBeenCalledTimes(1);
   });
 
@@ -241,8 +253,9 @@ describe('a connection edge drives the settings queue only, and redirects nothin
     // The store has no such verbs left to call — the surface itself is the guard.
     expect('flushQueue' in timeline).toBe(false);
     expect('refresh' in timeline).toBe(false);
-    // …while the SETTINGS queue still flushes on the LAN edge (RV-16), because settings
-    // really do live on the server. One retirement must not take the other with it.
+    // …while the SETTINGS queue still flushes on the LAN edge (RV-16), because the
+    // engine configuration this PC writes really does live on the LAN server. One
+    // retirement must not take the other with it.
     expect(connByChannel.cloud?.connected).toBe(true);
   });
 

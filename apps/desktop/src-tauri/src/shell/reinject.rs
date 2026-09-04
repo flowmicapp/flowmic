@@ -34,6 +34,7 @@
 
 use serde_json::Value;
 use tauri::State;
+use crate::socket::blocking::run_blocking;
 
 use crate::socket::local_inject::{reinject_image_with_handles, reinject_text_with_handles, InjectHandles};
 
@@ -95,30 +96,34 @@ pub fn timeline_reinject(
     text: String,
     id: String,
 ) -> Option<Value> {
-    // The OUTER Option answers「有会话跑了这次补投吗」("did a session run this
-    // re-inject") and the inner one「跑出结果了吗」("did it produce a result").
-    // Two options rather than one because `with_socket`'s fallback is evaluated
-    // eagerly: collapsing them would log 「没有会话」("no session") on every successful injection —
-    // a forensic line that lies is worse than no line (vol. 13 §7).
-    //
-    // The lock is dropped as soon as this line returns — it only had to clone the
-    // handle bundle, not run anything.
-    let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
-    let ran: Option<Option<Value>> = handles.map(|h| reinject_text_with_handles(&h, &text, &id));
-    match ran {
-        // A session ran it; `reinject_text_with_handles` already recorded the true outcome.
-        Some(result) => result,
-        None => {
-            crate::forensic::record(
-                "timeline",
-                &format!(
-                    "local re-inject REFUSED entry_id={id} — no resident session, so no focus \
-                     state machine exists to resolve a target against; NOTHING was typed"
-                ),
-            );
-            None
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on the inject pipeline (up to 1.5 s of PASTE_HOLD). See `socket::blocking`.
+    run_blocking(|| {
+        // The OUTER Option answers「有会话跑了这次补投吗」("did a session run this
+        // re-inject") and the inner one「跑出结果了吗」("did it produce a result").
+        // Two options rather than one because `with_socket`'s fallback is evaluated
+        // eagerly: collapsing them would log 「没有会话」("no session") on every successful injection —
+        // a forensic line that lies is worse than no line (vol. 13 §7).
+        //
+        // The lock is dropped as soon as this line returns — it only had to clone the
+        // handle bundle, not run anything.
+        let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
+        let ran: Option<Option<Value>> = handles.map(|h| reinject_text_with_handles(&h, &text, &id));
+        match ran {
+            // A session ran it; `reinject_text_with_handles` already recorded the true outcome.
+            Some(result) => result,
+            None => {
+                crate::forensic::record(
+                    "timeline",
+                    &format!(
+                        "local re-inject REFUSED entry_id={id} — no resident session, so no focus \
+                         state machine exists to resolve a target against; NOTHING was typed"
+                    ),
+                );
+                None
+            }
         }
-    }
+    })
 }
 
 /// Re-inject one row's PICTURE into this machine's focused window (0.3.36 — the
@@ -139,40 +144,44 @@ pub fn timeline_reinject(
 /// LOUD when absent.
 #[tauri::command(async)]
 pub fn timeline_reinject_image(state: State<'_, SocketState>, id: String) -> Option<Value> {
-    let (mime, bytes, _which) = match crate::shell::clipboard_image::picture_bytes_in(
-        &crate::socket::row_image::dir(),
-        &id,
-        None,
-    ) {
-        Ok(loaded) => loaded,
-        Err(reason) => {
-            crate::forensic::record(
-                "timeline",
-                &format!(
-                    "local re-inject IMAGE REFUSED entry_id={id} — {reason}; NOTHING was pasted \
-                     (original-only by design: a preview must not impersonate the picture)"
-                ),
-            );
-            return None;
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks on the inject pipeline (up to 1.5 s of PASTE_HOLD). See `socket::blocking`.
+    run_blocking(|| {
+        let (mime, bytes, _which) = match crate::shell::clipboard_image::picture_bytes_in(
+            &crate::socket::row_image::dir(),
+            &id,
+            None,
+        ) {
+            Ok(loaded) => loaded,
+            Err(reason) => {
+                crate::forensic::record(
+                    "timeline",
+                    &format!(
+                        "local re-inject IMAGE REFUSED entry_id={id} — {reason}; NOTHING was pasted \
+                         (original-only by design: a preview must not impersonate the picture)"
+                    ),
+                );
+                return None;
+            }
+        };
+        let b64 = crate::socket::row_image::encode_b64(&bytes);
+        // Same P1-2 shape as `timeline_reinject`: the lock is held only to clone the
+        // handle bundle, then dropped before the (potentially 1.5s) paste-and-hold runs.
+        let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
+        let ran: Option<Option<Value>> =
+            handles.map(|h| reinject_image_with_handles(&h, &b64, mime.wire(), &id));
+        match ran {
+            Some(result) => result,
+            None => {
+                crate::forensic::record(
+                    "timeline",
+                    &format!(
+                        "local re-inject IMAGE REFUSED entry_id={id} — no resident session, so no focus \
+                         state machine exists to resolve a target against; NOTHING was pasted"
+                    ),
+                );
+                None
+            }
         }
-    };
-    let b64 = crate::socket::row_image::encode_b64(&bytes);
-    // Same P1-2 shape as `timeline_reinject`: the lock is held only to clone the
-    // handle bundle, then dropped before the (potentially 1.5s) paste-and-hold runs.
-    let handles: Option<InjectHandles> = with_socket(&state, |s| Some(s.inject_handles()), None);
-    let ran: Option<Option<Value>> =
-        handles.map(|h| reinject_image_with_handles(&h, &b64, mime.wire(), &id));
-    match ran {
-        Some(result) => result,
-        None => {
-            crate::forensic::record(
-                "timeline",
-                &format!(
-                    "local re-inject IMAGE REFUSED entry_id={id} — no resident session, so no focus \
-                     state machine exists to resolve a target against; NOTHING was pasted"
-                ),
-            );
-            None
-        }
-    }
+    })
 }

@@ -227,11 +227,18 @@ void main() {
     });
 
     test('🔴 deliberately does not promise 「会自动再送」 — that edge is not guaranteed to arrive on this leg', () {
-      // The mechanism that WOULD justify such a promise is the drain, and since
-      // 0.2.52 its edge is `PttSession.roomJoins`. On a link that never drops,
-      // that edge never fires, so the sentence would be a wait with no
-      // mechanism — the F-1 red line verbatim, and the exact mistake the
-      // `INJECT_PC_OFFLINE` copy caught in its own first draft.
+      // The mechanism that WOULD justify such a promise is the drain, whose edge
+      // is `DeliveryLinkUp` (2026-09-04; before that, `PttSession.roomJoins`
+      // alone). This code is produced while the relay is up and the PC is in its
+      // room, so NEITHER half of that edge fires — the phone did not leave the
+      // room and the PC never went away. The sentence would still be a wait with
+      // no mechanism, the F-1 red line verbatim.
+      //
+      // ⚠️ The neighbour `INJECT_PC_OFFLINE` may promise it, and as of
+      // 2026-09-04 it promises it **on the PC coming back** rather than on this
+      // phone reconnecting — because that half of the edge now exists. The
+      // difference between the two sentences is a difference in mechanism, not
+      // in tone.
       //
       // ⚠️ This asserts the COPY, which is all a copy test can honestly
       // assert. It is the mirror of `pc_offline_note_test`'s promise test:
@@ -259,9 +266,15 @@ void main() {
       // Reverse control: the neighbour that DOES promise it still does — otherwise
       // this assertion could pass simply because nothing anywhere promises
       // anything, and the G-16-a promise could rot away unnoticed.
+      //
+      // ⚠️ The substring is 「再送」 and not the old 「会再送」: that copy now reads
+      // 「会自动再送一次」, and pinning the two characters that happened to be
+      // adjacent in one draft made this control fail on a rewrite that kept the
+      // promise perfectly intact. A control that reddens on wording rather than
+      // on meaning trains people to edit the control.
       expect(
         _zh.deliveryRefusalNote('INJECT_PC_OFFLINE'),
-        contains('会再送'),
+        contains('再送'),
       );
     });
   });

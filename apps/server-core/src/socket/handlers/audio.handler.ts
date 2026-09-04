@@ -39,7 +39,7 @@ import {
 import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
-import { getAuth, getRoomUuid, safeAck } from '../wire';
+import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
 import { markAudioStop } from '../../obs/latency';
 import { log } from '../../log';
 import { hashedRoomId } from '../../http/presence-routes';
@@ -337,6 +337,16 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       refuseStart(e, { gate: 'payload', userId: auth.userId, delivery: null });
       return safeAck(ack, e);
     }
+    // 2026-09-03 (owner ruling, phone-owned preferences) — the bundle THIS
+    // recording carries, or null. Set right after the parse and BEFORE any
+    // gate or the factory, and set unconditionally: a frame without `prefs`
+    // clears the previous request's bundle, so a card the phone sent for an
+    // earlier utterance can never act on this one. The factory
+    // (engine/stt-factory.ts) reads it through the session overlay; nothing
+    // stores it. A malformed bundle never reaches here — the schema refused
+    // the whole frame above, and the previous bundle is left untouched because
+    // no session starts.
+    setSessionPrefs(socket, parsed.data.prefs ?? null);
 
     // 🔴 card K-1 — READ THE DELIVERY INTENT BEFORE THE GATE THAT DEPENDS ON IT.
     //

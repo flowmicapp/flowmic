@@ -52,6 +52,7 @@ import '../audio/article_replay.dart';
 import '../audio/retained_audio_store.dart';
 import '../diag/diag_log.dart';
 import '../ptt/ptt_session.dart';
+import '../settings/phone_prefs_payload.dart';
 import '../signaling/state_machine.dart';
 import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/article.dart';
@@ -92,15 +93,23 @@ class BackfillRunner {
     required PttSession session,
     required TimelineStore store,
     RetainedAudioStore? Function()? storeOf,
+    PhonePrefsSource? phonePrefs,
     Duration settleTimeout = const Duration(seconds: 20),
   })  : _session = session,
         _timeline = store,
         _storeOf = storeOf ?? (() => session.audio.retainedAudio?.store),
+        _phonePrefs = phonePrefs,
         _settleTimeout = settleTimeout;
 
   final PttSession _session;
   final TimelineStore _timeline;
   final RetainedAudioStore? Function() _storeOf;
+
+  /// The phone-owned preference bundle for the recovery utterances this runner
+  /// opens — the SAME source a live press reads (see `beginBackfill`'s
+  /// `prefs`). Production wires it through `ChatController`; null sends no
+  /// `prefs` and lets the server default, which is what an un-wired test does.
+  final PhonePrefsSource? _phonePrefs;
   final Duration _settleTimeout;
 
   /// 🔴 THE SINGLE-FLIGHT LATCH. See the header: two stretches at once is a
@@ -228,7 +237,11 @@ class BackfillRunner {
     required String sourceLang,
   }) async {
     if (target != null) _session.articles.beginReplay(target);
-    if (!_session.beginBackfill(mode: kRecoveryMode, sourceLang: sourceLang)) {
+    if (!_session.beginBackfill(
+      mode: kRecoveryMode,
+      sourceLang: sourceLang,
+      prefs: _phonePrefs?.call(),
+    )) {
       _session.articles.endReplay();
       return false;
     }

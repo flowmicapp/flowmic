@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SETTINGS_KEY_SCENARIO_CARD } from '@flowmic/protocol';
+import { PhonePrefsSchema } from '@flowmic/protocol';
 import { SETTINGS_ANCHOR_KEYS, SettingsClient } from './settings-client';
 import type { KvStore, SettingsTransport } from './types';
 
@@ -26,28 +26,52 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('settings-key-drift SET anchors', () => {
-  it('the anchor key constants match the SSOT / server read keys', () => {
-    expect(SETTINGS_ANCHOR_KEYS.scenarioCard).toBe(SETTINGS_KEY_SCENARIO_CARD);
-    expect(SETTINGS_ANCHOR_KEYS.scenarioCard).toBe('scenario.card');
+  it('the anchor key constants match the server read keys', () => {
     expect(SETTINGS_ANCHOR_KEYS.llmConfig).toBe('llm.config');
     expect(SETTINGS_ANCHOR_KEYS.sttRoutings).toBe('stt.routings');
-    expect(SETTINGS_ANCHOR_KEYS.sttPolish).toBe('stt.polish');
   });
 
-  it('each anchor method writes exactly its SSOT key (literal == constant, live)', async () => {
+  it('each anchor method writes exactly its key (literal == constant, live)', async () => {
     const t = new RecordingTransport();
     const c = new SettingsClient(t, new MemStore(), 200);
     c.setLlmConfig({ model: 'qwen' });
     c.setSttRoutings([{ language: 'zh-CN', engine_id: 'funasr' }]);
-    c.setScenarioCard({ professions: [], domains: [], packs: [], terms: [] });
-    c.setSttPolish({ enabled: true });
     await vi.advanceTimersByTimeAsync(200);
     const keys = t.calls.map((x) => x.key);
     expect(keys).toContain(SETTINGS_ANCHOR_KEYS.llmConfig);
     expect(keys).toContain(SETTINGS_ANCHOR_KEYS.sttRoutings);
-    expect(keys).toContain(SETTINGS_ANCHOR_KEYS.scenarioCard);
-    expect(keys).toContain(SETTINGS_ANCHOR_KEYS.sttPolish);
-    expect(t.calls.find((x) => x.key === 'stt.polish')?.value).toEqual({ enabled: true });
+    expect(t.calls.find((x) => x.key === 'stt.routings')?.value).toEqual([
+      { language: 'zh-CN', engine_id: 'funasr' },
+    ]);
+  });
+
+  // 🔴 THE PHONE-OWNED KEYS HAVE NO WRITER HERE, AND THAT IS THE POINT
+  // (owner 2026-09-03). `scenario.card` / `stt.polish` / `stt.refine` are still
+  // READ by the server; their literal SET anchors moved to
+  // apps/mobile/lib/src/settings/settings_client.dart. `verify:lint
+  // settings-key-drift` scans apps/desktop AND apps/mobile as one UI side, so
+  // deleting the mobile literal for one of them turns that lint red with
+  // 'get-only' — which is exactly what a desktop stub invented to 'keep the lint
+  // happy' would hide, while writing frames this server refuses from a PC.
+  //
+  // 🔴 REVERSE CONTROL, RUN 2026-09-03 ON THIS BRANCH (machine: dev-pc-a).
+  // With the three desktop anchors already deleted, the mobile literal for
+  // `stt.polish` was replaced by its constant (`FlowMicSettingsKeys.sttPolish`)
+  // — the exact edit that would leave the key with no literal writer anywhere —
+  // and `verify/lint/settings-key-drift.mjs` went red, verbatim:
+  //
+  //     FAIL settings-key-drift 1 drift: get-only 'stt.polish'
+  //       @ apps/server-core/src/db/repos/settings.repo.ts:17
+  //
+  // Restored immediately; the lint reads PASS 5 set / 5 get again and
+  // `git diff apps/mobile/` is empty. What this proves is the half a desktop-only
+  // suite cannot: the pairing survived the deletion because the PHONE holds those
+  // anchors now, not because the lint stopped looking.
+  it('🔴 has no writer for a key the phone owns', () => {
+    for (const gone of ['setScenarioCard', 'setSttPolish', 'setSttRefine']) {
+      expect(gone in SettingsClient.prototype, `${gone} came back`).toBe(false);
+    }
+    expect(Object.keys(SETTINGS_ANCHOR_KEYS).sort()).toEqual(['llmConfig', 'sttRoutings']);
   });
 });
 
@@ -71,18 +95,18 @@ describe('SettingsClient — 即改即存 200ms debounce + durable + fail-loud',
     t.online = false;
     const store = new MemStore();
     const c = new SettingsClient(t, store, 200);
-    c.setScenarioCard({ professions: ['x'], domains: [], packs: [], terms: [] });
+    c.setSttRoutings([{ language: 'en', engine_id: 'funasr' }]);
     await vi.advanceTimersByTimeAsync(200);
     expect(c.pending).toBe(true);
-    expect(c.isKeyPending('scenario.card')).toBe(true);
+    expect(c.isKeyPending('stt.routings')).toBe(true);
     // Durable: the queue is persisted so the edit survives a restart.
-    expect(store.get('flowmic.settings.queue')).toContain('scenario.card');
+    expect(store.get('flowmic.settings.queue')).toContain('stt.routings');
 
     // Reconnect → flush → cleared.
     t.online = true;
     await c.flushPending();
     expect(c.pending).toBe(false);
-    expect(t.calls.some((x) => x.key === 'scenario.card')).toBe(true);
+    expect(t.calls.some((x) => x.key === 'stt.routings')).toBe(true);
   });
 
   it('hydrates a pending key from a prior (offline) session', () => {
@@ -151,13 +175,20 @@ describe('E4 — isKeyPending covers the debounce window and the in-flight flush
   });
 });
 
-// ── C3: this client is the SECOND writer of scenario.card, so it must stamp ───
+// ── C3: the desktop must stamp its writes ────────────────────────────────────
 //
 // Before this card the desktop sent no `updated_at` at all. The consequence was
-// not symmetry with the phone but a one-directional guard: with nothing to
+// not symmetry with another writer but a one-directional guard: with nothing to
 // compare, the server's regress check can never fire against a desktop write, so
-// a stale offline edit replayed on reconnect overwrites a card the phone edited
-// minutes ago and the user is never told.
+// a stale offline edit replayed on reconnect overwrites whatever is there and
+// the user is never told.
+//
+// 🔴 THE ORIGINAL SECOND WRITER WAS THE PHONE, ON `scenario.card`, and that key
+// is the phone's ALONE since owner 2026-09-03 — so these cases were re-pointed at
+// `stt.routings`, which this end still writes. The mechanism under test did not
+// change and neither did the danger: the durable queue can replay a week-old
+// routing edit onto a server that has since been configured from a second PC on
+// the same account, and it is the stamp that makes the server refuse it.
 //
 // `serverRefuses` mirrors the `existingMs > incomingMs` guard in
 // apps/server-core/src/socket/handlers/settings.handler.ts so these cases can say
@@ -202,7 +233,7 @@ describe('SettingsClient — C3 `updated_at` is the EDIT moment, not the drain m
     const t = new RecordingTransport();
     let now = Date.parse('2026-08-17T12:00:00.000Z');
     const c = new SettingsClient(t, new MemStore(), 200, () => now);
-    c.setScenarioCard({ professions: [], domains: [], packs: [], terms: ['edited at noon'] });
+    c.setSttRoutings([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://edited-at-noon' }]);
     now += 200; // the debounce elapses at 12:00:00.200
     await vi.advanceTimersByTimeAsync(200);
     expect(t.calls[0]!.updatedAt).toBe('2026-08-17T12:00:00.000Z');
@@ -216,12 +247,12 @@ describe('SettingsClient — C3 `updated_at` is the EDIT moment, not the drain m
     const store = new MemStore();
     let now = Date.parse('2026-08-17T12:00:00.000Z');
     const c = new SettingsClient(t, store, 200, () => now);
-    c.setScenarioCard({ professions: [], domains: [], packs: [], terms: ['desktop, offline'] });
+    c.setSttRoutings([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://desktop-offline' }]);
     await vi.advanceTimersByTimeAsync(200);
-    expect(c.isKeyPending('scenario.card')).toBe(true);
+    expect(c.isKeyPending('stt.routings')).toBe(true);
 
-    // 12:30 — the phone edits the same card and the server stores that.
-    const phoneEdit = '2026-08-17T12:30:00.000Z';
+    // 12:30 — the same key is written elsewhere and the server stores that.
+    const otherEdit = '2026-08-17T12:30:00.000Z';
 
     // 13:00 — this desktop reconnects and the queue drains.
     // 🔴 The recorder is cleared first, and that is not tidiness: the failed
@@ -234,17 +265,17 @@ describe('SettingsClient — C3 `updated_at` is the EDIT moment, not the drain m
     t.online = true;
     await c.flushPending();
 
-    const cardCalls = t.calls.filter((x) => x.key === 'scenario.card');
-    expect(cardCalls).toHaveLength(1);
-    const replay = cardCalls[0]!;
+    const routingCalls = t.calls.filter((x) => x.key === 'stt.routings');
+    expect(routingCalls).toHaveLength(1);
+    const replay = routingCalls[0]!;
     expect(replay.updatedAt).toBe('2026-08-17T12:00:00.000Z');
-    expect(serverRefuses(phoneEdit, replay.updatedAt)).toBe(true);
+    expect(serverRefuses(otherEdit, replay.updatedAt)).toBe(true);
 
     // The control that makes the assertion mean something: had the drain
     // re-stamped (or, as before this card, sent nothing at all), the same replay
-    // would have won and the phone's newer card would be gone.
-    expect(serverRefuses(phoneEdit, '2026-08-17T13:00:00.000Z')).toBe(false);
-    expect(serverRefuses(phoneEdit, undefined)).toBe(false);
+    // would have won and the newer configuration would be gone.
+    expect(serverRefuses(otherEdit, '2026-08-17T13:00:00.000Z')).toBe(false);
+    expect(serverRefuses(otherEdit, undefined)).toBe(false);
   });
 
   it('the edit moment survives a RESTART inside the durable queue', async () => {
@@ -290,10 +321,10 @@ describe('SettingsClient — C3 `updated_at` is the EDIT moment, not the drain m
     const c = new SettingsClient(t, new MemStore(), 200, () => now);
 
     // Uncorrected: the edit the user makes at true 12:01 is stamped 11:01 and
-    // the server refuses it, hands back the phone's card, and the user's terms
-    // revert with no explanation.
+    // the server refuses it, hands back the stored row, and the user's routing
+    // table reverts with no explanation.
     now = Date.parse('2026-08-17T11:01:00.000Z');
-    c.setScenarioCard({ professions: [], domains: [], packs: [], terms: ['before'] });
+    c.setSttRoutings([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://before' }]);
     await vi.advanceTimersByTimeAsync(200);
     expect(serverRefuses('2026-08-17T12:00:00.000Z', t.calls[0]!.updatedAt)).toBe(true);
 
@@ -302,10 +333,124 @@ describe('SettingsClient — C3 `updated_at` is the EDIT moment, not the drain m
     expect(c.stampCorrectionMs).toBeGreaterThan(0);
 
     now = Date.parse('2026-08-17T11:02:00.000Z'); // true 12:02
-    c.setScenarioCard({ professions: [], domains: [], packs: [], terms: ['after'] });
+    c.setSttRoutings([{ language: 'en', engine_id: 'funasr', endpoint: 'ws://after' }]);
     await vi.advanceTimersByTimeAsync(200);
     const last = t.calls[t.calls.length - 1]!;
     expect(serverRefuses('2026-08-17T12:00:00.000Z', last.updatedAt)).toBe(false);
-    expect((last.value as { terms: string[] }).terms).toEqual(['after']);
+    expect((last.value as Array<{ endpoint: string }>)[0]!.endpoint).toBe('ws://after');
+  });
+});
+
+// ── 2026-09-04 (F-2): the durable queue replayed keys the server now refuses ──
+//
+// `latest` survives restarts, and `flushPending` runs on every LAN `connected`
+// rising edge (main-window/store.ts). A queue written by a build <= 0.3.59 —
+// which still had desktop panes for the phone-owned keys — therefore re-sent
+// `stt.polish` & friends forever; the server answered SETTINGS_SCHEMA_INVALID
+// ("key is phone-owned"), `flushPending` marked the key dirty, and `pending`
+// latched the 「已存本地」 notice for a value no desktop screen shows.
+// Real-device evidence: the LAN sidecar's server.log, seconds after every
+// desktop launch:
+//   WARN settings:update refused — key is phone-owned … {"key":"stt.polish",
+//        "kind":"pc","userId":"default"}
+//
+// 🔴 REVERSE CONTROL, RUN 2026-09-04 (machine: dev-pc-a). With
+// `isRetiredPhoneOwnedKey` forced to `return false` (the whole prune disabled,
+// i.e. the pre-fix build), four of the five below went red, verbatim:
+//
+//     AssertionError: expected [ { key: 'stt.polish', …(2) }, …(1) ] to have a
+//       length of 1 but got 2
+//     AssertionError: expected '{"latest":{"stt.polish":{"strength":"…' not to
+//       contain 'stt.polish'
+//     AssertionError: expected [ …(2) ] to have a length of +0 but got 2
+//     AssertionError: expected { 'scenario.card': 1, …(4) } to deeply equal {}
+//
+// The fifth (the flowmic.ui.* cache) stayed green on purpose: it asserts what
+// this change must NOT do, so it is green in both directions by design.
+// Restored immediately; `grep REVERSE-CONTROL settings-client.ts` = 0.
+describe('F-2 — a hydrated queue never replays a phone-owned / retired key', () => {
+  const STALE_QUEUE = JSON.stringify({
+    latest: { 'stt.polish': { strength: 'smooth' }, 'llm.config': { model: 'qwen' } },
+    dirty: ['stt.polish', 'llm.config'],
+    stamps: {
+      'stt.polish': '2026-09-01T10:00:00.000Z',
+      'llm.config': '2026-09-01T10:00:00.000Z',
+    },
+  });
+
+  it('flushPending sends ONLY the key the desktop still owns', async () => {
+    const store = new MemStore();
+    store.set('flowmic.settings.queue', STALE_QUEUE);
+    const t = new RecordingTransport();
+    const c = new SettingsClient(t, store, 200);
+
+    await c.flushPending();
+
+    expect(t.calls).toHaveLength(1);
+    expect(t.calls[0]!.key).toBe('llm.config');
+    // …and the refusal-driven latch is gone: nothing is left pending.
+    expect(c.pending).toBe(false);
+    expect(c.isKeyPending('stt.polish')).toBe(false);
+  });
+
+  it('hydrate performs a ONE-TIME cache migration: the pruned snapshot is persisted', () => {
+    const store = new MemStore();
+    store.set('flowmic.settings.queue', STALE_QUEUE);
+    new SettingsClient(new RecordingTransport(), store, 200);
+
+    const persisted = store.get('flowmic.settings.queue')!;
+    expect(persisted).not.toContain('stt.polish');
+    expect(persisted).toContain('llm.config');
+    const snap = JSON.parse(persisted) as {
+      latest: Record<string, unknown>; dirty: string[]; stamps: Record<string, string>;
+    };
+    expect(Object.keys(snap.latest)).toEqual(['llm.config']);
+    expect(snap.dirty).toEqual(['llm.config']);
+    expect(Object.keys(snap.stamps)).toEqual(['llm.config']);
+  });
+
+  it('updateSetting refuses a retired key instead of queueing it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const store = new MemStore();
+    const t = new RecordingTransport();
+    const c = new SettingsClient(t, store, 200);
+
+    // The keys go through a variable, not a literal argument: a literal here
+    // would register as a SET anchor for `verify:lint settings-key-drift` and
+    // turn it red with `set-only 'stt.dictionary'` — a desktop writer for a key
+    // whose whole point is that this end has none.
+    for (const dead of ['stt.dictionary', 'scenario.card']) c.updateSetting(dead, {});
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(t.calls).toHaveLength(0);
+    expect(c.pending).toBe(false);
+    expect(store.get('flowmic.settings.queue')).toBeNull(); // nothing persisted
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('the retired list is a superset of the wire bundle protocol declares', () => {
+    // Pins the local literal list against the protocol package's own statement
+    // of the phone-owned keys, so the two cannot drift apart silently. The
+    // extra member is `stt.dictionary`, retired outright (Q1) and therefore
+    // absent from a bundle schema that only carries live preferences.
+    const wireKeys = Object.keys(PhonePrefsSchema.shape).sort();
+    expect(wireKeys).toEqual(['scenario.card', 'scenario.inference', 'stt.polish', 'stt.refine']);
+    const store = new MemStore();
+    store.set(
+      'flowmic.settings.queue',
+      JSON.stringify({ latest: Object.fromEntries([...wireKeys, 'stt.dictionary'].map((k) => [k, 1])) }),
+    );
+    const c = new SettingsClient(new RecordingTransport(), store, 200);
+    expect(JSON.parse(store.get('flowmic.settings.queue')!).latest).toEqual({});
+    expect(c.pending).toBe(false);
+  });
+
+  it('leaves the flowmic.ui.* display caches alone', () => {
+    const store = new MemStore();
+    store.set('flowmic.ui.stt.polish', '{"strength":"smooth"}');
+    store.set('flowmic.settings.queue', STALE_QUEUE);
+    new SettingsClient(new RecordingTransport(), store, 200);
+    expect(store.get('flowmic.ui.stt.polish')).toBe('{"strength":"smooth"}');
   });
 });

@@ -1,8 +1,14 @@
 // WP-R3-3 — the settings screen rendered over the real controllers (fake socket
 // + fake recorder). Proves the anti-façade wiring: a profession chip and a pack
-// checkbox are LIVE — tapping a chip writes settings:update{scenario.card}
-// through the real SettingsClient; the structured surfaces (chips / packs /
-// terms) all render from the generated protocol data.
+// checkbox are LIVE — tapping a chip lands on the card the transcription
+// request will carry; the structured surfaces (chips / packs / terms) all
+// render from the generated protocol data.
+//
+// 🔴 THE TAP PUTS NOTHING ON A WIRE (owner 2026-09-03, follow-up ruling 2):
+// the card is READ out of the controller when `audio:start` / `compose:start`
+// is built (settings/phone_prefs_payload.dart), and that hop is walked over a
+// real ChatController in phone_prefs_payload_test.dart. Here the claim is the
+// screen half plus its negative: the settings screen's socket stays silent.
 
 import 'package:flowmic/src/session/outbox_blob_store.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
@@ -12,9 +18,12 @@ import 'package:flowmic/src/auth/login_controller.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
+import 'package:flowmic/src/settings/scenario_card.dart';
 import 'package:flowmic/src/settings/scenario_card_controller.dart';
+import 'package:flowmic/src/settings/scenario_taxonomy.dart';
 import 'package:flowmic/src/settings/settings_client.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
+import 'package:flowmic/src/ui/tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,6 +32,7 @@ import 'support/cloud_summary_fakes.dart';
 import 'support/fakes.dart';
 import 'support/di.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 class _Rig {
@@ -49,7 +59,6 @@ class _Rig {
     r.settingsClient = SettingsClient(
         transport: r.settingsTransport, roomJoins: r.settingsJoins);
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -73,6 +82,8 @@ class _Rig {
           // double over empty rows — this test is about the scenario card, and
           // the data section only has to BUILD.
           portable: newTestPortableController(),
+          prefs: newTestPrefsController(),
+          backup: newTestSettingsBackup(),
           inventory: newTestInventory(rows: const <TimelineEntry>[], images: InMemoryOutboxBlobStore()),
           timeline: newTestStore(),
           version: const FixedAppVersion('0.0.0-test'),
@@ -114,21 +125,25 @@ void main() {
     expect(find.text('编程 / 开发术语'), findsOneWidget); // generated tech-dev pack
     expect(find.text('每条 ≤40 字符'), findsOneWidget); // term ≤40 hint
 
-    // Tap the profession chip → save-as-you-go → settings:update on the wire.
+    // Tap the profession chip → save-as-you-go → it is on the card the next
+    // audio:start will carry, and nothing was announced to anyone.
     await tester.tap(find.text('软件开发'));
     await tester.pump();
 
-    expect(rig.scenario.card.hasProfession('software development'), isTrue);
-    final envelopes =
-        rig.settingsTransport.emittedWhere(FlowMicEvents.settingsUpdate);
-    expect(envelopes, isNotEmpty);
-    final Map<dynamic, dynamic> payload = envelopes.last.data as Map<dynamic, dynamic>;
-    expect(payload['key'], 'scenario.card');
-    expect((payload['value'] as Map)['professions'], <String>['software development']);
+    // 2026-09-04: the chip stores the taxonomy ID, not the label that was on
+    // screen. The English canonical is what the wire carries, and that hop is
+    // pinned in phone_prefs_payload_test.dart.
+    expect(rig.scenario.card.hasProfession('software-dev'), isTrue);
+    expect(rig.scenario.card.toJson()['professions'], <String>['software-dev']);
+    expect(rig.scenario.card.toWireJson()['professions'],
+        <String>['software development']);
+    expect(rig.settingsTransport.emitted, isEmpty,
+        reason: 'the settings screen has had no wire since 2026-09-03');
   });
 
-  testWidgets('GA-11: the hydrated server card is what the SCREEN shows '
-      '(room-join edge → settings:list → rendered term + counter + note)',
+  testWidgets('2026-09-03 (phone-owned card): a settings:list carrying a scenario.card '
+      'is NOT adopted — the SCREEN keeps the phone\'s own card, and the pull still '
+      'happened (it is the capability snapshot, not a card source)',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 4200);
     tester.view.devicePixelRatio = 1.0;
@@ -139,16 +154,15 @@ void main() {
     addTearDown(rig.dispose);
     rig.appSettings.setLocale(AppLocale.zh);
 
-    // A card the user already had locally, so the hydration DISPLACES something
-    // visible and must own up to it.
+    // The card this phone holds. Until 2026-09-03 the case below DISPLACED it
+    // with the server's copy and rendered 「已按电脑端最新值更新」; the owner
+    // ruled the card lives only on this phone, so the inverse is pinned now.
     rig.scenario.togglePack('legal');
+    expect(rig.scenario.addTerm('手机术语'), TermAddOutcome.added);
     await tester.pumpWidget(rig.widget());
     await tester.pumpAndSettle();
-    expect(find.text('服务端术语'), findsNothing);
+    expect(find.text('手机术语'), findsOneWidget);
 
-    // The server snapshot lands when the server ADMITS us, not when the socket
-    // connects — the connected edge fires before `mobile:reconnect` is even
-    // sent, so a pull there comes back AUTH_TOKEN_INVALID and never retries.
     rig.settingsTransport.ackQueue.add(<String, Object?>{
       'items': <Object?>[
         <String, Object?>{
@@ -165,16 +179,20 @@ void main() {
     rig.settingsJoins.value++;
     await tester.pumpAndSettle();
 
-    // The wire really carried the pull…
-    expect(
-      rig.settingsTransport.emittedWhere(FlowMicEvents.settingsList),
-      hasLength(1),
-    );
-    // …and the hydrated value is on screen: the custom term row, the term
-    // counter that counts it, and the honest "this came from your PC" note.
-    expect(find.text('服务端术语'), findsOneWidget);
+    // The wire really carried the pull (positive control)…
+    expect(rig.settingsTransport.emittedWhere(FlowMicEvents.settingsList), hasLength(1));
+    // …and the join answered it with nothing else: no push went up either, so
+    // the ONLY thing that crossed this socket was a capability read.
+    expect(rig.settingsTransport.emittedNames.toSet(),
+        <String>{FlowMicEvents.settingsList});
+    expect(rig.scenario.card.termNames, <String>['手机术语'],
+        reason: 'the phone\'s card is the only card');
+    // The screen is unchanged: our term, our counter, and no 「updated from
+    // your PC」 note anywhere (that string has no renderer any more).
+    expect(find.text('手机术语'), findsOneWidget);
+    expect(find.text('服务端术语'), findsNothing);
     expect(find.text('1 / 100'), findsOneWidget);
-    expect(find.text('已按电脑端最新值更新'), findsOneWidget);
+    expect(find.text('已按电脑端最新值更新'), findsNothing);
   });
 
   testWidgets('VISIBLE language selector: tapping the EN chip re-renders the '
@@ -297,4 +315,97 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('设置'), findsNothing);
   });
+
+  // ── the chips survive a UI-language switch (2026-09-04) ───────────────────
+  //
+  // ── REVERSE CONTROL (executed 2026-09-04) ─────────────────────────────────
+  // Break: in settings_page.dart, make the profession chip store the LABEL it
+  // renders again — `onToggle: (id) => scenario.toggleProfession(
+  // ScenarioAxis.professions.label(s, id))`, i.e. exactly the pre-id behaviour.
+  // OBSERVED, this case red at the FIRST assertion, before any language switch:
+  //     Expected: contains '软件开发'
+  //       Actual: []
+  //        Which: does not contain '软件开发'
+  // — the chip the user just tapped does not even light up, because the stored
+  // label no longer matches the id the chip is keyed by. (The case above went
+  // red too: `hasProfession('software-dev')` Expected: true Actual: <false>.)
+  // Restored; `REVERSE-CONTROL` greps to 0 in apps/mobile/lib.
+  //
+  // 🔴 THE DELIVERABLE IS WHAT IS ON THIS SCREEN, so this test mounts this
+  // screen. The taxonomy's own unit tests (scenario_taxonomy_test.dart) prove
+  // the mapping and the migration; neither of them can see a chip. Before ids,
+  // the card stored the label that was rendered at tap time, so flipping the UI
+  // language left every stored value matching nothing and the whole row went
+  // unselected — a defect no model-level test could have shown.
+  testWidgets('a profession chip picked in Chinese is STILL picked after the UI '
+      'language is switched to German and to Japanese, rendered in each '
+      'language, and the card still holds ONE id', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1200, 4200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final _Rig rig = await _Rig.create();
+    addTearDown(rig.dispose);
+    rig.appSettings.setLocale(AppLocale.zh);
+    await tester.pumpWidget(rig.widget());
+    await tester.pumpAndSettle();
+
+    // Pick 「软件开发」 the way a user does: by tapping the chip that says it.
+    await tester.tap(find.text('软件开发'));
+    await tester.pumpAndSettle();
+    expect(_selectedProfessionChips(AppLocale.zh), contains('软件开发'));
+
+    // Same phone, German UI.
+    rig.appSettings.setLocale(AppLocale.de);
+    await tester.pumpAndSettle();
+    expect(find.text('软件开发'), findsNothing,
+        reason: 'the Chinese label must be gone from the screen entirely');
+    expect(find.text('Software'), findsOneWidget);
+    expect(_selectedProfessionChips(AppLocale.de), contains('Software'),
+        reason: 'the selection is keyed by id, so it survives the language');
+
+    // And a third language, in a different script, without a re-tap.
+    rig.appSettings.setLocale(AppLocale.ja);
+    await tester.pumpAndSettle();
+    expect(_selectedProfessionChips(AppLocale.ja), contains('ソフトウェア開発'));
+
+    // Exactly ONE profession is selected in each of the three languages — the
+    // count is the assertion that would have caught the reported defect, where
+    // the same profession accumulated once per language used.
+    expect(_selectedProfessionChips(AppLocale.ja), hasLength(1));
+    expect(rig.scenario.card.professions, <String>['software-dev']);
+    expect(rig.scenario.card.toWireJson()['professions'],
+        <String>['software development']);
+  });
+}
+
+/// The text of every PROFESSION chip currently rendered in its SELECTED state.
+///
+/// ⚠️ Reads the RENDERED tree, not the model: 「is this chip on」 is a question
+/// about the screen, and answering it from `card.hasProfession` would make this
+/// widget test a second copy of the unit test. `settingsChip` fills its pill
+/// with `brandSoft` exactly when it is on, so the on-state is read off the paint.
+///
+/// ⚠️ SCOPED to the profession row, and scoped by ASKING THE REGISTRY for an
+/// anchor rather than by typing a label in. The settings screen has four other
+/// chip rows (UI language, spoken language, polish strength, theme) and they
+/// are all `settingsChip` too — an unscoped read returns 「日本語」 and 「システム」
+/// alongside the answer. `product-design` is the anchor because it is the one
+/// profession whose label collides with no domain in any of the nine locales.
+List<String> _selectedProfessionChips(AppLocale locale) {
+  final String anchor = ScenarioAxis.professions.labelIn(locale, 'product-design');
+  final Finder group =
+      find.ancestor(of: find.text(anchor), matching: find.byType(Wrap)).first;
+  final List<String> out = <String>[];
+  for (final Element e
+      in find.descendant(of: group, matching: find.byType(Container)).evaluate()) {
+    final Container box = e.widget as Container;
+    final Decoration? d = box.decoration;
+    final Widget? child = box.child;
+    if (d is! BoxDecoration || child is! Text || child.data == null) continue;
+    if (d.color != FlowMicColors.brandSoft) continue;
+    out.add(child.data!);
+  }
+  return out;
 }

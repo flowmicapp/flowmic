@@ -15,6 +15,7 @@ import type { VadGate } from '../stt/vad-gate';
 import type { BuiltOrchestrator } from '../stt/engine-factory';
 import type { FinalTextTransform } from '../stt/final-text-pipeline';
 import type { PolishDeps, PolishSkipReason } from '../stt/stt-polish';
+import type { RefineLlmDeps } from '../stt/stt-refine-llm';
 import type { SelectedLlmConfig } from '../compose/llm-config';
 
 /** Sink for whitelisted STT events (audio handler fans out to mobile + PC). */
@@ -158,13 +159,18 @@ export interface SttSessionDeps {
    *          threshold for (iii) is OWNER's call; this file does not invent a
    *          number and neither should the card that flips this. */
   polishDelivery?: 'sync' | 'detached';
-  /** GA-14 two-pass refine. PRESENT ⇔ this session snapshotted `stt.refine` ON at
-   *  audio:start AND a BATCH engine could be resolved for the second pass —
+  /** The second pass (「二次改顺」, owner 2026-09-04): an LLM SMOOTHING pass over
+   *  the whole delivered utterance. PRESENT ⇔ this session snapshotted
+   *  `stt.refine` ON at audio:start AND an LLM config could be resolved for it;
    *  absent means refine simply does not run for this session, which is why the
-   *  factory logs the reason when the setting was on but no batch engine exists
-   *  (a switch that is on and does nothing must at least be explainable).
-   *  `transcribe` takes the retained PCM and returns one whole-utterance text. */
-  refine?: { cfg: SttRefine; transcribe: (pcm: Buffer) => Promise<string> };
+   *  factory logs the reason when the setting was on and the leg is unusable (a
+   *  switch that is on and does nothing must at least be explainable).
+   *
+   *  🔴 NO ENGINE REQUIREMENT ANY MORE. Until 2026-09-04 this field carried a
+   *  `transcribe(pcm)` and was only present when the routed STT engine had a
+   *  whole-utterance BATCH mode — i.e. never on Soniox or FunASR, i.e. never in
+   *  production. The pass now reads TEXT, so it is engine-independent. */
+  refine?: { cfg: SttRefine; llm: SelectedLlmConfig; deps?: RefineLlmDeps };
   /** stt:level throttle window (default 200 ms). */
   levelIntervalMs?: number;
   now?: () => number;

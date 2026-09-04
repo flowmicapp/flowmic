@@ -78,9 +78,10 @@ beforeEach(() => {
     professions: ['眼科医生'],
     domains: ['医疗器械'],
     packs: [],
-    terms: [],
+    // 2026-09-03 (owner Q1): the alias used to live on `stt.dictionary`; that
+    // key is retired and the alias now rides the card term itself.
+    terms: [{ term: 'Kubernetes', aliases: ['库伯'] }],
   });
-  db.settings.write(U, 'stt.dictionary', [{ term: 'Kubernetes', aliases: ['库伯'] }]);
 });
 
 afterEach(() => {
@@ -143,7 +144,7 @@ describe('pipeline trace — meta level', () => {
     const scenario = readRecords().find((r) => r.stage === 'compose.scenario')!;
     expect(scenario.professions).toBe(1);
     expect(scenario.domains).toBe(1);
-    expect(scenario.term_count).toBe(1);       // Kubernetes, from the dictionary
+    expect(scenario.term_count).toBe(1);       // Kubernetes, from the card's terms
     expect(scenario.replacer_rule_count).toBeGreaterThan(0);
     expect(scenario.block_present).toBe(true);
   });

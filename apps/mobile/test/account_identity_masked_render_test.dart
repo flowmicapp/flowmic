@@ -84,6 +84,7 @@ import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/legibility.dart' show ahemWidthFor, expectLegible;
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 
 /// A realistic account: long enough that the old [Flexible] really did lose it,
@@ -190,7 +191,6 @@ class _SettingsRig {
     r.settingsClient =
         SettingsClient(transport: transport, roomJoins: ValueNotifier<int>(0));
     r.scenario = ScenarioCardController(
-      settingsClient: r.settingsClient,
       cache: InMemoryScenarioCardCache(),
     );
     await r.scenario.load();
@@ -215,6 +215,8 @@ class _SettingsRig {
           destination: destination,
           session: session,
           portable: newTestPortableController(),
+          prefs: newTestPrefsController(),
+          backup: newTestSettingsBackup(),
           inventory: newTestInventory(
             rows: const <TimelineEntry>[],
             images: InMemoryOutboxBlobStore(),

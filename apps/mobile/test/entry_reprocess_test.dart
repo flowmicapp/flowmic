@@ -19,6 +19,7 @@ import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
+import 'package:flowmic/src/session/session_instance_owner.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
@@ -38,7 +39,12 @@ class _Rig {
       audio: AudioCapture(recorder: FakeAudioRecorder()),
       stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
     );
-    store = newTestStore();
+    // 2026-09-03 (D7 ③): rows are born with the instance they were spoken to,
+    // and the session knows its owner set — a refine is matched by utterance
+    // id AND owner now, so an ownerless rig would drop every refine below for
+    // a reason the GA-14 cases are not about.
+    giveSessionAPairedIdentity(session);
+    store = newTestStore(owner: SessionInstanceOwner(session));
     prefs = InMemoryLocalPrefs(sendPolicy: SendPolicy.direct);
     controller = ChatController(
       outboxStore: newTestOutboxStore(),
@@ -70,6 +76,7 @@ class _Rig {
       'segment_idx': 0,
       'is_segment': false,
       'duration_ms': 1200,
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
     transport.pushIncoming(FlowMicEvents.composeDone, <String, Object?>{
@@ -223,6 +230,7 @@ Future<void> main() async {
       'segment_idx': 0,
       'is_segment': false,
       'duration_ms': 20000,
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
     final TimelineEntry row = rig.store.entries.first;
@@ -231,6 +239,7 @@ Future<void> main() async {
     rig.transport.pushIncoming(FlowMicEvents.sttRefined, <String, Object?>{
       'text': '鹅鹅鹅，曲项向天歌。',
       'language': 'zh',
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
 
@@ -259,6 +268,7 @@ Future<void> main() async {
       'segment_idx': 0,
       'is_segment': false,
       'duration_ms': 20000,
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
     final TimelineEntry row = rig.store.entries.first;
@@ -268,6 +278,7 @@ Future<void> main() async {
     rig.transport.pushIncoming(FlowMicEvents.sttRefined, <String, Object?>{
       'text': '机器的第二遍',
       'language': 'zh',
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
 
@@ -284,6 +295,7 @@ Future<void> main() async {
     rig.transport.pushIncoming(FlowMicEvents.sttRefined, <String, Object?>{
       'text': '你好世界（更准的中文）',
       'language': 'zh',
+      'utterance_id': 'utt-ga14',
     });
     await pumpEventQueue();
 

@@ -1,47 +1,43 @@
-// 🔴 Card D-2 (2026-08-07) — WHICH ROW A LATE `stt:refined` IS ALLOWED TO REWRITE.
+// 🔴 Card D-2 → D7 ③ (2026-09-03) — WHICH ROW A LATE `stt:refined` IS ALLOWED TO REWRITE.
 //
-// Source: packages/protocol/src/protocol-schemas-compose.ts, the 2026-08-07
-// correction block on `SttRefinedSchema` (「the phone's consumer applies this
-// frame to the newest ROW in `store.entries`, unfiltered by entry type or owner
-// … a late frame can overwrite a picture's label or text the user typed,
-// persisted, unrecoverably」), and owner 2026-08-07 ruling ②「异步替换一定要切换」
-// (docs/decisions/2026-08-07-owner-segment-polish-2s-budget-and-no-legacy-fleet.md)
-// — this selection is the gate that ruling has to pass through.
+// Source: owner ruling Q2 b (docs/decisions/2026-09-03-owner-web-rulings-phone-owned-settings.md)
+// and design D7 (docs/strategy/2026-09-03-phone-owned-settings-design-and-task-book.md):
+// `stt:final` and `stt:refined` both carry a server-minted `utterance_id`; the
+// phone stores it on the row the terminal final builds and matches a refine on
+// THAT KEY ALONE. The temporal guess card D-2 had to keep (「the newest row must
+// be the row my last utterance built」) is gone, and so is its blast radius: a
+// refine for an utterance that is no longer on top now lands on the right row
+// instead of being dropped, and a refine that names no utterance is dropped at
+// the wire (ptt_inbound.dart) instead of being aimed at whatever is on top.
 //
-// WHAT THIS FILE PINS THAT NOTHING ELSE DOES. `TimelineStore.buildFromUtterance`
-// has five callers and only ONE of them is speech. The other four produce rows
-// that are, field for field, indistinguishable from a spoken one: `entry_type`
-// is 'transcript' for a typed note and a saved-phrase tap, `edited` is false (no human
-// has touched them yet) and `processed_text` is null (no LLM ran). Both of the
-// guards `_applyRefined` used to have are therefore OPEN on all four. So every
-// case below SEEDS A SPOKEN ROW FIRST and then puts the non-speech row on top:
-// without that seed the fix would pass for the wrong reason (nothing had ever
-// been said, so there was no refine to place), and the defect it is about would
-// not even be reachable.
+// WHAT THIS FILE PINS. `TimelineStore.buildFromUtterance` has five callers and
+// only ONE of them is speech; the other four (a picture, a light-record picture,
+// a typed note, a saved-phrase tap) never carry an utterance id, so no refine can
+// name them — but every case still seeds a SPOKEN row first and puts the
+// non-speech row ON TOP, because the defect this file guards against is 「the
+// newest row absorbed it」, and a suite where nothing was ever said cannot
+// reach that defect.
 //
 // The assertions are `refinedAt` AND the text. `refinedAt` is the sharper one:
 // `TimelineStore.applyRefined` stamps it unconditionally, so a null stamp proves
-// the write never ran rather than that it ran and happened to produce the same
-// string.
+// the write never ran.
 //
 // Plain `test()`, not testWidgets: the PTT chain is genuinely async and awaiting
 // it inside a FakeAsync zone deadlocks (a scar this repo already wears).
 //
-// ── reverse control measured red (marker REVERSE-CONTROL-D2, restored; grep in lib/ = 0) ───
-// The two new guards in `_applyRefined` were commented out — i.e. the selection
-// was put back to 「the newest row, edited/processedText only」 — and this file
-// went 2 green / 5 RED, the reds being exactly the five rows nobody dictated:
-//
-//   发给 PC 的图片行  Expected: '🖼 PNG · 77 B'    Actual: '这是我说的那一句，第二遍更准的版本'
-//   仅记录图片行      Expected: '🖼 PNG · 77 B'    Actual: '这是我说的那一句，第二遍更准的版本'
-//   手打笔记行        Expected: '我自己打的字'      Actual: '这是我说的那一句，第二遍更准的版本'
-//   常用语行          Expected: '稍等一下'          Actual: '这是我说的那一句，第二遍更准的版本'
-//   一句话都没说过    Expected: '开场先打一行字'    Actual: '这是我说的那一句，第二遍更准的版本'
-//
-// The two SPEECH cases stayed green through the whole reverse run, and that is
-// the half of the control that is easy to skip: it is what separates 「the fix
-// selects the right row」 from 「the fix turned GA-14 off」, which would also have
-// made all five reds go away.
+// ── reverse controls measured red 2026-09-03 (restored; grep in lib/ = 0) ───
+// A. In `_applyRefined`, replace the id filter with 「the newest row」
+//    (`c.store.entries.first`, D-2's old shape, all other guards kept) ⇒
+//    「a refine for an utterance that is no longer on top still lands on ITS
+//    row」 goes red (the picture on top absorbed it: Expected '这是我说的那一句，
+//    第二遍更准的版本' Actual '🖼 PNG · 77 B' on the spoken row, and the picture's
+//    caption was overwritten) — the exact defect D-2 was written against.
+// B. In `ptt_inbound.dart`, forward a frame WITHOUT `utterance_id` using the
+//    spoken row's id as a stand-in ⇒ 「a frame without an id is DROPPED」 goes
+//    red (the spoken row was refined).
+// The three speech-with-id cases stayed green through both runs — the half of
+// the control that separates 「the fix selects the right row」 from 「the fix
+// turned GA-14 off」.
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -54,6 +50,7 @@ import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/session/image_payload.dart';
 import 'package:flowmic/src/session/image_send_controller.dart';
 import 'package:flowmic/src/session/instance_probe.dart' show HealthReading, ServerChannel;
+import 'package:flowmic/src/session/session_instance_owner.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
@@ -74,6 +71,7 @@ final Uint8List kPng = base64Decode(
 
 const String kSpoken = '这是我说的那一句';
 const String kRefined = '这是我说的那一句，第二遍更准的版本';
+const String kUtt = 'utt-d7-0001';
 
 class _FakePicker implements ImagePickerPort {
   _FakePicker(this.bytes);
@@ -83,25 +81,21 @@ class _FakePicker implements ImagePickerPort {
 }
 
 /// A REAL, connected, PAIRED session — `pcId` comes from a genuine `pair()` ack,
-/// the production path. Not decoration: `ManualDelivery.deliverText` enqueues
-/// before it emits, and the queue refuses an item it cannot address, so an
-/// unpaired fixture turns every typed send into `noPcTarget` (manual_delivery
-/// says so in the 17-reds note at its enqueue site). No test-only setter is
-/// used — a backdoor would let this file pass on a value nothing populates.
+/// the production path (ManualDelivery refuses an unpaired fixture). The pairing
+/// also seeds `session.scope.ownerIds`, the owner set `_applyRefined` checks a
+/// row against — no test-only setter anywhere.
 Future<PttSession> _pairedSession(FakeSocketTransport t) async {
   final PttSession session = newTestSession(
     transport: t,
     audio: AudioCapture(recorder: FakeAudioRecorder()),
     stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
   );
-  // RV-89: pin the channel probe, or the fixture reads whatever is listening on
-  // the dev machine's port.
   session.healthReader = (Uri url, Duration timeout) async => HealthReading.offline;
   t.defaultAck = <String, Object?>{
-    'token': 'tok-card-d2-abcdefghijklmnopqrstuvwxyz1',
-    'pairing_id': 'pair-card-d2-1',
-    'pc_id': 'pc-card-d2-0001',
-    'pc_name': 'Card D-2 Test PC',
+    'token': 'tok-card-d7-abcdefghijklmnopqrstuvwxyz1',
+    'pairing_id': 'pair-card-d7-1',
+    'pc_id': 'pc-card-d7-0001',
+    'pc_name': 'Card D7 Test PC',
   };
   final PairResult r = await session.pair(
     PairEntry.parse('1234'),
@@ -115,7 +109,9 @@ Future<PttSession> _pairedSession(FakeSocketTransport t) async {
 
 class _Rig {
   _Rig._(this.transport, this.session, {bool recordOnly = false}) {
-    store = newTestStore();
+    // The REAL owner probe, as main.dart wires it: rows are born with the
+    // instance they were spoken to, which is what the owner guard reads.
+    store = newTestStore(owner: SessionInstanceOwner(session));
     destination = DestinationController(fixedRecordOnly: recordOnly);
     controller = ChatController(
       outboxStore: newTestOutboxStore(),
@@ -127,10 +123,6 @@ class _Rig {
       localPrefs: InMemoryLocalPrefs(sendPolicy: SendPolicy.direct),
       imagePicker: _FakePicker(kPng),
     );
-    // owner 2026-08-01 cloud image policy: the channel is read from `/api/health`,
-    // which no test session answers, and `imagePickSpecFor` fails CLOSED to the
-    // cloud tier on "unknown". Declared through the same notifier production
-    // reads so the picture cases exercise the LAN path.
     session.serverChannel.value = ServerChannel.lan;
     transport.pushStatus(SocketStatus.connected);
   }
@@ -146,9 +138,9 @@ class _Rig {
   late final DestinationController destination;
   late final ChatController controller;
 
-  /// Path ①: a real utterance — PTT down/up and a TERMINAL final, i.e. the one
-  /// `buildFromUtterance` caller that speech reaches.
-  Future<TimelineEntry> speak(String text) async {
+  /// Path ①: a real utterance — PTT down/up and a TERMINAL final carrying the
+  /// server's utterance id (null = an old relay that strips it).
+  Future<TimelineEntry> speak(String text, {String? utteranceId = kUtt}) async {
     expect(await controller.pttDown(), isTrue, reason: 'setup: PTT must arm');
     await controller.pttUp();
     transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
@@ -158,6 +150,7 @@ class _Rig {
       'segment_idx': 0,
       'is_segment': false,
       'duration_ms': 900,
+      'utterance_id': ?utteranceId,
     });
     await pumpEventQueue();
     return store.entries.first;
@@ -167,9 +160,10 @@ class _Rig {
   /// (`ptt_inbound.dart` → `PttSession.refinedTexts` → `_onRefined`). No seam is
   /// poked: a test that called `_applyRefined` directly could not prove the
   /// stream is still wired.
-  Future<void> refine(String text) async {
+  Future<void> refine(String text, {String? utteranceId = kUtt}) async {
     transport.pushIncoming(FlowMicEvents.sttRefined, <String, Object?>{
       'text': text,
+      'utterance_id': ?utteranceId,
     });
     await pumpEventQueue();
   }
@@ -183,8 +177,6 @@ class _Rig {
   }
 }
 
-/// 「this row was not touched」 — the text is byte-identical AND the adoption
-/// stamp never landed.
 void expectUntouched(TimelineEntry? row, String text, {required String reason}) {
   expect(row, isNotNull, reason: '$reason (the row itself disappeared)');
   expect(row!.outputText, text, reason: reason);
@@ -194,25 +186,50 @@ void expectUntouched(TimelineEntry? row, String text, {required String reason}) 
 }
 
 void main() {
-  // ── ① speech transcript row: the ONE row a refine is for ───────────────────
-  test('speech transcript row ⇒ may be replaced (GA-14 still does its job)', () async {
+  // ── the row carries the id it was settled from ────────────────────────────
+  test('the terminal final\'s utterance_id is stored on the row it builds', () async {
     final _Rig rig = await _Rig.paired();
     final TimelineEntry spoken = await rig.speak(kSpoken);
-    expect(spoken.outputText, kSpoken, reason: 'setup: the utterance built a row');
+    expect(spoken.utteranceId, kUtt);
+    expect(rig.store.findById(spoken.id)!.utteranceId, kUtt,
+        reason: 'and it survives the store (payload key, codec round-trip)');
+    await rig.dispose();
+  });
+
+  // ── ① speech row named by id ⇒ replaced ───────────────────────────────────
+  test('speech row named by the refine\'s utterance_id ⇒ replaced (GA-14 still does its job)', () async {
+    final _Rig rig = await _Rig.paired();
+    final TimelineEntry spoken = await rig.speak(kSpoken);
 
     await rig.refine(kRefined);
 
     final TimelineEntry? after = rig.store.findById(spoken.id);
-    expect(after!.outputText, kRefined,
-        reason: 'the better transcript replaces the row it belongs to');
+    expect(after!.outputText, kRefined);
     expect(after.refinedAt, isNotNull);
     expect(after.edited, isFalse,
         reason: 'a second pass is a machine, not a person — the human-edited bit stays clear');
     await rig.dispose();
   });
 
-  test('speech row the user has edited ⇒ must not overwrite (the pre-existing guard is not lost)',
-      () async {
+  test('🔴 a refine for an utterance that is no longer on top still lands on ITS row '
+      '(the improvement over card D-2), and the picture on top is untouched', () async {
+    final _Rig rig = await _Rig.paired();
+    final TimelineEntry spoken = await rig.speak(kSpoken);
+    expect(await rig.controller.sendImage(), isNull, reason: 'setup: the picture really was sent');
+    final TimelineEntry picture = rig.store.entries.first;
+    expect(picture.isImage, isTrue, reason: 'setup: the picture is on top');
+    final String label = picture.outputText;
+
+    await rig.refine(kRefined);
+
+    expect(rig.store.findById(spoken.id)!.outputText, kRefined,
+        reason: 'the id names the spoken row wherever it is in the list');
+    expectUntouched(rig.store.findById(picture.id), label,
+        reason: 'the picture caption is a descriptor, and it carries no utterance id');
+    await rig.dispose();
+  });
+
+  test('speech row the user has edited ⇒ must not overwrite (the pre-existing guard is not lost)', () async {
     final _Rig rig = await _Rig.paired();
     final TimelineEntry spoken = await rig.speak(kSpoken);
     rig.controller.editEntry(spoken, '我自己改过的话');
@@ -224,97 +241,115 @@ void main() {
     await rig.dispose();
   });
 
-  // ── ② picture row sent to the PC ───────────────────────────────────────────
-  test('picture row sent to the PC ⇒ never touched', () async {
-    final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
-    expect(await rig.controller.sendImage(), isNull,
-        reason: 'setup: the picture really was sent');
-    final TimelineEntry picture = rig.store.entries.first;
-    expect(picture.isImage, isTrue, reason: 'setup: the picture is on top');
-    final String label = picture.outputText;
-
-    await rig.refine(kRefined);
-
-    expectUntouched(rig.store.findById(picture.id), label,
-        reason: 'the picture caption is a descriptor not a dictation — refining it would edit a label');
-    expectUntouched(rig.store.findById(spoken.id), kSpoken,
-        reason: 'and the utterance underneath is no longer the newest row, so '
-            'the refine is DROPPED rather than re-aimed (card D-2 keeps the '
-            'temporal guard verbatim — there is no id to re-aim WITH)');
-    await rig.dispose();
-  });
-
-  // ── ③ record-only picture row ─────────────────────────────────────────────
-  test('record-only picture row ⇒ never touched', () async {
+  // ── the four non-speech rows: no id, never touched ────────────────────────
+  test('record-only picture row on top ⇒ never touched; the spoken row underneath IS refined', () async {
     final _Rig rig = await _Rig.paired(recordOnly: true);
     final TimelineEntry spoken = await rig.speak(kSpoken);
     expect(await rig.controller.sendImage(), isNull);
     final TimelineEntry picture = rig.store.entries.first;
-    expect(picture.isImage, isTrue);
-    expect(picture.delivery, Delivery.none,
-        reason: 'setup: light-record — this row never leaves the phone');
+    expect(picture.delivery, Delivery.none, reason: 'setup: light-record');
     final String label = picture.outputText;
 
     await rig.refine(kRefined);
 
-    expectUntouched(rig.store.findById(picture.id), label,
-        reason: 'a light-record picture is a descriptor too, and it has no PC to '
-            'disagree with — the damage would be purely local and permanent');
-    expectUntouched(rig.store.findById(spoken.id), kSpoken, reason: 'not newest');
+    expectUntouched(rig.store.findById(picture.id), label, reason: 'no utterance id on a picture');
+    expect(rig.store.findById(spoken.id)!.outputText, kRefined);
     await rig.dispose();
   });
 
-  // ── ④ typed-note row ───────────────────────────────────────────────────────
-  test('typed-note row ⇒ never touched (the user typed these words)', () async {
+  test('typed-note row on top ⇒ never touched (the user typed these words)', () async {
     final _Rig rig = await _Rig.paired();
     final TimelineEntry spoken = await rig.speak(kSpoken);
     rig.controller.setBuffer('我自己打的字');
-    expect(await rig.controller.sendBuffer(), isNull,
-        reason: 'setup: the typed send really went out');
+    expect(await rig.controller.sendBuffer(), isNull, reason: 'setup: the typed send really went out');
     final TimelineEntry typed = rig.store.entries.first;
-    expect(typed.outputText, '我自己打的字', reason: 'setup: D10 built its own row');
+    expect(typed.outputText, '我自己打的字');
+    expect(typed.utteranceId, isNull, reason: 'a typed note has no utterance behind it');
 
     await rig.refine(kRefined);
 
     expectUntouched(rig.store.findById(typed.id), '我自己打的字',
-        reason: '🔴 these are words the user typed themselves — overwriting it is content loss, on disk, '
-            'with no `edited` bit to show a human it happened');
-    expectUntouched(rig.store.findById(spoken.id), kSpoken, reason: 'not newest');
+        reason: '🔴 these are words the user typed themselves — overwriting it is content loss');
+    expect(rig.store.findById(spoken.id)!.outputText, kRefined);
     await rig.dispose();
   });
 
-  // ── ⑤ saved-phrase row ─────────────────────────────────────────────────────
-  test('saved-phrase row ⇒ never touched', () async {
+  test('saved-phrase row on top ⇒ never touched', () async {
     final _Rig rig = await _Rig.paired();
     final TimelineEntry spoken = await rig.speak(kSpoken);
-    expect(await rig.controller.sendFavorite('稍等一下'), isNull,
-        reason: 'setup: F-5 tap-to-send really delivered');
+    expect(await rig.controller.sendFavorite('稍等一下'), isNull);
     final TimelineEntry phrase = rig.store.entries.first;
-    expect(phrase.outputText, '稍等一下');
+    expect(phrase.utteranceId, isNull);
 
     await rig.refine(kRefined);
 
     expectUntouched(rig.store.findById(phrase.id), '稍等一下',
-        reason: 'a saved phrase is the user\'s own words — same class as ④, and '
-            'the reason `entry_type` could never have been the filter: this row '
-            'is a 「transcript」 that nobody transcribed');
-    expectUntouched(rig.store.findById(spoken.id), kSpoken, reason: 'not newest');
+        reason: 'a 「transcript」 nobody transcribed carries no id and cannot be named');
+    expect(rig.store.findById(spoken.id)!.outputText, kRefined);
     await rig.dispose();
   });
 
-  // ── the 「nothing was ever said」 leg ───────────────────────────────────────
-  test('this session never spoke a word ⇒ refine has nowhere to land, must not pick a row', () async {
+  // ── the id is the ONLY key ────────────────────────────────────────────────
+  test('🔴 a frame without an utterance_id is DROPPED at the wire — even with a spoken '
+      'row on top, nothing is guessed by recency', () async {
     final _Rig rig = await _Rig.paired();
-    rig.controller.setBuffer('开场先打一行字');
-    expect(await rig.controller.sendBuffer(), isNull);
-    final TimelineEntry typed = rig.store.entries.single;
+    final TimelineEntry spoken = await rig.speak(kSpoken);
+    expect(rig.store.entries.first.id, spoken.id, reason: 'setup: the spoken row IS the newest');
+
+    await rig.refine(kRefined, utteranceId: null);
+
+    expectUntouched(rig.store.findById(spoken.id), kSpoken,
+        reason: 'no id ⇒ no refine; recency is not a correlation');
+    await rig.dispose();
+  });
+
+  test('an id that names no row ⇒ nothing is touched', () async {
+    final _Rig rig = await _Rig.paired();
+    final TimelineEntry spoken = await rig.speak(kSpoken);
+
+    await rig.refine(kRefined, utteranceId: 'utt-somebody-else');
+
+    expectUntouched(rig.store.findById(spoken.id), kSpoken, reason: 'wrong id');
+    await rig.dispose();
+  });
+
+  test('an old relay that strips utterance_id from stt:final leaves a row with no id, '
+      'and a later refine cannot reach it (the safe direction in design §2)', () async {
+    final _Rig rig = await _Rig.paired();
+    final TimelineEntry spoken = await rig.speak(kSpoken, utteranceId: null);
+    expect(spoken.utteranceId, isNull);
 
     await rig.refine(kRefined);
 
-    expectUntouched(rig.store.findById(typed.id), '开场先打一行字',
-        reason: 'a refine with no utterance behind it is about nothing; '
-            'dropping beats guessing');
+    expectUntouched(rig.store.findById(spoken.id), kSpoken, reason: 'no id on the row');
+    await rig.dispose();
+  });
+
+  test('two segment rows sharing one utterance_id (a long realtime utterance) ⇒ '
+      'the whole-utterance refine is dropped rather than written onto one segment', () async {
+    final _Rig rig = await _Rig.paired();
+    expect(await rig.controller.pttDown(), isTrue);
+    await rig.controller.pttUp();
+    rig.transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
+      'text': '第一段', 'confidence': 0.9, 'language': 'zh',
+      'segment_idx': 0, 'is_segment': true, 'duration_ms': 16000, 'utterance_id': kUtt,
+    });
+    await pumpEventQueue();
+    rig.transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
+      'text': '第二段', 'confidence': 0.9, 'language': 'zh',
+      'segment_idx': 1, 'is_segment': false, 'duration_ms': 4000, 'utterance_id': kUtt,
+    });
+    await pumpEventQueue();
+    final List<TimelineEntry> rows =
+        rig.store.entries.where((TimelineEntry e) => e.utteranceId == kUtt).toList();
+    expect(rows, hasLength(2), reason: 'setup: realtime settles per segment');
+
+    await rig.refine('第一段 第二段 更准');
+
+    for (final TimelineEntry r in rows) {
+      expectUntouched(rig.store.findById(r.id), r.outputText,
+          reason: 'a whole-utterance transcript has no segment boundary to split on');
+    }
     await rig.dispose();
   });
 }

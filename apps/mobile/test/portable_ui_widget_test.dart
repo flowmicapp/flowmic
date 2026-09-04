@@ -36,6 +36,7 @@ import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/portable_fakes.dart';
+import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
 import 'support/portable_rows.dart';
 import 'support/locale_terms.dart';
@@ -329,7 +330,6 @@ void main() {
           transport: transport, roomJoins: ValueNotifier<int>(0));
       addTearDown(settingsClient.dispose);
       final ScenarioCardController scenario = ScenarioCardController(
-        settingsClient: settingsClient,
         cache: InMemoryScenarioCardCache(),
       );
       addTearDown(scenario.dispose);
@@ -362,6 +362,8 @@ void main() {
             destination: destination,
             session: session,
             portable: portable,
+            prefs: newTestPrefsController(),
+            backup: newTestSettingsBackup(),
             inventory: newTestInventory(rows: const <TimelineEntry>[], images: InMemoryOutboxBlobStore()),
             timeline: newTestStore(),
             version: const FixedAppVersion('0.0.0-test'),

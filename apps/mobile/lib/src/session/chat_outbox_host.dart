@@ -15,21 +15,52 @@ part of 'chat_controller.dart';
 /// The body of `ChatController._onRoomJoined` — the `PttSession.roomJoins`
 /// edge, which is 「the server has actually put this connection into a room」.
 ///
-/// 🔴 TWO SUBSCRIBERS OF ONE EDGE, NOT TWO EDGES. The queue drain is F-1's
-/// (the whole argument is at the bottom of this file); the pairing
-/// confirmation is the P0's. They are here together because they need the SAME
-/// moment and re-deriving it would give 「when did we get in」 two answers — the
-/// mistake F-1 was itself created to undo.
+/// 🔴 **THE QUEUE DRAIN IS NO LONGER HERE** (2026-09-04). It did not move back
+/// to a socket edge — it moved OUT to [onDeliveryLinkUpRouted], which subscribes
+/// to `DeliveryLinkUp`, the fact this edge is only HALF of. This edge answers
+/// 「THIS PHONE got in」; the queue needs 「the link to that computer is up」, and
+/// on the cloud leg those two came apart for minutes at a time (the measurement
+/// is in delivery_link_up.dart). What is left here is the pairing confirmation,
+/// which really is about this phone and nothing else.
 ///
-/// 🔴 THE ORDER OF THE TWO LINES IS NOT LOAD-BEARING, BUT THE ORDER OF THE
-/// SECOND LINE'S TWO READS IS. `lastJoinAtHomeNode` is written by
+/// 🔴 THE ORDER OF THE READS IS LOAD-BEARING. `lastJoinAtHomeNode` is written by
 /// `PttSession.noteRoomJoined` IMMEDIATELY BEFORE it bumps `roomJoins`, and a
 /// `ValueNotifier` notifies synchronously — so what is read here is this join's
 /// own verdict. Written the other way round it would be the previous join's,
 /// and on the very hop this exists to cover that is the answer that is wrong.
 void onRoomJoinedRouted(ChatController c) {
-  unawaited(c.outbox.drain());
   c.pairingSuccess.noteJoinAtHomeNode(c.session.reconnect.lastJoinAtHomeNode);
+}
+
+/// The body of `ChatController._onDeliveryLinkUp` — 「the delivery link to the
+/// target PC is up」, from either of its two edges (delivery_link_up.dart).
+///
+/// 🔴 ONE DRAIN PER EDGE, AND NONE ON AN EMPTY QUEUE. The edge itself is already
+/// a rising edge on both halves, so this cannot storm; the count check is what
+/// keeps an ordinary reconnect on a phone that owes nothing from touching the
+/// store at all.
+///
+/// ⚠️ `pendingCountIsKnown` is checked FIRST and the answer on `false` is 「drain
+/// anyway」. `pendingCountTotal` is a derived view, and at boot `outbox.load()`
+/// is fired unawaited (main.dart) — so a pairing that completes before that load
+/// returns would read `0` for a queue that is not empty, and skipping there
+/// would strand exactly the items the boot revive just rescued. An unnecessary
+/// drain costs one store read; a skipped one costs a promise.
+///
+/// The diag line is written on BOTH branches on purpose: 「the edge fired and we
+/// chose not to drain」 and 「the edge never fired」 are different faults with
+/// different fixes, and only a line that is present in the first case can tell
+/// them apart afterwards.
+void onDeliveryLinkUpRouted(ChatController c) {
+  final bool known = c.outbox.pendingCountIsKnown;
+  final int pending = c.outbox.pendingCountTotal;
+  final bool willDrain = !known || pending > 0;
+  diag('outbox.link_up', <String, Object?>{
+    'edge': c.deliveryLink.lastEdge.name,
+    'pending': known ? pending : null,
+    'drain': willDrain,
+  });
+  if (willDrain) unawaited(c.outbox.drain());
 }
 
 /// P0 — the connections page's deliberate-entry funnel, wired in `main.dart`
@@ -377,6 +408,13 @@ void onInjectResultRouted(ChatController c, InjectResult r) {
 /// **A "double insurance" drain is deliberately NOT kept here**: two trigger
 /// edges would give 「为什么这条投出去了」("why did this one go out") two
 /// answers, and one of them would be wrong.
+///
+/// ⚠️ **Correction in place, 2026-09-04**: the drain now hangs off
+/// `DeliveryLinkUp`, which `roomJoins` feeds — so the sentence above is still
+/// true about THIS edge (nothing drains on `connected`, and nothing may be added
+/// here), and the destination-side edge it did not know about is described in
+/// delivery_link_up.dart. That is still ONE subscriber of ONE fact, which is
+/// what the last paragraph was protecting; it is not a second trigger edge.
 void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
   final ConnectionState prev = c._conn;
   final SessionState prevSess = c._sess;

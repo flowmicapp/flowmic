@@ -1,15 +1,25 @@
-// Card LLM-NOTICE (owner 2026-08-25, D1/D2) — the desktop's three sentences
-// about one missing language model, plus the first-run card, asserted on the
-// RENDERED result in every UI locale.
+// Card LLM-NOTICE (owner 2026-08-25, D1/D2) — the desktop's sentences about one
+// missing language model, plus the first-run card, asserted on the RENDERED
+// result in every UI locale.
 //
-// THE RULE THIS FILE PINS: three facts, three sentences, never merged.
+// THE RULE THIS FILE PINS: separate facts get separate sentences, never merged.
+// There were three:
 //   · Translate / Organize → NOT SUPPORTED     (LlmSettings, `llm_modes_unsupported`)
-//   · AI polish            → NOT IN EFFECT     (SttSettings, `polish_no_llm`, card POLISH-CFG)
+//   · AI polish            → NOT IN EFFECT     (SttSettings, `polish_no_llm`)
 //   · scenario card        → terms STILL WORK  (ScenarioCard, `scenario_terms_still_work`)
-// The third is the one a careless merge gets wrong: stt/engine-factory.ts
-// feeds the card's terms to the SPEECH engine as hotwords/replacements, so a
-// sentence saying the card is "not supported" would be false (execution plan
-// §1.1, measured).
+//
+// 🔴 TWO OF THE THREE LEFT ON 2026-09-03, AND NOT BY BEING MERGED — their SCREENS
+// left. owner ruled the AI-polish switch and the scenario card are the phone's,
+// so this end has neither control and a sentence about either would be about a
+// screen the reader is not on. The MECHANISM is unchanged: the card's terms still
+// reach the speech engine as hotwords/replacements (stt/engine-factory.ts), which
+// is exactly why the deleted sentence must not be resurrected here as a
+// consolation line under the surviving one — 'the card still works' is not this
+// screen's news to give.
+// ⚠️ What is left of the dependency on THIS page is `llm_hint`, which names AI
+// polish as a consumer of `llm.config` and says where its switch now is. Its
+// per-locale equality with `polish_title` was pinned by
+// polish-capability-notice.test.ts; both went with the card.
 //
 // 【rendered-result】 Every copy assertion goes through renderToString, never
 // through the catalogue alone (0.2.53). Every negative case carries a positive
@@ -31,7 +41,6 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: vi.fn(), listen: vi.fn() }));
 
 import LlmSettings from './components/LlmSettings.vue';
-import ScenarioCard from './components/ScenarioCard.vue';
 import SttSettings from './components/SttSettings.vue';
 import LlmSetupCard from './components/LlmSetupCard.vue';
 import { applyServerSettings, model } from './settings-model';
@@ -49,7 +58,6 @@ import { guideUrl } from '../lib/site-guide';
  *  sentence is its own, but the zh-CN one must still be the D1 ruling's claim
  *  ("not supported"), so the claim word is pinned here. */
 const MODE_CLAIM_ZH = '不支持';
-const SCENARIO_MUST_NOT_CLAIM_ZH = '不支持';
 
 const DEFAULT_VALUE_CLAIMS: Record<string, readonly string[]> = {
   'zh-CN': ['默认关闭', '默认开启', '缺省关', '缺省开'],
@@ -100,37 +108,42 @@ afterEach(() => {
 });
 
 describe('three sentences, three subjects, every locale (rendered)', () => {
-  it('usable:false ⇒ the modes sentence is on the LLM section, the scenario sentence on the card, the polish sentence beside its switch', async () => {
+  it('usable:false ⇒ the modes sentence is on the LLM section, in every locale', async () => {
     usable(false);
     for (const loc of UI_LOCALES) {
       const s = S_BY_LOCALE[loc];
       const llm = await render(LlmSettings, loc);
       expect(llm, `${loc}: LLM section did not render`).toContain(esc(s.llm_title)); // positive control
       expect(llm, `${loc}: modes sentence missing`).toContain(esc(s.llm_modes_unsupported));
-
-      const sc = await render(ScenarioCard, loc);
-      expect(sc, `${loc}: scenario card did not render`).toContain(esc(s.scenario_title));
-      expect(sc, `${loc}: scenario sentence missing`).toContain(esc(s.scenario_terms_still_work));
-
-      const stt = await render(SttSettings, loc);
-      expect(stt, `${loc}: polish sentence missing`).toContain(esc(s.polish_no_llm));
     }
   });
 
-  it('🔴 usable:true ⇒ NONE of the three sentences appears, in any locale (positive controls prove the render)', async () => {
+  it('🔴 usable:true ⇒ the sentence does not appear, in any locale (positive control proves the render)', async () => {
     usable(true);
     for (const loc of UI_LOCALES) {
       const s = S_BY_LOCALE[loc];
       const llm = await render(LlmSettings, loc);
       expect(llm).toContain(esc(s.llm_title));
       expect(llm, `${loc}: modes sentence leaked`).not.toContain(esc(s.llm_modes_unsupported));
-      const sc = await render(ScenarioCard, loc);
-      expect(sc).toContain(esc(s.scenario_title));
-      expect(sc, `${loc}: scenario sentence leaked`).not.toContain(esc(s.scenario_terms_still_work));
-      const stt = await render(SttSettings, loc);
-      expect(stt).toContain(esc(s.polish_toggle));
-      expect(stt, `${loc}: polish sentence leaked`).not.toContain(esc(s.polish_no_llm));
     }
+  });
+
+  // 🔴 THE SPEECH PAGE MAKES NO CLAIM ABOUT THE LANGUAGE MODEL ANY MORE, and the
+  // assertion is that it renders with the capability fact set to FALSE and still
+  // says nothing about it. A page that quietly grew a replacement sentence for
+  // the deleted `polish_no_llm` would be answering for a switch it does not have.
+  it('🔴 SttSettings says nothing about the language model, even at usable:false', async () => {
+    usable(false);
+    const stt = await render(SttSettings, 'en');
+    expect(stt, 'the speech page did not render').toContain(esc(S_BY_LOCALE.en.stt_title)); // positive control
+    // 🔴 HTML COMMENTS ARE IN THE SSR OUTPUT, and the page's own note NAMES the
+    // three deleted cards in order to say they are gone. Asserting on the raw
+    // string made this case fail on that explanation — a guard that cannot tell a
+    // rule from its violation, which is the failure llm-notice already recorded
+    // once for LlmSetupCard.vue. Strip them, then read what a user would read.
+    const visible = stt.replace(/<!--[\s\S]*?-->/g, '');
+    expect(visible).not.toContain(esc(S_BY_LOCALE.en.llm_modes_unsupported));
+    expect(visible.toLowerCase(), 'a polish claim came back onto the speech page').not.toContain('ai polish');
   });
 
   it('before the first settings:list nothing is claimed either way', async () => {
@@ -139,29 +152,50 @@ describe('three sentences, three subjects, every locale (rendered)', () => {
     expect(llm).not.toContain(esc(S_BY_LOCALE['zh-CN'].llm_modes_unsupported));
   });
 
-  it('the sentences are DISTINCT per locale (no translation wearing a passing test) and never merged into one', () => {
+  it('the sentence is DISTINCT per locale (no translation wearing a passing test)', () => {
     for (const loc of UI_LOCALES) {
       const s = S_BY_LOCALE[loc];
       expect(s.llm_modes_unsupported.trim()).not.toBe('');
-      expect(s.scenario_terms_still_work.trim()).not.toBe('');
-      expect(s.llm_modes_unsupported).not.toBe(s.scenario_terms_still_work);
-      expect(s.llm_modes_unsupported).not.toBe(s.polish_no_llm);
       if (loc !== 'zh-CN') {
         expect(s.llm_modes_unsupported, `${loc} fell back to zh-CN`).not.toBe(S_BY_LOCALE['zh-CN'].llm_modes_unsupported);
-        expect(s.scenario_terms_still_work, `${loc} fell back to zh-CN`).not.toBe(S_BY_LOCALE['zh-CN'].scenario_terms_still_work);
       }
     }
-    // The claim words: the modes sentence SAYS not supported; the scenario one must NOT.
+    // The claim word: the modes sentence SAYS not supported.
     expect(S_BY_LOCALE['zh-CN'].llm_modes_unsupported).toContain(MODE_CLAIM_ZH);
-    expect(S_BY_LOCALE['zh-CN'].scenario_terms_still_work).not.toContain(SCENARIO_MUST_NOT_CLAIM_ZH);
-    expect(S_BY_LOCALE.en.scenario_terms_still_work.toLowerCase()).not.toContain('not supported');
+  });
+
+  // 🔴 `llm_hint` STILL NAMES AI POLISH, and that is a requirement rather than a
+  // leftover (REQ-13-09). Polish has no configuration of its own — it resolves
+  // through the very `llm.config` this page edits (stt-factory.ts
+  // resolvePolishDep) — so emptying these fields turns it off, and after
+  // 2026-09-03 this is the ONLY page in the product's desktop end that can say
+  // so. The sentence must also say where the switch now lives, or the reader is
+  // told about a control with no way to find it.
+  it('🔴 llm_hint names AI polish AND points at the phone, in every locale', async () => {
+    for (const loc of UI_LOCALES) {
+      const html = await render(LlmSettings, loc);
+      expect(html, `${loc}: llm_hint is not mounted`).toContain(esc(S_BY_LOCALE[loc].llm_hint));
+    }
+    // Read on the two locales whose wording this repo owns word for word.
+    expect(S_BY_LOCALE.en.llm_hint).toContain('AI polish');
+    expect(S_BY_LOCALE.en.llm_hint.toLowerCase()).toContain('phone');
+    expect(S_BY_LOCALE['zh-CN'].llm_hint).toContain('AI 润色');
+    expect(S_BY_LOCALE['zh-CN'].llm_hint).toContain('手机');
+    // ⚠️ It must NOT claim a value for that switch: this binary cannot read it
+    // (the phone answers, per session), which is a stronger version of the old
+    // 'the server owns the default' rule rather than a weaker one.
+    for (const [loc, claims] of Object.entries(DEFAULT_VALUE_CLAIMS)) {
+      for (const claim of claims) {
+        expect(S_BY_LOCALE[loc as UiLocale].llm_hint, `${loc} claims a default ("${claim}")`).not.toContain(claim);
+      }
+    }
   });
 
   it('no sentence asserts a default value of any switch', () => {
     for (const [loc, claims] of Object.entries(DEFAULT_VALUE_CLAIMS)) {
       const s = S_BY_LOCALE[loc as UiLocale];
       for (const claim of claims) {
-        for (const text of [s.llm_modes_unsupported, s.scenario_terms_still_work, s.llm_setup_body]) {
+        for (const text of [s.llm_modes_unsupported, s.llm_setup_body]) {
           expect(text, `${loc} claims a default ("${claim}")`).not.toContain(claim);
         }
       }
@@ -170,9 +204,9 @@ describe('three sentences, three subjects, every locale (rendered)', () => {
 
   it('the components ask the SERVER fact, never the local llm.config', () => {
     // LlmSettings.vue legitimately BINDS `model.llm.endpoint` — it is the
-    // endpoint input box. What must never happen is a GATE on it: the two
-    // notices and the card are conditioned on the server fact and nothing else.
-    for (const file of ['./components/LlmSettings.vue', './components/ScenarioCard.vue']) {
+    // endpoint input box. What must never happen is a GATE on it: the notice and
+    // the card are conditioned on the server fact and nothing else.
+    for (const file of ['./components/LlmSettings.vue']) {
       const src = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8');
       const tpl = src.match(/<template>([\s\S]*?)<\/template>/)?.[1] ?? '';
       expect(tpl, `${file} gates on the endpoint`).not.toMatch(/v-if="[^"]*llm\.endpoint/);

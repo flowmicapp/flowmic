@@ -24,6 +24,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use crate::socket::blocking::run_blocking;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -535,33 +536,37 @@ fn fetch_account_blocking(base: String, key: String) -> CloudAccountDto {
 /// outside Tauri) rather than doubling as 「the server did not answer」.
 #[tauri::command(async)]
 pub fn cloud_account_fetch(state: State<'_, CloudState>) -> CloudAccountDto {
-    let cfg = state.snapshot();
-    let base = cfg.endpoint.trim_end_matches('/').to_string();
-    if base.is_empty() {
-        return CloudAccountDto::failed("no_endpoint", None);
-    }
-    let Some(key) = cfg.jwt.clone() else {
-        return CloudAccountDto::failed("no_key", None);
-    };
-    // 🔴 The blocking client runs on a thread WE own, never on whatever thread
-    // Tauri handed this command: `reqwest::blocking` panics when it is driven
-    // from inside an async runtime context, and that would turn a card refresh
-    // into a process-level fault. Joining here is bounded by ACCOUNT_HTTP_TIMEOUT.
-    let handle = std::thread::spawn(move || fetch_account_blocking(base, key));
-    let out = match handle.join() {
-        Ok(dto) => dto,
-        Err(_) => CloudAccountDto::failed("bad_response", Some("worker panicked".to_string())),
-    };
-    // Forensics record the VERDICT only — no key, no header, no URL.
-    forensic::record(
-        "cloud",
-        &format!(
-            "account read → {}{}",
-            out.outcome,
-            out.detail.as_ref().map(|d| format!(" ({d})")).unwrap_or_default()
-        ),
-    );
-    out
+    // P0 2026-09-03 — `#[tauri::command(async)]` puts this on a tokio
+    // worker, and the body blocks joining the fetch thread (ACCOUNT_HTTP_TIMEOUT). See `socket::blocking`.
+    run_blocking(|| {
+        let cfg = state.snapshot();
+        let base = cfg.endpoint.trim_end_matches('/').to_string();
+        if base.is_empty() {
+            return CloudAccountDto::failed("no_endpoint", None);
+        }
+        let Some(key) = cfg.jwt.clone() else {
+            return CloudAccountDto::failed("no_key", None);
+        };
+        // 🔴 The blocking client runs on a thread WE own, never on whatever thread
+        // Tauri handed this command: `reqwest::blocking` panics when it is driven
+        // from inside an async runtime context, and that would turn a card refresh
+        // into a process-level fault. Joining here is bounded by ACCOUNT_HTTP_TIMEOUT.
+        let handle = std::thread::spawn(move || fetch_account_blocking(base, key));
+        let out = match handle.join() {
+            Ok(dto) => dto,
+            Err(_) => CloudAccountDto::failed("bad_response", Some("worker panicked".to_string())),
+        };
+        // Forensics record the VERDICT only — no key, no header, no URL.
+        forensic::record(
+            "cloud",
+            &format!(
+                "account read → {}{}",
+                out.outcome,
+                out.detail.as_ref().map(|d| format!(" ({d})")).unwrap_or_default()
+            ),
+        );
+        out
+    })
 }
 
 /// Sign out of the cloud relay (deliberate user action — no rejection latch).

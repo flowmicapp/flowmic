@@ -23,11 +23,6 @@ import type { UiLocale } from './locales.g';
 import { CATALOGUE } from './catalogue.g';
 
 const SETTINGS_MSG_EN: SettingsMsg = {
-  termTooLong: (n) => `Over ${n} characters`,
-  termsAtCap: (n) => `Already at the ${n}-term cap`,
-  termsCapNote: (n) => `≤${n} chars each`,
-  dictCount: (n, cap) => `${n} / ${cap}`,
-  dictAliases: (aliases) => `Aliases: ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `Download the model (about ${size}, one time)`,
   modelResume: (pct) => `Resume the download (${pct} done)`,
   modelFiles: (done, total) => `File ${done} of ${total}`,
@@ -36,15 +31,10 @@ const SETTINGS_MSG_EN: SettingsMsg = {
   sttModelReady: (model) => `Local model ready: ${model}`,
 };
 
-// zh-CN (中文) — 11/11 translated;
+// zh-CN (中文) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `超过 ${n} 字符`,
-  termsAtCap: (n) => `已达 ${n} 条上限`,
-  termsCapNote: (n) => `每条 ≤${n} 字符`,
-  dictCount: (n, cap) => `${n} / ${cap} 条`,
-  dictAliases: (aliases) => `别名：${aliases.join('、')}`,
   modelDownloadSize: (size) => `下载模型（约 ${size}，一次性）`,
   modelResume: (pct) => `继续下载（已完成 ${pct}）`,
   modelFiles: (done, total) => `第 ${done} / ${total} 个文件`,
@@ -53,15 +43,10 @@ const SETTINGS_MSG_ZH_CN: SettingsMsg = {
   sttModelReady: (model) => `本地模型已就绪：${model}`,
 };
 
-// zh-TW (繁體中文) — 11/11 translated;
+// zh-TW (繁體中文) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `超過 ${n} 個字元`,
-  termsAtCap: (n) => `已達 ${n} 筆上限`,
-  termsCapNote: (n) => `每筆 ≤${n} 個字元`,
-  dictCount: (n, cap) => `${n} / ${cap} 筆`,
-  dictAliases: (aliases) => `別名：${aliases.join('、')}`,
   modelDownloadSize: (size) => `下載模型（約 ${size}，一次性）`,
   modelResume: (pct) => `繼續下載（已完成 ${pct}）`,
   modelFiles: (done, total) => `第 ${done} / ${total} 個檔案`,
@@ -70,15 +55,10 @@ const SETTINGS_MSG_ZH_TW: SettingsMsg = {
   sttModelReady: (model) => `本機模型已就緒：${model}`,
 };
 
-// fr (Français) — 11/11 translated;
+// fr (Français) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_FR: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `Plus de ${n} caractères`,
-  termsAtCap: (n) => `Limite de ${n} termes atteinte`,
-  termsCapNote: (n) => `≤${n} caractères chacun`,
-  dictCount: (n, cap) => `${n} / ${cap}`,
-  dictAliases: (aliases) => `Alias : ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `Télécharger le modèle (environ ${size}, une seule fois)`,
   modelResume: (pct) => `Reprendre le téléchargement (${pct} fait)`,
   modelFiles: (done, total) => `Fichier ${done} sur ${total}`,
@@ -87,15 +67,10 @@ const SETTINGS_MSG_FR: SettingsMsg = {
   sttModelReady: (model) => `Modèle local prêt : ${model}`,
 };
 
-// es (Español) — 11/11 translated;
+// es (Español) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_ES: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `Más de ${n} caracteres`,
-  termsAtCap: (n) => `Límite de ${n} términos alcanzado`,
-  termsCapNote: (n) => `≤${n} caracteres cada uno`,
-  dictCount: (n, cap) => `${n} / ${cap}`,
-  dictAliases: (aliases) => `Alias: ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `Descargar el modelo (unos ${size}, una sola vez)`,
   modelResume: (pct) => `Reanudar la descarga (${pct} hecho)`,
   modelFiles: (done, total) => `Archivo ${done} de ${total}`,
@@ -104,15 +79,10 @@ const SETTINGS_MSG_ES: SettingsMsg = {
   sttModelReady: (model) => `Modelo local listo: ${model}`,
 };
 
-// de (Deutsch) — 11/11 translated;
+// de (Deutsch) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_DE: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `Mehr als ${n} Zeichen`,
-  termsAtCap: (n) => `Obergrenze von ${n} Einträgen erreicht`,
-  termsCapNote: (n) => `je ≤${n} Zeichen`,
-  dictCount: (n, cap) => `${n} / ${cap}`,
-  dictAliases: (aliases) => `Aliase: ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `Modell herunterladen (etwa ${size}, einmalig)`,
   modelResume: (pct) => `Download fortsetzen (${pct} erledigt)`,
   modelFiles: (done, total) => `Datei ${done} von ${total}`,
@@ -121,15 +91,10 @@ const SETTINGS_MSG_DE: SettingsMsg = {
   sttModelReady: (model) => `Lokales Modell bereit: ${model}`,
 };
 
-// ja (日本語) — 11/11 translated;
+// ja (日本語) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_JA: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `${n}文字を超えています`,
-  termsAtCap: (n) => `上限の${n}件に達しています`,
-  termsCapNote: (n) => `1件あたり ≤${n}文字`,
-  dictCount: (n, cap) => `${n} / ${cap}件`,
-  dictAliases: (aliases) => `別名：${aliases.join('、')}`,
   modelDownloadSize: (size) => `モデルをダウンロード（約 ${size}、一度だけ）`,
   modelResume: (pct) => `ダウンロードを再開（${pct} 完了）`,
   modelFiles: (done, total) => `ファイル ${done} / ${total}`,
@@ -138,15 +103,10 @@ const SETTINGS_MSG_JA: SettingsMsg = {
   sttModelReady: (model) => `ローカルモデルの準備完了：${model}`,
 };
 
-// ko (한국어) — 11/11 translated;
+// ko (한국어) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_KO: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `${n}자를 초과했습니다`,
-  termsAtCap: (n) => `최대 ${n}개에 도달했습니다`,
-  termsCapNote: (n) => `항목당 ≤${n}자`,
-  dictCount: (n, cap) => `${n} / ${cap}개`,
-  dictAliases: (aliases) => `별칭: ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `모델 내려받기(약 ${size}, 한 번만)`,
   modelResume: (pct) => `이어받기(${pct} 완료)`,
   modelFiles: (done, total) => `파일 ${done} / ${total}`,
@@ -155,15 +115,10 @@ const SETTINGS_MSG_KO: SettingsMsg = {
   sttModelReady: (model) => `로컬 모델 준비됨: ${model}`,
 };
 
-// ru (Русский) — 11/11 translated;
+// ru (Русский) — 6/6 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const SETTINGS_MSG_RU: SettingsMsg = {
   ...SETTINGS_MSG_EN,
-  termTooLong: (n) => `Больше ${n} символов`,
-  termsAtCap: (n) => `Достигнут предел: ${n}`,
-  termsCapNote: (n) => `не более ${n} символов каждый`,
-  dictCount: (n, cap) => `${n} / ${cap}`,
-  dictAliases: (aliases) => `Псевдонимы: ${aliases.join(', ')}`,
   modelDownloadSize: (size) => `Скачать модель (около ${size}, один раз)`,
   modelResume: (pct) => `Продолжить скачивание (${pct} готово)`,
   modelFiles: (done, total) => `Файл ${done} из ${total}`,

@@ -11,10 +11,10 @@
 // onto whitelisted socket emits; drives stt:level from the VAD amplitude; and
 // calls the single recordSttUsage seam (onComplete) exactly once at settle.
 
+import { randomUUID } from 'node:crypto';
 import type { SttOrchestrator } from './orchestrator';
 import { AudioSession } from '../stt/audio/session';
 import { VadGate } from '../stt/vad-gate';
-import { RetainedAudio, runRefine, shouldRefine } from '../stt/stt-refine';
 import type { SttEngineOrchestrator } from '../stt/orchestrator-core';
 import { SttConfigMissingError } from '../stt/engine-router';
 import type { StartInput } from '../stt/orchestrator-types';
@@ -43,9 +43,13 @@ import { autoStopReasonFor, NAMEABLE_AUTO_STOP_ORIGINS } from './stt-session-aut
 import type { SttSessionDeps } from './stt-session-deps';
 export type { SttEmitter, SttSessionDeps } from './stt-session-deps';
 import { kickDetachedPolish } from './stt-session-detached-polish';
+import { kickRefine } from './stt-session-refine';
 
 interface OInterim { text: string; confidence: number; language: string; segment_idx: number }
-interface OFinal extends OInterim { is_segment: boolean; duration_ms: number }
+// `empty_reason` (card EMPTY-1): present ONLY on a terminal final that carries no
+// text and whose emptiness nothing else explained. Produced by
+// `stt/empty-final-cause.ts`; forwarded verbatim, never re-derived here.
+interface OFinal extends OInterim { is_segment: boolean; duration_ms: number; empty_reason?: string }
 interface OError { code: string; message: string; retryable: boolean }
 interface OStatus { provider: string; status: 'ready' | 'reconnecting' | 'failed'; retry_count?: number }
 
@@ -55,6 +59,18 @@ function clamp01(n: unknown): number { const x = Number(n); return Number.isFini
 function nonNegInt(n: unknown): number { const x = Number(n); return Number.isFinite(x) ? Math.max(0, Math.round(x)) : 0; }
 function nonEmpty(s: unknown, fallback: string): string { return typeof s === 'string' && s.length > 0 ? s : fallback; }
 function round2(n: number): number { return Math.round(n * 100) / 100; }
+
+/** 2026-09-03 (owner Q2 b, design D7 ①) — the id ONE recording is known by on
+ *  the wire: minted once per session, stamped on the terminal `stt:final` and
+ *  on the `stt:refined` that follows it, so the phone can put the second
+ *  draft on the row the first draft made. Same construction as the trace id
+ *  (trace/pipeline-trace.ts newTraceId) with a longer tail: a trace id only
+ *  has to be unique within one log, this one has to be unique within a
+ *  phone's whole timeline. NOT `request_id`/`entry_id` — those are delivery
+ *  ids the phone mints; this one names a recording. */
+export function newUtteranceId(): string {
+  return randomUUID().replace(/-/g, '').slice(0, 16);
+}
 
 export class SttSessionBridge implements SttOrchestrator {
   private readonly session: AudioSession;
@@ -76,6 +92,34 @@ export class SttSessionBridge implements SttOrchestrator {
   private totalBytes = 0;
   private peakSample = 0;
   private disposed = false;
+  /** D7 ① — see [[newUtteranceId]]. Fixed for the session's lifetime. */
+  private readonly utteranceId = newUtteranceId();
+  /**
+   * 🔴 D7 ② — "the emitter is closed": the latch the refine emit is gated on,
+   * REPLACING the old `this.disposed` check there (the account of why that
+   * check ate every normal-path refine is on [[kickRefine]]).
+   *
+   * It is set by [[dispose]] ONLY when [[finish]] has NOT taken ownership of
+   * the teardown — i.e. on the six non-finish dispose paths [[dispose]]'s own
+   * header enumerates (grace expiry, a deliberate leave, a same-key
+   * supersede, `stopAll`, and the two unpaired-local branches). Every one of
+   * those is either "the phone's socket is gone" or "a new utterance began
+   * before this one ever produced a terminal final" — and a refine only
+   * exists after a terminal final. The normal `finish().finally(dispose)`
+   * chain leaves it OPEN: the socket is alive, the phone is waiting, and the
+   * frame goes out through the emitter's per-frame `resolveSocket`.
+   */
+  private emitterClosed = false;
+  /** True from the moment [[finish]] is entered. The one bit that tells a
+   *  finish-chain `dispose()` apart from a socket-gone `dispose()`. */
+  private finishing = false;
+  /** D7 ② — the in-flight second pass, held as a field so it is a THING (a
+   *  test can await it, a reader can find it) rather than a dangling `void`.
+   *  🔴 Deliberately NOT awaited by [[finish]]: audio.handler races finish()
+   *  against AUDIO_STOP_FINISH_WATCHDOG_MS (20 s) and a batch re-transcription
+   *  of a long utterance can take longer than that, so awaiting it here would
+   *  turn every refined utterance into a watchdog-forced dispose. */
+  private pendingRefine: Promise<void> | null = null;
   // A2-5 — the two character counts the metering seam now carries
   // ([[SttCharCounts]]). Two counters and not one: they are incremented at two
   // different MOMENTS on purpose — `transcriptChars` when the text is computed,
@@ -89,13 +133,8 @@ export class SttSessionBridge implements SttOrchestrator {
   // nothing — every interim and soft-segment final was already emitted ahead of it.
   private pendingFinal: Promise<void> | null = null;
 
-  /** GA-14: this utterance's audio, kept in memory ONLY while refine is armed
-   *  for the session — a session with refine off retains nothing at all. */
-  private readonly retained: RetainedAudio | null;
-
   constructor(private readonly deps: SttSessionDeps) {
     this.now = deps.now ?? Date.now;
-    this.retained = deps.refine ? new RetainedAudio() : null;
     this.vad = new VadGate();
     // 🔴 fix-025 retired the per-account ceiling mechanism and fix-027 removed
     // its dep (`SttSessionDeps.hardLimitMs`) — there is no per-account
@@ -206,18 +245,40 @@ export class SttSessionBridge implements SttOrchestrator {
         trace('stt.final.raw', id, { is_segment: isSegment, language, ...tracedText(raw) });
         trace('stt.final.pure', id, { is_segment: isSegment, changed: pure !== raw, ...tracedText(pure) });
       }
+      // Card EMPTY-1 — the ONE line that answers 「the row vanished, why」 after the
+      // fact. It is traced whether or not a reason exists: a terminal final with no
+      // text and NO reason is itself the finding (an `stt:error` spoke instead, or a
+      // relay stripped the field), and a stage that only prints on the happy path
+      // cannot tell those apart from 「the classifier never ran」.
+      if (traceEnabled() && !isSegment && pure === '') {
+        trace('stt.empty.cause', this.deps.traceId ?? 'no-session',
+          { empty_reason: e.empty_reason ?? null, language });
+      }
       // A2-5 — counted HERE, at the moment the text exists, and counted for EVERY
       // final including soft-segment ones: "how many characters did this utterance transcribe to in total" is a property of
       // the utterance, not of the last frame of it. Interims are deliberately NOT
       // counted — they are drafts of the same words and adding them would report a
       // number several times larger than anything the user said.
       this.transcriptChars += pure.length;
+      const emptyReason = !isSegment && pure === '' && typeof e.empty_reason === 'string' && e.empty_reason !== ''
+        ? e.empty_reason
+        : undefined;
       const base = {
         confidence: clamp01(e.confidence),
         language,
         segment_idx: nonNegInt(e.segment_idx),
         is_segment: isSegment,
         duration_ms: nonNegInt(e.duration_ms),
+        // D7 ① — the TERMINAL final names the recording; soft-segment finals
+        // (one row each, book 15 §2.0-c) deliberately do not, so a phone that
+        // keys rows on this id cannot attach the second draft to a segment.
+        ...(isSegment ? {} : { utterance_id: this.utteranceId }),
+        // Card EMPTY-1 — carried through, not judged here. The orchestrator is the
+        // only layer holding the two facts the verdict needs (bytes the feed gate
+        // accepted, and whether an `stt:error` already went out on this recording);
+        // re-deriving either one from `pure.length` at this seam would be a second
+        // opinion about the same question, which is how the two come to disagree.
+        ...(emptyReason ? { empty_reason: emptyReason } : {}),
       };
       // 🔴 RT-1, as ruled by the primary owner 2026-08-07 (option (c)). owner's async
       // ruling "show it immediately after transcribing … directly replace the
@@ -244,14 +305,21 @@ export class SttSessionBridge implements SttOrchestrator {
       } else {
         // Interim, soft-segment, polish-OFF, and the detached mode: emit now.
         this.emitFinal(pure, { ...base, ...this.polishWireForFinal(isSegment) });
+        // The utterance has SETTLED. Fire-and-forget the second pass — it must
+        // never delay, gate or alter the final above (06 §5), which is already
+        // delivered and already on the user's screen.
+        //
+        // 🔴 IT IS KICKED FROM THE TWO PLACES A FINAL IS DELIVERED, not from one
+        // place after the branch, and that is the 2026-09-04 change: the pass
+        // smooths THE TEXT THE USER HAS. On the sync-polish path that text does
+        // not exist yet here — it is the polished string, minted inside
+        // [[runPolishedFinal]], which kicks the pass itself once it has emitted.
+        // Kicking from a single site above the branch would smooth the PURE text
+        // instead, i.e. hand the phone a second draft that silently undoes the
+        // correction pass and that no stage of the pipeline ever produced.
+        if (!isSegment) this.kickRefine(pure);
       }
-      if (!isSegment) {
-        // GA-14: the utterance has SETTLED. Fire-and-forget the second pass — it
-        // must never delay, gate or alter the final above (06 §5), which is
-        // already delivered and already on the user's screen.
-        this.kickRefine(pure, base.duration_ms);
-        if (this.polishDelivery() === 'detached') this.kickPolish(pure);
-      }
+      if (!isSegment && this.polishDelivery() === 'detached') this.kickPolish(pure);
     });
     o.on('error', (e: OError) => this.deps.emitter.emit('stt:error', {
       code: nonEmpty(e.code, 'STT_NETWORK_DROP'),
@@ -351,7 +419,7 @@ export class SttSessionBridge implements SttOrchestrator {
    */
   private async runPolishedFinal(
     pureText: string,
-    base: { confidence: number; language: string; segment_idx: number; is_segment: boolean; duration_ms: number },
+    base: { confidence: number; language: string; segment_idx: number; is_segment: boolean; duration_ms: number; utterance_id?: string },
   ): Promise<void> {
     const polish = this.deps.polish!;
     let text = pureText;
@@ -374,6 +442,11 @@ export class SttSessionBridge implements SttOrchestrator {
     }
     if (this.disposed) return;
     this.emitFinal(text, { ...base, ...signal });
+    // Delivered — so this is the string the second pass smooths. Kicked AFTER
+    // the emit, never before: the pass is an improvement to text the user
+    // already has, and nothing about it may reorder itself in front of the
+    // frame that gives them that text.
+    this.kickRefine(text);
   }
 
   /**
@@ -406,7 +479,15 @@ export class SttSessionBridge implements SttOrchestrator {
         ...tracedText(text),
       });
     }
-    this.deps.emitter.emit('stt:final', { text, ...rest });
+    // Card EMPTY-1 invariant, enforced at the ONE exit rather than trusted at the
+    // two call sites: `empty_reason` explains an ABSENT transcript, so a frame that
+    // carries text may not carry one. A GUARD, not a prediction — the only way here
+    // is the polish layer turning an empty string into words, which we do not
+    // believe happens; if it ever does, the honest outcome is a final with text and
+    // no explanation, never one that says both.
+    const wire = { ...rest };
+    if (text !== '') delete wire.empty_reason;
+    this.deps.emitter.emit('stt:final', { text, ...wire });
   }
 
   /**
@@ -496,115 +577,30 @@ export class SttSessionBridge implements SttOrchestrator {
     this.settle();
   }
 
-  /**
-   * GA-14 — the optional second pass, started AFTER the terminal final is out.
-   *
-   * Deliberately not awaited anywhere: refine is an improvement to text the user
-   * already has, so it may never hold up the utterance, the billing settle, or
-   * the teardown. Its own failures are logged and go no further — see
-   * stt-refine.runRefine for why an OPTIONAL improvement failing is the one case
-   * where the wire should stay quiet.
-   */
-  private kickRefine(firstPass: string, finalDurationMs: number): void {
-    const refine = this.deps.refine;
-    const retained = this.retained;
-    if (!refine || !retained) return;
-    // 🔴 Card N1-B1b — the gate is asked about THE AUDIO IT IS ABOUT.
-    //
-    // This used to pass the terminal final's `duration_ms`. That was the whole
-    // session's length until card N1-B1, which made every final report the
-    // segment it closes (book 15 §2.0-c: one segment = one row). After it, a user who releases
-    // a few seconds past a soft-segment rollover produced a terminal final of
-    // ~2 s — under the 15 s floor — while [[RetainedAudio]] held the entire
-    // ten-minute recording. Refine then never ran on exactly the long utterances
-    // GA-14 exists to improve, and NOTHING reported it: refine is
-    // fire-and-forget, so its non-happening has no observer at all.
-    //
-    // `shouldRefine`'s question is "is this worth a second engine bill?" and the
-    // thing being billed is `retained.take()`. So the deciding layer now reads
-    // the fact its own decision is about, and the two can no longer drift apart
-    // — that is R11 ("does the layer making this judgment have in hand the facts
-    // it needs to make it") applied
-    // to a gate rather than to a status word.
-    //
-    // Read BEFORE take(): take() consumes, and clear() zeroes the length.
-    const retainedMs = retained.durationMs;
-    if (!shouldRefine(refine.cfg, retainedMs)) {
-      // Two ways to land here and they are NOT the same news. Below the floor is
-      // the gate doing its job on a genuinely short utterance — the common case,
-      // and silent as it always was. The cap having been hit is an anomaly: a
-      // LONG utterance that will not be refined, which is the one an operator
-      // would want to see. It cannot pass the gate either way — `byteLength`
-      // reports an overflowed buffer as empty — so this is the same skip the
-      // post-take() guard used to log, decided one step earlier.
-      if (retained.overflowed) {
-        log.warn('stt.refine skipped — retained audio hit the in-memory cap', {
-          final_duration_ms: finalDurationMs,
-          overflowed: true,
-        });
-      }
-      retained.clear();
-      return;
-    }
-    // No `pcm.length === 0` guard here any more, and its absence is the point:
-    // the gate above now reads this very buffer, so an empty take() is
-    // unreachable (empty ⇔ retainedMs === 0 ⇔ refused above). `runRefine` keeps
-    // its own `pcm.length === 0` belt regardless.
-    const pcm = retained.take();
-    retained.clear();
-    const pass = runRefine({
-      pcm,
-      firstPass,
-      transcribe: refine.transcribe,
-      onError: (err) => log.warn('stt.refine second pass failed — the first-pass text stands', {
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    });
-    // 🔴 RT-1: this `void … .then(…)` had NO `.catch`. `runRefine` swallows the
-    // TRANSCRIBER's failures, but the handler below emits on a socket and writes a
-    // log — either can throw, and an escaped rejection here reaches
-    // installProcessGuards → onFatal → graceful close → exit, i.e. it takes the
-    // relay down for every online user. Dormant only because `stt.refine` defaults
-    // OFF, which is not the same as impossible. THIS is the fix; the emit gate
-    // below is deliberately left exactly as it was.
-    void pass
-      .then((text) => {
-        // 🔴 `this.disposed` is LEFT IN PLACE, and it is not the harmless
-        // liveness check it reads as. Measured this round: the audio handler runs
-        // `finish().finally(() => s.dispose())`, so `disposed` is true
-        // milliseconds after the terminal final, while a batch re-transcription
-        // of a ≥15 s utterance takes seconds ⇒ on the normal audio:stop path this
-        // frame is NEVER sent. GA-14 can only deliver on the auto-stop path.
-        //
-        // That is a defect. It is ALSO, right now, the only thing standing
-        // between this event and the corruption path documented in
-        // runDetachedPolish's delivery block: `_applyRefined` on the phone
-        // overwrites the newest ROW with no entry-type or owner filter, so an
-        // active GA-14 could replace an image label or the user's typed note.
-        // Removing this line would ACTIVATE that. It stays until the phone can
-        // pick the right row — the same unblocking condition, registered once.
-        if (text === null || this.disposed) return;
-        // The phone owns the timeline row (only the mobile emits history:create),
-        // so this is a NOTIFICATION, not a write-back. It carries no FSM meaning:
-        // the utterance is settled and stays settled.
-        //
-        // Payload = exactly SttRefinedSchema's declared fields. `language` used to
-        // ride along undeclared; nothing read it (the phone takes `data['text']`
-        // only, the desktop does not subscribe at all) and a key outside the
-        // contract is a key no receiver may rely on.
-        this.deps.emitter.emit('stt:refined', { text });
-        // Both numbers, because they now answer different questions and the
-        // difference between them is what card N1-B1b was about: `retained_ms` is
-        // what was re-transcribed, `final_duration_ms` is only the segment that
-        // closed the utterance.
-        log.info('stt.refine produced a better transcript', {
-          retained_ms: Math.round(retainedMs),
-          final_duration_ms: finalDurationMs,
-        });
-      })
-      .catch((err) => log.error('stt.refine delivery failed unexpectedly — the first-pass text stands', {
-        error: err instanceof Error ? err.message : String(err),
-      }));
+  /** Wiring only — the pass itself, and the account of why it now delivers on
+   *  the normal stop path, moved to `stt-session-refine.ts` under the 800-line
+   *  cap; that file's header enumerates every mechanical edit. The latch is
+   *  handed over as a THUNK so the emit reads it when the batch engine answers,
+   *  not when the pass was kicked. */
+  private kickRefine(deliveredText: string): void {
+    this.pendingRefine = kickRefine(
+      {
+        refine: this.deps.refine,
+        emitter: this.deps.emitter,
+        utteranceId: this.utteranceId,
+        emitterClosed: (): boolean => this.emitterClosed,
+        meter: (llm, result): void => this.meterPolish(llm, result),
+        ...(this.deps.traceId !== undefined ? { traceId: this.deps.traceId } : {}),
+      },
+      deliveredText,
+      // 🔴 THE WHOLE UTTERANCE'S AUDIO, not the closing final's `duration_ms`.
+      // Card N1-B1b in one line: the floor decides whether THIS RECORDING is
+      // long enough to be worth smoothing, and a user who releases two seconds
+      // past a soft-segment rollover produced a terminal final of ~2 s while the
+      // recording ran for ten minutes. `shouldRefine`'s own doc carries the full
+      // account.
+      this.totalAudioMs,
+    );
   }
 
   /** SEG-1 (R5) — the live session's contiguous-seq watermark, for the
@@ -628,10 +624,6 @@ export class SttSessionBridge implements SttOrchestrator {
     const peak = peakSample16(payload);
     if (peak > this.peakSample) this.peakSample = peak;
     this.totalAudioMs += payload.length / BYTES_PER_MS;
-    // GA-14: keep a copy for the optional second pass. Bounded and in-flight —
-    // see RetainedAudio for why an overflowed buffer refines NOTHING rather than
-    // refining a partial span.
-    this.retained?.push(payload);
     // VAD gate (real caller): update gate state + amplitude + billing meter
     // BEFORE the orchestrator's engine feed reads vad.open (single-threaded).
     this.vad.process(payload);
@@ -648,18 +640,29 @@ export class SttSessionBridge implements SttOrchestrator {
 
   async finish(): Promise<void> {
     if (this.disposed) return;
+    // D7 ② — from here on a dispose() is the finish chain's own teardown, not
+    // a socket-gone teardown; see [[emitterClosed]]. Set BEFORE any await so
+    // the watchdog-forced dispose (audio.handler) is classified the same way.
+    this.finishing = true;
     // The intake tally (owner 2026-07-27: "is this a mobile-side issue"). `peak` is the
     // loudest PCM16 sample of the whole utterance on a 0..32767 scale: a few
     // hundred is a quiet room's noise floor, an exact 0 across thousands of
     // bytes is a muted/dead capture, and chunks:0 means the phone never sent
     // audio at all. Emitted BEFORE the awaits so it lands even if the flush
     // throws — a diagnostic that only prints on the happy path is no diagnostic.
+    // 🔴 2026-09-03 — `gatedMs` is what this line used to print AS `voicedMs`
+    // (`vad.sessionMs`: wall time the gate held open, hangover included — the
+    // BILLED figure). The real voiced counter was never on the line at all, so a
+    // reader comparing 「voicedMs」 to the vendor's 「no audio」 was comparing the
+    // wrong pair (trace report 2026-09-03 §4-1). Both are printed now, each under
+    // its own name; logs older than this date carry gatedMs under the old key.
     log.info('audio intake', {
       chunks: this.chunkCount,
       bytes: this.totalBytes,
       peak: this.peakSample,
       audioMs: Math.round(this.totalAudioMs),
-      voicedMs: Math.round(this.vad.sessionMs),
+      gatedMs: Math.round(this.vad.sessionMs),
+      voicedMs: Math.round(this.vad.voicedMs),
     });
     await this.startPromise;
     await this.orchestrator.stop();
@@ -751,6 +754,11 @@ export class SttSessionBridge implements SttOrchestrator {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // D7 ② — close the refine emitter ONLY on the non-finish paths above (the
+    // socket is gone, or the utterance was superseded before it ever had a
+    // terminal final). After finish() the socket is alive and the pending
+    // second pass is still owed to the phone — see [[emitterClosed]].
+    if (!this.finishing) this.emitterClosed = true;
     // An unclean ending is the ONLY billing path with no `audio intake` line,
     // i.e. the only one that could produce a disputed charge with no evidence
     // of what it charged for. Decided before settle() moves the latch.
@@ -766,7 +774,8 @@ export class SttSessionBridge implements SttOrchestrator {
         bytes: this.totalBytes,
         peak: this.peakSample,
         audioMs: Math.round(this.totalAudioMs),
-        voicedMs: Math.round(this.vad.sessionMs),
+        gatedMs: Math.round(this.vad.sessionMs), // same pair, same names as the `finish()` line above
+        voicedMs: Math.round(this.vad.voicedMs),
       });
     }
     try {

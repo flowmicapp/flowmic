@@ -49,7 +49,7 @@ void main() {
   test('🔴 MEASURED: the segment key never returns to 0, but the server\'s does',
       () async {
     // The server resets `currentSegmentIdx = 0` in `start()` — once per audio
-    // session (apps/server-core/src/stt/orchestrator-core.ts:197, and
+    // session (apps/server-core/src/stt/orchestrator-core.ts:204, and
     // text-merge.ts says start() and the rollover are the only two writers).
     //
     // The phone's copy is MONOTONIC. Its guard exists for a good reason, stated

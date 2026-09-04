@@ -217,6 +217,10 @@ Future<void> disposeRouted(ChatController c) async {
   c.pairingSuccess.dispose();
   AlbumAway.instance.removeListener(c._onAlbumAwayChanged);
   c.session.pcPresence.removeListener(c._onPcPresenceChanged); // RV-92
+  // 2026-09-04 — this one owns listeners on two of the session's notifiers, so
+  // disposing it is what detaches them; a torn-down controller must not go on
+  // draining a queue on behalf of a screen that is gone.
+  c.deliveryLink.dispose();
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7
   // AUD-D F6 / P1-6 (card B2-O) — mirrors the constructor's addListener; a
   // torn-down controller must not go on writing into a field nobody reads.

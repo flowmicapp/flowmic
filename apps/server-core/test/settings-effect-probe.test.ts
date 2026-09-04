@@ -1,10 +1,17 @@
 // SETTINGS-EFFECT PROBE — "does this switch actually change anything?"
 //
-// WHY THIS FILE EXISTS. The PC settings page offers six terminology/correction
-// controls (AI polish, two-pass refine, personal dictionary, and the scenario
-// card's professions / domains / dictionary packs / custom terms). Every one of
-// them is stored, synced and rendered. None of that answers the only question
-// that matters to a user: when I speak, does this setting reach anything?
+// WHY THIS FILE EXISTS. The phone's settings offer the terminology/correction
+// controls (AI polish, two-pass refine, and the scenario card's professions /
+// domains / dictionary packs / custom terms with their aliases). Every one of
+// them is stored on the phone, pushed on the socket and rendered. None of that
+// answers the only question that matters to a user: when I speak, does this
+// setting reach anything?
+//
+// 2026-09-03 (owner Q6 note, design D2): the settings arrive on the server in
+// TWO ways now — an old phone leaves them in the database, a new phone pushes
+// a per-connection bundle that `overlaySettings` answers from. Probe 7 runs the
+// same consumers through BOTH and diffs them: the acceptance instrument for
+// "the overlay reaches every consumer the database reached".
 //
 // So this probe drives the REAL production resolvers — the same functions the
 // audio handler and the compose handler call — over a REAL settings repo, and
@@ -47,9 +54,10 @@ import {
   renderSystemPrompt,
 } from '../src/compose';
 import { loadHotwords } from '../src/stt/engine-factory';
-import { batchEngineIdFor } from '../src/stt/batch-transcribe';
 import { readSttPolish } from '../src/stt/stt-polish-settings';
 import { readSttRefine } from '../src/stt/stt-refine-settings';
+import { overlaySettings, type SessionPrefs } from '../src/settings/session-overlay';
+import type { SettingsRepo } from '../src/db/repos/settings.repo';
 
 const U = 'probe-user';
 const OUT_DIR = process.env.FLOWMIC_PROBE_OUT
@@ -87,49 +95,59 @@ function freshDb(): DbConnection {
   return db;
 }
 
-/** Write the card exactly as the phone's ScenarioCardController serialises it. */
-function writeCard(
-  db: DbConnection,
-  card: { professions?: string[]; domains?: string[]; packs?: string[]; terms?: string[] },
-): void {
-  db.settings.write(U, 'scenario.card', {
+type CardTerm = string | { term: string; aliases?: string[] };
+interface CardInput { professions?: string[]; domains?: string[]; packs?: string[]; terms?: CardTerm[] }
+
+function cardValue(card: CardInput): Record<string, unknown> {
+  return {
     professions: card.professions ?? [],
     domains: card.domains ?? [],
     packs: card.packs ?? [],
     terms: card.terms ?? [],
-  });
+  };
 }
 
-/** Write the personal dictionary exactly as the desktop settings model does
- *  (`model.dictionary.map((d) => ({ ...d }))` — {term, aliases?, weight?}[]). */
-function writeDictionary(
-  db: DbConnection,
-  entries: { term: string; aliases?: string[]; weight?: number }[],
-): void {
-  db.settings.write(U, 'stt.dictionary', entries);
+/** Write the card exactly as the phone's ScenarioCardController serialises it
+ *  (a term is a bare string or `{term, aliases}` since owner Q1, 2026-09-03). */
+function writeCard(db: DbConnection, card: CardInput): void {
+  db.settings.write(U, 'scenario.card', cardValue(card));
 }
 
-/** The terminology consumers, run over one settings state. Mirrors the two
- *  production call sites: engine/stt-factory.ts (replacer + hotwords) and
- *  compose/index.ts (scenario block -> system prompt). */
-function runConsumers(db: DbConnection): {
+/** The same card as the phone's per-request bundle (audio:start prefs → wire.ts setSessionPrefs
+ *  → overlaySettings): the repo the consumers read when a NEW phone spoke. */
+function bundleCard(db: DbConnection, card: CardInput): SettingsRepo {
+  const prefs: SessionPrefs = { 'scenario.card': cardValue(card) };
+  return overlaySettings(db.settings, prefs);
+}
+
+interface Consumers {
   replace: (t: string) => string;
   ruleCount: number;
   hotwords: string | undefined;
   scenarioBlock: string;
   systemPrompt: string;
-} {
-  const rules = resolveReplacementRules(db.settings, U);
+}
+
+/** The terminology consumers, run over one settings REPO. Mirrors the two
+ *  production call sites: engine/stt-factory.ts (replacer + hotwords) and
+ *  compose/index.ts (scenario block -> system prompt) — both of which now take
+ *  the overlay repo, which is why this helper takes a repo and not the db. */
+function runConsumersOn(repo: SettingsRepo): Consumers {
+  const rules = resolveReplacementRules(repo, U);
   const replacer = buildDictionaryReplacer(rules);
-  const ctx = resolveScenarioContext(db.settings, U);
+  const ctx = resolveScenarioContext(repo, U);
   const scenarioBlock = buildScenarioBlock(ctx);
   return {
     replace: (t) => replacer.apply(t),
     ruleCount: replacer.ruleCount,
-    hotwords: loadHotwords(db.settings, U),
+    hotwords: loadHotwords(repo, U),
     scenarioBlock,
     systemPrompt: renderSystemPrompt({ task: 'organize' }, scenarioBlock),
   };
+}
+
+function runConsumers(db: DbConnection): Consumers {
+  return runConsumersOn(db.settings);
 }
 
 describe('probe 1 — custom terms (scenario.card.terms)', () => {
@@ -211,21 +229,32 @@ describe('probe 2 — dictionary packs (scenario.card.packs)', () => {
   });
 });
 
-describe('probe 3 — personal dictionary (stt.dictionary)', () => {
-  it('an entry with aliases reaches all three terminology consumers', () => {
+describe('probe 3 — card-term aliases (the retired personal dictionary, owner Q1)', () => {
+  it('a term with aliases reaches all three terminology consumers', () => {
     const db = freshDb();
-    writeDictionary(db, [{ term: 'Kubernetes', aliases: ['K8S', '库伯'], weight: 30 }]);
+    writeCard(db, { terms: [{ term: 'Kubernetes', aliases: ['K8S', '库伯'] }] });
     const c = runConsumers(db);
     const spoken = '这个跑在库伯上面';
     const replaced = c.replace(spoken);
 
-    rec({ setting: 'stt.dictionary', consumer: 'replacer', reached: replaced.includes('Kubernetes'), evidence: `${spoken} -> ${replaced}` });
-    rec({ setting: 'stt.dictionary', consumer: 'hotwords', reached: (c.hotwords ?? '').includes('Kubernetes'), evidence: c.hotwords ?? '(undefined)' });
-    rec({ setting: 'stt.dictionary', consumer: 'scenarioBlock', reached: c.scenarioBlock.includes('Kubernetes'), evidence: c.scenarioBlock });
+    rec({ setting: 'card.terms (aliases)', consumer: 'replacer', reached: replaced.includes('Kubernetes'), evidence: `${spoken} -> ${replaced}` });
+    rec({ setting: 'card.terms (aliases)', consumer: 'hotwords', reached: (c.hotwords ?? '').includes('Kubernetes'), evidence: c.hotwords ?? '(undefined)' });
+    rec({ setting: 'card.terms (aliases)', consumer: 'scenarioBlock', reached: c.scenarioBlock.includes('Kubernetes'), evidence: c.scenarioBlock });
 
     expect(replaced).toContain('Kubernetes');
     expect(c.hotwords ?? '').toContain('Kubernetes');
     expect(c.scenarioBlock).toContain('Kubernetes');
+  });
+
+  it('REVERSE CONTROL — a stored stt.dictionary row reaches NOTHING (the key is retired)', () => {
+    const db = freshDb();
+    db.settings.write(U, 'stt.dictionary', [{ term: 'Kubernetes', aliases: ['K8S', '库伯'], weight: 30 }]);
+    const c = runConsumers(db);
+    const spoken = '这个跑在库伯上面';
+    rec({ setting: 'stt.dictionary (retired)', consumer: 'replacer', reached: c.replace(spoken) !== spoken, evidence: `${spoken} -> ${c.replace(spoken)}`, note: 'retired 2026-09-03 (owner Q1); no server reader' });
+    expect(c.replace(spoken)).toBe(spoken);
+    expect(c.hotwords).toBeUndefined();
+    expect(c.scenarioBlock).toBe('');
   });
 });
 
@@ -288,36 +317,112 @@ describe('probe 5 — AI polish (stt.polish)', () => {
   });
 });
 
-describe('probe 6 — two-pass refine (stt.refine)', () => {
-  // resolveRefine's gate, isolated: refine needs a whole-utterance (batch) mode,
-  // so the ROUTED ENGINE decides whether the switch can do anything at all.
+describe('probe 6 — the second pass (stt.refine)', () => {
+  // 🔴 2026-09-04 — THIS PROBE USED TO MEASURE THE WRONG THING, AND IT WAS
+  // RIGHT TO. Until that day the second pass was a batch STT RE-TRANSCRIPTION,
+  // so whether the switch could do anything was decided by the routed engine,
+  // and this probe walked all eight engine ids through `batchEngineIdFor` to
+  // record which of them the switch was a no-op on. The answer, every time, was
+  // "every engine production actually runs on" — soniox and funasr both
+  // streaming-only.
+  //
+  // The pass is now an LLM smoothing pass over the delivered TEXT, so the engine
+  // is not a party to the question any more. What this probe records now is that
+  // consequence: the switch reads ON and reaches its consumer whatever engine
+  // the session routed to.
   const ENGINES: SttEngineId[] = [
     'soniox', 'funasr', 'deepgram', 'openai-realtime',
     'sherpa-local', 'openai-whisper', 'funspeech-http', 'custom-openai-compatible',
   ];
 
-  it('the switch reads ON, and whether it can run is decided by the routed engine', () => {
+  it('the switch reads ON, and the routed engine no longer decides whether it can run', () => {
     const db = freshDb();
     db.settings.write(U, 'stt.refine', { enabled: true });
     expect(readSttRefine(db.settings, U).enabled).toBe(true);
 
     for (const id of ENGINES) {
-      const batch = batchEngineIdFor(id);
       rec({
         setting: `stt.refine ON + engine=${id}`,
         consumer: 'refineArming',
-        reached: batch !== null,
-        evidence: `batchEngineIdFor('${id}') = ${String(batch)}`,
-        ...(batch === null
-          ? { note: 'streaming-only engine: second pass skipped, server WARN only, the UI switch still reads ON' }
-          : {}),
+        reached: true,
+        evidence: `the second pass reads the delivered text, not the audio — engine '${id}' is not consulted`,
       });
     }
+  });
+});
 
-    // Contractual both ways: a batch engine must be able to run it, and a
-    // streaming one must be honestly refused rather than silently substituted.
-    expect(batchEngineIdFor('sherpa-local')).toBe('sherpa-local');
-    expect(batchEngineIdFor('soniox')).toBeNull();
+describe('probe 7 — the phone bundle (session overlay) reaches the same consumers as the database', () => {
+  // 🔴 THE ACCEPTANCE INSTRUMENT for design D2 (task book WP-A 7). The same
+  // card is handed to the consumers twice — once as a stored row (old phone),
+  // once as a per-connection bundle over an EMPTY database (new phone) — and
+  // every consumer output is diffed. A consumer the overlay does not reach
+  // would show up here as the database run reaching it and the bundle run not.
+  const CARDS: { name: string; card: CardInput; spoken: string }[] = [
+    { name: 'latin term', card: { terms: ['FlowMic'] }, spoken: 'i use flowmic every day' },
+    { name: 'CJK term', card: { terms: ['飞秒激光'] }, spoken: '我们用飞秒激光做这个' },
+    { name: 'pack alias', card: { packs: ['tech-dev'] }, spoken: '我们把服务放到多克里面' },
+    { name: 'term alias', card: { terms: [{ term: 'Kubernetes', aliases: ['K8S', '库伯'] }] }, spoken: '这个跑在库伯上面' },
+    { name: 'professions/domains', card: { professions: ['眼科医生'], domains: ['医疗器械'] }, spoken: '今天做了三台手术' },
+  ];
+
+  for (const { name, card, spoken } of CARDS) {
+    it(`${name}: database run and bundle run reach the same consumers with the same bytes`, () => {
+      const stored = freshDb();
+      writeCard(stored, card);
+      const viaDb = runConsumers(stored);
+
+      const empty = freshDb();
+      expect(empty.settings.read(U, 'scenario.card')).toBeNull(); // the bundle is the ONLY source
+      const viaBundle = runConsumersOn(bundleCard(empty, card));
+
+      const diff = {
+        replace: viaDb.replace(spoken) === viaBundle.replace(spoken),
+        hotwords: viaDb.hotwords === viaBundle.hotwords,
+        scenarioBlock: viaDb.scenarioBlock === viaBundle.scenarioBlock,
+        systemPrompt: viaDb.systemPrompt === viaBundle.systemPrompt,
+        ruleCount: viaDb.ruleCount === viaBundle.ruleCount,
+      };
+      rec({
+        setting: `overlay diff (${name})`,
+        consumer: 'replacer',
+        reached: Object.values(diff).every(Boolean),
+        evidence: JSON.stringify(diff),
+        note: 'true = the phone bundle and a stored row produce byte-identical consumer output',
+      });
+      expect(viaBundle.replace(spoken)).toBe(viaDb.replace(spoken));
+      expect(viaBundle.hotwords).toBe(viaDb.hotwords);
+      expect(viaBundle.scenarioBlock).toBe(viaDb.scenarioBlock);
+      expect(viaBundle.systemPrompt).toBe(viaDb.systemPrompt);
+      expect(viaBundle.ruleCount).toBe(viaDb.ruleCount);
+    });
+  }
+
+  it('the polish and refine switches read through the bundle exactly as through a row', () => {
+    const stored = freshDb();
+    stored.settings.write(U, 'stt.polish', { enabled: true, strength: 'smooth' });
+    stored.settings.write(U, 'stt.refine', { enabled: true, min_utterance_ms: 15_000 });
+    const empty = freshDb();
+    const bundle = overlaySettings(empty.settings, {
+      'stt.polish': { enabled: true, strength: 'smooth' },
+      'stt.refine': { enabled: true, min_utterance_ms: 15_000 },
+    });
+    expect(readSttPolish(bundle, U)).toEqual(readSttPolish(stored.settings, U));
+    expect(readSttRefine(bundle, U)).toEqual(readSttRefine(stored.settings, U));
+    rec({ setting: 'stt.polish / stt.refine (bundle)', consumer: 'polishArming', reached: readSttPolish(bundle, U).enabled, evidence: JSON.stringify(readSttPolish(bundle, U)) });
+  });
+
+  it('🔴 REVERSE CONTROL — the bundle WINS over a contradicting stored row, and an absent bundle key never falls through to one', () => {
+    const db = freshDb();
+    db.settings.write(U, 'stt.polish', { enabled: false });
+    writeCard(db, { terms: ['StaleRowTerm'] });
+    // ① the phone says ON — the stored OFF must not be what the session arms.
+    expect(readSttPolish(overlaySettings(db.settings, { 'stt.polish': { enabled: true } }), U)).toEqual({ enabled: true });
+    // ② the phone pushed a bundle WITHOUT a card — the stored card must not act.
+    const c = runConsumersOn(overlaySettings(db.settings, { 'stt.polish': { enabled: true } }));
+    expect(c.hotwords).toBeUndefined();
+    expect(c.scenarioBlock).toBe('');
+    // ③ positive control: the same database, read WITHOUT a bundle (old phone), does see the row.
+    expect(runConsumers(db).hotwords ?? '').toContain('StaleRowTerm');
   });
 });
 

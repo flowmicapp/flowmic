@@ -26,6 +26,13 @@ extension PttSessionEdges on PttSession {
     String? targetLang,
     Delivery delivery = Delivery.inject,
     SendPolicy sendPolicy = SendPolicy.direct,
+    // The phone-owned preference bundle for THIS cycle
+    // (settings/phone_prefs_payload.dart). Read at the caller's emit moment —
+    // chat_ptt_lifecycle.dart, the same line that snapshots `source_lang` — so
+    // a switch flipped between two utterances is already true for the second
+    // one with no reconnect. Null ⇒ the frame omits `prefs`, which is what a
+    // caller with nothing to say sends.
+    Map<String, Object?>? prefs,
   }) async {
     if (fsm.connection != ConnectionState.connected) return false;
     if (!sessionAcceptsPttDown(fsm.session)) return false;
@@ -104,6 +111,7 @@ extension PttSessionEdges on PttSession {
         targetLang: targetLang,
         sendPolicy: sendPolicy,
         delivery: delivery,
+        prefs: prefs,
       ).toJson(),
     );
     _startHeartbeat();
