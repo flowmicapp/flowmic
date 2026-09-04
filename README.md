@@ -204,6 +204,13 @@ Please report security issues privately through
 
 ---
 
+## Support
+
+Bug reports and feature requests go through GitHub issues. For private
+deployment or customisation, write to **github@flowmic.app**.
+
+---
+
 ## License
 
 FlowMic is **[AGPL-3.0-only](LICENSE)**.
