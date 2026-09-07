@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import Icon from '../main-window/components/Icon.vue';
-import { MODE_BADGE, S } from '../lib/strings';
+import { CAPSULE_MSG, MODE_BADGE, S } from '../lib/strings';
+import { formatRowDuration } from '../lib/entry-metrics';
 import { appendForensic, capsule, fetchCaretRect, navigateMain, showMainWindow } from '../lib/bridge';
 import { CAPSULE_HEIGHT, CAPSULE_WIDTH, windowHeightFor } from '../lib/capsule-morph';
 import {
@@ -434,6 +435,26 @@ const bars = computed(() =>
 // reports the LOCK, not the destination.)
 const targetText = computed(() => state.target || S.cap_target_dash);
 
+// owner 2026-09-07 — 「转录中，小图标那一行右侧加上时长·数量」, and 「那边多长时间，
+// 这边多长时间」: the pair must MEAN what the phone's own live numbers mean.
+//
+// It does, and neither half is derived here: the duration is the clock this
+// capsule started on `audio:start` (`state.speakElapsedMs`, the phone's
+// `elapsed`) put through `formatRowDuration` — which is the phone's
+// `formatEntryDuration` grammar character for character, so 「2:41」 on this
+// screen is 「2:41」 on that one — and the count is `state.segs`, the finalised
+// segments the phone's own strip calls `segmentCount`. See
+// capsule/session-stats.ts for why the unit is one recording rather than a
+// session total (short version: the phone has no session total to agree with).
+//
+// `null` ⇒ RENDER NOTHING. Not 「0.0s · 0」: a delivery that never ran
+// onAudioStart has no clock, and printing a zero would be inventing the one
+// thing this row exists to report honestly.
+const sessionMeta = computed(() => {
+  const ms = state.speakElapsedMs;
+  return ms === null ? null : CAPSULE_MSG.sessionMeta(formatRowDuration(ms), state.segs);
+});
+
 // owner 2026-07-27: keep the live transcript scrolled to its newest line. The
 // element only exists in the `speaking` form, so the ref is null the rest of the
 // time — hence the guard rather than a bare assignment.
@@ -615,7 +636,11 @@ watch(
                is entirely about segment ② — this window IS the PC. -->
           <span><Icon name="clock" /> {{ S.cap_delivering }}</span>
           <span><Icon name="lock" /> {{ state.locked ? S.cap_locked : S.cap_target_none }}</span>
-          <span><Icon name="seg" /> {{ S.cap_seg }} {{ state.segs }}</span>
+          <!-- owner 2026-09-07: 「时长 · 数量」 at the RIGHT end of this row.
+               `margin-left:auto` rather than a spacer element — the row is a
+               flexbox and the stat is the only thing that should move when a
+               longer locale grows the two labels on its left. -->
+          <span v-if="sessionMeta" class="mstat-end"><Icon name="seg" /> {{ sessionMeta }}</span>
         </div>
       </div>
 

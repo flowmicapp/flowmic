@@ -21,6 +21,7 @@ import 'package:flowmic/src/audio/retained_audio_spill.dart';
 import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flowmic/src/audio/ring_buffer.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/temp_teardown.dart';
 
 BufferedChunk _chunk(int seq, int bytes) => BufferedChunk(
       seq: seq,
@@ -41,15 +42,15 @@ void main() {
   });
 
   tearDown(() async {
-    await spill.flush();
+    await spill.dispose();
     await store.dispose();
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   test('🔴 MEASURED: the segment key never returns to 0, but the server\'s does',
       () async {
     // The server resets `currentSegmentIdx = 0` in `start()` — once per audio
-    // session (apps/server-core/src/stt/orchestrator-core.ts:204, and
+    // session (apps/server-core/src/stt/orchestrator-core.ts:216, and
     // text-merge.ts says start() and the rollover are the only two writers).
     //
     // The phone's copy is MONOTONIC. Its guard exists for a good reason, stated
@@ -103,54 +104,40 @@ void main() {
     expect(await spill.pendingSegments(), <int>[0]);
   });
 
-  test('MEASURED: `settleSegment` has no production caller — and that is '
-      'CORRECT today, which is the opposite of what it looks like', () async {
+  test('MEASURED: the verb that used to sit here is GONE, and the reasoning '
+      'that kept it waiting is what deleted it', () async {
     //   grep -rn 'settleSegment' apps/mobile --include=*.dart
-    //     → lib/src/audio/retained_audio_spill.dart   (the definition)
-    //     → test/retained_audio_test.dart                (two tests)
-    //     → and nothing else                             [measured 2026-08-29]
+    //     → nothing                                    [measured 2026-09-06]
     //
-    // 🔴 THE LINE NUMBERS WERE DROPPED, DELIBERATELY. They were re-measured once
-    // on 2026-08-30 and were already stale again by the end of the same round —
-    // both files changed twice. The GREP is the evidence; a coordinate is only
-    // a way to find it, and a stale one is worse than none because it reads as
-    // precision. Same rule this repo applies to a number written into a
-    // contract document: go and run it.
+    // 🔴 WHAT THIS TEST USED TO SAY, AND WHY IT WAS RIGHT. `RetainedAudioSpill
+    // .settleSegment(int)` had no production caller. The obvious one would be
+    // 「a final arrived for segment N ⇒ settle N」, and it WOULD DELETE AUDIO
+    // THAT WAS NEVER TRANSCRIBED: on the legacy face, retained bytes are by
+    // construction the bytes the server did NOT receive (chunks that aged out
+    // during an outage, plus the tail `retainUnsentTail` sweeps up), while a
+    // `stt:final` describes what it DID receive. Disjoint by definition. So the
+    // verdict was 「waiting, not forgotten」 — waiting for the re-transcription
+    // channel to produce its OWN final.
     //
-    // 🔴 I NEARLY FILED THIS AS A FAÇADE. An unwired mechanism that the store's
-    // own header calls 「SETTLE ⇒ DELETE IS THE ENFORCEMENT OF THAT BOUNDARY,
-    // NOT AN OPTIMIZATION」 is this repo's most familiar defect shape, and the
-    // grep above is exactly the evidence that shape is usually reported on.
+    // 🔴 WHAT CHANGED IS WHICH FACE OWNS THE ANSWER, NOT THAT ARGUMENT. Card
+    // LS-1b wired the live settle on the JOURNAL face, where the unit is the
+    // whole recording and the trigger is a three-condition predicate
+    // (`session/recovery_settle.dart`), not a final on its own. That left the
+    // per-segment verb with no caller it could ever correctly have, so audit
+    // item E25 is closed by DELETING it rather than by wiring it.
     //
-    // The obvious caller would be 「a final arrived for segment N ⇒ settle N」.
-    // IT WOULD DELETE AUDIO THAT WAS NEVER TRANSCRIBED. Retained bytes are, by
-    // construction, the bytes the server did NOT receive — chunks that aged out
-    // of the ring during an outage plus the tail `retainUnsentTail` sweeps up.
-    // A `stt:final` describes what the server DID receive. The two are disjoint
-    // by definition, so settling on a final would destroy precisely the audio
-    // this layer exists to keep.
-    //
-    // ⇒ the legitimate producer is the re-transcription channel (card CR-5):
-    // retained bytes get re-fed, produce their OWN final, and settle then means
-    // what it says. The mechanism is not forgotten, it is waiting.
-    //
-    // ⚠️ WHAT IS STILL TRUE AND SHOULD BE SAID OUT LOUD: until CR-5 lands, the
-    // only two ways out of this directory are cap eviction and the 24 h TTL, so
-    // the header's 「the instant the segment has been transcribed」 describes an
-    // intent rather than today's behaviour. With CR-3 raising the ceiling to
-    // 30 minutes, that is now tens of MB living on the phone for a day.
-    //
-    // ⇒ 「no production caller」 is a QUESTION, not a verdict. The verdict
-    // depends on what the caller would have to be, and here it would be wrong.
+    // ⇒ 「no production caller」 was a QUESTION here, and this is the answer it
+    // eventually got. The store's own `settle(idx, session:)` is untouched and
+    // still has its caller (`backfill_runner.dart`, after re-feeding).
     spill.noteUplinkDown();
     spill.noteSegmentObserved(0);
     spill.onEvicted(_chunk(1, 300));
     await spill.flush();
     expect(await spill.pendingSegments(), <int>[0]);
 
-    // The mechanism itself is fine — when it IS called it does exactly what it
-    // promises. The gap is the wiring, not the code.
-    await spill.settleSegment(0);
+    // The store's verb still does exactly what it promises; what went away is
+    // the spill-level wrapper that nothing could correctly call.
+    await store.settle(0);
     expect(await spill.pendingSegments(), isEmpty);
     expect(store.retainedBytes, 0);
   });

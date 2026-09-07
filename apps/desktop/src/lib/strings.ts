@@ -146,7 +146,7 @@ onLocaleChange((l) => {
 });
 
 export { SIDECAR_LABEL } from './strings/sidecar';
-export { INJECT_FAIL_REASON } from './strings/capsule';
+export { INJECT_FAIL_REASON, CAPSULE_MSG } from './strings/capsule';
 export { MODE_BADGE } from './strings/timeline';
 export {
   UI_LOCALES,

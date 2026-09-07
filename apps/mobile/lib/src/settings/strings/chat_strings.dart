@@ -478,6 +478,16 @@ mixin ChatStrings on AppStringsLeaves {
   /// (「once the connection is restored」, not 「right away」).
   String outboxPendingNotice(int count) => _lfOutboxPendingNotice(count);
 
+  /// 🔴 Card UX2-2 — THE SAME COUNT WITHOUT THE PROMISE ABOUT THE NETWORK.
+  /// [outboxPendingNotice]'s second clause is only true when the link is
+  /// actually down; said over a healthy link — which is what every ordinary
+  /// press did on 0.3.75 — it names a cause that is not there and sends the
+  /// user to look at their WiFi. Which of the two is spoken is decided in
+  /// `banner_queue.dart` off `connection`, and WHETHER either is spoken is
+  /// decided in `outbox_notice_gate.dart`.
+  String outboxPendingNoticeLinkUp(int count) =>
+      _lfOutboxPendingNoticeLinkUp(count);
+
   /// 🔴 fix-001 / owner 2026-08-11 — **the capsule only ever allows one phone,
   /// a second one is sent back to the connection list**
   /// (docs/rebuild/15 §2.5d, that section has been retired and the replacement
@@ -573,6 +583,49 @@ mixin ChatStrings on AppStringsLeaves {
   String get liveNow => _lfLiveNow;
   String get liveTranscribing =>
       _lfLiveTranscribing;
+
+  // ── AW-1b ASR-leg health sentences (asr_health.dart) ────────────────────
+  // Each names a signal `AsrHealthTracker` classifies, never a cause: first-frame
+  // audio retention is NOT enabled yet, so none of these may claim the audio
+  // is kept — see live_draft_tile.dart for the branch that picks between them
+  // and asr_health.dart's header for why the four signals never collapse into
+  // one sentence.
+  /// [AsrHealthLevel.level1] — recording has run a few seconds with sound above
+  /// the floor arriving and no interim/final yet. Milder than
+  /// [liveHealthNoFirstResultLevel2].
+  ///
+  /// 🔴 THE SENTENCE SAYS 「sound」, NOT 「speech」, AND THAT IS MEASURED. The
+  /// gate behind it is an RMS level over one chunk (asr_health.dart's
+  /// `soundFloorDbfs`) — a fan or a television clears it. It used to claim
+  /// somebody was speaking, which the tracker has no way to know; what it does
+  /// know is that audio reached the microphone and nothing came back, and that
+  /// is true either way.
+  String get liveHealthNoFirstResultLevel1 => _lfLiveHealthNoFirstResultLevel1;
+
+  /// [AsrHealthLevel.level2] — the same wait, escalated. Stronger wording than
+  /// level 1; still names no cause (engine / network / mic are indistinguishable
+  /// from here, §A8 P2-7).
+  String get liveHealthNoFirstResultLevel2 => _lfLiveHealthNoFirstResultLevel2;
+
+  /// [AsrHealthSnapshot.noProgress] — a first result already landed, then the
+  /// engine went quiet while recording continues. A DIFFERENT fact from never
+  /// having gotten a first result, so it needs its own sentence.
+  String get liveHealthNoProgress => _lfLiveHealthNoProgress;
+
+  /// [AsrHealthSnapshot.byteStall] — the recorder was delivering audio and
+  /// stopped, distinct from the engine going quiet AND from the recorder
+  /// never having opened (that one is `AudioCapture`'s dead-capture
+  /// watchdog's fact). The sentence names the RECORDER, not the sound: the
+  /// tracker knows that no PCM bytes arrived in the window and nothing more.
+  String get liveHealthByteStall => _lfLiveHealthByteStall;
+
+  /// [AsrHealthSnapshot.digitalSilence] — bytes ARE arriving and every sample
+  /// in them is zero. The fact only: occupied mic, hardware mute and an OS
+  /// muting the stream are indistinguishable from here (§A8 P2-7), so the
+  /// sentence names none of them. This signal was computed and never shown
+  /// until the alert-face review; a classified fact with no sentence is the
+  /// same dead capability read from the other end.
+  String get liveHealthDigitalSilence => _lfLiveHealthDigitalSilence;
 
   // ── per-entry duration + word count (§4b-8 / data-asset-lifecycle-design.md) ────────────────
   /// The word-count NUMBER comes from `entry_metrics.dart` `textWordCount`

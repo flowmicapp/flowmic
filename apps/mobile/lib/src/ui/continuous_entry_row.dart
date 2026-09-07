@@ -84,6 +84,12 @@ class ContinuousEntryRow extends StatelessWidget {
           // non-exhaustive without a case for it, so the minimum edit to keep
           // the build green is one line here.
           ContinuousBlock.notSignedIn => strings.continuousEntrySignInNote,
+          ContinuousBlock.emailNotVerified =>
+            strings.continuousEntryVerifyEmailNote,
+          ContinuousBlock.accountRestricted =>
+            strings.continuousEntryRestrictedNote,
+          ContinuousBlock.sessionExpired =>
+            strings.continuousEntrySessionExpiredNote,
           ContinuousBlock.modeNotRealtime => strings.continuousEntryModeNote,
           ContinuousBlock.ceilingUnknown => strings.continuousEntryNoCeilingNote,
           ContinuousBlock.quotaSpent => strings.continuousEntryQuotaSpentNote,

@@ -79,6 +79,19 @@ class CloudSummaryController extends ChangeNotifier {
   /// this session. Null is what the card renders as 「no gauge」.
   CloudSummary? get summary => _summary;
 
+  CloudSummaryRefusal? _refusal;
+
+  /// The last NAMED account-level refusal the summary route answered with, or
+  /// null when the last read did not name one.
+  ///
+  /// 🔴 IT DOES NOT FOLLOW `summary`'S 「A MISS CHANGES NOTHING」 RULE, and the
+  /// asymmetry is the point. Keeping stale NUMBERS on screen is the no-flicker
+  /// requirement; keeping a stale REASON would be answering 「why can't I」 with
+  /// something that stopped being true. So a successful read clears it, and a
+  /// transient miss leaves it alone (a socket timeout is not evidence the
+  /// account stopped being restricted).
+  CloudSummaryRefusal? get refusal => _refusal;
+
   bool _inFlight = false;
 
   /// Is a read outstanding right now? Read by tests; the UI deliberately does
@@ -105,7 +118,7 @@ class CloudSummaryController extends ChangeNotifier {
     if (bearer == null) return;
 
     _inFlight = true;
-    CloudSummary? got;
+    CloudSummaryRead got = CloudSummaryRead.unreadable;
     try {
       got = await _fetch(cloudSummaryUri(_endpoint), bearer, timeout);
     } on Object {
@@ -113,18 +126,26 @@ class CloudSummaryController extends ChangeNotifier {
       // resolves every throw itself and returns null. `on Object`, not
       // `on Exception`, is RV-89's shape. The outcome is identical to a miss:
       // keep whatever we had.
-      got = null;
+      got = CloudSummaryRead.unreadable;
     } finally {
       _inFlight = false;
     }
     if (_disposed) return;
+    // The reason is settled BEFORE the early return below: a refusal is exactly
+    // the case where there are no numbers, so folding it in after 「a miss
+    // changes nothing」 would mean it never landed at all.
+    final CloudSummaryRefusal? named = got.refusal;
+    if (named != _refusal && (named != null || got.summary != null)) {
+      _refusal = named;
+      notifyListeners();
+    }
     // 🔴 A MISS CHANGES NOTHING — it does not blank the gauge and it does not
     // notify. That is the 「no flicker」 requirement in one line.
-    if (got == null) return;
+    if (got.summary == null) return;
     // Signed out while the answer was in the air ⇒ throw it away. Rendering it
     // would put one account's numbers on a card that no longer has an account.
     if (!_login.isLoggedIn) return;
-    _summary = got;
+    _summary = got.summary;
     notifyListeners();
   }
 
@@ -136,9 +157,12 @@ class CloudSummaryController extends ChangeNotifier {
       refresh();
       return;
     }
-    // Signed out: the numbers belonged to the account that just left.
-    if (_summary == null) return;
+    // Signed out: the numbers AND the reason belonged to the account that just
+    // left. A refusal outliving its account would explain a block the next
+    // account is not under.
+    if (_summary == null && _refusal == null) return;
     _summary = null;
+    _refusal = null;
     notifyListeners();
   }
 

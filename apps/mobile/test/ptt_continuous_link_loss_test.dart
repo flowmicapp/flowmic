@@ -41,6 +41,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 const Duration _grace = Duration(milliseconds: 80);
 const Duration _pastGrace = Duration(milliseconds: 250);
@@ -88,9 +89,9 @@ void main() {
     // Windows the directory below is still held open when a test ends by
     // stopping. Draining is the fix, not a try/catch around the delete: a
     // swallowed teardown error is how a real I/O failure would hide.
-    await spill.flush();
+    await spill.dispose();
     await store.dispose();
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   Future<void> recordSomeAudio() async {

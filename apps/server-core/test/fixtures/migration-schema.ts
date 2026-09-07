@@ -68,6 +68,19 @@ export const TABLES = [
   'billing_events',
   'ops_audit_log',
   'site_daily_counts',
+  // 2026-09-06 card PR-2: the recovery domain's two tables (db/schema-recovery.ts).
+  // FIFTEEN/SIXTEEN. Purely additive — two CREATEs plus two indexes, no ALTER and
+  // no new reconcileSchema step. BOTH carry `REFERENCES users(id) ON DELETE
+  // CASCADE` (db/schema-recovery.ts:99 and :134), i.e. they are the OPPOSITE of
+  // the tombstone above: a deleted account takes its dedupe markers with it,
+  // which is what a seven-day marker keyed on a user id should do.
+  // ⚠️ This comment said 「NEITHER has a foreign key」 and argued it from a
+  // standalone sidecar admitting identities with no users row. The DDL never
+  // said that, and the argument survived here only because nothing in this file
+  // reads the constraint — the list below is table NAMES. Corrected 2026-09-06
+  // (audit F4).
+  'recovery_operations',
+  'usage_effects',
 ];
 
 /** The `users` DDL exactly as it stood BEFORE Window D1 (0.2.36) — no

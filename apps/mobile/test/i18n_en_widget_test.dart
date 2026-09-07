@@ -185,12 +185,14 @@ void main() {
   ) async {
     await tester.pumpWidget(
       _wrap(
-        const LiveDraftTile(
+        LiveDraftTile(
           committedChars: 0,
           text: 'partial words',
           mode: FlowMode.realtime,
           strings: _en,
-          elapsed: Duration(seconds: 7),
+          statusLabel: _en.liveTranscribing,
+          healthNote: null,
+          elapsed: const Duration(seconds: 7),
         ),
       ),
     );

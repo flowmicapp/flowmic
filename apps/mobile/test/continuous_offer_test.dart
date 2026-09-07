@@ -38,13 +38,19 @@ ContinuousOffer _offer({
   // the sign-in gate is its own group below (「owner ruling 2026-09-02」).
   bool signedIn = true,
   CloudSummary? summary,
+  // A 4xx answers with no body worth parsing, so 「refused」 means there is no
+  // summary at all — and `summary: null` cannot say that here, because null
+  // falls back to the default. An explicit flag is the only way to ask for it.
+  bool noSummary = false,
+  CloudSummaryRefusal? refusal,
   ServerChannel? channel,
 }) => continuousOffer(
   recordOnly: recordOnly,
   mode: mode,
   linkUp: linkUp,
   signedIn: signedIn,
-  summary: summary ?? _summary(),
+  summary: noSummary ? null : (summary ?? _summary()),
+  refusal: refusal,
   channel: channel,
 );
 
@@ -353,6 +359,71 @@ void main() {
       expect(o.remainingMinutes, isNull,
           reason: 'LAN never draws from the cloud month at all');
       expect(o.minutesAvailable, 10);
+    });
+  });
+
+  // ── R3F-2 ──────────────────────────────────────────────────────────────────
+  //
+  // Device round three (2026-09-06): an unverified account past the 3-day grace
+  // gets 403 EMAIL_NOT_VERIFIED from the ceiling read, and the row said
+  // 「Account limit unavailable — try again」 forever.
+  group('🔴 a NAMED refusal is not the same block as an unreadable ceiling', () {
+    test('each named refusal gets its own block', () {
+      expect(
+        _offer(noSummary: true, refusal: CloudSummaryRefusal.emailNotVerified).reason,
+        ContinuousBlock.emailNotVerified,
+      );
+      expect(
+        _offer(noSummary: true, refusal: CloudSummaryRefusal.accountRestricted).reason,
+        ContinuousBlock.accountRestricted,
+      );
+      expect(
+        _offer(noSummary: true, refusal: CloudSummaryRefusal.authExpired).reason,
+        ContinuousBlock.sessionExpired,
+      );
+    });
+
+    test('🔴 the unnamed miss KEEPS ceilingUnknown', () {
+      // The negative control. Without it 「tell the two apart」 could have been
+      // implemented as 「rename the one sentence」, and every assertion above
+      // would still be green.
+      expect(
+        _offer(noSummary: true, refusal: null).reason,
+        ContinuousBlock.ceilingUnknown,
+      );
+    });
+
+    test('a named refusal outranks the mode, and survives a cached ceiling', () {
+      // Outranks the mode for `notSignedIn`'s own reason: telling a barred
+      // account 「realtime mode only」 answers a question one step ahead of the
+      // one that blocks it.
+      expect(
+        _offer(
+          mode: FlowMode.translate,
+          noSummary: true,
+          refusal: CloudSummaryRefusal.emailNotVerified,
+        ).reason,
+        ContinuousBlock.emailNotVerified,
+      );
+      // A ceiling read earlier in the session does not make the account any
+      // less barred — this is why the check sits above `cap == null` and not
+      // inside it.
+      final ContinuousOffer stale = _offer(
+        refusal: CloudSummaryRefusal.emailNotVerified,
+      );
+      expect(stale.reason, ContinuousBlock.emailNotVerified);
+      expect(stale.enabled, isFalse);
+    });
+
+    test('signing out still outranks every refusal', () {
+      expect(
+        _offer(
+          signedIn: false,
+          noSummary: true,
+          refusal: CloudSummaryRefusal.authExpired,
+        ).reason,
+        ContinuousBlock.notSignedIn,
+      );
     });
   });
 }

@@ -176,42 +176,38 @@ const PLAN_HEDGES: Record<Loc, readonly string[]> = {
 // that second lie as a pass, which is why every group below is a POSITIVE
 // marker and the ban is scoped underneath them.
 
-/** ① A QR-made pairing is TLS AND the pin is re-checked on every later dial —
- *  not just at pairing time. Backed by apps/mobile/lib/src/signaling/
- *  lan_pinning.dart (`PinnedHttpClient._judge`) reached from four dial sites,
- *  enforced by apps/mobile/test/lan_pin_enforced_on_every_dial_test.dart. The
- *  second marker of each row is the 「every later connection」 half specifically:
- *  a copy that only promised encryption AT PAIRING would satisfy the first. */
-const LAN_PINNED: Record<Loc, readonly string[]> = {
-  'zh-CN': ['二维码里带着这台电脑的身份', '每一次连接都核对'],
-  en: ['carries the identity of the computer', 'checks it on every later connection'],
-  ja: ['PC の身元が入っている', '接続ごとに照合'],
-  ko: ['컴퓨터의 신원이 실려 있는', '연결마다 대조'],
-  'zh-TW': ['帶有該電腦的身分識別', '每次連線時都會檢查'],
-  fr: ["porte l'identité de l'ordinateur", 'à chaque connexion ultérieure'],
-  es: ['lleve la identidad del ordenador', 'en cada conexión posterior'],
-  de: ['die Identität des Computers trägt', 'bei jeder späteren Verbindung'],
-  ru: ['несёт в себе идентификатор компьютера', 'при каждом последующем подключении'],
-};
-
-/** ② The old warning is STILL TRUE for pairings made before 0.2.60, and there is
- *  exactly one action that upgrades them. apps/mobile/lib/src/ptt/
- *  ptt_session.dart:566-569 — `pinFingerprint: session.lanTlsFp` is 「Null for an
- *  unpinned row, which is every pre-D2-LAN pairing」 and that dial is 「byte-for-
- *  byte the old one」; no auto-upgrade path exists.
- *  🔴 THIS GROUP IS THE GUARD AGAINST THE OPPOSITE LIE. Deleting it would let a
- *  blanket 「the LAN is encrypted now」 paragraph pass every other assertion in
- *  this file. */
-const LAN_LEGACY_PLAINTEXT: Record<Loc, readonly string[]> = {
-  'zh-CN': ['仍然是明文', '重新配对'],
-  en: ['still in the clear', 'pairing again'],
-  ja: ['今も平文', 'ペアリングし直す'],
-  ko: ['지금도 평문', '다시 페어링'],
-  'zh-TW': ['仍然是未加密的', '重新配對'],
-  fr: ['restent en clair', 'nouvel appairage'],
-  es: ['siguen sin cifrar', 'volver a emparejar'],
-  de: ['weiterhin unverschlüsselt', 'erneutes Koppeln'],
-  ru: ['остаются незашифрованными', 'повторное сопряжение'],
+/** ① The leg on your own network IS encrypted, and the relay is TLS.
+ *
+ *  🔴 2026-09-07 (owner) — THIS TABLE REPLACES TWO, AND THE PARAGRAPH ABOVE
+ *  DESCRIBES WHAT USED TO BE HERE. The amber `disc_s4_lan_plain` block is gone
+ *  and its live claim is a sentence in `disc_s4_body`, so the markers moved
+ *  with it. What was retired:
+ *    · LAN_PINNED — 「the QR carries the identity of the computer / the phone
+ *      checks it on every later connection」. The mechanism is unchanged
+ *      (lan_pinning.dart, four dial sites, still enforced by
+ *      apps/mobile/test/lan_pin_enforced_on_every_dial_test.dart); it is the
+ *      COPY that no longer spells it out, on the same C16 grounds the rest of
+ *      this page was shortened on.
+ *    · LAN_LEGACY_PLAINTEXT — 「a pairing made before 0.2.60 is still in the
+ *      clear / pair again」. That is the only half whose PREMISE went away: LAN
+ *      TLS shipped 2026-08-08 (e5614864) and the first public release is
+ *      v0.3.53, so no external user can hold such a pairing, and the imperative
+ *      was addressed to our own test devices.
+ *  ⚠️ Its job — stop a blanket 「it is encrypted now」 — is NOT dropped: it is
+ *  done by the section pointer below, which is what keeps the sentence from
+ *  asserting a value it cannot know (`FLOWMIC_LAN_TLS=0` still exists;
+ *  server-core config.ts `resolveLanTls` branch ②). A copy that claimed
+ *  encryption and dropped the pointer fails that assertion. */
+const LAN_ENCRYPTED_NOW: Record<Loc, readonly string[]> = {
+  'zh-CN': ['这条连接是加密的', '中继一律走 TLS'],
+  en: ['is encrypted', 'relay runs over TLS'],
+  ja: ['暗号化され', '中継は TLS'],
+  ko: ['암호화되고', '중계는 TLS'],
+  'zh-TW': ['這條連線是加密的', '中繼一律走 TLS'],
+  fr: ['la liaison est chiffrée', 'le relais est en TLS'],
+  es: ['la conexión va cifrada', 'el relé va por TLS'],
+  de: ['ist die Verbindung verschlüsselt', 'das Relais läuft über TLS'],
+  ru: ['связь шифруется', 'ретранслятор работает по TLS'],
 };
 
 /** ③ The kill switch, and what it costs. `FLOWMIC_LAN_TLS` is an env var name,
@@ -399,27 +395,24 @@ describe('P1 — the product says where the user’s words go', () => {
     }
   });
 
-  it('🔴 the LAN leg is told as THREE truths — 0.2.60 pairings, older ones, and the kill switch', async () => {
+  it('🔴 the LAN leg says it is encrypted, and says where the current reading is', async () => {
     // ⚠️ Two levels, same as the DeepSeek and polish guards above: `renderIn`
     // proves the paragraph is MOUNTED (a catalogue string nobody renders is this
     // repo's oldest façade), and the markers are asserted against
-    // `disc_s4_lan_plain` specifically so the next test's ban can be scoped to
+    // `disc_s4_body` specifically so the next test's ban can be scoped to
     // the same key without ever reaching a legitimate sentence elsewhere.
+    // 🔴 The key changed 2026-09-07 (owner): the amber `disc_s4_lan_plain`
+    // block was removed and its live claim folded into the step's body. The
+    // table comment above records which markers were retired and why.
     for (const loc of LOCALES) {
       const html = await renderIn(loc);
-      const line = S_BY_LOCALE[loc].disc_s4_lan_plain;
+      const line = S_BY_LOCALE[loc].disc_s4_body;
       expect(html, `${loc}: the LAN paragraph is not mounted`).toContain(ssrEscape(line));
 
-      for (const m of LAN_PINNED[loc]) {
+      for (const m of LAN_ENCRYPTED_NOW[loc]) {
         expect(
           line,
-          `${loc}: the LAN paragraph does not say the pairing is encrypted AND re-checked (「${m}」). The pin is verified on every dial (lan_pinning.dart), and a copy that only promises it at pairing time undersells what the phone actually does.`,
-        ).toContain(m);
-      }
-      for (const m of LAN_LEGACY_PLAINTEXT[loc]) {
-        expect(
-          line,
-          `${loc}: the LAN paragraph dropped the pre-0.2.60 half (「${m}」). Those pairings are still plaintext — ptt_session.dart:566-569, no auto-upgrade — so a blanket 「it is encrypted now」 is a NEW lie, not a fix for the old one, and re-pairing is the only action that moves them.`,
+          `${loc}: step ④ dropped the encryption sentence (「${m}」). The leg on the user's own network is TLS (server-core config.ts resolveLanTls; the desktop always spawns the sidecar standalone with FLOWMIC_HOME) and so is the relay — saying nothing here leaves the reader with the pre-0.2.60 assumption.`,
         ).toContain(m);
       }
       // 🔴 In-place correction (WP3 C16, 2026-08-18): the REQUIRED kill-switch
@@ -464,12 +457,13 @@ describe('P1 — the product says where the user’s words go', () => {
     // catalogue produces exactly this, and 「missing phrase X」 sends the reader
     // hunting while 「the pre-0.2.60 sentence is back」 does not.
     //
-    // ⚠️ Scoped to `disc_s4_lan_plain`, never page-wide — 「未加密」 / 「not
+    // ⚠️ Scoped to `disc_s4_body` (was `disc_s4_lan_plain` until that key was
+    // retired 2026-09-07), never page-wide — 「未加密」 / 「not
     // encrypted」 are honest words elsewhere (the phone's own status tier says
     // exactly that), and a page-wide ban would eventually forbid a true
     // sentence. Same narrowing the two guards above already had to make.
     for (const loc of LOCALES) {
-      const line = S_BY_LOCALE[loc].disc_s4_lan_plain;
+      const line = S_BY_LOCALE[loc].disc_s4_body;
       for (const stale of LAN_EXPIRED_CLAIMS[loc]) {
         expect(
           line,

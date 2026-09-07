@@ -115,7 +115,7 @@ describe('T7 — a platform managed-default key is NOT BYOK', () => {
   it('② the usage really lands in usage_records (the quota meter reads THAT, not a flag)', () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    const tracker = makeUsageTracker(db.usage, { mode: 'saas' });
+    const tracker = makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() });
     const { isByok } = buildManagedSession();
 
     // Replay the ONE production metering site (audio.handler.ts:109) with the
@@ -145,7 +145,7 @@ describe('T7 — a platform managed-default key is NOT BYOK', () => {
   it('and a BYOK session correspondingly writes NO usage row (the other half of ②)', () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    makeUsageTracker(db.usage, { mode: 'saas' }).recordSttUsage('u1', { is_byok: true }, 120_000, NO_TEXT_MEASURED);
+    makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() }).recordSttUsage('u1', { is_byok: true }, 120_000, NO_TEXT_MEASURED);
     expect(db.usage.get('u1', currentMonth())).toBeNull();
     db.close();
   });
@@ -162,7 +162,7 @@ describe('T7 — a platform managed-default key is NOT BYOK', () => {
     expect(db.usage.get('u1', currentMonth())).toBeNull();
     // Positive control: the SAME call under saas does write, so the null above
     // is the guard and not a blind probe.
-    makeUsageTracker(db.usage, { mode: 'saas' }).recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED);
+    makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() }).recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED);
     expect(db.usage.get('u1', currentMonth())?.stt_minutes).toBeCloseTo(2, 6);
     db.close();
   });
@@ -170,7 +170,7 @@ describe('T7 — a platform managed-default key is NOT BYOK', () => {
   it('a zero-duration session writes NO row — the guard dispose() depends on', () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    const tracker = makeUsageTracker(db.usage, { mode: 'saas' });
+    const tracker = makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() });
     // Exactly what the dispose path reports for a session that carried nothing.
     tracker.recordSttUsage('u1', { is_byok: false }, 0, NO_TEXT_MEASURED);
     expect(db.usage.get('u1', currentMonth())).toBeNull();
@@ -211,7 +211,7 @@ describe('T7-b — the LLM meter must read the LLM key, not the STT key', () => 
   it('④ platform LLM + BYOK STT ⇒ polish tokens DO land in usage_records', () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    const tracker = makeUsageTracker(db.usage, { mode: 'saas' });
+    const tracker = makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() });
 
     const sttIsByok = resolveByok(selectRoutingWithSource(
       'zh', [{ language: '*', engine_id: 'deepgram', api_key: 'users-stt-key' } as Routing],
@@ -229,7 +229,7 @@ describe('T7-b — the LLM meter must read the LLM key, not the STT key', () => 
   it('positive control: a real BYOK LLM key still waives the polish tokens', () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    makeUsageTracker(db.usage, { mode: 'saas' }).recordLlmUsage('u1', { is_byok: isByokLlm(byokLlm) }, 100, 40);
+    makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() }).recordLlmUsage('u1', { is_byok: isByokLlm(byokLlm) }, 100, 40);
     expect(db.usage.get('u1', currentMonth())).toBeNull();
     db.close();
   });
@@ -241,7 +241,7 @@ describe('T7-b — the LLM meter must read the LLM key, not the STT key', () => 
   it('④ SEAM: BYOK STT + platform LLM ⇒ onPolishUsage receives byok=FALSE, and the row lands', async () => {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
-    const tracker = makeUsageTracker(db.usage, { mode: 'saas' });
+    const tracker = makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => currentMonth() });
 
     const eng = new PolishFakeEngine();
     const bridge = new SttSessionBridge({

@@ -26,6 +26,15 @@ import 'retained_audio_dir.dart';
 import 'retained_audio_spill.dart';
 import 'retained_audio_store.dart';
 
+/// Card RC-1 — the shipped value of [openRetainedAudioSpill]'s
+/// [retainFromFirstFrame], named so a test can assert against the SAME symbol
+/// production reads rather than against a literal that agrees with itself.
+///
+/// 🔴 IT IS THE REVERSE CONTROL'S ONE SWITCH: flipping this to `false` must
+/// turn `test/retained_audio_ls0_gaps_test.dart`'s E7 case red, which is what
+/// makes that case a measurement of production and not of its own fixture.
+const bool kRetainFromFirstFrameDefault = true;
+
 /// Open the retained-audio layer for this run, or `null`.
 ///
 /// SEG-2 (design 2026-08-11 §2-R3) — THE PRODUCTION CONSTRUCTION OF THE
@@ -40,7 +49,52 @@ import 'retained_audio_store.dart';
 /// own safety net. null degrades to the pre-SEG-2 product (no retention),
 /// LOUDLY — and ptt_link_loss.dart then refuses to claim retention in the
 /// user-facing notice, so the degradation never becomes an unbacked promise.
-Future<RetainedAudioSpill?> openRetainedAudioSpill() async {
+/// 🔴 CARD RC-1 (2026-09-06) — FIRST-FRAME RETENTION IS THE SHIPPED DEFAULT.
+///
+/// [retainFromFirstFrame] chooses which storage face the returned spill runs
+/// (retained_audio_spill.dart's header describes both). **The default is
+/// [kRetainFromFirstFrameDefault], which is now `true`.** Every build shipped
+/// from this commit writes a per-recording journal from the first captured
+/// frame, whatever the uplink is doing; the segment face survives only so
+/// journals written before this flip are still recovered by the same runner.
+///
+/// The parameter stays because the legacy face still has to be exercised —
+/// `test/retained_audio_first_frame_test.dart` drives both — not because a
+/// build may choose. There is exactly one production construction and it takes
+/// the default.
+///
+/// 🔴 THE FIVE THINGS §A10-0 REQUIRED BEFORE THIS COULD BE TRUE, AND WHERE
+/// EACH ONE LANDED (read before rolling this back — turning it off gives the
+/// audio back to a 30-second ring):
+///   ① write-failure release (P1-1, card LS-1b) — a failed append is contained
+///      per link, recorded as a hole and announced, so the queue is not
+///      poisoned and the microphone can still stop:
+///      apps/mobile/lib/src/audio/retained_audio_legacy_face.dart:66 `_appendOne`;
+///   ② cancel semantics (owner ruling O-5, card LS-4) — a swiped-away
+///      recording gets a tombstone on both faces and loses no byte:
+///      apps/mobile/lib/src/audio/retained_audio_spill.dart:481
+///      `tombstoneCurrentRecording`;
+///   ③ space policy (owner ruling O-2, card LS-3) — the cap refuses new bytes
+///      and says so instead of evicting unrecovered audio:
+///      apps/mobile/lib/src/audio/retained_audio_store.dart:507 `_capBytes`;
+///   ④ a live-path settle call site (P1-4, card LS-1b) — the healthy recording
+///      that simply worked now has an exit:
+///      apps/mobile/lib/src/session/live_settle.dart:59 `settleLiveRecording`,
+///      called from `_settleSpan` in
+///      apps/mobile/lib/src/session/chat_utterance_settle.dart:208;
+///   ⑤ the coverage / cleanup policy (A7-1, card CV-1; owner ruling
+///      2026-09-06) — one predicate decides what proof licenses a delete, and
+///      both the live path and the recovery leg ask it:
+///      apps/mobile/lib/src/session/recovery_settle.dart:209
+///      `evaluateRecoverySettle`.
+///
+/// ⚠️ The warning the OFF-by-default note carried is now a live obligation
+/// rather than a reason to wait: this ships a protection that grows, and ④+⑤
+/// are the only things that shrink it. A change that weakens either one is a
+/// change that fills the user's disk.
+Future<RetainedAudioSpill?> openRetainedAudioSpill({
+  bool retainFromFirstFrame = kRetainFromFirstFrameDefault,
+}) async {
   try {
     final RetainedAudioStore retainedStore = await openRetainedAudioStore();
     // Retention events must be heard (store contract: 「no silent failures」 runs in
@@ -70,7 +124,10 @@ Future<RetainedAudioSpill?> openRetainedAudioSpill() async {
     // The orphan backstop retained_audio_dir.dart asks every opener to run:
     // audio no session can ever claim again ages out, announced on the way.
     unawaited(retainedStore.sweep());
-    return RetainedAudioSpill(store: retainedStore);
+    return RetainedAudioSpill(
+      store: retainedStore,
+      retainFromFirstFrame: retainFromFirstFrame,
+    );
   } on Object catch (e) {
     debugPrint('[flowmic.audio] retained-audio store failed to open: $e — '
         'link-loss retention is DISABLED for this run');

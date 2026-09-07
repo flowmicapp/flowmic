@@ -408,6 +408,42 @@ export const ERROR_CODES = {
   // STT_HARD_LIMIT_REACHED retired 2026-09-02 (WP-8 registry hygiene) — see
   // the "75 → 69" note near EXPECTED_ERROR_CODE_COUNT.
 
+  // ── Audio recovery: the server's operation registry ─────────────────────────
+  //
+  // 🔴 A NEW NAMESPACE (`AUDIO_*`), and it is one on purpose. This code speaks
+  // about the RECOVERY REQUEST, not about a speech engine and not about an
+  // injection: the recording never reached an engine because the server refused
+  // to start it, and nothing about the engines is wrong. Filing it under `STT_*`
+  // is what the borrowed code did, and the phone's stall table would then have to
+  // dress a request-level refusal as an engine fault.
+  //
+  // owner approved it on 2026-09-06
+  // (docs/decisions/2026-09-06-owner-grants-error-code-audio-op-binding-conflict.md).
+  // Producer: apps/server-core/src/socket/handlers/audio-start-operation.ts
+  // `admitOperation`, the `conflict` verdict of
+  // db/repos/recovery-operations.repo.ts — a re-send that reuses an
+  // `operation_id` while describing a different recording / sample range /
+  // attempt kind / mode. Ruling O-9 (乙) forbids overwriting the registration,
+  // so the frame is refused and the first registration stands.
+  //
+  // 🔴 NO IMPERATIVE, AND THE ABSENCE IS THE POINT. There is nothing the user can
+  // do — the client mints a fresh operation for the next attempt on its own, and
+  // the one action a sentence could ask for ("say it again", which the borrowed
+  // `STT_NO_ENGINE_REACHED` does ask for) is the action that produced this. So it
+  // states two facts instead: this send was not processed, and the earlier
+  // result and charge did not move. The second half is the one the user would
+  // otherwise have to guess at, and A7-2 is what makes it true — billing is a
+  // different key and a different table, untouched by a refused start.
+  //
+  // ⚠️ NAME LENGTH IS A PRODUCT CONSTRAINT (see the 28-character note at the top
+  // of this file). The request went in as `AUDIO_OPERATION_BINDING_CONFLICT` (32)
+  // and owner shortened it to 25 so that a phone with no mirrored sentence prints
+  // the whole identifier instead of 0.2.53's three letters.
+  //
+  // Wire shape unchanged: `SttErrorSchema.code` is `NonEmpty`, not a closed enum,
+  // and no event was added, removed or renamed.
+  AUDIO_OP_BINDING_CONFLICT: { zh_CN: '这次重发描述的不是原来那段录音，所以没有处理。原来那次的结果和计费都没有变。', en: 'This re-send does not describe the original recording, so it was not processed. The earlier result and charge are unchanged.' },
+
   // LLM / compose
   LLM_TIMEOUT:               { zh_CN: '大模型响应超时。',                      en: 'LLM response timeout.' },
   LLM_AUTH_FAIL:             { zh_CN: '大模型鉴权失败，请检查 API Key。',      en: 'LLM authentication failed, check API key.' },

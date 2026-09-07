@@ -238,8 +238,9 @@ void main() {
 
       final FakeSocketTransport transport = FakeSocketTransport();
       final ChatController controller = await _controller(transport);
+      bool disposed = false;
       addTearDown(() async {
-        await controller.dispose();
+        if (!disposed) await controller.dispose();
         controller.destination.dispose();
         controller.store.dispose();
         await controller.session.dispose();
@@ -309,10 +310,21 @@ void main() {
       // `chat_stick_bottom_widget_test.dart`:
       // a REAL `pair()` correctly arms a periodic Timer, and `flutter_test`
       // checks for pending timers BEFORE `addTearDown`'s async dispose runs.
-      // ⚠️ This is the ONLY timer released by hand here — the 45 s compose
-      // watchdog above is released by the run REACHING ITS TERMINAL, which is
-      // the behaviour under test rather than a courtesy to the harness.
+      // ⚠️ The 45 s compose watchdog above is NOT released here — the run
+      // REACHING ITS TERMINAL is what releases it, and that is the behaviour
+      // under test rather than a courtesy to the harness.
       controller.session.debugStopIdlePresencePoll();
+
+      // Card UX2-2's grace timer: the delivered utterance is legitimately still
+      // pending (nothing answers `inject:result` here), so `DeliveryOutbox` is
+      // legitimately holding a 5 s wake-up for the banner. It is released by
+      // the SAME dispose the app performs on every page exit — done in the body
+      // for the reason spelled out in the next test: `addTearDown` runs AFTER
+      // the pending-timer check, and every collaborator `dispose()` inside
+      // `disposeRouted` is synchronous and runs before its first await.
+      disposed = true;
+      unawaited(controller.dispose());
+      await tester.pump();
     },
   );
 

@@ -21,6 +21,7 @@ import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/ui/quota_gauge.dart';
 import 'package:flowmic/src/ui/tokens.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,22 +35,28 @@ CloudSummary _summary({
   double limitTokens = 5000000,
   bool noMinutes = false,
   bool noTokens = false,
+  DateTime? resetsAt,
 }) => CloudSummary(
   minutes: noMinutes ? null : CloudMeter(used: usedMin, limit: limitMin),
   tokens: noTokens ? null : CloudMeter(used: usedTokens, limit: limitTokens),
+  resetsAt: resetsAt,
 );
 
-Widget _host(CloudSummary summary, {double width = 320, AppLocale locale = AppLocale.en}) =>
-    MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: width,
-            child: QuotaGauge(summary: summary, strings: AppStrings.of(locale)),
-          ),
-        ),
+Widget _host(
+  CloudSummary summary, {
+  double width = 320,
+  AppLocale locale = AppLocale.en,
+  DateTime? now,
+}) => MaterialApp(
+  home: Scaffold(
+    body: Center(
+      child: SizedBox(
+        width: width,
+        child: QuotaGauge(summary: summary, strings: AppStrings.of(locale), now: now),
       ),
-    );
+    ),
+  ),
+);
 
 BoxDecoration _decorationOf(WidgetTester tester, Key key) =>
     tester.widget<DecoratedBox>(find.byKey(key)).decoration as BoxDecoration;
@@ -231,5 +238,151 @@ void main() {
       expect(left.right, lessThanOrEqualTo(right.left + 0.01));
       expect(right.width, greaterThan(0));
     });
+  });
+
+  // ── ④ when the allowance starts over (owner 2026-09-07) ───────────────────
+  //
+  // 🔴 EVERY INSTANT IN THIS GROUP IS BUILT FROM A **LOCAL** DateTime AND THEN
+  // CONVERTED. `DateTime(2026, 9, 24, 8).toUtc()` is 08:00 local wherever the
+  // suite runs, so the sentence under test is the same on this machine, on the
+  // Mac and on a runner in another zone. Writing `DateTime.utc(2026, 9, 24)`
+  // here instead would produce a different sentence per timezone and the file
+  // would be a machine-local baseline — the trap this repo already pays for in
+  // its rendered-copy snapshots.
+  group('④ the reset line', () {
+    testWidgets('says the local date, the local time and the days remaining', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          _summary(usedMin: 12, resetsAt: DateTime(2026, 9, 24, 8).toUtc()),
+          width: 411,
+          now: DateTime(2026, 9, 10, 9, 30),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Resets 9/24 08:00 · in 14 days'), findsOneWidget);
+    });
+
+    testWidgets('🔴 wire → screen, through the real parser and nothing else', (
+      WidgetTester tester,
+    ) async {
+      // 🔴 THE OTHER TESTS IN THIS GROUP HAND [QuotaGauge] A `CloudSummary` THEY
+      // BUILT, so they prove the widget draws what it is given and prove nothing
+      // about whether anything gives it that. Deleting the one line in
+      // `parseCloudSummary` that reads `quota.period.end` leaves every one of
+      // them green — measured, not assumed — which is rule ⑥ exactly: two ends
+      // each tested and nothing walking the middle. This one starts at the bytes
+      // the server sends.
+      final DateTime boundary = DateTime.utc(2026, 9, 24);
+      final DateTime local = boundary.toLocal();
+      final CloudSummary? parsed = parseCloudSummary(<String, Object?>{
+        'plan': <String, Object?>{'plan': 'free'},
+        'quota': <String, Object?>{
+          'stt': <String, Object?>{'used_min': 12, 'limit_min': 900},
+          'llm': <String, Object?>{'used': 1200000, 'used_in': 40000, 'limit': 5000000},
+          'month': '2026-08-24',
+          'period': <String, Object?>{'start': '2026-08-24', 'end': '2026-09-24'},
+        },
+        'devices': <String, Object?>{'pc_count': 1, 'mobile_count': 1},
+        'continuous_minutes': 10,
+      });
+      expect(parsed, isNotNull);
+      await tester.pumpWidget(
+        _host(
+          parsed!,
+          width: 411,
+          now: DateTime(local.year, local.month, local.day - 14, 9),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final String hhmm =
+          '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+      // Derived from `boundary.toLocal()`, never typed out: a literal
+      // '9/24 08:00' would pass here and fail on a machine in another zone.
+      expect(
+        find.text('Resets ${local.month}/${local.day} $hhmm · in 14 days'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the count is calendar days, so 1 and 0 are words not numbers', (
+      WidgetTester tester,
+    ) async {
+      // 🔴 「in 1 days」 is the failure this pair exists to prevent, and it is
+      // not a grammar nicety: it is the one string on this card that arrives on
+      // the day a user is most likely to be reading it.
+      for (final (DateTime now, String expected) in <(DateTime, String)>[
+        (DateTime(2026, 9, 23, 23, 59), 'Resets 9/24 08:00 · tomorrow'),
+        (DateTime(2026, 9, 24, 0, 1), 'Resets 9/24 08:00 · today'),
+        // 20 hours out, but on the far side of local midnight: a duration
+        // rounded to days would call this 「in 1 day」 and it is tomorrow.
+        (DateTime(2026, 9, 23, 12), 'Resets 9/24 08:00 · tomorrow'),
+        (DateTime(2026, 9, 22, 12), 'Resets 9/24 08:00 · in 2 days'),
+      ]) {
+        await tester.pumpWidget(
+          _host(
+            _summary(resetsAt: DateTime(2026, 9, 24, 8).toUtc()),
+            width: 411,
+            now: now,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(expected), findsOneWidget, reason: 'now=$now');
+      }
+    });
+
+    testWidgets('no field, no line — and no dash standing in for one', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_host(_summary(usedMin: 12), width: 411));
+      await tester.pumpAndSettle();
+      expect(find.byKey(QuotaGauge.resetLabelKey), findsNothing);
+      // The gauge itself is untouched — the whole point of the absent case.
+      expect(find.byKey(QuotaGauge.minutesLabelKey), findsOneWidget);
+      expect(find.byKey(QuotaGauge.trackKey), findsOneWidget);
+    });
+
+    testWidgets('a boundary already past says nothing rather than a stale date', (
+      WidgetTester tester,
+    ) async {
+      // The summary on screen is then old, and a past instant printed as a
+      // future one would be a confident claim about somebody's allowance.
+      await tester.pumpWidget(
+        _host(
+          _summary(resetsAt: DateTime(2026, 9, 24, 8).toUtc()),
+          width: 411,
+          now: DateTime(2026, 9, 25, 9),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(QuotaGauge.resetLabelKey), findsNothing);
+    });
+
+    for (final AppLocale locale in AppLocale.values) {
+      testWidgets('reads inside 320dp, unclipped — ${locale.name}', (
+        WidgetTester tester,
+      ) async {
+        await tester.pumpWidget(
+          _host(
+            _summary(usedMin: 812.5, limitMin: 900, resetsAt: DateTime(2026, 12, 24, 8).toUtc()),
+            width: 320,
+            locale: locale,
+            now: DateTime(2026, 12, 10, 9),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        // 🔴 MEASURED, NOT INSPECTED. `Text.data` was intact in 0.2.53 too; what
+        // the user could read was three letters. This line is allowed to wrap,
+        // so the assertion is that it stayed inside its box — which is what
+        // 「the whole sentence is on screen」 means for a wrapping paragraph.
+        final Finder line = find.byKey(QuotaGauge.resetLabelKey);
+        expect(line, findsOneWidget);
+        final RenderParagraph p = tester.renderObject<RenderParagraph>(line);
+        expect(p.didExceedMaxLines, isFalse, reason: '${locale.name} was clipped');
+        expect(tester.getSize(line).width, lessThanOrEqualTo(320.01));
+      });
+    }
   });
 }

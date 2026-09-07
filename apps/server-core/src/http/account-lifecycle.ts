@@ -81,6 +81,11 @@ export const USER_CASCADING_TABLES = [
   'mobile_pairings',
   'paddle_subscriptions',
   'pc_devices',
+  // Card PR-2 (2026-09-06): the recovery operation registry. It records, per
+  // account, WHICH recording and WHICH sample range a recovery attempt named —
+  // a per-utterance trace, and therefore the same argument `usage_events` below
+  // makes. Its seven-day retention is a storage policy, not an erasure one.
+  'recovery_operations',
   // 0.3.25 B3 — the refund records this account produced. They cascade WITH the
   // account, deliberately: a refund row names a subscription and an amount, and
   // keeping it after erasure would preserve a financial trace of a person who
@@ -106,6 +111,12 @@ export const USER_CASCADING_TABLES = [
   // hand-written delete list forgets because the table is new. It cascades for
   // the same DDL reason as `usage_records` beside it; the difference between the
   // two is retention (90 days here, never swept there), not deletion.
+  // Card PR-2 (2026-09-06): the metering-effect ledger. It carries no content at
+  // all — an account id, an operation id, a kind and an instant — and it still
+  // cascades, because 「this account was metered for this operation」 is a fact
+  // ABOUT the person who asked to be erased. Keeping it would also be pointless:
+  // the operations it dedupes belong to a phone that no longer has an account.
+  'usage_effects',
   'usage_events',
   'usage_records',
   'user_settings',

@@ -186,6 +186,12 @@ void main() {
       reason: 'the stamp must be a position INSIDE the recording (mm:ss), and '
           'it must actually be rendered — got ${shown.data}',
     );
+    // AW-1b — this test's own recording is never stopped (that is the point:
+    // it is asserting on an IN-PROGRESS piece), so the health tracker's 500ms
+    // ticker is still armed when the closure returns.
+    // `AutomatedTestWidgetsFlutterBinding` checks for pending timers before
+    // `addTearDown(r.dispose)` runs, so the cancel has to happen HERE.
+    debugCancelAsrHealthTicker(r.controller);
   });
 
   testWidgets('the card is recognisable before it is read — owner 2026-08-30',

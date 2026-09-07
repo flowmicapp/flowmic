@@ -92,7 +92,7 @@ class ArticleRig {
     final String id = session.beginContinuous(
       cap: const Duration(minutes: 30),
       onWarning: () {},
-    );
+    )!;
     await controller.pttDown();
     return id;
   }

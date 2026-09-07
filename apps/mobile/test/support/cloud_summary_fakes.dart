@@ -29,13 +29,25 @@ CloudSummaryController newTestCloudSummary({
   login: login,
   saasEndpoint: saasEndpoint,
   timeout: timeout,
-  fetcher: fetcher ?? ((Uri url, String bearer, Duration budget) async => null),
+  fetcher:
+      fetcher ??
+      ((Uri url, String bearer, Duration budget) async =>
+          CloudSummaryRead.unreadable),
 );
 
 /// A fetcher that answers one fixed summary. Named rather than written inline
 /// at each call site so a test reads 「this one succeeds」 at a glance.
 CloudSummaryFetcher fixedCloudSummary(CloudSummary summary) =>
-    (Uri url, String bearer, Duration budget) async => summary;
+    (Uri url, String bearer, Duration budget) async =>
+        CloudSummaryRead(summary: summary);
+
+/// A fetcher that answers a NAMED account refusal and no numbers — the shape
+/// `403 EMAIL_NOT_VERIFIED` produces. Named so a test reads 「the account is
+/// barred, and we know why」 rather than 「something went wrong」, which is the
+/// distinction this whole channel exists to keep.
+CloudSummaryFetcher refusedCloudSummary(CloudSummaryRefusal refusal) =>
+    (Uri url, String bearer, Duration budget) async =>
+        CloudSummaryRead(refusal: refusal);
 
 /// A summary with plain numbers, for the tests that only care about the shape.
 ///

@@ -37,6 +37,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 /// A fake that ANSWERS `audio:stop` the way the server does.
 ///
@@ -206,13 +207,9 @@ class _Rig {
     await controller.dispose();
     timeline.dispose();
     await session.dispose();
+    await spill.dispose();
     await store.dispose();
-    try {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    } on FileSystemException {
-      // Windows holds a just-closed file briefly; a leftover temp dir is not
-      // worth failing an acceptance over.
-    }
+      await removeTempDir(tmp);
   }
 }
 
@@ -226,7 +223,7 @@ void main() {
     final String articleId = r.session.beginContinuous(
       cap: const Duration(minutes: 30),
       onWarning: () {},
-    );
+    )!;
     await r.controller.pttDown();
     await r.pushFinal(text: '开会之前先说三件事', idx: 0, isSegment: true, durationMs: 30000);
 
@@ -416,8 +413,9 @@ void main() {
       runner.dispose();
       timeline.dispose();
       await session.dispose();
+      await spill.dispose();
       await store.dispose();
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      await removeTempDir(tmp);
     });
 
     spill.beginSession('a0-1');
@@ -452,6 +450,83 @@ void main() {
         reason: 'no terminal stt:final ever arrived — a stalled stretch is '
             'retried on the next sweep, not destroyed');
     expect(runner.progress.value.pendingMs, greaterThan(0));
+  });
+
+  // ── a sweep outlives the controller that started it ─────────────────────
+  //
+  // Every production call site is `unawaited(c.backfill.sweep(...))`
+  // (session/chat_outbox_host.dart, CR-5 edges 1 and 2), so `disposeRouted`
+  // can land while a sweep is still on its way to `_publish`. `dispose()`
+  // disposes `progress`, and a `ValueNotifier` written after disposal throws.
+  //
+  // 🔴 THIS WAS A LIVE FLAKE, NOT A HYPOTHETICAL. MEASURED 2026-09-06 on this
+  // box: `test/live_settle_test.dart` failed 1 of 5 standalone runs with
+  // 「A ValueNotifier<BackfillProgress> was used after being disposed」 thrown
+  // from `BackfillRunner._publish` under `sweep`, in a tearDown - and the
+  // rig's temp directory then refused to delete (errno 32) because the leg
+  // still held the journal. Whether the sweep has got that far when the
+  // teardown lands is a race with the machine, which is why it reads as
+  // flakiness instead of as the plain use-after-dispose it is.
+  //
+  // BOTH ORDERINGS ARE PINNED because they hit DIFFERENT guards: the first
+  // case never enters `_run`, the second is already parked inside `_publish`.
+  // Deleting either guard alone leaves one of them red.
+  test('a sweep that outlives dispose() writes nothing and throws nothing',
+      () async {
+    final Directory tmp =
+        await Directory.systemTemp.createTemp('flowmic-backfill-dispose-');
+    final RetainedAudioStore store =
+        RetainedAudioStore(dir: tmp, clock: () => 0);
+    await store.open();
+    final RetainedAudioSpill spill = RetainedAudioSpill(store: store);
+    final _ReplyingTransport transport = _ReplyingTransport();
+    final PttSession session = newTestSession(
+      transport: transport,
+      audio: AudioCapture(recorder: FakeAudioRecorder(), spill: spill),
+      stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
+    );
+    giveSessionAPairedIdentity(session);
+    final TimelineStore timeline = newTestStore();
+    addTearDown(() async {
+      timeline.dispose();
+      await session.dispose();
+      await spill.dispose();
+      await store.dispose();
+      await removeTempDir(tmp);
+    });
+    transport.pushStatus(SocketStatus.connected);
+
+    // ① dispose lands BEFORE the sweep's body runs. `sweep` chains `_run`
+    // through `.then`, i.e. a microtask, so nothing has executed yet here.
+    // `_run` asks `storeOf()` for the store as its very first act, so the
+    // counter below is the observable difference between 「the pass was
+    // skipped」 and 「the pass ran and merely could not report」 - a dead
+    // controller must not go on doing recovery I/O.
+    int storeReads = 0;
+    final BackfillRunner a = BackfillRunner(
+      session: session,
+      store: timeline,
+      storeOf: () {
+        storeReads++;
+        return store;
+      },
+    );
+    final Future<void> sweepA = a.sweep(sourceLang: 'zh');
+    a.dispose();
+    await expectLater(sweepA, completes);
+    expect(storeReads, 0,
+        reason: 'a sweep chained after dispose must not start a pass');
+
+    // ② dispose lands while `_run` is PARKED INSIDE `_publish`. One turn of
+    // the microtask queue starts `_run`, which reaches `_publish` and awaits
+    // the store's own directory read; the disposal below therefore happens
+    // between that await and the `progress.value =` that follows it.
+    final BackfillRunner b = BackfillRunner(
+        session: session, store: timeline, storeOf: () => store);
+    final Future<void> sweepB = b.sweep(sourceLang: 'zh');
+    await Future<void>.value();
+    b.dispose();
+    await expectLater(sweepB, completes);
   });
 
   test('progress is measured in bytes on disk, not guessed', () async {

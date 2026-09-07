@@ -11,7 +11,7 @@
 // The two fields answer two different questions and they are stamped by TWO
 // DIFFERENT MACHINES' WALL CLOCKS:
 //   · ts_ms   = "when the phone says this chunk was captured" — the PHONE's clock
-//               (`apps/mobile/lib/src/audio/audio_capture.dart:126 _wallClock()`
+//               (`apps/mobile/lib/src/audio/audio_capture.dart:172 _wallClock()`
 //               = DateTime.now().millisecondsSinceEpoch). The server only
 //               forwards it; the engine wants it because it is capture ORDER.
 //   · recv_ms = "when we received it" — THIS process's clock, stamped at ingest

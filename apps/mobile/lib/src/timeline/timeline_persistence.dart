@@ -70,6 +70,33 @@ abstract class TimelinePersistence {
   Future<void> saveAll(List<TimelineEntry> entries);
 }
 
+/// Card RC-1a - READ ONE ROW BACK OUT OF PERSISTENT STORAGE.
+///
+/// The third condition of the 2026-09-06 cleanup threshold is 「the result row's
+/// persisted commit has been awaited AND the row was read back」: awaiting the
+/// write proves the future completed, and only a read proves something is
+/// there to find after a kill. `TimelineStore.awaitPersisted` is the first
+/// half; this is the second.
+///
+/// AN EXTENSION, NOT AN INTERFACE MEMBER, and the reason is blunt: this
+/// interface has three implementations in `lib/` and several more in tests, and
+/// widening it for one caller would edit every one of them for no behaviour.
+///
+/// IT READS THE WHOLE TABLE, AND THAT IS A REAL COST, stated rather than
+/// hidden: it is the amplification the SQLite move removed from the MUTATION
+/// path. It is acceptable here only because the call happens once per settled
+/// recovery attempt - a rare event, off the interactive path - and never during
+/// live capture. A keyed read is the obvious follow-up and belongs on the
+/// interface, which is a change with its own reviewer.
+extension TimelinePersistenceReadBack on TimelinePersistence {
+  Future<TimelineEntry?> loadById(String id) async {
+    for (final TimelineEntry e in await loadAll()) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+}
+
 /// Tests + a null-object default (no persistence, in-process only).
 class InMemoryTimelinePersistence implements TimelinePersistence {
   List<Map<String, Object?>> _rows = <Map<String, Object?>>[];

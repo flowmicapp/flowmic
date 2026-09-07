@@ -178,5 +178,9 @@ void main() {
     expect(controller.mode, FlowMode.realtime);
     expect(controller.buffer, '录音中误点的内容');
     controller.session.debugStopIdlePresencePoll();
+    // AW-1b — `fsm.onPttDown()` above armed the health tracker's 500ms
+    // ticker directly, bypassing the `session.pttUp()` edge that would
+    // normally cancel it.
+    debugCancelAsrHealthTicker(controller);
   });
 }

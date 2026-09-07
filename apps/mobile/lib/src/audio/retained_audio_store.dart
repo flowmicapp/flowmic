@@ -62,6 +62,32 @@ import 'dart:io';
 // and package:meta as well would be redundant (analyzer info-level warning).
 import 'package:flutter/foundation.dart';
 
+// Card LS-4 — the tombstone writes one diag line (and never a user-visible
+// notice; the reason is in retained_audio_tombstone.dart's body).
+import '../diag/diag_log.dart' show diag;
+
+// Card LS-3 — the sweep has to read a manifest to know whether a recording
+// settled, and `RetainedAudioJournal` owns the file-name suffixes. Data and
+// names only; nothing here opens a journal.
+import 'retained_audio_journal.dart';
+
+// 700-line cap — the retention policy family (sweep / dropAll). Same library,
+// same rule as every other split in this repo: nothing moved changed behaviour
+// and no external caller had to be edited; see that file's header for the
+// family and the delegates.
+//
+// ⚠️ It used to list `_makeRoomFor` / `_allRetained` / `_RetainedFile` as well.
+// Card LS-3 deleted all three (owner ruling O-2): the cap is no longer
+// balanced by evicting the oldest file, so the eviction family has no members
+// left. That is why the list is short, not because it was trimmed.
+part 'retained_audio_policy.dart';
+
+// 700-line cap — card LS-4's cancel-tombstone family (write / read / the
+// predicate the two pending readers below consult). Split for the same reason
+// and in the same shape as the policy family above; the marker's file-name
+// design and the four parsers it must slip past are argued in that header.
+part 'retained_audio_tombstone.dart';
+
 /// A retention event the user (or at minimum the diagnostics log) MUST hear
 /// about. "No silent failure" (没有静默失败) runs in both directions: dropping
 /// retained audio
@@ -84,17 +110,50 @@ class RetainedAudioNotice {
     this.segmentIdx,
   });
 
-  /// Cap hit: the OLDEST retained segment was discarded to make room.
-  static const String codeDroppedOldest = 'retained-audio-dropped-oldest';
+  // 🔴 THE `dropped-oldest` NOTICE CODE STOOD HERE AND IS GONE (card RC-1,
+  // 2026-09-06), together with its nine translations. Card
+  // LS-3 had already deleted its only producer (`_makeRoomFor`) under owner
+  // ruling O-2 — the cap is balanced by refusing new bytes, never by deleting
+  // audio nobody has recovered — and the constant was kept for one stated
+  // reason: the storage face was behind an off-by-default flag, so the change
+  // was a plausible thing to roll back, and a rollback without the sentence
+  // would put a raw identifier on a user's screen. RC-1 turned that flag on,
+  // which is the moment the deferral named as its own expiry. The repo's rule
+  // that a user-visible string leaves with its producer (INJECT_NO_RECEIPT
+  // precedent) is now honoured rather than deferred. Neither the constant nor
+  // its wire string survives anywhere under lib/ — deliberately not even in
+  // this paragraph, because
+  // `test/retained_audio_dropped_oldest_retired_test.dart` reads the source
+  // and would count a mention as a survival.
 
-  /// Cap hit with nothing older to give up: the newest audio is NOT being
-  /// retained any more. Distinct from [codeDroppedOldest] because the two ask
-  /// for opposite things — one lost the beginning, this one loses the end.
+  /// The cap is reached: the newest audio is NOT being retained any more.
+  ///
+  /// ⚠️ Card LS-3 widened when this fires. It used to mean "and there was
+  /// nothing older to evict"; under owner ruling O-2 there is never anything
+  /// to evict, so this is now the ONLY thing hitting the ceiling does. The
+  /// sentence did not have to change — it already said the right thing — but
+  /// the reason it is true did.
   static const String codeCapReached = 'retained-audio-cap-reached';
 
   /// TTL backstop: audio nobody ever claimed (typically an app restart that
   /// orphaned it — the server session it belonged to is long gone) aged out.
   static const String codeExpired = 'retained-audio-expired';
+
+  /// Card LS-2 — a stretch of captured audio was handed to the retention
+  /// layer and did not reach the disk (an append threw, or the file grew by
+  /// less than we wrote).
+  ///
+  /// 🔴 A NEW CODE BECAUSE NO EXISTING ONE ANSWERS THIS QUESTION. The three
+  /// above are all DECISIONS this layer took — it dropped, it refused, it
+  /// expired — and each one's sentence tells the user something about
+  /// storage being full. This one is a FAILURE, the disk said no, and
+  /// borrowing 'cap-reached' for it would send the user to free up space for
+  /// a problem that has nothing to do with space.
+  ///
+  /// ⚠️ §A9 P1-1 ④ governs the wording: "this stretch has no local copy",
+  /// never "nothing has been saved since". The interval after a hole may well
+  /// still be being written, and the hole itself may still be recoverable.
+  static const String codeWriteFailed = 'retained-audio-write-failed';
 
   @override
   String toString() =>
@@ -145,50 +204,71 @@ class RetainedAudioStore {
   static String _defaultSessionKey() =>
       'run-${DateTime.now().microsecondsSinceEpoch}';
 
-  /// Total retained bytes across all segments — the budget for the WHOLE
-  /// directory, shared with orphans from a previous run and with residue whose
-  /// TTL has not expired. 16 kHz mono PCM16 is 32,000 B/s (~1.9 MB/min).
+  /// The budget for UNRECOVERED audio, and for the WHOLE directory: both
+  /// storage faces spend it, and so do orphans left by a previous run.
+  /// 16 kHz mono PCM16 is 32,000 B/s (~1.9 MB/min).
   ///
-  /// 🔴 THIS NUMBER IS DERIVED, AND HERE IS THE DERIVATION — because the thing
-  /// it is derived FROM lives on the server and cannot reach into this file.
+  /// 🔴 512 MiB, SET BY OWNER RULING O-2 (2026-09-06,
+  /// docs/decisions/2026-09-06-owner-audio-durability-rulings-o9-o10-cleanup-
+  /// threshold.md §Chose 4). The derivation the ruling states:
   ///
   ///   the longest single continuous recording any tier allows is 30 minutes
   ///   (`PLAN_LIMITS.continuous_minutes`, owner 2026-08-29, max tier)
-  ///   ⇒ worst case, entirely offline: 30 × 60 × 32,000 = 57.6 MB
-  ///   ⇒ this cap is 128 MiB = 134.2 MB ≈ 2.3× that, i.e. the pathological
-  ///     session fits in 43% and the rest is headroom for orphans and TTL
-  ///     residue.
+  ///   ⇒ worst case, entirely unrecovered: 30 × 60 × 32,000 = 57.6 MB
+  ///   ⇒ 512 MiB = 536.9 MB ≈ NINE such recordings, which is the number the
+  ///     ruling names ("≈9 段 30 分钟录音").
   ///
-  /// ⚠️ IT WAS 64 MiB AND THAT HAD STOPPED BEING ENOUGH. Under the old 15-minute
-  /// ceiling the worst case was 28.8 MB against 67.1 MB — comfortable. Ruling ⑬
-  /// doubled the ceiling to 30 minutes and the same number became 86% of the
-  /// budget, leaving ~9 MiB of margin: one directory of orphans the sweep had
-  /// not reached yet could evict a live recording's audio.
+  /// 🔴 WHY IT MOVED FROM 128 MiB, AND WHY THE NUMBER HAD TO GROW WHEN THE
+  /// POLICY CHANGED. Under the old policy the cap was a number the store could
+  /// always satisfy, because it satisfied it by DELETING the oldest audio in
+  /// the directory. Ruling O-2 took that away: unrecovered audio is now exempt
+  /// from both the TTL and eviction, so the cap is a hard ceiling on how much
+  /// the phone can be holding at once. A ceiling you cannot evict under has to
+  /// be big enough that reaching it is a real event and not a Tuesday.
+  ///
+  /// ⚠️ WHAT HAPPENS ON REACHING IT IS THE OTHER HALF OF THE RULING, and it is
+  /// the opposite of what this store used to do: STOP RETAINING NEW BYTES and
+  /// say so ([RetainedAudioNotice.codeCapReached]). Never delete older
+  /// unrecovered audio to make room — the oldest file is by construction the
+  /// one that has been waiting longest to be transcribed, so the old policy
+  /// balanced the budget by throwing away exactly the audio this layer exists
+  /// to protect (audit item E12, §A5-2).
   ///
   /// 🔴 SO: IF THE TIER CEILING EVER RISES AGAIN, COME BACK HERE. Nothing will
   /// make you — the ceiling is a server-side plan limit and this is a
   /// compile-time constant on a phone that learns its own ceiling at runtime,
   /// so no gate can bind them. `retained_audio_cap_test.dart` pins the
-  /// arithmetic against a 30-minute worst case and will go red if this constant
-  /// SHRINKS, but it cannot know that 30 became 60. That half is this sentence.
-  ///
-  /// ⚠️ The behaviour on hitting the cap is unchanged and must stay unchanged:
-  /// drop the OLDEST and say so (`codeCapReached`). Never silently.
-  ///
-  /// It remains a bound on a pathological case rather than a budget anyone is
-  /// expected to reach: the ordinary lifetime of a file here is seconds,
-  /// because [settle] deletes it the moment the segment is transcribed.
+  /// arithmetic against a 30-minute worst case and will go red if this
+  /// constant SHRINKS, but it cannot know that 30 became 60. That half is this
+  /// sentence.
   ///
   /// ⚠️ The rejected alternative was computing this from the user's own tier.
   /// That would make the retention layer depend on billing, and it has no
   /// business knowing what the user pays — it would also mean a phone that has
   /// not reached the server yet has no cap at all.
-  static const int kDefaultCapBytes = 128 * 1024 * 1024;
+  static const int kUnrecoveredCapBytes = 512 * 1024 * 1024;
 
-  /// Backstop only. The real expiry is settle⇒delete; this catches audio that
-  /// can never be claimed because the session that owned it no longer exists
-  /// (app killed mid-outage). Long enough that a phone left in a pocket
-  /// overnight during an outage still recovers in the morning.
+  /// How long a SETTLED recording may sit before the sweep reclaims it.
+  ///
+  /// 🔴 CARD LS-3 CHANGED WHAT THIS APPLIES TO, AND THE CHANGE RETIRES THE
+  /// 24-HOUR BACKSTOP FOR EVERYTHING THE OLD SWEEP ACTUALLY REACHED.
+  /// It used to mean "delete any retained file older than this, whatever it
+  /// is". Under owner ruling O-2 the TTL may only take audio whose manifest
+  /// says [RecordingManifest.settled] — and a legacy `<session>__seg-N.pcm`
+  /// file has no manifest at all, so by definition it is unrecovered and the
+  /// sweep never touches it again (§A5-1, audit item E13: a phone that was
+  /// offline overnight used to lose the recording it was holding precisely
+  /// because it never managed to send it).
+  ///
+  /// ⚠️ THAT IS A REAL LOSS OF A REAL BACKSTOP AND IT IS ACCEPTED, not
+  /// overlooked. What the backstop bought was a bound on orphan audio from a
+  /// run that was killed mid-outage; what pays for it now is
+  /// [kUnrecoveredCapBytes], which bounds the same bytes by SIZE instead of by
+  /// AGE. The ruling chose that trade deliberately: an age bound deletes audio
+  /// whose only fault is that nobody has recovered it yet, and a size bound
+  /// refuses new audio instead, out loud. Reaching the ceiling degrades the
+  /// product visibly; the old backstop degraded it silently, hours later, on a
+  /// phone the user had put in a pocket.
   static const Duration kDefaultTtl = Duration(hours: 24);
 
   final Directory _dir;
@@ -267,7 +347,7 @@ class RetainedAudioStore {
 
   RetainedAudioStore({
     required Directory dir,
-    int capBytes = kDefaultCapBytes,
+    int capBytes = kUnrecoveredCapBytes,
     Duration ttl = kDefaultTtl,
     int Function()? clock,
   })  : _dir = dir,
@@ -286,6 +366,35 @@ class RetainedAudioStore {
 
   /// Bytes currently retained on disk.
   int get retainedBytes => _retainedBytes;
+
+  /// The budget, so the other storage face can spend the SAME one.
+  ///
+  /// 🔴 Card LS-2 gave this layer a second writer (the per-recording journal
+  /// in `retained_audio_spill.dart`). Two writers with two budgets is two
+  /// answers to "how much may this directory hold", and owner ruling O-2 set
+  /// one number. Exposing the number is how the journal asks it rather than
+  /// carrying a copy.
+  int get capBytes => _capBytes;
+
+  /// Where the files live. Read by the journal face so both layouts land in
+  /// one directory and one listing (LS-3's sweep walks both).
+  String get dirPath => _dir.path;
+
+  /// Announce something this store did not itself do.
+  ///
+  /// 🔴 CARD LS-2 — THE MERGE, AND WHY IT IS A METHOD RATHER THAN A SECOND
+  /// STREAM. Write failures happen OUTSIDE this class: the store never
+  /// returned, so it never got the chance to announce anything, and the spill
+  /// grew its own `writeFailures` channel with a comment saying the merge was
+  /// later work. That later work is here. [lastNotice] is the value
+  /// `onRetainedAudioNoticeRouted` (session/chat_notices.dart) already binds
+  /// to, so a fact that reaches it
+  /// reaches the screen; a fact that stops at a second broadcast stream is as
+  /// gone as one nobody raised.
+  ///
+  /// ⚠️ Callers are the retention layer itself (spill + journal). It is not a
+  /// public address for arbitrary code to put sentences on the user's screen.
+  void announce(RetainedAudioNotice notice) => _announce(notice);
 
   /// Create the directory if needed and seed [retainedBytes] from what is
   /// already there. Safe to call more than once.
@@ -329,13 +438,39 @@ class RetainedAudioStore {
     _sessionBytes = 0;
   }
 
+  /// 🔴 CARD LS-4 (owner ruling O-5) — mark [session] cancelled: keep every
+  /// byte, and never list it as pending again.
+  ///
+  /// CALLER: `RetainedAudioSpill.tombstoneCurrentRecording`, reached only from
+  /// `AudioCapture.fenceAndStop(reason: JournalInterrupt.cancelled)` — i.e.
+  /// `PttSession.pttCancel`, the swipe-up. Body in
+  /// retained_audio_tombstone.dart.
+  Future<void> tombstoneSession({String? session}) =>
+      _writeTombstone(this, session);
+
+  /// Session keys carrying a tombstone. Exposed because the assertion that
+  /// matters (「this session is not pending AND its bytes are still here」) needs
+  /// to be able to name the marker rather than infer it from an absence.
+  Future<Set<String>> tombstonedSessions() => _readTombstones(this);
+
   /// Every session key with retained bytes on disk, including this run's and
-  /// every previous run's orphans. Recovery's entry point.
+  /// every previous run's orphans, MINUS the ones the user cancelled.
+  /// Recovery's entry point.
+  ///
+  /// 🔴 THE SUBTRACTION IS CARD LS-4. `BackfillRunner.sweep` walks exactly
+  /// this list (grep `pendingSessions` in session/backfill_runner.dart), so
+  /// filtering HERE is what
+  /// makes 「永不自动转」 true for every recovery edge at once, including the
+  /// ones that do not exist yet.
+  ///
+  /// ⚠️ [bytesForSession] deliberately does NOT filter: the cap counts these
+  /// bytes and the ruling keeps them, so 「how much is on disk」 stays true.
   Future<List<String>> pendingSessions() async {
+    final Set<String> tombstoned = await _readTombstones(this);
     final Set<String> out = <String>{};
     for (final File f in await _segmentFiles()) {
       final String? s = _sessionOf(f);
-      if (s != null) out.add(s);
+      if (s != null && !tombstoned.contains(s)) out.add(s);
     }
     final List<String> keys = out.toList()..sort();
     return keys;
@@ -358,11 +493,20 @@ class RetainedAudioStore {
     required Uint8List bytes,
   }) async {
     if (_closed || bytes.isEmpty) return false;
-    await _makeRoomFor(bytes.length, keeping: segmentIdx);
+    // 🔴 CARD LS-3 / OWNER RULING O-2 — THERE IS NO `_makeRoomFor` CALL HERE
+    // ANY MORE, AND ITS ABSENCE IS THE POLICY.
+    // What stood on this line evicted the oldest file in the directory to fit
+    // the incoming write. The oldest file is, by construction, the audio that
+    // has been waiting longest to be transcribed — so the budget was balanced
+    // by deleting exactly what this layer exists to protect (audit item E12).
+    // The ruling replaces "make room" with "stop promising": refuse the new
+    // bytes, say so, and leave every unrecovered byte where it is. The
+    // eviction function is gone from retained_audio_policy.dart entirely
+    // rather than left behind a flag, because a deletion path that still
+    // compiles is a deletion path somebody will call.
     if (_retainedBytes + bytes.length > _capBytes) {
-      // Nothing left to give up: the only remaining candidate is the segment we
-      // are being asked to grow. Refuse LOUDLY rather than throw away the
-      // beginning of the very utterance we are trying to preserve.
+      // Refuse LOUDLY. Note what this no longer means: it is not "nothing
+      // older was left to give up", it is "we do not give anything up".
       if (_capAnnounced.add(segmentIdx)) {
         _announce(RetainedAudioNotice(
           code: RetainedAudioNotice.codeCapReached,
@@ -400,8 +544,13 @@ class RetainedAudioStore {
   /// Scoped to [session], defaulting to the one writes are going to. Recovery
   /// names a session explicitly, because the audio it cares about is usually
   /// somebody else's — a previous run that was killed mid-outage.
+  /// 🔴 Card LS-4: a tombstoned session has NO pending segments, however
+  /// many files it has. BOTH readers are filtered — this one is reachable with
+  /// an explicit key by anyone holding a session name from before the cancel,
+  /// and filtering only the outer one is a door locked from one side.
   Future<List<int>> pendingSegments({String? session}) async {
     final String want = _sanitise(session ?? _session);
+    if ((await _readTombstones(this)).contains(want)) return const <int>[];
     final List<int> out = <int>[];
     for (final File f in await _segmentFiles()) {
       if (_sessionOf(f) != want) continue;
@@ -419,44 +568,17 @@ class RetainedAudioStore {
     return f.readAsBytes();
   }
 
-  /// TTL backstop sweep. Anything older than the TTL is announced and removed.
-  Future<void> sweep() async {
-    final int now = _clock();
-    for (final File f in await _segmentFiles()) {
-      final FileStat st = await f.stat();
-      if (now - st.modified.millisecondsSinceEpoch < _ttl.inMilliseconds) {
-        continue;
-      }
-      final int len = await f.length();
-      final int? idx = _indexOf(f);
-      await f.delete();
-      _retainedBytes = (_retainedBytes - len).clamp(0, 1 << 62);
-      if (idx != null) _capAnnounced.remove(idx);
-      _announce(RetainedAudioNotice(
-        code: RetainedAudioNotice.codeExpired,
-        segmentIdx: idx,
-        bytes: len,
-      ));
-    }
-  }
+  /// TTL sweep. Card LS-3: it may only take a recording whose manifest says
+  /// [RecordingManifest.settled], which no legacy segment file has and nothing
+  /// writes yet — see [kDefaultTtl] and the body in retained_audio_policy.dart
+  /// for what that retires and what pays for it.
+  Future<void> sweep() => _sweep(this);
 
   /// Drop everything. Used by teardown paths that know no segment can ever be
   /// claimed again; still announces, because bytes we said we were holding do
-  /// not get to vanish quietly.
-  Future<void> dropAll() async {
-    for (final File f in await _segmentFiles()) {
-      final int len = await f.length();
-      final int? idx = _indexOf(f);
-      await f.delete();
-      _announce(RetainedAudioNotice(
-        code: RetainedAudioNotice.codeExpired,
-        segmentIdx: idx,
-        bytes: len,
-      ));
-    }
-    _retainedBytes = 0;
-    _capAnnounced.clear();
-  }
+  /// not get to vanish quietly. Body moved to retained_audio_policy.dart
+  /// alongside [sweep].
+  Future<void> dropAll() => _dropAllFiles(this);
 
   Future<void> dispose() async {
     _closed = true;
@@ -465,39 +587,6 @@ class RetainedAudioStore {
   }
 
   // --------------------------------------------------------------- internals
-
-  /// Evict oldest segments (never [keeping]) until [incoming] bytes fit.
-  Future<void> _makeRoomFor(int incoming, {required int keeping}) async {
-    if (_retainedBytes + incoming <= _capBytes) return;
-    // 🔴 EVICTION IS DIRECTORY-WIDE, NOT SESSION-SCOPED, and that is deliberate.
-    // The cap is a budget for the WHOLE directory (see [kDefaultCapBytes]), so
-    // a run that is about to overflow it must be able to give up a previous
-    // run's orphans — which are, by definition, the oldest and the least
-    // claimable audio here. Scoping eviction to this session would leave the
-    // cap unreachable-in-practice and then refuse a LIVE recording's bytes
-    // while megabytes of abandoned audio sat next to it.
-    //
-    // ⚠️ `keeping` still protects only THIS session's segment: an index from
-    // another session is a different file and is fair game.
-    final List<_RetainedFile> pending = await _allRetained();
-    for (final _RetainedFile r in pending) {
-      if (_retainedBytes + incoming <= _capBytes) break;
-      if (r.session == _session && r.idx == keeping) continue;
-      final int idx = r.idx;
-      final File f = r.file;
-      if (!await f.exists()) continue;
-      final int len = await f.length();
-      await f.delete();
-      _retainedBytes = (_retainedBytes - len).clamp(0, 1 << 62);
-      if (r.session == _session) _capAnnounced.remove(idx);
-      // 🔴 Cap hit ⇒ say so. Silent dropping is a red-line violation.
-      _announce(RetainedAudioNotice(
-        code: RetainedAudioNotice.codeDroppedOldest,
-        segmentIdx: idx,
-        bytes: len,
-      ));
-    }
-  }
 
   void _announce(RetainedAudioNotice n) {
     debugPrint('[flowmic.audio] retained-audio: $n');
@@ -509,6 +598,12 @@ class RetainedAudioStore {
       File('${_dir.path}${Platform.pathSeparator}'
           '${_sanitise(session ?? _session)}$_sessionSep'
           '$_filePrefix$segmentIdx$_fileSuffix');
+
+  /// Card LS-4 — where a session's tombstone lives. [key] must already be
+  /// sanitised (its one caller sanitises).
+  File _tombstoneFileFor(String key) =>
+      File('${_dir.path}${Platform.pathSeparator}'
+          '$key$_sessionSep$_tombstoneSuffix');
 
   /// `[A-Za-z0-9-]` only. See [beginSession] for why this squashes rather than
   /// refuses.
@@ -530,26 +625,37 @@ class RetainedAudioStore {
     return name.substring(0, i);
   }
 
-  /// Everything retained, oldest segment first within oldest session first.
-  Future<List<_RetainedFile>> _allRetained() async {
-    final List<_RetainedFile> out = <_RetainedFile>[];
-    for (final File f in await _segmentFiles()) {
-      final String? s = _sessionOf(f);
-      final int? idx = _indexOf(f);
-      if (s == null || idx == null) continue;
-      out.add(_RetainedFile(session: s, idx: idx, file: f));
+  /// Journal manifests in this directory (card LS-3's sweep input).
+  ///
+  /// ⚠️ Deliberately a DIFFERENT listing from [_segmentFiles], not a filter on
+  /// it: the two layouts answer different questions, and a single walk that
+  /// returned both would invite a caller to treat "a file here" as one kind of
+  /// thing. A legacy segment file has no manifest and is never in this list —
+  /// which is exactly why the sweep cannot reach it.
+  Future<List<File>> _manifestFiles() async {
+    if (!await _dir.exists()) return const <File>[];
+    final List<File> out = <File>[];
+    try {
+      await for (final FileSystemEntity e in _dir.list(followLinks: false)) {
+        if (e is File &&
+            e.path.endsWith(RetainedAudioJournal.manifestSuffix)) {
+          out.add(e);
+        }
+      }
+    } on FileSystemException {
+      // Same reasoning as [_segmentFiles]: the directory went away under the
+      // listing, and "there is nothing here" is both the honest answer and the
+      // safe one.
+      return const <File>[];
     }
-    out.sort((_RetainedFile a, _RetainedFile b) {
-      // Another session's audio goes FIRST: this run's live recording is the
-      // one thing here that somebody is still speaking into.
-      final bool aMine = a.session == _session;
-      final bool bMine = b.session == _session;
-      if (aMine != bMine) return aMine ? 1 : -1;
-      final int bySession = a.session.compareTo(b.session);
-      return bySession != 0 ? bySession : a.idx.compareTo(b.idx);
-    });
+    out.sort((File a, File b) => a.path.compareTo(b.path));
     return out;
   }
+
+  /// Where a journal recording's PCM lives, given its id.
+  String _pcmPathFor(String recordingId) =>
+      '${_dir.path}${Platform.pathSeparator}'
+      '$recordingId${RetainedAudioJournal.pcmSuffix}';
 
   Future<List<File>> _segmentFiles() async {
     if (!await _dir.exists()) return const <File>[];
@@ -585,17 +691,4 @@ class RetainedAudioStore {
       name.substring(_filePrefix.length, name.length - _fileSuffix.length),
     );
   }
-}
-
-/// One retained file, with both halves of its key already parsed.
-@immutable
-class _RetainedFile {
-  const _RetainedFile({
-    required this.session,
-    required this.idx,
-    required this.file,
-  });
-  final String session;
-  final int idx;
-  final File file;
 }

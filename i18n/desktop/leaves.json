@@ -601,6 +601,30 @@
       "name": "cloud_usage_context"
     },
     {
+      "key": "cloud_usage_reset",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_reset"
+    },
+    {
+      "key": "cloud_usage_reset_today",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_reset_today"
+    },
+    {
+      "key": "cloud_usage_reset_tomorrow",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_reset_tomorrow"
+    },
+    {
+      "key": "cloud_usage_reset_in_days",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_reset_in_days"
+    },
+    {
       "key": "cloud_src_permanent_free",
       "shard": "cloud",
       "kind": "string",
@@ -1959,10 +1983,14 @@
       "name": "cap_secs"
     },
     {
-      "key": "cap_seg",
+      "key": "capsuleMsg.sessionMeta",
       "shard": "capsule",
-      "kind": "string",
-      "name": "cap_seg"
+      "kind": "fn",
+      "name": "sessionMeta",
+      "params": [
+        "clock",
+        "segments"
+      ]
     },
     {
       "key": "cap_session_default",
@@ -3135,12 +3163,6 @@
       "shard": "disclosure",
       "kind": "string",
       "name": "disc_s4_body"
-    },
-    {
-      "key": "disc_s4_lan_plain",
-      "shard": "disclosure",
-      "kind": "string",
-      "name": "disc_s4_lan_plain"
     },
     {
       "key": "disc_s5_title",

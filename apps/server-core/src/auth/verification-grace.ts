@@ -50,6 +50,7 @@
 // gets its three days from then. The boot log prints the resolved value in both
 // cases, so「which epoch is this machine using」is answerable from the log alone.
 
+import { parseUtcStamp } from '../db/utc-stamp';
 import type { ServerMode } from '@flowmic/protocol';
 import type { UserRepo } from '../db/repos/user.repo';
 import { log } from '../log';
@@ -316,7 +317,10 @@ export function wireVerificationGrace(deps: {
           // TEXT column → ms. An unparseable value yields NaN, which
           // `verificationGrace` treats as 「unknown」 and admits — never as 0,
           // which would read as 1970 and refuse everybody.
-          createdAtMs: Date.parse(u.created_at),
+          // parseUtcStamp (db/utc-stamp.ts): the column is SQLite's zone-less
+          // UTC stamp, which bare Date.parse reads as LOCAL time — an 8-hour
+          // grace error on the Tokyo replica, measured 2026-09-05.
+          createdAtMs: parseUtcStamp(u.created_at),
           hasEmail: u.email !== null,
         };
       },

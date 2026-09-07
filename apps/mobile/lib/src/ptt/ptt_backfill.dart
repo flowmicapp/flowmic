@@ -73,14 +73,40 @@ extension PttSessionBackfill on PttSession {
     // ran on the server's defaults would put two different sets of words in one
     // article and nothing anywhere would say why.
     Map<String, Object?>? prefs,
+    // Card RC-1a - the four identifiers, the sample range and the format
+    // version (04 SPEC 3.3-a). Null is the LEGACY leg: the segment-store
+    // recovery that predates the journal sends exactly the frame it always
+    // sent, byte for byte, which is what keeps `backfill_channel_test.dart`
+    // unchanged and green.
+    //
+    // Whole or absent, never half - see AudioStartPayload.recovery.
+    RecoveryIdentity? identity,
   }) {
     if (fsm.connection != ConnectionState.connected) return false;
     if (!sessionAcceptsPttDown(fsm.session)) return false;
     segments.clear();
     fsm.onPttDown();
+    // Card FX-2 — recovered audio owns the wire now, and it is `none` for the
+    // whole of it. Set HERE rather than derived at the row layer for the reason
+    // this file's own comment gives about `delivery` below: one answer, written
+    // where the decision is taken.
+    _openSessionDelivery = Delivery.none;
+    // Card FX-3 — and this is how much audio it is about to feed.
+    _openSessionRange = identity?.range;
+    // 04 SPEC 3.3-a's eight identifiers are SPREAD OVER the payload rather
+    // than added to `AudioStartPayload`: that class sits at 697 lines in a
+    // 700-line file (audit A9 discipline), and the merge belongs to the one
+    // leg that has an identity anyway.
+    //
+    // ORDER IS LOAD-BEARING: the payload goes in LAST, so `delivery:none`
+    // below is this file's answer and no identity can move it.
+    // `toStartFields()` does not emit a `delivery` key either - two locks on
+    // the one field the whole delivery red line hangs on.
     transport.emit(
       FlowMicEvents.audioStart,
-      AudioStartPayload(
+      <String, Object?>{
+        if (identity != null) ...identity.toStartFields(),
+        ...AudioStartPayload(
         mode: mode,
         sourceLang: sourceLang,
         // 🔴 Always `none`, never the session's current destination. See the
@@ -91,9 +117,19 @@ extension PttSessionBackfill on PttSession {
         // waiting in a buffer nobody is watching.
         sendPolicy: SendPolicy.direct,
         prefs: prefs,
-      ).toJson(),
+        ).toJson(),
+      },
     );
-    diag('audio.backfill.begin', <String, Object?>{'mode': mode.name});
+    diag('audio.backfill.begin', <String, Object?>{
+      'mode': mode.name,
+      if (identity != null) 'recording_id': identity.recordingId,
+      if (identity != null) 'job_id': identity.jobId,
+      if (identity != null) 'attempt_id': identity.attemptId,
+      if (identity != null) 'operation_id': identity.operationId,
+      if (identity != null) 'attempt_kind': identity.attemptKind.wire,
+      if (identity != null) 'range': identity.range.toString(),
+      'leg': identity == null ? 'legacy_segment' : 'journal',
+    });
     return true;
   }
 
@@ -131,6 +167,55 @@ extension PttSessionBackfill on PttSession {
         // again from the beginning. Partial credit would be the one thing that
         // could lose them.
         diag('audio.backfill.wire_dropped', <String, Object?>{'sent': sent});
+        return sent;
+      }
+    }
+    return sent;
+  }
+
+  /// Card RC-1a - feed ONE BOUNDED BLOCK of a stretch, continuing an emission
+  /// that another call started.
+  ///
+  /// 🔴 WHY THIS EXISTS NEXT TO [feedBackfill] RATHER THAN REPLACING IT. The
+  /// legacy segment leg reads a whole outage file into memory and hands it over
+  /// in one call, and that leg is what ships today; leaving it byte-identical is
+  /// what keeps `backfill_channel_test.dart` an unchanged control. The journal
+  /// leg cannot do that - a thirty-minute recording is ~57 MiB - so it reads
+  /// bounded blocks off disk and calls this once per block.
+  ///
+  /// [seqStart] continues the per-SESSION sequence (the `audio:start` above
+  /// opened it at 0) and [tsMsBase] is milliseconds from the START OF THE
+  /// STRETCH, so two consecutive blocks describe one continuous timeline
+  /// instead of two that both begin at zero.
+  ///
+  /// ⚠️ IT RETURNS FRAMES EMITTED, WHICH IS NOT FRAMES DELIVERED (audit P2-3).
+  /// `emit` not throwing proves the socket accepted the call, and socket.io
+  /// buffers silently while disconnected. The only thing that answers 「did the
+  /// server get these」 is the coverage receipt (04 SPEC 3.3-a (b)), which is
+  /// why `recovery_settle.dart` compares this count against `fed_frames` rather
+  /// than trusting it.
+  int feedBackfillBlock(
+    Uint8List block, {
+    required int seqStart,
+    required int tsMsBase,
+  }) {
+    int sent = 0;
+    int seq = seqStart;
+    for (int off = 0; off < block.length; off += kBackfillChunkBytes) {
+      final int end = (off + kBackfillChunkBytes).clamp(0, block.length);
+      try {
+        AudioEmitter.emitChunk(
+          transport,
+          seq: seq++,
+          tsMs: tsMsBase + pcmBytesToMs(off),
+          payload: Uint8List.sublistView(block, off, end),
+        );
+        sent++;
+      } on Object {
+        diag('audio.backfill.wire_dropped', <String, Object?>{
+          'sent': sent,
+          'seq_start': seqStart,
+        });
         return sent;
       }
     }

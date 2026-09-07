@@ -25,6 +25,9 @@ import '../audio/continuous_recording.dart';
 import '../audio/screen_wake.dart';
 import '../audio/local_stop_reasons.dart';
 import '../audio/real_audio_recorder.dart';
+import '../audio/replay_ownership.dart';
+import '../audio/retained_audio_manifest.dart'
+    show JournalInterrupt, RecordingManifest;
 import '../audio/retained_audio_spill.dart';
 import '../audio/audio_emitter.dart';
 import '../auth/token_storage.dart';
@@ -38,6 +41,7 @@ import '../session/pc_busy.dart';
 import '../session/pc_presence.dart';
 import '../session/pc_presence_probe.dart';
 import '../session/presence_route.dart';
+import '../session/recovery_identity.dart';
 import '../session/platform_device_info.dart';
 import '../timeline/article.dart' show pcmBytesToMs;
 import '../signaling/auth_expired_handler.dart';
@@ -97,6 +101,10 @@ part 'ptt_session_dispose.dart';
 part 'ptt_edges.dart';
 part 'ptt_continuous.dart'; // CR-2/CR-6/CR-9 — the continuous lifecycle.
 part 'ptt_backfill.dart'; // CR-5 — the re-transcription channel's wire half.
+
+// 800-line cap: the stored-pairing resume / reconnect-dial family moved
+// VERBATIM — see that file's header.
+part 'ptt_resume.dart';
 
 class PttSession {
   PttSession({
@@ -175,6 +183,17 @@ class PttSession {
           bufferedChunksProvider: () => this.audio.bufferedChunkPayloads(
             cutoffSeq: _reconnectAckAudioSeq,
           ),
+          // 🔴 CARD RC-1a / AUDIT P1-2 - the ring replay asks before it emits.
+          // Inert while the journal storage face is off (the gate answers null
+          // and the replay is byte-for-byte what it always was); once RC-1
+          // turns it on, this stops the ladder and a recovery attempt sending
+          // the same samples on the same socket.
+          replayGate: () => replayRefusalFor(
+            journalFaceOn: this.audio.retainedAudio?.retainFromFirstFrame ?? false,
+            ownership: this.audio.retainedAudio?.replayOwnership,
+            recorderRunning: fsm.session == SessionState.recording,
+            serverAudioWatermark: _reconnectAckAudioSeq,
+          ),
           shouldReconnect: () => _authValid,
           onReconnected: _onReconnected,
           // B4-15 — after a network change, if the original address is
@@ -218,6 +237,7 @@ class PttSession {
     // path rather than having to be remembered; the asymmetry of the two
     // failure directions is written out in continuous_recording.dart.
     continuous = ContinuousRecording(recorderState: this.audio.state);
+    wireCaptureEndedEdge(); // D-1b, body + rationale in ptt_continuous.dart
   }
 
   /// Card CR-6 — the per-sitting ceiling, armed with the number the SERVER
@@ -240,6 +260,9 @@ class PttSession {
   /// edge. Ordinary push-to-talk never touches it, which is what keeps its
   /// behaviour unchanged.
   late final ContinuousRecording continuous;
+  /// D-1b — 「a capture just ended」 as an EDGE; `wireCaptureEndedEdge`
+  /// (ptt_continuous.dart) has the account. Consumers re-ask the predicate.
+  final ValueNotifier<int> captureStopped = ValueNotifier<int>(0);
   final Duration heartbeatInterval;
 
   /// card U2 — the mic-permission flow this session gates PTT on. Its
@@ -447,18 +470,15 @@ class PttSession {
   LanPinSource? get lanPinSource => _lanPinSource;
   LanPinSource? _lanPinSource;
 
+  // ── identity lifecycle —— bodies moved VERBATIM to ptt_resume.dart (800-line
+  //    cap) as routed top-level functions (exactly `_emitMobileReconnect`'s
+  //    own pattern, not an extension): both names are called under a `show
+  //    PttSession`-only import in test/g20_instance_bucket_test.dart, and an
+  //    extension member is invisible there — only a REAL instance method is.
+  //    The fields above stay here (Dart has no partial classes).
   @visibleForTesting
-  void applyPairedIdentity(MobileSession session) {
-    _authValid = true;
-    _lanPin = session.lanTlsFp;
-    _lanPinSource = session.lanTlsFpSource;
-    _connectedInstanceId = session.connectionIdentity;
-    _pcId = session.pcId;
-    _pcMachineUid = session.pcMachineUid; // gate 2: the SAME ack as `_pcId`.
-    _channel = session.channel; // G-15①: same ack, see the field's doc.
-    // card F2: same ack again — the read scope is learned where the identity is.
-    scope.note(session: session, storage: tokenStorage);
-  }
+  void applyPairedIdentity(MobileSession session) =>
+      applyPairedIdentityRouted(this, session);
 
   /// Called when the phone leaves the room. Clearing is not optional: a stale
   /// identity here would stamp the NEXT instance's rows with the PREVIOUS
@@ -471,45 +491,7 @@ class PttSession {
   /// outage would freeze an EMPTY one. Pinned by outbox_test.dart 「断网入队
   /// 冻结的是完整目的地」("what freezes into an offline-enqueued item is the
   /// FULL destination").
-  void clearConnectedInstance() {
-    // card L7 — the user left this instance on purpose; 「另一台手机占着**这台**
-    // 电脑」("another phone is occupying **this** PC") is a statement about a
-    // session that no longer exists. Cleared BEFORE the id it is bucketed by,
-    // so the two can never disagree.
-    _notePcBusy(false); // extension member: Dart requires an explicit this
-    scope.clear(); // card F2: exact inverse of applyPairedIdentity's note().
-    _connectedInstanceId = null;
-    _pcId = null;
-    // Stale machine identity would let a delivery frozen for A pass the queue's
-    // check on B. Clearing fails CLOSED.
-    _pcMachineUid = null;
-    // D2LAN-B3: a pin belongs to ONE pairing. Left behind, it would be handed to
-    // the next pairing's http funnels, which refuse it against a plain URL and —
-    // worse — would check the previous PC's key against this one. Fails closed:
-    // null means 「treat as unpinned」, i.e. today's behaviour.
-    _lanPin = null;
-    _lanPinSource = null;
-    _channel = null; // G-15①: fails toward a no-op poll tick, not a wrong answer.
-    connectedDeviceName.value = '';
-    // The channel label describes a LIVE connection. Keeping it past the end of
-    // that connection is how a stale chip outlives the thing it was about.
-    serverChannel.value = null;
-    // RV-89 ③: drop 「which endpoint this measurement is about」 together with
-    // it, otherwise reconnecting to the same address next time would be
-    // judged 「the endpoint didn't change」 and skip the clear — treating an
-    // already-void answer as still valid.
-    _serverChannelEndpoint = null;
-    // B4-15, same reasoning one layer over: a list of 「this PC's other
-    // addresses」 is a fact about the pairing that just ended.
-    // `_resolveReconnectUrl` already refuses to act on a list the current
-    // url is not in, so this is belt on top of braces — but a stale address
-    // set near the id-cross-wiring red line earns both.
-    _dialCandidates = const <String>[];
-    _pcPresence.noteLinkNotLive(); // RV-92/R3: by the same reasoning, presence
-    // too is a statement 「said by this connection」
-    _stopPresencePoll(); // G-15①: a deliberate departure doesn't wait for a
-    // socket-disconnect event to turn it off.
-  }
+  void clearConnectedInstance() => clearConnectedInstanceRouted(this);
 
   // Presentation-facing inbound streams (WP-R3-2). Routed off the one dispatch
   // loop so the chat-flow layer never re-subscribes to the raw transport.
@@ -583,11 +565,53 @@ class PttSession {
   StreamSubscription<CapturedChunk>? _chunkSub;
   StreamSubscription<String>? _faultSub;
   StreamSubscription<FlowmicStateSnapshot>? _linkLossSub; // SEG-2
+  StreamSubscription<RecorderState>? _recorderStateSub; // D-1b, see the ctor
   Timer? _heartbeatTimer;
   Timer? _presencePollTimer; // G-15①, see ptt_presence_poll.dart
   bool _presencePollInFlight = false; // re-entrancy guard, same file
 
   bool _authValid = true;
+
+  /// Card FX-2 — the `delivery` that went out on the `audio:start` currently
+  /// open, whoever opened it.
+  ///
+  /// 🔴 IT EXISTS BECAUSE THE ROW LAYER WAS READING THE WRONG SNAPSHOT.
+  /// `ChatController._activeDelivery` is written in `pttDown` and nowhere else,
+  /// so after a relaunch it holds the DEFAULT (`inject`) and after a live press
+  /// it holds THAT PRESS's destination. `beginBackfill` opens a session with
+  /// `delivery: none` and never touched it — so the terminal final of a
+  /// RECOVERY attempt was minted as an injectable row and delivered to the PC.
+  ///
+  /// MEASURED 2026-09-06 (drill DF-2 note (a) / B-11): after a force-stop
+  /// mid-press and a relaunch, the recovery attempt's transcript reached the PC
+  /// as `inject:request` with `inject_origin:"live"`, while the manifest called
+  /// the attempt `auto_retry`. The server was not the leak — it gates its own
+  /// fan-out on `delivery !== 'none'` (`audio.handler.ts`) and correctly sent
+  /// nothing; the phone delivered it itself, out of its own outbox.
+  ///
+  /// ⚠️ NOT CLEARED WHEN A BACKFILL ENDS. The terminal final can arrive inside
+  /// `endBackfill` (see `RecoveryJournalLeg`'s note on that), so a flag that
+  /// went false there would be false exactly when it is read. It is overwritten
+  /// by whoever opens the NEXT session, which is the only moment the answer
+  /// legitimately changes.
+  Delivery _openSessionDelivery = Delivery.inject;
+
+  /// See [_openSessionDelivery]. `Delivery.none` while a recovery attempt owns
+  /// the wire.
+  Delivery get openSessionDelivery => _openSessionDelivery;
+
+  /// Card FX-3 — the sample range the open session is re-feeding, or null when
+  /// the open session is a live press.
+  ///
+  /// It is HOW MUCH AUDIO WENT IN, which for a recovery is the only measure of
+  /// the recording that anything on this phone can take. The row layer used to
+  /// have nothing but the engine's own `duration_ms` per span, and drill DF-2
+  /// (b) measured what that is worth on this leg: 「0.5s · 10 words」 for 7.6 s
+  /// of audio the server itself logged as `audioMs 7600`.
+  RecoverySampleRange? _openSessionRange;
+
+  /// See [_openSessionRange].
+  RecoverySampleRange? get openSessionRange => _openSessionRange;
   // `_lastChunkSeq` lived here until 2026-07-31 purely to fill the
   // `audio:heartbeat` payload; both went out with that event (stage-5 cleanup).
   // AudioCapture owns the authoritative seq counter, so nothing else read it.
@@ -604,24 +628,10 @@ class PttSession {
   Future<bool> retirePairing(MobileSession pairing) =>
       retirePairingOn(_retireTransport(), pairing);
 
-  /// GA-10 — adopt a rename pushed by the PC we are actually talking to.
-  /// Ignores a frame whose `pc_id` names a different machine; persists so the
-  /// list shows the new name after a restart too.
-  Future<void> _adoptPcName(String? pcId, String name) async {
-    final MobileSession? current = await tokenStorage.readSession();
-    if (current == null) return;
-    if (pcId != null && current.pcId != null && current.pcId != pcId) return;
-    connectedDeviceName.value = name;
-    await tokenStorage.addOrUpdatePairing(current.copyWith(pcName: name));
-  }
-
-  /// Reconnect from the most-recent stored pairing on boot. Returns false when
-  /// no session is stored.
-  Future<bool> resumeFromStorage() async {
-    final MobileSession? session = await tokenStorage.readSession();
-    if (session == null) return false;
-    return resumePairing(session);
-  }
+  // ── stored-pairing resume —— `_adoptPcName` / `resumeFromStorage` /
+  //    `resumePairing` / `_resolveReconnectUrl` / `_onReconnected` moved
+  //    VERBATIM to ptt_resume.dart (800-line cap). The fields below stay here
+  //    (Dart has no partial classes); see that file's header.
 
   /// 🔴 L-② — what the LAST `mobile:reconnect` was refused with (null = it
   /// succeeded / never asked). Sole writer: [emitMobileReconnectRouted]'s
@@ -640,84 +650,6 @@ class PttSession {
   /// (duplication, deduped server-side), never to trimming unproven audio.
   int? _reconnectAckAudioSeq;
 
-  /// Connect to [session]'s endpoint and rejoin by token (mobile:reconnect) — the
-  /// path the connections list drives when the user taps a remembered PC (Option
-  /// B: startup does NOT auto-connect; a tap does). Fail-loud: a bad endpoint or a
-  /// rejected token returns false, and [lastReconnectRefusal] says WHY in the
-  /// server's own words. ⚠️ Only an `AUTH_TOKEN_INVALID` reject purges the local
-  /// session inside the reconnect flow — a hold-out (`PAIR_RELEASED` / `PC_BUSY`)
-  /// deliberately keeps the token, so the caller must not treat the two alike.
-  Future<bool> resumePairing(MobileSession session) async {
-    lastReconnectRefusal = null; // never answer this attempt with the last one's
-    if (session.endpoint.isEmpty) return false;
-    // B4-15 — after a network change, if the original address is unreachable,
-    // fall back to this PC's other address. The stored endpoint leads
-    // (it is where a connection last really succeeded), so an unchanged network
-    // picks the same address again and nothing is rewritten.
-    final List<String> candidates =
-        rememberedDialCandidates(session.endpoint, session.endpointCandidates);
-    final EndpointChoice choice = await chooseDialEndpoint(
-      candidates: candidates,
-      read: healthReader,
-      timeout: candidateProbeTimeout,
-    );
-    final String dial = choice.endpoint.isEmpty ? session.endpoint : choice.endpoint;
-    try {
-      await transport.connect(
-        url: dial,
-        token: session.token,
-        // D2LAN-B3 — a remembered pairing dials under the key it remembers. Null
-        // for an unpinned row, which is every pre-D2-LAN pairing and every relay
-        // one, and then this call is byte-for-byte the old one.
-        pinFingerprint: session.lanTlsFp,
-      );
-    } on Object {
-      // 🔴 D2LAN-B3 — 「the other side rotated its key」 must not arrive as
-      // 「unknown error」 either.
-      // Reported through the SAME loud-candidate channel `pair` uses, so there is
-      // one sentence for one fact rather than a second wording that can drift.
-      if (transport.lastDialPinMismatch) {
-        lastReconnectRefusal = ReconnectRefusal(
-          code: encodeCandidateFailure(
-            attempts: choice.attempts,
-            dialed: dial,
-            dialedPinMismatch: true,
-          ),
-        );
-        return false;
-      }
-      // PC unpaired ⇒ the handshake itself is refused, there is no ack to read,
-      // and the answer is on lastConnectError (see [handshakeRefusal]).
-      // Previously this just returned false, so the UI said 「unknown error」.
-      lastReconnectRefusal = handshakeRefusal(transport);
-      return false;
-    }
-    // The row is keyed on the PC's instance id, not on its address, so this
-    // UPDATES the remembered pairing rather than forking a second one.
-    final MobileSession live =
-        dial == session.endpoint ? session : session.copyWith(endpoint: dial);
-    applyPairedIdentity(live);
-    // Tapped PC → most-recent resume target (move-to-front, same identity).
-    await tokenStorage.addOrUpdatePairing(live);
-    final String? name = live.pcName;
-    if (name != null && name.isNotEmpty) connectedDeviceName.value = name;
-    unawaited(_refreshServerChannel(dial));
-    _dialCandidates = candidates.length > 1 ? candidates : const <String>[];
-    reconnect.configure(
-      url: dial,
-      token: live.token,
-      replaceToken: true,
-      // D2LAN-B3 — the SAME key this dial just succeeded under. Without it the
-      // ladder re-dialled unpinned, which on a pinned pairing cannot connect at
-      // all (see ReconnectCoordinator._pin) — so one drop ended the session
-      // until the user tapped this PC again by hand.
-      pinFingerprint: live.lanTlsFp,
-      replacePin: true,
-    );
-    reconnect.start();
-    return _emitMobileReconnect(live.token);
-  }
-
   /// B4-15 — the addresses the CURRENT pairing may be dialled on, as its QR
   /// declared them, in the shape the ladder dials. Written by [pair] /
   /// [resumePairing] only; empty for every single-address pairing, which is what
@@ -729,38 +661,6 @@ class PttSession {
   /// 2 s is a LAN round-trip with room to spare, and it is also the WORST the
   /// whole selection can cost, because the probes run in parallel.
   Duration candidateProbeTimeout = const Duration(seconds: 2);
-
-  Future<String?> _resolveReconnectUrl(String current) => resolveLadderUrl(
-    current: current,
-    known: _dialCandidates,
-    read: healthReader,
-    timeout: candidateProbeTimeout,
-  );
-
-  Future<void> _onReconnected() async {
-    // SEG-2 — every ring replay is chained on THIS future (`_fireRejoin`), so
-    // start from 「no watermark」 and let this attempt's ack supply one. This
-    // one line covers the empty-token early return below, every rejected /
-    // timed-out attempt, and staleness across recordings, in the safe
-    // direction (null = full replay).
-    _reconnectAckAudioSeq = null;
-    final String? token = reconnect.token;
-    if (token == null || token.isEmpty) return;
-    // RV-89 ①: re-ask on every reconnect, so a probe that failed once (a dead
-    // moment, a `ws://` endpoint on a pre-fix build) is not a life sentence of
-    // 「channel unknown」 for the whole session. Fire-and-forget for the same reason the
-    // pair/resume calls are: the label is not a precondition for talking.
-    final String? url = reconnect.url;
-    if (url != null && url.isNotEmpty) unawaited(_refreshServerChannel(url));
-    final bool ok = await _emitMobileReconnect(token);
-    // B4-15 — the ladder may have healed onto a different NIC of the same PC.
-    // Persisted only after the token was ACCEPTED there: a dial that connects
-    // proves nothing about admission, and writing the address down earlier is
-    // the same mistake `resumePairing`'s own comment warns about.
-    if (ok && url != null && url.isNotEmpty) {
-      await persistDialedEndpoint(storage: tokenStorage, token: token, url: url);
-    }
-  }
 
   // 800-line cap (card L7): the body moved VERBATIM to ptt_reconnect_ack.dart —
   // the NAME stays here so every call site is untouched, exactly as

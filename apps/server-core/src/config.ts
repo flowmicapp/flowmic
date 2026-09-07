@@ -29,6 +29,13 @@ export const DEFAULT_STANDALONE_PORT = 41879;
 export const DEFAULT_SAAS_PORT = 3210;
 export const SAAS_LISTEN_HOST = '127.0.0.1';
 
+// 🔴 THE TWO PROVIDERS' SHAPES LIVE IN config-billing.ts (2026-09-04, 800-line
+// cap) and are RE-EXPORTED here unchanged: every existing
+// `import { CreemConfig } from './config'` keeps resolving, so the split is not
+// a rename anybody has to chase. The resolvers stayed here with the loader.
+export type { PaddleConfig, CreemConfig, PaddleEnv } from './config-billing';
+import type { PaddleConfig, CreemConfig, PaddleEnv } from './config-billing';
+
 export interface ServerConfig {
   mode: ServerMode;
   port: number;
@@ -169,113 +176,6 @@ export interface ServerConfig {
   planLimits: PlanLimitsOverrides | null;
 }
 
-/** Paddle sandbox/production intake. We are NOT a payment processor: Paddle is
- *  the merchant of record and this block only describes how we authenticate the
- *  webhooks it sends us and how we translate its price ids into our tiers. */
-export interface PaddleConfig {
-  /** FLOWMIC_PADDLE_ENABLED. saas-only (forced false in standalone). */
-  enabled: boolean;
-  /** FLOWMIC_PADDLE_ENV. Default 'sandbox' — production must be said out loud. */
-  env: PaddleEnv;
-  /** FLOWMIC_PADDLE_WEBHOOK_SECRET. 🔴 NEVER logged, never persisted. */
-  webhookSecret: string | null;
-  /** FLOWMIC_PADDLE_API_KEY. 🔴 Same handling as the webhook secret.
-   *
-   *  ⚠️ 2026-08-21 CORRECTION (0.3.25 B2). This used to read 「Stored, unused
-   *  this round (later reconciliation pulls)」, and it was true for twenty days:
-   *  a grep for api.paddle.com across the tree returned nothing. It now has one
-   *  consumer, billing/paddle/client.ts, and it is spent on real outbound calls
-   *  whenever `writeEnabled` is on. */
-  apiKey: string | null;
-  /**
-   * FLOWMIC_PADDLE_WRITE_ENABLED. 🔴 DEFAULTS OFF, and it is a SEPARATE switch
-   * from `enabled` on purpose.
-   *
-   * `enabled` governs what we ACCEPT from Paddle (webhook intake); this governs
-   * what we SEND to it. They are different risks and they must be openable
-   * separately: intake is read-only and has been live for weeks, whereas a
-   * write can cancel a paying customer or move money. Folding the two into one
-   * flag would mean the day we turned intake on we also turned writes on, which
-   * is precisely the kind of second consequence a single value should never
-   * carry.
-   *
-   * ⚠️ Off does NOT mean 「pretend it worked」: every method on the client throws
-   * a named error while it is off (PaddleWritesDisabledError). Nothing is
-   * silently skipped.
-   */
-  writeEnabled: boolean;
-  /** FLOWMIC_PADDLE_TOLERANCE_SEC. Signature timestamp skew window; 5 = the
-   *  Paddle SDK default. */
-  toleranceSec: number;
-  /** FLOWMIC_PADDLE_PRICE_TIERS, JSON {"pri_xxx":"pro"}. The ONLY price_id →
-   *  tier mapping; an unmapped price id is an `unmapped` ledger row, never a
-   *  guessed tier. */
-  priceTiers: Record<string, Plan>;
-}
-
-/**
- * Creem intake. The SAME SHAPE as PaddleConfig and deliberately NOT the same
- * object.
- *
- * 🔴 TWO SECRETS, TWO SWITCHES, TWO TIER TABLES — never shared. Sharing the
- * secret would mean a body signed for one provider verifies as the other; and
- * sharing the tier table would map a Creem `prod_xxx` against Paddle `pri_xxx`
- * keys, find nothing, and file a correct-looking 'unmapped' row for a payment
- * that was fine. The tier table is keyed by PRODUCT id here and PRICE id there,
- * which is why the env var has a different name rather than a different value.
- */
-export interface CreemConfig {
-  /** FLOWMIC_CREEM_ENABLED. saas-only (forced false in standalone). */
-  enabled: boolean;
-  /** FLOWMIC_CREEM_ENV — 'test' | 'prod'. Default 'test': production must be
-   *  said out loud, same rule as Paddle's sandbox default. */
-  env: 'test' | 'prod';
-  /** FLOWMIC_CREEM_WEBHOOK_SECRET. 🔴 NEVER logged, never persisted. */
-  webhookSecret: string | null;
-  /** FLOWMIC_CREEM_API_KEY. Same handling. */
-  apiKey: string | null;
-  /** FLOWMIC_CREEM_WRITE_ENABLED. Defaults OFF and is a SEPARATE switch from
-   *  `enabled` for the reason spelled out on PaddleConfig.writeEnabled: intake
-   *  is read-only, a write can cancel a paying customer or move money. */
-  writeEnabled: boolean;
-  /** FLOWMIC_CREEM_PRODUCT_TIERS, JSON {"prod_xxx":"pro"}. The ONLY
-   *  product_id → tier mapping. An unmapped product is a ledger row, never a
-   *  guessed tier.
-   *
-   *  ⚠️ THE ONE-TIME SERVICE PRODUCT IS DELIBERATELY ABSENT FROM THIS TABLE and
-   *  must never be added: it grants no tier, and a mapping would silently make
-   *  a $200 support purchase upgrade somebody's plan. The pipeline recognises
-   *  it by the checkout carrying no subscription, not by a list. */
-  productTiers: Record<string, Plan>;
-  /** FLOWMIC_CREEM_SERVICE_PRODUCT_ID — the paid one-time setup service.
-   *
-   *  🔴 A SEPARATE SETTING FROM `productTiers`, AND IT MUST NEVER APPEAR IN
-   *  THAT TABLE. A product listed there grants a tier; this one grants none, and
-   *  a single mapping would silently upgrade the plan of everybody who bought a
-   *  support session. Null ⇒ the buy route refuses by name (503) rather than
-   *  handing a browser a URL to nothing. */
-  serviceProductId: string | null;
-  /** FLOWMIC_CREEM_SUCCESS_URL — where the browser lands after paying. Null ⇒
-   *  Creem's own default page, which is honest but says nothing about us. */
-  serviceSuccessUrl: string | null;
-  /**
-   * FLOWMIC_CREEM_AUTO_REFUND_ENABLED — let the deadline sweep refund overdue
-   * purchases with nobody watching. Defaults OFF.
-   *
-   * 🔴 A THIRD SWITCH, SEPARATE FROM BOTH `enabled` AND `writeEnabled`, and the
-   * separation is the ruling (owner 2026-08-30: 「默认到期由运营队列中由人按一下，
-   * 但要实现自动退的功能和开关，只是默认由人来点」). `writeEnabled` answers 「may
-   * this process move money at all」 — the buttons need it. This answers 「may it
-   * move money with no human in the loop」. Folding them together would mean
-   * turning on the customer's own withdraw button also armed an unattended
-   * refunder, which is not a decision anybody would have made on purpose.
-   *
-   * ⚠️ IT IS A SUBSET, NOT AN OVERRIDE: with `writeEnabled` off the sweep can
-   * still tick and every call refuses by name. That combination is logged as
-   * such rather than being quietly equivalent to off.
-   */
-  autoRefundEnabled: boolean;
-}
 
 /** D2-LAN (design 2026-08-08 §4-2): where this machine's LAN TLS key + cert live.
  *  Present ⇒ the LAN listener accepts TLS in addition to plain. */
@@ -321,7 +221,6 @@ function resolveLanTls(mode: ServerMode): LanTlsConfig | null {
   return { dir: dir.trim() };
 }
 
-export type PaddleEnv = 'sandbox' | 'production';
 export const DEFAULT_PADDLE_TOLERANCE_SEC = 5;
 
 /** The origin the production stack serves today — the default, not a hardcode:
@@ -551,6 +450,11 @@ function resolveCreem(mode: ServerMode, overrides: Partial<CreemConfig> | undefi
       overrides?.serviceSuccessUrl !== undefined
         ? overrides.serviceSuccessUrl
         : (process.env.FLOWMIC_CREEM_SUCCESS_URL ?? '').trim() || null,
+    subscribeSuccessUrl:
+      overrides?.subscribeSuccessUrl !== undefined
+        ? overrides.subscribeSuccessUrl
+        : (process.env.FLOWMIC_CREEM_SUBSCRIBE_SUCCESS_URL ?? '').trim() || null,
+    subscriptionsOnSale: overrides?.subscriptionsOnSale ?? envFlag('FLOWMIC_CREEM_SUBSCRIPTIONS_ON_SALE'),
     autoRefundEnabled: overrides?.autoRefundEnabled ?? envFlag('FLOWMIC_CREEM_AUTO_REFUND_ENABLED'),
   };
 

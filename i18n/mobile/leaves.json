@@ -250,6 +250,13 @@
       ]
     },
     {
+      "key": "articleBackfillUnconfirmed",
+      "leaf": "_lfArticleBackfillUnconfirmed",
+      "params": [
+        "clock"
+      ]
+    },
+    {
       "key": "articleCardMeta",
       "leaf": "_lfArticleCardMeta",
       "params": [
@@ -793,6 +800,21 @@
       "params": []
     },
     {
+      "key": "continuousEntryVerifyEmailNote",
+      "leaf": "_lfContinuousEntryVerifyEmailNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntryRestrictedNote",
+      "leaf": "_lfContinuousEntryRestrictedNote",
+      "params": []
+    },
+    {
+      "key": "continuousEntrySessionExpiredNote",
+      "leaf": "_lfContinuousEntrySessionExpiredNote",
+      "params": []
+    },
+    {
       "key": "continuousEntryQuotaSpentNote",
       "leaf": "_lfContinuousEntryQuotaSpentNote",
       "params": []
@@ -1188,11 +1210,6 @@
     {
       "key": "discStep4Body",
       "leaf": "_lfDiscStep4Body",
-      "params": []
-    },
-    {
-      "key": "discStep4LanPlain",
-      "leaf": "_lfDiscStep4LanPlain",
       "params": []
     },
     {
@@ -2234,6 +2251,31 @@
       "params": []
     },
     {
+      "key": "liveHealthByteStall",
+      "leaf": "_lfLiveHealthByteStall",
+      "params": []
+    },
+    {
+      "key": "liveHealthDigitalSilence",
+      "leaf": "_lfLiveHealthDigitalSilence",
+      "params": []
+    },
+    {
+      "key": "liveHealthNoFirstResultLevel1",
+      "leaf": "_lfLiveHealthNoFirstResultLevel1",
+      "params": []
+    },
+    {
+      "key": "liveHealthNoFirstResultLevel2",
+      "leaf": "_lfLiveHealthNoFirstResultLevel2",
+      "params": []
+    },
+    {
+      "key": "liveHealthNoProgress",
+      "leaf": "_lfLiveHealthNoProgress",
+      "params": []
+    },
+    {
       "key": "liveNow",
       "leaf": "_lfLiveNow",
       "params": []
@@ -2570,6 +2612,13 @@
     {
       "key": "outboxPendingNotice",
       "leaf": "_lfOutboxPendingNotice",
+      "params": [
+        "count"
+      ]
+    },
+    {
+      "key": "outboxPendingNoticeLinkUp",
+      "leaf": "_lfOutboxPendingNoticeLinkUp",
       "params": [
         "count"
       ]
@@ -3058,6 +3107,33 @@
       ]
     },
     {
+      "key": "quotaResetsAt__1",
+      "leaf": "_lfQuotaResetsAt__1",
+      "params": []
+    },
+    {
+      "key": "quotaResetsAt__2",
+      "leaf": "_lfQuotaResetsAt__2",
+      "params": []
+    },
+    {
+      "key": "quotaResetsAt__3",
+      "leaf": "_lfQuotaResetsAt__3",
+      "params": [
+        "days"
+      ]
+    },
+    {
+      "key": "quotaResetsAt__4",
+      "leaf": "_lfQuotaResetsAt__4",
+      "params": [
+        "tMonth",
+        "tDay",
+        "hhmm",
+        "relative"
+      ]
+    },
+    {
       "key": "quotaVoiceUsed",
       "leaf": "_lfQuotaVoiceUsed",
       "params": [
@@ -3266,13 +3342,13 @@
       "params": []
     },
     {
-      "key": "retainedAudioNoticeDroppedOldest",
-      "leaf": "_lfRetainedAudioNoticeDroppedOldest",
+      "key": "retainedAudioNoticeExpired",
+      "leaf": "_lfRetainedAudioNoticeExpired",
       "params": []
     },
     {
-      "key": "retainedAudioNoticeExpired",
-      "leaf": "_lfRetainedAudioNoticeExpired",
+      "key": "retainedAudioNoticeWriteFailed",
+      "leaf": "_lfRetainedAudioNoticeWriteFailed",
       "params": []
     },
     {
@@ -3784,6 +3860,11 @@
     {
       "key": "sttStallNoEngineReached",
       "leaf": "_lfSttStallNoEngineReached",
+      "params": []
+    },
+    {
+      "key": "sttStallOpBindingConflict",
+      "leaf": "_lfSttStallOpBindingConflict",
       "params": []
     },
     {
@@ -4329,6 +4410,101 @@
       "params": [
         "detail"
       ]
+    },
+    {
+      "key": "pendingRecoveryTitle",
+      "leaf": "_lfPendingRecoveryTitle",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryEntry",
+      "leaf": "_lfPendingRecoveryEntry",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryEmpty",
+      "leaf": "_lfPendingRecoveryEmpty",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateWaiting",
+      "leaf": "_lfPendingRecoveryStateWaiting",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateNeedsManual",
+      "leaf": "_lfPendingRecoveryStateNeedsManual",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateUnverified",
+      "leaf": "_lfPendingRecoveryStateUnverified",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateServerKeepsAudio",
+      "leaf": "_lfPendingRecoveryStateServerKeepsAudio",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateEmptyResult",
+      "leaf": "_lfPendingRecoveryStateEmptyResult",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateServerUnsupported",
+      "leaf": "_lfPendingRecoveryStateServerUnsupported",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateCancelled",
+      "leaf": "_lfPendingRecoveryStateCancelled",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateUnreadable",
+      "leaf": "_lfPendingRecoveryStateUnreadable",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryPartlySaved",
+      "leaf": "_lfPendingRecoveryPartlySaved",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryDeleteFailed",
+      "leaf": "_lfPendingRecoveryDeleteFailed",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryNow",
+      "leaf": "_lfPendingRecoveryRetryNow",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryBusy",
+      "leaf": "_lfPendingRecoveryRetryBusy",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryFailed",
+      "leaf": "_lfPendingRecoveryRetryFailed",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryDeleteTitle",
+      "leaf": "_lfPendingRecoveryDeleteTitle",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryDeleteBody",
+      "leaf": "_lfPendingRecoveryDeleteBody",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryBannerAction",
+      "leaf": "_lfPendingRecoveryBannerAction",
+      "params": []
     }
   ]
 }

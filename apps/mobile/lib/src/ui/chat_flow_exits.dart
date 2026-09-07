@@ -51,6 +51,21 @@ part of 'chat_flow_page.dart';
 /// see [AppStrings.sessionLostToast].
 void _maybeLeaveOnSessionLostRouted(_ChatFlowPageState s) {
   if (!s.controller.sessionLost || s._sessionLostHandled) return;
+  if (_exitWouldOrphanARecordingRouted(s)) return;
+  // 🔴 D-1b — WHEN A PC-INITIATED RELEASE IS ALREADY LATCHED, IT OWNS THE
+  // SENTENCE. Both exits are deferred while a microphone is open, so for the
+  // first time they can come due on the SAME edge, and this one runs first.
+  // Letting it win would say 「多次重连未成功」 about something a person did on
+  // purpose — the precise confusion `_maybeLeaveOnPcReleasedRouted` was added
+  // to remove, arriving through the deferral instead of through the clock.
+  // Yielding cannot strand the user: the release exit is re-pulled by the same
+  // capture-ended edge (`PcReleaseCooldown.repoll`), and once it has run its
+  // latch is set so this one is free to proceed.
+  if (!s._pcReleasedHandled &&
+      s.controller.session.releaseCooldown
+          .isOnScreen(s.controller.session.scope.key)) {
+    return;
+  }
   s._sessionLostHandled = true;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!s.mounted) return;
@@ -100,6 +115,7 @@ void _maybeLeaveOnSessionLostRouted(_ChatFlowPageState s) {
 ///   invisible to anyone who arrives late.
 void _maybeLeaveOnCapsuleTakenRouted(_ChatFlowPageState s) {
   if (s._capsuleTakenHandled) return;
+  if (_exitWouldOrphanARecordingRouted(s)) return;
   if (!s.controller.session.pcBusyOnScreen(
     s.controller.session.connectedInstanceId,
   )) {
@@ -141,6 +157,13 @@ void _maybeLeaveOnPcReleasedRouted(_ChatFlowPageState s) {
   if (s._pcReleasedHandled) return;
   final cooldown = s.controller.session.releaseCooldown;
   if (!cooldown.isOnScreen(s.controller.session.scope.key)) return;
+  // Defect D-1b — deferred, not cancelled, and the latch is deliberately NOT
+  // set. The re-pull is `PcReleaseCooldown.repoll()`, poked by the session when
+  // the recorder closes; the latched scope key and the revoked bit are held by
+  // the cooldown, so the sentence below is still the right one whenever it
+  // finally runs. `latchedRemaining()` is re-read then too, so the 「N 秒」 is
+  // the wait that is actually left rather than the one there was at the drop.
+  if (_exitWouldOrphanARecordingRouted(s)) return;
   s._pcReleasedHandled = true;
   final bool revoked = cooldown.latchedRevoked;
   // ceil, floor 1: a wait of 900 ms must not render as 「0 秒后」 — a zero-second
@@ -171,4 +194,69 @@ void _maybeLeaveOnPcReleasedRouted(_ChatFlowPageState s) {
   // other two exits do not need this line because their edges inherently
   // schedule a build; this one must bring its own frame.
   WidgetsBinding.instance.scheduleFrame();
+}
+
+/// 🔴 DEFECT D-1 (round-four device drill, 2026-09-06) — AN EXIT MAY NOT LEAVE
+/// A MICROPHONE BEHIND.
+///
+/// MEASURED: a 30-minute continuous recording, the network cut, and about 40
+/// seconds later the page left by itself with 「多次重连未成功」. What the user
+/// then had was the connections list, a Notes screen saying 「暂无记录」, an IDLE
+/// 「长时间录音」 row — and a microphone that was still capturing to
+/// `files/retained_audio/<article>.pcm` at 32,320 B/s. It ran 36 minutes and
+/// only stopped because the drill stopped it. Nothing on any screen said it
+/// existed, and nothing offered a stop.
+/// (`.local/session-2026-09-06-durability-drill-r4/06-DEFECTS.md` D-1.)
+///
+/// ── WHY DEFERRED RATHER THAN CANCELLED ──────────────────────────────────────
+///
+/// Both sentences these exits carry are TRUE and the user should still get
+/// them; what is wrong is the moment. So the latch is deliberately NOT set —
+/// both callers are `ChatController` listeners and run again on every notify,
+/// so the exit happens on the first notify after the recording ends, with its
+/// snackbar intact. Latching here would turn "not yet" into "never".
+///
+/// ── ✅ THE THIRD EXIT IS COVERED TOO NOW (defect D-1b, 2026-09-06) ──────────
+///
+/// What stood here read: 「`_maybeLeaveOnPcReleasedRouted` below is NOT
+/// guarded … a deferral there would have nothing to re-pull it … registered as
+/// an open item rather than fixed with a latch nobody clears」. The diagnosis
+/// was right and the conclusion was the missing half: the answer was to GIVE it
+/// the second driver, not to leave a microphone reachable only through the
+/// other two exits. `PttSession` now watches the recorder's own state stream
+/// and pokes `PcReleaseCooldown.repoll()` when it closes, so that listener
+/// re-runs exactly once per capture ending — one producer, both consumers
+/// (the other is the reconnect ladder's deferred give-up,
+/// `chat_link_watch.dart`).
+///
+/// 🔴 KEPT RATHER THAN DELETED because of what the paragraph got right: a
+/// deferral is only as good as its re-pull, and 「defer it」 with no second edge
+/// is a worse defect than the one being fixed. That test — 「what will run this
+/// again?」 — is the one to apply to the next deferral, not this outcome.
+///
+/// ── HOW THE PC-RELEASE EXIT IS WIRED ────────────────────────────────────────
+///
+/// [_wirePcReleasedExitRouted] / [_unwirePcReleasedExitRouted] register the
+/// callback on the cooldown's `tick` — still the single driver, now poked from
+/// two places (the release event, and the session on a capture ending). They
+/// are functions rather than two lines in `initState`/`dispose` because
+/// `chat_flow_page.dart` sits one line under the 800-line cap, and a wiring
+/// pair belongs next to the thing it wires.
+///
+/// The predicate itself is `PttSession.continuousStillCapturing` — the flag AND
+/// the recorder, never the session state, because since CR-3 the session state
+/// is precisely the thing that stops answering this question.
+bool _exitWouldOrphanARecordingRouted(_ChatFlowPageState s) =>
+    s.controller.session.continuousStillCapturing;
+
+/// Registered from `chat_flow_page.initState`; see the paragraph above.
+void _wirePcReleasedExitRouted(_ChatFlowPageState s) {
+  s.controller.session.releaseCooldown.tick
+      .addListener(s._maybeLeaveOnPcReleased);
+}
+
+/// Released from `chat_flow_page.dispose`, symmetric with the above.
+void _unwirePcReleasedExitRouted(_ChatFlowPageState s) {
+  s.controller.session.releaseCooldown.tick
+      .removeListener(s._maybeLeaveOnPcReleased);
 }

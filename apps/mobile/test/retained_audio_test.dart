@@ -41,7 +41,7 @@ void main() {
   Future<void> openStore({int? capBytes, Duration? ttl}) async {
     store = RetainedAudioStore(
       dir: tmp,
-      capBytes: capBytes ?? RetainedAudioStore.kDefaultCapBytes,
+      capBytes: capBytes ?? RetainedAudioStore.kUnrecoveredCapBytes,
       ttl: ttl ?? RetainedAudioStore.kDefaultTtl,
       clock: () => fakeNow,
     );
@@ -172,7 +172,14 @@ void main() {
     expect(f.existsSync(), isTrue, reason: 'positive control: it was there');
     expect(store.retainedBytes, 6400);
 
-    await spill.settleSegment(0);
+    // Card LS-1b deleted `RetainedAudioSpill.settleSegment` (audit E25: no
+    // production caller, and the only caller it could have had would delete
+    // never-transcribed audio). What this test is about survives it — the
+    // STORE's settle, which backfill_runner.dart calls after re-feeding one
+    // — so it now drives that verb directly, through the same drain the wrapper
+    // used to perform.
+    await spill.flush();
+    await store.settle(0);
 
     expect(f.existsSync(), isFalse,
         reason: 'settle ⇒ delete is the FB-2 boundary mechanism, not a '
@@ -190,13 +197,28 @@ void main() {
     await spill.flush();
 
     expect(await store.pendingSegments(), <int>[0, 1]);
-    await spill.settleSegment(0);
+    // Card LS-1b deleted `RetainedAudioSpill.settleSegment` (audit E25: no
+    // production caller, and the only caller it could have had would delete
+    // never-transcribed audio). What this test is about survives it — the
+    // STORE's settle, which backfill_runner.dart calls after re-feeding one
+    // — so it now drives that verb directly, through the same drain the wrapper
+    // used to perform.
+    await spill.flush();
+    await store.settle(0);
     expect(await store.pendingSegments(), <int>[1]);
   });
 
   // ──────────────────────────────────────────────── cap: never silent
 
-  test('CAP HIT: the oldest segment is dropped AND announced', () async {
+  test('🔴 CAP HIT: the oldest segment is KEPT and the new bytes are refused',
+      () async {
+    // 🔴 THIS CASE ASSERTED THE OPPOSITE UNTIL CARD LS-3, and the reversal is
+    // an owner ruling (O-2, 2026-09-06), not a change of mind about a detail.
+    // The old assertion was 「the OLDEST goes first」 — and the oldest file is,
+    // by construction, the audio that has been waiting longest to be
+    // transcribed. Balancing the budget that way threw away exactly what this
+    // layer exists to protect (audit item E12). The ruling replaces it with
+    // 「stop promising」: refuse the new bytes, say so, delete nothing.
     await openStore(capBytes: 12800); // exactly two chunks
     spill.noteUplinkDown();
 
@@ -206,28 +228,38 @@ void main() {
     spill.onEvicted(BufferedChunk(seq: 1, tsMs: 0, payload: chunkFor(2)));
     await spill.flush();
     expect(await store.pendingSegments(), <int>[0, 1]);
-    expect(notices, isEmpty, reason: 'nothing dropped yet');
+    expect(notices, isEmpty, reason: 'nothing refused yet');
 
-    // Third chunk on a third segment: something has to give.
+    // Third chunk on a third segment: the budget is full.
     spill.noteSegmentObserved(2);
     spill.onEvicted(BufferedChunk(seq: 2, tsMs: 0, payload: chunkFor(3)));
     await spill.flush();
     await pumpEventQueue(); // notices ride a broadcast stream, not the flush
 
-    expect(await store.pendingSegments(), <int>[1, 2],
-        reason: 'the OLDEST goes first');
+    expect(await store.pendingSegments(), <int>[0, 1],
+        reason: 'both earlier segments survive — the layer gives nothing up');
+    expect(await store.read(0), isNotNull);
+    expect(store.retainedBytes, 12800, reason: 'nothing grew, nothing shrank');
+    expect(spill.refusedChunks, 1);
     expect(notices.map((RetainedAudioNotice n) => n.code),
-        contains(RetainedAudioNotice.codeDroppedOldest));
-    final RetainedAudioNotice dropped = notices.firstWhere(
+        contains(RetainedAudioNotice.codeCapReached));
+    expect(notices.map((RetainedAudioNotice n) => n.code),
+        // Card RC-1 retired the constant; the WIRE STRING is what a
+        // resurrected eviction path would announce, so that is what is
+        // asserted absent here.
+        isNot(contains('retained-audio-dropped-oldest')),
+        reason: 'reverse control for the removal itself: this code has no '
+            'producer left, so seeing it means eviction is back');
+    final RetainedAudioNotice hit = notices.firstWhere(
         (RetainedAudioNotice n) =>
-            n.code == RetainedAudioNotice.codeDroppedOldest);
-    expect(dropped.segmentIdx, 0);
-    expect(dropped.bytes, 6400,
-        reason: 'the notice must say how much was lost, not merely that '
-            'something was');
+            n.code == RetainedAudioNotice.codeCapReached);
+    expect(hit.segmentIdx, 2,
+        reason: 'the notice names the segment that STOPPED being kept, which '
+            'is the new one — the user needs to know which part of what they '
+            'said has no local copy');
     // F6 (2026-09-02 audit) — the SAME fact must also be readable as a VALUE,
     // not only as a stream event a listener could have missed.
-    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeDroppedOldest);
+    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeCapReached);
   });
 
   test('CAP HIT with nothing older to give up: the append is REFUSED and '
@@ -271,22 +303,38 @@ void main() {
 
   // ─────────────────────────────────────────────────── TTL backstop
 
-  test('TTL backstop: unclaimable audio ages out AND says so', () async {
+  test('🔴 TTL: a legacy segment file is NOT swept, however old it gets',
+      () async {
+    // 🔴 THIS CASE ALSO ASSERTED THE OPPOSITE UNTIL CARD LS-3. It read 「TTL
+    // backstop: unclaimable audio ages out AND says so」 and it was green,
+    // which is the problem: 「unclaimable」 and 「unrecovered」 are not the same
+    // word. A phone that was offline overnight lost the recording it was
+    // holding precisely because it never managed to send it (audit item E13).
+    //
+    // Owner ruling O-2: the TTL may only take audio whose manifest says
+    // `settled`. A `<session>__seg-N.pcm` file has no manifest, so it is
+    // unrecovered by definition and the sweep never reaches it again.
+    //
+    // ⚠️ WHAT THAT RETIRES IS REAL: the 24-hour backstop no longer bounds
+    // orphan audio. What bounds it now is kUnrecoveredCapBytes — a bound by
+    // size, which refuses out loud, rather than a bound by age, which deleted
+    // quietly hours later. See that constant's doc for the trade.
     await openStore(ttl: const Duration(hours: 1));
     spill.noteUplinkDown();
     spill.onEvicted(BufferedChunk(seq: 0, tsMs: 0, payload: chunkFor(1)));
     await spill.flush();
     expect(await store.pendingSegments(), <int>[0]);
 
-    fakeNow = const Duration(hours: 2).inMilliseconds +
+    fakeNow = const Duration(days: 30).inMilliseconds +
         DateTime.now().millisecondsSinceEpoch;
     await store.sweep();
     await pumpEventQueue(); // notices ride a broadcast stream, not the flush
 
-    expect(await store.pendingSegments(), isEmpty);
+    expect(await store.pendingSegments(), <int>[0],
+        reason: 'a month old and still the only copy of what was said');
     expect(notices.map((RetainedAudioNotice n) => n.code),
-        contains(RetainedAudioNotice.codeExpired));
-    expect(store.lastNotice.value?.code, RetainedAudioNotice.codeExpired);
+        isNot(contains(RetainedAudioNotice.codeExpired)),
+        reason: 'nothing expired, so nothing may claim it did');
   });
 
   // ─────────────────────────────────────── keying + lifecycle guards

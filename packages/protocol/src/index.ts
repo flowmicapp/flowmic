@@ -36,4 +36,5 @@ export * from './scenario-consent';
 export * from './phone-prefs';
 export * from './stt-polish';
 export * from './stt-refine';
+export * from './recovery-protocol';
 export * from './cloud-summary';

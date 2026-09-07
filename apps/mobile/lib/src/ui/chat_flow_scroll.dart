@@ -95,6 +95,16 @@ extension _ChatFlowScroll on _ChatFlowPageState {
                   // LiveDraftTile's own doc for why it stays truthful through
                   // `processing`, not just `recording`).
                   elapsed: controller.recordingElapsed,
+                  // AW-1b — the pill keeps the short word it was sized for;
+                  // the health sentence (if any) gets its own full-width line
+                  // inside the tile. See live_health_copy.dart's own header
+                  // for why the mapping lives there and for the measurement
+                  // behind the split.
+                  statusLabel: strings.liveTranscribing,
+                  healthNote: liveHealthNote(
+                    controller.asrHealth.value,
+                    strings,
+                  ),
                 );
               }
               final TimelineEntry entry = entries[i - liveCount];

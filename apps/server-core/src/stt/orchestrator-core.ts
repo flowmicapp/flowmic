@@ -22,7 +22,7 @@ import {
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
-import { seamText, SoftSegmentCadence, endsAtSentenceBoundary } from './segment-boundary';
+import { seamText, SoftSegmentCadence } from './segment-boundary';
 import { FunasrSpanClosureFeeder } from './funasr-span-closure';
 import { recheckQuotaOnLegBirth } from './quota-recheck';
 import { replayStillOwed } from './replay-debt';
@@ -32,7 +32,8 @@ import { raceSpawnTimeout } from './spawn-timeout';
 import { SttConfigMissingError } from './engine-router';
 import { mergeOverlap, foldInterim, foldConfirmedWithDraft, bankDraftAcrossLegs } from './text-merge';
 import { feedReplayBufferTail } from './orchestrator-replay';
-import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, isFunasrFlushFamily, type FlushOutcome } from './flush-final';
+import { startRollover, runRollover, flushAndCloseLegForSilence, dialLeg, type RolloverHost } from './orchestrator-rollover';
+import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, type FlushOutcome } from './flush-final';
 import { noEngineTerminalText } from './terminal-final-text';
 import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
 import { emptyFinalCause } from './empty-final-cause';
@@ -40,6 +41,17 @@ import { coldOpenErrorVerdict } from './cold-open-verdict';
 import { segmentDurationMs as segmentDurationAccountMs } from './segment-duration-account';
 
 export * from './orchestrator-types';
+
+/**
+ * Audit F3 — what happened to one pushed chunk.
+ *   · `'fed'`     — AudioSession took it into the pipeline.
+ *   · `'deduped'` — an already-observed seq: the ring replay working as designed.
+ *                   Its content is in the pipeline; it got there the first time.
+ *   · `'refused'` — received and delivered nowhere (past the terminal fence, or
+ *                   turned away by AudioSession's own state guard).
+ * The receipt's counting rule for each is argued in engine/stt-session-intake.ts.
+ */
+export type ChunkIntake = 'fed' | 'deduped' | 'refused';
 
 export class SttEngineOrchestrator extends EventEmitter {
   private engine: EngineSubscriber | null = null;
@@ -150,7 +162,7 @@ export class SttEngineOrchestrator extends EventEmitter {
   private readonly onEngineSessionExpired = (): void => {
     if (this.terminated || this.terminalizing) return;
     if (this.rolloverWork || this.idle.isBusy || !this.engine) { this.session.retryEngineCeilingSoon(); return; } // B2-G: retry soon, don't leave the leg unrotated a full ceiling (see that method's doc)
-    this.runRollover(false);
+    runRollover(this.asRolloverHost(), false);
   };
   constructor(
     private readonly session: AudioSession,
@@ -232,11 +244,28 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.emit('engine-status', { provider: this.engine!.id, status: 'ready' });
   }
 
-  pushChunk(c: { seq: number; ts_ms: number; payload: Buffer }): void {
-    if (this.terminated || this.terminalizing) return;
+  /**
+   * Audit F3 — what the pipeline DID with this frame, so the bridge's tally can
+   * be a measurement rather than an assumption.
+   *
+   * 🔴 THE BRIDGE CANNOT DERIVE THIS. Two of the three outcomes below leave no
+   * trace it can read: a frame refused by the terminal fence never reaches
+   * `AudioSession` at all, so `droppedChunks` does not move, and the bridge would
+   * report a frame that went nowhere as fed — which is the number the phone
+   * checks before deleting its only copy of the audio.
+   */
+  pushChunk(c: { seq: number; ts_ms: number; payload: Buffer }): ChunkIntake {
+    // The recording is over as far as this orchestrator is concerned: taken off
+    // the wire, delivered nowhere. NOT an error — a late chunk during
+    // stop -> flush is normal — but it is a drop, not a feed.
+    if (this.terminated || this.terminalizing) return 'refused';
     // F-2149: feed each seq AT MOST ONCE — a reconnect replays already-delivered
     // seqs; an observed seq is dropped, a never-seen gap-fill still flows.
-    if (this.session.seq.hasObserved(c.seq)) return;
+    if (this.session.seq.hasObserved(c.seq)) return 'deduped';
+    // Whether AudioSession's own state guard takes it. Read as a DELTA rather
+    // than by asking the session's state, because that guard is the sole writer
+    // of the counter the receipt adds to this verdict — one fact, one author.
+    const sessionDropsBefore = this.session.droppedChunks;
     // 🔴 card RT-2 — the voice came back ⇒ dial the leg. This runs BEFORE the
     // retention pin below and that order is the mechanism, not tidiness:
     // `replayStillOwed()` reads `idle.isDialing`, so setting it first is what stops
@@ -260,9 +289,10 @@ export class SttEngineOrchestrator extends EventEmitter {
       this.unfedGraceMs,
     );
     this.session.pushChunk(c);
+    const intake: ChunkIntake = this.session.droppedChunks === sessionDropsBefore ? 'fed' : 'refused';
     // AudioSession owns the hard-limit boundary; never leak a rejected boundary
     // chunk into the engine.
-    if (this.terminalizing || !this.session.seq.hasObserved(c.seq)) return;
+    if (this.terminalizing || !this.session.seq.hasObserved(c.seq)) return intake;
     // VAD gate (master-plan §2.3): silence is buffered (above) but NOT pushed to
     // a metered streaming engine → it never accrues billed session time. The seq
     // is still marked fed so a replay/rollover won't re-inject it.
@@ -290,7 +320,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     if (feed) this.spanClosure.noteOpen();
     else this.spanClosure.noteClosed(this.engine, this.now(), this.cadence.gateClosedMs(this.now()));
     if (cut) this.startRollover(true);
-    if (!feed) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return; }
+    if (!feed) { this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); return intake; }
     // card fix-022 / G-23: the gate just said this audio is worth sending, so this
     // is the ONE site that can record "the user really did speak" — and it is the same
     // predicate the feed below consults, which is what stops the two from ever
@@ -299,6 +329,11 @@ export class SttEngineOrchestrator extends EventEmitter {
     if (this.engine && this.engine.state === 'open') {
       try { this.engine.push(c.payload, c.ts_ms); this.engineFedBytes += c.payload.length; this.sessionFedBytes += c.payload.length; this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); this.idle.arm(); } catch (err) { console.error('[SttEngineOrchestrator] pushChunk engine.push error (reconnect ladder will handle):', err); }
     }
+    // ⚠️ The verdict is about the SESSION, not the engine. A frame the VAD gate
+    // held back, or one buffered while an engine is being reconnected, is in the
+    // pipeline and will be replayed — the receipt's `fed_frames` answers 「did we
+    // take your audio」, never 「did a vendor already hear it」.
+    return intake;
   }
 
   /**
@@ -381,198 +416,33 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  (see {@link handleAutoStop} for what still counts as an auto-stop). */
   waitForTerminal(): Promise<void> { return this.terminalWork; }
 
-  /** card SEG-1 — at most one rollover in flight; the ONE place a cut verdict
-   *  becomes work. `deliver` carries whether this is a ROW ending or only a LEG
-   *  (card SEG-4). Policy + full account: `stt/segment-boundary.ts`. */
+  /** card SEG-1 — moved VERBATIM to `orchestrator-rollover.ts` (800-line cap):
+   *  rollover start/spawn/dial + the segment-cut bank+emit are all typed
+   *  against `RolloverHost` there, not against this class, so this cast is
+   *  the ONE place private state crosses that boundary — same object, same
+   *  fields, only the compile-time view widens for the call. */
+  private asRolloverHost(): RolloverHost { return this as unknown as RolloverHost; }
+
+  /** card SEG-1 — moved VERBATIM to `orchestrator-rollover.ts`. This wrapper
+   *  keeps the name `startRollover` reachable — nothing else changed; see
+   *  that file's header for why. */
   private startRollover(deliver: boolean): void {
-    if (this.rolloverWork || this.terminated || this.terminalizing || !this.engine) return;
-    this.runRollover(deliver);
+    startRollover(this.asRolloverHost(), deliver);
   }
 
-  /**
-   * 🔴 card P0-1 — the ONE place `rolloverWork` is assigned, shared by
-   * `startRollover` (soft-segment / sentence-or-pause cut) and
-   * `onEngineSessionExpired` (N1-B4's 5-minute wall). Both used to write
-   * `this.rolloverSegment(...).finally(...)` with no `.catch`, and the
-   * rollover-phase spawn inside it was a bare `await this.spawnEngine()` (see
-   * {@link spawnRolloverEngine}) — so an `open()` rejection on EITHER trigger
-   * became an `unhandledRejection`, which `error-handling.ts` hands to
-   * `onFatal` → `exit(FATAL_EXIT_CODE)`: ONE Soniox rollover-open failure took
-   * the whole relay process down for every other live session. `dialLeg` (the
-   * silence-redial spawn) never had this hole; it was already wrapped, which is
-   * what made these two a gap rather than a design choice.
-   *
-   * The `.catch` here is a terminal safety net, not the primary handler — every
-   * spawn failure `rolloverSegment` knows about is already routed to the ladder
-   * from inside `spawnRolloverEngine`. What lands here is a defect neither
-   * anticipated, and it must still reach the ladder's terminal channel rather than crash the process or vanish silently.
-   */
-  private runRollover(deliver: boolean): void {
-    this.rolloverWork = this.rolloverSegment(deliver)
-      .catch((err) => { if (!this.terminated && !this.terminalizing) this.ladder.handleEngineError(err as Error); })
-      .finally(() => { this.rolloverWork = null; });
-  }
-
-  /**
-   * 🔴 card P0-1 — every ROLLOVER spawn must go through this, never a bare
-   * `await this.spawnEngine()`. Same shape as {@link dialLeg}'s cap-and-catch:
-   * race against `engineSpawnTimeoutMs`, hand a rejection to
-   * `this.ladder.handleEngineError` instead of letting it propagate — the
-   * ladder already owns "an engine session died, try again", and a second,
-   * uncaught copy of that decision is exactly how P0-1 happened.
-   *
-   * Returns `false` when the spawn failed (ladder has taken over the retry) or
-   * the orchestrator finished mid-spawn — either way the caller must stop its
-   * own rollover bookkeeping right there, exactly as `dialLeg`'s callers do.
-   */
-  private async spawnRolloverEngine(): Promise<boolean> {
-    try {
-      await raceSpawnTimeout(this.spawnEngine(), this.engineSpawnTimeoutMs, this._setTimeout, this._clearTimeout);
-    } catch (err) {
-      if (!this.terminated && !this.terminalizing) this.ladder.handleEngineError(err as Error);
-      return false;
-    }
-    if (this.terminated || this.terminalizing) { await this.closeEngine(); return false; }
-    return true;
-  }
-
-  /**
-   * card RT-2 hook — flush the leg, keep every word it had, then close it.
-   *
-   * ⚠️ The flush result IS `foldConfirmedWithDraft(offlineAccum, onlineDraft)` on
-   * every branch of `raceFlushFinal` but one — the timeout branch, which returns
-   * a captured final that CONTAINS it as a prefix, i.e. strictly more. So the
-   * assignment below can only preserve or extend; it can never shorten.
-   *
-   * ⚠️ `accumEmittedByFinal` is deliberately NOT touched (card RT3-B). The engine's
-   * own `final` handler already cleared it if new text arrived, and clearing it
-   * here unconditionally would re-send text a segment final had already carried —
-   * the exact duplication that branch exists to prevent.
-   */
+  /** card RT-2 hook — moved VERBATIM to `orchestrator-rollover.ts`; wrapper
+   *  keeps the name `flushAndCloseLegForSilence` reachable (referenced by
+   *  name in `empty-final-verdicts.ts`). */
   private async flushAndCloseLegForSilence(): Promise<void> {
-    const engine = this.engine;
-    if (!engine) return;
-    feedVadClosureSilence(engine, this.now());
-    this.flushErrored = false; this.flushing = true;
-    const { result } = await this.flushFinal();
-    this.flushing = false;
-    if (this.terminated) return;
-    this.offlineAccum = result.text; this.onlineDraft = '';
-    await this.closeEngine();
+    return flushAndCloseLegForSilence(this.asRolloverHost());
   }
 
-  /**
-   * card RT-2 hook — dial the leg back because audio is here again.
-   *
-   * ⚠️ The spawn is capped by `raceSpawnTimeout`, unlike the ladder's reconnect
-   * (RT3-C: "the reconnect path has no spawn timeout", an OPEN account this card does not close
-   * because changing the ladder's timing is a product ruling). This is a NEW path,
-   * so it gets the cap the cold open already has and inherits no debt.
-   *
-   * Returns false when the dial failed and the LADDER has taken over, so recovery
-   * has exactly one owner.
-   */
+  /** card RT-2 hook — moved VERBATIM to `orchestrator-rollover.ts`; wrapper
+   *  keeps the name `dialLeg` reachable (the `EngineIdleHangup` hook is wired
+   *  to this method by name in the constructor, and `engine-idle-hangup.ts`'s
+   *  own hook interface calls its hook `dialLeg` too). */
   private async dialLeg(): Promise<boolean> {
-    try {
-      await raceSpawnTimeout(this.spawnEngine(), this.engineSpawnTimeoutMs, this._setTimeout, this._clearTimeout);
-    } catch (err) {
-      if (!this.terminated && !this.terminalizing) this.ladder.handleEngineError(err as Error);
-      return false;
-    }
-    if (this.terminated || this.terminalizing) { await this.closeEngine(); return false; }
-    this.engineFedBytes = 0; // a fresh leg has been handed nothing yet
-    this.replayBufferTail(true); // gated: only what no engine has heard
-    return true;
-  }
-
-  /**
-   * card SEG-4 — ONE method, TWO meanings, told apart by `deliver`:
-   * `true` = the row ends HERE (a boundary `segmentCutDecision` defended): flush
-   * → emit `is_segment` final → spend the index → fresh leg. `false` = only the
-   * ENGINE LEG's span expired (cadence phase 2 / N1-B4): flush →
-   * `seamText(…, 'leg')` → bank into `offlineAccum` (RT-2's own fold, see
-   * `flushAndCloseLegForSilence`) → fresh leg; nothing reaches the wire and the
-   * row keeps growing across the seam. One method, not two: the F-2152/N1-B1
-   * seam facts are identical in both, and two copies is how they drift apart.
-   */
-  private async rolloverSegment(deliver: boolean): Promise<void> {
-    if (this.terminated || this.terminalizing || !this.engine) return;
-    // F-2152: chunks fed during the flush round-trip aren't in segment N's final;
-    // re-arm the gate to this PRE-flush boundary so the seam carries.
-    const finalizedSeq = this.lastEngineFedSeq;
-    // card N1-B1: ONE instant is the segment boundary, and both gates are read off
-    // it — the seq gate above (F-2152) and the clock anchor below. Taken BEFORE
-    // the flush for the same reason `finalizedSeq` is: audio arriving during the
-    // flush round trip belongs to the NEXT segment, so the round trip must not
-    // land inside the segment that is closing.
-    const boundaryMs = this.now();
-    if (!deliver) {
-      this.flushErrored = false; this.flushing = true;
-      const { result } = await this.flushFinal();
-      this.flushing = false;
-      if (this.terminated) return;
-      // The bank; `accumEmittedByFinal` stays false — no wire final carried this.
-      this.offlineAccum = seamText(result.text, 'leg');
-      this.onlineDraft = '';
-      if (this.terminalizing) return; // stop() settles from the bank
-      await this.closeEngine();
-      if (this.terminated || this.terminalizing) return;
-      this.lastEngineFedSeq = finalizedSeq;
-      this.engineFedBytes = 0;
-      if (!(await this.spawnRolloverEngine())) return; // card P0-1: ladder has taken over
-      this.replayBufferTail(true);
-      return; // the cadence re-arms its own leg timer; `due` stays raised
-    }
-    // F-2 Fix B: pause-cut only, FunASR family only. Wait ≤800 ms for the
-    // covering 2pass-offline (punctuated) to fold into offlineAccum; on expiry
-    // mint with today's text. Sentence cuts and non-FunASR pause cuts unchanged.
-    if (this.cadence.lastCutReason === 'pause') {
-      await this.spanClosure.waitForCoveringOffline({
-        enabled: isFunasrFlushFamily(this.engine.id),
-        alreadyCovered: endsAtSentenceBoundary(this.offlineAccum),
-        setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout,
-      });
-      if (this.terminated || this.terminalizing || !this.engine) return;
-    }
-    const emitted = await this.flushAndEmitFinal(true, boundaryMs - this.segmentStartMs);
-    if (this.terminated) return;
-    // W2.5-B: both fence checks spend the index the same way ("once it's sent
-    // out, spend that number"). CRITERION, so nobody burns an afternoon testing
-    // it: today this branch cannot be reached with `emitted === true` — no yield
-    // point sits between flushAndEmitFinal's own fence check and this one, so
-    // `terminalizing` here implies `emitted === false`. Written the safe way for
-    // the day someone adds an await in between. REVERSE CONTROL (2026-08-07,
-    // dev-pc-a): reverting this line leaves all 21 tests green — honest result,
-    // reason above; not a hole in stt-terminal-rollover-collision.test.ts.
-    if (this.terminalizing) { if (emitted) this.beginNextSegment(boundaryMs); return; }
-    await this.closeEngine();
-    if (this.terminated) return;
-    if (this.terminalizing) { if (emitted) this.beginNextSegment(boundaryMs); return; }
-    this.beginNextSegment(boundaryMs);
-    this.offlineAccum = '';
-    this.onlineDraft = '';
-    this.lastEngineFedSeq = finalizedSeq;
-    this.engineFedBytes = 0; // a fresh engine has been handed nothing yet
-    if (!(await this.spawnRolloverEngine())) return; // card P0-1: ladder has taken over
-    this.replayBufferTail(true);
-    this.cadence.arm();
-  }
-
-  /**
-   * 🔴 card N1-B1 — spend the index and re-anchor the segment clock TOGETHER.
-   * They used to move in different places (index at the fence returns, clock
-   * only on the path that opens the next engine), so a release landing on a
-   * fence spent idx N with the clock still at N-1's start ⇒ the terminal final
-   * reported the settled segment's 30 s a second time — under book 15 §2.0-c a
-   * second ROW claiming the same seconds. One method now (W2.5-B's shape:
-   * "the same fact handled once in each of two places"), so no drift.
-   */
-  private beginNextSegment(boundaryMs: number): void {
-    this.currentSegmentIdx += 1;
-    this.segmentStartMs = boundaryMs;
-    // card SEG-1 — the third fact that means "a new segment is open", moved
-    // here with the other two so they cannot drift apart (that WAS N1-B1).
-    this.cadence.reset();
+    return dialLeg(this.asRolloverHost());
   }
 
   /**

@@ -33,6 +33,7 @@ import { makePoolManagedDefault } from './pool-routing';
 import { isStreamingEngine } from './streaming-engines';
 import { buildHotwords, type SttDictionaryEntry } from './hotwords';
 import { buildSonioxContext } from './terminology-context';
+import { resolveSttFaultStallMs, withSttFaultStall } from './fault-stall';
 import { SttEngineOrchestrator } from './orchestrator-core';
 import { DEFAULT_ENGINE_IDLE_HANGUP_MS, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
@@ -446,11 +447,22 @@ export function makeSttOrchestratorFactory(
   // instead (apps/server-core/test/stt-pool-refusal.test.ts injects no resolver).
   const pooled = deps.managedDefault ? null : makePoolManagedDefault({ factory: engineFactory });
   const managedDefault = deps.managedDefault ?? pooled!.resolve;
+  // TEST-ONLY fault hook, resolved ONCE at boot so a saas process says out loud
+  // that it ignored the switch (and a malformed value aborts start) even though
+  // no session will ever build the decorator. 0 unless standalone + armed —
+  // see stt/fault-stall.ts for why the mode guard lives there and nowhere else.
+  const faultStallMs = resolveSttFaultStallMs(deps.mode);
   return (session, language, userId, vad, overrides) => {
     const routings = loadRoutings(deps.settings, userId);
     const terminology = overrides?.settings ?? deps.settings;
     const hotwords = loadHotwords(terminology, userId);
-    const factory = withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(terminology, userId));
+    // The fault decorator is OUTERMOST and built per audio:start: it fixes this
+    // recording's stall deadline, and it must not sit between the terminology
+    // decorators and the engine they configure. Identity when faultStallMs is 0.
+    const factory = withSttFaultStall(
+      withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(terminology, userId)),
+      faultStallMs,
+    );
     const router = makeEngineRouter({ managedDefault });
     // #16 fail-fast: no matching routing → throw synchronously so the sync
     // sttFactory call surfaces stt:error (no implicit fallback engine).

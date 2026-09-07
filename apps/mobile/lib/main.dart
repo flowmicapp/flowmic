@@ -151,9 +151,9 @@ Future<void> main() async {
   );
   // SEG-2 — the retained-audio layer, opened before the first frame because the
   // directory comes from path_provider (async) and PttSession's construction is
-  // not. The whole block moved to `audio/retained_audio_boot.dart` VERBATIM on
-  // 2026-08-27 when this file crossed the 800-line source cap; its failure
-  // direction (null ⇒ the pre-SEG-2 product, loudly) is stated there.
+  // not. The block lives in `audio/retained_audio_boot.dart` (800-line cap),
+  // which also owns the default: card RC-1 turned first-frame retention ON
+  // there on 2026-09-06. Failure direction (null ⇒ no retention) is stated there.
   final RetainedAudioSpill? retainedAudio = await openRetainedAudioSpill();
   runApp(
     FlowMicApp(

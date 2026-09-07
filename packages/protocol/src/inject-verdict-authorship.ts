@@ -162,6 +162,21 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   STT_NETWORK_DROP: 'none',
   STT_PROBE_FAIL: 'none',
   STT_PROBE_SCHEME_MISMATCH: 'none',
+  // AUDIO_OP_BINDING_CONFLICT · 2026-09-06 (lane EC). `'none'` is a MEASUREMENT,
+  // not a default: the only producer is
+  // apps/server-core/src/socket/handlers/audio-start-operation.ts
+  // `admitOperation`, whose refusal leaves through `refuseStart` as an
+  // `stt:error` on the recovery leg. It is a SERVER verdict about an `audio:start`
+  // request; no PC is involved, the injection pipeline is never reached, and
+  // nothing on this code's path constructs an `inject:result`.
+  // ⇒ 🔴 IT MUST NOT JOIN `kPcInjectionVerdictCodes` on the phone. That closed set
+  // answers 「did the PC settle this outbox item」; a code that never rides
+  // `inject:result` would be answering a question it was never asked. The
+  // 「unknown code ⇒ queued forever」 trap (0.2.48) lives on the inject leg only —
+  // the equivalent closed set for THIS leg is `sttStallBannerMessage`'s code table
+  // in apps/mobile/lib/src/settings/strings/recording_strings.dart, and this code
+  // is mirrored there.
+  AUDIO_OP_BINDING_CONFLICT: 'none',
   LLM_TIMEOUT: 'none',
   LLM_AUTH_FAIL: 'none',
   LLM_RATE_LIMITED: 'none',

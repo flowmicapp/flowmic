@@ -108,6 +108,28 @@ export const CLOUD_KEYS = [
   // the other end of the same track; saying it twice on one gauge would be a
   // second answer to a question already answered.
   'cloud_usage_context',
+  // ── when the allowance starts over (owner 2026-09-07) ─────────────────────
+  //
+  // 🔴 THE GAUGE ANSWERS HALF A QUESTION WITHOUT THESE. 「17 / 20 min」 says
+  // somebody is nearly out and nothing about whether that matters for another
+  // hour or another month — and since the cycle became account-anchored
+  // (2026-09-05) they cannot derive it either: two people reading this card on
+  // the same day reset on different dates.
+  //
+  // ⚠️ `{at}` ARRIVES ALREADY FORMATTED (`formatExpiry`, `YYYY-MM-DD HH:mm`,
+  // local). The date SHAPE is one product-wide convention, not nine — the same
+  // call the two number labels above make about their own digits. What each
+  // language chooses is the sentence around it, including where the date goes.
+  'cloud_usage_reset',
+  // 🔴 THREE ENTRIES FOR THE RELATIVE HALF, AND NO TRANSLATION IS ASKED FOR A
+  // PLURAL. `1` never reaches the counted one — it has its own — so no language
+  // needs a second form of 「day」, and Russian's few/many split is sidestepped
+  // with the invariant 「дн.」 this catalogue already uses for 「мин」 / 「ч」.
+  // 「in 1 days」 is the exact failure these two exist to prevent, and it would
+  // land on the day a user is most likely to be reading the card.
+  'cloud_usage_reset_today',
+  'cloud_usage_reset_tomorrow',
+  'cloud_usage_reset_in_days',
   'cloud_src_permanent_free',
   'cloud_src_paddle',
   'cloud_src_mock',

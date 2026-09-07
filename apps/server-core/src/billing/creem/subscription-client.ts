@@ -249,6 +249,20 @@ export function createCreemSubscriptionClient(
       );
     },
 
+    changePlan(subscriptionId, productId): Promise<BillingWriteResult<SubscriptionSnapshot>> {
+      // Measured live 2026-08-29 (findings §2b-②): the same subscription id and
+      // item id come back with the new price, and a proration transaction is
+      // created at once. `proration-charge-immediately` is Creem's own default
+      // and is stated anyway — a default that changes upstream must not change
+      // when a customer is charged.
+      return snapshotFrom(
+        'changePlan',
+        'POST',
+        `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/upgrade`,
+        { product_id: productId, update_behavior: 'proration-charge-immediately' },
+      );
+    },
+
     async findRefundableTransaction(
       subscriptionId,
     ): Promise<BillingWriteResult<{ found: RefundableTransaction | null }>> {

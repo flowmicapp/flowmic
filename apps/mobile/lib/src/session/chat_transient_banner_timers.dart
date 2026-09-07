@@ -222,6 +222,7 @@ Future<void> disposeRouted(ChatController c) async {
   // draining a queue on behalf of a screen that is gone.
   c.deliveryLink.dispose();
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7
+  c.session.captureStopped.removeListener(c._onCaptureStopped); // D-1c
   // AUD-D F6 / P1-6 (card B2-O) — mirrors the constructor's addListener; a
   // torn-down controller must not go on writing into a field nobody reads.
   c.session.audio.retainedAudio?.store.lastNotice
@@ -257,6 +258,19 @@ Future<void> disposeRouted(ChatController c) async {
   await c._autoStoppedSub?.cancel();
   await c._sttStalledSub?.cancel();
   await c._fsmSub?.cancel();
+  // AW-1b — the health wiring's subscriptions + ticker + the listener it
+  // registered on the tracker, then the tracker's own ValueNotifier. Same
+  // shape as every other leak this method already guards against: a
+  // torn-down controller must not go on writing into a tracker nobody reads,
+  // or leave a Timer.periodic running forever.
+  //
+  // `release` takes the tracker because the listener it removes is the one
+  // `wireAsrHealth` stored. This line used to read
+  // `c.asrHealth.removeListener(c.notifyUi)`, which removed NOTHING — the
+  // registration was an anonymous closure, so the two never matched and the
+  // removal was a no-op that read like a fix.
+  await c._asrHealthHooks?.release(c.asrHealth);
+  c.asrHealth.dispose();
   c.favorites.dispose();
 }
 
@@ -278,6 +292,21 @@ void debugCancelBannerAutoHideTimers(ChatController c) {
   }
   c._bannerAutoHideTimers.clear();
   c._bannerLastSeen.clear();
+}
+
+/// AW-1b — same role as [debugCancelBannerAutoHideTimers], for the 500ms
+/// ticker `chat_asr_health_wire.dart` arms on the recordingStarted edge. A
+/// test that drives `session.fsm.onPttDown()` DIRECTLY (bypassing
+/// `session.pttDown()`/`pttUp()`, as chat_stick_bottom_widget_test.dart's own
+/// comment already does for the presence-poll timer) never produces the
+/// recordingEnded edge that would cancel it, and
+/// `AutomatedTestWidgetsFlutterBinding` checks for pending timers before
+/// `addTearDown` callbacks run. No production caller, for the same reason
+/// [debugCancelBannerAutoHideTimers] has none.
+@visibleForTesting
+void debugCancelAsrHealthTicker(ChatController c) {
+  c._asrHealthHooks?.ticker?.cancel();
+  c._asrHealthHooks?.ticker = null;
 }
 
 /// VERBATIM MOVE of `ChatController.pttCancel()`'s old body (see the file

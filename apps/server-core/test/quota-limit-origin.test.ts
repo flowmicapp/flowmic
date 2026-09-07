@@ -47,7 +47,6 @@ import { RoomStore } from '../src/room/store';
 import { BillingService } from '../src/billing/billing-service';
 import { makeQuotaGuard } from '../src/billing/quota-guard';
 import { planLimits } from '../src/billing/plans';
-import { currentMonth } from '../src/db/repos/usage.repo';
 import { makeSttSessionFactory } from '../src/engine/stt-factory';
 import { registerAudioHandlers, type AudioHandlerDeps, type SttStartArgs } from '../src/socket/handlers/audio.handler';
 import type { UsageTracker } from '../src/billing/usage-tracker';
@@ -347,13 +346,21 @@ function freshDb(): DbConnection {
   return db;
 }
 
+/** The bucket the guard will read for USER at NOW — asked of the same solver
+ *  the guard asks (owner 2026-09-05, option 乙), never re-derived here. */
+function cycleKey(db: DbConnection): string {
+  return new BillingService({
+    settings: db.settings, users: db.users, usage: db.usage, billing: db.billing, unlockAll: false, now: () => NOW,
+  }).usagePeriodKey(USER, NOW);
+}
+
 function wire(db: DbConnection): { mobile: FakeSocket; remainingSttMs: () => number } {
   const billing = new BillingService({
     settings: db.settings, users: db.users, usage: db.usage, billing: db.billing,
     unlockAll: false, now: () => NOW,
   });
   // The guard wired exactly as bootstrap wires it, over a real saas config.
-  const guard = makeQuotaGuard(db.usage, { effectiveLimits: (u) => billing.effectiveLimits(u) }, {
+  const guard = makeQuotaGuard(db.usage, { effectiveLimits: (u) => billing.effectiveLimits(u), usagePeriodKey: (u, at) => billing.usagePeriodKey(u, at) }, {
     mode: 'saas', now: () => NOW,
   });
   const store = new RoomStore<FakeSocket>();
@@ -392,7 +399,7 @@ describe('fix-025 — `audio:auto-stopped{reason:quota_exhausted}` in a producti
     // writes `duration_ms / 60_000` and `usage_records.stt_minutes` is REAL.
     // 19.999 of 20 minutes ⇒ ~60 ms of budget, which is a real clock this test can
     // wait out — the branch reads the ORIGIN, never the size of the number.
-    db.usage.increment(USER, currentMonth(() => NOW), { stt_minutes: 19.999 });
+    db.usage.increment(USER, cycleKey(db), { stt_minutes: 19.999 });
     const { mobile, remainingSttMs } = wire(db);
     expect(remainingSttMs()).toBeCloseTo(60, 3);
 
@@ -426,7 +433,7 @@ describe('fix-025 — `audio:auto-stopped{reason:quota_exhausted}` in a producti
     // was worth removing because the mine and its safety catch live in different
     // files.
     const db = freshDb();
-    db.usage.increment(USER, currentMonth(() => NOW), { stt_minutes: 20 });
+    db.usage.increment(USER, cycleKey(db), { stt_minutes: 20 });
     const { mobile, remainingSttMs } = wire(db);
     expect(remainingSttMs()).toBe(0);
 

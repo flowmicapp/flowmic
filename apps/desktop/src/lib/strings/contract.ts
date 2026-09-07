@@ -130,6 +130,25 @@ export interface SettingsMsg {
   sttModelReady(model: string): string;
 }
 
+/** The per-locale shape of the capsule's count-bearing messages.
+ *
+ *  A FUNCTION, not two word fragments glued in the template: 「时长 · 数量」 puts
+ *  the unit before the number in some of the nine languages and after it in
+ *  others, and a composed sentence belongs in exactly one place per locale.
+ *  Same reasoning as [TlBatchMsg] below. */
+export interface CapsuleMsg {
+  /** 「2:41 · 7 段」 — the speaking row's live pair (owner 2026-09-07). `clock`
+   *  arrives ALREADY formatted by `formatRowDuration`
+   *  (apps/desktop/src/lib/entry-metrics.ts), which is the phone's
+   *  `formatEntryDuration` grammar character for character, so the two ends
+   *  cannot render the same duration two ways.
+   *
+   *  🔴 The noun must stay the phone's noun (mobile `articleCardMeta`: 段 /
+   *  part / Teil / …). One thing, one word across the two ends — 15 册 §2.5c,
+   *  the rule `cap_cached` exists to satisfy. */
+  sessionMeta(clock: string, segments: number): string;
+}
+
 /** The per-locale shape of the V2-18 batch messages. Both locales implement
  *  the SAME interface — a missing message is a compile error here and a
  *  printed key name in locale-parity.test.ts there. */

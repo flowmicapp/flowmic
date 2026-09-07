@@ -41,6 +41,7 @@ import { PROMISED_DEADLINES } from './billing/guided-setup';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
 import { startGrowthReaper, type GrowthReaper } from './db/reaper';
 import { FORWARD_LEDGER_PRUNE_INTERVAL_MS, type ForwardLedger } from './node/forward-ledger';
+import { RECOVERY_PRUNE_INTERVAL_MS } from './db/schema-recovery';
 
 
 export interface SweepWiring {
@@ -85,6 +86,10 @@ export interface BackgroundSweeps {
    *  timer」, never 「skip stopping it」 — a replica or single-node deployment
    *  never had a `forwardLedger` to sweep in the first place. */
   forwardLedgerPrune?: { stop(): void };
+  /** Card PR-2 — one timer sweeping BOTH recovery tables. Not optional: both
+   *  tables exist on every deployment (they are in INIT_SQL unconditionally), so
+   *  there is no state in which there is nothing to sweep. */
+  recoveryPrune: { stop(): void };
 }
 
 export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
@@ -165,8 +170,20 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
       })()
     : undefined;
 
+  // Card PR-2 — the recovery domain's two tables, swept on the SAME daily cadence
+  // and through the SAME overridable timer as everything else in this file. They
+  // are wired off `db` rather than off `SweepWiring` because they are product
+  // tables on the shared connection, unlike `forwardLedger` above (node plumbing
+  // that only exists on a writer). Retention window and the accepted residual —
+  // a re-send after expiry is charged again — are argued in db/schema-recovery.ts.
+  const recoveryHandle = setI(() => {
+    db.recoveryOps.prune(now?.() ?? Date.now());
+    db.usageEffects.prune(now?.() ?? Date.now());
+  }, RECOVERY_PRUNE_INTERVAL_MS);
+  const recoveryPrune = { stop: () => clearI(recoveryHandle) };
+
   return {
-    retention, growthReaper,
+    retention, growthReaper, recoveryPrune,
     ...(serviceRefunds === undefined ? {} : { serviceRefunds }),
     ...(forwardLedgerPrune === undefined ? {} : { forwardLedgerPrune }),
   };

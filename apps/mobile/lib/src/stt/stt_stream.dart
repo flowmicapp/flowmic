@@ -12,6 +12,8 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 /// stt:interim — SttInterimSchema.
 class SttInterim {
   final String text;
@@ -85,6 +87,20 @@ class SttFinal {
   /// recognises, and an unrecognised value gets the generic sentence plus this
   /// token rather than a sentence invented for it.
   final String? emptyReason;
+
+  /// Card CV-1 (04 SPEC §3.3-a (b)) — the coverage receipt this TERMINAL final
+  /// carried, or null.
+  ///
+  /// 🔴 NULL MEANS "NO RECEIPT", AND THAT IS A THIRD ANSWER, not a bad one. A
+  /// soft-segment final never carries one; a server predating the card carries
+  /// none; a relay that strips unknown keys carries none. In every case the
+  /// phone learns nothing about coverage — which under the 2026-09-06 ruling is
+  /// itself decisive, because the cleanup threshold requires a receipt it
+  /// RECOGNISES, so "no receipt" is already the safe branch.
+  ///
+  /// 🔴 NO CONSUMER YET — **consumed by card RC-1**, the recovery queue.
+  final CoverageReceipt? coverage;
+
   const SttFinal({
     required this.text,
     required this.confidence,
@@ -96,6 +112,7 @@ class SttFinal {
     this.polishReason,
     this.utteranceId,
     this.emptyReason,
+    this.coverage,
   });
 
   static SttFinal? tryFromJson(Map<String, Object?> j) {
@@ -127,6 +144,100 @@ class SttFinal {
         final String r when r.isNotEmpty => r,
         _ => null,
       },
+      coverage: CoverageReceipt.tryFromJson(j),
+    );
+  }
+}
+
+/// Card CV-1 — the coverage receipt off a terminal `stt:final`
+/// (04 SPEC §3.3-a (b); wire schema `packages/protocol/src/recovery-protocol.ts`).
+///
+/// 🔴 WHAT IT DOES NOT SAY. `fedFrames` matching what this phone sent does not
+/// prove the CONTENT matched — a replay produces the same count — and
+/// `seqGaps == 0` says nothing about whether the words are right. The ONE thing
+/// these are allowed to gate is deletion of the local audio, and only together
+/// with [endedNormally] and a persisted, read-back result row (owner ruling
+/// 2026-09-06). That judgement belongs to card RC-1, not to this class: parsing
+/// deliberately stops at "here is what the server said".
+///
+/// 🔴 [version] IS A GATE, NOT A LABEL. A receipt whose version this build does
+/// not recognise must be treated as ABSENT, never as a weaker proof to lean on.
+/// The check lives with the consumer for the same reason the threshold does.
+@immutable
+class CoverageReceipt {
+  const CoverageReceipt({
+    required this.version,
+    required this.fedFrames,
+    required this.seqGaps,
+    required this.drops,
+    required this.engineLegRollovers,
+    required this.endedNormally,
+    this.recordingId,
+    this.attemptId,
+    this.rangeStartSample,
+    this.rangeEndSample,
+  });
+
+  final int version;
+
+  /// `audio:chunk` frames the SERVER accepted. Compared against what this phone
+  /// sent — by the consumer, which is the layer that knows that number.
+  final int fedFrames;
+
+  /// How many TIMES the server's contiguous run was interrupted (not how many
+  /// seqs are missing).
+  final int seqGaps;
+
+  /// Frames the server took off the wire and did not put into the pipeline.
+  /// Replay de-duplication is NOT counted here — the server states that
+  /// explicitly, and reading it as loss would make every reconnect look
+  /// like damage.
+  final int drops;
+
+  /// Engine legs the recording rolled through. A recording can be complete
+  /// across several; this says how many seams the answer survived.
+  final int engineLegRollovers;
+
+  /// false = auto-stop / watchdog teardown / timeout. Not a claim that the
+  /// vendor finished with the range (that is L3 and exists nowhere yet) — the
+  /// closest observable fact this chain has.
+  final bool endedNormally;
+
+  // Echoes of what THIS phone put on `audio:start`, so a receipt can be pinned
+  // to the range it is about. Null when the start frame named nothing.
+  final String? recordingId;
+  final String? attemptId;
+  final int? rangeStartSample;
+  final int? rangeEndSample;
+
+  /// Returns null unless the frame carries a usable version. The version is the
+  /// one field with no safe default: a receipt whose counters parsed but whose
+  /// version did not is a receipt of unknown provenance, and treating it as a
+  /// version-1 receipt would be inventing the very fact that decides how much
+  /// the rest of it is worth.
+  ///
+  /// The counters DO default to 0 when absent or malformed, and that direction
+  /// is deliberate: 0 gaps and 0 drops are the values that make a receipt look
+  /// GOOD, so a phone must never conclude "safe to delete" from them alone —
+  /// which it cannot, because the threshold also needs [endedNormally] (default
+  /// false, the unsafe-looking direction) and a persisted row.
+  static CoverageReceipt? tryFromJson(Map<String, Object?> j) {
+    final Object? v = j['coverage_receipt_version'];
+    if (v is! int || v <= 0) return null;
+    int intOr0(Object? x) => x is int && x >= 0 ? x : 0;
+    String? str(Object? x) => x is String && x.isNotEmpty ? x : null;
+    int? nonNegOrNull(Object? x) => x is int && x >= 0 ? x : null;
+    return CoverageReceipt(
+      version: v,
+      fedFrames: intOr0(j['fed_frames']),
+      seqGaps: intOr0(j['seq_gaps']),
+      drops: intOr0(j['drops']),
+      engineLegRollovers: intOr0(j['engine_leg_rollovers']),
+      endedNormally: j['ended_normally'] == true,
+      recordingId: str(j['recording_id']),
+      attemptId: str(j['attempt_id']),
+      rangeStartSample: nonNegOrNull(j['range_start_sample']),
+      rangeEndSample: nonNegOrNull(j['range_end_sample']),
     );
   }
 }

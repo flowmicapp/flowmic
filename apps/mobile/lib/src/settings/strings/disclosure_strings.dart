@@ -230,6 +230,12 @@
 // longer true after WP3 C16 — see the EXPIRED block on byte-parity near the
 // bottom of this header for the measured diff.】
 //
+// 🔴 THE BLOCK BELOW IS HISTORY AS OF 2026-09-07 (owner): `discStep4LanPlain`
+// no longer exists. It is kept WORD FOR WORD because it records what that
+// paragraph claimed and why, and because its rule outlived it — see the
+// retirement note above [discStep4Body] for what survived the fold, what was
+// retired with its premise, and what is still measured today.
+//
 // 🔴 THE LAN LEG IS NOW THREE CLAIMS, NOT ONE — and a blanket 「it is encrypted
 // now」 would have been a lie in the opposite direction from the one it replaced.
 // 0.2.60 shipped LAN TLS with the server key pinned from the QR. What is true:
@@ -574,9 +580,22 @@ mixin DisclosureStrings on AppStringsLeaves {
   // ── 4. Delivery + injection ──────────────────────────────────────────────
   String get discStep4Title => _lfDiscStep4Title;
 
+  // 🔴 RETIRED 2026-09-07 (owner): `discStep4LanPlain` — the amber note under
+  // this step — no longer exists, and its one live claim is a sentence inside
+  // [discStep4Body]: the leg on your own network is encrypted, the relay is
+  // TLS, and 「Connection encryption」 shows this connection's state. The header
+  // block above describing it as THREE claims is LEFT AS WRITTEN — it recorded
+  // what was true while the string existed, and its rule (never assert the
+  // current value of a switch; say where the value is shown) is what the folded
+  // sentence still obeys, which is why that clause survived the fold.
+  // WHY THE OTHER HALF COULD GO: claim ② was 「a pairing made before LAN TLS is
+  // still in the clear — pair again」. LAN TLS shipped 2026-08-08 (e5614864) and
+  // the first public release is v0.3.53, so no external user has ever held such
+  // a row; the imperative was addressed to our own test devices only.
+  // ⚠️ The kill switch (`FLOWMIC_LAN_TLS=0`, server-core config.ts
+  // `resolveLanTls` branch ②) still exists, which is why the surviving sentence
+  // still ends by pointing at the reading rather than asserting it.
   String get discStep4Body => _lfDiscStep4Body;
-
-  String get discStep4LanPlain => _lfDiscStep4LanPlain;
 
   // ── 5. What is left behind ───────────────────────────────────────────────
   String get discStep5Title => _lfDiscStep5Title;

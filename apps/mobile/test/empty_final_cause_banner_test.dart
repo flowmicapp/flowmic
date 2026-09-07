@@ -196,6 +196,13 @@ void _releaseTimers(_Rig r) {
   r.controller.delivery.dispose();
   debugCancelBannerAutoHideTimers(r.controller);
   r.session.debugStopIdlePresencePoll();
+  // AW-1b — `onPttDown()` above armed the health tracker's 500ms ticker;
+  // `onJustDoneTimeout()` two lines up does not produce the recordingEnded
+  // edge that would cancel it (PROCESSING -> JUST_DONE already happened on
+  // the earlier `onPttUp()`/terminal final, so the FSM's `session` was never
+  // `recording` at THIS call — the ticker armed on the ORIGINAL onPttDown is
+  // still live).
+  debugCancelAsrHealthTicker(r.controller);
 }
 
 void main() {

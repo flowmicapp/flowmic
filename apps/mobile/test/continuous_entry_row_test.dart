@@ -48,6 +48,21 @@ Widget _host({
   ),
 );
 
+/// The shape a REFUSED ceiling read produces: no summary at all (the route
+/// answered 4xx, so there are no numbers), plus the named reason it refused.
+///
+/// `refusal: null` with a null summary is the OTHER case this file has to keep
+/// apart — a timeout, a 5xx, a socket that went away — and the two must not
+/// render the same sentence.
+ContinuousOffer _refused(CloudSummaryRefusal? refusal) => continuousOffer(
+  recordOnly: true,
+  mode: FlowMode.realtime,
+  linkUp: true,
+  signedIn: true,
+  summary: null,
+  refusal: refusal,
+);
+
 ContinuousOffer _offer({
   FlowMode mode = FlowMode.realtime,
   bool linkUp = true,
@@ -232,4 +247,95 @@ void main() {
             'zero above would mean the node vanished rather than the reason');
     handle.dispose();
   });
+
+  // ── R3F-2: A REFUSAL THAT NAMES ITSELF ─────────────────────────────────────
+  //
+  // Device round three (2026-09-06): an account whose email was never verified,
+  // past the 3-day grace, gets `403 EMAIL_NOT_VERIFIED` on every
+  // `GET /api/cloud/summary`. The row read 「Account limit unavailable — try
+  // again」 — a sentence that promises a retry which cannot help and hides the
+  // one action that does. The generic sentence is still right for a timeout, so
+  // both halves are asserted here: the named one appears, and the generic one
+  // survives for the case it is actually true of.
+
+  testWidgets('🔴 403 EMAIL_NOT_VERIFIED says what to do, not 「try again」', (
+    WidgetTester tester,
+  ) async {
+    final _Spy spy = _Spy();
+    await tester.pumpWidget(
+      _host(
+        offer: _refused(CloudSummaryRefusal.emailNotVerified),
+        spy: spy,
+        locale: AppLocale.en,
+      ),
+    );
+    final AppStrings s = AppStrings.of(AppLocale.en);
+
+    expect(_row, findsOneWidget);
+    expect(_text(tester, _reason), s.continuousEntryVerifyEmailNote);
+    // 🔴 THE DISCRIMINATING HALF. Before the fix this was the sentence on
+    // screen, and every retry it asked for got the same 403.
+    expect(_text(tester, _reason), isNot(s.continuousEntryNoCeilingNote));
+
+    await tester.tap(_row, warnIfMissed: false);
+    await tester.pump();
+    expect(spy.starts, 0);
+  });
+
+  testWidgets('🔴 a transient miss KEEPS the generic sentence', (
+    WidgetTester tester,
+  ) async {
+    // A timeout / 5xx / dropped socket names no refusal, and 「try again」 is
+    // true of all three. Without this case the fix could have been 「replace the
+    // sentence」 rather than 「tell the two causes apart」, and nothing would have
+    // said so.
+    await tester.pumpWidget(
+      _host(offer: _refused(null), spy: _Spy(), locale: AppLocale.en),
+    );
+    final AppStrings s = AppStrings.of(AppLocale.en);
+    expect(_text(tester, _reason), s.continuousEntryNoCeilingNote);
+  });
+
+  testWidgets('🔴 the two other named refusals get their own sentences', (
+    WidgetTester tester,
+  ) async {
+    final AppStrings s = AppStrings.of(AppLocale.en);
+    for (final (CloudSummaryRefusal refusal, String want) in <(
+      CloudSummaryRefusal,
+      String,
+    )>[
+      (CloudSummaryRefusal.accountRestricted, s.continuousEntryRestrictedNote),
+      (CloudSummaryRefusal.authExpired, s.continuousEntrySessionExpiredNote),
+    ]) {
+      await tester.pumpWidget(
+        _host(offer: _refused(refusal), spy: _Spy(), locale: AppLocale.en),
+      );
+      expect(_text(tester, _reason), want, reason: '$refusal');
+    }
+  });
+
+  testWidgets('🔴 none of the three is clipped, in any of the nine locales', (
+    WidgetTester tester,
+  ) async {
+    // Same ruler and same one-way conservatism as the A-2 locale sweep above:
+    // Ahem's full-em glyphs mean 「fits here」 implies 「fits on a device」, and
+    // the converse does not hold. These three sentences are the longest in the
+    // sub-line's vocabulary, which is exactly why they get their own sweep —
+    // 0.2.53 was a sentence that fitted everywhere except where it was shown.
+    for (final CloudSummaryRefusal refusal in CloudSummaryRefusal.values) {
+      for (final AppLocale locale in AppLocale.values) {
+        await tester.pumpWidget(
+          _host(offer: _refused(refusal), spy: _Spy(), locale: locale),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.renderObject<RenderParagraph>(_reason).didExceedMaxLines,
+          isFalse,
+          reason: '$locale / $refusal: the sentence explaining why this control '
+              'is dead was itself cut off — 0.2.53, verbatim',
+        );
+      }
+    }
+  });
+
 }

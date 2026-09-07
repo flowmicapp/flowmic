@@ -50,6 +50,20 @@ export interface ForwardedStt {
   engine: EngineUsageMeta;
   duration_ms: number;
   chars: SttCharCounts;
+  /**
+   * Audit F1 — the recovery operation this metering call belongs to, when there
+   * is one. Carried so the WRITER can take the `usage_effects` claim for it, the
+   * same claim its own local metering takes: without it the two dedupe ledgers
+   * were disjoint and an operation metered locally, then re-sent to a replica,
+   * was charged twice (usage-effects.repo.ts's header carries the whole account).
+   *
+   * ⚠️ OPTIONAL, and it must stay optional: an ordinary press carries no
+   * operation, and a replica running a build that predates this field is the
+   * expected case during a rolling deploy — the writer then meters exactly as it
+   * did before, which is at-least-once on that leg alone and is what the forward
+   * ledger's own deterministic id already guards.
+   */
+  operation_id?: string;
 }
 
 export interface ForwardedLlm {
@@ -58,6 +72,20 @@ export interface ForwardedLlm {
   engine: EngineUsageMeta;
   tokens_in: number;
   tokens_out: number;
+  /**
+   * Audit F1 — the recovery operation this metering call belongs to, when there
+   * is one. Carried so the WRITER can take the `usage_effects` claim for it, the
+   * same claim its own local metering takes: without it the two dedupe ledgers
+   * were disjoint and an operation metered locally, then re-sent to a replica,
+   * was charged twice (usage-effects.repo.ts's header carries the whole account).
+   *
+   * ⚠️ OPTIONAL, and it must stay optional: an ordinary press carries no
+   * operation, and a replica running a build that predates this field is the
+   * expected case during a rolling deploy — the writer then meters exactly as it
+   * did before, which is at-least-once on that leg alone and is what the forward
+   * ledger's own deterministic id already guards.
+   */
+  operation_id?: string;
 }
 
 export interface ForwardedQuotaRefusal {
@@ -128,7 +156,13 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
       const chars = b.chars as SttCharCounts | undefined;
       if (!isNonEmpty(b.user_id) || !engine || typeof engine.is_byok !== 'boolean'
         || !isFiniteNumber(b.duration_ms) || !chars) throw new UnknownForwardedWrite(b.kind);
-      return { kind: 'usage.stt', user_id: b.user_id, engine, duration_ms: b.duration_ms, chars };
+      return {
+        kind: 'usage.stt', user_id: b.user_id, engine, duration_ms: b.duration_ms, chars,
+        // Spread-or-nothing: a body without the field must produce an object
+        // without it, so 「an older replica sent none」 and 「it sent an empty
+        // string」 cannot become the same thing one layer down.
+        ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
+      };
     }
     case 'usage.llm': {
       const engine = b.engine as EngineUsageMeta | undefined;
@@ -139,6 +173,7 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
       return {
         kind: 'usage.llm', user_id: b.user_id, engine,
         tokens_in: b.tokens_in, tokens_out: b.tokens_out,
+        ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
       };
     }
     case 'usage.quota_refused': {
@@ -172,10 +207,10 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
 export function applyForwardedWrite(w: ForwardedWrite, t: ForwardTargets): void {
   switch (w.kind) {
     case 'usage.stt':
-      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars);
+      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.operation_id);
       return;
     case 'usage.llm':
-      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out);
+      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.operation_id);
       return;
     case 'usage.quota_refused':
       t.usage.recordQuotaRefusal(w.user_id, w.event_kind, w.refused_user_id);

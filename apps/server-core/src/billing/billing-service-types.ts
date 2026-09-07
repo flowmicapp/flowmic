@@ -158,6 +158,14 @@ export interface QuotaView {
    *  NOT read "unlimited" off these numbers — nobody is unlimited; read
    *  `PlanView.quota_exempt` for "what makes these numbers these numbers" and nothing else. */
   stt: { used_min: number; limit_min: number };
+  /**
+   * The metering cycle being counted (owner 2026-09-05, option 乙): its first
+   * day and the day it resets, both `YYYY-MM-DD` UTC. Anchored to the account
+   * — registration, the subscription's start, or the day a subscription ended —
+   * not to the calendar month. `month` below still carries the bucket key for
+   * older console builds.
+   */
+  period: { start: string; end: string };
   /** owner 2026-08-14 — `used` is the ENFORCED number: OUTPUT tokens only, the
    *  same quantity quota-guard.ts reads. `used_in` is the reference meter —
    *  recorded and shown, never charged against `limit`. Two fields on purpose:

@@ -146,6 +146,86 @@ void main() {
       final String shown = _textOf(tester, 'article.backfill.text');
       expect(shown, contains('45'));
     });
+
+    // ── CARD LK-3 — THE BANNER MAY NOT INVENT AN OUTAGE ────────────────────
+    //
+    // Owner, 2026-09-07, on a phone that never lost the network: a 1:23 long
+    // recording, fully transcribed, showing 「断网时录下的 26s 还在转写」. The
+    // sentence was written when an outage was the only way audio could be owed
+    // anything; it is now shown for a recording that was merely paused and for
+    // one whose coverage receipt never came.
+    testWidgets('it says 「offline」 only when the link really went down',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: ArticlePage(
+          head: _head(),
+          rows: <TimelineEntry>[
+            _member(id: 'r1', text: '第一段', offsetMs: 0, durationMs: 30_000),
+          ],
+          strings: AppStrings(AppLocale.zh),
+          pendingBackfillMs: 26_000,
+          pendingBackfillFromOutage: true,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(_textOf(tester, 'article.backfill.text'), contains('断网'));
+    });
+
+    testWidgets('and says nothing about the network when it did not',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: ArticlePage(
+          head: _head(),
+          rows: <TimelineEntry>[
+            _member(id: 'r1', text: '第一段', offsetMs: 0, durationMs: 30_000),
+          ],
+          strings: AppStrings(AppLocale.zh),
+          pendingBackfillMs: 26_000,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final String shown = _textOf(tester, 'article.backfill.text');
+      expect(shown, contains('26'),
+          reason: 'the measured quantity survives - that is the half of the '
+              'sentence ruling ⑮ asked for');
+      expect(shown, isNot(contains('断网')),
+          reason: 'nothing on this device measured the network');
+    });
+
+    testWidgets('the third way is no banner at all', (WidgetTester tester) async {
+      // 🔴 THE ONE THIS CARD ACTUALLY BUYS THE USER. A press settled as
+      // `transcribed_unverified` is no longer a candidate, so its bytes leave
+      // `BackfillProgress.pendingMs` entirely and the box is absent - which is
+      // why the two sentences above are only ever seen by a recording that is
+      // genuinely owed something.
+      await tester.pumpWidget(MaterialApp(
+        home: ArticlePage(
+          head: _head(),
+          rows: <TimelineEntry>[
+            _member(id: 'r1', text: '第一段', offsetMs: 0, durationMs: 30_000),
+          ],
+          strings: AppStrings(AppLocale.zh),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('article.backfill')), findsNothing);
+    });
+
+    test('both sentences exist in all nine languages, and differ', () {
+      // 🔴 A MISSING TRANSLATION HERE WOULD FALL BACK TO ENGLISH SILENTLY, and
+      // an identical pair would mean the split was made in code and not in
+      // copy - the branch would be real and the user would still be told their
+      // network dropped.
+      for (final AppLocale loc in AppLocale.values) {
+        final AppStrings s = AppStrings(loc);
+        final String outage = s.articleBackfillPending('26s');
+        final String neutral = s.articleBackfillUnconfirmed('26s');
+        expect(outage.trim(), isNotEmpty, reason: loc.name);
+        expect(neutral.trim(), isNotEmpty, reason: loc.name);
+        expect(neutral, isNot(outage), reason: loc.name);
+        expect(neutral, contains('26s'), reason: loc.name);
+      }
+    });
   });
 
   // ── CR-10: the four surfaces ──────────────────────────────────────────────

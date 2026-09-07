@@ -232,8 +232,9 @@ String? resolveNodeUrl(List<RelayNode> nodes, String nodeId) {
 // not wire.
 //
 // 🔴 DELETED RATHER THAN LEFT WAITING, and the difference from the mechanisms
-// in this repo that ARE legitimately waiting (`settleSegment` for CR-5,
-// `ContinuousRecording.begin` for CR-9) is worth stating, because "no
+// in this repo that ARE legitimately waiting (`ContinuousRecording.begin` for
+// CR-9 — this list also named `settleSegment` until card LS-1b examined its
+// promised caller and deleted the verb instead) is worth stating, because "no
 // production caller" is a question and not a verdict:
 //
 //   · those two have a caller that is DECIDED and named. They are early, not

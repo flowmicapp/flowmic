@@ -28,6 +28,7 @@ extension PttSessionDispose on PttSession {
     await _chunkSub?.cancel();
     await _faultSub?.cancel();
     await _linkLossSub?.cancel(); // SEG-2: the dead-recording edge watcher.
+    await _recorderStateSub?.cancel(); // D-1b: the capture-ended edge.
     // CR-3: before `audio.dispose()` below, because it holds a subscription to
     // the recorder's state stream.
     await continuous.dispose();
@@ -58,6 +59,7 @@ extension PttSessionDispose on PttSession {
     // caller anywhere in this class that disposed them.
     serverChannel.dispose();
     releaseCooldown.tick.dispose();
+    captureStopped.dispose(); // D-1b, same shape as the two notifiers above.
     // IT-10 / F2: SessionScope is a ChangeNotifier — without dispose it outlives
     // the session (third named leak of this shape; same as `_pcBusy` above).
     // Dispose LAST among the notifiers in this method: nothing below this line

@@ -24,7 +24,11 @@
 //   docs/decisions/2026-08-19-owner-phase2-four-rulings.md (ruling 4)
 //   docs/strategy/2026-08-18-039-connection-stability-window-handoff-report.md §7-6
 
+import 'dart:io';
+
 import 'package:flowmic/src/audio/audio_capture.dart';
+import 'package:flowmic/src/audio/retained_audio_spill.dart';
+import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
@@ -37,13 +41,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 class _Harness {
-  _Harness() {
+  _Harness({RetainedAudioSpill? spill}) {
     transport = FakeSocketTransport();
     session = newTestSession(
       transport: transport,
-      audio: AudioCapture(recorder: FakeAudioRecorder()),
+      audio: AudioCapture(recorder: FakeAudioRecorder(), spill: spill),
     );
     store = newTestStore();
     controller = ChatController(
@@ -100,10 +105,41 @@ class _Harness {
     await Future<void>.delayed(const Duration(milliseconds: 80));
   }
 
+  /// D-1c — a live continuous capture, the state CR-3 invented in which the
+  /// link may die while the microphone deliberately stays open.
+  ///
+  /// 🔴 THE HARNESS MUST HAVE BEEN BUILT WITH A SPILL. CR-3's honesty gate
+  /// refuses to keep the microphone open when there is nowhere to write, so a
+  /// spill-less harness tears the recorder down on the first link loss and
+  /// every assertion below would be measuring the ORDINARY give-up while
+  /// looking like it measured the recording one.
+  Future<void> startContinuousCapture() async {
+    session.continuous.begin();
+    await session.audio.start();
+    expect(session.continuousStillCapturing, isTrue,
+        reason: 'positive control: without a live capture every D-1c '
+            'assertion below would be about the ordinary path');
+  }
+
   Future<void> dispose() async {
     await controller.dispose();
     await session.dispose();
   }
+}
+
+/// A real retention layer on disk, torn down with the test. See
+/// `startContinuousCapture` for why the D-1c tests cannot do without one.
+Future<RetainedAudioSpill> _spillForTest() async {
+  final Directory tmp = await Directory.systemTemp.createTemp('flowmic-d1c-');
+  final RetainedAudioStore store = RetainedAudioStore(dir: tmp, clock: () => 0);
+  await store.open();
+  addTearDown(() async {
+    try {
+      await store.dispose().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+      await removeTempDir(tmp);
+  });
+  return RetainedAudioSpill(store: store);
 }
 
 void main() {
@@ -209,6 +245,101 @@ void main() {
     expect(h.controller.linkRetry.spending, isFalse);
     expect(h.controller.linkRetry.attempts, 0,
         reason: 'it never entered the budget at all');
+    await h.dispose();
+  });
+
+  // ── D-1c: the give-up while a continuous recording is still running ────────
+  //
+  // Round four's D-1 fix made the PAGE defer its exit while the microphone is
+  // open, and left this function running unchanged underneath it: the page
+  // stayed and the only machine that could bring the link back was stopped.
+  // The recovery of a 30-minute recording needs a live link, so that is the
+  // half that mattered.
+
+  test('D-1c: a recording is still running ⇒ the ladder KEEPS dialling',
+      () async {
+    final _Harness h = _Harness(spill: await _spillForTest());
+    await h.pairAndConnect();
+    await h.startContinuousCapture();
+    await h.enterBudget();
+
+    for (int i = 1; i <= kLinkRetryBudget; i++) {
+      await h.failedAttempt();
+    }
+
+    expect(h.controller.sessionLost, isTrue,
+        reason: 'the give-up itself is unchanged — the page reads this flag '
+            'and its exit is what defers, not this');
+    expect(h.session.reconnect.isRunning, isTrue,
+        reason: '🔴 the defect: a phone holding a full recording had nothing '
+            'dialling, so the recovery could not start when the link returned');
+    expect(h.controller.linkRetry.ladderHeldForRecording, isTrue,
+        reason: 'the stop is postponed, and the debt is recorded');
+    await h.dispose();
+  });
+
+  test('D-1c: the postponed stop is paid the moment the recording ends',
+      () async {
+    final _Harness h = _Harness(spill: await _spillForTest());
+    await h.pairAndConnect();
+    await h.startContinuousCapture();
+    await h.enterBudget();
+    for (int i = 1; i <= kLinkRetryBudget; i++) {
+      await h.failedAttempt();
+    }
+
+    h.session.endContinuous();
+    await h.session.audio.stop();
+    await pumpEventQueue();
+
+    expect(h.session.reconnect.isRunning, isFalse,
+        reason: 'the original reason still stands — a ladder nobody is '
+            'watching must not dial a dead PC from behind the list');
+    expect(h.controller.linkRetry.ladderHeldForRecording, isFalse);
+    await h.dispose();
+  });
+
+  test('D-1c: nothing recording ⇒ the give-up is byte-for-byte what it was',
+      () async {
+    // The control for the two above. It duplicates the budget test's last
+    // assertion ON PURPOSE: this pair of tests is the only thing standing
+    // between 「keep dialling while recording」 and 「never stop dialling」.
+    final _Harness h = _Harness();
+    await h.pairAndConnect();
+    await h.enterBudget();
+    for (int i = 1; i <= kLinkRetryBudget; i++) {
+      await h.failedAttempt();
+    }
+
+    expect(h.session.continuousStillCapturing, isFalse);
+    expect(h.session.reconnect.isRunning, isFalse);
+    expect(h.controller.linkRetry.ladderHeldForRecording, isFalse);
+    await h.dispose();
+  });
+
+  test('D-1c: a link that comes back during the recording owes no stop',
+      () async {
+    final _Harness h = _Harness(spill: await _spillForTest());
+    await h.pairAndConnect();
+    await h.startContinuousCapture();
+    await h.enterBudget();
+    for (int i = 1; i <= kLinkRetryBudget; i++) {
+      await h.failedAttempt();
+    }
+    expect(h.controller.linkRetry.ladderHeldForRecording, isTrue);
+
+    h.transport.pushStatus(SocketStatus.connected);
+    await pumpEventQueue();
+    expect(h.controller.sessionLost, isFalse);
+    expect(h.controller.linkRetry.ladderHeldForRecording, isFalse,
+        reason: 'the debt is cleared with the budget it belongs to');
+
+    h.session.endContinuous();
+    await h.session.audio.stop();
+    await pumpEventQueue();
+    expect(h.session.reconnect.isRunning, isTrue,
+        reason: 'a stop paid on a healed link would tear down a working '
+            'ladder — the flag alone is never the licence');
     await h.dispose();
   });
 }

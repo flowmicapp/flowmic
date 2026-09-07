@@ -118,6 +118,10 @@ void main() {
       // teardown callbacks run). Same escape hatch send_retry_banner_test.dart
       // uses.
       controller.session.debugStopIdlePresencePoll();
+      // AW-1b, same reason: `fsm.onPttDown()` above armed the health
+      // tracker's 500ms ticker directly (bypassing `session.pttUp()`, which
+      // is the edge that would normally cancel it).
+      debugCancelAsrHealthTicker(controller);
     },
   );
 

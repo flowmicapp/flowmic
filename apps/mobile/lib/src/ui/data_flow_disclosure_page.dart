@@ -145,11 +145,16 @@ class DataFlowDisclosurePage extends StatelessWidget {
                   _node(
                     icon: Icons.computer_rounded,
                     title: s.discStep4Title,
+                    // 🔴 The amber `discStep4LanPlain` note was removed
+                    // 2026-09-07 (owner). Its live claim — the leg is
+                    // encrypted, the relay is TLS, and 「Connection
+                    // encryption」 shows this connection's state — is a
+                    // sentence inside [discStep4Body] now. What went is the
+                    // 「a pairing made before LAN TLS is still in the clear,
+                    // pair again」 half: LAN TLS shipped 2026-08-08
+                    // (e5614864) and the first public release is v0.3.53, so
+                    // only our own test devices could ever hold such a row.
                     body: s.discStep4Body,
-                    // State-dependent truth, amber: which pairings are
-                    // encrypted depends on how each was made, and the copy
-                    // points at 「Connection encryption」 for THIS one's state.
-                    warn: s.discStep4LanPlain,
                   ),
                   _node(
                     icon: Icons.inventory_2_outlined,
@@ -219,8 +224,9 @@ class DataFlowDisclosurePage extends StatelessWidget {
   );
 
   /// One diagram node: an icon dot on the shared vertical rail, the step's
-  /// name beside it, the caption underneath, optional engine branches and the
-  /// amber state-dependent note. [IntrinsicHeight] is what lets the rail's
+  /// name beside it, the caption underneath and optional engine branches. The
+  /// amber note parameter went with `discStep4LanPlain` (2026-09-07, owner):
+  /// nothing on this page renders in amber any more. [IntrinsicHeight] is what lets the rail's
   /// connector stretch to the node's full height, so the line is continuous
   /// whatever each caption's wrap count is.
   Widget _node({
@@ -228,7 +234,6 @@ class DataFlowDisclosurePage extends StatelessWidget {
     required String title,
     required String body,
     List<String> branches = const <String>[],
-    String? warn,
     bool first = false,
     bool last = false,
   }) => IntrinsicHeight(
@@ -284,14 +289,6 @@ class DataFlowDisclosurePage extends StatelessWidget {
                     child: Text(
                       branch,
                       style: TextStyle(color: FlowMicColors.t3, fontSize: 12, height: 1.55),
-                    ),
-                  ),
-                if (warn != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      warn,
-                      style: TextStyle(color: FlowMicColors.amber, fontSize: 12, height: 1.55),
                     ),
                   ),
               ],

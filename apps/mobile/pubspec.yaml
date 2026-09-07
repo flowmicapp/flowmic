@@ -6,7 +6,7 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.63
+version: 0.3.77
 
 environment:
   sdk: ^3.11.5
@@ -16,6 +16,13 @@ dependencies:
   flutter:
     sdk: flutter
   meta: ^1.16.0
+  # AW-1b — chat_asr_health_wire.dart reads `clock.now()` instead of raw
+  # `DateTime.now()` so its test can drive the health tracker's own thresholds
+  # with `package:fake_async`'s virtual clock (fake_async only overrides this
+  # package's `clock`, never `DateTime.now()` itself). Already resolved
+  # transitively (fake_async + others); declared direct because it is now
+  # imported by name in production code.
+  clock: ^1.1.2
   # socket FSM transport (08 §4): websocket-only, self-managed reconnect.
   socket_io_client: ^3.0.2
   # D2LAN-B3 — already in this app as a TRANSITIVE dependency of

@@ -187,7 +187,15 @@ describe('A2-5 census — nothing shipped here is a capability with no caller', 
   it('the ops twin is mounted by the router and its deps are built by bootstrap', () => {
     // The same wiring census the account-side twin gets. A route module that
     // nothing mounts is the 「a capability was defined and nobody calls it」 shape with an HTTP path attached.
-    expect(mentions('tryHandleOpsUsageEventsRoutes', ['http/ops-usage-events-routes.ts'])).toEqual(['http/router.ts']);
+    // 🔴 2026-09-07 — THE ADDRESS CHANGED, THE PROPERTY DID NOT. The six
+    // saas-only operator mounts moved out of router.ts into
+    // `http/router-ops-mounts.ts` when that file stood at exactly the 800-line
+    // cap and the REQ-002 pair could not be added without crossing it (the same
+    // forced split that produced ops-refund-release-routes.ts). This assertion
+    // still says the one thing it was written to say — SOMETHING mounts this
+    // module — and it went red on the move rather than silently following it,
+    // which is the whole reason it names a file.
+    expect(mentions('tryHandleOpsUsageEventsRoutes', ['http/ops-usage-events-routes.ts'])).toEqual(['http/router-ops-mounts.ts']);
     expect(mentions('OpsUsageEventsRoutesDeps', ['http/ops-usage-events-routes.ts']).sort()).toEqual(['http/router-deps.ts']);
     // 🔴 And bootstrap really builds it — the dep field, not just the type.
     //

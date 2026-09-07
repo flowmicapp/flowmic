@@ -103,6 +103,10 @@ body { font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif; color: 
 .interim .fin { color: var(--t1); }
 .ministat { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: var(--t2); align-items: center; }
 .ministat .icon { width: 11px; height: 11px; }
+/* owner 2026-09-07 — the live 「时长 · 数量」 stat sits at the RIGHT end of the
+   ministat row. `auto` margin, not a fixed gap: the two labels to its left are
+   translated and their width moves by locale. */
+.ministat .mstat-end { margin-left: auto; }
 
 /* amplitude meter */
 .meter { display: flex; align-items: center; gap: 3px; height: 26px; margin-top: 8px; }

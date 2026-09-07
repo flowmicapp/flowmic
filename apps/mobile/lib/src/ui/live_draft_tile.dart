@@ -58,9 +58,38 @@ class LiveDraftTile extends StatelessWidget {
     required this.mode,
     required this.strings,
     required this.elapsed,
+    required this.statusLabel,
+    required this.healthNote,
   });
 
   final String text;
+
+  /// AW-1b — what the red status pill reads. REQUIRED, not defaulted to
+  /// [AppStrings.liveTranscribing] here, for the same reason every other
+  /// REQUIRED field on this class gives (see [committedChars]'s own doc): a
+  /// friendly default would silently let a caller forget to plug in the
+  /// health mapping, and that is exactly the "capability nobody calls" shape
+  /// this repo has already been burned by. The mapping itself
+  /// (normal/no-first-result/no-progress/byte-stall/terminal-error, §A8) lives
+  /// in `live_health_copy.dart`'s `liveHealthLabel`, NOT here — this widget
+  /// only renders the one string it is handed (0.2.53's render-result law
+  /// stays about what paints, not about who decides what to paint).
+  final String statusLabel;
+
+  /// AW-1b — the ASR-leg health sentence (`live_health_copy.dart`'s
+  /// `liveHealthNote`), or null when every signal is clear. It gets its OWN
+  /// FULL-WIDTH LINE below the header row; it is deliberately NOT poured into
+  /// [statusLabel]'s pill, and that is measured, not aesthetic: at 360 dp the
+  /// pill is 52-170 logical pixels wide and these sentences want 171-478, so
+  /// 40 of 45 locale x signal combinations rendered as an ellipsed fragment.
+  /// See `liveHealthNote`'s own doc for the 0.2.53 precedent this follows, and
+  /// `live_draft_tile_render_test.dart` for the loop that now measures every
+  /// one of them on the rendered paragraph.
+  ///
+  /// REQUIRED, not defaulted to null — same reasoning as every other field on
+  /// this class: a friendly default is how a caller silently stops passing the
+  /// health mapping and nothing ever says so.
+  final String? healthNote;
 
   /// How many characters at the head of [text] the SERVER has already
   /// finalised. Everything before it is BLACK (confirmed, and already through
@@ -107,12 +136,16 @@ class LiveDraftTile extends StatelessWidget {
               const SizedBox(width: 7),
               StatusDot(FlowMicColors.red),
               const SizedBox(width: 7),
-              Text(
-                strings.liveTranscribing,
-                style: TextStyle(
-                  color: FlowMicColors.red,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: Text(
+                  statusLabel,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: FlowMicColors.red,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               // §4b-8 duration/word-count side by side (see class doc for
@@ -135,6 +168,44 @@ class LiveDraftTile extends StatelessWidget {
               ),
             ],
           ),
+          // AW-1b — the health sentence, full width, its own line.
+          //
+          // ⚠️ An earlier revision of this comment argued for a "maxLines 4,
+          // MEASURED" clamp. There is no clamp, there never was one in this
+          // file, and the argument was for a design the code below rejects —
+          // a comment describing a decision nobody took, sitting where the
+          // opposite decision is written out. Deleted rather than corrected;
+          // the reasoning that survives is on the Text itself.
+          if (healthNote != null) ...<Widget>[
+            const SizedBox(height: 3),
+            Text(
+              healthNote!,
+              // NO maxLines and NO ellipsis, for the reason `_draftText`
+              // below gives for the same choice: a clipped sentence is a
+              // sentence the user did not read. MEASURED at 360 dp under the
+              // test font: the five `liveHealth*` keys take 1-2 lines, while
+              // the terminal-error branch reuses `sttStallBannerMessage`,
+              // whose entries are 165-206 characters and want 8-11. Any clamp
+              // that fits the first cuts the second in half — which is
+              // exactly the 0.2.53 failure, one layer down.
+              //
+              // 🔴 WITH NO CLAMP, `didExceedMaxLines` CAN NEVER BE TRUE HERE,
+              // so a test that asserts it is false about this paragraph is a
+              // tautology and says nothing (a whole locale loop of them said
+              // nothing for a while). What is actually at risk is HEIGHT: the
+              // row lives in the timeline list, so what a long paragraph can
+              // do is push the rest of the tile up, not get cut. That is what
+              // `live_draft_tile_render_test.dart` measures now — a height
+              // budget at 360x640 with a control that can exceed it, plus one
+              // case that mounts the whole screen and requires the PTT bar to
+              // still be on it.
+              style: TextStyle(
+                color: FlowMicColors.red,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 3),
           // ⚠️ ONE Text, TWO spans — never two Text widgets. The split is a
           // slice of a single string, so the black half and the grey half wrap

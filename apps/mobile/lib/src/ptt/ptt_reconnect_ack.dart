@@ -216,6 +216,14 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // about. `PttSession.noteRoomJoined` writes it before it bumps the
         // counter, and `ValueNotifier` notifies synchronously, so there is no
         // window in which the two disagree.
+        // 🔴 CAPABILITIES BEFORE THE EDGE, AND THE ORDER IS THE FIX.
+        // `roomJoins` feeds `DeliveryLinkUp`, which the recovery sweep now
+        // subscribes to (chat_outbox_host.dart). This parse used to sit ~40
+        // lines below, inside the `if (ack is Map)` block, so every subscriber
+        // of the edge ran against the PREVIOUS ack's capabilities - which on
+        // the first join is "none read yet". The pair leg (ptt_pair.dart) has
+        // always had them in this order; this leg was the asymmetric one.
+        s.reconnect.noteServerCapabilities(ack);
         s.noteRoomJoined(atHomeNode: settledAtHomeNode(ack));
         // 🔴 P0 — being IN a room is proof that the node we are talking to knows
         // this token, so there is nothing left to blame on replication lag. Left

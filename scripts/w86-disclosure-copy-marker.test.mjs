@@ -252,9 +252,17 @@ section('§6 markers cannot drift away from the evidence for them');
   // were chosen (see the reasoning at APK_DISCLOSURE_NEW_MARKERS); all three now
   // come from `discStep4LanPlain`, the one string whose truth depends on how
   // this pairing was made and which must never revert to the pre-W8-6 copy.
+  // 🔴 REPINNED 2026-09-07 — second time, same rule. `discStep4LanPlain` was
+  // deleted (owner: the amber block goes, one calm sentence stays), so all
+  // three canaries moved to `discStep4Body`, which now carries the surviving
+  // claim: the own-network leg is encrypted, the relay is TLS, and the current
+  // reading is on the phone. The reasoning that had to be done BEFORE choosing
+  // them — which of the old claims survived, which lost its premise — is at
+  // APK_DISCLOSURE_NEW_MARKERS. This assertion going red is the point: nobody
+  // repoints the gate without saying so out loud.
   assertTrue(
     APK_DISCLOSURE_NEW_MARKERS.join('|') ===
-      '要看这条配对是怎么建的|此前建的配对仍然是明文|每一次连接都核对',
+      '这条连接是加密的|中继一律走 TLS|当前状态见这台手机上的',
     'new markers are still the three measured phrases'
   );
   assertTrue(

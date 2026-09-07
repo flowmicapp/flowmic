@@ -28,6 +28,12 @@
 // is now stated as 「what something consumes」. The rule did not move; the set
 // of consumers did.
 //
+// ⚠️ 2026-09-07 — AND BY ONE MORE, `quota.period.end`, under the same rule. Its
+// consumer is the reset line under the gauge (owner: wherever a quota is shown,
+// say when it starts over). `quota.period.start` rides beside it on the wire and
+// is deliberately NOT read — nothing draws it, and a field parsed 「because it
+// was in the response」 is the façade this header exists to refuse.
+//
 // ⚠️ `used_in` (input tokens) is deliberately NOT read either. The server's own
 // QuotaView header records why the two exist: `used` is the ENFORCED number and
 // `used_in` is a reference meter that is never charged against `limit`. A gauge
@@ -84,6 +90,7 @@ class CloudSummary {
     required this.minutes,
     required this.tokens,
     this.continuousMinutes,
+    this.resetsAt,
   });
 
   /// `quota.stt` — speech minutes. The LEFT half of the gauge, or null when it
@@ -113,6 +120,22 @@ class CloudSummary {
   /// would spend a budget nobody checked. Unavailable-and-retryable is the
   /// honest failure; unbounded is not.
   final int? continuousMinutes;
+
+  /// `quota.period.end` — the instant this allowance starts over, in UTC.
+  ///
+  /// 🔴 AN INSTANT, NOT A CALENDAR DATE, and that is why it is kept as a
+  /// [DateTime] instead of the `YYYY-MM-DD` string the server sends. The cycle
+  /// boundary is UTC midnight (`billing/usage-period.ts`: 「A cycle boundary is
+  /// a calendar day boundary in UTC」), so a phone in UTC+8 resets at 08:00 that
+  /// morning and a phone in UTC−5 at 19:00 the evening before. Printing the raw
+  /// date would name the wrong day for everyone west of Greenwich.
+  ///
+  /// 🔴 `null` MEANS 「THE SERVER DID NOT SAY」 and nothing else. A relay older
+  /// than the account-anchored cycle (owner 2026-09-05) sends no such field, and
+  /// the line is then ABSENT — not a dash, not 「unknown」, and above all not the
+  /// 「first of next month」 this product used to assume, which stopped being
+  /// true for every account on that day.
+  final DateTime? resetsAt;
 }
 
 /// The summary URL for a cloud endpoint.
@@ -161,6 +184,11 @@ CloudSummary? parseCloudSummary(Object? decoded) {
     // accident; if a ceiling of zero is ever a real product state it needs to
     // arrive as its own signal rather than as arithmetic nobody chose.
     continuousMinutes: _positiveInt(decoded['continuous_minutes']),
+    // 🔴 Read from `quota.period`, INDEPENDENTLY of the two meters, for the same
+    // reason `continuous_minutes` is: an older relay that answers the gauge but
+    // not the cycle must still produce a gauge. Additive on the wire exactly the
+    // way `used_in` was.
+    resetsAt: _utcDay(quota['period'] is Map ? (quota['period']! as Map)['end'] : null),
   );
 }
 
@@ -182,6 +210,33 @@ int? _positiveInt(Object? v) {
   return n > 0 ? n : null;
 }
 
+/// A `YYYY-MM-DD` day from the wire, as **UTC midnight**.
+///
+/// 🔴 `DateTime.parse('2026-09-21')` WOULD BE WRONG HERE, and silently: Dart
+/// reads a bare date as LOCAL midnight. A phone in UTC+8 would place the
+/// boundary eight hours early and, on the last day of a cycle, tell the user
+/// their allowance had already started over while the server was still
+/// refusing requests against the old one. The parts are read out and handed to
+/// [DateTime.utc] instead.
+///
+/// Shape-checked rather than trusted, like every other field here: anything
+/// that is not exactly `YYYY-MM-DD` is 「we could not read it」, which produces
+/// the same absent line as 「the server did not say」.
+DateTime? _utcDay(Object? v) {
+  if (v is! String) return null;
+  final RegExp shape = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
+  final RegExpMatch? m = shape.firstMatch(v);
+  if (m == null) return null;
+  final int y = int.parse(m.group(1)!);
+  final int mo = int.parse(m.group(2)!);
+  final int d = int.parse(m.group(3)!);
+  final DateTime t = DateTime.utc(y, mo, d);
+  // `DateTime.utc(2026, 2, 31)` rolls forward into March rather than failing,
+  // and a rolled day is not the day the server named. Refused, not corrected.
+  if (t.year != y || t.month != mo || t.day != d) return null;
+  return t;
+}
+
 CloudMeter? _meter(Object? node, {required String used, required String limit}) {
   if (node is! Map) return null;
   final Object? u = node[used];
@@ -196,7 +251,64 @@ CloudMeter? _meter(Object? node, {required String used, required String limit}) 
 /// ⚠️ There is no friendly default anywhere in this file (13 册 §7 F1 ②): the
 /// controller either dials for real or is handed one of these.
 typedef CloudSummaryFetcher =
-    Future<CloudSummary?> Function(Uri url, String bearer, Duration timeout);
+    Future<CloudSummaryRead> Function(Uri url, String bearer, Duration timeout);
+
+/// A NAMED refusal the summary route can answer with — the ones that describe
+/// the ACCOUNT rather than the network.
+///
+/// 🔴 WHY THIS EXISTS AT ALL. Every miss used to arrive as the same `null`, and
+/// the one control that needs the ceiling then said 「Account limit unavailable
+/// — try again」 for all of them. Measured on device (round-three drill,
+/// 2026-09-06): an account past the 3-day verification grace gets
+/// `403 EMAIL_NOT_VERIFIED` on every read, so that sentence promised a retry
+/// that could never work and hid the one thing the user could act on.
+///
+/// ⚠️ THE VOCABULARY IS THE SERVER ROUTE'S, NOT AN INVENTION. Enumerated from
+/// `apps/server-core/src/http/console-routes.ts` §③, which answers exactly
+/// three named 4xx: `ACCOUNT_RESTRICTED` (A2-3, checked first),
+/// `EMAIL_NOT_VERIFIED` (VERIFY-1 D3, `auth/verification-grace.ts` decides
+/// when the grace ends), and 401 `AUTH_TOKEN_INVALID` / `AUTH_TOKEN_EXPIRED`
+/// from `accountFromBearer`. Anything else — 404, 5xx, timeout, socket — is
+/// NOT named here on purpose: those are the genuinely transient ones and the
+/// generic 「try again」 is true of them.
+///
+/// ⚠️ STILL NOT A SECOND AUTHORITY OVER THE SESSION. Naming a 401 here changes
+/// what one row SAYS; it does not sign anybody out. `LoginController
+/// .handleAuthExpired`, driven by the socket's auth watchdog, remains the only
+/// layer entitled to act on it — and once it does, the row's `notSignedIn`
+/// branch outranks this one anyway.
+enum CloudSummaryRefusal {
+  /// 403 `EMAIL_NOT_VERIFIED` — signed in, past the verification grace.
+  emailNotVerified,
+
+  /// 403 `ACCOUNT_RESTRICTED` — A2-3. No appeal channel exists (owner ⑤), so a
+  /// sentence for this one states the fact and offers no errand.
+  accountRestricted,
+
+  /// 401 — the bearer is expired or invalid.
+  authExpired,
+}
+
+/// One read's outcome: the numbers, or the named reason there are none.
+///
+/// 🔴 TWO FIELDS, NOT ONE NULLABLE. 「we have no numbers」 and 「why we have no
+/// numbers」 are two questions, and a single nullable answering both is this
+/// repo's headline defect shape. Both null means 「could not ask, and the reason
+/// is not one anybody can act on」 — the transient case.
+class CloudSummaryRead {
+  const CloudSummaryRead({this.summary, this.refusal});
+
+  /// The numbers, or null when this read produced none.
+  final CloudSummary? summary;
+
+  /// The named account-level refusal, or null when there was none (including
+  /// every success and every transient miss).
+  final CloudSummaryRefusal? refusal;
+
+  /// The answer a controller with no network gives, and the default for a test
+  /// double. Deliberately not a friendly summary (13 册 §7 F1 ②).
+  static const CloudSummaryRead unreadable = CloudSummaryRead();
+}
 
 /// How long one summary read is allowed to take, end to end.
 ///
@@ -224,7 +336,7 @@ const Duration kCloudSummaryTimeout = Duration(seconds: 6);
 /// ⚠️ Catches `Object`, not `Exception`: the thing that bit this repo on the
 /// http path was RV-89's `ArgumentError` — an **Error** — thrown by `getUrl` on
 /// a `ws://` URL.
-Future<CloudSummary?> httpCloudSummaryFetch(
+Future<CloudSummaryRead> httpCloudSummaryFetch(
   Uri url,
   String bearer,
   Duration timeout,
@@ -239,6 +351,7 @@ Future<CloudSummary?> httpCloudSummaryFetch(
   String miss = 'unexpected';
   int? code;
   CloudSummary? out;
+  CloudSummaryRefusal? refusal;
   try {
     final HttpClientRequest req = await client.getUrl(url).timeout(left());
     req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
@@ -255,7 +368,17 @@ Future<CloudSummary?> httpCloudSummaryFetch(
         _ => 'status',
       };
       code = res.statusCode;
-      unawaited(res.drain<void>().catchError((Object _) {}));
+      // 🔴 THE 4xx BODY IS READ RATHER THAN DRAINED, and only for 401/403. The
+      // route puts its named code there (`{"error":"EMAIL_NOT_VERIFIED"}`) and
+      // draining it threw away the only fact that tells 「verify your email」
+      // apart from 「the network hiccuped」. Failing to read it is not a new
+      // failure: `refusal` stays null and the caller falls back to the generic
+      // transient sentence, which is what it said before this existed.
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        refusal = await _namedRefusal(res, res.statusCode, left());
+      } else {
+        unawaited(res.drain<void>().catchError((Object _) {}));
+      }
     } else {
       final String body = await res.transform(utf8.decoder).join().timeout(left());
       out = parseCloudSummary(jsonDecode(body) as Object?);
@@ -293,7 +416,43 @@ Future<CloudSummary?> httpCloudSummaryFetch(
     // `code` only when there IS one: a `'code': null` entry in the trail reads
     // as 「we looked and there was none」, which is a different claim.
     if (code != null) line['code'] = code;
+    // Same rule as `code`: written only when there IS one. The enum's NAME, not
+    // the server string — the trail leaves the phone and this keeps the
+    // vocabulary fixed (diag_log.dart's rule).
+    if (refusal != null) line['refusal'] = refusal.name;
     diag('cloud.summary.miss', line);
   }
-  return out;
+  return CloudSummaryRead(summary: out, refusal: refusal);
+}
+
+/// The named code inside a 401/403 body, or null when there is not one.
+///
+/// Never throws: a body that is missing, truncated, oversized or not JSON just
+/// means we do not know which refusal it was.
+///
+/// ⚠️ The 401 branch does not read the body at all. Both of the route's 401
+/// codes (`AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`) mean the same thing to
+/// the one control that reads this — sign in again — and telling a user their
+/// token was 「invalid」 rather than 「expired」 buys them nothing.
+Future<CloudSummaryRefusal?> _namedRefusal(
+  HttpClientResponse res,
+  int status,
+  Duration budget,
+) async {
+  if (status == 401) {
+    unawaited(res.drain<void>().catchError((Object _) {}));
+    return CloudSummaryRefusal.authExpired;
+  }
+  try {
+    final String body = await res.transform(utf8.decoder).join().timeout(budget);
+    final Object? decoded = jsonDecode(body);
+    final Object? error = decoded is Map ? decoded['error'] : null;
+    return switch (error) {
+      'EMAIL_NOT_VERIFIED' => CloudSummaryRefusal.emailNotVerified,
+      'ACCOUNT_RESTRICTED' => CloudSummaryRefusal.accountRestricted,
+      _ => null,
+    };
+  } on Object {
+    return null;
+  }
 }

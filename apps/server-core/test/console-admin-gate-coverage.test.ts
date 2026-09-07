@@ -81,6 +81,15 @@ const ROUTE_SOURCES = [
   // own warning, still true, and the reason adding this line is part of
   // shipping the file rather than a tidy-up afterwards.
   join(SRC, 'http', 'ops-refund-release-routes.ts'),
+  // 🔴 2026-09-07 (REQ-002) — `ops-subscription-routes.ts`, added in the same
+  // commit that created it, for the reason every note here gives. The forced
+  // half is the same as the entry above: `adminGate`'s fourth parameter is
+  // typed `AdminGatedRoute`, so its two routes could not call the gate without
+  // their literals joining ADMIN_GATED_ROUTES. The NOT-forced half is why this
+  // line exists: a route in an unscanned file that never called the gate at all
+  // would be invisible to every assertion in this suite — and this file's two
+  // routes take a `user_id` off the body and change a RECURRING charge on it.
+  join(SRC, 'http', 'ops-subscription-routes.ts'),
   join(SRC, 'http', 'console-routes.ts'),
   join(SRC, 'http', 'password-reset-routes.ts'),
   join(SRC, 'http', 'ops-routes.ts'),
@@ -253,6 +262,15 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   // protect.
   'POST /api/ops/purchases/refund/settle': 'admin',
   'POST /api/ops/purchases/refund/release': 'admin',
+  // 🔴 REQ-002 — the operator's cancel/resume pair. 'admin' for the reason every
+  // /api/ops/ entry above gives, and more sharply: each takes a `user_id` off
+  // the BODY and acts on a stranger's recurring charge. The self-service twins
+  // (`POST /api/cloud/billing/{cancel,resume}`) are 'account' and deliberately
+  // ungated beyond identity — that is a different route family with a different
+  // trust model, and the two must never be merged (see
+  // http/ops-subscription-routes.ts's header).
+  'POST /api/ops/subscriptions/cancel': 'admin',
+  'POST /api/ops/subscriptions/resume': 'admin',
   // A2-4 — the read-only account list and its single-account read. 'admin' for
   // the same reason as every other `/api/ops/` entry: they enumerate and read
   // ACROSS accounts. Note the detail route's shape — `?user_id=` rather than
@@ -451,6 +469,8 @@ describe('admin gate — route coverage is derived from the source, not from a l
       'POST /api/ops/purchases/refund', // 2026-08-30 — the third, and it moves money
       'POST /api/ops/purchases/refund/release', // 2026-08-31 — the refund will not happen
       'POST /api/ops/purchases/refund/settle', // 2026-08-31 — it happened where we could not see it
+      'POST /api/ops/subscriptions/cancel', // REQ-002 — stop a stranger's renewals
+      'POST /api/ops/subscriptions/resume', // REQ-002 — put them back
       'POST /api/ops/users/restrict', // A2-3 — the first one that mutates
     ]);
   });

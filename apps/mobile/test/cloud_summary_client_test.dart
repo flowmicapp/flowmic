@@ -8,6 +8,8 @@
 // has. Both are asserted here, in both directions.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flowmic/src/auth/account_store.dart';
 import 'package:flowmic/src/auth/cloud_summary.dart';
@@ -38,6 +40,9 @@ Map<String, Object?> _body({
   // Card CR-6. Top-level in the real body, beside `quota` rather than inside
   // it, because it answers a different question — see CloudSummary's doc.
   Object? continuousMinutes = 30,
+  // owner 2026-09-05 — the account-anchored cycle. `null` here is an OLDER
+  // RELAY, which is the shape that matters most: it must still produce a gauge.
+  Object? period = const <String, Object?>{'start': '2026-08-24', 'end': '2026-09-24'},
 }) => <String, Object?>{
   'continuous_minutes': ?continuousMinutes,
   'plan': <String, Object?>{'plan': 'pro'},
@@ -45,6 +50,7 @@ Map<String, Object?> _body({
     'stt': <String, Object?>{'used_min': usedMin, 'limit_min': limitMin},
     'llm': <String, Object?>{'used': usedTokens, 'used_in': 40000, 'limit': limitTokens},
     'month': '2026-08',
+    'period': ?period,
   },
   'devices': <String, Object?>{'pc_count': 1, 'mobile_count': 1},
 };
@@ -174,6 +180,59 @@ void main() {
     });
   });
 
+  // ── when the allowance starts over (owner 2026-09-07) ─────────────────────
+  //
+  // 🔴 THE ABSENT CASE IS THE ONE THAT COSTS SOMETHING. `quota.period` is
+  // additive on the wire, so every relay older than 2026-09-05 answers without
+  // it — and the gauge those users see must be unchanged, not decorated with a
+  // dash or a guessed 「first of next month」.
+  group('parseCloudSummary — quota.period.end', () {
+    test('present: read as UTC midnight, never as local midnight', () {
+      final CloudSummary s = parseCloudSummary(_body())!;
+      // 🔴 Asserted as an INSTANT, not as y/m/d. `DateTime.parse('2026-09-24')`
+      // would satisfy a y/m/d assertion on every machine and still be eight
+      // hours wrong in Shanghai — which is the whole defect this field can have.
+      expect(s.resetsAt, DateTime.utc(2026, 9, 24));
+      expect(s.resetsAt!.isUtc, isTrue);
+      expect(s.resetsAt!.millisecondsSinceEpoch,
+          DateTime.utc(2026, 9, 24).millisecondsSinceEpoch);
+    });
+
+    test('absent: no reset instant, and the gauge is untouched', () {
+      final CloudSummary s = parseCloudSummary(_body(period: null))!;
+      expect(s.resetsAt, isNull);
+      // The point of the case: an old relay still draws both meters.
+      expect(s.minutes!.used, 12);
+      expect(s.tokens!.limit, 5000000);
+    });
+
+    test('an unbelievable shape is 「absent」, never a corrected date', () {
+      for (final Object? bad in <Object?>[
+        <String, Object?>{'start': '2026-08-24'}, // no `end` at all
+        <String, Object?>{'end': '2026-9-24'}, // not zero-padded
+        <String, Object?>{'end': '2026-09-24T00:00:00Z'}, // not a bare day
+        <String, Object?>{'end': '2026-02-31'}, // a day that does not exist
+        <String, Object?>{'end': 1790000000}, // not a string
+        <String, Object?>{'end': ''},
+        'next month', // `period` is not an object
+        42,
+      ]) {
+        expect(parseCloudSummary(_body(period: bad))!.resetsAt, isNull,
+            reason: 'period=$bad must produce no line');
+      }
+    });
+
+    test('a real month end that Dart would roll is kept exactly', () {
+      // `DateTime.utc(2026, 2, 29)` silently becomes 1 March. Refusing it is
+      // what keeps a rolled day from being printed as the named one; a day that
+      // really exists must survive.
+      expect(parseCloudSummary(_body(period: <String, Object?>{'end': '2028-02-29'}))!.resetsAt,
+          DateTime.utc(2028, 2, 29));
+      expect(parseCloudSummary(_body(period: <String, Object?>{'end': '2026-02-29'}))!.resetsAt,
+          isNull);
+    });
+  });
+
   group('cloudSummaryUri', () {
     test('a ws:// endpoint becomes http:// — the one canonical funnel', () {
       expect(
@@ -196,7 +255,7 @@ void main() {
         saasEndpoint: 'http://127.0.0.1:1',
         fetcher: (Uri url, String bearer, Duration budget) async {
           calls += 1;
-          return null;
+          return CloudSummaryRead.unreadable;
         },
       );
       c.refresh();
@@ -218,7 +277,7 @@ void main() {
           // could get wrong without any test noticing.
           expect(bearer, 'jwt-quota');
           expect(url.path, '/api/cloud/summary');
-          return parseCloudSummary(_body());
+          return CloudSummaryRead(summary: parseCloudSummary(_body()));
         },
       )..addListener(() => notifies += 1);
       c.refresh();
@@ -233,7 +292,7 @@ void main() {
     test('SINGLE IN FLIGHT — a second ask while one is out is dropped, not queued', () async {
       final LoginController login = await _login(account: _signedIn);
       int calls = 0;
-      final Completer<CloudSummary?> gate = Completer<CloudSummary?>();
+      final Completer<CloudSummaryRead> gate = Completer<CloudSummaryRead>();
       final CloudSummaryController c = CloudSummaryController(
         login: login,
         saasEndpoint: 'http://127.0.0.1:1',
@@ -249,7 +308,7 @@ void main() {
       c.refresh();
       await Future<void>.delayed(Duration.zero);
       expect(calls, 1);
-      gate.complete(parseCloudSummary(_body()));
+      gate.complete(CloudSummaryRead(summary: parseCloudSummary(_body())));
       await Future<void>.delayed(Duration.zero);
       expect(c.inFlight, isFalse);
       // ...and the next one, after it settled, DOES go out.
@@ -267,8 +326,9 @@ void main() {
       final CloudSummaryController c = CloudSummaryController(
         login: login,
         saasEndpoint: 'http://127.0.0.1:1',
-        fetcher: (Uri url, String bearer, Duration budget) async =>
-            ok ? parseCloudSummary(_body()) : null,
+        fetcher: (Uri url, String bearer, Duration budget) async => ok
+            ? CloudSummaryRead(summary: parseCloudSummary(_body()))
+            : CloudSummaryRead.unreadable,
       )..addListener(() => notifies += 1);
       c.refresh();
       await Future<void>.delayed(Duration.zero);
@@ -314,7 +374,7 @@ void main() {
         saasEndpoint: 'http://127.0.0.1:1',
         fetcher: (Uri url, String bearer, Duration budget) async {
           calls += 1;
-          return parseCloudSummary(_body());
+          return CloudSummaryRead(summary: parseCloudSummary(_body()));
         },
       );
       await Future<void>.delayed(Duration.zero);
@@ -338,7 +398,7 @@ void main() {
         saasEndpoint: 'http://127.0.0.1:1',
         fetcher: (Uri url, String bearer, Duration budget) async {
           calls += 1;
-          return parseCloudSummary(_body());
+          return CloudSummaryRead(summary: parseCloudSummary(_body()));
         },
       )..addListener(() => notifies += 1);
       expect(login.isLoggedIn, isFalse);
@@ -362,5 +422,106 @@ void main() {
       c.dispose();
       login.dispose();
     });
+  });
+
+  // ── R3F-2: THE NAMED 4xx ───────────────────────────────────────────────────
+  //
+  // Device round three (2026-09-06): an unverified account past the 3-day grace
+  // gets `403 {"error":"EMAIL_NOT_VERIFIED"}` on every read. The body used to be
+  // DRAINED, so every 4xx arrived as the same null and the one control that
+  // needs the ceiling said 「try again」 — a retry that could never work.
+  //
+  // These run against a real loopback HttpServer rather than a fake fetcher, on
+  // purpose: the thing under test is `httpCloudSummaryFetch`'s own handling of a
+  // response body, and a double that returned a `CloudSummaryRead` would be
+  // asserting the value this file itself wrote.
+  group('httpCloudSummaryFetch names the refusals it can name', () {
+    late HttpServer server;
+    late int status;
+    late String body;
+
+    setUp(() async {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      unawaited(() async {
+        await for (final HttpRequest req in server) {
+          req.response.statusCode = status;
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(body);
+          await req.response.close();
+        }
+      }());
+    });
+    tearDown(() async => server.close(force: true));
+
+    Future<CloudSummaryRead> read() => httpCloudSummaryFetch(
+      Uri.parse('http://127.0.0.1:${server.port}/api/cloud/summary'),
+      'jwt-quota',
+      const Duration(seconds: 5),
+    );
+
+    test('403 EMAIL_NOT_VERIFIED arrives as a NAME, not as a null', () async {
+      status = 403;
+      body = jsonEncode(<String, Object?>{'error': 'EMAIL_NOT_VERIFIED'});
+      final CloudSummaryRead got = await read();
+      expect(got.summary, isNull);
+      expect(got.refusal, CloudSummaryRefusal.emailNotVerified);
+    });
+
+    test('403 ACCOUNT_RESTRICTED is its own name', () async {
+      status = 403;
+      body = jsonEncode(<String, Object?>{'error': 'ACCOUNT_RESTRICTED'});
+      expect((await read()).refusal, CloudSummaryRefusal.accountRestricted);
+    });
+
+    test('401 is authExpired without reading the body', () async {
+      status = 401;
+      body = jsonEncode(<String, Object?>{'error': 'AUTH_TOKEN_EXPIRED'});
+      expect((await read()).refusal, CloudSummaryRefusal.authExpired);
+    });
+
+    test('🔴 an UNNAMED 4xx and a 5xx stay nameless', () async {
+      // The negative control, and it is the half that keeps the generic
+      // 「try again」 honest: if every failure came back named, the row would
+      // start explaining outages it knows nothing about.
+      status = 403;
+      body = jsonEncode(<String, Object?>{'error': 'SOMETHING_NEW'});
+      expect((await read()).refusal, isNull);
+
+      status = 500;
+      body = 'upstream is unwell';
+      final CloudSummaryRead five = await read();
+      expect(five.refusal, isNull);
+      expect(five.summary, isNull);
+    });
+
+    test('a 200 clears nothing and names nothing', () async {
+      status = 200;
+      body = jsonEncode(_body());
+      final CloudSummaryRead got = await read();
+      expect(got.summary, isNotNull);
+      expect(got.refusal, isNull);
+    });
+  });
+
+  test('🔴 the controller drops a refusal when the account signs out', () async {
+    // A reason outliving its account would explain a block the next account is
+    // not under. `summary` already had this rule; the reason needs its own,
+    // because it does NOT follow summary's 「a miss changes nothing」.
+    final LoginController login = await _login(account: _signedIn);
+    final CloudSummaryController c = CloudSummaryController(
+      login: login,
+      saasEndpoint: 'http://127.0.0.1:1',
+      fetcher: (Uri url, String bearer, Duration budget) async =>
+          const CloudSummaryRead(refusal: CloudSummaryRefusal.emailNotVerified),
+    );
+    c.refresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.refusal, CloudSummaryRefusal.emailNotVerified);
+
+    await login.logout();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.refusal, isNull);
+    c.dispose();
+    login.dispose();
   });
 }

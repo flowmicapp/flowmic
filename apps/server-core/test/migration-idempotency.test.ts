@@ -1091,7 +1091,7 @@ describe('migration idempotency', () => {
     fresh.close();
   });
 
-  it('has exactly the 16 tables it should (05-DATA-MODEL §1.1: minus the retired one, plus D1 §3.2/§3.3, 0.2.47 §10, SALT-1 §11, GRANT-1 §12, VERIFY-1 §13, A2-5 §14, 0.3.25 B1 §8b and 0.3.25 B3 §8c)', () => {
+  it('has exactly the 18 tables it should (05-DATA-MODEL §1.1: minus the retired one, plus D1 §3.2/§3.3, 0.2.47 §10, SALT-1 §11, GRANT-1 §12, VERIFY-1 §13, A2-5 §14, 0.3.25 B1 §8b, 0.3.25 B3 §8c and PR-2 §15/§16)', () => {
     const db = openDatabase(':memory:');
     const names = (
       db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as {

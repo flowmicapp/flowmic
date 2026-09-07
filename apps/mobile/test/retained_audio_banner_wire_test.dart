@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 const AppStrings _zh = AppStringsZh();
 
@@ -68,11 +69,11 @@ void main() {
     );
   });
 
-  tearDown(() {
-    controller.dispose();
+  tearDown(() async {
+    await controller.dispose();
     destination.dispose();
     timeline.dispose();
-    tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   BannerQueue banners() => chatBannerSources(
@@ -95,7 +96,7 @@ void main() {
     // actually assigns on every real announcement.
     // ignore: prefer_const_constructors
     store.lastNotice.value = RetainedAudioNotice(
-      code: RetainedAudioNotice.codeDroppedOldest,
+      code: RetainedAudioNotice.codeExpired,
       bytes: 6400,
       segmentIdx: 3,
     );
@@ -112,7 +113,7 @@ void main() {
     );
     expect(
       item.message,
-      _zh.retainedAudioNoticeMessage(RetainedAudioNotice.codeDroppedOldest),
+      _zh.retainedAudioNoticeMessage(RetainedAudioNotice.codeExpired),
     );
     expect(item.severity, BannerSeverity.degraded);
     expect(item.dismissible, isTrue);

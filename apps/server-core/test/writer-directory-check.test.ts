@@ -18,7 +18,7 @@ import { wireNodeRuntime } from '../src/node/node-runtime';
 
 function config(over: Partial<NodeConfig>): NodeConfig {
   return {
-    role: 'single', nodeId: null, writerUrl: null, sharedSecret: null,
+    role: 'single', nodeId: null, writerUrl: null, sharedSecret: null, snapshotSecret: null,
     listPath: null, outboxPath: null,
     ...over,
   };
@@ -175,6 +175,7 @@ describe('🔴 wireNodeRuntime — the check really is wired into the boot path,
           db: { usage: {}, usageEvents: {}, raw: {} } as never,
           config: { mode: 'standalone', usageEventsEnabled: false } as never,
           log: { info: () => {}, warn: () => {}, error: () => {} },
+          periodKeyFor: () => 'p',
         });
       } finally {
         for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];

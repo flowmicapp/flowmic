@@ -48,6 +48,8 @@ extension _ChatFlowArticleRouting on _ChatFlowPageState {
           rows: articleMembersOf(controller.store, id),
           strings: strings,
           pendingBackfillMs: controller.backfill.progress.value.pendingMs,
+          pendingBackfillFromOutage:
+              controller.backfill.progress.value.pendingFromOutage,
         ),
       ),
     );

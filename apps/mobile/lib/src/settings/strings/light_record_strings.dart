@@ -170,8 +170,22 @@ mixin ArticleStrings on AppStringsLeaves {
   /// engine is, and the ruling that permitted a slow catch-up permitted it on
   /// condition that the screen says how much is LEFT — a quantity we measure,
   /// not one we estimate.
+  /// 🔴 IT NAMES AN OUTAGE, SO IT MAY ONLY BE SHOWN WHEN THERE WAS ONE. Card
+  /// LK-3: the banner used to appear whenever anything was owed words, which
+  /// includes a recording the user simply paused. Its sibling
+  /// [articleBackfillUnconfirmed] is the same measurement without the claim
+  /// about the network, and `BackfillProgress.pendingFromOutage` chooses.
   String articleBackfillPending(String clock) =>
       _lfArticleBackfillPending(clock);
+
+  /// Card LK-3 — audio still owed something, with no outage behind it.
+  ///
+  /// ⚠️ SAME PROHIBITION AS ITS SIBLING: how much is left, never how long it
+  /// will take. It also does not say what is missing — a receipt, an engine, a
+  /// retry — because those are three different answers and the person reading
+  /// a long recording cannot act on any of them.
+  String articleBackfillUnconfirmed(String clock) =>
+      _lfArticleBackfillUnconfirmed(clock);
 
   /// When the recording was made.
   String articleStartedAt(String when) => _lfArticleStartedAt(when);

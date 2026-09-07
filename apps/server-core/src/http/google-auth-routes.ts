@@ -113,6 +113,45 @@ class GoogleEmailUnverifiedError extends Error {
   }
 }
 
+/**
+ * Thrown at the ONE point this route can create an account, turned into the
+ * same 429 `/api/register` answers. Carries the budget so the refusal can say
+ * when a slot frees.
+ *
+ * 🔴 WHY IT IS AN EXCEPTION FROM INSIDE `resolveAccount` RATHER THAN A CHECK AT
+ * THE DOOR, which is where it used to live and where it caused a production
+ * lockout on 2026-09-07 (NY origin, ip 183.158.73.135: two
+ * `auth: account minted` lines at 04:06:35Z and 04:07:08Z spent the address's
+ * two daily slots, then `google login: account creation refused` at 04:59:14Z
+ * and 05:40:19Z refused an account that had existed since 2026-08-14). The door
+ * does not know -- and cannot know without verifying the token -- whether the
+ * request in front of it will CREATE an account or merely sign an existing one
+ * in. Refusing there refuses both, so a per-IP ACCOUNT-CREATION budget spent by
+ * somebody else on that address takes away a returning user's Google sign-in
+ * for the rest of the day. The cap bounds mints; it must therefore refuse mints
+ * and nothing else, and the only place that distinction exists is step 4 below.
+ *
+ * WHY THE PASSWORD FORM DID NOT SHOW THE SAME SYMPTOM, which is what made this
+ * look like an account-specific problem: `/api/login` (auth-routes.ts) never
+ * consults `mintLimiter` at all -- it is not a mint path. Only the Google
+ * button was dead, and only from that address.
+ *
+ * THE COST OF MOVING IT, recorded because the old comment named it as the
+ * reason for the old position: a caller who WILL be refused now costs us one
+ * outbound round trip to Google's key endpoint before we say so. That is real
+ * and it is accepted -- the alternative was paying for it with sign-ins that
+ * should have succeeded. The two cheap IP-only brakes that ARE safe to hold at
+ * the door (the 5/10-min burst window and the global surge gate) are untouched
+ * and still run first, so this route is not newly unthrottled: an address that
+ * wants to spend our round trips still gets five of them per ten minutes.
+ */
+class GoogleMintCapError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super(`this address is past its daily account cap (retry_after_ms=${retryAfterMs})`);
+    this.name = 'GoogleMintCapError';
+  }
+}
+
 export interface GoogleAuthRoutesDeps {
   /** The SAME AuthService instance every other account surface mints and
    *  verifies with — a second one would be a second answer to "what is a
@@ -167,9 +206,14 @@ export interface GoogleAuthRoutesDeps {
    * own bypass (the field above closes that), and it was ALSO the per-IP
    * daily-cap's bypass — an address that spent its two register-route mints
    * could keep minting accounts through Google all day, on a budget that read
-   * as untouched. Same split as the surge gate: gated on every request once
-   * the cap is spent, recorded only when `created`, checked BEFORE the body
-   * is read (IP-only, no reason to wait).
+   * as untouched.
+   *
+   * 🔴 IT IS NOT THE SAME SPLIT AS THE SURGE GATE, AND THE DIFFERENCE COST US A
+   * PRODUCTION LOCKOUT (2026-09-07 — see `GoogleMintCapError`). The surge gate
+   * may fairly gate EVERY request, because what it imposes is a CHALLENGE that
+   * a real person passes. This cap imposes a 24-hour hard refusal, so gating
+   * every request means refusing sign-ins by accounts that already exist. It is
+   * now checked and recorded at the SAME point: the mint itself.
    *
    * Absent (unit tests that predate the card, or a deployment with no cap
    * configured) ⇒ unchanged behaviour — the account layer is not gated by
@@ -240,7 +284,17 @@ function displayNameFor(identity: GoogleIdentity): string | undefined {
  * GUARANTEES the answer is unique (a guarantee that survives a second process);
  * this ordering is what keeps the guarantee from ever having to fire.
  */
-function resolveAccount(deps: GoogleAuthRoutesDeps, identity: GoogleIdentity, nowMs: number): Resolution {
+function resolveAccount(
+  deps: GoogleAuthRoutesDeps,
+  identity: GoogleIdentity,
+  nowMs: number,
+  /** Called at step 4 and ONLY at step 4 -- the single line in this file that
+   *  creates an account. Throws {@link GoogleMintCapError} when the caller's
+   *  address has no daily slot left. Synchronous, so it does not open a gap
+   *  between the lookup above and the insert below (see this function's
+   *  concurrency argument). Absent in the unit tests that predate the cap. */
+  mintGuard?: () => void,
+): Resolution {
   // ① The stable identity. Every sign-in after the first lands here.
   const byGoogle = deps.users.findByGoogleSub(identity.sub);
   if (byGoogle) return applyGoogleVerification(deps, byGoogle, identity, nowMs, { created: false, bound: false });
@@ -276,7 +330,12 @@ function resolveAccount(deps: GoogleAuthRoutesDeps, identity: GoogleIdentity, no
     if (rebound) return applyGoogleVerification(deps, rebound, identity, nowMs, { created: false, bound: true });
   }
 
-  // ④ Nobody: mint the account. `password_hash` stays NULL — the schema has
+  // ④ Nobody: mint the account. THIS is the account creation the per-IP daily
+  // cap exists to bound, so this is where it is asked -- after both lookups
+  // above have failed to find an existing account, which is the only moment
+  // "this request will create an account" is a fact rather than a guess.
+  mintGuard?.();
+  // `password_hash` stays NULL — the schema has
   // always allowed a password-less row, and `verifyCredentials` refuses one
   // outright, so a Google-only account cannot be signed into with a blank
   // password. Such a person can still SET a password later through the ordinary
@@ -355,18 +414,10 @@ export function tryHandleGoogleAuthRoutes(
     }
     deps.limiter.record(ip);
 
-    // P2-5 — the SAME per-IP daily mint cap /api/register enforces, checked
-    // BEFORE the body is read (IP-only) and BEFORE the outbound round trip to
-    // Google's key endpoint: refusing here costs nothing this route would
-    // otherwise have to pay to reach the same refusal later.
-    const dailyMint = deps.mintLimiter?.check(ip);
-    if (dailyMint && !dailyMint.allowed) {
-      log.warn('google login: account creation refused — this address is past its daily account cap', {
-        ip,
-        retry_after_ms: dailyMint.retryAfterMs,
-      });
-      return sendJson(res, 429, { error: 'REGISTER_RATE_LIMITED', retry_after_ms: dailyMint.retryAfterMs });
-    }
+    // P2-5 — the SAME per-IP daily mint cap /api/register enforces is NOT asked
+    // here. It is asked at the one place that creates an account, from inside
+    // `resolveAccount`; the full argument (and the production lockout that made
+    // it necessary) is at `GoogleMintCapError`.
 
     const body = await readJsonBody(req);
     // 2026-08-27 batch-2 item 4 — the GLOBAL surge gate, the SAME function
@@ -418,8 +469,21 @@ export function tryHandleGoogleAuthRoutes(
 
     let resolution: Resolution;
     try {
-      resolution = resolveAccount(deps, identity, now());
+      resolution = resolveAccount(deps, identity, now(), () => {
+        const dailyMint = deps.mintLimiter?.check(ip);
+        if (dailyMint && !dailyMint.allowed) throw new GoogleMintCapError(dailyMint.retryAfterMs);
+      });
     } catch (err) {
+      if (err instanceof GoogleMintCapError) {
+        // Byte-for-byte `/api/register`'s refusal, because it IS that refusal:
+        // one budget, one answer. The log line is the same sentence too, so an
+        // operator grepping for the cap finds both doors.
+        log.warn('google login: account creation refused — this address is past its daily account cap', {
+          ip,
+          retry_after_ms: err.retryAfterMs,
+        });
+        return sendJson(res, 429, { error: 'REGISTER_RATE_LIMITED', retry_after_ms: err.retryAfterMs });
+      }
       if (err instanceof GoogleEmailUnverifiedError) {
         // Genuine token, unusable identity. 403 rather than 401: the credential
         // was accepted, the account it points at is the thing we will not open.

@@ -28,8 +28,8 @@
 // https://flowmic.app/privacy and /terms in the system browser — the same
 // `openExternalUrl` door PairingModal and UpdateBlock also go through — the
 // `<a target=_blank>` this line used to describe never opened anything.
-// State-aware sentences (which engine, the LAN pin) STAY here: the website
-// cannot know this machine's configuration.
+// State-aware sentences (which engine; where the LAN encryption reading is)
+// STAY here: the website cannot know this machine's configuration.
 // ⚠️ THE POLISH SWITCH IS NO LONGER ONE OF THEM (owner 2026-09-03). It is the
 // phone's, and it reaches the server on each transcription request rather than
 // being stored — so this end holds no value to be state-aware about, and step
@@ -104,10 +104,15 @@ async function openLegal(url: string): Promise<void> {
         </div>
         <div class="disc-node-body">
           <div class="disc-h">{{ S.disc_s4_title }}</div>
+          <!-- 🔴 The amber `disc_s4_lan_plain` block was removed 2026-09-07
+               (owner). Its one live claim — the leg is encrypted, the relay is
+               TLS, and the phone shows the current state — is a sentence inside
+               `disc_s4_body` now; the retired claim was 「a pairing made before
+               LAN TLS is still in the clear」, which no external user can hold
+               (LAN TLS shipped 2026-08-08, first public release v0.3.53). The
+               state-aware half is still state-aware: it says where the reading
+               is, never what it currently says. -->
           <div class="disc-b">{{ S.disc_s4_body }}</div>
-          <!-- State-aware: encryption depends on how THIS pairing was made.
-               The website cannot answer that, so these claims stay here. -->
-          <div class="disc-b warn" role="note">{{ S.disc_s4_lan_plain }}</div>
         </div>
       </div>
 
@@ -174,7 +179,6 @@ async function openLegal(url: string): Promise<void> {
 .disc-h { font-size: 13px; font-weight: 600; color: var(--t1); margin: 3px 0 5px; }
 .disc-b { font-size: 12.5px; line-height: 1.7; color: var(--t2); }
 .disc-b.sub-item { margin-top: 5px; padding-left: 4px; color: var(--t3); font-size: 12px; }
-.disc-b.warn { margin-top: 7px; color: var(--amber-ink); font-size: 12px; }
 .legal { margin-top: 12px; }
 .legal-links { margin: 6px 0 0; font-size: 12.5px; line-height: 1.75; }
 /* `--brand-ink` is the token for brand colour used as TEXT on a surface

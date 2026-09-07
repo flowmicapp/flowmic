@@ -68,6 +68,20 @@ extension PttSessionEdges on PttSession {
       audio.retainedAudio?.endSession();
     }
     segments.clear();
+    // Card RC-1a (audit A6 R-5) - RECORD WHAT THIS RECORDING IS, HERE, WHERE
+    // THE ANSWER IS TRUE. Recovery used to read the CURRENT spoken language at
+    // replay time (`chat_inbound_routes.dart:43` says so about itself), so a
+    // user who changed language between an outage and its recovery got the new
+    // one. It is written before `audio.start()` because that call is what opens
+    // the journal, and a snapshot that arrives after the manifest is published
+    // is a snapshot of the wrong moment.
+    //
+    // Inert while the journal face is off (the spill just holds the map).
+    audio.retainedAudio?.noteConfigSnapshot(recordingConfigSnapshot(
+      mode: mode.name,
+      sourceLang: sourceLang,
+      prefs: prefs,
+    ));
     try {
       await audio.start(permissionPreflighted: micPermission.lastGateSawGranted);
     } on Object {
@@ -103,16 +117,39 @@ extension PttSessionEdges on PttSession {
       return false;
     }
     fsm.onPttDown();
+    // Card FX-2 — this press owns the wire now, and this is its delivery.
+    _openSessionDelivery = delivery;
+    // Card FX-3 — a live press has no fed range: its length is the engine's to
+    // report, span by span, because the microphone is still open.
+    _openSessionRange = null;
+    // Card LS-1b — NAME THE RECORDING ON THE WIRE, so the coverage receipt that
+    // comes back on the terminal final can be pinned to it. Null whenever the
+    // journal face is off, which is every build shipped today: the frame then
+    // goes out byte for byte as it always has.
+    //
+    // 🔴 SPREAD FIRST, exactly as `beginBackfill` does, so nothing in the
+    // identity can move a key `AudioStartPayload` owns — `delivery` above all,
+    // which is the field the whole delivery red line hangs on. `liveStartFields`
+    // does not emit one either: two locks, same as the recovery leg.
+    final LiveAudioAttempt? live = audio.retainedAudio?.liveAttempt;
     transport.emit(
       FlowMicEvents.audioStart,
-      AudioStartPayload(
-        mode: mode,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
-        sendPolicy: sendPolicy,
-        delivery: delivery,
-        prefs: prefs,
-      ).toJson(),
+      <String, Object?>{
+        if (live != null)
+          ...liveStartFields(
+            recordingId: live.recordingId,
+            attemptId: live.attemptId,
+            audioFormatVersion: RecordingManifest.currentFormatVersion,
+          ),
+        ...AudioStartPayload(
+          mode: mode,
+          sourceLang: sourceLang,
+          targetLang: targetLang,
+          sendPolicy: sendPolicy,
+          delivery: delivery,
+          prefs: prefs,
+        ).toJson(),
+      },
     );
     _startHeartbeat();
     return true;
@@ -166,7 +203,13 @@ extension PttSessionEdges on PttSession {
     // `fsm.utteranceCancelled`, and ptt_inbound.dart drops every transcript
     // frame this utterance still owes (whole argument there).
     fsm.onPttCancel();
-    audio.fenceAndStop();
+    // 🔴 CARD LS-4 / OWNER RULING O-5 — THE ONE CALL SITE THAT TOMBSTONES.
+    // Naming the reason is what writes it (see `fenceAndStop`'s doc): audio
+    // that already reached the disk during an outage is KEPT and is never fed
+    // back on its own. Before this argument existed, `BackfillRunner` picked
+    // those bytes up on the next recovery edge and minted a row from a sentence
+    // the user had swiped away (§A12 P1-5, the live defect this closes).
+    audio.fenceAndStop(reason: JournalInterrupt.cancelled);
     _stopHeartbeat();
     segments.clear();
     // `discard` tells the server to bin these seconds instead of finalising and

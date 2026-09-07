@@ -142,6 +142,21 @@ export interface SubscriptionWriter {
   ): Promise<BillingWriteResult<{ found: RefundableTransaction | null }>>;
   createRefund(input: CreateRefundInput): Promise<BillingWriteResult<RefundOutcome>>;
   getSubscription(subscriptionId: string): Promise<BillingWriteResult<SubscriptionSnapshot>>;
+  /**
+   * Move a live subscription to another product, charging the proration NOW.
+   *
+   * 🔴 OPTIONAL, AND THE ABSENCE IS THE ANSWER. Creem has this as one call
+   * (`/upgrade`, measured 2026-08-29: $6→$20 charged a $14 proration on the same
+   * subscription id). Paddle has a different mechanism (items replace with a
+   * proration mode) that nobody has wired, and a stub returning `{ok:false}`
+   * would read as 「Paddle said no」 and invite a retry. A method that is not
+   * there reads as 「this provider cannot do that here」, which is the truth and
+   * which the route answers by name.
+   *
+   * ⚠️ MONEY MOVES INSIDE THIS CALL. The route in front of it confirms with the
+   * person first; nothing may call this from a page load.
+   */
+  changePlan?(subscriptionId: string, productId: string): Promise<BillingWriteResult<SubscriptionSnapshot>>;
 }
 
 /**

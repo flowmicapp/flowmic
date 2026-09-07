@@ -38,6 +38,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 class _Rig {
   _Rig() {
@@ -91,7 +92,7 @@ class _Rig {
     final String id = session.beginContinuous(
       cap: const Duration(minutes: 30),
       onWarning: () {},
-    );
+    )!;
     await controller.pttDown();
     return id;
   }
@@ -282,8 +283,8 @@ void _identityGroup() {
       () async {
     final Directory tmp =
         await Directory.systemTemp.createTemp('flowmic-article-id-');
-    addTearDown(() {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    addTearDown(() async {
+      await removeTempDir(tmp);
     });
     final RetainedAudioStore store =
         RetainedAudioStore(dir: tmp, clock: () => 0);
@@ -303,7 +304,7 @@ void _identityGroup() {
     final String articleId = session.beginContinuous(
       cap: const Duration(minutes: 30),
       onWarning: () {},
-    );
+    )!;
 
     // 🔴 THE SEAM. One string is the article the rows go into AND the key the
     // bytes go under, so the re-transcription channel can answer "which

@@ -49,6 +49,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../audio/article_replay.dart';
+import '../audio/retained_audio_spill.dart';
 import '../audio/retained_audio_store.dart';
 import '../diag/diag_log.dart';
 import '../ptt/ptt_session.dart';
@@ -58,6 +59,10 @@ import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/article.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
+import 'instance_probe.dart' show ServerChannel;
+import 'pending_recovery.dart' show PendingRetryOutcome;
+import 'recovery_gate.dart';
+import 'recovery_journal_leg.dart';
 
 /// How much recovery is still owed, for the face ruling ⑮ requires.
 @immutable
@@ -65,10 +70,33 @@ class BackfillProgress {
   const BackfillProgress({
     required this.pendingMs,
     required this.running,
+    this.serverTier,
+    this.needsManual = 0,
+    this.settledUnverified = 0,
+    this.pendingFromOutage = false,
   });
 
   static const BackfillProgress idle =
       BackfillProgress(pendingMs: 0, running: false);
+
+  /// Card RC-1a - which of A7-3's three classes the LAST evaluated server fell
+  /// into, or null when no journal pass has run (the legacy segment leg does
+  /// not negotiate anything, so it leaves this alone).
+  ///
+  /// 🔴 THE FACE RC-1b OWES THE USER HANGS OFF THIS. Tier C means the audio is
+  /// on the phone and nothing is being attempted; a screen that showed only
+  /// [pendingMs] would say 「N minutes owed」 forever with no explanation.
+  /// 🔴 IT IS NOT A COPY word: nothing here is a user-visible string, and this
+  /// card adds none.
+  final RecoveryTier? serverTier;
+
+  /// Journal recordings whose automatic budget is spent (owner ruling O-9:
+  /// five attempts). Only a user action moves them; that action is RC-1b.
+  final int needsManual;
+
+  /// Journal recordings that produced a row without a complete proof (A5-3).
+  /// Kept, never auto-retried, never swept.
+  final int settledUnverified;
 
   /// Milliseconds of audio still waiting to become words. Derived from the
   /// BYTES on disk, so it is a measurement of the remaining work rather than an
@@ -77,10 +105,46 @@ class BackfillProgress {
   /// whether recovery is faster than real time.
   final int pendingMs;
 
+  /// Card LK-3 — was ANY of [pendingMs] recorded while the link was down?
+  ///
+  /// 🔴 IT PICKS THE SENTENCE, IT IS NOT ONE. The article banner may only say
+  /// 「recorded offline」 when something on disk says the link went; a pause, a
+  /// capture fault or a press waiting on a receipt all owe words too, and
+  /// telling that user their network dropped is a claim about their network
+  /// that nothing measured (observed 2026-09-07: 「断网时录下的 26s 还在转写」
+  /// on a recording that was only paused).
+  ///
+  /// True when a journal recording carries `JournalInterrupt.linkLoss`, or
+  /// when the LEGACY face is holding bytes at all — that face writes
+  /// `<session>__seg-N.pcm` only while the uplink is gone (see
+  /// `audio/audio_capture_journal.dart`'s header on why its tombstone runs
+  /// today).
+  final bool pendingFromOutage;
+
   /// Whether a stretch is being fed back right now.
   final bool running;
 
   bool get hasWork => pendingMs > 0 || running;
+
+  /// Card RC-1b — is there audio on this phone the pending-recovery screen
+  /// would have something to say about?
+  ///
+  /// 🔴 IT GATES A TAP TARGET, NOT A SENTENCE. The retained-audio banner grows
+  /// a 「show me」 action only when this is true, because a control that opens
+  /// an empty page is the affordance R8 forbids.
+  ///
+  /// ⚠️ IT UNDERCOUNTS ONE CASE, ON PURPOSE RATHER THAN BY OVERSIGHT: audio the
+  /// user CANCELLED is kept (owner ruling O-5) and is deliberately absent from
+  /// every count here — the leg excludes it from the debt, which is correct,
+  /// because nothing is owed for it. A phone whose only kept audio is
+  /// cancelled therefore reaches the screen through the list entry rather than
+  /// through this banner. Registered here so the gap is a decision on the
+  /// record and not a bug somebody re-derives.
+  bool get hasKeptAudio =>
+      hasWork ||
+      needsManual > 0 ||
+      settledUnverified > 0 ||
+      serverTier == RecoveryTier.awaitingServerCapability;
 }
 
 /// Feeds retained audio back through the ordinary transcription path.
@@ -95,11 +159,25 @@ class BackfillRunner {
     RetainedAudioStore? Function()? storeOf,
     PhonePrefsSource? phonePrefs,
     Duration settleTimeout = const Duration(seconds: 20),
+    // Card RC-1a - the journal leg's own seams, passed through so a test can
+    // drive a fake filesystem and clock without this class knowing how.
+    LegacyServerVerifier legacyVerifier = const DenyAllLegacyServerVerifier(),
+    RecoveryTimeouts recoveryTimeouts = const RecoveryTimeouts(),
+    int Function()? clock,
+    String Function()? newId,
+    bool Function()? metered,
+    Future<void> Function(Duration)? sleep,
   })  : _session = session,
         _timeline = store,
         _storeOf = storeOf ?? (() => session.audio.retainedAudio?.store),
         _phonePrefs = phonePrefs,
-        _settleTimeout = settleTimeout;
+        _settleTimeout = settleTimeout,
+        _legacyVerifier = legacyVerifier,
+        _recoveryTimeouts = recoveryTimeouts,
+        _clock = clock,
+        _newId = newId,
+        _metered = metered,
+        _sleep = sleep;
 
   final PttSession _session;
   final TimelineStore _timeline;
@@ -111,6 +189,55 @@ class BackfillRunner {
   /// `prefs` and lets the server default, which is what an un-wired test does.
   final PhonePrefsSource? _phonePrefs;
   final Duration _settleTimeout;
+  final LegacyServerVerifier _legacyVerifier;
+  final RecoveryTimeouts _recoveryTimeouts;
+  final int Function()? _clock;
+  final String Function()? _newId;
+  final bool Function()? _metered;
+  final Future<void> Function(Duration)? _sleep;
+
+  /// Card RC-1a - THE JOURNAL LEG, built once and only when the spill is
+  /// actually running the journal face.
+  ///
+  /// 🔴 IT IS A SECOND SOURCE, NOT A SECOND QUEUE (audit A6: 「do not build a
+  /// second recovery system」). The single-flight latch, the live-press gate and
+  /// the progress value all stay here; the leg answers 「what does the journal
+  /// owe and what happens to it」 and is only ever entered from inside [_run].
+  ///
+  /// Null only when there is no retained-audio layer at all, or when the spill
+  /// was built with `retainFromFirstFrame: false`. ⚠️ THAT IS NO LONGER THE
+  /// SHIPPING DEFAULT: `retained_audio_boot.dart`'s
+  /// `kRetainFromFirstFrameDefault` is `true` (card RC-1, 2026-09-06), so every
+  /// build reaches this leg and the legacy segment loop below now only ever
+  /// finds audio written by an OLDER build.
+  RecoveryJournalLeg? get journalLeg {
+    final RetainedAudioSpill? spill = _session.audio.retainedAudio;
+    if (spill == null || !spill.retainFromFirstFrame) return null;
+    return _journalLeg ??= RecoveryJournalLeg(
+      session: _session,
+      timeline: _timeline,
+      spill: spill,
+      phonePrefs: _phonePrefs,
+      legacyVerifier: _legacyVerifier,
+      timeouts: _recoveryTimeouts,
+      // 🔴 THE SPILL'S OWN SEAM, not a second one: recovery must read the
+      // journal through the filesystem the capture wrote it through.
+      fs: spill.journalFs,
+      clock: _clock,
+      newId: _newId,
+      // 🔴 A7-3 asks for `recovery.idempotent_operation` only where an account
+      // can be charged. The channel probe answers that; NULL (not yet probed)
+      // reads as metered, which is the fail-closed direction - guessing
+      // 「standalone」 would drop the requirement on the deployment where getting
+      // it wrong costs the user money.
+      metered: _metered ??
+          () => _session.serverChannel.value != ServerChannel.lan,
+      sleep: _sleep,
+    );
+  }
+
+  RecoveryJournalLeg? _journalLeg;
+  RecoveryLegOutcome _lastLegOutcome = RecoveryLegOutcome.none;
 
   /// 🔴 THE SINGLE-FLIGHT LATCH. See the header: two stretches at once is a
   /// corruption, not a performance problem.
@@ -155,6 +282,95 @@ class BackfillRunner {
   /// re-running a transform the user asked for once, live.
   static const FlowMode kRecoveryMode = FlowMode.realtime;
 
+  /// Card RC-1b - THE SEAMS THE PENDING-RECOVERY SCREEN READS THROUGH.
+  ///
+  /// They are getters on this object rather than a second reader of the same
+  /// disk because this class already holds every one of them, and a screen
+  /// that re-derived "which store", "which spill" or "is a press running"
+  /// would be a second author of each answer. `pending_recovery_store.dart`
+  /// is the only consumer.
+  RetainedAudioStore? get retainedStore => _storeOf();
+
+  RetainedAudioSpill? get retainedSpill => _session.audio.retainedAudio;
+
+  /// Which A7-3 class the LAST journal pass put the server in, or null when no
+  /// pass has evaluated one. Not re-evaluated here: asking the gate a second
+  /// time is how two answers appear (recovery_gate.dart's own rule).
+  RecoveryTier? get lastServerTier => _lastLegOutcome.tier;
+
+  /// Whether the microphone is open right now.
+  ///
+  /// A COURTESY FOR THE SCREEN, NOT A GATE. The authority is
+  /// `PttSession.beginBackfill`, which refuses and reports
+  /// [PendingRetryOutcome.refusedBusy]; this getter only lets the button be
+  /// absent instead of present-and-doomed while a recording is running.
+  bool get recordingNow => _session.fsm.session == SessionState.recording;
+
+  /// Card RC-1b (audit A6 R-2) - the user asked for one recording to be tried
+  /// again, now.
+  ///
+  /// QUEUED THROUGH THE SAME LATCH AS [sweep], and that is the whole reason
+  /// this method is here rather than on the leg: one stretch at a time is the
+  /// property the runner's header calls load-bearing, and a button that
+  /// bypassed it would put two `audio:start` frames on one socket - a
+  /// corruption nothing downstream can detect. A press therefore waits behind
+  /// whatever sweep is in flight, exactly like a third edge would.
+  ///
+  /// The returned future is THIS request's, not the queued sweep's: an
+  /// awaiting caller (the screen, which then re-reads its list) must not be
+  /// told "done" about somebody else's pass - the same mistake `sweep`'s own
+  /// header records as measured.
+  Future<PendingRetryOutcome> retranscribe({
+    required String recordingId,
+    required String sourceLang,
+  }) {
+    final Completer<PendingRetryOutcome> out =
+        Completer<PendingRetryOutcome>();
+    final Future<void> queued =
+        (_inFlight ?? Future<void>.value()).then((_) async {
+      try {
+        out.complete(await _retranscribe(recordingId, sourceLang));
+      } on Object catch (e) {
+        // A throw here would leave the caller awaiting a future nobody ever
+        // completes - a screen frozen on a spinner, which is the silent
+        // failure the red line forbids in the "said nothing" direction.
+        diag('audio.recovery.user_retry_threw', <String, Object?>{
+          'recording_id': recordingId,
+          'error': '$e',
+        });
+        out.complete(PendingRetryOutcome.failed);
+      }
+    });
+    _inFlight = queued;
+    queued.whenComplete(() {
+      if (identical(_inFlight, queued)) _inFlight = null;
+    });
+    return out.future;
+  }
+
+  Future<PendingRetryOutcome> _retranscribe(
+      String recordingId, String sourceLang) async {
+    final RecoveryJournalLeg? leg = journalLeg;
+    // No journal face on this build: there is nothing this entry point can
+    // drive. Said as its own answer rather than as a failure, because nothing
+    // failed - `pending_recovery_store.dart` only ever offers the button for
+    // journal recordings, so this arm is the defensive one.
+    if (leg == null) return PendingRetryOutcome.unavailable;
+    final RetainedAudioStore? store = _storeOf();
+    if (store != null) await _publish(store, running: true);
+    try {
+      return await leg.runOne(
+        recordingId: recordingId,
+        fallbackSourceLang: sourceLang,
+      );
+    } finally {
+      // The counts on the face are stale the moment an attempt lands, and the
+      // screen reads them; republishing here is what takes a settled recording
+      // off the banner as well as out of the list.
+      if (store != null) await _publish(store, running: false);
+    }
+  }
+
   /// Look for retained audio and feed back whatever is owed.
   ///
   /// Safe to call at any time and from any edge: it returns immediately when a
@@ -177,9 +393,24 @@ class BackfillRunner {
   }
 
   Future<void> _run(String sourceLang) async {
+    if (_disposed) return;
     final RetainedAudioStore? store = _storeOf();
     if (store == null) return;
     await _publish(store, running: true);
+    // 🔴 THE JOURNAL LEG GOES FIRST, AND THE ORDER IS NOT ARBITRARY: when the
+    // journal face is on, the segment store is not being written at all (see
+    // retained_audio_spill.dart's header - the two faces never store the same
+    // audio), so anything the legacy loop below finds is a leftover from an
+    // OLDER build. Recovering today's debt before yesterday's is the ordering
+    // a user would choose.
+    final RecoveryJournalLeg? leg = journalLeg;
+    if (leg != null) {
+      _lastLegOutcome = await leg.run(fallbackSourceLang: sourceLang);
+      if (_lastLegOutcome.stopEarly) {
+        await _publish(store, running: false);
+        return;
+      }
+    }
     for (final String key in await store.pendingSessions()) {
       // The session currently being written to is LIVE audio, not a debt: a
       // recording in progress with the link down is still filling that file.
@@ -389,14 +620,63 @@ class BackfillRunner {
   }
 
   Future<void> _publish(RetainedAudioStore store, {required bool running}) async {
+    // 🔴 A SWEEP OUTLIVES THE CONTROLLER THAT STARTED IT. Every call site is
+    // `unawaited(...)` (chat_outbox_host.dart, CR-5 edges 1 and 2), so
+    // `disposeRouted` can run while `_run` is parked on an `await` two frames
+    // down. Publishing then writes a disposed `ValueNotifier`, which is an
+    // assertion in debug and an error nobody catches in release.
+    //
+    // MEASURED 2026-09-06 (this box, 32 cores): `test/live_settle_test.dart`
+    // failed 1 of 5 standalone runs on exactly that, with
+    // 「A ValueNotifier<BackfillProgress> was used after being disposed」 from
+    // `_publish` under `sweep` in the tearDown, and the rig's temp directory
+    // then refused to delete (errno 32) because the leg still held the
+    // journal. Whether the sweep is still in flight when the teardown lands is
+    // a race with the machine, which is why this reads as flakiness rather
+    // than as the plain defect it is.
+    //
+    // 🔴 THE CHECK THAT COUNTS IS THE ONE AFTER THE LAST `await`, NOT THE ONE
+    // AT THE TOP. Measured while writing case (2) of
+    // `test/backfill_channel_test.dart`'s dispose case: an entry guard alone
+    // is green for a sweep disposed before it starts and RED for one parked
+    // on the directory read below, which is the ordering the flake actually
+    // took. The early return stays because it saves the reads; the guard
+    // immediately before the write is the one that makes the claim.
+    if (_disposed) return;
     int bytes = 0;
     for (final String key in await store.pendingSessions()) {
       if (key == store.sessionKey) continue;
       bytes += await store.bytesForSession(key);
     }
-    progress.value =
-        BackfillProgress(pendingMs: pcmBytesToMs(bytes), running: running);
+    if (_disposed) return;
+    progress.value = BackfillProgress(
+      pendingMs: pcmBytesToMs(bytes + _lastLegOutcome.pendingBytes),
+      // Card LK-3 — legacy bytes count as an outage because that face only
+      // fills during one; the journal face reports its own.
+      pendingFromOutage: bytes > 0 || _lastLegOutcome.outagePendingBytes > 0,
+      running: running,
+      serverTier: _lastLegOutcome.tier,
+      needsManual: _lastLegOutcome.needsManual,
+      settledUnverified: _lastLegOutcome.settledUnverified,
+    );
   }
 
-  void dispose() => progress.dispose();
+  /// Releases the progress notifier and closes this runner to further
+  /// publishing. It does NOT cancel an in-flight sweep: the recovery leg's own
+  /// writes are the thing that must not be interrupted half-way (a torn
+  /// journal is worse than a wasted pass), so the sweep is allowed to finish
+  /// and simply stops being able to say so. `_publish` carries the reason.
+  void dispose() {
+    // ⚠️ IDEMPOTENT. `ValueNotifier.dispose` throws on a second call, and
+    // this object has two disposers in practice: `ChatController.dispose` owns
+    // the one it built, and a caller that wants the runner silenced earlier
+    // (a test rig keeping the recovery leg out of a live-path measurement)
+    // reaches the same method. Closing twice must be a no-op, not a crash in
+    // somebody's teardown.
+    if (_disposed) return;
+    _disposed = true;
+    progress.dispose();
+  }
+
+  bool _disposed = false;
 }

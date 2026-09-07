@@ -228,13 +228,13 @@ void main() {
         connection: ConnectionState.connected,
         autoStopped: false,
         strings: zh,
-        retainedAudioNotice: 'retained-audio-dropped-oldest',
+        retainedAudioNotice: 'retained-audio-expired',
         onDismissRetainedAudioNotice: () => dismissed++,
       );
       expect(q.top?.id, BannerIds.retainedAudioNotice);
       expect(q.top?.severity, BannerSeverity.degraded);
       expect(q.top?.dismissible, isTrue);
-      expect(q.top?.message, zh.retainedAudioNoticeDroppedOldest);
+      expect(q.top?.message, zh.retainedAudioNoticeExpired);
       q.top!.onAction!();
       expect(dismissed, 1);
     });
@@ -242,9 +242,9 @@ void main() {
     test('AUD-D F6: each store code selects its OWN sentence, not a shared '
         'generic one', () {
       final Map<String, String> expected = <String, String>{
-        'retained-audio-dropped-oldest': zh.retainedAudioNoticeDroppedOldest,
         'retained-audio-cap-reached': zh.retainedAudioNoticeCapReached,
         'retained-audio-expired': zh.retainedAudioNoticeExpired,
+        'retained-audio-write-failed': zh.retainedAudioNoticeWriteFailed,
       };
       final Set<String> messages = <String>{};
       for (final MapEntry<String, String> e in expected.entries) {
@@ -257,7 +257,10 @@ void main() {
         expect(q.top?.message, e.value, reason: e.key);
         messages.add(q.top!.message);
       }
-      expect(messages.length, 3, reason: 'three codes, three distinct sentences');
+      // Counted off the map rather than written as a literal: card RC-1
+      // retired a fourth code, and a hard-coded 3 was what made that a red.
+      expect(messages.length, expected.length,
+          reason: 'each code keeps its own sentence');
     });
 
     test('GA-01: a failed utterance transform is a BLOCKING, dismissible banner '

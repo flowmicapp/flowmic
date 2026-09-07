@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 const Duration _grace = Duration(milliseconds: 80);
 const Duration _pastGrace = Duration(milliseconds: 250);
@@ -72,7 +73,7 @@ void main() {
     await session.dispose();
     await transport.close();
     await store.dispose();
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   Future<void> recordSomeAudio() async {

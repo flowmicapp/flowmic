@@ -25,8 +25,13 @@
 
 import 'dart:async';
 
+import 'package:clock/clock.dart' show clock;
 import 'package:flutter/foundation.dart';
 
+import '../audio/audio_capture.dart' show CapturedChunk;
+import '../audio/retained_audio_manifest.dart' show AudioJournalFormat;
+import 'recovery_identity.dart' show RecoverySampleRange;
+import '../audio/retained_audio_spill.dart' show LiveAudioAttempt;
 import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../destination/destination_controller.dart';
 import '../diag/diag_log.dart';
@@ -39,6 +44,7 @@ import '../signaling/album_away.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/state_machine.dart';
 import 'link_recovery.dart';
+import 'live_settle.dart';
 import '../signaling/wire_payloads.dart';
 import '../stt/segment_buffer.dart';
 import '../stt/stt_stream.dart';
@@ -50,7 +56,9 @@ import '../timeline/timeline_sync.dart';
 // key list stays 1:1 with the queue's own ids instead of a second copy of the
 // literals.
 import '../ui/banner_queue.dart' show BannerIds;
+import '../ui/haptics.dart' show FlowMicHaptics;
 import 'ai_compose_controller.dart';
+import 'asr_health.dart';
 import 'backfill_runner.dart';
 import 'compose_gate.dart';
 import 'delivery_link_up.dart';
@@ -60,7 +68,10 @@ import 'outbox_destination.dart';
 import 'outbox_failure_text.dart';
 import 'outbox_frame.dart';
 import 'outbox_item.dart';
+import 'outbox_notice_gate.dart';
 import 'outbox_store.dart';
+import 'pending_recovery.dart';
+import 'pending_recovery_store.dart';
 import 'pairing_success_notice.dart';
 import 'pc_presence.dart';
 import 'image_send_controller.dart';
@@ -97,6 +108,7 @@ part 'chat_mode_chip.dart';
 // the buffer discard they share — moved out VERBATIM in Window B3-2b to make room
 // for the queue's user-visible surface. Same reason as the parts above.
 part 'chat_notices.dart';
+part 'chat_pending_recovery.dart'; // RC-1b the pending-recovery source
 // Window C-5 — the banner auto-hide reconciler (new) + the OLD dispose() body
 // (moved verbatim, minus its trailing super.dispose() — see that file's
 // header for why both live together and what is new vs. moved).
@@ -132,8 +144,21 @@ part 'chat_ai_row_surface.dart';
 part 'chat_inbound_routes.dart';
 // The G-20 scope judgement — 「which screen is this notice news for」. Its header says why.
 part 'chat_notice_scope.dart';
+// AW-1b — wires AsrHealthTracker onto the real event sources. Its header says
+// why every subscription lives here instead of inside an existing router.
+part 'chat_asr_health_wire.dart';
+part 'chat_controller_wiring.dart';
+// Lane S4 (audio-durability plan, 700-line cap) — `part` files cannot reopen a
+// class, but a mixin declared in one CAN hold fields (and, unlike an
+// extension, correctly implements interfaces). This carries a pure-state
+// family — the per-utterance delivery snapshot and its neighbouring
+// fail-loud notice fields — moved out VERBATIM (comments included); nothing
+// in it was a getter or referenced a sibling member, so the move is textual
+// only. See that file's header for the `on` clause it did and did not need.
+part 'chat_controller_state.dart';
 
 class ChatController extends ChangeNotifier
+    with _ChatControllerState
     implements
         AiComposeHost,
         ManualDeliveryHost,
@@ -163,88 +188,22 @@ class ChatController extends ChangeNotifier
        composeGate =
            composeGate ??
            ComposeGate(transport: session.transport, phonePrefs: phonePrefs) {
-    recording = RecordingTelemetry(clock: clock ?? DateTime.now, onTick: notifyListeners);
-    aiCompose = AiComposeController(host: this, gate: this.composeGate);
-    utteranceCompose = UtteranceComposeController(host: this, gate: this.composeGate);
-    delivery = ManualDelivery(host: this, gate: this.composeGate);
-    // Built here for the same reason `delivery` is: it needs `host: this`.
-    outbox = DeliveryOutbox(store: outboxStore, blobs: outboxBlobs, host: this);
-    rowImages = outboxBlobs;
-    imageSend = ImageSendController(
-      host: this,
-      gate: this.composeGate,
-      delivery: delivery,
-      picker: imagePicker ?? const PlatformImagePicker(),
-      liveChannel: () => session.serverChannel.value, // owner 2026-08-01 cloud policy
-      // REQ-12-09 09-I/09-J. THE SAME OBJECT as `rowImages` above and as the
-      // outbox's `blobs` — one picture store, three users (the row, the queue,
-      // and now the 「+」 panel's send). Passed rather than reached for, so this
-      // line is the whole answer to 「where do these bytes come from」.
-      rowImages: outboxBlobs,
+    // Both bodies: chat_controller_wiring.dart (an extension on this class,
+    // so the lines there keep reading as implicit-this member access).
+    _buildLateFields(
+      outboxStore: outboxStore,
+      outboxBlobs: outboxBlobs,
+      imagePicker: imagePicker,
+      clock: clock,
     );
-    _finalSub = session.stt.finals.listen(_onFinal);
-    _interimSub = session.stt.interims.listen(_onInterim);
-    _injectSub = session.injectResults.listen(_onInjectResult);
-    _focusSub = session.focusStates.listen(_onFocusState);
-    session.pcPresence.addListener(_onPcPresenceChanged); // RV-92, chat_notices.dart
-    session.pcBusyListenable.addListener(notifyUi); // Card L7, BannerIds.pcBusy
-    // 🔴 F-1 — never the socket edge. Since 2026-09-04 「joined the room」 is one
-    // of TWO edges of one fact and the drain subscribes to the FACT
-    // ([deliveryLink]); this listener keeps only the pairing confirmation.
-    session.roomJoins.addListener(_onRoomJoined);
-    deliveryLink = DeliveryLinkUp(roomJoins: session.roomJoins, pcPresence: session.pcPresence);
-    deliveryLink.addListener(_onDeliveryLinkUp);
-    // 🔴 W8-3 — the RECEIPT half of the pair `ptt_inbound.dart` writes at the
-    // emit. Together they cut the 「the recording stopped on its own and the
-    // user was told nothing」 path in two:
-    // an `audio.auto_stopped.emitted` with no `.received` after it means the
-    // event was dropped on the wire between the two streams; both present with
-    // no banner on screen means the fault is above this controller. Neither
-    // question could be asked of the 2026-08-10 device round, because the
-    // whole path was silent. Instrumentation only — the subscription and the
-    // handler are unchanged.
-    //
-    // 🔴 fix-026 — the stream now carries the WIRE `reason`, so the receipt
-    // carries it too. Both W8-3 questions above are answered exactly as before;
-    // what is new is that an `.emitted` and a `.received` can now be checked to
-    // be about the SAME auto-stop, and a device round can read which ceiling
-    // fired without a second instrument.
-    _autoStoppedSub = session.autoStopped.listen((String reason) {
-      diag('audio.auto_stopped.received', <String, Object?>{'reason': reason});
-      // Written BEFORE the flag it belongs to (`_onAutoStopped` sets
-      // `_autoStopped`), so no repaint can ever observe 「stopped」 next to the
-      // PREVIOUS stop's reason. The pair is only ever read together.
-      _autoStopReason = reason;
-      _onAutoStopped(null);
-    });
-    // GA-03: PROCESSING closed with no result (15 s net / terminal stt:error).
-    _sttStalledSub = session.sttStalled.listen(_onSttStalled);
-    _fsmSub = session.fsm.changes.listen(_onFsmChange);
-    // R6 T-5d: the recording panel's amplitude meter reads the DEVICE-side dBFS
-    // measured off the captured PCM (08 §3 RMS meter), not the server's stt:level
-    // echo — a wire blip must not make the meter claim the mic went silent.
-    _amplitudeSub = session.audio.amplitudeDb.listen(_onAmplitude);
-    // R6 T-3b ④ buffer runs AND GA-01 utterance runs share the one reply
-    // stream. Each run drops any frame whose request_id echo is not its own,
-    // so routing to both is exact, not a broadcast guess.
-    _aiComposeSub = session.aiComposeEvents.listen(_onAiCompose);
-    _refinedSub = session.refinedTexts.listen(_onRefined);
-    _conn = session.fsm.connection;
-    _sess = session.fsm.session;
-    AlbumAway.instance.addListener(_onAlbumAwayChanged); // RV-60
-    // 🔴 AUD-D F6 / P1-6 (2026-09-02) — the retained-audio store's own header
-    // says "callers MUST surface these"; before this line the only listener
-    // anywhere was the boot-time diag line (retained_audio_boot.dart), which
-    // that file's own comment names as "not yet a screen". Null-safe: a phone
-    // whose retention layer failed to open (openRetainedAudioSpill's degrade
-    // path) has no store to listen to, and that is an existing, separately
-    // surfaced degradation — not this listener's problem.
-    session.audio.retainedAudio?.store.lastNotice
-        .addListener(_onRetainedAudioNotice);
+    _wireSubscriptions();
   }
 
   // Family bodies: chat_notices.dart. NAMES stay here so call sites are untouched.
   void _onAlbumAwayChanged() => onAlbumAwayChangedRouted(this);
+
+  /// D-1c — the capture-ended edge; body in chat_link_watch.dart.
+  void _onCaptureStopped() => _stopHeldLadderRouted(this);
 
   /// The server just put this connection into the room ⇒ now, and only now,
   /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
@@ -302,6 +261,11 @@ class ChatController extends ChangeNotifier
   /// The recording panel's numbers (⏱ / 📊 / 📍). See recording_telemetry.dart.
   late final RecordingTelemetry recording;
 
+  /// AW-1b — ASR-leg health telemetry, read-only observation. Wired onto the
+  /// real event sources by [wireAsrHealth] (chat_asr_health_wire.dart); that
+  /// function names every production call site.
+  final AsrHealthTracker asrHealth = AsrHealthTracker();
+
   /// The AI action row's run state (polish/organize/translate). See ai_compose_controller.dart.
   late final AiComposeController aiCompose;
 
@@ -338,6 +302,11 @@ class ChatController extends ChangeNotifier
   StreamSubscription<String>? _autoStoppedSub;
   StreamSubscription<SttStall>? _sttStalledSub;
   StreamSubscription<FlowmicStateSnapshot>? _fsmSub;
+
+  // AW-1b — every handle the health wiring opens (seven subscriptions, the
+  // ticker, and the tracker listener) on ONE field, because this file is at
+  // the 800-line cap. Set by [wireAsrHealth]; released in `disposeRouted`.
+  _AsrHealthHooks? _asrHealthHooks;
   StreamSubscription<double>? _amplitudeSub;
   StreamSubscription<AiComposeEvent>? _aiComposeSub;
   StreamSubscription<SttRefined>? _refinedSub;
@@ -455,95 +424,6 @@ class ChatController extends ChangeNotifier
   bool get canSend =>
       _buffer.trim().isNotEmpty && !delivery.sendPending && !isAiComposing &&
       (noPcTarget || canCompose);
-
-  // Per-utterance snapshot: delivery + mode are FIXED at audio:start and must
-  // NOT follow a later destination/mode toggle (§4.0 B).
-  String? _activeClientId;
-  Delivery _activeDelivery = Delivery.inject;
-  FlowMode _activeMode = FlowMode.realtime;
-  int _utteranceSeq = 0;
-
-  // Card D-2's `_lastUtteranceEntryId` — 「the row the most recent terminal
-  // final built」, the temporal guess a late `stt:refined` used to land on —
-  // was DELETED on 2026-09-03 (design D7 ③). Its own doc said it 「must not
-  // grow into a correlation key」 because no wire key existed; one exists now
-  // (`utterance_id` on `stt:final` and `stt:refined`, stored on the row as
-  // `TimelineEntry.utteranceId`), and `_applyRefined` matches on that key
-  // alone. Keeping the guess beside the key would have given 「which row is
-  // this refine for」 two answers.
-
-  // WP-R4-6 ⑦: polish-skipped honest signal. Held here (NOT on TimelineEntry)
-  // so the five-state status face stays delivery-truth only. The lead's ruling
-  // (integration, 2026-07-24): the mark is SESSION-PERSISTENT — it stays on the
-  // affected bubble for the whole app session (in-memory only, never persisted),
-  // NOT a few-seconds toast; an honest failure signal must not quietly vanish.
-  final Set<String> _polishSkippedEntryIds = <String>{};
-  /// GA-13: rows whose CURRENT compose run is a reprocess, mapped to the mode
-  /// the run was started with. The terminal takes the rewrite fork instead of
-  /// the deliver fork — and it must stamp THAT mode, not `_activeMode`, which is
-  /// still the last spoken utterance's snapshot (§4.0 B) and can be anything.
-  final Map<String, FlowMode> _reprocessingEntryIds = <String, FlowMode>{};
-  // `_reprocessWasSynced` lived here: of the in-flight reprocesses, the ones that
-  // were already server-synced, because only those got the machine
-  // `history:update`. Removed in 0.2.27 with that uplink — a reprocess is now a
-  // purely local rewrite of a row this phone owns.
-
-  // R6 P0-R3: fail-loud auto-stop notice. When the server hits the 5-min hard
-  // cap (audio:auto-stopped) the recording ends without the user's release —
-  // 08 §B-5 forbids this vanishing silently, so we raise a transient page banner.
-  // Held here (NOT on TimelineEntry) so the five-state status face stays
-  // delivery-truth only; a fresh PTT-down or an explicit dismiss clears it.
-  bool _autoStopped = false;
-
-  /// 🔴 G-20 ① — WHICH INSTANCE'S SCREEN [_autoStopped] is news for. Stamped by
-  /// the ONE writer (`onAutoStoppedRouted`) at the moment the fact is produced
-  /// (§2.5.1 fourth rule), compared through [_noticeOnScreen]. Same scope, same
-  /// `null == null` judgement as `ManualDelivery._failureInstanceId` — one scope
-  /// for the whole family, not six near-misses (ruling G-20, 2026-08-05).
-  String? _autoStoppedInstanceId;
-
-  // [_noticeOnScreen] (G-20's ONE equality judgement) and [_autoStoppedOnScreen]
-  // moved VERBATIM to chat_notice_scope.dart — the fields stay, see its header.
-
-  // 🔴 fix-026 — WHY it stopped, in the server's own wire vocabulary
-  // (`AudioAutoStoppedSchema.reason`). A SECOND value beside [_autoStopped]
-  // because it answers a SECOND question: that one says 「the recording stopped
-  // on its own」, this one
-  // says 「because of what」. Collapsing them (e.g. a nullable reason doubling as the
-  // flag) is the repo's #1 bug shape, and the flag has three writers this value
-  // must not inherit (`pttDown` / the ✕ / the auto-hide timer).
-  //
-  // Sole writer: the `session.autoStopped` subscription above, which writes it
-  // immediately before raising the flag. `''` = the frame did not say — never a
-  // stand-in for a real reason.
-  String _autoStopReason = '';
-
-  // [autoStopReason] moved VERBATIM to chat_notice_scope.dart, with the gate it reads.
-
-  // GA-03: fail-loud "PTT produced nothing" notice. The FSM closed PROCESSING
-  // without a terminal stt:final (15 s safety net, or a terminal stt:error).
-  // Same shape as [_autoStopped]: transient page state, never a timeline field —
-  // the utterance built no row at all (the final never arrived = the utterance
-  // never completed), so there
-  // is nowhere on the five-state face to put it, and the banner IS the truth.
-  // ENG-3: an [SttStall] (reason + wire code/message), not the bare enum, so a
-  // NAMED engine refusal reaches the banner instead of dying in this field.
-  SttStall? _sttStalled;
-
-  /// 🔴 G-20 ② — WHICH INSTANCE'S SCREEN [_sttStalled] is news for. Stamped by
-  /// the ONE writer (`onSttStalledRouted`); see [_autoStoppedInstanceId].
-  String? _sttStalledInstanceId;
-
-  // AUD-D F6 / P1-6 (2026-09-02) — `RetainedAudioStore` gave up or aged out
-  // unclaimed capture audio. Deliberately NOT instance-scoped like the three
-  // notices above: it describes a FILE on this phone's disk, produced by the
-  // retention layer independently of which PC this screen happens to be
-  // showing (unlike [_autoStopped]/[_sttStalled]/[_utteranceFailure], which
-  // are all about a delivery this phone tried to make TO a specific
-  // instance). The raw [RetainedAudioNotice.code] string, not the model
-  // type, so this class never has to import audio/retained_audio_store.dart —
-  // the same shape [_autoStopReason] already uses for the same reason.
-  String? _retainedAudioNoticeCode;
 
   // ── mode chip ────────────────────────────────────────────────────────
   // All three bodies: chat_mode_chip.dart (moved VERBATIM, RV-92's tag-along

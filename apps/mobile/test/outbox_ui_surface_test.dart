@@ -19,6 +19,7 @@ import 'package:flowmic/src/session/delivery_outbox.dart';
 import 'package:flowmic/src/session/outbox_destination.dart';
 import 'package:flowmic/src/session/outbox_failure_text.dart';
 import 'package:flowmic/src/session/outbox_item.dart';
+import 'package:flowmic/src/session/outbox_notice_gate.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
@@ -524,7 +525,7 @@ void main() {
   // something nobody displayed) ────────────────────────────────────────────
   group('④ queue banners — still N undelivered / the queue\'s own terminal', () {
     BannerQueue build({
-      int outboxPending = 0,
+      OutboxPendingNotice outboxPending = OutboxPendingNotice.none,
       OutboxTerminal? outboxTerminal,
       ConnectionState connection = ConnectionState.connected,
       AppStrings strings = _zh,
@@ -537,7 +538,8 @@ void main() {
     );
 
     test('N>0 ⇒ there is one info banner, it says N, and must not say 「已发送」', () {
-      final BannerQueue q = build(outboxPending: 3);
+      final BannerQueue q =
+          build(outboxPending: const OutboxPendingNotice.count(3));
       expect(q.contains(BannerIds.outboxPending), isTrue);
       final BannerItem item = q.all.singleWhere(
         (BannerItem i) => i.id == BannerIds.outboxPending,
@@ -559,7 +561,7 @@ void main() {
       // owner: 队列不加拦截步骤. The count must never sit in front of something
       // the user has to act on.
       final BannerQueue q = build(
-        outboxPending: 9,
+        outboxPending: const OutboxPendingNotice.count(9),
         connection: ConnectionState.disconnected,
       );
       expect(q.top!.id, BannerIds.link);
@@ -689,7 +691,7 @@ void main() {
           connection: ConnectionState.connected,
           autoStopped: false,
           strings: _zh,
-          outboxPending: box.pendingCountFor(kInstance),
+          outboxPending: box.noticeFor(kInstance),
         ).contains(BannerIds.outboxPending),
         isFalse,
         reason: '🔴 an injected row must not still be counted into 「还有 N 条未投递」',

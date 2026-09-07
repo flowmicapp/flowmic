@@ -43,7 +43,7 @@ const emit = defineEmits<{ (e: 'retry'): void }>();
 //      be reached right now";
 //   ② Account — **the whole line is absent when there is no live answer** (not
 //      "—", and definitely not the internal id);
-//   ④ This month — the two-ended quota gauge (owner 2026-08-27). One rail, one
+//   ④ This cycle — the two-ended quota gauge (owner 2026-08-27). One rail, one
 //      centre tick: minutes grow inward from the left, LLM context grows inward
 //      from the right. An END whose meter could not be read is ABSENT (no bar, no
 //      label) rather than drawn at zero — a zero-length bar reads as "you have used
@@ -105,6 +105,11 @@ const hasRowsAbove = computed(
           <span v-if="card.gauge.minutes" class="qg-min">{{ card.gauge.minutes.label }}</span>
           <span v-if="card.gauge.context" class="qg-ctx">{{ card.gauge.context.label }}</span>
         </div>
+        <!-- ④-ter When it starts over. Its own row under the two number labels,
+             because it speaks about BOTH meters and belongs to neither end.
+             Absent — not blank, not a dash — when the server did not say; see
+             lib/cloud-account.ts [resetLine]. -->
+        <div v-if="card.gauge.reset" class="qg-reset">{{ card.gauge.reset }}</div>
       </div>
     </div>
 
@@ -171,6 +176,11 @@ const hasRowsAbove = computed(
    legend. `margin-left:auto` keeps the right one right-aligned even when the left
    meter could not be read and its span is absent. */
 .qg-ctx { margin-left: auto; text-align: right; }
+/* ④-ter The reset sentence. It WRAPS rather than truncating: the two labels above
+   can be cut because each is "number / number" and the front carries the answer,
+   while this one is a sentence — and 0.2.53 is the standing bill for cutting one
+   (a refusal code reached a real phone as "INJ…"). German is the long case here. */
+.qg-reset { font-size: 11px; color: var(--t3); line-height: 1.35; }
 /* The rule that keeps "Subscription" and "Cloud Key" from being read as one block. */
 .ca-sep { height: 1px; background: var(--line); margin: 4px 0 2px; }
 /* Sibling of PairedList's `.pm-seen`: a dotted underline is this app's ONE mark for

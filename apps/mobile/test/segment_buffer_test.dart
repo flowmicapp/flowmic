@@ -309,4 +309,56 @@ void main() {
     expect(b.isEmpty, isTrue);
     expect(b.finalizedSlots, isEmpty);
   });
+  // ───────────────────────────────────────────────────────────────────────
+  // SD-1 — the slot-level half of the drill B-7 defect. The wire-level proof
+  // (row minted, "." injected into the PC) is in server_final_authority_test.dart.
+  group('SD-1 content gate', () {
+    test('a punctuation-only interim never enters a slot', () {
+      final SegmentBuffer b = SegmentBuffer();
+      expect(b.put(idx: 0, text: '.'), isFalse);
+      expect(b.put(idx: 0, text: '。'), isFalse);
+      expect(b.put(idx: 0, text: ' … !? '), isFalse);
+      expect(b.joined, '');
+      expect(b.isEmpty, isTrue);
+    });
+
+    test('letters, CJK and digits are all content', () {
+      expect(sttTextHasContent('a'), isTrue);
+      expect(sttTextHasContent('你'), isTrue);
+      expect(sttTextHasContent('7'), isTrue);
+      expect(sttTextHasContent('Здравствуйте'), isTrue);
+      expect(sttTextHasContent('안녕'), isTrue);
+      expect(sttTextHasContent('.'), isFalse);
+      expect(sttTextHasContent(''), isFalse);
+      expect(sttTextHasContent('—。， \n'), isFalse);
+    });
+
+    test('a punctuation-only interim cannot retract words already shown', () {
+      final SegmentBuffer b = SegmentBuffer();
+      expect(b.put(idx: 0, text: '我们明天开会'), isTrue);
+      expect(b.put(idx: 0, text: '.'), isFalse);
+      expect(b.joined, '我们明天开会');
+    });
+
+    test('emptyIsVerdict clears the slot; without it the prior survives', () {
+      final SegmentBuffer keep = SegmentBuffer();
+      keep.put(idx: 0, text: '累积的在线文本');
+      keep.put(idx: 0, text: '', finalized: true);
+      expect(keep.joined, '累积的在线文本',
+          reason: 'the flush-cap placeholder must not wipe the interims');
+
+      final SegmentBuffer verdict = SegmentBuffer();
+      verdict.put(idx: 0, text: '累积的在线文本');
+      verdict.put(idx: 0, text: '', finalized: true, emptyIsVerdict: true);
+      expect(verdict.joined, '');
+    });
+
+    test('emptyIsVerdict touches ONLY its own segment (FB-6)', () {
+      final SegmentBuffer b = SegmentBuffer();
+      b.put(idx: 0, text: '第一段', finalized: true);
+      b.put(idx: 1, text: '.');
+      b.put(idx: 1, text: '', finalized: true, emptyIsVerdict: true);
+      expect(b.joined, '第一段');
+    });
+  });
 }

@@ -53,6 +53,7 @@ class ArticlePage extends StatelessWidget {
     required this.rows,
     required this.strings,
     this.pendingBackfillMs = 0,
+    this.pendingBackfillFromOutage = false,
   });
 
   /// The article's head row — its title, start and totals.
@@ -70,6 +71,15 @@ class ArticlePage extends StatelessWidget {
   /// the number belongs to the recovery channel, and a page that reached for it
   /// would be a second reader of a fact with one owner.
   final int pendingBackfillMs;
+
+  /// Card LK-3 — was any of [pendingBackfillMs] recorded while the link was
+  /// down?
+  ///
+  /// 🔴 IT CHOOSES BETWEEN TWO SENTENCES AND THE WRONG ONE IS A CLAIM ABOUT
+  /// THE USER'S NETWORK. False is the sentence that says only what is
+  /// measured; true adds 「offline」, which the recovery channel is the only
+  /// thing able to know (`BackfillProgress.pendingFromOutage`).
+  final bool pendingBackfillFromOutage;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +156,10 @@ class ArticlePage extends StatelessWidget {
     // with a cast error that looks like a widget-tree problem.
     child: Text(
       key: const Key('article.backfill.text'),
-      strings.articleBackfillPending(formatEntryDuration(pendingBackfillMs)),
+      pendingBackfillFromOutage
+          ? strings.articleBackfillPending(formatEntryDuration(pendingBackfillMs))
+          : strings.articleBackfillUnconfirmed(
+              formatEntryDuration(pendingBackfillMs)),
       style: TextStyle(color: FlowMicColors.t2, fontSize: 12),
     ),
   );

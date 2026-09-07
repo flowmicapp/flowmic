@@ -50,6 +50,16 @@ void onAutoStoppedRouted(ChatController c) {
   // G-20 ①: the scope is read at the moment the fact is produced (§2.5.1
   // fourth rule), never at display time.
   c._autoStoppedInstanceId = c.session.connectedInstanceId;
+  // 🔴 DEFECT D-1's OTHER HALF — THE CLOCK NOW OUTLIVES THE FSM, SO SOMETHING
+  // ELSE HAS TO STOP IT. `onFsmChangeRouted` (chat_outbox_host.dart) no longer
+  // freezes the elapsed readout while a continuous capture is still running,
+  // and an ending that happens with no link produces NO FSM edge at all — the
+  // session was already `disconnected` before the recording ended. This stream
+  // is the only edge there is, so without this line the 200 ms ticker runs for
+  // the life of the process, repainting a page about a recording that is over.
+  // (Caught by the test binding's pending-timer invariant, which is the only
+  // thing in this repo that reports a leaked periodic timer at all.)
+  if (c._sess != SessionState.recording) c.recording.stop();
   c.notifyUi();
 }
 
@@ -201,8 +211,8 @@ void onAmplitudeRouted(ChatController c, double db) {
 }
 
 /// AUD-D F6 / P1-6 (2026-09-02, card B2-O) — `RetainedAudioStore.lastNotice`
-/// fired: a segment was dropped-oldest / cap-reached / TTL-expired out of
-/// local retention. Reads the CURRENT value off the listenable rather than
+/// fired: retention refused new bytes at the cap, failed a write, or swept
+/// a settled recording. Reads the CURRENT value off the listenable rather than
 /// carrying one in the callback signature, because [ValueListenable]'s
 /// listener contract is a bare `void Function()` — the same shape
 /// `session.pcBusyListenable.addListener(notifyUi)` already relies on.

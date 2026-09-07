@@ -69,8 +69,18 @@ import 'audio_capture.dart' show RecorderState;
 /// stale 「not wired yet」 is authoritative and wrong, and it stops the question
 /// being asked.
 ///
-/// ⚠️ `RetainedAudioSpill.settleSegment` is still a WAITING mechanism (CR-5).
-/// That one has not changed.
+/// ⚠️ THIS BLOCK USED TO END 「`RetainedAudioSpill.settleSegment` is still a
+/// WAITING mechanism (CR-5). That one has not changed.」 It has now: card LS-1b
+/// DELETED that verb (audit item E25) rather than wiring it. It was per-SEGMENT
+/// on the legacy face, where retained bytes are by construction the bytes the
+/// server never received — so 「a final arrived ⇒ settle that segment」 would
+/// have deleted audio nothing ever transcribed.
+///
+/// What settles now is the RECORDING, on the journal face, through
+/// `session/live_settle.dart` and only behind the three-condition predicate.
+/// For a continuous recording that is ONE settle, on the terminal final: the
+/// journal is per recording and a segment is the server's unit, not a slice of
+/// the file this class keeps open.
 class ContinuousRecording {
   /// [recorderState] is `AudioCapture.state` in production — a broadcast stream
   /// of TRANSITIONS, which is what makes the auto-clear safe to arm before the

@@ -159,6 +159,14 @@ export const ADMIN_GATED_ROUTES = [
   // (http/ops-refund-release-routes.ts).
   'POST /api/ops/purchases/refund/settle',
   'POST /api/ops/purchases/refund/release',
+  // 🔴 2026-09-07 (REQ-002) — THE SIXTH AND SEVENTH MUTATORS, and the first two
+  // that change a RECURRING charge rather than a single one. Same fail-closed
+  // shape as their neighbours (business row before the provider is called) and
+  // the same writers the account holder's own buttons use, so 「what did we send
+  // the provider」 has one answer whichever side pressed it
+  // (http/ops-subscription-routes.ts).
+  'POST /api/ops/subscriptions/cancel',
+  'POST /api/ops/subscriptions/resume',
 ] as const;
 
 /** The admin-gated routes that CHANGE something. Exported so the failure-policy
@@ -171,6 +179,8 @@ export const MUTATING_ADMIN_GATED_ROUTES: readonly AdminGatedRoute[] = [
   'POST /api/ops/purchases/refund',
   'POST /api/ops/purchases/refund/settle',
   'POST /api/ops/purchases/refund/release',
+  'POST /api/ops/subscriptions/cancel',
+  'POST /api/ops/subscriptions/resume',
 ];
 
 /** `'<METHOD> <path>'` for one of the routes above. Nothing else is expressible. */

@@ -98,11 +98,17 @@ describe('F6: the writer prunes its forward-ledger dedup table on a real timer',
       setIntervalFn: sched.setIntervalFn,
       clearIntervalFn: sched.clearIntervalFn,
     });
-    // Single-node deployment: exactly retention + P2-6's growth reaper share
-    // this override (see retention-cleanup.test.ts's own "arms the sweep" test
-    // for that baseline) — a THIRD timer here would mean this card's sweep is
-    // arming even where there is no ledger to prune.
-    expect(sched.timers).toHaveLength(2);
+    // Single-node deployment: retention + P2-6's growth reaper + card PR-2's
+    // recovery sweep share this override (see retention-cleanup.test.ts's own
+    // "arms the sweep" test for that baseline) — a FOURTH timer here would mean
+    // this card's sweep is arming even where there is no ledger to prune.
+    //
+    // ⚠️ THE COUNT ALONE IS NOT THE ASSERTION, and after PR-2 it could not be:
+    // 「there are three timers」 stays true if the forward-ledger sweep armed and
+    // the recovery sweep did not. The line below — the table does not exist on a
+    // single node — is what actually says the forward ledger is unarmed here, and
+    // it is the one that would have to be deleted to fake this test.
+    expect(sched.timers).toHaveLength(3);
     expect(() => server!.db.raw.prepare('SELECT 1 FROM node_forward_seen').all()).toThrow();
   });
 });

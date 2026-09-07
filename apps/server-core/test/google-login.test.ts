@@ -448,6 +448,52 @@ describe('P2-5 (2026-09-02 audit): the daily account-mint cap covers this route 
   });
 });
 
+describe('2026-09-07 production lockout: a spent MINT budget must not close SIGN-IN', () => {
+  it('🔴 an account that already exists still signs in after the address has spent its daily mint cap', async () => {
+    // WHAT HAPPENED, from the NY origin's own log (ip 183.158.73.135):
+    //   04:06:35Z  auth: account minted   (register)   <- slot 1 of 2
+    //   04:07:08Z  auth: account minted   (register)   <- slot 2 of 2
+    //   04:59:14Z  google login: account creation refused ... retry_after_ms 83240466
+    //   05:40:19Z  google login: account creation refused ... retry_after_ms 80775667
+    // The refused account had existed since 2026-08-14 and was creating nothing.
+    // The console renders REGISTER_RATE_LIMITED as「尝试次数过多，请等几分钟再试」
+    // while the real wait was 23 hours, so the message could not be acted on
+    // either.
+    //
+    // 🔴 WHY THE TWO TESTS ABOVE WERE BOTH GREEN THROUGH ALL OF IT. They pin
+    // that a sign-in does not SPEND a slot. Nothing pinned that a sign-in does
+    // not REQUIRE one — the accounting end and the admission end were each
+    // measured, and the path between them was not. Deleting the guard in
+    // resolveAccount leaves both of them green; deleting the fix reddens this.
+    const { verifier } = realVerifier();
+    const url = await saas(verifier);
+    const returning = mint({ sub: 'g-lockout-returning', email: 'returning@gmail.com' });
+
+    // The returning account exists first (this is its original creation, and it
+    // spends slot 1 — exactly as the real account's 2026-08-14 sign-up did).
+    expect((await google(url, returning)).status).toBe(201);
+    // Somebody on this same address burns the second and last slot of the day.
+    expect((await google(url, mint({ sub: 'g-lockout-other', email: 'other@gmail.com' }))).status).toBe(201);
+    // The budget is now demonstrably spent: a brand-new identity is refused,
+    // and this assertion is the POSITIVE CONTROL for the one after it — without
+    // it, a 200 below could mean "the cap is not enforced at all" rather than
+    // "the cap does not touch sign-in".
+    const stranger = await google(url, mint({ sub: 'g-lockout-stranger', email: 'stranger@gmail.com' }));
+    expect(stranger.status, JSON.stringify(stranger.json)).toBe(429);
+    expect(stranger.json.error).toBe('REGISTER_RATE_LIMITED');
+
+    // 🔴 THE CLAIM. The returning account creates nothing, so the
+    // account-creation budget has no say over it.
+    const back = await google(url, returning);
+    expect(back.status, JSON.stringify(back.json)).toBe(200);
+    expect(typeof back.json.token).toBe('string');
+    expect(back.json.user.email).toBe('returning@gmail.com');
+    // ⚠️ FIVE calls exactly — the 5/10-min burst brake (REGISTER_MAX_ATTEMPTS)
+    // shares this address and a sixth would trip THAT one, answering with the
+    // same 429 body and making this test lie about which gate it measured.
+  });
+});
+
 describe('an unconfigured deployment', () => {
   it('answers a named 503 — never a 404, and never a quiet acceptance', async () => {
     // NO injected verifier: this drives the PRODUCTION resolution

@@ -54,6 +54,11 @@ ContinuousOffer? _continuousOfferRouted(
     // signed out rather than guessing "yes" for a fact nobody answered.
     signedIn: s.widget.isSignedIn?.call() ?? false,
     summary: account.summary,
+    // The NAMED reason the last ceiling read failed, so a row that cannot be
+    // pressed says WHY instead of offering a retry that cannot work (device
+    // round three, 2026-09-06: an unverified account past the grace read
+    // 「Account limit unavailable — try again」 forever).
+    refusal: account.refusal,
     // WP-9 — the live session's own channel fact (already tracked for the
     // header chip / connection-diagnostics sheet), so a LAN recording is never
     // judged against a cloud account's monthly balance (see the parameter's
@@ -74,6 +79,13 @@ Widget? _continuousEntryRouted(
   AppStrings strings,
   PttVisual visual,
 ) {
+  // 🔴 DEFECT D-1 — NEVER AN IDLE OFFER WHILE A RECORDING IS RUNNING. Measured
+  // on device: an orphaned 36-minute capture with this row underneath it saying
+  // 「长时间录音」 as though nothing were happening, which is also the only thing
+  // the user could press (and pressing it is D-3). The gate below makes the
+  // whole slot unreachable while a capture is live; this refusal is the second
+  // half, in the function whose name promises it.
+  if (s.controller.session.continuousStillCapturing) return null;
   final ContinuousOffer? offer = _continuousOfferRouted(s, visual);
   if (offer == null || !offer.visible) return null;
   return ContinuousEntryRow(
@@ -115,10 +127,15 @@ Future<void> _startContinuousRouted(
   // to keep the microphone open by reading exactly this flag. Setting it
   // afterwards would leave a window in which a continuous recording is torn
   // down as though it were an ordinary press.
-  s.controller.session.beginContinuous(
+  // 🔴 DEFECT D-3 — A NULL HERE MEANS 「there is already a recording」, and the
+  // press must not happen. `AudioCapture.start()` would return early on a live
+  // recorder without opening a second journal, so the new sitting's audio would
+  // land inside the previous article at offsets nothing can correct.
+  final String? articleId = s.controller.session.beginContinuous(
     cap: Duration(minutes: cap),
     onWarning: () => s.controller.noteContinuousCapWarning(),
   );
+  if (articleId == null) return;
   final bool ok = await _pttDownRouted(s);
   if (!ok) {
     // A refused press (permission, FSM, a recorder that would not open) leaves
@@ -141,8 +158,24 @@ Widget? _continuousLiveRouted(
   AppStrings strings,
   PttVisual visual,
 ) {
-  if (visual != PttVisual.recording) return null;
   final PttSession session = s.controller.session;
+  // 🔴 DEFECT D-1 — THE FACE IS DRAWN FROM THE RECORDER, NOT FROM THE FSM.
+  // `PttVisual.recording` answers 「is the session in RECORDING」, and CR-3 made
+  // that stop being the same question as 「is this phone recording」: past the
+  // drop grace the session reads `disconnected` while the microphone is
+  // deliberately still open. Reading the face alone therefore removed the only
+  // screen that carried the clock and the stop button, from the one recording
+  // that most needed both.
+  //
+  // ⚠️ Both arms are kept rather than replacing one with the other. The FSM arm
+  // is what draws this face for an ORDINARY continuous recording (the recorder
+  // is live in both, but the ordering between `pttDown` and the recorder's
+  // first transition is not this file's to assume), and the recorder arm is the
+  // one that survives the link. Either alone is a face that disappears in a
+  // state somebody has already been surprised by once.
+  if (visual != PttVisual.recording && !session.continuousStillCapturing) {
+    return null;
+  }
   if (!session.continuous.isActive) return null;
   // The ceiling that armed the clock, never the account's current value — see
   // `ContinuousCapTimer.armedCap`. Null would mean the clock is not running, at
@@ -158,3 +191,23 @@ Widget? _continuousLiveRouted(
     onStop: () => unawaited(s.controller.pttUp()),
   );
 }
+
+/// Defect D-1 — the dock's idle rows, with the one state CR-3 invented taken
+/// out of them.
+///
+/// [composeIdleRowsVisible] is a FACE-level predicate and stays one: it answers
+/// 「is this dock showing an idle face」, and `PttVisual.disabled` genuinely is
+/// one for every ordinary press. It is the wrong answer for a continuous
+/// recording that outlived its link, where the same `disabled` face means 「the
+/// link is gone AND a microphone is open」 — and §5-8's mutual exclusion (the
+/// continuous face REPLACES the dock) would otherwise be broken exactly there:
+/// the mode row, the 「+」 band and the entry row would all lay out above a live
+/// recording's own bar.
+///
+/// ⚠️ It is NOT folded into [composeIdleRowsVisible] itself. That function is
+/// pure over one enum and is shared with `ComposeBand`; giving it a session to
+/// read would make the band and the dock able to disagree about a fact neither
+/// of them owns. One caller has the extra question, so one caller asks it.
+bool _dockIdleRowsRouted(_ChatFlowPageState s, PttVisual visual) =>
+    composeIdleRowsVisible(visual) &&
+    !s.controller.session.continuousStillCapturing;

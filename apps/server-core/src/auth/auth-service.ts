@@ -12,6 +12,7 @@
 // password_hash — acks and REST bodies expose only {id,email,display_name,plan}.
 // Passwords/hashes never touch a log line here (nothing is logged in this file).
 
+import { parseUtcStamp } from '../db/utc-stamp';
 import { randomUUID } from 'node:crypto';
 import type { ErrorCode, Plan } from '@flowmic/protocol';
 import { isAccountRestricted } from './account-restriction';
@@ -324,7 +325,9 @@ export function makeAuthService(deps: AuthServiceDeps): AuthService {
       // the wall start disagreeing about which day it is.
       verify_grace_days_left: verificationGrace({
         emailVerifiedAt: user.email_verified_at,
-        createdAtMs: Date.parse(user.created_at),
+        // parseUtcStamp, never Date.parse: the column is a zone-less UTC stamp
+        // (db/utc-stamp.ts) — bare Date.parse read it as local time.
+        createdAtMs: parseUtcStamp(user.created_at),
         hasEmail: user.email !== null,
         nowMs: now(),
       }).daysLeft,

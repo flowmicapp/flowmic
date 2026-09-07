@@ -92,10 +92,21 @@ class LinkRetryBudget {
   /// The connection state already accounted for.
   ConnectionState? seen;
 
+  /// 🔴 D-1c — the give-up ran while a continuous capture was still open, so
+  /// the LADDER half of it was postponed and this remembers that debt.
+  ///
+  /// It is not 「the ladder is running」 (ask `reconnect.isRunning`) and not
+  /// 「we gave up」 (that is [ChatController.sessionLost]). It answers only
+  /// 「is there a stop we still owe」, which is a question nobody else can
+  /// answer once the give-up has returned.
+  bool ladderHeldForRecording = false;
+
   void reset() {
     spending = false;
     attempts = 0;
     seen = null;
+    // A link that came back owes no stop: the ladder is where it should be.
+    ladderHeldForRecording = false;
   }
 }
 
@@ -195,9 +206,59 @@ void _onSessionLost(ChatController c) {
 /// Stop the ladder FIRST (its 30 s rungs would otherwise keep dialing a dead PC
 /// from behind the connections list), then flag the page — it pops back to the
 /// list and says why.
+///
+/// 🔴 D-1c — EXCEPT WHILE A CONTINUOUS CAPTURE IS STILL OPEN, WHEN THE LADDER
+/// KEEPS DIALLING.
+///
+/// Round four (2026-09-06) made the page's exit DEFER while the microphone is
+/// live, and this function ran unchanged underneath it: the page stayed, and
+/// the machine that could have brought the link back was stopped. What that
+/// costs is the recovery — a 30-minute recording's audio is on this phone and
+/// the only thing that can start feeding it back is a live link, so the phone
+/// sat there with a full disk of audio and nothing dialling until the user
+/// happened to press Stop.
+///
+/// ⚠️ THE ORIGINAL REASON IS KEPT, NOT OVERRULED. It is 「from behind the
+/// connections list」 — a ladder nobody is watching. While the recording runs
+/// the user is still on the recording screen with its link banner, which is
+/// precisely the state owner's 2026-08-19 ruling 4 asked for (「the machine
+/// keeps trying while the user is looking at it」). The stop is therefore
+/// POSTPONED, not cancelled: [_stopHeldLadderRouted] runs it on the
+/// capture-ended edge, at the same moment the page's deferred exit lands.
+///
+/// ⚠️ `sessionLost` is still raised here, unchanged. It is what the page's
+/// deferred exit reads, and lowering it would have made this a second, silent
+/// exit-cancelling mechanism next to the one R4F built.
+///
+/// The ladder is uncapped by construction (`ReconnectCoordinator.maxAttempts`
+/// defaults to 0) and its backoff tops out at 30 s, so 「keeps trying」 is a
+/// dial every 30 s, not a spin.
 void _giveUpOnLink(ChatController c) {
   c.sessionLost = true;
   c.linkRetry.spending = false;
-  unawaited(c.session.reconnect.stop());
+  if (c.session.continuousStillCapturing) {
+    c.linkRetry.ladderHeldForRecording = true;
+    diag('link.giveup.ladder_held', const <String, Object?>{
+      'reason': 'continuous_capture',
+    });
+  } else {
+    unawaited(c.session.reconnect.stop());
+  }
   c.ucNotify();
+}
+
+/// D-1c — pay the postponed stop. Driven by [PttSession.captureStopped], the
+/// same edge the PC-release exit is re-pulled from.
+///
+/// 🔴 IT RE-ASKS EVERYTHING RATHER THAN TRUSTING THE FLAG. The link may have
+/// come back while the recording ran, in which case [LinkRetryBudget.reset]
+/// has already cleared the debt and there is nothing to stop; and the recorder
+/// stops for every ordinary push-to-talk release too, so 「the flag is set」 is
+/// not on its own a licence to tear a ladder down.
+void _stopHeldLadderRouted(ChatController c) {
+  if (!c.linkRetry.ladderHeldForRecording) return;
+  if (c.session.continuousStillCapturing) return;
+  c.linkRetry.ladderHeldForRecording = false;
+  if (!c.sessionLost) return; // healed while the recording ran
+  unawaited(c.session.reconnect.stop());
 }

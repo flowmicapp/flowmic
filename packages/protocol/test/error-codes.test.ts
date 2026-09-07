@@ -299,7 +299,14 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // as the code all eight bundled STT adapters throw from `push()` when called
 // while the engine is not `'open'` — that call never reaches a vendor, so it
 // cannot have timed out. Full argument at the entry in src/error-codes.ts.
-const EXPECTED_ERROR_CODE_COUNT = 73;
+// 73 → 74 (lane EC, 2026-09-06): `AUDIO_OP_BINDING_CONFLICT`, owner-approved
+// (docs/decisions/2026-09-06-owner-grants-error-code-audio-op-binding-conflict.md).
+// The server's recovery-operation registry refuses a re-send that reuses an
+// `operation_id` for different audio; it used to borrow `STT_NO_ENGINE_REACHED`,
+// which sent the user to check engines that are fine and told them to say it
+// again — the action that caused it. Full argument at the entry in
+// src/error-codes.ts.
+const EXPECTED_ERROR_CODE_COUNT = 74;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {
@@ -342,6 +349,46 @@ describe('error-code catalog guard', () => {
         `${locale} copy must name the window`,
       ).toContain('24');
     }
+  });
+
+  // ── AUDIO_OP_BINDING_CONFLICT (lane EC, 2026-09-06) ───────────────────────
+  //
+  // Three properties, and each one is a thing owner's ruling decided rather than
+  // a thing the string happens to have.
+  describe('AUDIO_OP_BINDING_CONFLICT', () => {
+    it('is registered with both locales and rides getErrorMessage', () => {
+      expect(ERROR_CODE_LIST).toContain('AUDIO_OP_BINDING_CONFLICT');
+      expect(getErrorMessage('AUDIO_OP_BINDING_CONFLICT', 'en'))
+        .toBe(ERROR_CODES.AUDIO_OP_BINDING_CONFLICT.en);
+      expect(getErrorMessage('AUDIO_OP_BINDING_CONFLICT', 'zh-CN'))
+        .toBe(ERROR_CODES.AUDIO_OP_BINDING_CONFLICT.zh_CN);
+    });
+
+    // 🔴 The name is 25 characters BECAUSE the phone truncates a raw identifier
+    // at 28 (chat_message_tile.dart `_truncateFailureReason`) — 0.2.53 shipped a
+    // code rendered as three letters. The request went in at 32 and owner
+    // shortened it; without this line the next rename has nothing to stop it.
+    it('🔴 fits the phone raw-identifier cell (≤ 28 chars)', () => {
+      expect('AUDIO_OP_BINDING_CONFLICT'.length).toBeLessThanOrEqual(28);
+    });
+
+    // 🔴 NO IMPERATIVE. There is nothing the user can do — the client mints a
+    // fresh operation by itself — and the one action a sentence could ask for
+    // ("say it again") is the action that produced this. The borrowed code it
+    // replaces asked for exactly that, which is the defect.
+    it('🔴 states facts and asks for nothing', () => {
+      const en = ERROR_CODES.AUDIO_OP_BINDING_CONFLICT.en;
+      const zh = ERROR_CODES.AUDIO_OP_BINDING_CONFLICT.zh_CN;
+      for (const phrase of ['Say it again', 'Try again', 'try again', 'check the', 'Check ']) {
+        expect(en, `en copy must not instruct: ${phrase}`).not.toContain(phrase);
+      }
+      for (const phrase of ['请重', '请检查', '请稍后', '请联系']) {
+        expect(zh, `zh copy must not instruct: ${phrase}`).not.toContain(phrase);
+      }
+      // And it must still answer the question the user would otherwise guess at.
+      expect(en).toContain('charge');
+      expect(zh).toContain('计费');
+    });
   });
 
   it('getErrorMessage resolves both locales', () => {

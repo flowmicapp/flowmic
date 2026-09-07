@@ -46,7 +46,7 @@
 import type { ServerMode } from '@flowmic/protocol';
 import { ServerError } from '../errors';
 import type { PlanLimits } from './plans';
-import { currentMonth, type UsageRepo } from '../db/repos/usage.repo';
+import type { UsageRepo } from '../db/repos/usage.repo';
 
 export type QuotaKind = 'stt' | 'llm';
 
@@ -55,6 +55,11 @@ export interface PlanLookup {
    *  post permanent_free exemption. MUST be `BillingService.effectiveLimits`, the
    *  single solver; never `planLimits(...)` re-derived from a tier. */
   effectiveLimits(user_id: string): PlanLimits;
+  /** Which bucket this account is metering into at `atMs` — the SAME answer the
+   *  meter writes to. MUST be `BillingService.usagePeriodKey`, the single place
+   *  that knows the account's cycle anchor (owner 2026-09-05); a calendar-month
+   *  key re-derived here would read a bucket the meter never writes. */
+  usagePeriodKey(user_id: string, atMs: number): string;
 }
 
 export interface QuotaGuard {
@@ -71,7 +76,7 @@ export function makeQuotaGuard(
   function budget(user_id: string, kind: QuotaKind): { limit: number; used: number } {
     const limits = planLookup.effectiveLimits(user_id);
     const limit = kind === 'stt' ? limits.stt_minutes : limits.llm_tokens;
-    const rec = usageRepo.get(user_id, currentMonth(clock));
+    const rec = usageRepo.get(user_id, planLookup.usagePeriodKey(user_id, clock()));
     // 🔴 owner 2026-08-14: the LLM budget accrues on OUTPUT tokens ONLY.
     // `llm_tokens_in` stays fully RECORDED (usage_records / usage_events / the ops
     // routes all keep both columns) but is REFERENCE, never charged: input volume

@@ -175,8 +175,13 @@ function accepted(res: ServerResponse, snapshot: { status: string; scheduled_cha
  * and the repair they would choose (cancel again, or call the bank) is the
  * expensive one. The honest sentence the console renders is 「we could not
  * confirm it; check back in a minute」.
+ *
+ * ⚠️ EXPORTED SINCE 2026-09-07 — http/ops-subscription-routes.ts calls the same
+ * writers from the operator side and must give the SAME answer to the same
+ * provider outcome. Two copies of this decision is how one of them starts
+ * telling somebody 「it definitely did not happen」 about a timeout.
  */
-function refuseFromProvider(res: ServerResponse, code: string, detail: string): void {
+export function refuseFromProvider(res: ServerResponse, code: string, detail: string): void {
   // 🔴 THE NORMALISED CODE, NOT A VENDOR ONE. This used to compare against the
   // literal 'PADDLE_UNREACHABLE'; with a second provider in the tree that test
   // would silently never match a Creem failure, and EVERY Creem timeout would

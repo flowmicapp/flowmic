@@ -20,6 +20,7 @@ import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 void main() {
   late Directory tmp;
@@ -39,8 +40,11 @@ void main() {
 
   tearDown(() async {
     await capture.dispose();
+    // The spill owns the journal handle; `AudioCapture.dispose` does not
+    // touch it. See test/support/temp_teardown.dart.
+    await spill.dispose();
     await store.dispose();
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   Future<int> retainedBytesOnDisk() async {

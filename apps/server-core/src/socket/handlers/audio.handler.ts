@@ -32,6 +32,7 @@ import type { RoomStore } from '../../room/store';
 import type { SttOrchestrator } from '../../engine/orchestrator';
 import type { SttCharCounts } from '../../engine/stt-session-deps';
 import { EngineNotWiredError } from '../../engine/orchestrator';
+import { recoveryEchoOf, type RecoveryEcho } from '../../engine/stt-session-receipt';
 import {
   audioSessionKey, publishAudioSessions,
   type AudioSessionRegistry, type AudioSessionState, type AudioSessionEntry,
@@ -39,9 +40,12 @@ import {
 import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
+import type { RecoveryOperationsRepo } from '../../db/repos/recovery-operations.repo';
 import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
 import { markAudioStop } from '../../obs/latency';
 import { log } from '../../log';
+import { createRefuseStart, type StartRefusalGate } from './audio-start-quota';
+import { admitOperation } from './audio-start-operation';
 import { hashedRoomId } from '../../http/presence-routes';
 
 /**
@@ -73,6 +77,10 @@ export interface SttStartArgs {
   delivery: Delivery;
   sourceLang: string;
   targetLang?: string;
+  /** Card CV-1 — the recovery identifiers off `audio:start`, echoed back on the
+   *  terminal final. Lifted by `recoveryEchoOf`; undefined when the frame
+   *  carried none. Never parsed or validated here. */
+  recovery?: RecoveryEcho;
   /** GA-04: the stt:* emitter must follow the session across a reconnect, so the
    *  mobile leg is resolved PER FRAME instead of closing over the socket that
    *  happened to send audio:start. Absent → the factory falls back to that
@@ -121,23 +129,23 @@ export interface AudioHandlerDeps {
    * exemption is a fact a test can drive rather than a wiring accident.
    */
   verificationGrace?: VerificationGraceGuard;
+  /**
+   * Card PR-2 (2026-09-06) — the operation registry (db.recoveryOps).
+   *
+   * Absent ⇒ a frame carrying an `operation_id` is REFUSED rather than admitted
+   * unprotected, because this server advertises `recovery.idempotent_operation`
+   * (audio-start-operation.ts argues the direction). Absent + no operation ⇒
+   * exactly today's behaviour, which is every test that predates this card.
+   */
+  recoveryOps?: RecoveryOperationsRepo;
+  /** Injected so a test can pin the registry's timestamps to its own clock.
+   *  Defaults to `Date.now`. */
+  now?: () => number;
 }
 
-/**
- * card K-5 — WHICH of `audio:start`'s four gates turned this press away.
- *
- * Before QTA-2 the log line "audio:start refused" + a code was enough, because
- * there was exactly one account and exactly one thing that could refuse. There
- * are now TWO accounts (acting phone / PC owner) and the same `QUOTA_EXCEEDED`
- * string comes out of both, so the line could name the failure without naming
- * WHOSE ledger produced it — and telling those two apart is precisely what cost
- * an afternoon of archaeology in the QTA-1 diagnosis.
- *
- * Ids, codes and the delivery intent only; never payload text (error-handling.ts
- * PRIVACY: audio frames carry user speech, the log file must not).
- */
-type StartRefusalGate = 'auth' | 'payload' | 'verify_grace' | 'acting' | 'pc_owner' | 'engine';
-
+// card K-5's StartRefusalGate type and the refuseStart function (with the
+// QTA-1 incident writeup) moved verbatim to ./audio-start-quota.ts — a
+// structural split only, see that file's header.
 export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): void {
   const { guard, usageTracker, store, sessions } = deps;
   // The fallback slot for a socket that has no (roomUuid, pairingId) key: the
@@ -173,8 +181,15 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // *** billing call site (STT metering) — the ONE recordSttUsage site ***
   // Effective once R1-3's orchestrator invokes onComplete; dormant under the
   // stub (no session is ever created), so nothing double-counts.
-  function commitSttUsage(userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts): void {
-    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars);
+  // 🔴 card PR-2 — `operationId` rides through to the tracker, where the claim
+  // row and the increment commit together. It is NOT a new metering site and the
+  // census (billing-call-sites.test.ts) is untouched: the same one call, with one
+  // more fact in hand. Which is the point of R11 — the layer that decides must
+  // hold what the decision needs.
+  function commitSttUsage(
+    userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string,
+  ): void {
+    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, operationId);
   }
 
   // *** billing call site (LLM metering) — the SECOND recordLlmUsage site ***
@@ -188,8 +203,10 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // So the invariant is now "exactly TWO sites", and it is asserted rather than
   // remembered (billing-call-sites.test.ts). Two is the number of things that
   // actually call an LLM: the compose turn and the polish pass.
-  function commitPolishUsage(userId: string, tokensIn: number, tokensOut: number, isByok: boolean): void {
-    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut);
+  function commitPolishUsage(
+    userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string,
+  ): void {
+    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, operationId);
   }
 
   /** Mirror an utterance-lifecycle edge to the paired PC — iff this utterance
@@ -240,86 +257,10 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     if (pc) send(pc);
   }
 
-  /**
-   * 🔴 QTA-1 (2026-08-15) — SAY THE REFUSAL OUT LOUD, on the wire and in the log.
-   *
-   * MEASURED, tablet TB335ZC + relay journal, 2026-08-15 17:21:40Z+8:
-   * held the talk button 4 s inside a cloud-relay PC instance. `AudioRecord ...
-   * 16000 Hz packageName app.flowmic.android` in logcat (the mic really opened),
-   * one live TLS socket to the relay (`/proc/net/tcp`, uid 10309 → :443), and
-   * then: NOTHING. No route selection, no `audio intake`, no line of any kind in
-   * the relay journal — and nothing on the phone either. The same gesture in the
-   * record-only instance two minutes earlier logged the full trace.
-   *
-   * Cause: the two refusal arms below returned through `safeAck` ALONE, and
-   * `quota-guard.ts`'s own header already records that nobody reads that ack —
-   * the phone emits `audio:start` fire-and-forget (`ptt_session.dart` pttDown).
-   * So an over-quota account got: no text, no error, no log. Both ends silent
-   * about a user being turned away is the red line ("没有静默失败"), and it also
-   * cost an afternoon of archaeology to attribute, which is the second reason
-   * the `log.warn` is here and not only the frame.
-   *
-   * ⚠️ WHY `stt:error` AND NOT A NEW EVENT / A FIXED ACK READER: this arrives at
-   * every phone ALREADY IN THE FIELD. `ptt_inbound.dart` has caught terminal
-   * `stt:error` since ENG-3 and `onSttTerminalError` deliberately handles the
-   * RECORDING case ("exactly when a cold-open failure on `audio:start` arrives"),
-   * latching it until the press ends; `sttStallBannerMessage` then keys on the
-   * WIRE CODE. So a 0.3.1 build that will never be updated still says something
-   * true. Zero protocol change: same whitelisted event, same schema, same
-   * direction — only which frames survive the trip.
-   *
-   * 🔴 IT NOW COVERS THE `AUTH_TOKEN_INVALID` ARM TOO — this paragraph used to
-   * say it deliberately did not, and the argument it gave was half right.
-   * 「Dressing an auth failure as an engine fault would be the 0.2.53 shape」 is
-   * true, and it is an argument about the PHONE'S COPY, not about whether the
-   * refusal should leave the server. What actually happened while this arm was
-   * excluded: `audio:start` is emitted WITHOUT an ack callback (ptt_session), so
-   * the ack this arm filled was read by nobody — a phone whose account had been
-   * deleted held the mic, recorded, and was told nothing at all. 「It has its own
-   * re-pair surface」 was a claim about a path that only runs if something else
-   * happens to notice.
-   * ⇒ The refusal leaves the server (QTA-1), and the 0.2.53 half is honoured
-   * where it belongs: `sttStallBannerMessage` has a NAMED arm for this code that
-   * says the phone is no longer signed in — never the generic engine sentence.
-   * Owner ruling 2026-08-27 §R1 追加: every relay refusal must reach the screen.
-   */
-  // 🔴 NR-2a widened the FIRST parameter from `ErrorPayload` to a structural
-  // `{error: string}`. That is not a loosening for convenience: the grace
-  // refusal is an ACK-LOCAL name and deliberately NOT a protocol `ErrorCode`
-  // (auth/verification-grace.ts states why), so it cannot be typed as one — and
-  // routing it around this function instead would have given `audio:start` a
-  // SECOND refusal path, one of which emits `stt:error` and one of which does
-  // not. The phone reads `stt:error` and does not read this ack (QTA-1, and the
-  // quota-guard correction block); a refusal that skipped this function would
-  // therefore be a silent failure by construction. `ErrorPayload` still
-  // satisfies the parameter, so every existing call site is unchanged.
-  function refuseStart(e: { error: string; message?: string }, at: {
-    gate: StartRefusalGate;
-    /** The account this gate JUDGED — not always the acting one (see K-5). */
-    userId: string | null;
-    /** null only on the payload arm, where there is no parsed frame to read it from. */
-    delivery: Delivery | null;
-  }): void {
-    log.warn('audio:start refused', {
-      code: e.error,
-      message: e.message ?? null,
-      room: getRoomUuid(socket),
-      gate: at.gate,
-      user_id: at.userId,
-      delivery: at.delivery,
-    });
-    socket.emit('stt:error', {
-      code: e.error,
-      message: e.message ?? 'audio:start refused',
-      retryable: false,
-      // WP-9 (findings-crossend-quota.md #3) — additive, and only meaningful
-      // for QUOTA_EXCEEDED: `at.gate === 'pc_owner'` is set ONLY when the
-      // quota try-block above judged the PC OWNER's ledger (QTA-2), never the
-      // acting phone's own. Omitted for every other refusal so nothing about
-      // this frame changes for a code the field was not built for.
-      ...(e.error === 'QUOTA_EXCEEDED' ? { judged_account: at.gate === 'pc_owner' ? 'pc_owner' : 'self' } : {}),
-    });
-  }
+  // The QTA-1 refusal writeup and the `refuseStart` function it documents
+  // moved verbatim to ./audio-start-quota.ts (createRefuseStart) — structural
+  // split only, see that file's header. Every call site below is unchanged.
+  const refuseStart = createRefuseStart(socket);
 
   socket.on('audio:start', (payload: unknown, ack: unknown) => {
     const auth = getAuth(socket);
@@ -362,6 +303,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // That branch lives in the finalize path the R1-3 orchestrator drives; the
     // intent is fixed here and passed through immutably.
     const delivery: Delivery = parsed.data.delivery ?? 'inject';
+    // card CV-1 — lifted once, right beside `delivery`, and DELIBERATELY NOT
+    // near the default above: this changes nothing about `?? 'inject'`.
+    const recoveryEcho = recoveryEchoOf(parsed.data);
 
     // *** NR-2a — the 3-day unverified grace, one of TWO enforcement sites ***
     //
@@ -475,6 +419,32 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       return safeAck(ack, e);
     }
 
+    // *** card PR-2 — the operation registry, AFTER admission and BEFORE any
+    // vendor cost is incurred ***
+    //
+    // After the gates on purpose: registering an operation the account was never
+    // going to be allowed to run would leave a row asserting a request we
+    // refused. Before the engine on purpose: the row is what makes a re-send
+    // recognisable, and a re-send that got as far as the engine has already cost
+    // money. See audio-start-operation.ts for the refusal's code and its gap.
+    const operation = admitOperation(
+      deps.recoveryOps, auth.userId,
+      {
+        operation_id: parsed.data.operation_id,
+        recording_id: parsed.data.recording_id,
+        range_start_sample: parsed.data.range_start_sample,
+        range_end_sample: parsed.data.range_end_sample,
+        attempt_kind: parsed.data.attempt_kind,
+        mode: parsed.data.mode,
+      },
+      (deps.now ?? Date.now)(),
+    );
+    if (!operation.ok) {
+      refuseStart(operation.error, { gate: 'operation', userId: auth.userId, delivery });
+      return safeAck(ack, operation.error);
+    }
+    const operationId = operation.operation_id;
+
     // WP-R2-1b (F-2375): S→PC audio fan-out. The session is accepted (quota gate
     // passed), so additively re-emit the VALIDATED audio:start to the paired PC
     // — the desktop drives its SPEAKING lock (audio:start → lock the live
@@ -547,6 +517,8 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         delivery,
         sourceLang: parsed.data.source_lang,
         ...(parsed.data.target_lang !== undefined ? { targetLang: parsed.data.target_lang } : {}),
+        ...(recoveryEcho !== undefined ? { recovery: recoveryEcho } : {}), // card CV-1
+
         // GA-04: the mobile leg follows the SESSION, not this socket. During a
         // grace window it resolves to null (nothing to emit to — the phone is
         // gone, not silently dropped); after a rebind it is the new socket.
@@ -565,8 +537,10 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           slot !== local
             ? (): Pick<Socket, 'emit'> | null => (slot as AudioSessionEntry).socket
             : (): Socket => socket,
-        onComplete: (durationMs, isByok, chars) => commitSttUsage(auth.userId, durationMs, isByok, chars),
-        onPolishUsage: (tIn, tOut, isByok) => commitPolishUsage(auth.userId, tIn, tOut, isByok),
+        onComplete: (durationMs, isByok, chars) =>
+          commitSttUsage(auth.userId, durationMs, isByok, chars, operationId),
+        onPolishUsage: (tIn, tOut, isByok) =>
+          commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId),
       });
       safeAck(ack, { ok: true });
     } catch (err) {

@@ -24,11 +24,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../audio/audio_emitter.dart';
+import '../audio/replay_ownership.dart';
 import '../diag/diag_log.dart' show diag;
 import '../session/replica_lag_window.dart';
 import 'http_endpoint.dart' show secureDialUrl;
 import 'network_watch.dart';
 import 'node_labels.dart';
+import 'server_capabilities.dart';
 import 'socket_core.dart';
 
 typedef BufferedChunksProvider = List<Map<String, Object?>> Function();
@@ -77,6 +79,7 @@ class ReconnectCoordinator {
     ReconnectPredicate? shouldReconnect,
     RejoinCallback? onReconnected,
     this.dialUrlResolver,
+    this.replayGate,
     String? url,
     String? token,
     String? pinFingerprint,
@@ -139,6 +142,12 @@ class ReconnectCoordinator {
 
   int _attempt = 0;
   bool _running = false;
+
+  /// One-shot latch for the 「非正数退避」 diag line in [_backoffFor]. A delay
+  /// that is not positive can only come from a bad [initialBackoff], i.e. from
+  /// a caller, so it must be SAID — but a ladder is a loop, and a line printed
+  /// on every rung is a line nobody reads.
+  bool _loggedNonPositiveBackoff = false;
   bool _rejoinInFlight = false;
   bool _droppedSinceConnect = false;
 
@@ -233,6 +242,40 @@ class ReconnectCoordinator {
   bool _lastJoinAtHomeNode = true;
 
   void noteJoinAtHomeNode(bool atHomeNode) => _lastJoinAtHomeNode = atHomeNode;
+
+  /// Card PR-1 — what the LAST accepted pair / reconnect ack said this server
+  /// can do (`04 SPEC §3.3-a (c)`).
+  ///
+  /// 🔴 READ-ONLY AND WITH NO CONSUMER YET — it is **consumed by card RC-1**,
+  /// the recovery queue, which fails CLOSED when the bits are missing. Parsing
+  /// it now keeps RC-1 from having to change the wire and the policy in one
+  /// commit; if RC-1 does not land, this should be deleted rather than left.
+  ///
+  /// 🔴 It lives HERE and not on `PttSession` for the same two reasons
+  /// [selfNodeChoiceMade] and [lagWindow] do, and the second is the load-bearing
+  /// one: "what did the server that answered say about itself" is already this
+  /// class's subject ([node], [pcHomeNode]), and `ptt_session.dart` is at the
+  /// 800-line cap.
+  ///
+  /// A FRESH ack REPLACES it — never merged. The phone may have hopped to a
+  /// different node, and two nodes are two servers; unioning their claims would
+  /// let a capability follow the phone to a machine that never made it.
+  /// Sole writer: [noteServerCapabilities].
+  ServerCapabilities get serverCapabilities => _serverCapabilities;
+  ServerCapabilities _serverCapabilities = const ServerCapabilities.unknown();
+
+  /// Card RC-1a (audit P1-2) - asked immediately before the ring replay: may
+  /// this coordinator re-emit the buffered chunks, or does something else own
+  /// them? Null (the default, and every build today) means 「as before」.
+  ///
+  /// WIRED BY: `PttSession`'s constructor. See audio/replay_ownership.dart for
+  /// the two states it refuses in and why neither is a delete criterion.
+  final ReplayRefusal? Function()? replayGate;
+
+  /// Sole writer for [serverCapabilities], called from the two ack legs.
+  void noteServerCapabilities(Object? ack) {
+    _serverCapabilities = parseServerCapabilities(ack);
+  }
 
   /// Single writer for all three, called from the reconnect and pair ack legs.
   void noteAnsweringNode(String? id, {String? endpoint, String? homeNode}) {
@@ -474,13 +517,56 @@ class ReconnectCoordinator {
     }
   }
 
+  /// The rung delay for a 1-based [attempt]: 1→2→4→8→16→30 s by default, then
+  /// 30 s forever.
+  ///
+  /// 🔴 THE BOUND IS APPLIED BEFORE THE NEXT DOUBLING, NOT AFTER IT (2026-09-07,
+  /// real-device durability round five). The old form was
+  /// `initialBackoff.inMilliseconds * (1 << (attempt - 1))` capped afterwards
+  /// with `>`. `1 << 54` × 1000 overflows int64, and a `>` comparison waves a
+  /// NEGATIVE product straight through — so the cap that existed to make the
+  /// ladder patient is exactly what let it fire instantly and then stop. The
+  /// device diag, verbatim:
+  ///   att=54 delay=30000
+  ///   att=55 delay=-8070450532247928   ← fired immediately
+  ///   att=56 delay=2305843009213693    ← ~73,000 years; no attempt 57 ever came
+  /// A phone offline for ~25 minutes therefore lost its ladder while a long
+  /// recording was still running.
+  ///
+  /// ⚠️ CLAMPING THE EXPONENT AT SOME ROUND NUMBER (`min(attempt - 1, 30)`)
+  /// would fix THIS ladder and leave the shape in place: whether `base << 30`
+  /// overflows depends on [initialBackoff], which is a constructor argument.
+  /// Doubling only while the value is still under [maxBackoff] cannot overflow
+  /// for any base, because every value that gets doubled is smaller than a
+  /// duration in milliseconds.
   Duration _backoffFor(int attempt) {
-    // attempt is 1-based for the user-visible ladder.
-    final ms = initialBackoff.inMilliseconds * (1 << (attempt - 1));
-    final capped = ms > maxBackoff.inMilliseconds
-        ? maxBackoff.inMilliseconds
-        : ms;
-    return Duration(milliseconds: capped);
+    final int baseMs = initialBackoff.inMilliseconds;
+    final int maxMs = maxBackoff.inMilliseconds;
+    if (baseMs <= 0 || maxMs <= 0) return _nonPositiveBackoff(attempt, baseMs);
+    if (baseMs >= maxMs) return maxBackoff;
+    int ms = baseMs;
+    for (int rung = 1; rung < attempt; rung++) {
+      // Bounded by log2(maxMs / baseMs) iterations, not by `attempt`.
+      if (ms >= maxMs) return maxBackoff;
+      ms <<= 1;
+    }
+    if (ms <= 0) return _nonPositiveBackoff(attempt, baseMs);
+    return ms >= maxMs ? maxBackoff : Duration(milliseconds: ms);
+  }
+
+  /// A rung delay that is not positive is a bug, never a schedule. Waiting the
+  /// full [maxBackoff] is the safe direction: the wrong one dials in a tight
+  /// loop, and the caller that got here cannot be trusted to stop it.
+  Duration _nonPositiveBackoff(int attempt, int baseMs) {
+    if (!_loggedNonPositiveBackoff) {
+      _loggedNonPositiveBackoff = true;
+      diag('reconnect.backoff_non_positive', <String, Object?>{
+        'attempt': attempt,
+        'initial_ms': baseMs,
+        'max_ms': maxBackoff.inMilliseconds,
+      });
+    }
+    return maxBackoff;
   }
 
   /// [delayOverride] is [kickNow]'s only privilege: it decides WHEN this rung
@@ -578,6 +664,19 @@ class ReconnectCoordinator {
   /// very session these chunks belong to and lose everything said before the
   /// drop. seq stays monotonic, so the server's SeqTracker de-dupes.
   void _replayBuffered() {
+    // 🔴 CARD RC-1a / AUDIT P1-2 - SOMEBODY ELSE MAY ALREADY BE SENDING THESE
+    // SAMPLES, or there may be no session left to send them to. The gate is
+    // supplied by `ptt_session.dart` and answers null (allowed) on every build
+    // where the journal storage face is off, which is all of them today - so
+    // this line is inert until card RC-1 turns that flag on.
+    // 🔴 REFUSING IS NOT DELETING AND NOT SETTLING: the bytes stay in the ring
+    // and in the journal, and the recovery leg is the party that sends them
+    // under a proper attempt id.
+    final ReplayRefusal? refusal = replayGate?.call();
+    if (refusal != null) {
+      debugPrint('[flowmic.reconnect] ring replay skipped: ${refusal.name}');
+      return;
+    }
     final chunks = bufferedChunksProvider();
     for (final c in chunks) {
       try {

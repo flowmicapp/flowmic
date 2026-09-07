@@ -33,7 +33,6 @@ import {
   resetPlanLimits,
   resolvePlanLimits,
 } from '../src/billing/plans';
-import { currentMonth } from '../src/db/repos/usage.repo';
 import { ServerError } from '../src/errors';
 import type { PaddleSubRow } from '../src/db/repos/billing.repo';
 
@@ -558,7 +557,7 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
 describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
   /** The guard wired exactly as bootstrap wires it, over a real saas config. */
   function guard(billing: BillingService) {
-    return makeQuotaGuard(db.usage, { effectiveLimits: (u) => billing.effectiveLimits(u) }, {
+    return makeQuotaGuard(db.usage, { effectiveLimits: (u) => billing.effectiveLimits(u), usagePeriodKey: (u, at) => billing.usagePeriodKey(u, at) }, {
       mode: 'saas',
       now: () => NOW,
     });
@@ -566,7 +565,7 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
 
   it('🔴 an exempt user who burned the whole free line is NOT refused', () => {
     // Free is 20 STT minutes (owner 2026-08-02). Burn all of them, then ask.
-    db.usage.increment(USER, currentMonth(() => NOW), { stt_minutes: 20 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { stt_minutes: 20 });
     db.users.setPermanentFree(USER, true);
     expect(() => guard(makeBilling()).ensureQuota(USER, 'stt')).not.toThrow();
     // 2026-08-07: was `Infinity`. The exemption is now MAX's 3,000 min, so the
@@ -598,7 +597,7 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
   // Before this the `Number.isFinite` short-circuit in ensureQuota made this
   // branch structurally unreachable for an exempt account.
   it('🔴 an exempt user IS refused once MAX\'s 3,000 STT minutes are gone', () => {
-    db.usage.increment(USER, currentMonth(() => NOW), { stt_minutes: 3_000 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { stt_minutes: 3_000 });
     db.users.setPermanentFree(USER, true);
     let thrown: unknown;
     try {
@@ -624,19 +623,19 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     // until that ruling — under the old sum either column tripped the meter.
     // 15_000_000, not the pre-2026-08-27 100_000_000 — MAX's ceiling moved
     // (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: 15_000_000 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: 15_000_000 });
     db.users.setPermanentFree(USER, true);
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).toThrow(ServerError);
     // positive control: one token below the line the SAME account is served, so
     // the throw above is the ceiling and not a broken meter.
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: -1 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: -1 });
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).not.toThrow();
   });
 
   it('🔴 positive control: the SAME guard refuses a NON-exempt user at 20 minutes', () => {
     // 「was not blocked」 must be shown to mean 「because of the exemption」 and not 「because the gate is broken」
     // (CLAUDE.md: a negative assertion must carry its own positive control).
-    db.usage.increment(USER, currentMonth(() => NOW), { stt_minutes: 20 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { stt_minutes: 20 });
     let thrown: unknown;
     try {
       guard(makeBilling()).ensureQuota(USER, 'stt');
@@ -648,7 +647,7 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
   });
 
   it('the LLM side is exempt too (both meters ride one solver)', () => {
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: 1_000_000 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: 1_000_000 });
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).toThrow(ServerError);
     db.users.setPermanentFree(USER, true);
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).not.toThrow();
@@ -658,18 +657,18 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     // 100M input tokens on a plain FREE account (limit 1M). Input is recorded as
     // reference only (docs/decisions/2026-08-14-owner-llm-token-budget-output-
     // only.md); the guard reads llm_tokens_out and must let this through.
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_in: 100_000_000 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_in: 100_000_000 });
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).not.toThrow();
     // Positive control on the SAME account: the free tier's 1M on the OUTPUT
     // side trips — so the pass above is the ruling, not a dead meter.
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_out: 1_000_000 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: 1_000_000 });
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).toThrow(ServerError);
   });
 
   it('getQuota: `llm.used` is the ENFORCED number (output) and `llm.used_in` the reference', () => {
     // The two numbers must stay two numbers: folding them back into one sum is
     // the exact shape the 2026-08-14 ruling retired.
-    db.usage.increment(USER, currentMonth(() => NOW), { llm_tokens_in: 700, llm_tokens_out: 40 });
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_in: 700, llm_tokens_out: 40 });
     const q = makeBilling().getQuota(USER);
     expect(q.llm.used).toBe(40);
     expect(q.llm.used_in).toBe(700);

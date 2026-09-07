@@ -36,16 +36,24 @@ import { deriveKey } from '../src/auth/crypto';
 import { makeQuotaGuard } from '../src/billing/quota-guard';
 import { makeUsageTracker } from '../src/billing/usage-tracker';
 import { planLimits } from '../src/billing/plans';
+import { BillingService } from '../src/billing/billing-service';
+import { parseUtcStamp, usagePeriodAt } from '../src/billing/usage-period';
 
 const USER = 'u-month-bucket';
 /** 20 STT minutes, well under `planLimits('max').stt_minutes` (3,000) — enough
  *  headroom that a real overrun would still be a large gap, not a rounding one. */
 const TWENTY_MIN_MS = 20 * 60_000;
 
+/** Wired the way bootstrap wires them (2026-09-05): BOTH sides take their bucket
+ *  from one BillingService, which is the only place that knows the account's
+ *  cycle anchor. A second derivation in either would be the drift this file
+ *  exists to catch. */
 function wire(db: DbConnection, now: () => number) {
-  const tracker = makeUsageTracker(db.usage, { mode: 'saas' as const, now });
-  const guard = makeQuotaGuard(db.usage, { effectiveLimits: () => planLimits('max') }, { mode: 'saas', now });
-  return { tracker, guard };
+  const billing = new BillingService({ settings: db.settings, users: db.users, usage: db.usage, billing: db.billing, unlockAll: false, now });
+  const periodKeyFor = (u: string, at: number): string => billing.usagePeriodKey(u, at);
+  const tracker = makeUsageTracker(db.usage, { mode: 'saas' as const, now, periodKeyFor });
+  const guard = makeQuotaGuard(db.usage, { effectiveLimits: () => planLimits('max'), usagePeriodKey: periodKeyFor }, { mode: 'saas', now });
+  return { tracker, guard, billing };
 }
 
 describe('🔴 F8 — the guard reads the SAME month the meter just wrote', () => {
@@ -72,29 +80,37 @@ describe('🔴 F8 — the guard reads the SAME month the meter just wrote', () =
   // 🔴 THE SHARPEST WAY TWO INDEPENDENT BUCKET COMPUTATIONS CAN DISAGREE IS AT
   // THE BOUNDARY — a UTC-vs-local-time divergence, or an off-by-one in the
   // month arithmetic, is invisible mid-month and only shows up exactly here.
-  it('spend recorded in one UTC month does not leak into the next, for either side', () => {
+  it('spend recorded in one CYCLE does not leak into the next, for either side', () => {
+    // 2026-09-05 (owner, option 乙): the bucket is the account's own cycle —
+    // anchored to registration for a Free account — not the calendar month.
+    // The boundary below is derived from the row's `created_at`, never typed
+    // in, so the test follows the anchor rather than assuming one.
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('month-bucket-secret-32-bytes-xx') });
     db.users.insert({ id: USER, display_name: 'U', plan: 'free' });
-    // One millisecond before, and one millisecond into, the UTC month boundary.
-    const LAST_MS_OF_JUNE = Date.UTC(2026, 5, 30, 23, 59, 59, 999);
-    const FIRST_MS_OF_JULY = Date.UTC(2026, 6, 1, 0, 0, 0, 0);
-    let nowMs = LAST_MS_OF_JUNE;
-    const { tracker, guard } = wire(db, () => nowMs);
+    // parseUtcStamp, not Date.parse: the row holds a zone-less UTC stamp that
+    // Date.parse reads as LOCAL time — on a UTC+8 machine that is 8h early and
+    // the boundary below lands in the wrong cycle (usage-period.ts).
+    const registeredAt = parseUtcStamp(db.users.findById(USER)!.created_at);
+    const first = usagePeriodAt(registeredAt, registeredAt);
+    let nowMs = first.endMs - 1; // the last millisecond of the first cycle
+    const { tracker, guard, billing } = wire(db, () => nowMs);
 
     tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 });
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000 - TWENTY_MIN_MS);
 
-    // The clock ticks into July. A GUARD that still thought in June would
-    // report the same drained remainder; a TRACKER whose next write still
-    // thought in June would keep draining June's row forever.
-    nowMs = FIRST_MS_OF_JULY;
+    nowMs = first.endMs; // the first instant of the second cycle
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000);
     tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 });
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000 - TWENTY_MIN_MS);
 
-    // June's row is untouched by July's write — two rows, not one.
-    expect(db.usage.get(USER, '2026-06')?.stt_minutes).toBe(20);
-    expect(db.usage.get(USER, '2026-07')?.stt_minutes).toBe(20);
+    // Two rows, keyed by cycle start — and the keys are what the solver says.
+    expect(db.usage.get(USER, first.key)?.stt_minutes).toBe(20);
+    expect(db.usage.get(USER, billing.usagePeriodKey(USER, nowMs))?.stt_minutes).toBe(20);
+    expect(billing.usagePeriodKey(USER, nowMs)).not.toBe(first.key);
+    // 🔴 And the calendar month is NOT the key any more (reverse control on the
+    // old rule): nothing landed under a `YYYY-MM` bucket.
+    const ym = new Date(nowMs).toISOString().slice(0, 7);
+    expect(db.usage.get(USER, ym)).toBeNull();
 
     db.close();
   });

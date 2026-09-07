@@ -634,6 +634,8 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
           rows: rows,
           strings: widget.strings,
           pendingBackfillMs: widget.backfill?.value.pendingMs ?? 0,
+          pendingBackfillFromOutage:
+              widget.backfill?.value.pendingFromOutage ?? false,
         ),
       ),
     );

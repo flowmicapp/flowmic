@@ -39,12 +39,16 @@ Widget _host(Widget child, {double width = 900, double height = 400}) {
   );
 }
 
+const AppStringsEn _liveDraftColourStrings = AppStringsEn();
+
 LiveDraftTile _tile(String text, int committedChars) {
   return LiveDraftTile(
     text: text,
     committedChars: committedChars,
     mode: FlowMode.realtime,
-    strings: const AppStringsEn(),
+    strings: _liveDraftColourStrings,
+    statusLabel: _liveDraftColourStrings.liveTranscribing,
+    healthNote: null,
     elapsed: const Duration(seconds: 3),
   );
 }

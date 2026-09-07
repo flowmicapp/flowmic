@@ -71,6 +71,8 @@ import { getLocale } from './locale';
 // grepping that data.
 import { shardCatalogue } from './shard';
 import { INJECT_FAIL_REASON_BY_LOCALE } from './generated/catalogue.g';
+import { CAPSULE_MSG_BY_LOCALE } from './generated/msg.g';
+import type { CapsuleMsg } from './contract';
 
 export const CAPSULE_KEYS = [
   // capsule
@@ -117,7 +119,6 @@ export const CAPSULE_KEYS = [
   'cap_image_open',
   'cap_chars',
   'cap_secs',
-  'cap_seg',
   /** Default capsule session label when the paired-mobile directory cannot name
    *  exactly one online phone (zero, or ≥2 — naming one of several is a guess).
    *  See capsule/controller.ts `deriveSessionTitle`; 卡 D-a corrected this doc,
@@ -187,6 +188,24 @@ export const CAPSULE_KEYS = [
 // [ko] 卡 L7: was 「미전송」(segment ①). Same one definition as st_cached.
 
 export const CAPSULE_STRINGS = shardCatalogue(CAPSULE_KEYS);
+
+/** owner 2026-09-07 — the speaking row's live 「时长 · 数量」 pair.
+ *
+ *  🔴 `cap_seg` (「seg」 / 「segm.」, and untranslated in five of the nine
+ *  languages) WAS this number's label and is gone: it was a bare unit fragment
+ *  sitting to the LEFT of its own number, and it is now folded into this one
+ *  per-locale sentence together with the duration. That also retires an
+ *  internal-looking abbreviation from a user-visible surface (owner 2026-08-22:
+ *  every word the user can see must be a word the user knows).
+ *
+ *  A function, per-locale, dispatched through `getLocale()` (a Vue ref) so the
+ *  row re-renders on a language switch — same shape as TL_BATCH_MSG. */
+export const CAPSULE_MSG: CapsuleMsg = {
+  sessionMeta: (clock, segments) => CAPSULE_MSG_BY_LOCALE[getLocale()].sessionMeta(clock, segments),
+};
+
+/** Test/guard surface (locale-parity.test.ts): the raw per-locale table. */
+export const CAPSULE_MSG_CATALOGUES = CAPSULE_MSG_BY_LOCALE;
 
 /** inject:result.error (INJECT_* code) → human reason for the capsule failure
  *  flash (R6-R1), per locale. The code is the wire truth (build_inject_result →

@@ -113,6 +113,21 @@ extension PttSessionInbound on PttSession {
             text: p.text,
             finalized: true,
             durationMs: p.durationMs,
+            // 🔴 SD-1 (b) — THE FACT, NOT AN INFERENCE ABOUT IT. `empty_reason`
+            // is stamped by `apps/server-core/src/stt/empty-final-cause.ts`
+            // and ONLY when no `stt:error` explained the emptiness and no final
+            // of the whole recording carried words, i.e. it is the server
+            // saying 「this recording had no words」. An empty final WITHOUT it
+            // is the flush-cap placeholder, where the phone's interims are the
+            // only transcript there is — see `SegmentBuffer.put`'s doc for why
+            // those two must not share a rule.
+            //
+            // ⚠️ TERMINAL FINALS ONLY. `emptyFinalReason` is never stamped on a
+            // soft-segment final (that function is called once, on the
+            // utterance-closing final), so `!p.isSegment` restates the server's
+            // own scope rather than narrowing it — and it keeps this from ever
+            // clearing a slot a future server decided to stamp mid-recording.
+            emptyIsVerdict: !p.isSegment && p.emptyReason != null,
           );
           audio.noteSegmentObserved(p.segmentIdx); // N1-B3, see the interim arm
           // Only the TERMINAL final (is_segment=false) closes the utterance and
@@ -164,6 +179,11 @@ extension PttSessionInbound on PttSession {
             'code': e.code,
             'message': e.message,
           });
+          // AW-1b — the same fact, fed to the read-only health tracker via the
+          // FSM's passive observation method (never touches _sess/_conn; see
+          // that method's own doc). This diag arm was the ONLY trace this
+          // bounce left before AW-1b.
+          fsm.onSttRetryableError(code: e.code, message: e.message);
         }
         break;
       case FlowMicEvents.sttLevel:

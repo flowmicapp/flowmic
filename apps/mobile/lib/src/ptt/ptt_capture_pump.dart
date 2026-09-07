@@ -72,7 +72,10 @@ extension PttSessionCapturePump on PttSession {
     // Without this the screen stays lit and the ceiling still fires later, for
     // a capture that is already gone.
     endContinuous();
-    audio.fenceAndStop();
+    // Card LS-4: a fault is NOT a cancel. The user did not throw these words
+    // away, so this names itself and gets NO tombstone — the recording stays
+    // recoverable.
+    audio.fenceAndStop(reason: JournalInterrupt.captureFault);
     _stopHeartbeat();
     segments.clear();
     _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});

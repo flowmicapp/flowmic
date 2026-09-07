@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../config';
 import type { DbConnection } from '../db/connection';
 import { makeUsageTracker, type UsageTracker } from '../billing/usage-tracker';
+import { claimInCallerTransaction } from '../db/repos/usage-effects.repo';
 import { ReplicaOutbox } from '../db/replica-outbox';
 import { readNodeConfig, type NodeConfig } from './node-config';
 import { assertWriterDirectoryConsistencyFromFile } from './writer-directory-check';
@@ -42,6 +43,10 @@ export interface NodeRuntimeDeps {
   db: DbConnection;
   config: ServerConfig;
   now?: () => number;
+  /** The metering-cycle resolver both meters write through — see
+   *  UsageTrackerConfig.periodKeyFor. Required: bootstrap passes
+   *  `billing.usagePeriodKey`. */
+  periodKeyFor: (user_id: string, atMs: number) => string;
   setIntervalFn?: (fn: () => void, ms: number) => unknown;
   clearIntervalFn?: (handle: unknown) => void;
   log: {
@@ -257,6 +262,13 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     mode: config.mode,
     usageEventsEnabled: config.usageEventsEnabled,
     events: db.usageEvents,
+    // Card PR-2 — the metering-effect ledger. Passed UNCONDITIONALLY, like
+    // `events` above and for a related reason: the server advertises
+    // `recovery.idempotent_operation` on every pairing ack, so a build where this
+    // was wired only sometimes would be a build that claims the protection
+    // sometimes. It engages only for calls that carry an `operation_id`.
+    operations: db.usageEffects,
+    periodKeyFor: deps.periodKeyFor,
     ...(deps.now ? { now: deps.now } : {}),
   });
 
@@ -336,6 +348,26 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
         mode: config.mode,
         usageEventsEnabled: config.usageEventsEnabled,
         events: db.usageEvents,
+        operations: claimInCallerTransaction(db.usageEffects),
+        // 🔴 THE SAME `usage_effects` CLAIM THE LOCAL TRACKER TAKES, joined to
+        // the transaction this tracker already runs inside (audit F1). This
+        // tracker is called from `forward-ledger.once`'s `BEGIN IMMEDIATE` and
+        // SQLite has no nested transaction, so it takes the claim through
+        // `claimInCallerTransaction` — same row, same key, no second `BEGIN`.
+        //
+        // ⚠️ THE FORWARD LEDGER'S DETERMINISTIC ID IS NOT ENOUGH ON ITS OWN, and
+        // believing it was is what this fix corrects: that id dedupes ONE
+        // replica's queue. An operation metered locally on this writer and then
+        // re-sent by the phone to a REPLICA arrives under an id
+        // `node_forward_seen` has never seen — accepted, applied, charged twice,
+        // while the pairing ack advertises `recovery.idempotent_operation`. The
+        // two paths do not share a forward id; they share
+        // `(user, operation, kind)`, so that is where the join has to be.
+        // ⇒ TWO dedupes, one per path, and the second is the one that is true
+        // across paths.
+        // The pinned instant reaches the bucket choice too: `periodKeyFor` takes
+        // the instant the meter passes it, which under replay is the record's.
+        periodKeyFor: deps.periodKeyFor,
         now: () => (replayNow > 0 ? replayNow : (deps.now ? deps.now() : Date.now())),
       }),
       // 0 means 「no record is being replayed」 ⇒ fall back to the real clock, so

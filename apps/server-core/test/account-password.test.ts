@@ -79,12 +79,12 @@ describe('POST /api/account/password', () => {
     const { token } = await register(url, 'pol@b.co');
     const refused = await post(
       `${url}/api/account/password`,
-      { current_password: OLD, new_password: 'between9x' },
+      { current_password: OLD, new_password: 'below7' },
       bearer(token),
     );
     expect(refused.status).toBe(400);
     expect(refused.json?.error).toBe('SETTINGS_SCHEMA_INVALID');
-    expect(String(refused.json?.message)).toContain('at least 10');
+    expect(String(refused.json?.message)).toContain('at least 8');
     expect((await post(`${url}/api/login`, { email: 'pol@b.co', password: OLD })).status).toBe(200);
   });
 

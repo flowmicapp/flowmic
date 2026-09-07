@@ -67,6 +67,10 @@
 // has to say which one it was.
 
 /** The state a purchase must still be in for a deadline to mean anything. */
+// parseUtcStamp: purchase rows are ISO-stamped by the webhook adapter today, but
+// a parser that is right for BOTH stamp shapes costs nothing and removes a
+// dependency on which writer produced the row (db/utc-stamp.ts).
+import { parseUtcStamp } from '../db/utc-stamp';
 import type { OneTimePurchaseState, RefundReleaseReason } from '../db/repos/one-time-purchase.repo';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -158,7 +162,7 @@ export function refundDueReason(
   // argument in the block at the top of this file. Note what is NOT here:
   // 'buyer_withdrew_request' falls through and stays on the clock.
   if (subject.refund_release_reason === 'provider_declined') return null;
-  const boughtMs = Date.parse(subject.created_at);
+  const boughtMs = parseUtcStamp(subject.created_at);
   if (Number.isNaN(boughtMs)) return null;
   const ageDays = (nowMs - boughtMs) / DAY_MS;
   return ageDays >= policy.startDeadlineDays ? 'no_start' : null;
@@ -209,7 +213,7 @@ export function nextDeadlineAt(
   // pending on this row」 while we still owed two weeks of help on it.
   if (subject.state === 'delivered') return supportUntil(subject, aftercareDays);
   if (subject.state !== 'paid') return null;
-  const boughtMs = Date.parse(subject.created_at);
+  const boughtMs = parseUtcStamp(subject.created_at);
   if (Number.isNaN(boughtMs)) return null;
   return new Date(boughtMs + policy.startDeadlineDays * DAY_MS).toISOString();
 }

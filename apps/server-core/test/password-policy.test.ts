@@ -50,7 +50,9 @@ afterEach(async () => {
 // ── the ruled values, asserted as values ────────────────────────────────────
 describe('A4-3: the ruled numbers', () => {
   it('are the ones the decision doc §1 ruled', () => {
-    expect(MIN_PASSWORD_LENGTH).toBe(10);
+    // 🔴 §1 ruled 10; the minimum was lowered to 8 afterwards and the ruling doc
+    // (a historical record) was not rewritten. The other two are as ruled.
+    expect(MIN_PASSWORD_LENGTH).toBe(8);
     expect(MAX_PASSWORD_LENGTH).toBe(32);
     expect(MIN_PASSWORD_CLASSES).toBe(2);
   });
@@ -59,7 +61,8 @@ describe('A4-3: the ruled numbers', () => {
 // ── §4-1 the shared vector table ────────────────────────────────────────────
 /** `rule` is the EXPECTED failure, or null for an accepted password. */
 const VECTORS: Array<{ pw: string; rule: 'min_length' | 'max_length' | 'char_classes' | null; why: string }> = [
-  { pw: 'abcdefghi', rule: 'min_length', why: '9 letters — the lower boundary' },
+  { pw: 'abcdefg', rule: 'min_length', why: '7 letters — the lower boundary' },
+  { pw: 'abcdefgh', rule: 'char_classes', why: '8 letters: exactly long enough, one class' },
   { pw: 'abcdefghij', rule: 'char_classes', why: '10 letters: long enough, one class' },
   { pw: 'abcdefghi1', rule: null, why: 'letters + digit = two classes' },
   { pw: 'abcdefghi!', rule: null, why: 'letters + symbol = two classes' },
@@ -84,20 +87,20 @@ describe('A4-3 §4-1: the shared vector table (@flowmic/web implements the same 
     });
   }
 
-  it('length is checked BEFORE classes — a 9-letter password is refused for LENGTH, not for classes', () => {
+  it('length is checked BEFORE classes — a 7-letter password is refused for LENGTH, not for classes', () => {
     // It breaks both rules. Ruling §4-1 requires the length answer: telling
     // someone to add a digit to a password that is too short anyway sends them
     // round the loop twice.
-    const verdict = checkPasswordPolicy('abcdefghi');
+    const verdict = checkPasswordPolicy('abcdefg');
     expect(verdict.ok === false && verdict.rule).toBe('min_length');
-    expect(countPasswordCharClasses('abcdefghi')).toBe(1);
+    expect(countPasswordCharClasses('abcdefg')).toBe(1);
   });
 
   it('the refusal NAMES the broken rule — no bare 「invalid」 (ruling §2-3)', () => {
-    const short = checkPasswordPolicy('abcdefghi');
+    const short = checkPasswordPolicy('abcdefg');
     const classes = checkPasswordPolicy('abcdefghij');
     const long = checkPasswordPolicy(`${'a'.repeat(32)}1`);
-    expect(short.ok === false && short.requirement).toContain('at least 10');
+    expect(short.ok === false && short.requirement).toContain('at least 8');
     expect(classes.ok === false && classes.requirement).toContain('kinds of character');
     expect(long.ok === false && long.requirement).toContain('at most 32');
     // The three sentences must be distinguishable from one another, which is the
@@ -160,7 +163,7 @@ describe('A4-3: the length measure is CODE POINTS (both directions pinned)', () 
 // through the repo — because `register` can no longer mint one. Wiring
 // checkPasswordPolicy into verifyCredentials turns this test red immediately,
 // which is the reverse control the ruling asks for (§4-2 item 1).
-describe('A4-3 §4-2①: no retroactive enforcement — a legacy 8-character password still logs in', () => {
+describe('A4-3 §4-2①: no retroactive enforcement — a legacy 7-character password still logs in', () => {
   it('authenticates a stored password that the CURRENT policy would refuse', async () => {
     // The REAL schema (INIT_SQL + reconcileSchema), not a hand-rolled `users`
     // DDL — this test is about a stored credential, so the row it authenticates
@@ -170,7 +173,7 @@ describe('A4-3 §4-2①: no retroactive enforcement — a legacy 8-character pas
     const auth = makeAuthService({ users, jwtSecret: Buffer.from(SECRET, 'utf8') });
 
     // The password an account created before 2026-08-12 could legitimately have.
-    const legacy = 'hunter88';
+    const legacy = 'hunter7';
     expect(checkPasswordPolicy(legacy).ok).toBe(false); // today's policy refuses it…
 
     users.insert({
@@ -186,7 +189,7 @@ describe('A4-3 §4-2①: no retroactive enforcement — a legacy 8-character pas
 
     // Control: login still refuses the WRONG password, so the assertion above is
     // 「the policy is not consulted」 and not 「verifyCredentials accepts anything」.
-    expect(await auth.verifyCredentials('legacy@b.co', 'hunter89')).toBe(null);
+    expect(await auth.verifyCredentials('legacy@b.co', 'hunter8')).toBe(null);
 
     // And the same account cannot RE-set that password: the ruling stops at the
     // stored value, it does not grandfather future writes.
@@ -217,7 +220,7 @@ describe('A4-3 §4-2②: the reset route refuses a between-the-limits password I
     return (row?.value ?? {}) as { reset_token: string };
   }
 
-  it('9 characters → the NAMED 400 from the route, never the last-line guard', async () => {
+  it('7 characters → the NAMED 400 from the route, never the last-line guard', async () => {
     const { url, handle } = await saasServer();
     const good = 'goodpass01';
     const created = await post(`${url}/api/register`, { email: 'r@b.co', password: good, display_name: 'R' });
@@ -225,19 +228,25 @@ describe('A4-3 §4-2②: the reset route refuses a between-the-limits password I
     await post(`${url}/api/password/forgot`, { email: 'r@b.co' });
     const { reset_token } = mintedReset(handle, created.json.user.id as string);
 
-    // 9 code points: over the OLD hard-coded 8 in this route, under the NEW
-    // minimum of 10. Before A4-3 wired both sides to one function, this value
-    // passed the route's own check and then threw inside `deps.auth.setPassword`
-    // — inside a `void (async …)` with no catch, so the caller got NO RESPONSE
-    // and the rejection reached installProcessGuards, which treats
-    // unhandledRejection as fatal.
-    const between = 'between9x';
-    expect(passwordCodePointLength(between)).toBe(9);
+    // 7 code points — under the minimum, and it must be REFUSED HERE with a
+    // response. What this pins is the shape, not the number: this route used to
+    // re-validate a hard-coded literal of its own, and any password that passed
+    // that literal while failing the policy reached `deps.auth.setPassword` and
+    // threw a RegisterValidationError inside a `void (async …)` with no catch —
+    // so the caller got NO RESPONSE and the rejection reached
+    // installProcessGuards, which treats unhandledRejection as fatal. The
+    // literal and the policy happen to be equal again today (both 8), which is
+    // exactly the state that once made the drift invisible; the two assertions
+    // that matter (① it answered at all, ④ the process still serves) are what
+    // catch a relapse, and the CLASS-failure test below carries a vector no
+    // length-only literal can pass.
+    const tooShort = 'below7';
+    expect(passwordCodePointLength(tooShort)).toBe(6);
 
     const refused = await post(`${url}/api/password/reset`, {
       email: 'r@b.co',
       reset_token,
-      new_password: between,
+      new_password: tooShort,
     });
 
     // ① It answered at all. A hang here IS the bug: the pre-A4-3 shape sent no
@@ -246,7 +255,7 @@ describe('A4-3 §4-2②: the reset route refuses a between-the-limits password I
     // ② It answered with the named refusal, naming the field the caller sent and
     //    the rule that was broken — not a bare 「invalid」.
     expect(refused.json.error).toBe('SETTINGS_SCHEMA_INVALID');
-    expect(refused.json.message).toBe('new_password must be at least 10 characters');
+    expect(refused.json.message).toBe('new_password must be at least 8 characters');
     // ③ Nothing was written: the old password still works, the reset token is
     //    still live (a refusal is not a spend).
     const stillOld = await post(`${url}/api/login`, { email: 'r@b.co', password: good });

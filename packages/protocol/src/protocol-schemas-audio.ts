@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import { NonEmpty } from './protocol-primitives';
 import { PhonePrefsSchema } from './phone-prefs';
+import { AudioStartRecoveryFieldsSchema, CoverageReceiptFieldsSchema } from './recovery-protocol';
 
 // ─── §3.3 audio / STT ─────────────────────────────────────────────────
 export const ProcessingModeSchema   = z.enum(['realtime', 'translate', 'organize']);
@@ -60,6 +61,24 @@ export const AudioStartSchema       = z.object({
   // starts it. Additive + optional; absent = the phone carries no preferences
   // for this session (an old phone, or a phone that has none). Never stored.
   prefs: PhonePrefsSchema.optional(),
+  // ── Cards CV-1 / PR-1 (04 SPEC 3.3-a (a)) — the eight recovery identifiers ──
+  //
+  // SPREAD, not re-declared: the one declaration lives in recovery-protocol.ts
+  // beside the coverage receipt that echoes half of it, so the start frame and
+  // the receipt cannot come to disagree about a field's type or its name.
+  //
+  // Every one is OPTIONAL and this schema stays NON-`.strict()` on purpose (see
+  // that module's header, and E38 in the audit draft): an older relay strips
+  // them SILENTLY rather than refusing the frame, so a phone cannot tell "the
+  // server honoured my identifiers" from "the server never saw them" by the
+  // outcome alone. The capability bits on the pair/reconnect acks are what makes
+  // that difference observable; sending these fields is not a protocol
+  // negotiation and must never be read as one.
+  //
+  // 🔴 `delivery` ABOVE IS UNTOUCHED. The recovery leg still has to say
+  // `delivery:'none'` for itself; nothing here changes the `?? 'inject'` default
+  // on either end.
+  ...AudioStartRecoveryFieldsSchema.shape,
 });
 export const AudioChunkSchema       = z.object({ seq: z.number().int().nonnegative(), data_b64: NonEmpty, ts_ms: z.number().int() });
 export const AudioPauseSchema       = z.object({ reason: NonEmpty });
@@ -192,6 +211,23 @@ export const SttFinalSchema         = z.object({
   // phone renders an unrecognised value as its generic sentence plus the bare
   // token rather than inventing a sentence for it (0.2.53 rule).
   empty_reason: z.string().optional(),
+  // ── Card CV-1 (04 SPEC 3.3-a (b)) — the versioned coverage receipt ──────────
+  //
+  // Additive + optional, spread from recovery-protocol.ts, and populated ONLY on
+  // the terminal final (`is_segment:false`) — engine/stt-session.ts owns that
+  // condition, because a soft-segment final is a boundary inside a recording and
+  // not a statement about one.
+  //
+  // 🔴 NOT A NEW EVENT, deliberately. `stt:final` is already the frame that says
+  // "this recording is over"; a sibling event would mean the two could arrive in
+  // either order, or one without the other, and every consumer would then need a
+  // rule for that. The whitelist and count guard are untouched.
+  //
+  // 🔴 WHAT IT LICENSES IS NARROW. These counters do not prove the audio was
+  // understood, and no counter can (audit A5-4). The 2026-09-06 ruling lets them
+  // gate exactly one action — automatic deletion of the local copy — and only
+  // together with `ended_normally` and a persisted, read-back result row.
+  ...CoverageReceiptFieldsSchema.shape,
 });
 // WP-9 (2026-09-02, findings-crossend-quota.md #3) — `judged_account` is
 // ADDITIVE and OPTIONAL. Card QTA-2 (audio.handler.ts refuseStart) checks two

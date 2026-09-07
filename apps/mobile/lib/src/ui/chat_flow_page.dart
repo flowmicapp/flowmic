@@ -60,6 +60,7 @@ import '../timeline/timeline_store.dart'
     show TimelineStore, articleMembersOf;
 import 'ai_action_row.dart';
 import 'banner_slot.dart';
+import 'pending_recovery_route.dart';
 import 'chat_back_policy.dart';
 import 'chat_banner_sources.dart';
 import 'chat_header.dart';
@@ -78,6 +79,7 @@ import 'haptics.dart';
 import 'hold_to_talk_surface.dart';
 import 'image_preview_page.dart';
 import 'image_transfer_bar.dart';
+import 'live_health_copy.dart' show liveHealthNote;
 import 'mic_glyph.dart';
 import 'mode_chip.dart';
 import 'article_copy.dart';
@@ -417,7 +419,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     // fix-001 — ALSO asked once on entry, not only on the edge. Why that is
     // load-bearing: chat_flow_exits.dart, 「推送状态没有拉取」 ("pushed state has no pull path").
     _maybeLeaveOnCapsuleTaken();
-    controller.session.releaseCooldown.tick.addListener(_maybeLeaveOnPcReleased);
+    _wirePcReleasedExitRouted(this); // chat_flow_exits.dart
     _maybeLeaveOnPcReleased(); // owner 2026-08-20 — same entry-pull rule as the line above.
     controller.addListener(_syncComposeText);
     _syncComposeText();
@@ -462,7 +464,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     controller.removeListener(_syncSheetOnController);
     controller.removeListener(_maybeLeaveOnSessionLost);
     controller.removeListener(_maybeLeaveOnCapsuleTaken);
-    controller.session.releaseCooldown.tick.removeListener(_maybeLeaveOnPcReleased);
+    _unwirePcReleasedExitRouted(this); // chat_flow_exits.dart
     controller.session.scope.removeListener(_syncPagerOwners);
     controller.store.removeListener(_onStoreChanged);
     unawaited(_injectReceiptSub?.cancel());
@@ -690,9 +692,14 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
                       onRetrySendFailure: retryTargets.isEmpty
                           ? null
                           : () => _retryFailedSend(retryTargets),
+                      onOpenPendingRecovery: () =>
+                          openPendingRecoveryPage(context, controller, strings),
                     ),
                     strings: strings,
                   ),
+                  // Card RC-1b — audio still on this phone. Absent unless
+                  // there is some; the widget owns that decision.
+                  pendingRecoveryEntryFor(controller, strings),
                   Expanded(child: _scroll(context, strings, iid, entries)),
                   // PA-3: the recording strip moved INSIDE the composer (the
                   // dock draws it above the PTT bar — Plan A′ §4 A3), so the

@@ -234,6 +234,15 @@ class FlowmicStateMachine {
   final _illegalCtl = StreamController<IllegalTransition>.broadcast(sync: true);
   final _sttStalledCtl = StreamController<SttStall>.broadcast(sync: true);
 
+  // AW-1b — the ASR-leg health tracker's two immediate (non-latched) facts.
+  // Neither controller feeds any `_sess`/`_conn` decision; both are pure
+  // observation side-channels so `AsrHealthTracker` can see a terminal error
+  // the instant it happens (not only once `_pendingTerminalError` resolves at
+  // PTT-up) and can count a retryable bounce that this FSM otherwise drops on
+  // the floor (ptt_inbound.dart's `stt.error.retryable` diag arm).
+  final _sttErrorImmediateCtl = StreamController<SttStall>.broadcast(sync: true);
+  final _sttRetryableCtl = StreamController<SttStall>.broadcast(sync: true);
+
   // ENG-3 (fix-030) — a TERMINAL stt:error observed while RECORDING, held until
   // the press ends. See [onSttTerminalError] for why it is latched rather than
   // refused (the old behaviour) or surfaced mid-press.
@@ -253,6 +262,15 @@ class FlowmicStateMachine {
   /// fail-loud banner off this (never silent): the user pressed PTT and got no
   /// result, which must never look like nothing happened.
   Stream<SttStall> get sttStalled => _sttStalledCtl.stream;
+
+  /// AW-1b — the SAME fact [onSttTerminalError] latches, emitted the instant
+  /// it arrives regardless of session state. Read side only; never gates or
+  /// replaces the latch above.
+  Stream<SttStall> get sttErrorImmediate => _sttErrorImmediateCtl.stream;
+
+  /// AW-1b — `stt:error(retryable:true)` bounces (P2-4). Never fatal, never
+  /// touches `_sess`/`_conn`; a pure counter feed for the health tracker.
+  Stream<SttStall> get sttRetryableErrors => _sttRetryableCtl.stream;
 
   void _emit() => _changesCtl.add(snapshot);
 
@@ -539,6 +557,10 @@ class FlowmicStateMachine {
       message: message,
       judgedAccount: judgedAccount,
     );
+    // AW-1b: immediate, unconditional — fires even on the branches below that
+    // latch or refuse. Those branches decide what the FSM does; this is only
+    // what a read-only observer is told happened.
+    if (!_sttErrorImmediateCtl.isClosed) _sttErrorImmediateCtl.add(stall);
     if (_sess == SessionState.recording) {
       _pendingTerminalError = stall;
       return;
@@ -548,6 +570,17 @@ class FlowmicStateMachine {
       return;
     }
     _stallProcessing(stall);
+  }
+
+  /// AW-1b — `stt:error(retryable:true)` (ptt_inbound.dart's `stt.error.retryable`
+  /// diag arm). Deliberately a NO-OP on `_sess`/`_conn`: the pre-existing
+  /// behaviour for a retryable bounce is "capture continues, unchanged" (see
+  /// [onSttTerminalError]'s own header), and this method must not become a
+  /// second writer of that decision. It only lets a read-only observer count
+  /// the bounce, which nothing on this FSM did before AW-1b.
+  void onSttRetryableError({String? code, String? message}) {
+    if (_sttRetryableCtl.isClosed) return;
+    _sttRetryableCtl.add(SttStall(SttStallReason.engineError, code: code, message: message));
   }
 
   /// The microphone never opened (owner 2026-07-27). Abort RECORDING straight to
@@ -627,5 +660,7 @@ class FlowmicStateMachine {
     await _changesCtl.close();
     await _illegalCtl.close();
     await _sttStalledCtl.close();
+    await _sttErrorImmediateCtl.close();
+    await _sttRetryableCtl.close();
   }
 }

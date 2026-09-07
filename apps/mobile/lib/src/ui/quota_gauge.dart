@@ -138,10 +138,22 @@ String formatQuotaTokensInMillions(double tokens) =>
 /// The gauge. Pure presentation — it takes the numbers and the strings and
 /// paints them; it never fetches, and it has no opinion about when to.
 class QuotaGauge extends StatelessWidget {
-  const QuotaGauge({super.key, required this.summary, required this.strings});
+  const QuotaGauge({
+    super.key,
+    required this.summary,
+    required this.strings,
+    this.now,
+  });
 
   final CloudSummary summary;
   final AppStrings strings;
+
+  /// Injectable clock, for the reset line only. Production passes nothing.
+  ///
+  /// ⚠️ Here rather than inside the string method's default because 「in 14
+  /// days」 changes every midnight: a test that let it read the wall clock would
+  /// be asserting a sentence that is only true on the day it was written.
+  final DateTime? now;
 
   /// Key of the left (minutes) fill, so a widget test can MEASURE it rather
   /// than trust a fraction it computed itself.
@@ -154,6 +166,12 @@ class QuotaGauge extends StatelessWidget {
       ValueKey<String>('settings.quota.label.minutes');
   static const ValueKey<String> tokensLabelKey =
       ValueKey<String>('settings.quota.label.tokens');
+
+  /// The line that says when the allowance starts over. Keyed so a widget test
+  /// can assert it is ABSENT — the shape that matters most here, because a
+  /// server that never sent the field must produce no row at all.
+  static const ValueKey<String> resetLabelKey =
+      ValueKey<String>('settings.quota.label.reset');
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +196,15 @@ class QuotaGauge extends StatelessWidget {
             formatQuotaTokensInMillions(t.used),
             formatQuotaTokensInMillions(t.limit),
           );
+
+    // 🔴 「17 / 20 min」 IS HALF AN ANSWER WITHOUT THIS (owner 2026-09-07). Since
+    // the cycle became account-anchored (2026-09-05) the user cannot work out
+    // the other half either: two people looking at this screen on the same day
+    // reset on different dates. Absent — not blank, not a dash — when the server
+    // did not say; see [AppStrings.quotaResetsAt].
+    final DateTime? resetsAt = summary.resetsAt;
+    final String? resetLabel =
+        resetsAt == null ? null : s.quotaResetsAt(resetsAt, now: now);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -283,6 +310,25 @@ class QuotaGauge extends StatelessWidget {
             },
           ),
         ),
+        // Under the rail, spanning the full width: it speaks about BOTH meters,
+        // so it belongs to neither half. A `null` contributes no SizedBox
+        // either — an empty gap under the bar would be a row that answers
+        // nothing, the same call the two labels above already make.
+        if (resetLabel != null) ...<Widget>[
+          const SizedBox(height: 5),
+          // 🔴 IT WRAPS; IT DOES NOT ELLIPSIZE. The two labels above can be cut
+          // because each is 「number / number」 and the front of it carries the
+          // answer. This one is a sentence, and 0.2.53 is the standing bill for
+          // cutting one: `INJECT_SELF_WINDOW_NO_INPUT` reached a real phone as
+          // 「INJ…」. German is the long case here (「Setzt sich am 24.9. um
+          // 08:00 zurück · in 14 Tagen」) and it is allowed a second line rather
+          // than a shorter truth.
+          Text(
+            resetLabel,
+            key: resetLabelKey,
+            style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+          ),
+        ],
       ],
     );
   }

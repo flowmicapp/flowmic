@@ -49,6 +49,37 @@ export interface NodeConfig {
   /** Shared between writer and replicas; authenticates node-to-node calls.
    *  🔴 NOT a user credential and never reachable from a user-facing route. */
   sharedSecret: string | null;
+  /**
+   * 2026-09-07 — a SECOND credential that opens `GET /api/node/snapshot` and
+   * NOTHING ELSE. Null when the deployment has not issued one.
+   *
+   * 🔴 WHY IT EXISTS, AND WHY IT IS NOT [sharedSecret]. The LAN ops console
+   * (a third party) pulls the database snapshot on a timer. The shared secret
+   * would do that — and it would ALSO unlock `/api/node/forward`,
+   * `/api/node/forward-sync`, `/api/node/mint-code`, `/api/node/resolve-token`
+   * and `/api/node/quota`, i.e. a channel that PERFORMS WRITES on the writer
+   * and hands back whole `users` rows. Handing that value to a reader is the
+   * second writer R3 of the ops console spec exists to keep out
+   * (docs/strategy/2026-08-31-lan-ops-console-third-party-spec.md §2 R3, §6 P3).
+   *
+   * ⚠️ IT DOES NOT WIDEN THE SNAPSHOT ROUTE'S EXPOSURE, and that must not be
+   * misread: the body is still the entire user database, password hashes and
+   * tokens included. What this narrows is the OTHER direction — what else the
+   * holder of this particular string can do.
+   *
+   * ⚠️ THE HEADER NAME DOES NOT CHANGE (`x-flowmic-node-secret`). One header,
+   * two acceptable values on ONE route: the puller's code is identical either
+   * way, which is what makes issuing a reader credential a deployment change
+   * rather than a client change.
+   *
+   * ⚠️ NO BOOT FAILURE WHEN THIS IS SET ON A NON-WRITER, deliberately, unlike
+   * every other combination this file refuses. A snapshot secret on a replica
+   * is inert (the route is refused on role grounds before the secret is even
+   * read) and killing a live relay node over an inert variable is a worse
+   * outcome than the mistake it would catch. The one combination that IS
+   * refused below is the one that would make this credential a lie.
+   */
+  snapshotSecret: string | null;
   /** Operator-maintained node list, served by GET /api/node/list. */
   listPath: string | null;
   /** Where a replica parks the writes it still owes. */
@@ -80,8 +111,23 @@ export function readNodeConfig(env: NodeJS.ProcessEnv = process.env): NodeConfig
   const nodeId = trim(env.FLOWMIC_NODE_ID);
   const writerUrl = trim(env.FLOWMIC_NODE_WRITER_URL);
   const sharedSecret = trim(env.FLOWMIC_NODE_SHARED_SECRET);
+  const snapshotSecret = trim(env.FLOWMIC_NODE_SNAPSHOT_SECRET);
   const listPath = trim(env.FLOWMIC_NODE_LIST_PATH);
   const outboxPath = trim(env.FLOWMIC_NODE_OUTBOX_PATH);
+
+  // 🔴 THE ONE COMBINATION THAT IS REFUSED. Two names for one value would make
+  // 「this credential is read-only」 false while every log line, every route and
+  // this file's own type went on saying it — and the third party we hand it to
+  // has no way to find that out. Refused at boot, where an operator is watching,
+  // rather than discovered when somebody uses the reader's key to forward a
+  // write. (Set neither, or set two different strings.)
+  if (snapshotSecret !== null && snapshotSecret === sharedSecret) {
+    throw new NodeConfigError(
+      'FLOWMIC_NODE_SNAPSHOT_SECRET must not equal FLOWMIC_NODE_SHARED_SECRET. The snapshot secret '
+      + 'is handed out as a READ-ONLY credential; making it the same string would silently give its '
+      + 'holder the write endpoints (/api/node/forward, forward-sync, mint-code, resolve-token, quota).',
+    );
+  }
 
   if (raw === null) {
     // The untouched deployment. Anything else set alongside it is a half-done
@@ -92,7 +138,7 @@ export function readNodeConfig(env: NodeJS.ProcessEnv = process.env): NodeConfig
         + "A node that forwards writes must say so: set FLOWMIC_NODE_ROLE=replica.",
       );
     }
-    return { role: 'single', nodeId, writerUrl: null, sharedSecret, listPath, outboxPath: null };
+    return { role: 'single', nodeId, writerUrl: null, sharedSecret, snapshotSecret, listPath, outboxPath: null };
   }
 
   if (raw !== 'single' && raw !== 'writer' && raw !== 'replica') {
@@ -138,5 +184,5 @@ export function readNodeConfig(env: NodeJS.ProcessEnv = process.env): NodeConfig
     );
   }
 
-  return { role: raw, nodeId, writerUrl, sharedSecret, listPath, outboxPath };
+  return { role: raw, nodeId, writerUrl, sharedSecret, snapshotSecret, listPath, outboxPath };
 }

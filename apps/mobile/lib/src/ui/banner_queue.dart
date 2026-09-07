@@ -39,6 +39,7 @@ import '../session/compose_gate.dart'
     show AiComposeFailure, AiComposeOutcome, ComposeSendFailure;
 import '../session/image_send_controller.dart' show ImageSendOutcome;
 import '../session/outbox_failure_text.dart' show OutboxTerminal;
+import '../session/outbox_notice_gate.dart';
 import '../settings/app_strings.dart';
 import '../signaling/state_machine.dart';
 // The C5 cross-device conflict vocabulary (timeline_conflict.dart) was deleted
@@ -364,7 +365,17 @@ BannerQueue buildChatBanners({
   /// screen is showing** (RV-91: `DeliveryOutbox.pendingCountFor`, never the
   /// screen-wide total). 0 ⇒ no banner at all; there is nothing to say and a
   /// 「0 条未投递」("0 undelivered") chip would be a permanent fixture that tells the user nothing.
-  int outboxPending = 0,
+  ///
+  /// ⚠️ Card UX2-2 — IT IS NO LONGER A BARE INT, and the reason is the sentence
+  /// above taken seriously: a count that is nonzero for one healthy round trip
+  /// after EVERY press was the permanent fixture, just an intermittent one.
+  /// The value now carries the two facts that separate 「the utterance you just
+  /// spoke is on its way」 from 「something is stuck」 — see [OutboxPendingNotice].
+  OutboxPendingNotice outboxPending = OutboxPendingNotice.none,
+  /// Card UX2-2 — the clock the grace above is measured against. Injectable so
+  /// a test can state the age it means instead of sleeping for it; production
+  /// passes nothing.
+  DateTime? now,
   // 🔴 `bool pcBusy` was DELETED 2026-08-11 (fix-001) together with the banner it
   // fed — see [BannerIds] and the push site below. The FACT it carried still
   // exists and is still bucketed the same way (`PttSession.pcBusyOnScreen`); what
@@ -406,6 +417,11 @@ BannerQueue buildChatBanners({
   /// import `audio/retained_audio_store.dart` — the SAME shape [autoStopReason]
   /// already uses for the same reason.
   String? retainedAudioNotice,
+  /// Card RC-1b — opens the pending-recovery screen. 🔴 NULL IS THE NORMAL
+  /// CASE, not a default-shaped hole: `chat_banner_sources.dart` attaches it
+  /// only when `BackfillProgress.hasKeptAudio`, because a 「show me」 that
+  /// opens an empty list is worse than no button (R8).
+  void Function()? onOpenPendingRecovery,
   void Function()? onDismissRetainedAudioNotice,
 }) {
   final BannerQueue queue = BannerQueue();
@@ -462,7 +478,16 @@ BannerQueue buildChatBanners({
         severity: BannerSeverity.degraded,
         message: strings.retainedAudioNoticeMessage(retainedAudioNotice),
         dismissible: true,
-        onAction: onDismissRetainedAudioNotice,
+        // Card RC-1b — the M2 two-callback shape: the labelled action opens
+        // the list, ✕ just closes. With no opener this collapses to the legacy
+        // single-callback form (no label ⇒ ✕ fires `onAction`), byte for byte.
+        actionLabel: onOpenPendingRecovery == null
+            ? null
+            : strings.pendingRecoveryBannerAction,
+        onAction: onOpenPendingRecovery ?? onDismissRetainedAudioNotice,
+        onDismiss: onOpenPendingRecovery == null
+            ? null
+            : onDismissRetainedAudioNotice,
       ),
     );
   }
@@ -597,12 +622,25 @@ BannerQueue buildChatBanners({
   //
   // ⚠️ The copy must never say 「已发送」("sent") (outbox_item.dart:17-20); owner has paid
   // once for a promise that had not been kept.
-  if (outboxPending > 0) {
+  //
+  // 🔴 Card UX2-2 — WHEN, AND WHICH OF THE TWO SENTENCES. The gate lives in
+  // `outbox_notice_gate.dart` (owner's rule, verbatim, in its header); the
+  // link's posture is read from THIS function's own `connection`, so the
+  // sentence that promises 「連接恢復後」 can only be said by a screen that can
+  // see the link is down. Saying it over a healthy link — which is what every
+  // press did on 0.3.75 — is a claim about the network that nothing measured.
+  final bool linkDown = connection != ConnectionState.connected;
+  if (outboxPending.visible(
+    now: now ?? DateTime.now().toUtc(),
+    linkDown: linkDown,
+  )) {
     queue.push(
       BannerItem(
         id: BannerIds.outboxPending,
         severity: BannerSeverity.info,
-        message: strings.outboxPendingNotice(outboxPending),
+        message: linkDown
+            ? strings.outboxPendingNotice(outboxPending.count)
+            : strings.outboxPendingNoticeLinkUp(outboxPending.count),
       ),
     );
   }

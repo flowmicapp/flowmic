@@ -198,6 +198,15 @@ async function seedAccount(email: string): Promise<Seeded> {
   // one leftover a delete census must not miss: a per-utterance record of a
   // person who asked to be erased.
   db.usageEvents.append({ user_id: user.id, occurred_at: NOW, kind: 'stt', stt_ms: 1_200, outcome: 'ok' });
+  // Card PR-2 (2026-09-06): one registered recovery operation and its metering
+  // marker, both through their own repos. The registry row is the same class of
+  // leftover `usage_events` above is — it names which recording and which sample
+  // range this account's attempt covered.
+  db.recoveryOps.admit(user.id, `op-${user.id}`, {
+    recording_id: `rec-${user.id}`, range_start_sample: 0, range_end_sample: 16_000,
+    attempt_kind: 'live', mode: 'realtime',
+  }, NOW);
+  db.usageEffects.once({ user_id: user.id, operation_id: `op-${user.id}`, kind: 'stt', at: NOW }, () => {});
   db.timeline.push(user.id, [{ id: `blob-${user.id}`, ciphertext: 'e2e:v1:opaque', created_at: NOW, schema_ver: 1 }]);
   // SALT-1: the blind-store key metadata row — through the repo, like everything
   // else here, so the 16-byte-salt validation is exercised on the way in.
@@ -319,6 +328,8 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     user_settings: rowsFor('user_settings', 'user_id', userId),
     usage_records: rowsFor('usage_records', 'user_id', userId),
     usage_events: rowsFor('usage_events', 'user_id', userId),
+    recovery_operations: rowsFor('recovery_operations', 'user_id', userId),
+    usage_effects: rowsFor('usage_effects', 'user_id', userId),
     timeline_blobs: rowsFor('timeline_blobs', 'user_id', userId),
     timeline_keymeta: rowsFor('timeline_keymeta', 'user_id', userId),
     timeline_grants: rowsFor('timeline_grants', 'user_id', userId),
@@ -369,13 +380,15 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // The scanner must actually see the schema — a probe that found no tables
     // would make every assertion below vacuously true.
     expect(tables).toContain('users');
-    // Seventeen since one_time_purchases (2026-08-29, the paid service — NO user
-    // FK, so it is a RETAINED table); sixteen since refund_requests (0.3.25 B3
-    // §8c); fifteen since
+    // Nineteen since card PR-2 (2026-09-06: recovery_operations + usage_effects,
+    // both CASCADING — see db/schema-recovery.ts for why the first draft's
+    // no-foreign-key argument was wrong); seventeen since one_time_purchases
+    // (2026-08-29, the paid service — NO user FK, so it is a RETAINED table);
+    // sixteen since refund_requests (0.3.25 B3 §8c); fifteen since
     // paddle_subscription_tombstones (0.3.25 B1, card D-2). The number is pinned
     // rather than derived on purpose — it is what makes ADDING a table a
     // decision that passes through this census instead of past it.
-    expect(tables.length).toBe(17);
+    expect(tables.length).toBe(19);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];

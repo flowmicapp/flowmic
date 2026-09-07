@@ -17,6 +17,7 @@ import type { FinalTextTransform } from '../stt/final-text-pipeline';
 import type { PolishDeps, PolishSkipReason } from '../stt/stt-polish';
 import type { RefineLlmDeps } from '../stt/stt-refine-llm';
 import type { SelectedLlmConfig } from '../compose/llm-config';
+import type { RecoveryEcho } from './stt-session-receipt';
 
 /** Sink for whitelisted STT events (audio handler fans out to mobile + PC). */
 export interface SttEmitter {
@@ -70,6 +71,18 @@ export interface SttSessionDeps {
   mode: ProcessingMode;
   sourceLang: string;
   targetLang?: string;
+  /** Card CV-1 — the recovery identifiers this `audio:start` carried, so the
+   *  terminal final can echo them back and the phone can pin the receipt to the
+   *  range it asked about (04 SPEC §3.3-a).
+   *
+   *  ABSENT ⇔ the frame carried none: a live press from any phone, or a
+   *  recovery attempt from a build that predates the card. The bridge then emits
+   *  a receipt with counters and no echo, which is honest — the counters are
+   *  about this session either way, and inventing an id would be the server
+   *  answering a question only the phone can answer.
+   *
+   *  🔴 NOT PARSED, NOT VALIDATED, NOT STORED. See {@link RecoveryEcho}. */
+  recovery?: RecoveryEcho;
   /** The ONE recordSttUsage seam — called exactly once at settle.
    *
    *  🔴 A2-5 widened it with a THIRD argument, `chars`, and the widening is the

@@ -53,6 +53,7 @@ import 'outbox_drain_host.dart';
 import 'outbox_drain_report.dart';
 import 'outbox_failure_text.dart';
 import 'outbox_item.dart';
+import 'outbox_notice_gate.dart';
 import 'outbox_pending_view.dart';
 import 'outbox_store.dart';
 
@@ -150,12 +151,18 @@ class DeliveryOutbox {
   /// `instance_machine_map` is what would let this be answered for a screen
   /// the phone is not currently on; nothing today asks —
   /// `ChatController.outboxPending` passes `connectedInstanceId`.)
-  int pendingCountFor(String? instanceId) {
+  int pendingCountFor(String? instanceId) => noticeFor(instanceId).count;
+
+  /// Card UX2-2 - the same question plus the two facts that decide whether the
+  /// banner says it out loud (`outbox_notice_gate.dart`). [pendingCountFor] is
+  /// this call's `.count`, so the count and the gate can never be taken from
+  /// two different reads of the queue.
+  OutboxPendingNotice noticeFor(String? instanceId) {
     final String asked = (instanceId ?? '').trim();
     final LiveConnection live = _host.liveConnection;
     final bool isLiveScreen =
         asked.isNotEmpty && asked == (live.pairingIdentity ?? '').trim();
-    return _derived.countFor(
+    return _derived.noticeFor(
       machineUid: isLiveScreen ? live.machineUid : null,
       pairingIdentity: asked,
     );
@@ -186,7 +193,26 @@ class DeliveryOutbox {
 
   Future<void> _refreshDerived() async {
     _derived = OutboxPendingView.of(await _loadPendingMerged());
+    // Card UX2-2 - the grace in `outbox_notice_gate.dart` is the ONE condition
+    // that becomes true with no mutation behind it, so nothing else would ever
+    // repaint the screen at the moment it does. Armed off the LIVE screen's
+    // scope because that is the only scope the banner is drawn for.
+    // 🔴 AND NOT AFTER [dispose]: this method is async, so a recompute
+    // already past its `await` would arm a FRESH timer after `dispose()`
+    // cancelled the old one - a wake-up into a torn-down host, reachable by
+    // nothing, because its handle was written after the cancel.
+    if (_disposed) return;
+    _noticeGrace = armOutboxNoticeTimer(
+      existing: _noticeGrace,
+      notice: noticeFor(_host.liveConnection.pairingIdentity),
+      onDue: _host.onOutboxChanged,
+    );
   }
+
+  /// The wake-up above; at most one ([armOutboxNoticeTimer] cancels the one it
+  /// replaces). Cancelled in [dispose], which latches [_disposed] too.
+  Timer? _noticeGrace;
+  bool _disposed = false;
 
   // ── D9 ② — a broken disk must not abort a delivery ─────────────────────────
   //
@@ -763,6 +789,9 @@ class DeliveryOutbox {
   }
 
   void dispose() {
+    _disposed = true;
+    _noticeGrace?.cancel();
+    _noticeGrace = null;
     for (final Timer t in _watchdogs.values) {
       t.cancel();
     }

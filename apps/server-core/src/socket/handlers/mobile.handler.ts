@@ -26,7 +26,9 @@
 import type { Server, Socket } from 'socket.io';
 import {
   safeParseEvent,
+  SERVER_RECOVERY_CAPABILITIES,
   type MobileReconnectAckAudioFields,
+  type ServerCapabilityAckFields,
   type MobileReconnectAckNodeFields,
   type ServerMode,
 } from '@flowmic/protocol';
@@ -278,6 +280,39 @@ function refuseRestricted(deps: MobileHandlerDeps, userId: string, ack: unknown)
   return true;
 }
 
+// ── card PR-1 (04 SPEC §3.3-a (c)) — what THIS build may honestly claim ──────
+//
+// Rides the two acks the phone already reads (`mobile:pair`, `mobile:reconnect`)
+// rather than a new event or a new ack type: the phone's question is "what can
+// the server I just reached actually do", and it has exactly one moment where it
+// is reading an answer from that server anyway.
+//
+// TYPED, not spelled inline, for the same reason
+// `MobileReconnectAckAudioFields` is: both acks are emitted as literals here, so
+// the declaration in @flowmic/protocol is what holds this file to the wire shape
+// instead of a parallel copy nothing verifies (the RV-36 drift trap).
+//
+// 🔴 `recovery.idempotent_operation` JOINED THIS LIST ON 2026-09-06, and only
+// because card PR-2 landed the mechanism first: the operation registry
+// (db/schema-recovery.ts), the metering-effect ledger wired into the primary
+// node's tracker, and the replica's deterministic outbox key. The sentence that
+// stood here — "MUST NOT BE ADDED UNTIL card PR-2 EXISTS" — was obeyed rather
+// than overruled, and it is recorded because the reason has not weakened: the
+// phone reads a missing bit fail-closed (it holds the audio and says so), while
+// a bit we do not honour turns that into "looks successful, no protection",
+// which audit §A7-3 names as the worst available outcome.
+// ⚠️ THE LIST IS STATIC AND THE WIRING IS NOT CONDITIONAL, which is what keeps
+// the claim true per deployment: `db.recoveryOps` is built unconditionally in
+// db/connection.ts, and an `audio:start` that names an operation is REFUSED
+// rather than admitted unprotected if it ever is not (audio-start-operation.ts).
+// The membership is pinned by a test, not by this comment.
+//
+// FAILURE DIRECTION: an old phone ignores an ack key it does not know, and an
+// old relay would not send it at all. Both produce exactly today's product.
+const RECOVERY_CAPABILITY_ACK: ServerCapabilityAckFields = {
+  capabilities: [...SERVER_RECOVERY_CAPABILITIES],
+};
+
 export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps): void {
   const { registry, store, pairLimiter } = deps;
   const now = deps.now ?? Date.now;
@@ -445,6 +480,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         });
       }
       safeAck(ack, {
+        ...RECOVERY_CAPABILITY_ACK, // card PR-1
         pairing_id: mobile.id,
         mobile_token: token,
         pc_id: pc.id,
@@ -662,6 +698,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         ...(deps.nodeId ? { node: deps.nodeId } : {}),
       };
       safeAck(ack, {
+        ...RECOVERY_CAPABILITY_ACK, // card PR-1
         pairing_id: mobile.id,
         pc_id: pc.id,
         pc_instance_id: pc.client_instance_id,

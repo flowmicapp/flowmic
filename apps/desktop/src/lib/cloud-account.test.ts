@@ -23,7 +23,7 @@ import {
   RUST_ACCOUNT_OUTCOMES,
   type CloudAccountRaw,
 } from './cloud-account';
-import { EMPTY_CLOUD_STATUS, type CloudStatus } from './channel';
+import { EMPTY_CLOUD_STATUS, formatExpiry, type CloudStatus } from './channel';
 import { RESTRICTION_REASONS } from '@flowmic/protocol';
 import { UI_LOCALES, setLocale, type UiLocale } from './strings/locale';
 
@@ -68,6 +68,10 @@ function okRaw(over: {
   pcLimit?: number | null;
   mobileLimit?: number | null;
   continuousMinutes?: number | null;
+  // owner 2026-09-05 — the account-anchored cycle. `null` is an OLDER RELAY:
+  // the field is additive, so every relay from before that ruling answers
+  // without it, and the gauge those users see must be unchanged.
+  period?: { start: string; end: string } | null;
 }): CloudAccountRaw {
   return {
     outcome: 'ok',
@@ -96,6 +100,9 @@ function okRaw(over: {
           limit: over.limit_tokens === undefined ? 1_000_000 : over.limit_tokens,
         },
         month: '2026-08',
+        ...(over.period === null
+          ? {}
+          : { period: over.period ?? { start: '2026-08-24', end: '2026-09-24' } }),
       },
       devices: {
         pc_count: 1,
@@ -108,9 +115,14 @@ function okRaw(over: {
   };
 }
 
-function card(raw: CloudAccountRaw | null, lastLive: CloudAccountRaw | null = null, loading = false) {
+function card(
+  raw: CloudAccountRaw | null,
+  lastLive: CloudAccountRaw | null = null,
+  loading = false,
+  nowMs?: number,
+) {
   const remembered = lastLive === null ? null : { account: parseLiveAccount(lastLive)!, at: FETCHED_AT };
-  return deriveAccountCard({ cloud: SIGNED_IN, raw, lastLive: remembered, loading });
+  return deriveAccountCard({ cloud: SIGNED_IN, raw, lastLive: remembered, loading, nowMs });
 }
 
 describe('① unreachable → neutral state (unknown ≠ error ≠ stale value ≠ currently asking)', () => {
@@ -410,7 +422,8 @@ describe('④ the name and "the actual number in effect" are asserted separately
       pc_limit: null,
       mobile_limit: null,
       continuous_minutes: null,
-    });
+      resets_at: Date.UTC(2026, 8, 24),
+    }, Date.UTC(2026, 8, 10));
     expect(g).toBeNull();
   });
 
@@ -457,6 +470,91 @@ describe('④ the name and "the actual number in effect" are asserted separately
     );
     expect(unknownExempt.gauge).toBeNull();
     expect(unknownExempt.sourceBadge).toBe('长期免费'); // same as above: what justifies still being able to answer
+  });
+});
+
+// ── ④-ter when the allowance starts over (owner 2026-09-07) ─────────────────
+//
+// 🔴 EVERY INSTANT HERE IS BUILT LOCAL AND THE BOUNDARY IS BUILT UTC, on
+// purpose. `Date.UTC(2026, 8, 24)` is what the server means by `2026-09-24`;
+// what the user must read is that instant IN THEIR OWN ZONE, so the expected
+// string is derived through `formatExpiry` — the product's one date shape —
+// rather than hard-coded. Hard-coding "2026-09-24 08:00" would pass on this
+// machine and fail on the Mac, which is the machine-local-baseline trap this
+// repo already pays for in its rendered-copy snapshots.
+describe('④-ter the reset line: a quota that does not say when it starts over answers half a question', () => {
+  const END = Date.UTC(2026, 8, 24); // the server's `2026-09-24`, UTC midnight
+  const at = () => formatExpiry(Math.floor(END / 1000))!;
+  /** Local noon `d` days before the boundary's own LOCAL day. */
+  const localNoonBefore = (days: number): number => {
+    const b = new Date(END);
+    return new Date(b.getFullYear(), b.getMonth(), b.getDate() - days, 12, 0, 0).getTime();
+  };
+
+  it('says the local instant AND how far off it is', () => {
+    const c = card(okRaw({}), null, false, localNoonBefore(14));
+    expect(c.gauge?.reset).toBe(`${at()} 重置 · 还有 14 天`);
+  });
+
+  it('🔴 the boundary is parsed as UTC, not as local midnight', () => {
+    // The whole defect this field can have, and it is invisible on a machine
+    // running in UTC: `new Date('2026-09-24')` is UTC while
+    // `new Date(2026, 8, 24)` is local, and mixing them moves the reset by a
+    // whole timezone — 08:00 vs 00:00 for a user in Shanghai. Asserted as an
+    // INSTANT, which is the only form of it that has one right answer.
+    const live = parseLiveAccount(asCloudAccountRaw(okRaw({})));
+    expect(live?.resets_at).toBe(Date.UTC(2026, 8, 24));
+  });
+
+  it('1 and 0 days are words, never "in 1 days"', () => {
+    // 🔴 Not a grammar nicety: this is the one string on the card that lands on
+    // the day a user is most likely to be reading it.
+    expect(card(okRaw({}), null, false, localNoonBefore(1)).gauge?.reset).toBe(`${at()} 重置 · 明天`);
+    expect(card(okRaw({}), null, false, localNoonBefore(0)).gauge?.reset).toBe(`${at()} 重置 · 今天`);
+    expect(card(okRaw({}), null, false, localNoonBefore(2)).gauge?.reset).toBe(`${at()} 重置 · 还有 2 天`);
+  });
+
+  it('no field, no line — the gauge is otherwise untouched (an older relay)', () => {
+    const c = card(okRaw({ period: null }), null, false, localNoonBefore(14));
+    expect(c.gauge?.reset).toBeNull();
+    // 🔴 The point of the absent case: the numbers still render. A reader who
+    // "fixed" this by making the gauge depend on the cycle would break every
+    // client talking to a relay older than 2026-09-05.
+    expect(c.gauge?.minutes?.label).toBe('3 / 20 分钟');
+    expect(c.gauge?.context?.label).toBe('上下文 0 / 1M');
+  });
+
+  it('a boundary already gone by says nothing rather than a stale date', () => {
+    // The summary on screen is old by then, and printing a past instant as a
+    // future one would be a confident claim about an allowance we did not read.
+    expect(card(okRaw({}), null, false, localNoonBefore(-1)).gauge?.reset).toBeNull();
+  });
+
+  it('an unbelievable cycle is "absent", never a corrected date', () => {
+    for (const bad of [
+      { start: '2026-08-24', end: '2026-9-24' }, // not zero-padded
+      { start: '2026-08-24', end: '2026-09-24T00:00:00Z' }, // not a bare day
+      { start: '2026-08-24', end: '2026-02-31' }, // a day that does not exist
+      { start: '2026-08-24', end: '' },
+    ] as { start: string; end: string }[]) {
+      const c = card(okRaw({ period: bad }), null, false, localNoonBefore(14));
+      expect(c.account?.resets_at, `end=${bad.end}`).toBeNull();
+      expect(c.gauge?.reset, `end=${bad.end}`).toBeNull();
+    }
+  });
+
+  it('every locale says it, and none of them leaves a hole where a value should be', () => {
+    for (const loc of UI_LOCALES) {
+      setLocale(loc as UiLocale);
+      const line = card(okRaw({}), null, false, localNoonBefore(14)).gauge?.reset;
+      expect(line, loc).toBeTruthy();
+      // 🔴 An unsubstituted `{at}` / `{days}` is the 0.2.53 shape: a raw
+      // identifier on screen. `.replace` is silent about a placeholder whose
+      // name a translator mistyped, so this is the only thing that catches it.
+      expect(line, loc).not.toMatch(/\{[a-z]+\}/);
+      expect(line, loc).toContain(at());
+      expect(line, loc).toContain('14');
+    }
   });
 });
 

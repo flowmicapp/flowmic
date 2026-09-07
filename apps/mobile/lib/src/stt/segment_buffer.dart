@@ -14,6 +14,21 @@
 //
 // Ported from legacy stt/segment_buffer.dart (behaviour byte-identical).
 
+/// SD-1 — true when [s] holds at least one letter, CJK character or digit.
+///
+/// 🔴 THE PREDICATE IS 「IS THERE CONTENT」, NOT 「IS THIS PUNCTUATION」. A
+/// denylist of punctuation marks would have to be complete across nine scripts
+/// to be correct, and an incomplete one fails in the bad direction — a mark
+/// nobody listed becomes a timeline row and a keystroke on the user's PC.
+/// `\p{L}` covers every script's letters (CJK included: Han characters are
+/// `Lo`); `\p{N}` covers digits. Punctuation, symbols, whitespace and emoji are
+/// none of those, and none of them is something a person said.
+///
+/// Deliberately NOT `trim().isNotEmpty` — that is the test this defect passed.
+final RegExp _sttContentChar = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+bool sttTextHasContent(String s) => _sttContentChar.hasMatch(s);
+
 class SegmentBuffer {
   final Map<int, String> _texts = <int, String>{};
   final Set<int> _finalized = <int>{};
@@ -73,7 +88,7 @@ class SegmentBuffer {
   /// Write [text] into slot [idx].
   ///   - finalized=true with empty text and non-empty prior → KEEP prior + lock
   ///     (the orchestrator's empty fallback on flushFinal timeout must NOT wipe
-  ///     accumulated online text).
+  ///     accumulated online text) — UNLESS [emptyIsVerdict], see below.
   ///   - finalized=true with non-empty text → the server's final REPLACES the
   ///     slot, then locks. See the block below for why replace and not merge.
   ///   - interim: same-idx REPLACES wholesale (server emits cumulative text);
@@ -135,11 +150,58 @@ class SegmentBuffer {
   /// a replayed final for an already-closed slot changes neither — so
   /// [durationFrom] inherits [put]'s idempotency instead of asking for a second
   /// 「have I seen this index」 answer (this repo's #1 defect shape).
+  ///
+  /// ── 🔴 SD-1 (a) — A PUNCTUATION-ONLY INTERIM IS NOT TEXT ──────────────────────
+  /// MEASURED 2026-09-06 (device drill B-7, a 3 s press in a quiet room, tablet
+  /// TB335ZC against a standalone relay; frames in
+  /// `.local/session-2026-09-06-durability-drill/pc-events.jsonl` lines 10/14):
+  ///   stt:interim {"text":".","segment_idx":0}
+  ///   stt:final   {"text":"","segment_idx":0,"is_segment":false,
+  ///                "empty_reason":"heard_no_words"}
+  /// and then `inject:request {"text":"."}` — a full stop delivered into the
+  /// user's focused window, with a timeline row minted for it. The server's own
+  /// verdict for that recording was 「the engine heard no words」; the "." came
+  /// out of SenseVoice's live preview decoder, which punctuates as a function of
+  /// the span (`apps/server-core/src/stt/engines/sherpa-local.ts`, the
+  /// `interimShape` declaration) and so emits terminal punctuation for a span
+  /// that contains nothing.
+  ///
+  /// An interim carrying no letter, no CJK character and no digit is therefore
+  /// refused at the door: it is not a shorter version of the words, it is the
+  /// absence of them. Every consumer downstream ([joined], the live view, row
+  /// minting) reads this map, so refusing it HERE is what makes 「there is no
+  /// content」 one answer instead of one answer per reader.
+  ///
+  /// ⚠️ IT COSTS NOTHING WHEN REAL SPEECH FOLLOWS. Interims are CUMULATIVE and
+  /// same-idx REPLACES wholesale, so the next interim carrying a word lands
+  /// whole; nothing was accumulated that this refusal could lose.
+  /// ⚠️ FINALS ARE NOT FILTERED. A final is the server's processed transcript
+  /// and the FB-6 authority rule above owns that slot; a punctuation-only FINAL
+  /// would be a different defect with a different owner, and dropping it quietly
+  /// here would hide it.
+  ///
+  /// ── 🔴 SD-1 (b) — [emptyIsVerdict]: AN EMPTY FINAL THAT MEANS 「NO WORDS」 ──
+  /// The KEEP-prior rule above exists for the flush-cap fallback, where the
+  /// empty string is OUR placeholder and the interims are the only transcript
+  /// there is (`apps/server-core/src/stt/flush-final.ts`). It must NOT cover the
+  /// other empty final: the one the server stamps `empty_reason` on, which per
+  /// `apps/server-core/src/stt/empty-final-cause.ts` is emitted ONLY when no
+  /// `stt:error` explained the emptiness AND no final of the whole recording
+  /// carried words. That stamp is a positive statement about this span, and a
+  /// stale interim may not out-rank it.
+  ///
+  /// 🔴 THE CALLER PASSES THE FACT, NOT THE INFERENCE. `ptt_inbound.dart` sets
+  /// this from `empty_reason` being present on a TERMINAL final; this file never
+  /// guesses 「an empty final probably means silence」, because for the flush-cap
+  /// shape that guess is false and would delete the user's words.
+  /// ⚠️ SAME `segment_idx` ONLY, which is what keeps FB-6 intact: earlier
+  /// soft-segment slots exist nowhere but this device and are not touched here.
   bool put({
     required int idx,
     required String text,
     bool finalized = false,
     int? durationMs,
+    bool emptyIsVerdict = false,
   }) {
     if (_finalized.contains(idx)) return false;
     if (finalized && durationMs != null && durationMs > 0) {
@@ -147,7 +209,7 @@ class SegmentBuffer {
     }
     final String prior = _texts[idx] ?? '';
     if (finalized) {
-      if (text.isEmpty && prior.isNotEmpty) {
+      if (text.isEmpty && prior.isNotEmpty && !emptyIsVerdict) {
         _finalized.add(idx);
         return false;
       }
@@ -155,12 +217,12 @@ class SegmentBuffer {
       _finalized.add(idx);
       return true;
     }
+    if (!sttTextHasContent(text)) return false;
     if (prior.isEmpty) {
-      if (text.isEmpty) return false;
       _texts[idx] = text;
       return true;
     }
-    if (text.isEmpty || text == prior) return false;
+    if (text == prior) return false;
     if (prior.startsWith(text)) return false;
     _texts[idx] = text;
     return true;

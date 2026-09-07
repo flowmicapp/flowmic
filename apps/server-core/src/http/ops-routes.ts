@@ -82,7 +82,10 @@ export const AUDIT_RECENT_MAX = 500;
 /** UTC `YYYY-MM`, strictly. `2026-8`, `2026-13`, `2026-00` and `2026` are all
  *  refused: a loose parser here would let a caller believe it asked about a month
  *  that has no rows when it actually asked about nothing. */
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** A usage bucket key: the legacy UTC calendar month (`YYYY-MM`) or, since
+ *  2026-09-05, an account's cycle start day (`YYYY-MM-DD`). Both live in the
+ *  same column; `GET /api/ops/usage/months` lists whichever exist. */
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/;
 
 export interface OpsRoutesDeps {
   /** The account verifier — the same `AuthService` instance every other http
@@ -146,8 +149,8 @@ function query(url: string): URLSearchParams {
  */
 function parseMonth(url: string): Parsed<string> {
   const raw = query(url).get('month');
-  if (raw === null) return { ok: false, message: 'month is required (UTC YYYY-MM, e.g. 2026-08)' };
-  if (!MONTH_RE.test(raw)) return { ok: false, message: 'month must be a UTC YYYY-MM bucket (e.g. 2026-08)' };
+  if (raw === null) return { ok: false, message: 'month is required (a bucket key: UTC YYYY-MM, or a cycle start YYYY-MM-DD)' };
+  if (!MONTH_RE.test(raw)) return { ok: false, message: 'month must be a bucket key: UTC YYYY-MM (e.g. 2026-08) or a cycle start YYYY-MM-DD' };
   // Deliberately NOT echoed back in the message: this string came from the
   // caller, and an error body is the last place to start reflecting input.
   return { ok: true, value: raw };

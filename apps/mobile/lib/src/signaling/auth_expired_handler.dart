@@ -19,6 +19,7 @@
 import 'dart:async';
 
 import '../audio/audio_capture.dart';
+import '../audio/retained_audio_manifest.dart' show JournalInterrupt;
 import '../auth/token_storage.dart';
 import 'reconnect.dart';
 import 'socket_core.dart';
@@ -67,7 +68,9 @@ class AuthExpiredHandler {
     // subsystem is ever drained again".
     try {
       // 1. SESSION drain.
-      audio.fenceAndStop();
+      // Card LS-4: capture authority is gone, which is not the user throwing
+      // words away — named, and NOT tombstoned, so the bytes stay recoverable.
+      audio.fenceAndStop(reason: JournalInterrupt.authDrained);
       stateMachine.onAuthExpired();
       // 2. PAIRING drain.
       final String? owner = reconnect.token;

@@ -26,7 +26,7 @@
 // [ContinuousOffer.reason] is 「the sentence this control owes the user」 — which
 // is sometimes null even while disabled. See [ContinuousBlock].
 
-import '../auth/cloud_summary.dart' show CloudSummary;
+import '../auth/cloud_summary.dart' show CloudSummary, CloudSummaryRefusal;
 import '../session/instance_probe.dart' show ServerChannel;
 import '../signaling/wire_payloads.dart' show FlowMode;
 
@@ -55,6 +55,32 @@ enum ContinuousBlock {
   /// [ContinuousBlock.ceilingUnknown] for the case that remains genuinely
   /// ambiguous (signed in, but the account's ceiling could not be read).
   notSignedIn,
+
+  /// The account exists, and the server answered the ceiling read with
+  /// `403 EMAIL_NOT_VERIFIED` — an unverified address past the 3-day grace
+  /// (`auth/verification-grace.ts`).
+  ///
+  /// 🔴 SPLIT OUT OF [ceilingUnknown] BECAUSE THAT SENTENCE PROMISED A RETRY
+  /// THAT CANNOT HELP. Measured on device (round-three drill, 2026-09-06): the
+  /// row read 「Account limit unavailable — try again」 and every retry got the
+  /// same 403 for the same reason, while the one action that would clear it
+  /// went unsaid. Same argument the repo made for `INJECT_NO_ACCESSIBILITY`: a
+  /// failure the user can fix must never be dressed as one they cannot.
+  emailNotVerified,
+
+  /// `403 ACCOUNT_RESTRICTED` (A2-3). Its sentence names no action, and that is
+  /// deliberate: there is no appeal channel (owner ⑤), so an errand here would
+  /// be a true sentence used as a false next step — the same trap
+  /// `refuseRestricted`'s own ordering comment describes on the server.
+  accountRestricted,
+
+  /// The ceiling read came back 401. The session is over; the watchdog has not
+  /// caught up yet, or this read got there first.
+  ///
+  /// ⚠️ Outranked by [notSignedIn] the moment `LoginController
+  /// .handleAuthExpired` runs — this member exists for the window before that,
+  /// which is precisely when a user is looking at the row and wondering why.
+  sessionExpired,
 
   /// A-2. translate / organize process a WHOLE utterance at once (compose is
   /// strictly single-flight, owner 2026-08-11), so half an hour of audio would
@@ -207,6 +233,11 @@ ContinuousOffer continuousOffer({
   // screen.
   required bool signedIn,
   required CloudSummary? summary,
+  // The NAMED reason the last summary read failed, or null when it failed for a
+  // reason nobody can act on (or did not fail). `CloudSummaryController
+  // .refusal`; see [CloudSummaryRefusal] for why the vocabulary is the server
+  // route's own and why an unnamed miss deliberately stays unnamed here.
+  CloudSummaryRefusal? refusal,
   ServerChannel? channel,
 }) {
   // ① Destination first, and it is the only input that can remove the entry.
@@ -232,6 +263,18 @@ ContinuousOffer continuousOffer({
       // and telling it "realtime mode only" would be answering a question
       // one step ahead of the one that actually blocks it.
       ? ContinuousBlock.notSignedIn
+      // 🔴 A NAMED ACCOUNT REFUSAL OUTRANKS THE MODE, FOR [notSignedIn]'S OWN
+      // REASON. These three say 「this account may not do it at all」; telling
+      // such a phone 「realtime mode only」 would answer a question one step
+      // ahead of the one that actually blocks it. And unlike a null ceiling
+      // they are NOT cured by a cached `continuousMinutes` from earlier in the
+      // session, so they are read before `cap` too.
+      : refusal == CloudSummaryRefusal.emailNotVerified
+      ? ContinuousBlock.emailNotVerified
+      : refusal == CloudSummaryRefusal.accountRestricted
+      ? ContinuousBlock.accountRestricted
+      : refusal == CloudSummaryRefusal.authExpired
+      ? ContinuousBlock.sessionExpired
       : mode != FlowMode.realtime
       ? ContinuousBlock.modeNotRealtime
       : cap == null

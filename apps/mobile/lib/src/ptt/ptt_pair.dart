@@ -168,6 +168,10 @@ extension PttSessionPair on PttSession {
     final Object? name = ack['pc_name'];
     if (name is String && name.isNotEmpty) connectedDeviceName.value = name;
     _pcPresence.noteAck(ack); // RV-92: `pc_online` has always been on this ack, nobody read it until now
+    // Card PR-1 — the pair leg needs the capability bits as much as the
+    // reconnect leg does; the node fields were asymmetric here once already and
+    // it was a real defect. NO CONSUMER YET — read by card RC-1.
+    reconnect.noteServerCapabilities(ack);
     paired.value = true; _startPresencePoll(); // G-15①: really paired, see ptt_presence_poll.dart
     // 🔴 P0 — THE TOKEN EXISTS ON THE WRITER AND NOWHERE ELSE YET.
     // `mobile:pair` is writer-only; a replica learns about this row on its next

@@ -12,6 +12,7 @@
 // to window-forensics.log via appendForensic (07 §10).
 
 import { reactive } from 'vue';
+import { speakingElapsedMs } from './session-stats';
 import { CAPSULE_WIDTH, CapsuleMorph, type Morph } from '../lib/capsule-morph';
 import { CapsuleVisibility } from '../lib/capsule-visibility';
 import { SpeakingWatchdog } from '../lib/speaking-watchdog';
@@ -147,6 +148,9 @@ function onAudioStart(p: unknown): void {
   utteranceView.reset(str(pick(p, 'mode')));
   publishUtteranceView();
   state.segs = 0;
+  // The live ministat clock starts HERE, on the same event that starts the
+  // phone's own (recording_panel.dart `elapsed`). tick() keeps it moving.
+  state.speakElapsedMs = 0;
   state.injected = null;
   state.injectFailed = null;
   state.locked = true;
@@ -529,10 +533,27 @@ export function fireSttFinalForTest(p: unknown): void {
 export function speakingForTest(): boolean {
   return vis.isSpeaking();
 }
+/** Drives the REAL 150ms [[tick]], the only production writer of
+ *  `state.speakElapsedMs`.
+ *
+ *  🔴 This seam exists because of a reverse control that FAILED TO GO RED
+ *  (2026-09-07): with the live-duration tests asserting on a `speakElapsedMs`
+ *  the test itself had assigned, deleting tick()'s write left all of them green
+ *  — i.e. the duration could have been frozen at 0 forever in production and
+ *  nothing would have said so. Asserting the value without driving the thing
+ *  that produces it is the 「单测全绿对『接线』零证明力」 shape. */
+export function fireTickForTest(): void {
+  tick();
+}
 
 function tick(): void {
   const now = Date.now();
   if (watchdog.check(now)) onLatchStarved();
+  // The speaking row's live duration. Driven by the EXISTING 150ms tick rather
+  // than a timer of its own: a second clock would be a second answer to 「how
+  // long has this been running」, and the two would disagree the moment one of
+  // them was paused, cleared or forgotten.
+  state.speakElapsedMs = speakingElapsedMs({ hadAudio: utteranceHadAudio, startedAt: speakStart, now });
   morph.setHistoryCount(state.recent.length);
   morph.drawerOpen = state.diagOpen;
 

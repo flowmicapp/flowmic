@@ -27,7 +27,12 @@
 // new file, per the card — those blocks are marked VERIFY-1 and are the only
 // non-moved content.
 
-import { billingWebhookDeps, serviceRefunder, servicePurchaseDeps, subscriptionWriterFor } from './bootstrap-billing-deps';
+import {
+  billingRouteDeps,
+  billingWebhookDeps,
+  serviceRefunder,
+  servicePurchaseDeps,
+} from './bootstrap-billing-deps';
 import type { ServiceMailer } from './mail/service-mailer';
 import { opsHttpDeps } from './bootstrap-ops-deps';
 import { dirname, join } from 'node:path';
@@ -370,6 +375,18 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             ...(w.nodeRuntime.nodeConfig.role === 'writer' && w.nodeRuntime.nodeConfig.sharedSecret
               ? {
                   sharedSecret: w.nodeRuntime.nodeConfig.sharedSecret,
+                  // 2026-09-07 — the READ-ONLY snapshot credential, when the
+                  // deployment has issued one. Passed inside this same
+                  // writer-only block on purpose: the route it opens is refused
+                  // on role grounds anywhere else, so handing the value to a
+                  // replica's routes would be a dependency that can never be
+                  // used and would invite a reader to conclude a replica serves
+                  // snapshots. node-config.ts refuses it at boot when it equals
+                  // the shared secret — the one way this could stop being a
+                  // narrowing and start being a second name for the same key.
+                  ...(w.nodeRuntime.nodeConfig.snapshotSecret
+                    ? { snapshotSecret: w.nodeRuntime.nodeConfig.snapshotSecret }
+                    : {}),
                   ...(w.nodeRuntime.snapshot ? { snapshot: w.nodeRuntime.snapshot } : {}),
                   remainingSttMs: (userId: string) => w.quota.remainingSttMs(userId),
                   // 2026-08-31 — mint a pairing code for a PC that is registered
@@ -750,33 +767,17 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
           },
         }
       : {}),
-    // 🔴 0.3.25 B2 — POST /api/cloud/billing/{cancel,resume}. SAAS ONLY, the
-    // same mounting shape as its neighbours: standalone is a LAN server with no
-    // merchant of record, so there is nothing there to cancel and the paths 404.
-    //
-    // ⚠️ MOUNTED EVEN WHEN OUTBOUND WRITES ARE OFF, on purpose. The switch is
-    // read inside the client, which throws by name, and the route turns that
-    // into a 503 the console can render. Gating the MOUNT on it instead would
-    // make a switched-off deployment answer 404 — 「there is no such feature」 —
-    // which is a different and less true sentence than 「this deployment cannot
-    // do that right now」, and it is the one a user cannot act on.
-    ...(config.mode === 'saas'
-      ? {
-          billingControls: {
-            auth: authService,
-            billing,
-            // Chosen per subscription, from the provider on its own row — see
-            // bootstrap-billing-deps.ts for why there is no default.
-            writerFor: subscriptionWriterFor({ config, db, billing, ...(now ? { now } : {}), paddleClient: w.paddleClient }),
-            mailer: w.subscriptionMail,
-            // 0.3.25 B3 — the same repo the webhook writes through. A withdrawal
-            // has to leave a row behind, and it is the ONLY write these routes
-            // make: the subscription row itself still has exactly one author,
-            // the webhook handler.
-            refunds: db.billing,
-          },
-        }
-      : {}),
+    // Every route that touches a subscription — starting one, cancelling one,
+    // undoing a cancellation, withdrawing — built in bootstrap-billing-deps.ts.
+    // 🔴 THEY MOVED THERE 2026-09-04 (this file hit the 800-line cap), and the
+    // grouping is the point rather than the line count: 「what can begin, change
+    // or end somebody's billing」 now has one file to read.
+    ...billingRouteDeps({
+      config, db, billing, auth: authService,
+      subscriptionMail: w.subscriptionMail,
+      paddleClient: w.paddleClient,
+      ...(now ? { now } : {}),
+    }),
     // The VPN-only operator surfaces — every /api/ops/* dep plus the account
     // restriction write. They live in bootstrap-ops-deps.ts (see its header for
     // why they moved and for the one property they all share: a wide repo in,

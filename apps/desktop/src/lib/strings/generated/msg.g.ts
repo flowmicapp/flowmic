@@ -18,9 +18,81 @@
 // inherited English arm keeps reading the English prefix and the sentence
 // stays in one language.
 
-import type { SettingsMsg, TlBatchMsg, TlRetentionMsg, TlMetricsMsg } from '../contract';
+import type { CapsuleMsg, SettingsMsg, TlBatchMsg, TlRetentionMsg, TlMetricsMsg } from '../contract';
 import type { UiLocale } from './locales.g';
 import { CATALOGUE } from './catalogue.g';
+
+const CAPSULE_MSG_EN: CapsuleMsg = {
+  sessionMeta: (clock, segments) => `${clock} · ${segments} ${segments === 1 ? 'part' : 'parts'}`,
+};
+
+// zh-CN (中文) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_ZH_CN: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} 段`,
+};
+
+// zh-TW (繁體中文) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_ZH_TW: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} 段`,
+};
+
+// fr (Français) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_FR: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} ${segments === 1 ? 'partie' : 'parties'}`,
+};
+
+// es (Español) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_ES: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} ${segments === 1 ? 'parte' : 'partes'}`,
+};
+
+// de (Deutsch) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_DE: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} ${segments === 1 ? 'Teil' : 'Teile'}`,
+};
+
+// ja (日本語) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_JA: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} 個`,
+};
+
+// ko (한국어) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_KO: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments}개`,
+};
+
+// ru (Русский) — 1/1 translated;
+// the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
+const CAPSULE_MSG_RU: CapsuleMsg = {
+  ...CAPSULE_MSG_EN,
+  sessionMeta: (clock, segments) => `${clock} · ${segments} фрагм.`,
+};
+
+export const CAPSULE_MSG_BY_LOCALE: Record<UiLocale, CapsuleMsg> = {
+  'en': CAPSULE_MSG_EN,
+  'zh-CN': CAPSULE_MSG_ZH_CN,
+  'zh-TW': CAPSULE_MSG_ZH_TW,
+  'fr': CAPSULE_MSG_FR,
+  'es': CAPSULE_MSG_ES,
+  'de': CAPSULE_MSG_DE,
+  'ja': CAPSULE_MSG_JA,
+  'ko': CAPSULE_MSG_KO,
+  'ru': CAPSULE_MSG_RU,
+};
 
 const SETTINGS_MSG_EN: SettingsMsg = {
   modelDownloadSize: (size) => `Download the model (about ${size}, one time)`,

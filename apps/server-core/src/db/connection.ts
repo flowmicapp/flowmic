@@ -46,6 +46,8 @@ import { makeBillingRepo, type BillingRepo } from './repos/billing.repo';
 import { makeOpsAuditRepo, type OpsAuditRepo } from './repos/ops-audit.repo';
 import { makeEmailVerificationRepo, type EmailVerificationRepo } from './repos/email-verification.repo';
 import { makeSiteCountsRepo, type SiteCountsRepo } from './repos/site-counts.repo';
+import { makeRecoveryOperationsRepo, type RecoveryOperationsRepo } from './repos/recovery-operations.repo';
+import { makeUsageEffectLedger, type UsageEffectLedger } from './repos/usage-effects.repo';
 
 export interface DbConnection {
   raw: DatabaseSync;
@@ -64,6 +66,25 @@ export interface DbConnection {
    *  sweep (db/retention.ts, the only deleter) and the read route
    *  (http/usage-events-routes.ts) — each sliced to the methods it needs. */
   usageEvents: UsageEventsRepo;
+  /** Card PR-2 (2026-09-06) — the operation registry (`recovery_operations`).
+   *
+   *  Written and read by ONE consumer, the `audio:start` admission step
+   *  (socket/handlers/audio-start-operation.ts); swept daily by bootstrap-sweeps.
+   *  Constructed unconditionally rather than behind a config switch, and that is
+   *  load-bearing: the server ADVERTISES `recovery.idempotent_operation` on every
+   *  pairing ack, so a deployment where this was optional-and-absent would be one
+   *  that claims protection it does not give — audit §A7-3 names that as the worst
+   *  available outcome. */
+  recoveryOps: RecoveryOperationsRepo;
+  /** Card PR-2 (2026-09-06) — the metering-effect ledger (`usage_effects`).
+   *
+   *  Handed to `makeUsageTracker` (its only caller) so the claim and the
+   *  `usage_records` increment commit together; swept daily beside the registry.
+   *  🔴 Handed to the writer's REPLAY tracker TOO (audit F1), but through
+   *  `claimInCallerTransaction`: that tracker runs inside `forward-ledger.once`'s
+   *  transaction and SQLite has no nested `BEGIN`. Same row, same key — which is
+   *  what makes 「metered on the writer, re-sent to a replica」 one charge. */
+  usageEffects: UsageEffectLedger;
   /** First-party public-site aggregate counts (`site_daily_counts`).
    *
    *  Written by site-collect-routes + auth success paths (when
@@ -490,6 +511,8 @@ export function createDbConnection(
     // three layers down that no test could ever see or control.
     usage: makeUsageRepo(db, opts.now),
     usageEvents: makeUsageEventsRepo(db),
+    recoveryOps: makeRecoveryOperationsRepo(db),
+    usageEffects: makeUsageEffectLedger(db),
     siteCounts: makeSiteCountsRepo(db),
     timeline: makeTimelineRepo(db),
     timelineKeymeta: makeTimelineKeymetaRepo(db),

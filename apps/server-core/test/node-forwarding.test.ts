@@ -359,6 +359,7 @@ describe('authoritative quota — the ONE read that leaves a replica', () => {
       db: { usage: {}, usageEvents: {}, raw: {} } as never,
       config: { mode: 'standalone', usageEventsEnabled: false } as never,
       log: { info: () => {}, warn: () => {}, error: () => {} },
+      periodKeyFor: () => 'p',
     });
     const guard = { remainingSttMs: () => 42 };
     expect(runtime.wrapQuota(guard)).toBe(guard);
@@ -438,6 +439,7 @@ describe('home_node is recorded on WHICHEVER node admits the PC', () => {
         db: { usage: {}, usageEvents: {}, raw: {}, pcs: { setHomeNode: (id: string, n: string) => set.push(`${id}:${n}`) } } as never,
         config: { mode: 'saas', usageEventsEnabled: false } as never,
         log: { info: () => {}, warn: () => {}, error: () => {} },
+        periodKeyFor: () => 'p',
       });
       return { rt, set };
     } finally {

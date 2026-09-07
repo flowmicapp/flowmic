@@ -58,6 +58,7 @@
 // two are NEVER interchangeable — enforced at the write path, not in SQL.
 
 import { BILLING_ADDITIVE_TEXT_COLUMNS, BILLING_SQL } from './schema-billing';
+import { RECOVERY_SQL } from './schema-recovery';
 
 export const INIT_SQL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -700,6 +701,11 @@ CREATE TABLE IF NOT EXISTS site_daily_counts (
   PRIMARY KEY (day, kind, dim, dim_value)
 );
 CREATE INDEX IF NOT EXISTS idx_site_daily_counts_day ON site_daily_counts(day);
+
+-- 15/16. THE RECOVERY DOMAIN lives in ./schema-recovery.ts (RECOVERY_SQL): the PR-2
+-- operation registry and the metering-effect ledger, with the whole argument. Split
+-- out for the reason BILLING_SQL was; interpolated the same way (unconditional, one exec).
+${RECOVERY_SQL}
 `;
 
 /** Additive columns reconciled onto pre-existing DBs (guarded ADD COLUMN). On a

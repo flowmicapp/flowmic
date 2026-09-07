@@ -173,6 +173,10 @@ export interface ShutdownSteps {
    *  keeps the process alive and a tick after `db.close()` hits dead
    *  statements. */
   forwardLedgerPrune?: { stop(): void };
+  /** Card PR-2 — the recovery-domain sweep. Not optional, unlike the one above:
+   *  its two tables are in INIT_SQL unconditionally, so the timer is always
+   *  armed and must always be disarmed. */
+  recoveryPrune: { stop(): void };
   closeSocket: () => Promise<void> | void;
   audioRegistry: { stopAll(): void };
   httpServer: HttpServer;
@@ -191,7 +195,7 @@ export interface ShutdownSteps {
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
     retention, statusProbes, latencyReader, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
-    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune,
+    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune, recoveryPrune,
   } = steps;
   return async (): Promise<void> => {
     // GA-06: disarm the sweep FIRST — a tick that fired after db.close() would
@@ -203,6 +207,8 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     if (forwardLedgerPrune) {
       await announceShutdownStep('forwardLedgerPrune.stop', () => forwardLedgerPrune.stop());
     }
+    // Card PR-2: the same argument once more — this one DOES touch the DB.
+    await announceShutdownStep('recoveryPrune.stop', () => recoveryPrune.stop());
     // W-5a: the same argument, one line later. This timer touches no DB, so its
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.

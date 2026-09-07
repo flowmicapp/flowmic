@@ -44,6 +44,8 @@ import type { SttSessionDeps } from './stt-session-deps';
 export type { SttEmitter, SttSessionDeps } from './stt-session-deps';
 import { kickDetachedPolish } from './stt-session-detached-polish';
 import { kickRefine } from './stt-session-refine';
+import { FrameTally } from './stt-session-intake';
+import { CoverageReceiptTally } from './stt-session-receipt';
 
 interface OInterim { text: string; confidence: number; language: string; segment_idx: number }
 // `empty_reason` (card EMPTY-1): present ONLY on a terminal final that carries no
@@ -83,12 +85,9 @@ export class SttSessionBridge implements SttOrchestrator {
   private totalAudioMs = 0;
   private lastLevelMs = Number.NEGATIVE_INFINITY;
   private billed = false;
-  // owner 2026-07-27: "the phone app shows a prompt saying no speech was heard — is this a mobile-side issue" — an
-  // empty transcript has two very different causes and the banner cannot tell
-  // them apart. The intake tally can: chunks==0 means the phone sent NOTHING
-  // (capture/permission/upload), while chunks>0 with peak≈0 means the mic was
-  // live and the room was silent. Logged once per utterance, at finish.
-  private chunkCount = 0;
+  private readonly intake = new FrameTally(); // audit F3 — fed vs dropped frames; the counting rule is argued in stt-session-intake.ts
+  private readonly receipt = new CoverageReceiptTally(); // card CV-1 — the terminal final's coverage receipt; every rule is in stt-session-receipt.ts
+
   private totalBytes = 0;
   private peakSample = 0;
   private disposed = false;
@@ -272,7 +271,8 @@ export class SttSessionBridge implements SttOrchestrator {
         // D7 ① — the TERMINAL final names the recording; soft-segment finals
         // (one row each, book 15 §2.0-c) deliberately do not, so a phone that
         // keys rows on this id cannot attach the second draft to a segment.
-        ...(isSegment ? {} : { utterance_id: this.utteranceId }),
+        // card CV-1 — the coverage receipt rides the TERMINAL final only, for the same reason `utterance_id` does (stt-session-receipt.ts).
+        ...(isSegment ? {} : { utterance_id: this.utteranceId, ...this.receipt.fields({ session: this.session, acceptedFrames: this.intake.fed, droppedFrames: this.intake.dropped, finishing: this.finishing, disposed: this.disposed, echo: this.deps.recovery }) }),
         // Card EMPTY-1 — carried through, not judged here. The orchestrator is the
         // only layer holding the two facts the verdict needs (bytes the feed gate
         // accepted, and whether an `stt:error` already went out on this recording);
@@ -557,6 +557,7 @@ export class SttSessionBridge implements SttOrchestrator {
    * supervisor rather than decided quietly here.
    */
   private async onAutoStopped(limitOrigin: unknown): Promise<void> {
+    this.receipt.noteAutoStop(); // card CV-1 — BEFORE the terminal flush below, or the flag would describe the next recording
     const reason = autoStopReasonFor(limitOrigin);
     if (reason === null) {
       log.error('audio:auto-stopped WITHHELD — the auto-stop carried no nameable limit_origin', {
@@ -615,11 +616,10 @@ export class SttSessionBridge implements SttOrchestrator {
   }
 
   pushChunk(seq: number, dataB64: string, tsMs: number): void {
-    if (this.disposed) return;
+    if (this.disposed) { this.intake.noteBridgeDrop(); return; } // card CV-1: taken off the wire, went nowhere
     let payload: Buffer;
-    try { payload = Buffer.from(dataB64, 'base64'); } catch { return; }
-    if (payload.length === 0) return;
-    this.chunkCount += 1;
+    try { payload = Buffer.from(dataB64, 'base64'); } catch { this.intake.noteBridgeDrop(); return; }
+    if (payload.length === 0) { this.intake.noteBridgeDrop(); return; }
     this.totalBytes += payload.length;
     const peak = peakSample16(payload);
     if (peak > this.peakSample) this.peakSample = peak;
@@ -628,7 +628,12 @@ export class SttSessionBridge implements SttOrchestrator {
     // BEFORE the orchestrator's engine feed reads vad.open (single-threaded).
     this.vad.process(payload);
     this.maybeEmitLevel(tsMs);
-    this.orchestrator.pushChunk({ seq, ts_ms: tsMs, payload });
+    // 🔴 Audit F3 — COUNTED ON THE PIPELINE'S ANSWER, not before asking it. The
+    // count used to happen above this line, so a frame that arrived past the
+    // terminal fence (or past AudioSession's state guard) was reported to the
+    // phone as fed while it went nowhere — and `fed_frames` is what the phone
+    // checks before deleting its only copy of the audio.
+    this.intake.note(this.orchestrator.pushChunk({ seq, ts_ms: tsMs, payload }));
   }
 
   private maybeEmitLevel(tsMs: number): void {
@@ -657,7 +662,7 @@ export class SttSessionBridge implements SttOrchestrator {
     // wrong pair (trace report 2026-09-03 §4-1). Both are printed now, each under
     // its own name; logs older than this date carry gatedMs under the old key.
     log.info('audio intake', {
-      chunks: this.chunkCount,
+      chunks: this.intake.fed,
       bytes: this.totalBytes,
       peak: this.peakSample,
       audioMs: Math.round(this.totalAudioMs),
@@ -770,7 +775,7 @@ export class SttSessionBridge implements SttOrchestrator {
     this.vad.finish();
     if (unclean) {
       log.info('audio intake (torn down without a stop — billed on the dispose path)', {
-        chunks: this.chunkCount,
+        chunks: this.intake.fed,
         bytes: this.totalBytes,
         peak: this.peakSample,
         audioMs: Math.round(this.totalAudioMs),

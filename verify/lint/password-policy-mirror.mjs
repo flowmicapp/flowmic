@@ -12,13 +12,13 @@
 // wait for a 400 to find out. It cannot import `apps/server-core`, so the two
 // numbers are typed in a second time by hand:
 //
-//   MIN_PASSWORD_LENGTH    10  apps/server-core/src/auth/password-policy.ts
-//                          10  @flowmic/web (hand-written)
+//   MIN_PASSWORD_LENGTH     8  apps/server-core/src/auth/password-policy.ts
+//                           8  @flowmic/web (hand-written)
 //   MAX_PASSWORD_LENGTH    32  apps/server-core/src/auth/password-policy.ts
 //                          32  @flowmic/web (hand-written)
 //
 // The failure this catches: someone raises the server minimum, the web form
-// keeps drawing "at least 10 characters" and keeps reporting "satisfied" for a password the
+// keeps drawing "at least 8 characters" and keeps reporting "satisfied" for a password the
 // server is about to refuse. The user is told they satisfied a rule and then
 // refused for breaking it, and no test in either repo is looking at both.
 //

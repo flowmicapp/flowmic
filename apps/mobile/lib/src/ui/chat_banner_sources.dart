@@ -34,11 +34,23 @@ BannerQueue chatBannerSources({
   required ChatController controller,
   required AppStrings strings,
   required void Function()? onRetrySendFailure,
+  /// Card RC-1b — opens the pending-recovery screen. Optional because the
+  /// banner adapter is exercised by four tests that have no Navigator; a null
+  /// here means the retained-audio banner keeps the face it has always had.
+  void Function()? onOpenPendingRecovery,
 }) {
   final BannerQueue queue = _liveSources(
     controller: controller,
     strings: strings,
     onRetrySendFailure: onRetrySendFailure,
+    // 🔴 THE GATE, AND IT IS A MEASUREMENT RATHER THAN A GUESS: the recovery
+    // queue publishes what it found on disk, and `hasKeptAudio` is that value
+    // asked one question. A tap target attached unconditionally would open an
+    // empty page on every phone that has never had an outage.
+    onOpenPendingRecovery:
+        controller.backfill.progress.value.hasKeptAudio
+            ? onOpenPendingRecovery
+            : null,
   );
   // card U2 — the mic-permission flow, read straight off the session the same way
   // `ladderReconnecting` / `pcBusy` are. Pushed AFTER the queue's own entries
@@ -64,7 +76,9 @@ BannerQueue _liveSources({
   required ChatController controller,
   required AppStrings strings,
   required void Function()? onRetrySendFailure,
+  required void Function()? onOpenPendingRecovery,
 }) => buildChatBanners(
+  onOpenPendingRecovery: onOpenPendingRecovery,
   connection: controller.connection,
   autoStopped: controller.autoStopped,
   // 🔴 fix-026 — WHY it stopped. Without this ONE line the whole chain
@@ -124,7 +138,11 @@ BannerQueue _liveSources({
   // are still owed. Its severity is `info` precisely so it can never displace a
   // real fault (it loses every priority contest and waits behind 「还有 N 条」
   // / "N more remaining").
-  outboxPending: controller.outboxPending,
+  // 🔴 Card UX2-2 — THE NOTICE, NOT THE BARE COUNT. `controller.outboxPending`
+  // (the number) is still what everything else reads; the banner needs the two
+  // facts that go with it, or it says 「还有 1 条待投递」 after every healthy press
+  // — which is what 0.3.75 did. Gate and rationale: `outbox_notice_gate.dart`.
+  outboxPending: controller.outboxPendingNotice,
   // 🔴 The `pcBusy:` argument was DELETED 2026-08-11 (fix-001). 「另一台手机正连着
   // 这台电脑」("another phone is currently connected to this computer") no
   // longer draws a banner on this screen, because the phone is no

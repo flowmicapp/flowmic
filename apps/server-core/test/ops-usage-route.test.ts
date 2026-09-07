@@ -257,7 +257,11 @@ describe('/api/ops/usage/summary — 「how much the whole platform used this mo
     const { url, handle } = await saas();
     seed(handle);
     const admin = bearer(handle, 'u-admin');
-    for (const q of ['', '?month=', '?month=2026-8', '?month=2026-13', '?month=2026-00', '?month=2026', '?month=abc', '?month=2026-07-01']) {
+    // ⚠️ `2026-07-01` moved OUT of this list on 2026-09-05: a `YYYY-MM-DD` key is
+    // an account's cycle start (owner, option 乙) and is a real bucket now. What
+    // stays refused is a key that is neither shape — a day that cannot exist,
+    // or a day written without its zero.
+    for (const q of ['', '?month=', '?month=2026-8', '?month=2026-13', '?month=2026-00', '?month=2026', '?month=abc', '?month=2026-07-32', '?month=2026-07-1', '?month=2026-07-00']) {
       const r = await get(url, `/api/ops/usage/summary${q}`, admin);
       expect(r.status, `month=${q} was accepted`).toBe(400);
       expect(r.json.error).toBe('SETTINGS_SCHEMA_INVALID');

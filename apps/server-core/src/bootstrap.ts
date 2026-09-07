@@ -77,7 +77,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.63';
+export const SERVER_VERSION = '0.3.77';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -349,6 +349,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   const nodeHostMap = parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS);
   const nodeRuntime = wireNodeRuntime({
     db, config, log,
+    // 🔴 The metering cycle has ONE author. The meters (inside nodeRuntime) and
+    // the guard (below) both take their bucket from BillingService.
+    periodKeyFor: (userId, atMs) => billing.usagePeriodKey(userId, atMs),
     ...(overrides.now ? { now: overrides.now } : {}),
     ...(overrides.setIntervalFn ? { setIntervalFn: overrides.setIntervalFn } : {}),
     ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
@@ -368,7 +371,10 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // exists to leave alone.
   const quotaGuard = nodeRuntime.wrapQuota(makeQuotaGuard(
     db.usage,
-    { effectiveLimits: (userId) => billing.effectiveLimits(userId) },
+    {
+      effectiveLimits: (userId) => billing.effectiveLimits(userId),
+      usagePeriodKey: (userId, atMs) => billing.usagePeriodKey(userId, atMs),
+    },
     { mode: config.mode, ...(overrides.now ? { now: overrides.now } : {}) },
   ));
 
@@ -655,6 +661,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       // sides when the phone and the desktop are signed into different ones.
       pcOwnerUserId: (pcId) => registry.findPc(pcId)?.user_id ?? null,
       verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
+      recoveryOps: db.recoveryOps, // card PR-2 — the operation registry (unconditional; see its type doc)
+      ...(overrides.now ? { now: overrides.now } : {}),
     });
     // 2026-09-03 (design D2) — socket-closing, like `sttFactory` above: the
     // compose turn reads the phone-owned scenario card / consent from THIS
@@ -744,6 +752,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   const stop = makeShutdownSequence({
     retention, statusProbes, latencyReader, closeSocket, audioRegistry, httpServer, db,
     growthReaper: sweeps.growthReaper,
+    recoveryPrune: sweeps.recoveryPrune, // card PR-2
     ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
     ...(sweeps.forwardLedgerPrune ? { forwardLedgerPrune: sweeps.forwardLedgerPrune } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),

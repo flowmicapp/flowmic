@@ -379,6 +379,58 @@ export class AudioSession extends EventEmitter {
     this.hardLimitTimer = this._setTimeout(() => this.onHardLimit(), Math.max(0, next.at - t));
   }
 
+  /**
+   * Card CV-1 — chunks this session took off the wire and did NOT put into the
+   * pipeline, because it was no longer recording or paused by the time they
+   * would have reached the ring.
+   *
+   * 🔴 REPLAY DE-DUPLICATION IS NOT COUNTED HERE and must never be: the
+   * orchestrator drops an already-observed seq on purpose (that is what makes a
+   * reconnect's ring replay safe), so folding it in would report the mechanism
+   * working as audio lost.
+   *
+   * ⚠️ TWO WRITERS, BOTH IN {@link AudioSession.pushChunk} and both the same
+   * fact: the frame arrived and went nowhere. One is the state guard (it landed
+   * after the session left `recording`), the other is the ceiling check (it
+   * arrived past a `quota_budget` deadline and ENDED the recording itself). The
+   * second was missing, and a frame the session had just thrown away therefore
+   * read as `'fed'` one layer up — see the comment at that branch.
+   */
+  get droppedChunks(): number { return this._droppedChunks; }
+  private _droppedChunks = 0;
+
+  /** Card CV-1 — how many TIMES {@link SeqTracker.observe} reported a gap. */
+  get gapEvents(): number { return this._gapEvents; }
+  private _gapEvents = 0;
+
+  /**
+   * Card CV-1 — how many leg rotations this RUN has ATTEMPTED (soft-segment cuts
+   * and engine-ceiling rollovers alike).
+   *
+   * ⚠️ ATTEMPTS, NOT COMPLETED LEGS, and the word is the correction (audit F4).
+   * The sole writer below is called at the TOP of `runRollover`, before
+   * `rolloverSegment` runs — a rotation that bails at a fence, or whose spawn is
+   * handed to the reconnect ladder, is counted here all the same. It is left
+   * that way rather than moved: the receipt's question is 「how many seams did
+   * this recording's answer have to survive」, and an attempted rotation is a
+   * seam whether or not a new leg came up behind it. What must not happen is a
+   * reader treating the number as a count of legs that opened.
+   *
+   * 🔴 IT IS A PROPERTY OF THE RUN, WHICH IS WHY IT CAN LIVE HERE: "how many
+   * seams did this recording's answer have to survive" outlives any one leg, and
+   * every leg belongs to exactly one AudioSession. The honest second reason is
+   * that `stt/orchestrator-core.ts` — where the rotation happens — was at 799 of
+   * the 800-line cap, so the field could not go beside its writer.
+   *
+   * Sole writer: {@link noteLegRollover}, called from
+   * `SttEngineOrchestrator.runRollover`, the ONE place `rolloverWork` is
+   * assigned (both the soft-segment trigger and the ceiling trigger route
+   * through it).
+   */
+  get legRollovers(): number { return this._legRollovers; }
+  private _legRollovers = 0;
+  noteLegRollover(): void { this._legRollovers += 1; }
+
   pushChunk(c: ChunkInput): GapRange | null {
     // A pre-start (idle) push is a strict ordering violation → throw loudly. A
     // late chunk during stop→flush (processing) or after the session ended
@@ -386,7 +438,17 @@ export class AudioSession extends EventEmitter {
     if (this._state === 'idle') {
       throw new Error(`AudioSession.pushChunk: illegal in state ${this._state}`);
     }
-    if (this._state !== 'recording' && this._state !== 'paused') return null;
+    if (this._state !== 'recording' && this._state !== 'paused') {
+      // Card CV-1 — COUNTED, because "we took it off the wire and it went
+      // nowhere" is exactly the fact the coverage receipt exists to report. The
+      // early return itself is unchanged and stays fail-soft: a late chunk
+      // during stop -> flush is normal, not an error. What was missing is that
+      // nothing downstream could ever learn it happened, so the phone had no way
+      // to tell "the server consumed all of my audio" from "the server consumed
+      // most of it". See `droppedChunks`.
+      this._droppedChunks += 1;
+      return null;
+    }
     const t = this.now();
     // Card N1-B4: the SECOND enforcement point (the timer is the first). It must
     // route through the same decision — a chunk landing past the ceiling on a
@@ -401,7 +463,19 @@ export class AudioSession extends EventEmitter {
     const due = this.nextCeiling();
     if (due !== null && t >= due.at) {
       this.onHardLimit();
-      if (this._state !== 'recording' && this._state !== 'paused') return null;
+      if (this._state !== 'recording' && this._state !== 'paused') {
+        // 🔴 COUNTED, for the same reason the state guard above counts. A
+        // `quota_budget` ceiling ends the recording (`autoStop`), so THIS frame
+        // is the one that notices and the one that goes nowhere: it was taken
+        // off the wire and never reached the ring. Returning without touching
+        // the counter left `orchestrator-core.pushChunk`'s delta at zero, and a
+        // zero delta there means `'fed'` — so the last frame of every
+        // quota-ended recording was reported to the phone as consumed. The
+        // phone compares `fed_frames` against its own send count before
+        // deleting its only copy of the audio.
+        this._droppedChunks += 1;
+        return null;
+      }
     }
     // Card M3-4b: `ts_ms` is the PHONE's clock and is carried through untouched
     // (the engine wants capture order); `recv_ms` is OUR clock and is the only
@@ -411,7 +485,11 @@ export class AudioSession extends EventEmitter {
     this.buffer.push(buffered, t);
     this.emit('chunk', buffered);
     const gap = this.seq.observe(c.seq);
-    if (gap) this.emit('gap', gap);
+    // Card CV-1 — count the OCCURRENCES, not the missing seqs. A gap event says
+    // "the run was interrupted here"; how many seqs the hole spans is a second
+    // question, and one this counter deliberately does not answer, because a
+    // later fill can shrink a hole without the event un-happening.
+    if (gap) { this._gapEvents += 1; this.emit('gap', gap); }
     return gap;
   }
 

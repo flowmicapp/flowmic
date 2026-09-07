@@ -61,6 +61,32 @@ void onDeliveryLinkUpRouted(ChatController c) {
     'drain': willDrain,
   });
   if (willDrain) unawaited(c.outbox.drain());
+  // 🔴 CR-5 EDGE 1 - THE RECOVERY SWEEP, MOVED HERE FROM THE
+  // `ConnectionState.connected` RISING EDGE (2026-09-06).
+  //
+  // The F-1 lesson twice over. `connected` proves the socket is up; it does not
+  // prove the server has answered, and the recovery queue's FIRST question is
+  // "what does this server say it can do" - which rides the `mobile:pair` /
+  // `mobile:reconnect` ACK, one round trip later. MEASURED on device (drill
+  // D-2, the phone's own diag):
+  //
+  //   05:01:45.078  audio.recovery.awaiting_capability caps_known=false
+  //   05:01:46.394  outbox.link_up edge=phoneJoinedRoom     <- the ack, 1.3 s later
+  //   (nothing further for the next 2.5 minutes)
+  //
+  // so the one moment the queue ever asked was the one moment nobody had
+  // answered, and every killed recording was stamped
+  // `awaiting_server_capability` and shown a sentence about the server that was
+  // about to say it could. The outbox had already been moved off that edge for
+  // the same reason; the sweep had not.
+  //
+  // ⚠️ NOT A SECOND EDGE - the `connected` sweep is GONE (see
+  // `onFsmChangeRouted`, where the removal is recorded). One fact, one
+  // subscriber, which is the property the F-1 note protects.
+  //
+  // ⚠️ Independent of `willDrain`: the queue and the recovery leg owe
+  // different things, and an empty outbox says nothing about audio on disk.
+  unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
 }
 
 /// P0 — the connections page's deliberate-entry funnel, wired in `main.dart`
@@ -415,22 +441,52 @@ void onInjectResultRouted(ChatController c, InjectResult r) {
 /// here), and the destination-side edge it did not know about is described in
 /// delivery_link_up.dart. That is still ONE subscriber of ONE fact, which is
 /// what the last paragraph was protecting; it is not a second trigger edge.
+// 🔴 THERE IS NO EDGE 3, AND THE ONE THERE USED TO BE IS WHY THIS NOTE EXISTS.
+// `onAppStartRecoveryRouted` swept at app start (audit A6 R-1: a process that
+// was KILLED comes back to a phone where neither edge below need fire for
+// hours). It ran from `main.dart`'s boot block, BEFORE the socket dials, and
+// its own doc argued that calling it there 「costs one directory listing」,
+// because the runner refuses on its own with no link.
+//
+// Both halves of that were wrong. It never re-fired, so the sweep it promised
+// happened exactly once and at the one moment nothing could be done — while
+// EDGE 1 below already covers the same case: a process that was killed comes
+// back and connects, and that first `connected` is the earliest instant
+// anything is possible at all. And it did not cost a listing: with no
+// capabilities yet `evaluateRecoveryGate` reads tier C, and the leg PERSISTS
+// `awaiting_server_capability` onto every recording — a sentence the pending
+// list renders, derived from 「we have not asked any server yet」, which is not
+// something this phone can back (R11).
+//
+// ⇒ REMOVED RATHER THAN MOVED. Re-firing it after the first `connected` would
+// be edge 1 under a second name, and the F-1 lesson below is precisely about
+// one thing having two triggers.
+
 void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
   final ConnectionState prev = c._conn;
   final SessionState prevSess = c._sess;
   c._conn = s.connection;
   c._sess = s.session;
-  if (c._sess != SessionState.recording) c.recording.stop();
+  // 🔴 DEFECT D-1 (round-four device drill, 2026-09-06) — 「the FSM left
+  // RECORDING」 IS NOT 「the recording ended」, AND SINCE CR-3 THE TWO DISAGREE.
+  // Freezing the readout is right for every other way out of RECORDING; for a
+  // continuous recording that outlived its link it stops the one clock its own
+  // face counts down from, so the countdown stands still while the ceiling that
+  // will end the sitting keeps running. Two answers to 「how long is left」, and
+  // the visible one is the wrong one.
+  if (c._sess != SessionState.recording && !c.session.continuousStillCapturing) {
+    c.recording.stop();
+  }
   if (s.connection == ConnectionState.connected &&
       prev != ConnectionState.connected) {
     c.destination.reset();
-    // 🔴 CR-5 EDGE 1 — the link came back, so audio captured while it was
-    // down can now become words. The runner refuses on its own when a
-    // recording is in progress or nothing is owed, so this edge does not
-    // ask; asking here would be a second copy of a judgement that has to
-    // live in one place (two stretches at once is a corruption, not a
-    // slowdown).
-    unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
+    // 🔴 CR-5 EDGE 1 IS NO LONGER HERE (2026-09-06), AND MUST NOT COME BACK.
+    // It swept on this edge — which is one round trip EARLIER than the ack
+    // carrying `capabilities`, so the gate read 「nobody has answered」 as
+    // 「this server cannot」 and wrote that onto every recording. It moved to
+    // [onDeliveryLinkUpRouted], where the measurement is written down. Adding a
+    // 「double insurance」 sweep here would give 「why did this one recover」 two
+    // answers, and one of them would be the wrong one again.
   }
   // 🔴 CR-5 EDGE 2 — a recording just ENDED. Its own outage audio sat on
   // disk the whole time and could not be fed back while the microphone held

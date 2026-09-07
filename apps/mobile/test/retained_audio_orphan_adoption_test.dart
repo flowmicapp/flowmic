@@ -24,6 +24,7 @@ import 'dart:typed_data';
 
 import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/temp_teardown.dart';
 
 void main() {
   late Directory tmp;
@@ -32,8 +33,8 @@ void main() {
     tmp = await Directory.systemTemp.createTemp('flowmic-orphan-');
   });
 
-  tearDown(() {
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+  tearDown(() async {
+    await removeTempDir(tmp);
   });
 
   test('🔴 CR-4: a new session CANNOT reach the previous run\'s orphan', () async {

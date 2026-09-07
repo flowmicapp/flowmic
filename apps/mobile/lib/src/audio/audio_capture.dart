@@ -22,7 +22,15 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'ring_buffer.dart';
 import 'audio_emitter.dart';
+// JournalInterrupt only: the named stop reasons card LS-2 records. The journal
+// itself is the spill's business, not this file's.
+import 'retained_audio_manifest.dart' show JournalInterrupt;
 import 'retained_audio_spill.dart';
+
+// 700-line cap — the card LS-2 journal call sites (see that file's header).
+// Same library, so `_spill` and `_accumulator` stay in scope.
+part 'audio_capture_journal.dart';
+part 'audio_capture_pcm.dart';
 
 /// 08 §3: 16 kHz mono s16le.
 const int kAudioSampleRate = 16000;
@@ -102,10 +110,35 @@ class AudioCapture {
   Timer? _deadCaptureTimer;
   final StreamController<String> _faultsController =
       StreamController<String>.broadcast();
+  final StreamController<int> _platformBytesController =
+      StreamController<int>.broadcast();
+
+  /// Card LS-4 — the store session key the CURRENT recording's bytes are filed
+  /// under, snapshotted by [start]. See there for why it is not read live.
+  String? _retainSessionKey;
 
   /// Capture faults that the transport layer must surface LOUDLY. Currently one:
   /// `no-audio-captured`.
   Stream<String> get faults => _faultsController.stream;
+
+  /// Every PCM delivery from the platform recorder, as a byte count, BEFORE it
+  /// is sliced into chunks and before the state gate — the same instant
+  /// [_platformBytes] is incremented.
+  ///
+  /// 🔴 IT EXISTS BECAUSE [chunks] CANNOT ANSWER "ARE BYTES STILL ARRIVING".
+  /// A chunk is 200 ms of audio (6400 bytes); a recorder that delivers 64
+  /// bytes and then stops produces NO chunk, ever. `AsrHealthTracker`'s
+  /// `byteStall` was fed from [chunks] and so never saw a first byte, and the
+  /// dead-capture watchdog below is one-shot on `_platformBytes > 0` and so
+  /// saw one and stood down — between the two, a sub-chunk trickle left the
+  /// live row saying 「Transcribing」 for the whole recording with nothing
+  /// contradicting it. Two watchdogs, two facts, and this stream is the one
+  /// that carries the second (`session/chat_asr_health_wire.dart` is its
+  /// single production consumer).
+  ///
+  /// ⚠️ COUNTS ONLY. The bytes themselves stay on [chunks]: a second copy of
+  /// the payload here would be a second author of "what audio was captured".
+  Stream<int> get platformBytes => _platformBytesController.stream;
 
   /// How long a live recorder may deliver nothing before we call it dead. Long
   /// enough that a slow OEM mic warm-up is not slandered, short enough that the
@@ -178,7 +211,21 @@ class AudioCapture {
   /// other caller, and a stale `true` still fails loudly in [_attachRecorder]
   /// (startStream throws, the caller renders captureStartFailed).
   Future<void> start({bool permissionPreflighted = false}) async {
-    if (_state == RecorderState.recording) return;
+    if (_state == RecorderState.recording) {
+      // 🔴 DEFECT D-3 (round-four device drill, 2026-09-06) — THIS EARLY RETURN
+      // IS CORRECT AND IT USED TO BE SILENT, WHICH IS WHAT MADE IT DANGEROUS.
+      // One recording, one journal: the caller below opens it, so a second
+      // `start()` on a live recorder opens NOTHING and everything captured from
+      // here is appended to the PREVIOUS recording's file. On device that
+      // produced a second 「long recording」 whose audio landed inside the first
+      // article — 38,912,000 -> 40,115,200 B, no new file — and a Stop that
+      // closed the wrong one. The guard against it is
+      // `PttSession.beginContinuous` refusing outright; this line is how the
+      // failure announces itself if that ever stops holding.
+      debugPrint('[flowmic.audio] start() IGNORED — a recording is already '
+          'running; its journal stays open and nothing new was created');
+      return;
+    }
     if (!permissionPreflighted && !await requestPermission()) {
       throw StateError('microphone permission denied');
     }
@@ -186,6 +233,20 @@ class AudioCapture {
     _accumulator.clear();
     _ringBuffer.clear();
     _platformBytes = 0;
+    // 🔴 CARD LS-4 — REMEMBER WHICH SESSION KEY THIS RECORDING'S BYTES ARE
+    // FILED UNDER, AT THE MOMENT IT STARTS. A cancel must tombstone THIS
+    // recording, and by the time the cancel path reaches [fenceAndStop] the
+    // store's cursor may already have moved: `PttSession.pttCancel` runs
+    // `endContinuous()` first, which calls `RetainedAudioSpill.endSession()`
+    // and rolls the cursor to a fresh per-run key. Tombstoning "whatever the
+    // cursor says now" would therefore mark an EMPTY key and leave the real
+    // bytes pending — the defect intact, with a marker file to prove it was
+    // handled. Same identity rule the journal already uses for its recording
+    // id: mint at start, not at teardown.
+    _retainSessionKey = _spill?.store.sessionKey;
+    // Card LS-2 — open this recording's journal BEFORE the recorder can hand
+    // us a byte. No-op unless the spill was built with retainFromFirstFrame.
+    _journalBeginRecording(this);
     await _attachRecorder();
     _transition(RecorderState.recording);
     _armDeadCaptureWatchdog();
@@ -211,6 +272,10 @@ class AudioCapture {
   Future<void> pause({String reason = 'background'}) async {
     if (_state != RecorderState.recording) return;
     await _detachRecorder();
+    // Card LS-2 — the partial below has always been discarded. It still is,
+    // from the wire; the journal keeps a copy first. Pause closes nothing:
+    // a paused recording is one recording, and resume() continues it.
+    _journalTakePausePartial(this);
     _accumulator.clear();
     _transition(RecorderState.paused);
   }
@@ -233,14 +298,33 @@ class AudioCapture {
   ///
   /// Finalize: stops the recorder and emits the terminal state. After this the
   /// capture instance is single-shot — call [start] again for a new run.
+  /// 🔴 P1-1 (card LS-1b) — THE `finally` IS THE POINT, NOT TIDINESS.
+  /// Retention is a best-effort safety net; releasing the microphone is the
+  /// user's own instruction. Before this, a throw out of [retainUnsentTail]
+  /// skipped `_detachRecorder()` and the transition, so a disk error left the
+  /// recorder running and the state machine still in `recording` — the app
+  /// would have been unable to stop because its safety net failed. §A9 P1-1 ③:
+  /// a write failure must never block stopping.
   Future<void> stop() async {
     if (_state == RecorderState.stopped) return;
-    // N1-B3: before the ring goes stale, keep the tail if the uplink is down.
-    // No-ops entirely on a healthy link.
-    await retainUnsentTail();
-    await _detachRecorder();
-    _accumulator.clear();
-    _transition(RecorderState.stopped);
+    // 🔴 CARD LS-1b — BEFORE THE FIRST `await`. The terminal `stt:final` can
+    // land inside `retainUnsentTail()` below (same race
+    // `ptt_up_final_race_test.dart` measures for the FSM), and the settle it
+    // triggers needs this count. See `_journalNoteFrames`.
+    _journalNoteFrames(this);
+    try {
+      // N1-B3: before the ring goes stale, keep the tail if the uplink is down.
+      // No-ops entirely on a healthy link.
+      await retainUnsentTail();
+    } finally {
+      // Card LS-2 — an ordinary end: no interrupt reason. Inside the `finally`
+      // for the same reason everything else here is (P1-1 ③): a retention
+      // failure must never leave the microphone open.
+      _journalEndRecording(this, null);
+      await _detachRecorder();
+      _accumulator.clear();
+      _transition(RecorderState.stopped);
+    }
   }
 
   /// STOP VERB ② of three — cancel / fault: the utterance NEVER HAPPENED.
@@ -281,9 +365,35 @@ class AudioCapture {
   /// different justification; the headline's 「never happened」 is only the
   /// cancel/fault callers' truth. (SEG-2 §5-5 freezes the ACTION; this
   /// paragraph corrects the per-caller explanation, not the behaviour.)
-  void fenceAndStop() {
+  /// 🔴 CARD LS-4 (owner ruling O-5, 2026-09-06) — [reason] NAMES THE CALLER,
+  /// AND ONE OF THE FOUR NAMES CARRIES A TOMBSTONE.
+  ///
+  /// Pass [JournalInterrupt.cancelled] and this verb ALSO writes the persistent
+  /// tombstone: the bytes already on disk are kept and are never fed back to
+  /// the engine on their own. The other three reasons
+  /// ([JournalInterrupt.captureFault] / [JournalInterrupt.autoStopped] /
+  /// [JournalInterrupt.authDrained]) stay RECOVERABLE — nobody threw those
+  /// words away.
+  ///
+  /// ⚠️ THE DEFAULT IS `autoStopped`, WHICH IS NOT A NEUTRAL CHOICE. It exists
+  /// so ptt_inbound.dart's `audio:auto-stopped` arm — the one call site card
+  /// LS-4 was not allowed to edit — keeps the right reason without being
+  /// touched. A future caller that forgets the argument gets a wrong-but-
+  /// recoverable reason rather than a tombstone it did not ask for; the failure
+  /// direction is deliberate (§5-4: fail toward retention, never toward loss).
+  void fenceAndStop({String reason = JournalInterrupt.autoStopped}) {
     if (_state == RecorderState.stopped) return;
     _transition(RecorderState.stopped);
+    // Card LS-4 — the tombstone, BEFORE the close. Both rides the spill's
+    // journal queue, so ordering here is what puts `cancelled:true` on the
+    // manifest the close then commits. On the legacy face it writes the marker
+    // file that keeps `BackfillRunner` from ever listing these bytes again.
+    if (reason == JournalInterrupt.cancelled) _journalTombstoneCancelled(this);
+    // Card LS-2 — record WHY, and nothing else. The ring tail is still
+    // discarded (SEG-2 §5-5, frozen); what changes is that a journal opened at
+    // the first frame now closes carrying a NAMED reason instead of being
+    // abandoned open. 🔴 The reason is not the tombstone — the line above is.
+    _journalEndRecording(this, reason);
     _accumulator.clear();
     unawaited(_detachRecorder());
   }
@@ -319,19 +429,56 @@ class AudioCapture {
   ///
   /// Synchronous decision, queued I/O: the retention writes ride the spill's
   /// own serialised chain; await [RetainedAudioSpill.flush] to observe them.
-  bool stopForLinkLoss() {
+  ///
+  /// 🔴 P1-1 (card LS-1b) — same `finally` as [stop], same reason: the
+  /// retention hand-off must not be able to keep the microphone open. The
+  /// `.catchError` on the queued tail is the second half — `unawaited` on a
+  /// future that rejects is an unhandled async error, and this verb's whole
+  /// job is to be the path that still works when everything else has failed.
+  bool stopForLinkLoss() => stopKeepingTail(reason: JournalInterrupt.linkLoss);
+
+  /// The body of verb ③, with the journal reason as a parameter.
+  ///
+  /// 🔴 EXTRACTED FOR DEFECT D-2 (round-four device drill, 2026-09-06) AND FOR
+  /// EXACTLY ONE SECOND CALLER. The per-sitting ceiling has to be able to end a
+  /// recording whose link died — that is the whole of D-2 — and the three verbs
+  /// above answer the wrong questions for it: [stop] talks on a wire that is
+  /// gone, [fenceAndStop] throws the tail away, and [stopForLinkLoss] would
+  /// file the ending under 「the connection died」 twenty minutes after it did.
+  ///
+  /// ⚠️ WHAT IS PARAMETERISED IS THE WORD, NOT THE BEHAVIOUR. Both callers keep
+  /// the tail, say nothing on the wire, and end in `stopped`; the only thing
+  /// that differs is the name the manifest carries, which is precisely the
+  /// thing a recovery pass reads. Anything else that starts to differ between
+  /// the two belongs in a verb of its own.
+  ///
+  /// Callers (grep `stopKeepingTail`): [stopForLinkLoss] above, and
+  /// `PttSession.stopForContinuousCap` (ptt/ptt_continuous.dart).
+  bool stopKeepingTail({required String reason}) {
     if (_state == RecorderState.stopped) return false;
-    takeResidualChunk();
-    final RetainedAudioSpill? spill = _spill;
-    final bool kept = spill != null && _ringBuffer.size > 0;
-    if (spill != null) {
-      spill.noteUplinkDown();
-      unawaited(spill.retainTail(_ringBuffer.since(cutoffMs: -1)));
+    try {
+      takeResidualChunk();
+      final RetainedAudioSpill? spill = _spill;
+      final bool kept = spill != null && _ringBuffer.size > 0;
+      if (spill != null) {
+        spill.noteUplinkDown();
+        unawaited(
+          spill.retainTail(_ringBuffer.since(cutoffMs: -1)).catchError(
+            (Object e) {
+              debugPrint('[flowmic.audio] retainTail failed on link loss: $e');
+            },
+          ),
+        );
+      }
+      return kept;
+    } finally {
+      // Card LS-2 — the link died: name it, so a recovery pass can tell this
+      // apart from an ordinary stop without guessing from a timestamp.
+      _journalEndRecording(this, reason);
+      _transition(RecorderState.stopped);
+      _accumulator.clear();
+      unawaited(_detachRecorder());
     }
-    _transition(RecorderState.stopped);
-    _accumulator.clear();
-    unawaited(_detachRecorder());
-    return kept;
   }
 
   /// F-2223 / 08 §3: pop the trailing sub-chunk partial — the < 200 ms of PCM
@@ -352,6 +499,10 @@ class AudioCapture {
       tsMs: tsMs,
       payload: payload,
     );
+    // Card LS-2 — the stop tail. Hooked at the TAKER rather than at the three
+    // stop verbs because the ordinary path's taker is the CALLER (pttUp emits
+    // this ahead of audio:stop) while stopForLinkLoss calls it internally.
+    _journalAppend(this, payload);
     _ringBuffer.push(seq: _seq, tsMs: tsMs, payload: payload, nowMs: tsMs);
     _seq += 1;
     return captured;
@@ -442,89 +593,17 @@ class AudioCapture {
   /// lost anyway: those chunks never aged out, so [AudioRingBuffer.onEvict]
   /// never saw them, and the next [start] clears the ring. The eviction trigger
   /// alone covers the middle of an outage but not its tail.
+  /// 🔴 CARD LS-2 CHANGED THIS GUARD, AND THE CHANGE IS THE POINT OF THE CARD.
+  /// The `spill.uplinkUp` early return is what made the storage face a
+  /// function of the socket (E7). Under `retainFromFirstFrame` it does not
+  /// apply: the bytes are already journalled, and what the stop path still
+  /// needs is the COMMIT, which is what `retainTail` gives it there. Under the
+  /// legacy face the guard stands unchanged.
   Future<void> retainUnsentTail() async {
     final RetainedAudioSpill? spill = _spill;
-    if (spill == null || spill.uplinkUp) return;
+    if (spill == null) return;
+    if (!spill.retainFromFirstFrame && spill.uplinkUp) return;
     await spill.retainTail(_ringBuffer.since(cutoffMs: -1));
-  }
-
-  // ---------------------------------------------------------- internals
-
-  Future<void> _attachRecorder() async {
-    await _recorder.start(
-      sampleRate: kAudioSampleRate,
-      numChannels: kAudioChannels,
-    );
-    _pcmSub = _recorder.pcmStream.listen(
-      _onPcm,
-      onError: _chunksController.addError,
-    );
-  }
-
-  Future<void> _detachRecorder() async {
-    _deadCaptureTimer?.cancel();
-    _deadCaptureTimer = null;
-    await _pcmSub?.cancel();
-    _pcmSub = null;
-    try {
-      await _recorder.stop();
-    } catch (_) {
-      // Stop errors during pause/stop are non-fatal — the spec only requires
-      // that the upstream audio:pause / audio:stop event fires.
-    }
-  }
-
-  void _onPcm(Uint8List data) {
-    // Counted BEFORE the state gate: bytes that arrive are proof the microphone
-    // opened, even if this instance is no longer the one recording them.
-    _platformBytes += data.length;
-    if (_state != RecorderState.recording) return;
-    _accumulator.add(data);
-    while (_accumulator.length >= _chunkBytes) {
-      final taken = _accumulator.takeBytes();
-      // takeBytes() returns the entire accumulator — slice off one chunk and
-      // put the remainder back so partial fills survive across reads.
-      final chunk = Uint8List.sublistView(taken, 0, _chunkBytes);
-      if (taken.length > _chunkBytes) {
-        _accumulator.add(Uint8List.sublistView(taken, _chunkBytes, taken.length));
-      }
-      _emitChunk(chunk);
-    }
-  }
-
-  void _emitChunk(Uint8List payload) {
-    final tsMs = _clock();
-    final captured = CapturedChunk(seq: _seq, tsMs: tsMs, payload: payload);
-    _ringBuffer.push(seq: _seq, tsMs: tsMs, payload: payload, nowMs: tsMs);
-    _chunksController.add(captured);
-    _amplitudeController.add(_amplitudeDbFor(payload));
-    _seq += 1;
-  }
-
-  void _transition(RecorderState next) {
-    if (_state == next) return;
-    _state = next;
-    _stateController.add(next);
-  }
-
-  /// 08 §3: the amplitude meter feeds off this. Returns dBFS in `[-100, 0]`
-  /// (silence → -100). Pure function over the slice payload so tests assert
-  /// without microphone hardware.
-  double _amplitudeDbFor(Uint8List payload) {
-    if (payload.isEmpty) return -100.0;
-    final samples = Int16List.view(
-      payload.buffer,
-      payload.offsetInBytes,
-      payload.lengthInBytes ~/ 2,
-    );
-    var sumSq = 0.0;
-    for (final s in samples) {
-      sumSq += s * s;
-    }
-    final rms = math.sqrt(sumSq / samples.length);
-    if (rms <= 0) return -100.0;
-    final db = 20.0 * (math.log(rms / 32768.0) / math.ln10);
-    return db.clamp(-100.0, 0.0).toDouble();
   }
 
   /// Tear down stream controllers. Tests should call this in `tearDown` so the
@@ -534,6 +613,7 @@ class AudioCapture {
     _deadCaptureTimer = null;
     await _detachRecorder();
     await _faultsController.close();
+    await _platformBytesController.close();
     await _chunksController.close();
     await _amplitudeController.close();
     await _stateController.close();

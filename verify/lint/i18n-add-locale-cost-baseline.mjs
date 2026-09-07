@@ -93,6 +93,18 @@
 // but a future reader must not take the deletion as evidence: the desktop
 // disclosure test is still a place a tenth language has to be threaded into by
 // hand, and this ruler has gone blind to it.
+// 🔴 `data_flow_disclosure_test.dart` 9 -> 8 (2026-09-07, disclosure copy
+// review) — RE-PINNED, and this -1 IS a retired list rather than the ruler going
+// blind, which is the distinction the two notes above exist to force.
+// owner removed the amber `discStep4LanPlain` warning from step ④ on both
+// screens, so the test's two nine-entry marker maps for it (`kLanPinned` and
+// `kLanLegacyPlaintext`) became ONE (`kLanEncryptedNow`) — the surviving claim
+// is one sentence, so it needs one marker map. `kLanKillSwitchCost` and
+// `kLanExpiredClaims` are untouched, which is why the reading moved by one and
+// not by two.
+// ⚠️ Not an improvement to celebrate either: a tenth language still has to be
+// threaded through this file by hand, in six places the gate can see and more
+// that it cannot.
 export const SITES = [
   'apps/desktop/src/capsule/capsule-timeline-one-word.test.ts#1',
   'apps/desktop/src/main-window/cloud-signout-confirm.test.ts#2',
@@ -103,7 +115,7 @@ export const SITES = [
   'apps/mobile/lib/src/settings/app_strings.dart#1',
   'apps/mobile/test/capsule_taken_exit_test.dart#1',
   'apps/mobile/test/cloud_image_error_copy_test.dart#1',
-  'apps/mobile/test/data_flow_disclosure_test.dart#9',
+  'apps/mobile/test/data_flow_disclosure_test.dart#8',
   'apps/mobile/test/delivery_refusal_note_test.dart#1',
   'apps/mobile/test/delivery_terminology_test.dart#2',
   'apps/mobile/test/diagnostics_engine_section_test.dart#1',

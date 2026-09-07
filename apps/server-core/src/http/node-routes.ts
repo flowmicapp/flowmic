@@ -139,6 +139,19 @@ export interface NodeRoutesDeps {
    *  (to send). 🔴 NOT a user credential: it authenticates a MACHINE, grants no
    *  account, and must never be reachable from a user-facing route. */
   sharedSecret?: string;
+  /** 2026-09-07 — a READ-ONLY credential accepted by `GET /api/node/snapshot` and
+   *  nothing else. Its holder is the LAN ops console, a third party;
+   *  node/node-config.ts carries the argument and the boot refusal.
+   *  🔴 THE NARROWING IS STRUCTURAL: every other secret-checked route below
+   *  compares against [sharedSecret] BY NAME and has never heard of this field,
+   *  so 「the reader's key must not open /forward」 is not a branch anybody can
+   *  forget to write. `test/node-snapshot-secret.test.ts` witnesses it anyway —
+   *  a later refactor into one shared helper would widen all five at once and
+   *  nothing in the type system would object. ⚠️ It does NOT soften this route's
+   *  own exposure (that body is still the whole user database); it stops a leaked
+   *  reader key forwarding a write, minting a code, or resolving a token into a
+   *  `users` row. Absent where none was issued: the shared secret still pulls. */
+  snapshotSecret?: string;
   /** Writer only. Perform a batch of forwarded writes and report each one's
    *  outcome by id. Synchronous because the database is (`node:sqlite`), and
    *  making it async would be the first domino of a whole-server refactor the
@@ -592,13 +605,23 @@ export function makeNodeRoutes(
     // be relaxed: the secret is required (never 「optional in dev」), and the
     // route is refused outright unless this process is a writer, so a replica
     // cannot be talked into re-serving what it holds.
+    //
+    // 🔴 TWO ACCEPTABLE CREDENTIALS HERE AND NOWHERE ELSE (2026-09-07): the
+    // `sharedSecret` replicas pull with, and the ops console's read-only
+    // `snapshotSecret`, which no other handler here can even see (its own doc).
     if (path === '/api/node/snapshot') {
-      if (!deps.snapshot || !deps.sharedSecret) {
+      // 501 = 「not serving snapshots」, now also 「no credential of EITHER kind」.
+      if (!deps.snapshot || (!deps.sharedSecret && !deps.snapshotSecret)) {
         sendJson(res, 501, { ok: false, error: 'snapshot_not_configured' });
         return true;
       }
       const offered = req.headers['x-flowmic-node-secret'];
-      if (!secretMatches(deps.sharedSecret, typeof offered === 'string' ? offered : '')) {
+      const presented = typeof offered === 'string' ? offered : '';
+      // BOTH run, THEN OR — not `a() || b()`: short-circuiting would let the
+      // reply time say which key was offered (the leak `secretMatches` avoids).
+      const bySharedSecret = deps.sharedSecret !== undefined && secretMatches(deps.sharedSecret, presented);
+      const bySnapshotSecret = deps.snapshotSecret !== undefined && secretMatches(deps.snapshotSecret, presented);
+      if (!bySharedSecret && !bySnapshotSecret) {
         sendJson(res, 403, { ok: false, error: 'forbidden' });
         return true;
       }

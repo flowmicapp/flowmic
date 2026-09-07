@@ -109,10 +109,16 @@ class _Harness {
   /// One `stt:final` frame. `isSegment: true` is the soft-segment rollover
   /// final (`rolloverSegment` — segment N is closed and idx moves on);
   /// `isSegment: false` is the terminal final that closes the utterance.
+  ///
+  /// [emptyReason] is the additive `empty_reason` of card EMPTY-1, stamped by
+  /// `apps/server-core/src/stt/empty-final-cause.ts`. Null is the pre-card
+  /// shape AND the flush-cap fallback shape, so leaving it off is what the
+  /// FALLBACK group below means by 「an empty final」.
   Future<void> finalFrame(
     String text, {
     int idx = 0,
     bool isSegment = false,
+    String? emptyReason,
   }) async {
     transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
       'text': text,
@@ -121,9 +127,16 @@ class _Harness {
       'segment_idx': idx,
       'is_segment': isSegment,
       'duration_ms': 1200,
+      'empty_reason': ?emptyReason,
     });
     await pumpEventQueue();
   }
+
+  /// Every `inject:request` this device put on the wire. The row is what the
+  /// user sees on the phone; THIS is what lands in the PC's focused window,
+  /// and drill B-7 is a defect about the second one.
+  List<EventEnvelope> get injectFrames =>
+      transport.emittedWhere(FlowMicEvents.injectRequest);
 
   String get rowText => store.entries.first.displayText;
 
@@ -329,6 +342,115 @@ void main() {
       await h.controller.pttUp();
       await h.finalFrame('');
       expect(h.store.entries, isEmpty);
+      await h.dispose();
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // 🔴 SD-1 — A SILENT PRESS MUST NOT PUT A FULL STOP INTO THE PC.
+  //
+  // Frames taken VERBATIM from the device drill, not invented:
+  // `.local/session-2026-09-06-durability-drill/pc-events.jsonl` lines 10/14/18
+  // (tablet TB335ZC, 3 s press in a quiet room, standalone relay, 0.3.73):
+  //   stt:interim   {"text":".","segment_idx":0}
+  //   stt:final     {"text":"","segment_idx":0,"is_segment":false,
+  //                  "empty_reason":"heard_no_words"}
+  //   inject:request{"text":"."}          ← THE DEFECT
+  //
+  // ── 🔴 REVERSE CONTROLS, BOTH MEASURED RED (2026-09-06, this worktree) ──────
+  // The two halves of the fix are pinned SEPARATELY because they are separately
+  // load-bearing — with only (b) in place the drill sequence is already clean,
+  // so a suite that measured them together would let (a) rot unnoticed.
+  //   (a) delete `if (!sttTextHasContent(text)) return false;` from
+  //       `SegmentBuffer.put` ⇒ 3 red, including
+  //       「a punctuation-only interim is refused even with no empty_reason」
+  //       `Expected: empty / Actual: [Instance of 'TimelineEntry']`.
+  //   (b) delete `&& !emptyIsVerdict` from the same method ⇒ 2 red, including
+  //       「an empty terminal final carrying empty_reason clears its own slot」
+  //       `Expected: empty / Actual: [Instance of 'TimelineEntry']`.
+  // Both restored; `grep -rn REVERSE-CONTROL-A|-B apps/mobile/lib` = 0 and the
+  // full pair of files is green again.
+  //
+  // ⚠️ THE ASSERTION IS ON `inject:request`, NOT ONLY ON THE ROW. The row is
+  // the phone's own record; the frame is what reaches somebody else's keyboard,
+  // and only the frame can distinguish 「we kept it to ourselves」 from 「we typed
+  // it into their editor」.
+  group('SD-1 — a punctuation-only interim is not a transcript', () {
+    test('the drill B-7 frame sequence mints no row and injects nothing',
+        () async {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.pttDown();
+      await h.interim('.');
+      await h.controller.pttUp();
+      await h.finalFrame('', emptyReason: 'heard_no_words');
+      expect(h.store.entries, isEmpty);
+      expect(h.injectFrames, isEmpty);
+      await h.dispose();
+    });
+
+    // The same refusal, without leaning on `empty_reason`: fix (a) alone must
+    // hold, because an older relay strips additive fields and the punctuation
+    // would then be all the phone has.
+    test('a punctuation-only interim is refused even with no empty_reason',
+        () async {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.pttDown();
+      await h.interim('。');
+      await h.controller.pttUp();
+      await h.finalFrame('');
+      expect(h.store.entries, isEmpty);
+      expect(h.injectFrames, isEmpty);
+      await h.dispose();
+    });
+
+    // Fix (b) on its own: real words on screen, and then the server says the
+    // recording had none. Its verdict wins FOR ITS OWN SLOT.
+    test('an empty terminal final carrying empty_reason clears its own slot',
+        () async {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.pttDown();
+      await h.interim('嗯');
+      await h.controller.pttUp();
+      await h.finalFrame('', emptyReason: 'heard_no_words');
+      expect(h.store.entries, isEmpty);
+      expect(h.injectFrames, isEmpty);
+      await h.dispose();
+    });
+
+    // 🔴 POSITIVE CONTROL — THE FB-6 CROSS-SEGMENT RULE IS UNTOUCHED. Segment 0
+    // was closed with real words that exist NOWHERE BUT THIS DEVICE (the
+    // terminal final carries the last segment only). A verdict about segment 1
+    // may not reach back and delete them.
+    test('an empty terminal final on a LATER segment keeps the earlier words',
+        () async {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.pttDown();
+      await h.interim('我们明天开会', idx: 0);
+      await h.finalFrame('我们明天开会', idx: 0, isSegment: true);
+      await h.interim('.', idx: 1);
+      await h.controller.pttUp();
+      await h.finalFrame('', idx: 1, emptyReason: 'heard_no_words');
+      expect(h.store.entries.length, 1);
+      expect(h.rowText, '我们明天开会');
+      await h.dispose();
+    });
+
+    // A real word that HAPPENS to end in punctuation is content and must not be
+    // caught by the content predicate — the reverse direction of fix (a).
+    test('a one-character utterance with a full stop still reaches a row',
+        () async {
+      final _Harness h = _Harness();
+      h.connect();
+      await h.controller.pttDown();
+      await h.interim('好。');
+      await h.controller.pttUp();
+      await h.finalFrame('好。');
+      expect(h.store.entries.length, 1);
+      expect(h.rowText, '好。');
       await h.dispose();
     });
   });

@@ -1,8 +1,12 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-password-policy-medium-complexity.md §1 (the ruled
-//     values: min 10 CODE POINTS, at least 2 of 3 character classes, max 32,
-//     no blacklist, no retroactive enforcement) and §4-1 (the shared vector
-//     table both repos implement)
+//     values: at least 2 of 3 character classes, max 32, no blacklist, no
+//     retroactive enforcement) and §4-1 (the shared vector table both repos
+//     implement)
+//   🔴 THE MINIMUM NO LONGER MATCHES THAT RULING. §1 ruled 10 CODE POINTS; the
+//     minimum below is 8. Everything else in §1 is unchanged. The ruling doc is
+//     a historical record and is not rewritten, so this line is the only place
+//     that says the two disagree — do not read §1 as describing the live value.
 //   *** HUMAN-AUDIT SENSITIVE (auth: credential policy) — reviewable in isolation ***
 //
 // The ONE declaration of what makes an account password acceptable. Four
@@ -39,17 +43,19 @@
 // ── 🔴 WHAT DELIBERATELY DOES NOT VALIDATE COMPLEXITY: LOGIN ───────────────
 // `verifyCredentials` compares a scrypt hash and asks nothing about the shape
 // of the password. That is the "no retroactive enforcement" half of the ruling (§1, §4-2 item 1):
-// an account created under the old 8-character minimum keeps working until its
-// owner changes it. Adding a policy check to the login path would lock those
+// an account created before this policy existed keeps working until its owner
+// changes it — a stored `hunter7` is 7 code points and one class, and both of
+// those refusals are live today. Adding a policy check to the login path would lock those
 // users out of their own accounts, so the absence of an import here is the
 // feature; test/password-policy.test.ts pins it as an executable fact rather
 // than leaving it as a sentence in a comment.
 
-/** Minimum account password length, in CODE POINTS (ruling §1).
+/** Minimum account password length, in CODE POINTS (see the header note: §1
+ *  ruled 10, this is 8).
  *  Mirrored by hand in `@flowmic/web`; verify/lint/password-policy-mirror.mjs
  *  locates this declaration BY NAME and requires a plain integer literal, so it
  *  must stay a one-line literal — never a computed value or an object field. */
-export const MIN_PASSWORD_LENGTH = 10;
+export const MIN_PASSWORD_LENGTH = 8;
 
 /** Maximum account password length, in CODE POINTS.
  *  Human-scale ceiling (password-manager 32-char secrets still fit).
@@ -133,7 +139,7 @@ export type PasswordPolicyVerdict =
  * Check a password against the ruled policy.
  *
  * ORDER IS PART OF THE CONTRACT and is pinned by the shared vector table: LENGTH
- * FIRST, classes second. "abcdefghi" (9 letters) breaks both the minimum and the
+ * FIRST, classes second. "abcdefg" (7 letters) breaks both the minimum and the
  * class rule, and ruling §4-1 requires it be reported as a LENGTH failure —
  * telling someone to add a digit to a password that is too short anyway would
  * send them round the loop twice.

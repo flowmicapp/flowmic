@@ -35,6 +35,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/temp_teardown.dart';
 
 void main() {
   late Directory tmp;
@@ -61,8 +62,9 @@ void main() {
   tearDown(() async {
     await session.dispose();
     await transport.close();
+    await spill.dispose();
     await store.dispose();
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    await removeTempDir(tmp);
   });
 
   group('the uplink signal has a production caller', () {

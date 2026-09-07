@@ -43,6 +43,65 @@ part of 'chat_controller.dart';
 /// half of this predicate is frozen too — in BOTH directions.
 bool _settlesPerSegment(ChatController c) => _composeTaskFor(c._activeMode) == null;
 
+/// Card FX-3 — how long is the audio behind this row?
+///
+/// The default is Σ over the engine's own `duration_ms` for the spans the row
+/// covers — REG-D1, and the right answer for a live press, where nothing on
+/// this phone knows the length of what the microphone is still capturing.
+///
+/// 🔴 A RECOVERY ROW THAT COVERS THE WHOLE ATTEMPT USES THE FED RANGE INSTEAD.
+/// MEASURED 2026-09-06 (drill DF-2 (b)): a 7.6 s recovery — `audio intake
+/// audioMs 7600` in the server's own log — produced a row reading 「0.5s · 10
+/// words」. We fed that audio ourselves, out of a file whose byte range we
+/// chose, so its length is a MEASUREMENT here and only a report from the engine
+/// there. Between a number we measured and a number we were told, the one we
+/// measured wins.
+///
+/// ⚠️ ONLY FOR THE WHOLE-ATTEMPT ROW (`!isSegment` and starting at the first
+/// span). A soft-segment row covers part of the fed range and nothing maps
+/// spans onto byte offsets, so stamping the whole range on it would replace an
+/// under-report with an over-report — and unlike the engine's number, it would
+/// be wrong by design rather than by accident.
+int _spanMsFor(ChatController c, SttFinal f, int fromIdx) {
+  final int engineMs = c.session.segments.durationBetween(fromIdx, f.segmentIdx);
+  final RecoverySampleRange? range = c.session.openSessionRange;
+  if (range == null || f.isSegment || fromIdx != 0) return engineMs;
+  final int sampleRate = AudioJournalFormat.current.sampleRate;
+  if (sampleRate <= 0) return engineMs;
+  final int samples = range.endSample - range.startSample;
+  return samples > 0 ? samples * 1000 ~/ sampleRate : engineMs;
+}
+
+/// Card FX-2 — was this final produced by a recovery attempt or by a live press?
+///
+/// TWO LOCKS, and they fail in opposite directions on purpose.
+///   1. [PttSession.openSessionDelivery] — what WE put on the `audio:start`
+///      that is open. Phone-local, always present, never guesses. This is the
+///      one that closes the measured defect.
+///   2. the coverage receipt's echo — the server puts back the `recording_id`
+///      and `attempt_id` the opener sent. A receipt naming an attempt that is
+///      not the live one is a recovery conclusion however lock 1 reads. Same
+///      discriminator `live_settle.dart` already uses, and same caveat: an
+///      older relay strips the echoes, so a NULL echo is neither a match nor a
+///      mismatch and lock 1 answers alone.
+///
+/// ⚠️ Lock 2 is not redundancy for its own sake. `beginBackfill` refuses while
+/// a press is running, but the terminal final of a press arrives AFTER
+/// `audio:stop`, so there is a window in which a recovery could open the wire
+/// before the live conclusion lands. In that window lock 1 alone would call a
+/// live final recovered - the safe direction (a row stays on the phone) - and
+/// lock 2 cannot help. What lock 2 covers is the reverse ordering.
+Delivery _deliveryOfThisFinal(ChatController c, SttFinal f) {
+  if (c.session.openSessionDelivery == Delivery.none) return Delivery.none;
+  final CoverageReceipt? r = f.coverage;
+  final LiveAudioAttempt? live = c.session.audio.retainedAudio?.liveAttempt;
+  final bool namesAnotherAttempt = r != null &&
+      live != null &&
+      ((r.attemptId != null && r.attemptId != live.attemptId) ||
+          (r.recordingId != null && r.recordingId != live.recordingId));
+  return namesAnotherAttempt ? Delivery.none : c._activeDelivery;
+}
+
 /// Turn the spans `[fromIdx, f.segmentIdx]` into ONE row and start its delivery.
 ///
 /// The single settlement path: a soft-segment final in realtime and the terminal
@@ -64,7 +123,7 @@ void _settleSpan(
   // this segment") on both exits since `24b75cc`, so copying it onto a
   // whole-utterance row reported the last segment only. 0 ⇒ nothing in range
   // reported one ⇒ NULL (absence, not 0 — entry_metrics.dart).
-  final int spanMs = segs.durationBetween(fromIdx, f.segmentIdx);
+  final int spanMs = _spanMsFor(c, f, fromIdx);
   // 🔴 CR-7/CR-8 — claim this row's place in the recording, if one is running.
   //
   // Null for every ordinary utterance, which is almost all of them, and the
@@ -80,10 +139,28 @@ void _settleSpan(
   // article reader orders by exactly that field.
   final ({String articleId, int offsetMs})? place =
       c.session.articles.claim(spanMs > 0 ? spanMs : null);
+  // 🔴 CARD FX-2 — THE DELIVERY OF THE SESSION THAT PRODUCED THIS FINAL, NOT
+  // THE ONE THE LAST BUTTON PRESS CHOSE. `c._activeDelivery` is written in
+  // `pttDown` and nowhere else; a recovery attempt opens its own `audio:start`
+  // with `delivery: none` and used to leave that field holding either the
+  // previous press's destination or — after a relaunch — the field's own
+  // default, `inject`. The recovered transcript was then minted as an
+  // injectable row and `_deliverDirect` put it on the PC.
+  //
+  // MEASURED 2026-09-06 (drill DF-2 (a), B-11): `inject:request` on the PC with
+  // `inject_origin:"live"` for a transcript the manifest calls `auto_retry`.
+  // Forbidden by E17 / owner ruling O-8 — recovered words are never sent.
+  //
+  // ⚠️ IT IS NOT AN EXTRA GUARD ON THE DELIVERY CALL, AND THAT IS THE POINT.
+  // The row itself must be record-only, because a row that says `inject` is one
+  // a long-press re-delivery would happily send later. `_deliverDirect` already
+  // returns on `Delivery.none`, so the send stops as a CONSEQUENCE of the row
+  // being honest rather than as a second rule that could drift from it.
+  final Delivery wireDelivery = _deliveryOfThisFinal(c, f);
   final TimelineEntry entry = c.store.buildFromUtterance(
     clientId: clientId ?? c._mintClientId(),
     mode: c._activeMode,
-    delivery: c._activeDelivery,
+    delivery: wireDelivery,
     text: text,
     sourceLang: f.language.isNotEmpty ? f.language : null,
     durationMs: spanMs > 0 ? spanMs : null,
@@ -117,6 +194,25 @@ void _settleSpan(
   // `await`-carrying delivery so a replay landing inside that window is judged
   // against a watermark that already includes this row.
   segs.markSettled(f.segmentIdx);
+  // 🔴 CARD LS-1b — THE LIVE RECORDING'S AUDIO SETTLES HERE, AND ONLY ON THE
+  // TERMINAL FINAL. Placed ABOVE the compose fork on purpose: that fork returns
+  // for translate/organize, so a call after it would settle realtime recordings
+  // and silently never settle the other two modes' — a hole with no symbol to
+  // grep for. `!f.isSegment` is the whole cardinality rule (one journal per
+  // recording, segments are the server's unit); see live_settle.dart's foot.
+  //
+  // A no-op unless the journal face is on, and it deletes nothing unless
+  // `evaluateRecoverySettle` says all three conditions held. Unawaited because
+  // it reads persistent storage and a row's face may not wait on a disk read.
+  if (!f.isSegment) {
+    unawaited(settleLiveRecording(
+      session: c.session,
+      timeline: c.store,
+      receipt: f.coverage,
+      finalText: f.text,
+      rowId: entry.id,
+    ));
+  }
   c._liveText = '';
   // Card D-2's `c._lastUtteranceEntryId = entry.id` stood here until
   // 2026-09-03: the row now carries the server's `utterance_id` (built in

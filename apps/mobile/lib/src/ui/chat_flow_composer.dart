@@ -513,7 +513,7 @@ Widget _composerRouted(
   // disagree. Outside the three idle faces the dock is PTT-only (A3–A5).
   // While the edit sheet is open the whole dock is COVERED (scrim + sheet,
   // §4 A6) — it keeps rendering here untouched.
-  final bool idleRows = composeIdleRowsVisible(visual);
+  final bool idleRows = _dockIdleRowsRouted(s, visual); // D-1: and not while capturing
 
   // `.dock{border-top:1px solid var(--line);background:var(--panel);
   //        padding:10px 12px 14px;display:flex;flex-direction:column;gap:9px}`

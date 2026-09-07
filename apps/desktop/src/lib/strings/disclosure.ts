@@ -174,6 +174,12 @@
 // under-stating, so it is said outright instead of being folded into 「optional」.
 // Interim text is never sent; only the terminal final (is_segment === false).
 //
+// 🔴 THE BLOCK BELOW IS HISTORY AS OF 2026-09-07 (owner): `disc_s4_lan_plain`
+// no longer exists. It is kept WORD FOR WORD because it is the record of what
+// that paragraph claimed and why, and because its rule outlived it — see the
+// retirement note beside `disc_s4_body` in DISCLOSURE_KEYS for what survived,
+// what was retired with its premise, and what is still measured today.
+//
 // 🔴 THE LAN LEG IS NOW THREE CLAIMS, NOT ONE — and a blanket 「it is encrypted
 // now」 would have been a lie in the opposite direction from the one it replaced.
 // 0.2.60 shipped LAN TLS with the server key pinned from the QR. What is true:
@@ -327,8 +333,29 @@ export const DISCLOSURE_KEYS = [
   'disc_s3_title',
   'disc_s3_body',
   'disc_s4_title',
+  // 🔴 RETIRED 2026-09-07 (owner): `disc_s4_lan_plain` — the amber warning that
+  // used to hang under this step — is GONE, and its one surviving claim was
+  // folded into `disc_s4_body` as a single sentence. Nothing above this line is
+  // rewritten: the long block in this file's header describing that paragraph as
+  // THREE claims records what was true while it existed, and the reasoning in it
+  // (never assert the current value of a switch; say where the value is shown)
+  // is what the folded sentence still obeys.
+  // WHY IT COULD GO: LAN TLS shipped 2026-08-08 (e5614864), and the first public
+  // release is v0.3.53 — so claim ②, 「a pairing made before that is still in the
+  // clear, re-pair to upgrade」, can only be true of our own internal test
+  // devices. No external user has ever held a plaintext pairing, and the amber
+  // block spent its most prominent line telling every one of them to redo
+  // something they never did.
+  // WHAT SURVIVES IN `disc_s4_body`: the leg on your own network is encrypted,
+  // the relay is TLS, and the current state is shown on the phone's
+  // 「Connection encryption」 screen — the last clause is still the escape hatch
+  // this header's rule requires, because `FLOWMIC_LAN_TLS=0`
+  // (server-core config.ts `resolveLanTls`, branch ②) can still put the leg back
+  // to plaintext. 【Measured 2026-09-07: no shipped configuration does. The
+  // desktop always spawns the sidecar `--mode standalone` with `FLOWMIC_HOME`
+  // (src-tauri/src/sidecar/io.rs `spawn_sidecar`) and never sets that variable,
+  // so TLS is on unless an operator sets it by hand on the machine.】
   'disc_s4_body',
-  'disc_s4_lan_plain',
   'disc_s5_title',
   'disc_s5_body',
   'disc_legal_title',

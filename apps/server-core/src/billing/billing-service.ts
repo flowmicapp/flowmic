@@ -36,7 +36,7 @@ import type { BillingRepo, PaddleSubRow } from '../db/repos/billing.repo';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { UserRepo } from '../db/repos/user.repo';
 import type { UsageRepo } from '../db/repos/usage.repo';
-import { currentMonth } from '../db/repos/usage.repo';
+import { effectiveAnchorMs, parseUtcStamp, subscriptionRowExpiry, usagePeriodAt, type UsagePeriod } from './usage-period';
 import { planLimits, type PlanLimits } from './plans';
 import { withdrawalDeadline } from './withdrawal';
 import { ServerError } from '../errors';
@@ -198,6 +198,29 @@ function paddleState(status: string, expired: boolean): SubState {
       return 'past_due';
     case 'paused':
       return 'paused';
+    // 🔴 CREEM'S WORD FOR 「active, with a cancellation booked」 (2026-09-04).
+    //
+    // This switch was written against Paddle's vocabulary, where that fact is
+    // `status: 'active'` PLUS a scheduled_change object. Creem spells it as a
+    // status of its own, so it was falling into `default` and a paying customer
+    // with a cancellation scheduled read as 「processing」 — R11, on a
+    // subscription that is running, is paid for, and has a date attached.
+    //
+    // ⚠️ IT IS THE SAME PROJECTION `creem/envelope.ts` ALREADY MAKES onto
+    // `scheduled_change_action`, applied to the one reader that had not learned
+    // the vocabulary. The two must agree: the console reads `state` for 「is it
+    // running」 and `scheduled_change` for 「until when」, and a subscription that
+    // is 「processing」 with a cancellation date is two answers to one question.
+    //
+    // ⚠️ NOT EXTENDED TO CREEM'S `unpaid`, deliberately. 'past_due' would claim
+    // the provider is still retrying the charge and we have not measured that;
+    // 'pending' at least says only 「there is a row whose state we do not
+    // translate」, which is true. Registered as a gap rather than guessed.
+    //
+    // Caught by test/subscription-e2e.test.ts on its first run — no unit suite
+    // could see it, because each one hands this function a status it chose.
+    case 'scheduled_cancel':
+      return 'active';
     default:
       return 'pending';
   }
@@ -532,21 +555,15 @@ export class BillingService {
     //   wrong direction of failure, so those keep the pre-existing `false`.
     // NaN   = the column holds something that is not a date ⇒ treat as EXPIRED.
     //         Fail-CLOSED on garbage: an unparseable date must not grant forever.
-    const terminalStatusWithNoPeriod =
-      endMs === null && (row.status === 'canceled' || row.status === 'paused');
     // No `paused_at` column exists (only `canceled_at`), so a paused row falls
     // back to `last_occurred_at` — the out-of-order guard's own ruler for "when
     // did we learn this", already NOT NULL on every row. Comparing against now,
     // rather than hardcoding `true`, keeps this one rule (endMs-or-fallback vs
     // now) instead of a second, un-testable "terminal ⇒ always expired" branch.
-    const occurredMs = terminalStatusWithNoPeriod
-      ? Date.parse(row.canceled_at ?? row.last_occurred_at)
-      : null;
-    const expired = terminalStatusWithNoPeriod
-      ? !Number.isFinite(occurredMs) || this.now() >= (occurredMs as number)
-      : endMs === null
-        ? false
-        : !Number.isFinite(endMs) || this.now() >= endMs;
+    // 2026-09-05: the rule itself lives in `subscriptionRowExpiry`
+    // (usage-period.ts), shared with the metering cycle — see its doc for why
+    // the two must be one function.
+    const { expired } = subscriptionRowExpiry(row, this.now());
     // `PaddleSubRow.tier` is typed `Plan` by an unchecked cast in the repo (the
     // column is free text). Re-narrowing by TEST here is the fail-closed reading:
     // a tier this build does not know must resolve to free, never to a paid one.
@@ -643,11 +660,52 @@ export class BillingService {
     return this.resolve(userId);
   }
 
+  /**
+   * The metering cycle this account is in at `atMs` (owner 2026-09-05, option 乙).
+   *
+   * 🔴 THE ONLY PLACE THAT KNOWS AN ACCOUNT'S ANCHOR. The guard and the meter
+   * both ask this, so 「which bucket」 has one answer in the process; a second
+   * derivation in either of them is the cross-bucket drift
+   * test/quota-usage-month-bucket-alignment.test.ts exists to catch.
+   *
+   * The anchor is derived from facts already on file — registration, and the
+   * start/end of every subscription row — never stored. See usage-period.ts for
+   * why storing it would miss the transition that matters most (a paid period
+   * ending is driven by the clock, not by an event). The 「has this row ended」
+   * question is answered by the SAME rule `fromPaddle` uses for the tier
+   * (`subscriptionRowExpiry`), so the tier and the cycle cannot disagree about
+   * when a subscription stopped.
+   */
+  usagePeriod(userId: string, atMs: number = this.now()): UsagePeriod {
+    const user = this.deps.users.findById(userId);
+    // An account we cannot find has no registration instant; metering it at all
+    // is a caller bug, but the honest fallback is 「as of now」 rather than a key
+    // in 1970 that nothing else will ever read.
+    const registeredAt = user ? parseUtcStamp(user.created_at) : atMs;
+    const subscriptions = this.deps.billing.listForUser(userId).map((row) => {
+      const { expired, endMs, endedAtMs } = subscriptionRowExpiry(row, atMs);
+      const startedAt = row.contract_concluded_at ?? row.created_at;
+      const startedAtMs = parseUtcStamp(startedAt);
+      return {
+        startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+        endedAtMs: expired ? (endedAtMs ?? endMs) : null,
+        grants: !expired,
+      };
+    });
+    return usagePeriodAt(effectiveAnchorMs(Number.isFinite(registeredAt) ? registeredAt : atMs, subscriptions, atMs), atMs);
+  }
+
+  /** The bucket key the meter writes to and the guard reads from, at `atMs`. */
+  usagePeriodKey(userId: string, atMs: number = this.now()): string {
+    return this.usagePeriod(userId, atMs).key;
+  }
+
   getQuota(userId: string): QuotaView {
     // Through effectiveLimits, not planLimits(effectivePlan): an exempt account
     // must not be shown a fair line nothing is enforcing.
     const limits = this.effectiveLimits(userId);
-    const rec = this.deps.usage.get(userId, currentMonth(() => this.now()));
+    const period = this.usagePeriod(userId);
+    const rec = this.deps.usage.get(userId, period.key);
     return {
       stt: { used_min: rec?.stt_minutes ?? 0, limit_min: limits.stt_minutes },
       // owner 2026-08-14: `used` = output tokens (what the guard enforces),
@@ -657,7 +715,11 @@ export class BillingService {
         used_in: rec?.llm_tokens_in ?? 0,
         limit: limits.llm_tokens,
       },
-      month: currentMonth(() => this.now()),
+      // ⚠️ `month` KEEPS ITS NAME and now carries the cycle key (`YYYY-MM-DD`):
+      // older console builds render it as-is, which is a true statement about
+      // which bucket is being counted. `period` is the field new builds read.
+      month: period.key,
+      period: { start: period.start, end: period.end },
     };
   }
 

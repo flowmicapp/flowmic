@@ -346,6 +346,8 @@ export function makeSttSessionFactory(
       mode: args.mode,
       sourceLang: args.sourceLang,
       ...(args.targetLang !== undefined ? { targetLang: args.targetLang } : {}),
+      // card CV-1 — carried, not interpreted: the bridge echoes these on the terminal final (engine/stt-session-receipt.ts).
+      ...(args.recovery !== undefined ? { recovery: args.recovery } : {}),
       onComplete: args.onComplete,
       ...(args.onPolishUsage !== undefined ? { onPolishUsage: args.onPolishUsage } : {}),
       finalText,

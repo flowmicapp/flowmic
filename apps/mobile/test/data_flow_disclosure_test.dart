@@ -167,63 +167,41 @@ const Map<AppLocale, List<String>> kPlanHedges = <AppLocale, List<String>>{
 // second lie as a pass, which is why every group below is a POSITIVE marker and
 // the ban is scoped underneath them.
 
-/// ① A QR-made pairing is TLS AND the pin is re-checked on every later dial —
-/// not just at pairing time. Backed by lib/src/signaling/lan_pinning.dart
-/// (`PinnedHttpClient._judge`) reached from four dial sites, enforced by
-/// test/lan_pin_enforced_on_every_dial_test.dart. The second marker of each row
-/// is the 「every later connection」 half specifically: a copy that only promised
-/// encryption AT PAIRING would satisfy the first.
-const Map<AppLocale, List<String>> kLanPinned = <AppLocale, List<String>>{
-  AppLocale.zh: <String>['二维码里带着这台电脑的身份', '每一次连接都核对'],
-  AppLocale.en: <String>[
-    'carries the identity of the computer',
-    'checks it on every later connection',
-  ],
-  AppLocale.ja: <String>['PC の身元が入っている', '接続ごとに照合'],
-  AppLocale.ko: <String>['컴퓨터의 신원이 실려 있는', '연결마다 대조'],
-  AppLocale.zhTw: <String>['帶著這臺電腦的身分', '每一次連線都核對'],
-  AppLocale.fr: <String>[
-    'porte l\'identité du PC',
-    'vérifie à chaque connexion suivante',
-  ],
-  AppLocale.es: <String>[
-    'lleva la identidad del PC',
-    'comprueba en cada conexión posterior',
-  ],
+/// ① The leg on your own network IS encrypted, and the relay is TLS.
+///
+/// 🔴 2026-09-07 (owner) — THIS TABLE REPLACES TWO, AND THE PARAGRAPH ABOVE
+/// DESCRIBES WHAT USED TO BE HERE. The amber `discStep4LanPlain` note is gone
+/// and its live claim is a sentence inside [AppStrings.discStep4Body], so the
+/// markers moved with it. What was retired:
+///   · kLanPinned — 「the QR carries the identity of the computer / the phone
+///     checks it on every later connection」. The MECHANISM is unchanged
+///     (lan_pinning.dart `PinnedHttpClient._judge`, four dial sites, still
+///     enforced by test/lan_pin_enforced_on_every_dial_test.dart); it is the
+///     COPY that no longer spells it out, on the C16 grounds the rest of this
+///     page was shortened on.
+///   · kLanLegacyPlaintext — 「a pairing made before 0.2.60 is still in the
+///     clear / pair again」. That is the only half whose PREMISE went away: LAN
+///     TLS shipped 2026-08-08 (e5614864) and the first public release is
+///     v0.3.53, so no external user can hold such a pairing. The imperative was
+///     addressed to our own test devices.
+///
+/// ⚠️ Its job — stop a blanket 「it is encrypted now」 — is NOT dropped: it is
+/// done by the section-pointer test below, which keeps the sentence from
+/// asserting a value it cannot know (`FLOWMIC_LAN_TLS=0` still exists;
+/// apps/server-core/src/config.ts `resolveLanTls` branch ②).
+const Map<AppLocale, List<String>> kLanEncryptedNow = <AppLocale, List<String>>{
+  AppLocale.zh: <String>['这条连接是加密的', '中继一律走 TLS'],
+  AppLocale.en: <String>['is encrypted', 'relay runs over TLS'],
+  AppLocale.ja: <String>['暗号化され', '中継は TLS'],
+  AppLocale.ko: <String>['암호화되고', '중계는 TLS'],
+  AppLocale.zhTw: <String>['這條連線是加密的', '中繼一律走 TLS'],
+  AppLocale.fr: <String>['la liaison est chiffrée', 'le relais est en TLS'],
+  AppLocale.es: <String>['la conexión va cifrada', 'el relé va por TLS'],
   AppLocale.de: <String>[
-    'die Identität des PC trägt',
-    'bei jeder späteren Verbindung',
+    'ist die Verbindung verschlüsselt',
+    'das Relais läuft über TLS',
   ],
-  AppLocale.ru: <String>[
-    'в коде есть личность компьютера',
-    'при каждом следующем подключении',
-  ],
-};
-
-/// ② The old warning is STILL TRUE for pairings made before 0.2.60, and there is
-/// exactly one action that upgrades them. lib/src/ptt/ptt_session.dart, in
-/// `resumePairing` — `pinFingerprint: session.lanTlsFp` is 「Null for an unpinned
-/// row, which is every pre-D2-LAN pairing」 and that dial is 「byte-for-byte the
-/// old one」; no auto-upgrade path exists.
-///
-/// ⚠️ The line number that used to be here (`:566-569`) is gone on purpose, not
-/// lost: fix-026 added prose to `autoStopped`'s doc ~90 lines above it and the
-/// dial slid to 583-587, reddening `coordinate-anchors` in a window that had
-/// nothing to do with LAN pinning. The symbol names the same place and does not
-/// move when somebody edits the file above it (IT-50 / IT-43's own header).
-///
-/// 🔴 THIS GROUP IS THE GUARD AGAINST THE OPPOSITE LIE. Deleting it would let a
-/// blanket 「the LAN is encrypted now」 paragraph pass every other assertion here.
-const Map<AppLocale, List<String>> kLanLegacyPlaintext = <AppLocale, List<String>>{
-  AppLocale.zh: <String>['仍然是明文', '重新配对'],
-  AppLocale.en: <String>['still in the clear', 'pairing again'],
-  AppLocale.ja: <String>['今も平文', 'ペアリングし直す'],
-  AppLocale.ko: <String>['지금도 평문', '다시 페어링'],
-  AppLocale.zhTw: <String>['仍然是明文', '重新配對'],
-  AppLocale.fr: <String>['restent en clair', 'un nouvel appairage'],
-  AppLocale.es: <String>['siguen en claro', 'volver a emparejar'],
-  AppLocale.de: <String>['noch im Klartext', 'erneut koppeln'],
-  AppLocale.ru: <String>['всё ещё открыты', 'повторное сопряжение'],
+  AppLocale.ru: <String>['связь шифруется', 'ретранслятор работает по TLS'],
 };
 
 /// ③ The kill switch. An env var name, so one literal covers all nine
@@ -682,45 +660,37 @@ void main() {
     }
   });
 
-  testWidgets('🔴 the LAN leg is told as THREE truths — 0.2.60 pairings, older ones, and the kill switch', (
+  testWidgets('🔴 the LAN leg says it is encrypted, and says where the current reading is', (
     WidgetTester tester,
   ) async {
     // ⚠️ Two levels, same as the DeepSeek guard above: the pump proves the
     // paragraph is MOUNTED (a catalogue string nobody renders is this repo's
-    // oldest façade), and the markers are asserted against `discStep4LanPlain`
+    // oldest façade), and the markers are asserted against `discStep4Body`
     // specifically so the ban below can be scoped to the same getter without
     // ever reaching a legitimate sentence elsewhere.
+    // 🔴 The getter changed 2026-09-07 (owner): the amber `discStep4LanPlain`
+    // note was removed and its live claim folded into the step's body. The
+    // table comment above records which markers were retired and why.
     for (final AppLocale loc in kLocales) {
       await _pumpPage(tester, loc);
       final AppStrings s = AppStrings.of(loc);
-      final String line = s.discStep4LanPlain;
+      final String line = s.discStep4Body;
       expect(
         find.textContaining(line, findRichText: true),
         findsWidgets,
         reason: '$loc: the LAN paragraph is not mounted',
       );
 
-      for (final String m in kLanPinned[loc]!) {
+      for (final String m in kLanEncryptedNow[loc]!) {
         expect(
           line,
           contains(m),
           reason:
-              '$loc: the LAN paragraph does not say the pairing is encrypted AND '
-              're-checked (「$m」). The pin is verified on every dial '
-              '(lan_pinning.dart), and a copy that only promises it at pairing '
-              'time undersells what this phone actually does.',
-        );
-      }
-      for (final String m in kLanLegacyPlaintext[loc]!) {
-        expect(
-          line,
-          contains(m),
-          reason:
-              '$loc: the LAN paragraph dropped the pre-0.2.60 half (「$m」). Those '
-              'pairings are still plaintext — ptt_session.dart:566-569, no '
-              'auto-upgrade — so a blanket 「it is encrypted now」 is a NEW lie, '
-              'not a fix for the old one, and re-pairing is the only action that '
-              'moves them.',
+              '$loc: step ④ dropped the encryption sentence (「$m」). The leg on '
+              'the user\'s own network is TLS (server-core config.ts '
+              '`resolveLanTls`; the desktop always spawns the sidecar standalone '
+              'with FLOWMIC_HOME) and so is the relay — saying nothing here '
+              'leaves the reader with the pre-0.2.60 assumption.',
         );
       }
       // 🔴 In-place correction (WP3 C16, 2026-08-18): the two REQUIRED
@@ -793,7 +763,7 @@ void main() {
       await _pumpPage(tester, loc);
       final AppStrings s = AppStrings.of(loc);
       expect(
-        s.discStep4LanPlain,
+        s.discStep4Body,
         contains(s.diagEncryptionSection),
         reason:
             '$loc: the LAN paragraph sends the reader to a section named '
@@ -818,12 +788,13 @@ void main() {
     // catalogue produces exactly this, and 「missing phrase X」 sends the reader
     // hunting while 「the pre-0.2.60 sentence is back」 does not.
     //
-    // ⚠️ Scoped to `discStep4LanPlain`, never page-wide — 「未加密」 / 「not
+    // ⚠️ Scoped to `discStep4Body` (was `discStep4LanPlain` until that key was
+    // retired 2026-09-07), never page-wide — 「未加密」 / 「not
     // encrypted」 are honest words elsewhere (this app's own connection-status
     // tier says exactly that), and a page-wide ban would eventually forbid a
     // true sentence. Same narrowing the two guards above already had to make.
     for (final AppLocale loc in kLocales) {
-      final String line = AppStrings.of(loc).discStep4LanPlain;
+      final String line = AppStrings.of(loc).discStep4Body;
       for (final String stale in kLanExpiredClaims[loc]!) {
         expect(
           line,

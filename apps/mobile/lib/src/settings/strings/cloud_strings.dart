@@ -302,4 +302,63 @@ mixin CloudStrings on AppStringsLeaves {
   String quotaContextUsed(Object? used, Object? limit) =>
       _lfQuotaContextUsed(used, limit);
 
+  // ── when the allowance starts over (owner 2026-09-07) ────────────────────
+  //
+  // 🔴 A GAUGE WITHOUT THIS LINE ANSWERS HALF A QUESTION. 「17 / 20 min」 tells
+  // somebody they are nearly out and says nothing about whether that matters
+  // for another hour or another month. The cycle stopped being the calendar
+  // month on 2026-09-05 (owner's option 乙 — it is anchored to the account's own
+  // anniversary), so the user cannot derive it either: two accounts looking at
+  // the same screen on the same day reset on different dates.
+  //
+  // 🔴 THE SWITCH IS LANGUAGE-INDEPENDENT AND ONLY ITS LEAVES ARE TRANSLATED —
+  // the shape `lastConnectedAt` above already uses, for the same reason. What
+  // varies by language is the sentence, not 「is it today, tomorrow, or N days
+  // out」.
+  //
+  // ⚠️ THE COUNT IS A DIFFERENCE OF LOCAL CALENDAR DAYS, NOT OF ELAPSED HOURS.
+  // A reset 20 hours away can be either 「today」 or 「tomorrow」 depending on
+  // which side of local midnight it falls, and the user reads a calendar, not a
+  // stopwatch. Rounding the duration instead would put 「in 1 day」 on a reset
+  // that happens this evening.
+  //
+  // ⚠️ NO PLURAL AGREEMENT IS ASKED OF ANY TRANSLATION. `n == 1` never reaches
+  // the counted leaf — it has its own — so no language needs a second form for
+  // it, and Russian's few/many split is avoided the way this catalogue already
+  // avoids it elsewhere (`мин`, `ч`): an invariant unit.
+
+  /// The line under the gauge, or `null` when there is nothing true to put
+  /// there.
+  ///
+  /// 🔴 TWO REASONS FOR `null`, AND BOTH MUST STAY SILENT. The server did not
+  /// send the field (an older relay), or the boundary it sent has already
+  /// passed — which means the summary on screen is stale, and a stale boundary
+  /// printed as a future one would be a confident lie about an account's
+  /// allowance. A dash or 「unknown」 is refused for the reason the rest of this
+  /// card refuses them: an answer we do not have gets no row.
+  String? quotaResetsAt(DateTime resetsAt, {DateTime? now}) {
+    final DateTime t = resetsAt.toLocal();
+    final DateTime ref = (now ?? DateTime.now()).toLocal();
+    // 🔴 The two local days are compared as UTC midnights, and that is not a
+    // contradiction: they are already the LOCAL calendar days (`t`/`ref` are
+    // local), re-pinned to a clock with no daylight-saving jumps. Subtracting
+    // two LOCAL midnights across a DST change gives 23 or 25 hours, and
+    // `inDays` truncates that into an off-by-one on the two weekends a year
+    // when a European or American user would notice most.
+    final int days = DateTime.utc(t.year, t.month, t.day)
+        .difference(DateTime.utc(ref.year, ref.month, ref.day))
+        .inDays;
+    if (days < 0) return null;
+    final String relative = days == 0
+        ? _lfQuotaResetsAt__1
+        : days == 1
+        ? _lfQuotaResetsAt__2
+        : _lfQuotaResetsAt__3(days);
+    final String hhmm =
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    // No year variant, unlike `lastConnectedAt`: a monthly cycle ends at most
+    // about five weeks out, so a bare month and day cannot be ambiguous here.
+    return _lfQuotaResetsAt__4(t.month, t.day, hhmm, relative);
+  }
+
 }

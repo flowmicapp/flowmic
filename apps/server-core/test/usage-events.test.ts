@@ -172,6 +172,9 @@ function tracker(db: DbConnection, enabled: boolean): UsageTracker {
     mode: 'saas',
     usageEventsEnabled: enabled,
     events: db.usageEvents,
+    // The bucket key is the resolver's answer (owner 2026-09-05); this suite
+    // is about the events sink, so it pins the key to one constant.
+    periodKeyFor: () => MONTH,
     now: () => NOW,
   });
 }
@@ -251,11 +254,16 @@ describe('the switch — FLOWMIC_USAGE_EVENTS_ENABLED', () => {
     // only in the state where it is genuinely not needed (collection off). Turn
     // collection on without wiring a sink and the process fails at BOOT, not at
     // the first utterance.
-    expect(() => makeUsageTracker(db.usage, { mode: 'saas', usageEventsEnabled: true })).toThrow(
+    expect(() => makeUsageTracker(db.usage, { mode: 'saas', usageEventsEnabled: true, periodKeyFor: () => MONTH })).toThrow(
       /no usage_events sink was wired/,
     );
     // …and the harmless combination is still harmless.
-    expect(() => makeUsageTracker(db.usage, { mode: 'saas' })).not.toThrow();
+    expect(() => makeUsageTracker(db.usage, { mode: 'saas', periodKeyFor: () => MONTH })).not.toThrow();
+    // 🔴 2026-09-05 — and WITHOUT the bucket resolver a saas meter refuses to
+    // exist at all: a meter writing to a bucket the guard never reads is the
+    // silent shape this repo names as its worst.
+    expect(() => makeUsageTracker(db.usage, { mode: 'saas' })).toThrow(/periodKeyFor/);
+    expect(() => makeUsageTracker(db.usage, { mode: 'standalone' })).not.toThrow();
   });
 });
 
@@ -401,7 +409,7 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
     const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     try {
       const t = makeUsageTracker(db.usage, {
-        mode: 'saas', usageEventsEnabled: true, events: brokenSink, now: () => NOW,
+        mode: 'saas', usageEventsEnabled: true, events: brokenSink, now: () => NOW, periodKeyFor: () => MONTH,
       });
       // 🔴 It MUST NOT throw. `recordSttUsage` is reached from a bare setTimeout
       // and from the shutdown loop (engine/stt-session.ts `dispose`), where an
@@ -456,7 +464,7 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
     // `appendEvent` and not at each call site.
     const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     try {
-      makeUsageTracker(db.usage, { mode: 'saas', usageEventsEnabled: true, events: brokenSink, now: () => NOW })
+      makeUsageTracker(db.usage, { mode: 'saas', usageEventsEnabled: true, events: brokenSink, now: () => NOW, periodKeyFor: () => MONTH })
         .recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
       expect(db.usage.get(USER, MONTH)?.stt_minutes).toBe(1);
     } finally {
@@ -514,7 +522,11 @@ function realWiring(db: DbConnection): { guard: ReturnType<typeof makeQuotaGuard
     settings: db.settings, users: db.users, usage: db.usage, billing: db.billing, unlockAll: false, now: () => NOW,
   });
   return {
-    guard: makeQuotaGuard(db.usage, { effectiveLimits: (u) => billing.effectiveLimits(u) }, { mode: 'saas', now: () => NOW }),
+    guard: makeQuotaGuard(
+      db.usage,
+      { effectiveLimits: (u) => billing.effectiveLimits(u), usagePeriodKey: () => MONTH },
+      { mode: 'saas', now: () => NOW },
+    ),
     usageTracker: tracker(db, true),
   };
 }

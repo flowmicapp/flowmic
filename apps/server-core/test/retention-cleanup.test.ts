@@ -22,6 +22,7 @@ import { createDbConnection, type DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 import { startRetentionSweeper, RETENTION_SWEEP_INTERVAL_MS, USAGE_EVENTS_RETENTION_DAYS } from '../src/db/retention';
 import { REAPER_SWEEP_INTERVAL_MS } from '../src/db/reaper';
+import { RECOVERY_PRUNE_INTERVAL_MS } from '../src/db/schema-recovery';
 import { startServer, STANDALONE_USER_ID, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import { planLimits } from '../src/billing/plans';
@@ -502,12 +503,13 @@ describe('GA-06 bootstrap wiring', () => {
     });
     server = boot;
 
-    // The intervals are the two daily sweeps' (retention, and P2-6's growth
-    // reaper — bootstrap-sweeps.ts arms both through this same override), and
-    // boot did NOT sweep either one.
-    expect(sched.timers).toHaveLength(2);
+    // The intervals are the three daily sweeps' (retention, P2-6's growth reaper,
+    // and card PR-2's recovery sweep — bootstrap-sweeps.ts arms all three through
+    // this same override), and boot did NOT sweep any of them.
+    expect(sched.timers).toHaveLength(3);
     expect(sched.timers[0]?.ms).toBe(RETENTION_SWEEP_INTERVAL_MS);
     expect(sched.timers[1]?.ms).toBe(REAPER_SWEEP_INTERVAL_MS);
+    expect(sched.timers[2]?.ms).toBe(RECOVERY_PRUNE_INTERVAL_MS);
 
     boot.db.pcs.insert({
       id: `pc-${STANDALONE_USER_ID}`,
@@ -529,6 +531,10 @@ describe('GA-06 bootstrap wiring', () => {
     await boot.close();
     expect(sched.timers[0]?.cleared).toBe(true);
     expect(sched.timers[1]?.cleared).toBe(true);
+    // PR-2's sweep is disarmed by the same close(), and asserting it here rather
+    // than trusting the count is the point: a timer that is armed and never
+    // cleared keeps the process alive and ticks into a closed database.
+    expect(sched.timers[2]?.cleared).toBe(true);
   });
 
   // P2-6 (2026-09-02) — the growth reaper's OWN sweep, driven end to end

@@ -44,6 +44,11 @@ import { getLocale } from './strings/locale';
 import type { CloudStatus } from './channel';
 import { formatExpiry } from './channel';
 import { maskAccountEmail } from './account-mask';
+// ④-ter. Re-exported below so this module stays the card's one import for
+// callers and tests; the sentence itself lives apart because it never sees an
+// account (see that file's header).
+import { resetLine } from './cloud-account-reset';
+export { resetLine } from './cloud-account-reset';
 
 /** What the Rust `cloud_account_fetch` command reports. Mirrors `CloudAccountDto`
  *  in src-tauri/src/shell/cloud.rs — see the long note there for why these are
@@ -142,6 +147,20 @@ export interface LiveAccount {
    *  "couldn't be read" — see [quotaGauge] for why that is NOT rendered as
    *  "unlimited". */
   limit_tokens: number | null;
+  /** `QuotaView.period.end` as ms since epoch — the instant this allowance starts
+   *  over (owner 2026-09-07: wherever a quota is shown, say when it resets).
+   *
+   *  🔴 AN INSTANT, NOT THE `YYYY-MM-DD` THE SERVER SENDS. The cycle boundary is
+   *  UTC midnight (`billing/usage-period.ts`: "A cycle boundary is a calendar day
+   *  boundary in UTC"), so the same boundary is 08:00 in Shanghai and 19:00 the
+   *  previous evening in New York. Carrying the string and printing it would name
+   *  the wrong day for every user west of Greenwich.
+   *
+   *  🔴 `null` MEANS "THE SERVER DID NOT SAY". The field is additive and any relay
+   *  older than the account-anchored cycle (2026-09-05) has none, so the line is
+   *  simply absent — not a dash, and above all not the "first of next month" this
+   *  product used to be able to assume and no longer can. */
+  resets_at: number | null;
   /** WP-9 (2026-09-02) — `devices.pc_limit` off `/api/cloud/summary` ③. Was
    *  on the wire since that route existed (server-core's own comment there
    *  names the desktop by name as the reason it must be TOLD rather than
@@ -191,6 +210,32 @@ function str(v: unknown): string | null {
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** A `YYYY-MM-DD` day from the wire, as **UTC midnight** in ms.
+ *
+ *  🔴 `Date.parse('2026-09-24')` HAPPENS TO BE UTC AND `new Date(2026, 8, 24)`
+ *  HAPPENS TO BE LOCAL, and relying on which one a reader remembers is how this
+ *  repo lost eight hours on the JP replica in 0.3.71 (`db/utc-stamp.ts` is the
+ *  standing bill). The parts are read out and handed to `Date.UTC` so the
+ *  intent is on the page rather than in a spec footnote.
+ *
+ *  Shape-checked rather than trusted: anything that is not exactly
+ *  `YYYY-MM-DD`, or a day that does not exist, is `null` — the same answer as
+ *  "absent", and both produce no line. */
+function utcDayMs(v: unknown): number | null {
+  const s = str(v);
+  const m = s === null ? null : /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m === null) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const ms = Date.UTC(y, mo - 1, d);
+  const back = new Date(ms);
+  // `Date.UTC(2026, 1, 31)` rolls forward into March rather than failing, and a
+  // rolled day is not the day the server named. Refused, not corrected.
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) {
+    return null;
+  }
+  return ms;
 }
 
 function planSource(v: unknown): PlanSource {
@@ -256,6 +301,9 @@ export function parseLiveAccount(raw: CloudAccountRaw): LiveAccount | null {
     limit_min: num(quota?.limit_min),
     used_tokens: num(llm?.used),
     limit_tokens: num(llm?.limit),
+    // Read INDEPENDENTLY of the meters, exactly like the device limits below: an
+    // older relay that answers the gauge but not the cycle must still draw a gauge.
+    resets_at: utcDayMs(obj(obj(summary?.quota)?.period)?.end),
     // WP-9 — `num()` returns null for anything that is not a finite number,
     // which already IS the "unlimited" encoding for `pc_limit`/`mobile_limit`
     // (the server never puts `Infinity` on the wire — JSON does that for us —
@@ -374,7 +422,8 @@ export function keyExpiryLine(expiresAt: number | null, nowMs: number): string |
 
 export function deriveAccountCard(input: AccountCardInput): AccountCard {
   const { cloud, raw, lastLive, loading } = input;
-  const keyExpiresText = keyExpiryLine(cloud.expires_at, input.nowMs ?? Date.now());
+  const nowMs = input.nowMs ?? Date.now();
+  const keyExpiresText = keyExpiryLine(cloud.expires_at, nowMs);
   const empty: AccountCard = {
     phase: 'signed_out',
     account: null,
@@ -414,7 +463,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
     identityText: identityLine(account),
     planBadge: planTierBadge(account),
     sourceBadge: sourceChip(account),
-    gauge: quotaGauge(account),
+    gauge: quotaGauge(account, nowMs),
     subExpiresText: subscriptionExpiry(account),
     subStateText: subscriptionState(account),
     keyExpiresText,
@@ -602,6 +651,10 @@ export interface GaugeSide {
 export interface QuotaGauge {
   minutes: GaugeSide | null;
   context: GaugeSide | null;
+  /** ④-ter "and it starts over on…" — one short sentence under the rail (owner
+   *  2026-09-07). `null` when there is nothing true to say: the server sent no
+   *  cycle, or the one it sent has already passed. See [resetLine]. */
+  reset: string | null;
 }
 
 /** `min(used/limit, 1) × 50`, rounded to 2 decimals. Exported so the width the
@@ -642,7 +695,7 @@ export function formatTokensM(n: number): string {
  *  since 0.2.5x). If a meter is ever genuinely unbounded again it will need a
  *  positive signal on the wire — never an empty field, which cannot tell the two
  *  apart. */
-export function quotaGauge(a: LiveAccount | null): QuotaGauge | null {
+export function quotaGauge(a: LiveAccount | null, nowMs: number): QuotaGauge | null {
   if (a === null) return null;
   const minutes: GaugeSide | null =
     a.used_min === null || a.limit_min === null
@@ -664,9 +717,13 @@ export function quotaGauge(a: LiveAccount | null): QuotaGauge | null {
             .replace('{limit}', formatTokensM(a.limit_tokens)),
           over: a.used_tokens >= a.limit_tokens,
         };
-  // Neither end readable ⇒ no track at all. An empty rail under "This month" would
-  // be a control that answers nothing.
-  return minutes === null && context === null ? null : { minutes, context };
+  // Neither end readable ⇒ no track at all. An empty rail under "This cycle" would
+  // be a control that answers nothing. ⚠️ A reset instant on its own is NOT a
+  // reason to draw one: "your allowance starts over on Thursday" under no numbers
+  // at all is a sentence about a quota we could not read.
+  return minutes === null && context === null
+    ? null
+    : { minutes, context, reset: resetLine(a.resets_at, nowMs) };
 }
 
 /** ⑤. 🔴 The row EXISTS only for an account that actually bought a subscription.

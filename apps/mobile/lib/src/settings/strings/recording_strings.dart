@@ -4,6 +4,11 @@
 // composes this mixin via `with`;
 // starting 0.2.67 the copy leaves `_lf…` are implemented by generated classes
 // under l10n/, this shard keeps only logic and reasoning comments).
+//
+// The retained-audio eviction/TTL notice family (card F6) moved out to
+// `recording_retention_strings.dart` for the file-size cap (E46, 2026-08-27
+// audit), the same way `SttStallStrings` moved out earlier — see that
+// shard's header for the pattern.
 part of '../app_strings.dart';
 
 mixin RecordingStrings on AppStringsLeaves {
@@ -322,10 +327,12 @@ mixin RecordingStrings on AppStringsLeaves {
   /// `QUOTA_EXCEEDED` copy carries (`compose_strings.dart`). The sentence states
   /// the fact and when it lifts; a banner is not a checkout funnel.
   ///
-  /// ⚠️ 「resets at the start of next month」 is a MEASURED claim, not a
-  /// comforting guess: the guard reads `usage_records` keyed by
-  /// `currentMonth(clock)` (server-core `db/repos/usage.repo.ts`), i.e. the
-  /// calendar month — so a new month is a fresh row and a fresh budget.
+  /// ⚠️ 「resets when the current cycle ends」 is a MEASURED claim, not a
+  /// comforting guess. 🔴 UPDATED 2026-09-05+: the guard no longer buckets by
+  /// UTC calendar month — it reads `usage_records` keyed by the account's own
+  /// anniversary (`apps/server-core/src/billing/usage-period.ts`
+  /// `usagePeriod`), so the reset date differs per account and the string
+  /// deliberately stopped naming one. See that file's header for the ruling.
   String get sttStallQuotaExceeded => _lfSttStallQuotaExceeded;
 
   /// WP-9 (2026-09-02, findings-crossend-quota.md #3) — the SAME `QUOTA_EXCEEDED`
@@ -432,6 +439,32 @@ mixin RecordingStrings on AppStringsLeaves {
   /// it names the real cause and the one action that helps.
   String get sttStallNotSignedIn => _lfSttStallNotSignedIn;
 
+  /// `AUDIO_OP_BINDING_CONFLICT` — the SERVER refused an `audio:start` because
+  /// this recovery re-send reused an operation id while describing a different
+  /// recording, range, attempt kind or mode (owner-approved code, 2026-09-06:
+  /// docs/decisions/2026-09-06-owner-grants-error-code-audio-op-binding-conflict.md;
+  /// producer apps/server-core/src/socket/handlers/audio-start-operation.ts
+  /// `admitOperation`).
+  ///
+  /// 🔴 IT ASKS FOR NOTHING, AND THAT IS THE WHOLE POINT OF THE CODE. Until the
+  /// grant this refusal borrowed `STT_NO_ENGINE_REACHED`, so the phone read out
+  /// [sttStallNoEngineReached] — 「say it again; if it keeps happening, check the
+  /// engine settings」. Saying it again is what PRODUCES this refusal on a
+  /// re-send, and the engines are working. The recovery leg mints a fresh
+  /// operation for its next attempt on its own, so there is no action to offer.
+  ///
+  /// What it does instead is close the question the user would otherwise be left
+  /// holding: the earlier attempt's result and its charge did not move. That is
+  /// true by construction — a refused start never reaches the metering table
+  /// (audit §A7-2) — and it is the only thing they cannot find out for
+  /// themselves.
+  ///
+  /// ⚠️ Mirrors `ERROR_CODES.AUDIO_OP_BINDING_CONFLICT` by hand; the phone cannot
+  /// import TS. Nine languages here rather than the registry's two, because the
+  /// registry fallback ([protocolErrorSentence]) only carries zh-CN and en and
+  /// this leg's users are on all nine.
+  String get sttStallOpBindingConflict => _lfSttStallOpBindingConflict;
+
   /// 🔴 `EMAIL_VERIFY_GRACE_EXPIRED` — the verification grace ran out and the
   /// cloud stopped accepting recordings.
   ///
@@ -486,6 +519,11 @@ mixin RecordingStrings on AppStringsLeaves {
       // the defect. CONTROL-ON-CONTROL: the POSITIVE CONTROL case (an unnamed
       // code still falling back to the labelled identifier) stayed GREEN, so the
       // break is two arms wide and the fallback still works.
+      // lane EC (2026-09-06) — a REQUEST-level refusal from the server's
+      // recovery operation registry. Ordered with the other non-engine verdicts
+      // and before the registry fallback: that fallback has the sentence in two
+      // languages only, and a user on one of the other seven would read English.
+      if (code == 'AUDIO_OP_BINDING_CONFLICT') return sttStallOpBindingConflict;
       if (code == 'AUTH_TOKEN_INVALID') return sttStallNotSignedIn;
       if (code == 'EMAIL_VERIFY_GRACE_EXPIRED') return sttStallVerifyEmail;
       // Two ACCOUNT verdicts, ordered before the engine-flavoured arms below
@@ -687,64 +725,4 @@ mixin RecordingStrings on AppStringsLeaves {
   /// the condition and
   /// what becomes possible when it clears.
   String get pttSubDisabled => _lfPttSubDisabled;
-
-  // ── F6 (2026-09-02 audit): retained-audio eviction/TTL notices ───────────
-  //
-  // `RetainedAudioStore` (audio/retained_audio_store.dart) already refuses to
-  // drop a segment silently — every eviction and every TTL expiry is
-  // announced on its `notices` stream — but until this shard the ONLY
-  // listener was the diagnostics log (`retained_audio_boot.dart`). "No
-  // silent failure" runs in both directions: a store that told a user their
-  // audio was "留存" ("retained") and then discarded it with nothing but a
-  // diag line is the exact unbacked-promise shape volume 15 §2.0-b bans, just
-  // moved one step later than the original defect these words were coined
-  // to fix.
-  //
-  // ⚠️ NOT ONE BYTE OR HOUR COUNT, on the same principle as
-  // [recordingStoppedContinuousCap]: `kDefaultCapBytes` / `kDefaultTtl` are
-  // compile-time constants that this store's own header says to expect to
-  // move (「IF THE TIER CEILING EVER RISES AGAIN, COME BACK HERE」), and a
-  // sentence that quotes today's number becomes nine translations of a wrong
-  // fact the day either constant changes.
-
-  /// [RetainedAudioNotice.codeDroppedOldest] — the store gave up an OLDER
-  /// segment (this run's or an orphaned previous run's) to make room for new
-  /// audio. The segment that was kept is unaffected; this states only what
-  /// was lost.
-  String get retainedAudioNoticeDroppedOldest =>
-      _lfRetainedAudioNoticeDroppedOldest;
-
-  /// [RetainedAudioNotice.codeCapReached] — nothing older was left to give
-  /// up, so the segment being written to RIGHT NOW is the one that stopped
-  /// growing. Distinct from the sentence above because the two name opposite
-  /// halves of a recording (the beginning vs. the end) — collapsing them
-  /// would tell the user the wrong part of what they said is missing.
-  String get retainedAudioNoticeCapReached => _lfRetainedAudioNoticeCapReached;
-
-  /// [RetainedAudioNotice.codeExpired] — the TTL backstop reaped audio nobody
-  /// ever claimed (typically an app restart that orphaned it — see the
-  /// store's own header). This is the one notice that can fire with no
-  /// recording in progress at all.
-  String get retainedAudioNoticeExpired => _lfRetainedAudioNoticeExpired;
-
-  /// Selector for [RetainedAudioNotice.code]. Keyed on the store's own named
-  /// constants (never re-typed literals) — same discipline as
-  /// [recordingAutoStoppedMessage]. The default arm exists only so a future
-  /// fourth code added to the store without a matching sentence here fails
-  /// visibly (an unrecognised identifier survives to the diag line already
-  /// written by the caller) rather than throwing past a `switch` that never
-  /// expected to see one; today's three codes are the store's whole
-  /// contract and this is a closed set, not open wire data.
-  String retainedAudioNoticeMessage(String code) {
-    switch (code) {
-      case RetainedAudioNotice.codeDroppedOldest:
-        return retainedAudioNoticeDroppedOldest;
-      case RetainedAudioNotice.codeCapReached:
-        return retainedAudioNoticeCapReached;
-      case RetainedAudioNotice.codeExpired:
-        return retainedAudioNoticeExpired;
-      default:
-        return code;
-    }
-  }
 }

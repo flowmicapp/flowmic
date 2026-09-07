@@ -111,6 +111,13 @@ extension ChatStatusSurface on ChatController {
   /// card L7 only changed the wording, not the counting, 15 册 §2.0.1).
   int get outboxPending => outbox.pendingCountFor(session.connectedInstanceId);
 
+  /// Card UX2-2 - the same count, carrying the two facts that decide whether
+  /// the banner is worth showing at all (`outbox_notice_gate.dart`). Consumer:
+  /// `chatBannerSources` -> `BannerIds.outboxPending`. [outboxPending] remains
+  /// the plain number for everything that only needs a number.
+  OutboxPendingNotice get outboxPendingNotice =>
+      outbox.noticeFor(session.connectedInstanceId);
+
   /// The queue's own most recent terminal — **for the instance whose screen is
   /// asking** (G-20 ⑤; same scope as [outboxPending], same hide-not-drop rule
   /// as [autoStopped]). Consumer: `BannerIds.outboxTerminal`.

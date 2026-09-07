@@ -87,6 +87,24 @@ class PcReleaseCooldown {
     return key == null ? null : remaining(key);
   }
 
+  /// Defect D-1b - re-fire [tick] without changing anything.
+  ///
+  /// 🔴 THE EXIT THIS DRIVES IS DEFERRED WHILE A MICROPHONE IS OPEN
+  /// (`chat_flow_exits.dart`), and this notifier is that exit's ONLY driver:
+  /// `note` bumps it once, at the instant the server's `mobile:released`
+  /// lands, and nothing bumps it again. A deferral with no second edge is an
+  /// exit that never happens, which is worse than the one being deferred - so
+  /// the session pokes this when the recorder closes.
+  ///
+  /// ⚠️ It deliberately does nothing when nothing is latched. The poke arrives
+  /// on EVERY recorder stop, including every ordinary push-to-talk release,
+  /// and a notifier that fires on all of them would make「something released
+  /// this phone」look like an event that happens all day.
+  void repoll() {
+    if (_latchedScopeKey == null) return;
+    tick.value += 1;
+  }
+
   /// The page has said its sentence and left. The DEADLINE half is untouched:
   /// clearing the latch does not shorten anyone's wait.
   void clearLatch() {

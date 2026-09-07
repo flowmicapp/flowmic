@@ -78,6 +78,7 @@ const NAMESPACES = [
     type: 'Record<PcInjectionCode, string>',
     varTag: 'REASON',
   },
+  { ns: 'capsuleMsg', out: 'CAPSULE_MSG_BY_LOCALE', kind: 'fn', file: 'msg', type: 'CapsuleMsg', varTag: 'CAPSULE_MSG' },
   { ns: 'settingsMsg', out: 'SETTINGS_MSG_BY_LOCALE', kind: 'fn', file: 'msg', type: 'SettingsMsg', varTag: 'SETTINGS_MSG' },
   { ns: 'tlBatchMsg', out: 'TL_BATCH_MSG_BY_LOCALE', kind: 'fn', file: 'msg', type: 'TlBatchMsg', varTag: 'TL_BATCH_MSG' },
   { ns: 'tlRetentionMsg', out: 'TL_RETENTION_MSG_BY_LOCALE', kind: 'fn', file: 'msg', type: 'TlRetentionMsg', varTag: 'TL_RETENTION_MSG' },

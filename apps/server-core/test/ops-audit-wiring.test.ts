@@ -92,6 +92,17 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       // one by reading the source, because with a WORKING sink append-after-
       // write looks identical).
       'http/ops-refund-release-routes.ts',
+      // 🔴 2026-09-07 (REQ-002) — the operator's subscription cancel/resume. A
+      // FIFTH writer, and it owes the same two answers the note above demands.
+      // WHAT THE ROW ASSERTS: that an operator stopped (or restored) THIS
+      // account's recurring charge, for the sentence they typed — never the raw
+      // body, and never an actor taken from it.
+      // WHAT HAPPENS WHEN THE APPEND THROWS: 503 OPS_SUBSCRIPTION_NOT_RECORDED
+      // and the payment provider is not called at all. Both halves are proved in
+      // test/ops-subscription-routes.test.ts §3 — behaviourally with a throwing
+      // sink AND structurally by reading the source, because with a working sink
+      // call-then-append looks identical from outside.
+      'http/ops-subscription-routes.ts',
     ]);
   });
 
@@ -167,6 +178,14 @@ describe('audit-store wiring — the [unwired] grep, as an assertion', () => {
       // discharged by test/ops-refund-release-routes.test.ts §4.
       'POST /api/ops/purchases/refund/release',
       'POST /api/ops/purchases/refund/settle',
+      // 🔴 2026-09-07 (REQ-002) — the operator's cancel/resume pair. Each entry
+      // is a CLAIM that the route writes its own business row fail-closed
+      // (before the provider is called, and refusing the action if that write
+      // throws); both are discharged by test/ops-subscription-routes.test.ts,
+      // which additionally holds the structural 「append comes first」 assertion
+      // and the reverse control that was watched go red.
+      'POST /api/ops/subscriptions/cancel',
+      'POST /api/ops/subscriptions/resume',
       'POST /api/ops/users/restrict',
     ]);
   });

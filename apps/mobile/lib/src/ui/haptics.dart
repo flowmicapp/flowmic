@@ -70,4 +70,15 @@ abstract final class FlowMicHaptics {
   /// push-to-talk impacts (medium / light / heavy) and from the two-pulse
   /// failure and the selection click. Never on an automatic reconnect.
   static Future<void> pairingSuccess() => HapticFeedback.vibrate();
+
+  /// AW-1b — the FIRST transition into any non-normal ASR-health state this
+  /// recording (see `session/chat_asr_health_wire.dart`'s own
+  /// `warnedThisRecording` gate for what "first" means — there is no
+  /// `chat_asr_health_haptic.dart`, which is what this line used to cite).
+  /// Deliberately its own, weaker pattern: this is an early-warning nudge, not
+  /// a completed claim like [injectSuccess]/[injectFailure] — the utterance
+  /// may still finish fine, so a two-pulse "this failed" pattern would be a
+  /// promise this signal cannot make. A single selection click, same feel
+  /// family as [controlKeySent] but semantically unrelated to it.
+  static Future<void> asrHealthWarning() => HapticFeedback.selectionClick();
 }

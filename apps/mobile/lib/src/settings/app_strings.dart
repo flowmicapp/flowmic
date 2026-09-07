@@ -108,8 +108,10 @@ part 'strings/cloud_strings.dart';
 part 'strings/connection_strings.dart';
 part 'strings/pairing_strings.dart';
 part 'strings/recording_strings.dart';
+part 'strings/recording_retention_strings.dart'; // F6: split out of RecordingStrings (file-size cap)
 part 'strings/stt_stall_strings.dart'; // EMPTY-1: split out of RecordingStrings (file-size cap)
 part 'strings/compose_strings.dart';
+part 'strings/continuous_recording_strings.dart'; // S5: split out of ComposeStrings (file-size cap)
 part 'strings/chat_strings.dart';
 part 'strings/inject_note_strings.dart'; // G-16-b: two per-code human-readable tables (originally in chat_strings)
 part 'strings/favorites_strings.dart';
@@ -142,6 +144,7 @@ part 'strings/selection_strings.dart'; // FB-7 multi-select/batch-copy/hand off 
 // UP-2 in-app update (check + reminder). Same as above: this file is the sole
 // aggregation point, written once.
 part 'strings/update_strings.dart';
+part 'strings/pending_recovery_strings.dart'; // RC-1b the pending-recovery screen
 
 // ── 0.2.67 the generated locale layer (architecture doc §4.1) ────────────────
 // Two parts, and it stays two parts however many languages there are: the leaf
@@ -162,8 +165,13 @@ abstract class AppStrings extends AppStringsLeaves
         // Split out of RecordingStrings (file-size cap), placed immediately
         // after it so the `with` order still reads as one family — the same
         // arrangement, and the same reason, as InjectNoteStrings below.
+        RecordingRetentionStrings,
         SttStallStrings,
         ComposeStrings,
+        // Split out of ComposeStrings (file-size cap), placed immediately
+        // after it so the `with` order still reads as one family — the same
+        // arrangement, and the same reason, as RecordingRetentionStrings above.
+        ContinuousRecordingStrings,
         ChatStrings,
         // Split out of ChatStrings (file-size cap). Placed immediately after it
         // so the `with` order still reads as one family; the members it carries
@@ -181,7 +189,8 @@ abstract class AppStrings extends AppStringsLeaves
         GuideStrings,
         EngineStatusStrings,
         SelectionStrings,
-        UpdateStrings {
+        UpdateStrings,
+        PendingRecoveryStrings {
   const AppStrings.forLocale(this.locale);
 
   /// Kept so the existing `AppStrings(locale)` call sites read exactly as they

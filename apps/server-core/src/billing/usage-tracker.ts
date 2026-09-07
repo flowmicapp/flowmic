@@ -48,7 +48,8 @@
 // can observe is worse than no switch.
 
 import type { ServerMode } from '@flowmic/protocol';
-import { currentMonth, type UsageRepo } from '../db/repos/usage.repo';
+import type { UsageRepo } from '../db/repos/usage.repo';
+import type { UsageEffectClaim, UsageEffectKind } from '../db/repos/usage-effects.repo';
 import type { UsageChannel, UsageEventKind, UsageEventsRepo } from '../db/repos/usage-events.repo';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import { log } from '../log';
@@ -94,8 +95,14 @@ export interface UsageTracker {
    * side): drop the counts at the seam and `test/usage-events.test.ts`'s
    * "the row carries the two REAL character counts" goes red.
    */
-  recordSttUsage(user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts): void;
-  recordLlmUsage(user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number): void;
+  recordSttUsage(
+    user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
+    operation_id?: string,
+  ): void;
+  recordLlmUsage(
+    user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
+    operation_id?: string,
+  ): void;
   /**
    * A2-5 — "this attempt was blocked by the quota".
    *
@@ -135,6 +142,22 @@ export interface UsageTrackerConfig {
   mode: ServerMode;
   now?: () => number;
   /**
+   * Which bucket a user's spend lands in at a given instant — the account's
+   * metering cycle key (owner 2026-09-05, option 乙). MUST be
+   * `BillingService.usagePeriodKey`: the guard reads the bucket this names, so
+   * a second derivation here is a meter and a guard that disagree.
+   *
+   * 🔴 REQUIRED IN saas MODE — construction throws without it. A friendly
+   * default (the calendar month) would be a meter that writes where no guard
+   * reads, silently, which is the 13 §7 F1 ② shape on the path that bills.
+   * Standalone never meters, so it may omit it.
+   *
+   * ⚠️ Takes the INSTANT explicitly rather than reading the tracker's clock,
+   * because a replica's forwarded record is applied under a pinned clock
+   * (node-runtime.ts) and the bucket must follow the pinned instant.
+   */
+  periodKeyFor?: (user_id: string, atMs: number) => string;
+  /**
    * A2-5 — may a `usage_events` row be written at all. Defaults to FALSE when
    * absent, which is the same answer an unset env var gives, so a harness that
    * does not mention it collects nothing.
@@ -151,6 +174,32 @@ export interface UsageTrackerConfig {
    * "it's on" and records nothing.
    */
   events?: Pick<UsageEventsRepo, 'append'>;
+  /**
+   * Card PR-2 (2026-09-06) — the metering-effect ledger (db.usageEffects).
+   *
+   * When it is present AND the call carries an `operation_id`, the
+   * `usage_records` increment and its claim row commit in ONE transaction, so a
+   * re-send of the same recovery operation does not charge the account twice
+   * (ruling O-9 = 乙: the audio IS re-recognised, the USER is metered once).
+   *
+   * OPTIONAL, and the optionality is a statement rather than laxity: a session
+   * that carries no `operation_id` — every session from a phone that predates
+   * card PR-1, and every ordinary press — must meter exactly as it did before
+   * this card, byte for byte. Absent ledger + absent operation is the same code
+   * path it always was.
+   *
+   * 🔴 A TRACKER THAT RUNS INSIDE ANOTHER TRANSACTION MUST BE GIVEN THE CLAIM
+   * THROUGH `claimInCallerTransaction` (usage-effects.repo.ts), never the ledger
+   * itself: SQLite has no nested `BEGIN`, so the ledger's own transaction would
+   * take a hard throw. The one such tracker is the writer's REPLAY tracker
+   * (node-runtime.ts), invoked from within `forward-ledger.once`.
+   *
+   * ⚠️ IT IS THE SAME CLAIM EITHER WAY, and audit F1 is why that matters: the
+   * forward ledger's record id dedupes one replica's queue, so leaving the
+   * replay path without this claim let an operation metered locally and then
+   * re-sent to a replica charge the account twice.
+   */
+  operations?: UsageEffectClaim;
 }
 
 /** The one string an operator greps for to find out which state a machine is
@@ -192,6 +241,16 @@ export const USAGE_EVENT_CHANNEL = 'cloud' satisfies UsageChannel;
 
 export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): UsageTracker {
   const clock = config.now ?? Date.now;
+  if (config.mode === 'saas' && config.periodKeyFor === undefined) {
+    throw new Error(
+      'usage-tracker: saas mode needs `periodKeyFor` (BillingService.usagePeriodKey) — ' +
+        'a meter without it would write to a bucket the quota guard never reads',
+    );
+  }
+  const bucket = (user_id: string): string => {
+    const at = clock();
+    return config.periodKeyFor === undefined ? 'standalone' : config.periodKeyFor(user_id, at);
+  };
   const events = config.events;
   // 🔴 `enabled` is BOTH conditions, resolved once. Not `config.usageEventsEnabled`
   // alone: a truthy switch with no sink is a lie, and it is refused below rather
@@ -292,8 +351,43 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
     }
   }
 
+  /**
+   * Card PR-2 — run one metering effect, at most once per
+   * `(user, operation_id, kind)`.
+   *
+   * 🔴 THE EFFECT IS THE WHOLE THING: the `usage_records` increment AND the
+   * event append. Splitting them would leave the detail log able to double-count
+   * an operation whose money did not move, which is a log that contradicts the
+   * meter it is supposed to explain. (It also closes audit E49 for these
+   * sessions: those two writes were never in one transaction before.)
+   *
+   * ⚠️ `appendEvent` cannot throw — it owns its own catch, for the reason this
+   * file's header gives — so putting it inside the transaction cannot turn a lost
+   * log row into a lost minute. The direction of that guarantee matters and is
+   * not reversible: an increment that throws DOES roll the claim back, which is
+   * what makes the next attempt a retry rather than a silent skip.
+   *
+   * With no ledger or no operation this is a plain call, which is the pre-PR-2
+   * code path unchanged.
+   */
+  function meterOnce(
+    user_id: string, operation_id: string | undefined, kind: UsageEffectKind, effect: () => void,
+  ): void {
+    const ledger = config.operations;
+    if (ledger === undefined || operation_id === undefined) return effect();
+    const verdict = ledger.once({ user_id, operation_id, kind, at: clock() }, effect);
+    if (verdict === 'duplicate') {
+      // Said out loud, once per skipped effect. A re-send that is correctly NOT
+      // charged and a re-send that silently failed to be charged look identical
+      // from the outside, and only this line separates them.
+      log.info('usage: operation already metered — this re-send moved no counter', {
+        user_id, operation_id, kind,
+      });
+    }
+  }
+
   return {
-    recordSttUsage(user_id, engine, duration_ms, chars): void {
+    recordSttUsage(user_id, engine, duration_ms, chars, operation_id): void {
       if (config.mode !== 'saas') return; // standalone never bills
       // 🔴 MOVED ABOVE the BYOK check, and this reorder changes NO billing
       // behaviour: both branches returned before `increment` before, and both
@@ -307,26 +401,45 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // ── billing, unchanged ──
       // BYOK is still NEVER billed. This is the only line that moves money, and
       // the only guard on it is the same one that was there before.
-      if (!engine.is_byok) {
-        repo.increment(user_id, currentMonth(clock), { stt_minutes: duration_ms / 60_000 });
-      }
-      // ── the record, AFTER the meter, wrapped ──
-      appendEvent({
-        user_id,
-        kind: 'stt',
-        // Rounded here rather than in the repo's clamp so the stored ms is the
-        // same quantity the meter divided by 60_000 — one number, one origin.
-        stt_ms: Math.round(duration_ms),
-        is_byok: engine.is_byok,
-        outcome: 'ok',
-        // A2-5 — the two counts, forwarded verbatim from the session that
-        // measured them. This layer does no arithmetic on them on purpose: a
-        // meter that "fixed up" a character count would be a second author of a
-        // number the bridge already owns.
-        chars,
+      // 🔴 PR-2 — the increment and the event append now travel TOGETHER inside
+      // `meterOnce`, so an operation's STT metering happens once even though the
+      // audio is recognised again. Order inside is unchanged: increment first,
+      // append second (this file's header argues why that order is load-bearing).
+      // 🔴 AN OWN-KEY SESSION TAKES NO CLAIM, and passing `undefined` here is how
+      // it declines one (audit F2). A BYOK call reaches the effect below and
+      // moves NOTHING — the increment is inside `if (!engine.is_byok)`. Taking
+      // the claim anyway spent `(user, operation, stt)` on a metering that never
+      // happened, so a later NON-BYOK re-send of the same operation read
+      // 「already metered」 and was never billed at all. A claim must only ever be
+      // spent by a counter that moved.
+      //
+      // ⚠️ THE RESIDUAL IS NAMED RATHER THAN HIDDEN: a re-sent own-key operation
+      // appends its `usage_events` row again, exactly as it did before card PR-2.
+      // That is a detail log with two rows for one recording; the alternative was
+      // a claim that suppresses a charge, and only one of those two costs a user
+      // money.
+      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'stt', () => {
+        if (!engine.is_byok) {
+          repo.increment(user_id, bucket(user_id), { stt_minutes: duration_ms / 60_000 });
+        }
+        // ── the record, AFTER the meter, wrapped ──
+        appendEvent({
+          user_id,
+          kind: 'stt',
+          // Rounded here rather than in the repo's clamp so the stored ms is the
+          // same quantity the meter divided by 60_000 — one number, one origin.
+          stt_ms: Math.round(duration_ms),
+          is_byok: engine.is_byok,
+          outcome: 'ok',
+          // A2-5 — the two counts, forwarded verbatim from the session that
+          // measured them. This layer does no arithmetic on them on purpose: a
+          // meter that "fixed up" a character count would be a second author of a
+          // number the bridge already owns.
+          chars,
+        });
       });
     },
-    recordLlmUsage(user_id, engine, tokens_in, tokens_out): void {
+    recordLlmUsage(user_id, engine, tokens_in, tokens_out, operation_id): void {
       if (config.mode !== 'saas') return;
       const inN = Number.isFinite(tokens_in) ? Math.max(0, tokens_in) : 0;
       const outN = Number.isFinite(tokens_out) ? Math.max(0, tokens_out) : 0;
@@ -334,16 +447,23 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // model told us nothing", not an event.
       if (inN === 0 && outN === 0) return;
       if (engine.is_byok && !RECORD_BYOK_EVENTS) return;
-      if (!engine.is_byok) {
-        repo.increment(user_id, currentMonth(clock), { llm_tokens_in: inN, llm_tokens_out: outN });
-      }
-      appendEvent({
-        user_id,
-        kind: 'llm',
-        tokens_in: inN,
-        tokens_out: outN,
-        is_byok: engine.is_byok,
-        outcome: 'ok',
+      // PR-2 — a SEPARATE key from the STT leg above ('llm' vs 'stt'), which is
+      // why `kind` is part of the ledger's primary key: one operation meters both
+      // and neither may swallow the other (audit A7-2).
+      // Same as the STT leg above, same reason (audit F2): no counter moves for an
+      // own-key call, so no claim is spent on it.
+      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'llm', () => {
+        if (!engine.is_byok) {
+          repo.increment(user_id, bucket(user_id), { llm_tokens_in: inN, llm_tokens_out: outN });
+        }
+        appendEvent({
+          user_id,
+          kind: 'llm',
+          tokens_in: inN,
+          tokens_out: outN,
+          is_byok: engine.is_byok,
+          outcome: 'ok',
+        });
       });
     },
     recordQuotaRefusal(user_id, kind, refused_user_id): void {

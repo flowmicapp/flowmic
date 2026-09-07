@@ -25,7 +25,11 @@ import type { DbConnection } from './db/connection';
 import type { BillingRepo, PaddleSubRow } from './db/repos/billing.repo';
 import type { AuthService } from './auth/auth-service';
 import type { PaddleRoutesDeps } from './http/paddle-routes';
+import type { BillingRoutesDeps } from './http/billing-routes';
+import type { OpsSubscriptionRoutesDeps } from './http/ops-subscription-routes';
+import type { SubscriptionMailer } from './mail/subscription-mailer';
 import type { ServicePurchaseRoutesDeps } from './http/service-purchase-routes';
+import { subscriptionProducts, type SubscriptionCheckoutDeps } from './http/subscription-checkout-routes';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
 import { requestServiceRefund } from './billing/service-refund';
 import { PROMISED_DEADLINES } from './billing/guided-setup';
@@ -253,6 +257,148 @@ export function servicePurchaseDeps(
       ...(w.serviceMailer === undefined ? {} : { mailer: w.serviceMailer }),
       ...(config.creem.serviceSuccessUrl === null ? {} : { successUrl: config.creem.serviceSuccessUrl }),
       ...(now ? { now } : {}),
+    },
+  };
+}
+
+
+/**
+ * Selling a subscription: the deps for `POST /api/cloud/billing/subscribe`.
+ *
+ * 🔴 MOUNTED FOR EVERY saas BOX, exactly like `servicePurchaseDeps` and for the
+ * same argument: a deployment that cannot sell must answer 「this deployment
+ * cannot sell that」 rather than 404. A 404 reads as 「no such feature」, and the
+ * console cannot tell that apart from a routing mistake of ours.
+ *
+ * 🔴 AND IT BUILDS ITS OWN CLIENT ONLY WHEN CREEM IS ON. `products` comes from
+ * reversing the one table the webhook already reads in the other direction, so
+ * 「what we sell」 and 「what we grant」 cannot drift: they are the same JSON.
+ *
+ * ⚠️ THE WRITE SWITCH IS NOT READ HERE. It lives inside the client, which throws
+ * by name, and the route turns that into a 503 — the same shape billing-routes
+ * uses for cancel. Gating the MOUNT on it would answer 404 to a deployment that
+ * has the feature and has it switched off, which is a different sentence.
+ */
+export function subscriptionCheckoutDeps(
+  w: BillingWebhookWiring & { auth: AuthService; writerFor: SubscriptionWriterFor },
+): { subscriptionCheckout?: SubscriptionCheckoutDeps } {
+  const { config, billing, auth } = w;
+  if (config.mode !== 'saas') return {};
+  return {
+    subscriptionCheckout: {
+      auth,
+      billing,
+      writerFor: w.writerFor,
+      // 🔴 EMPTY WHEN CREEM IS OFF — and empty is what the route refuses on. It
+      // is deliberately NOT `config.paddle.priceTiers` as a fallback: those are
+      // `pri_` ids for a different provider, and a checkout created from one
+      // would be a request Creem cannot even parse.
+      // 🔴 TWO CONDITIONS, AND THE SECOND IS THE DECISION. `enabled` says intake
+      // works; `subscriptionsOnSale` says we have decided to sell. An empty map
+      // is what the route refuses on and what the console reads as 「not open」,
+      // so one switch closes the button and the write together — they cannot
+      // disagree, which is the failure where a hidden button still has a working
+      // endpoint behind it.
+      products:
+        config.creem.enabled && config.creem.subscriptionsOnSale
+          ? subscriptionProducts(config.creem.productTiers)
+          : {},
+      ...(config.creem.enabled
+        ? {
+            creem: createCreemClient({
+              apiKey: config.creem.apiKey,
+              env: config.creem.env,
+              writeEnabled: config.creem.writeEnabled,
+            }),
+          }
+        : {}),
+      ...(config.creem.subscribeSuccessUrl === null ? {} : { successUrl: config.creem.subscribeSuccessUrl }),
+    },
+  };
+}
+
+
+/**
+ * Every route that can begin, change or end somebody's billing.
+ *
+ * 🔴 ONE FUNCTION, AND THAT IS THE POINT (2026-09-04). It used to be two blocks
+ * sitting in bootstrap-http-deps.ts among forty other deps, so the answer to
+ * 「what in this process can start charging a person」 was assembled by reading
+ * a 800-line file. It also put that file over the repo's size cap, which is what
+ * forced the question — the grouping is the reason it landed here rather than
+ * anywhere else.
+ *
+ * ⚠️ SAAS ONLY, all of it. A standalone box is a LAN server with no merchant of
+ * record: there is nothing to sell, nothing to cancel, and the paths 404.
+ *
+ * ⚠️ MOUNTED EVEN WHEN OUTBOUND WRITES ARE OFF, on purpose. The switch is read
+ * inside the client, which throws by name, and the routes turn that into a 503
+ * the console can render. Gating the MOUNT on it would make a switched-off
+ * deployment answer 404 — 「there is no such feature」 — which is a different and
+ * less true sentence than 「this deployment cannot do that right now」, and it is
+ * the one a user cannot act on.
+ */
+export function billingRouteDeps(
+  w: BillingWebhookWiring & {
+    auth: AuthService;
+    paddleClient: PaddleClient;
+    subscriptionMail: SubscriptionMailer;
+  },
+): {
+  billingControls?: BillingRoutesDeps;
+  subscriptionCheckout?: SubscriptionCheckoutDeps;
+  opsSubscriptions?: OpsSubscriptionRoutesDeps;
+} {
+  const { config, db, billing, auth, now } = w;
+  if (config.mode !== 'saas') return {};
+  // 🔴 ONE RESOLVER, SHARED. Both the cancel controls and the change-plan
+  // route pick a client by the row's provider; building the resolver twice
+  // would construct two Creem clients and quietly contradict the 「the clients
+  // are built ONCE here」 argument `subscriptionWriterFor` makes.
+  const writerFor = subscriptionWriterFor({ config, db, billing, ...(now ? { now } : {}), paddleClient: w.paddleClient });
+  return {
+    ...subscriptionCheckoutDeps({ ...w, writerFor }),
+    billingControls: {
+      auth,
+      billing,
+      // Chosen per subscription, from the provider on its own row — see
+      // `subscriptionWriterFor` below for why there is no default.
+      writerFor,
+      mailer: w.subscriptionMail,
+      // 0.3.25 B3 — the same repo the webhook writes through. A withdrawal has to
+      // leave a row behind, and it is the ONLY write these routes make: the
+      // subscription row itself still has exactly one author, the webhook handler.
+      refunds: db.billing,
+    },
+    // 2026-09-07 (REQ-002) — the operator's cancel/resume pair, built HERE and
+    // not in bootstrap-ops-deps.ts with its four ops siblings, for one reason:
+    // it needs `writerFor`, and that resolver is built exactly once in this
+    // file. Constructing a second one over there would build a second Creem
+    // client and quietly contradict the 「the clients are built ONCE here」
+    // argument `subscriptionWriterFor` makes just below.
+    //
+    // 🔴 `db.users` goes in WHOLE and the route sees ONE method of it —
+    // `OpsSubscriptionRoutesDeps.users` is `Pick<UserRepo,'findById'>` — so
+    // `remove`, `setPlan` and `setRestricted` are unreachable from a billing
+    // surface even though this object has them. Same construction as
+    // `restriction.users` and `opsUsers.users` in bootstrap-ops-deps.ts: the
+    // slice belongs on the CONSUMER, so grep answers 「what can this route do」
+    // at the route.
+    //
+    // 🔴 The audit sink is the SAME `OpsAuditRepo` instance the gate writes
+    // through: these routes append a business row beside the gate's route-level
+    // one, and two instances would be two answers to 「was this action logged」.
+    //
+    // ⚠️ NOT gated on `creem.enabled`, unlike the paid-setup surfaces: a
+    // subscription can be held by either merchant of record, and the route picks
+    // the client from the row's own provider. Gating the mount on one provider
+    // would 404 the operator on the other one's customers.
+    opsSubscriptions: {
+      auth,
+      users: db.users,
+      billing,
+      writerFor,
+      audit: db.opsAudit,
     },
   };
 }

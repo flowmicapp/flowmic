@@ -105,10 +105,31 @@ refuseDirectRun(
 // So all three canaries are now drawn from `discStep4LanPlain` itself — the one
 // string whose truth is state-dependent and which therefore must never quietly
 // revert to the pre-W8-6 copy that claimed encryption was 「还在做」.
+//
+// 🔴 REPOINTED AGAIN 2026-09-07 (owner), AND THE SAME QUESTION WAS ASKED FIRST:
+// 「did the CLAIM survive」, not 「which sentences exist now」. `discStep4LanPlain`
+// was DELETED — the amber block came off both screens — and its live claim is
+// now a sentence inside `discStep4Body`. Of the three claims the old canaries
+// stood for:
+//   · 「每一次连接都核对」 (the identity is re-checked on every dial) — the
+//     MECHANISM is untouched (lan_pinning.dart, four dial sites, still enforced
+//     by apps/mobile/test/lan_pin_enforced_on_every_dial_test.dart) but the copy
+//     no longer spells it out, so it cannot be a canary any more.
+//   · 「此前建的配对仍然是明文」 (a pre-TLS pairing is in the clear, re-pair) —
+//     RETIRED WITH ITS PREMISE. LAN TLS shipped 2026-08-08 (e5614864) and the
+//     first public release is v0.3.53, so no external user can hold such a
+//     pairing; the imperative only ever addressed our own test devices.
+//   · 「要看这条配对是怎么建的」 (it depends how the pairing was made) — replaced
+//     by the plainer claim the copy now makes.
+// The claim that MUST NOT quietly disappear is what replaced them, and it is
+// what the three canaries below are: the leg on your own network IS encrypted,
+// the relay IS TLS, and the current reading is on the phone's 「连接加密」 screen
+// — that last clause being the one that keeps the sentence from asserting a
+// value `FLOWMIC_LAN_TLS=0` could still change underneath it.
 export const APK_DISCLOSURE_NEW_MARKERS = Object.freeze([
-  '要看这条配对是怎么建的',
-  '此前建的配对仍然是明文',
-  '每一次连接都核对',
+  '这条连接是加密的',
+  '中继一律走 TLS',
+  '当前状态见这台手机上的',
 ]);
 
 /** Pre-rewrite phrases that must ALL be absent (UTF-16LE in libapp.so). */

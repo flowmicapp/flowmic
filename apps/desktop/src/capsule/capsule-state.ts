@@ -87,6 +87,16 @@ export const state = reactive({
   finalText: '',
   level: 0,
   segs: 0,
+  /** Live ms since the `audio:start` that opened this speaking form — the left
+   *  half of the ministat pair owner asked for on 2026-09-07, and the SAME
+   *  quantity the phone's recording strip calls `elapsed`
+   *  (apps/mobile/lib/src/ui/recording_panel.dart: 「Time since audio:start
+   *  (local clock)」). `null` ⇒ this delivery never ran onAudioStart (an image
+   *  send / a manual-text inject) and there is no clock to show; the view must
+   *  omit the duration rather than print 0. Written ONLY by controller.tick()
+   *  through `speakingElapsedMs` — see capsule/session-stats.ts for why this is
+   *  a per-recording clock and not a session total. */
+  speakElapsedMs: null as number | null,
   /** 🔴 `confirmed` = 甲-3's ③evidence, reduced to the one bit this face needs
    *  (owner 2026-08-07). `true` ⇒ the green card says "injected" (已注入); anything else ⇒ "delivered" (已送入).
    *  A BOOLEAN, not the raw three-value reading, because this face asks exactly one

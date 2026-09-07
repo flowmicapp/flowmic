@@ -127,7 +127,6 @@ const PAIRS = {
   discStep3Body: 'disc_s3_body',
   discStep4Title: 'disc_s4_title',
   discStep4Body: 'disc_s4_body',
-  discStep4LanPlain: 'disc_s4_lan_plain',
   discStep5Title: 'disc_s5_title',
   discStep5Body: 'disc_s5_body',
   discLegalTitle: 'disc_legal_title',
@@ -151,11 +150,6 @@ const DIVERGENCES = {
     mobile: '2bdccff24bec',
     desktop: 'b874b1a6d5e3',
     why: 'point of view — 「1. This phone records audio」 vs 「1. Your phone records audio」. Same as discLead.',
-  },
-  discStep4LanPlain: {
-    mobile: 'f28e87f91808',
-    desktop: '9b4965b952ff',
-    why: 'the encryption reading lives on the phone. The phone says 「This connection’s state is under …」; the desktop must add 「on the phone」 because its own screen has no such indicator. 「The relay is TLS」 is on both sides since 2026-08-19.',
   },
   discDetailsOnSite: {
     mobile: '07045993e8d1',

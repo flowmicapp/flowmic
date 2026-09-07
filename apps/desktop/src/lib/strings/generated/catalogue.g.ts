@@ -120,10 +120,14 @@ const S_EN_OWN = {
   cloud_key_expires: 'Cloud Key valid until',
   cloud_key_expires_long_lived: 'Long-lived — until you sign out on this PC',
   cloud_key_expires_tip: "This is the lifetime of the Cloud Key stored on this PC — unrelated to your plan. It does not lapse on its own: you stay signed in until you sign out on this PC. Your subscription is unaffected.",
-  cloud_usage: 'This month',
+  cloud_usage: 'This cycle',
   cloud_usage_minutes: '{used} / {limit} min',
   cloud_usage_minutes_exempt: '{used} / {limit} min · not billed',
   cloud_usage_context: '{used} / {limit}M context',
+  cloud_usage_reset: 'Resets {at} · {relative}',
+  cloud_usage_reset_today: 'today',
+  cloud_usage_reset_tomorrow: 'tomorrow',
+  cloud_usage_reset_in_days: 'in {days} days',
   cloud_src_permanent_free: 'Permanently free',
   cloud_src_paddle: 'Subscribed',
   cloud_src_mock: 'Test subscription',
@@ -348,7 +352,6 @@ const S_EN_OWN = {
   cap_image_open: 'Image · click to view it in the main window',
   cap_chars: 'chars',
   cap_secs: 's',
-  cap_seg: 'seg',
   cap_session_default: 'Phone',
   cap_diag: 'Connection diagnostics',
   cap_settings: 'Settings',
@@ -541,8 +544,7 @@ const S_EN_OWN = {
   disc_s3_title: '3. Language-model processing (depends on your settings)',
   disc_s3_body: 'Translate and Organize always use a language model. Realtime sends each recording\'s closing transcript — including Record-only — only while AI polish is on; the switch is under Settings → Recognition and AI on this phone. While it is off, Realtime sends nothing; provisional words are never sent. The platform model is DeepSeek, on our account — we keep neither input nor output.',
   disc_s4_title: '4. Delivered to your PC and typed into the focused box',
-  disc_s4_body: 'Over your own network, or through our cloud relay — which passes frames on and forgets them — then typed into the focused box on the paired computer.',
-  disc_s4_lan_plain: '⚠️ Encryption on the local network depends on how the pairing was made: a QR pairing is encrypted when the code carries the identity of the computer, and the phone checks it on every later connection. Pairings made before that are still in the clear — pairing again upgrades one. The current state is under “Connection encryption” on the phone. The relay is TLS.',
+  disc_s4_body: 'Over your own network, or through our cloud relay — which passes frames on and forgets them — then typed into the focused box on the paired computer. Traffic on your own network is encrypted and the relay runs over TLS; the current state is under “Connection encryption” on this phone.',
   disc_s5_title: '5. What is left behind',
   disc_s5_body: 'We do not store transcripts — that table was deleted. The timeline lives on your phone and computer, and both can export it. We keep your account, paired devices, synced settings, and monthly usage totals (minutes and tokens) — never the content.',
   disc_legal_title: 'Privacy policy and terms of service',
@@ -698,7 +700,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 664/664 translated;
+// zh-CN (中文) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -798,10 +800,14 @@ const S_ZH_CN_OWN = {
   cloud_key_expires: 'Cloud Key 有效期至',
   cloud_key_expires_long_lived: '长期有效——本机退出登录前一直有效',
   cloud_key_expires_tip: '这是这台电脑上那把 Cloud Key 的寿命，与套餐无关；它不会自己过期，本机退出登录前一直有效，也不影响你的订阅。',
-  cloud_usage: '本月用量',
+  cloud_usage: '本周期用量',
   cloud_usage_minutes: '{used} / {limit} 分钟',
   cloud_usage_minutes_exempt: '{used} / {limit} 分钟 · 不计费',
   cloud_usage_context: '上下文 {used} / {limit}M',
+  cloud_usage_reset: '{at} 重置 · {relative}',
+  cloud_usage_reset_today: '今天',
+  cloud_usage_reset_tomorrow: '明天',
+  cloud_usage_reset_in_days: '还有 {days} 天',
   cloud_src_permanent_free: '长期免费',
   cloud_src_paddle: '已订阅',
   cloud_src_mock: '测试订阅',
@@ -1026,7 +1032,6 @@ const S_ZH_CN_OWN = {
   cap_image_open: '图片 · 点击在主窗口查看',
   cap_chars: '字',
   cap_secs: '秒',
-  cap_seg: 'seg',
   cap_session_default: '手机',
   cap_diag: '连接诊断',
   cap_settings: '设置',
@@ -1219,8 +1224,7 @@ const S_ZH_CN_OWN = {
   disc_s3_title: '③ 语言模型处理（取决于你的设置）',
   disc_s3_body: '翻译与整理必经语言模型。实时模式只在「AI 润色」开着时发送每段录音的收尾转录——含仅记录；开关在这台手机的「设置 → 识别与 AI」里。关着时实时模式什么都不发送；临时字从不发送。平台模型是我们账号下的 DeepSeek——输入输出我们都不保留。',
   disc_s4_title: '④ 送到电脑，打进当前输入框',
-  disc_s4_body: '经你自己的网络，或经我们的云端中继——转手即忘——然后打进已配对电脑的焦点输入框。',
-  disc_s4_lan_plain: '⚠️ 局域网这条路加不加密，要看这条配对是怎么建的：二维码里带着这台电脑的身份时，这条路是加密的，手机每一次连接都核对这个身份；此前建的配对仍然是明文——重新配对即可升级。这条连接的状态见手机上的「连接加密」。中继一律走 TLS。',
+  disc_s4_body: '经你自己的网络，或经我们的云端中继——转手即忘——然后打进已配对电脑的焦点输入框。走你自己的网络时这条连接是加密的，中继一律走 TLS；当前状态见这台手机上的「连接加密」。',
   disc_s5_title: '⑤ 留下什么',
   disc_s5_body: '我们不存转录——那张表已删除。时间线在你的手机和电脑上，两端都能导出。我们保存的只有账号、已配对设备、同步的设置和每月用量合计（分钟与 token）——从不含内容。',
   disc_legal_title: '隐私政策与服务条款',
@@ -1376,7 +1380,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 659/664 translated;
+// zh-TW (繁體中文) — 661/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1471,10 +1475,14 @@ const S_ZH_TW_OWN = {
   cloud_key_expires: 'Cloud Key 有效期限至',
   cloud_key_expires_long_lived: '長期有效——本機登出前一直有效',
   cloud_key_expires_tip: '這是這台電腦上那把 Cloud Key 的壽命，與方案無關；它不會自己過期，本機登出前一直有效，也不影響你的訂閱。',
-  cloud_usage: '本月用量',
+  cloud_usage: '本週期用量',
   cloud_usage_minutes: '{used} / {limit} 分鐘',
   cloud_usage_minutes_exempt: '{used} / {limit} 分鐘 · 不計費',
   cloud_usage_context: '上下文 {used} / {limit}M',
+  cloud_usage_reset: '{at} 重設 · {relative}',
+  cloud_usage_reset_today: '今天',
+  cloud_usage_reset_tomorrow: '明天',
+  cloud_usage_reset_in_days: '還有 {days} 天',
   cloud_src_permanent_free: '長期免費',
   cloud_src_paddle: '已訂閱',
   cloud_src_mock: '測試訂閱',
@@ -1699,7 +1707,6 @@ const S_ZH_TW_OWN = {
   cap_image_open: '圖片 · 點一下在主視窗檢視',
   cap_chars: '字',
   cap_secs: '秒',
-  cap_seg: 'seg',
   cap_session_default: '手機',
   cap_diag: '連線診斷',
   cap_settings: '設定',
@@ -1892,8 +1899,7 @@ const S_ZH_TW_OWN = {
   disc_s3_title: '③ 語言模型處理（取決於你的設定）',
   disc_s3_body: '翻譯與整理必經語言模型。即時模式只在「AI 潤飾」開著時傳送每段錄音的收尾轉錄——含僅記錄；開關在這支手機的「設定 → 辨識與 AI」裡。關著時即時模式什麼都不傳送；臨時字從不傳送。平台模型是我們帳號下的 DeepSeek——輸入輸出我們都不保留。',
   disc_s4_title: '④ 送到電腦，打進目前的輸入框',
-  disc_s4_body: '經你自己的網路，或經我們的雲端中繼——轉手即忘——然後打進已配對電腦上取得焦點的輸入框。',
-  disc_s4_lan_plain: '⚠️ 區域網路這條路加不加密，要看這條配對是怎麼建的：二維碼帶有該電腦的身分識別時，這條路是加密的，手機每次連線時都會檢查；先前建的配對仍然是未加密的——重新配對即可升級。這條連線的狀態見手機上的「連線加密」。中繼一律走 TLS。',
+  disc_s4_body: '經你自己的網路，或經我們的雲端中繼——轉手即忘——然後打進已配對電腦上取得焦點的輸入框。走你自己的網路時這條連線是加密的，中繼一律走 TLS；目前狀態見這支手機上的「連線加密」。',
   disc_s5_title: '⑤ 留下什麼',
   disc_s5_body: '我們不存轉錄——那張表已刪除。時間線在你的手機和電腦上，兩端都能匯出。我們保存的只有帳號、已配對裝置、同步的設定和每月用量合計（分鐘與 token）——從不含內容。',
   disc_legal_title: '隱私權政策與服務條款',
@@ -2049,7 +2055,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 664/664 translated;
+// fr (Français) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2149,10 +2155,14 @@ const S_FR_OWN = {
   cloud_key_expires: "Cloud Key valable jusqu'au",
   cloud_key_expires_long_lived: "Longue durée — jusqu'à votre déconnexion sur ce PC",
   cloud_key_expires_tip: "Il s'agit de la durée de vie de la Cloud Key stockée sur ce PC — sans rapport avec votre forfait. Elle n'expire pas d'elle-même : elle reste valable jusqu'à votre déconnexion sur ce PC. Votre abonnement n'est pas affecté.",
-  cloud_usage: 'Ce mois-ci',
+  cloud_usage: 'Ce cycle',
   cloud_usage_minutes: '{used} / {limit} min',
   cloud_usage_minutes_exempt: '{used} / {limit} min · non facturé',
   cloud_usage_context: 'Contexte {used} / {limit} M',
+  cloud_usage_reset: 'Renouvellement le {at} · {relative}',
+  cloud_usage_reset_today: "aujourd'hui",
+  cloud_usage_reset_tomorrow: 'demain',
+  cloud_usage_reset_in_days: 'dans {days} jours',
   cloud_src_permanent_free: 'Gratuit à vie',
   cloud_src_paddle: 'Abonné',
   cloud_src_mock: 'Abonnement de test',
@@ -2377,7 +2387,6 @@ const S_FR_OWN = {
   cap_image_open: "Image · cliquez pour l'afficher dans la fenêtre principale",
   cap_chars: 'car.',
   cap_secs: 's',
-  cap_seg: 'segm.',
   cap_session_default: 'Téléphone',
   cap_diag: 'Diagnostic de connexion',
   cap_settings: 'Paramètres',
@@ -2570,8 +2579,7 @@ const S_FR_OWN = {
   disc_s3_title: '3. Traitement par le modèle de langage (selon vos paramètres)',
   disc_s3_body: 'Traduire et Organiser passent toujours par un modèle de langage. Le mode direct n\'envoie la transcription finale de chaque enregistrement — y compris « enregistrer seulement » — que lorsque le polissage IA est activé ; l\'interrupteur est sur ce téléphone, sous Paramètres → Reconnaissance et IA. Tant qu\'il est désactivé, le mode direct n\'envoie rien ; les mots provisoires ne sont jamais envoyés. Le modèle de la plateforme est DeepSeek, sur notre compte — nous ne gardons ni l\'entrée ni la sortie.',
   disc_s4_title: '4. Livré à votre PC et saisi dans le champ actif',
-  disc_s4_body: 'Par votre propre réseau, ou par notre relais cloud — qui transmet les trames et les oublie — puis saisi dans le champ actif de l\'ordinateur appairé.',
-  disc_s4_lan_plain: '⚠️ Le chiffrement sur le réseau local dépend de la façon dont l\'appairage a été créé : quand le code QR porte l\'identité de l\'ordinateur, la liaison est chiffrée, et le téléphone la vérifie à chaque connexion ultérieure. Les appairages antérieurs restent en clair — un nouvel appairage les met à niveau. L\'état actuel est sous « Chiffrement de la connexion » sur le téléphone. Le relais est en TLS.',
+  disc_s4_body: 'Par votre propre réseau, ou par notre relais cloud — qui transmet les trames et les oublie — puis saisi dans le champ actif de l\'ordinateur appairé. Sur votre propre réseau, la liaison est chiffrée et le relais est en TLS ; l\'état actuel se trouve sous « Chiffrement de la connexion » sur ce téléphone.',
   disc_s5_title: '5. Ce qui reste',
   disc_s5_body: 'Nous ne stockons pas vos transcriptions — cette table a été supprimée. La chronologie vit sur votre téléphone et votre ordinateur, et les deux peuvent l\'exporter. Nous gardons votre compte, les appareils appairés, les réglages synchronisés et les totaux d\'usage mensuels (minutes et jetons) — jamais le contenu.',
   disc_legal_title: "Politique de confidentialité et conditions d'utilisation",
@@ -2727,7 +2735,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 664/664 translated;
+// es (Español) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2827,10 +2835,14 @@ const S_ES_OWN = {
   cloud_key_expires: 'Cloud Key válido hasta',
   cloud_key_expires_long_lived: 'De larga duración: hasta que cierres sesión en este PC',
   cloud_key_expires_tip: 'Es la vida útil del Cloud Key guardado en este PC, sin relación con tu plan. No caduca por sí solo: sigue siendo válido hasta que cierres sesión en este PC. Tu suscripción no se ve afectada.',
-  cloud_usage: 'Este mes',
+  cloud_usage: 'Este ciclo',
   cloud_usage_minutes: '{used} / {limit} min',
   cloud_usage_minutes_exempt: '{used} / {limit} min · sin cargo',
   cloud_usage_context: 'Contexto {used} / {limit} M',
+  cloud_usage_reset: 'Se renueva el {at} · {relative}',
+  cloud_usage_reset_today: 'hoy',
+  cloud_usage_reset_tomorrow: 'mañana',
+  cloud_usage_reset_in_days: 'dentro de {days} días',
   cloud_src_permanent_free: 'Gratis de forma permanente',
   cloud_src_paddle: 'Suscrito',
   cloud_src_mock: 'Suscripción de prueba',
@@ -3055,7 +3067,6 @@ const S_ES_OWN = {
   cap_image_open: 'Imagen · haz clic para verla en la ventana principal',
   cap_chars: 'caract.',
   cap_secs: 's',
-  cap_seg: 'segm.',
   cap_session_default: 'Teléfono',
   cap_diag: 'Diagnóstico de conexión',
   cap_settings: 'Ajustes',
@@ -3248,8 +3259,7 @@ const S_ES_OWN = {
   disc_s3_title: '3. Procesado por el modelo de lenguaje (según tus ajustes)',
   disc_s3_body: 'Traducir y Organizar pasan siempre por un modelo de lenguaje. El modo directo envía la transcripción final de cada grabación —incluido «solo registrar»— únicamente mientras el pulido con IA está activado; ese interruptor está en este teléfono, en Ajustes → Reconocimiento e IA. Mientras está apagado, el modo directo no envía nada; las palabras provisionales nunca se envían. El modelo de la plataforma es DeepSeek, en nuestra cuenta: no guardamos ni la entrada ni la salida.',
   disc_s4_title: '4. Se entrega a tu PC y se escribe en el campo enfocado',
-  disc_s4_body: 'Por tu propia red, o por nuestro relé en la nube —que pasa las tramas y las olvida—, y luego se escribe en el campo enfocado del ordenador emparejado.',
-  disc_s4_lan_plain: '⚠️ El cifrado en la red local depende de cómo se creó el emparejamiento: cuando el código QR lleve la identidad del ordenador, va cifrado, y el teléfono la comprueba en cada conexión posterior. Los emparejamientos anteriores siguen sin cifrar; volver a emparejar los actualiza. El estado actual está en «Cifrado de la conexión» en el teléfono. El relé va por TLS.',
+  disc_s4_body: 'Por tu propia red, o por nuestro relé en la nube —que pasa las tramas y las olvida—, y luego se escribe en el campo enfocado del ordenador emparejado. En tu propia red la conexión va cifrada y el relé va por TLS; el estado actual está en «Cifrado de la conexión» en este teléfono.',
   disc_s5_title: '5. Qué queda guardado',
   disc_s5_body: 'No guardamos tus transcripciones: esa tabla se eliminó. La cronología vive en tu teléfono y tu ordenador, y ambos pueden exportarla. Guardamos tu cuenta, los dispositivos emparejados, los ajustes sincronizados y los totales de uso mensuales (minutos y tokens), nunca el contenido.',
   disc_legal_title: 'Política de privacidad y condiciones del servicio',
@@ -3405,7 +3415,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 664/664 translated;
+// de (Deutsch) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3505,10 +3515,14 @@ const S_DE_OWN = {
   cloud_key_expires: 'Cloud Key gültig bis',
   cloud_key_expires_long_lived: 'Langlebig – bis du dich auf diesem PC abmeldest',
   cloud_key_expires_tip: 'Das ist die Lebensdauer des auf diesem PC gespeicherten Cloud Key – unabhängig von deinem Tarif. Er läuft nicht von selbst ab, sondern gilt, bis du dich auf diesem PC abmeldest. Dein Abo bleibt davon unberührt.',
-  cloud_usage: 'Diesen Monat',
+  cloud_usage: 'Dieser Zeitraum',
   cloud_usage_minutes: '{used} / {limit} Min.',
   cloud_usage_minutes_exempt: '{used} / {limit} Min. · nicht abgerechnet',
   cloud_usage_context: 'Kontext {used} / {limit} M',
+  cloud_usage_reset: 'Setzt sich am {at} zurück · {relative}',
+  cloud_usage_reset_today: 'heute',
+  cloud_usage_reset_tomorrow: 'morgen',
+  cloud_usage_reset_in_days: 'in {days} Tagen',
   cloud_src_permanent_free: 'Dauerhaft kostenlos',
   cloud_src_paddle: 'Abonniert',
   cloud_src_mock: 'Test-Abo',
@@ -3733,7 +3747,6 @@ const S_DE_OWN = {
   cap_image_open: 'Bild · zum Ansehen im Hauptfenster klicken',
   cap_chars: 'Zeichen',
   cap_secs: 's',
-  cap_seg: 'seg',
   cap_session_default: 'Handy',
   cap_diag: 'Verbindungsdiagnose',
   cap_settings: 'Einstellungen',
@@ -3926,8 +3939,7 @@ const S_DE_OWN = {
   disc_s3_title: '3. Verarbeitung durch das Sprachmodell (abhängig von deinen Einstellungen)',
   disc_s3_body: 'Übersetzen und Organisieren laufen immer durch ein Sprachmodell. Echtzeit sendet die Abschluss-Transkription jeder Aufnahme — auch „nur aufzeichnen" — nur solange die KI-Politur an ist; der Schalter liegt auf diesem Telefon unter Einstellungen → Erkennung und KI. Solange er aus ist, sendet Echtzeit nichts; vorläufige Wörter werden nie gesendet. Das Plattform-Modell ist DeepSeek, auf unserem Konto — wir behalten weder Eingabe noch Ausgabe.',
   disc_s4_title: '4. An deinen PC zugestellt und in das fokussierte Feld getippt',
-  disc_s4_body: 'Über dein eigenes Netz oder über unser Cloud-Relais — es reicht die Frames weiter und vergisst sie — und wird dann in das fokussierte Feld des gekoppelten Computers getippt.',
-  disc_s4_lan_plain: '⚠️ Ob die Verbindung im lokalen Netz verschlüsselt ist, hängt davon ab, wie die Kopplung entstand: wenn der QR-Code die Identität des Computers trägt, ist sie verschlüsselt, und das Telefon prüft sie bei jeder späteren Verbindung. Ältere Kopplungen sind weiterhin unverschlüsselt — erneutes Koppeln rüstet sie auf. Den aktuellen Zustand zeigt „Verschlüsselung" auf dem Telefon. Das Relais läuft über TLS.',
+  disc_s4_body: 'Über dein eigenes Netz oder über unser Cloud-Relais — es reicht die Frames weiter und vergisst sie — und wird dann in das fokussierte Feld des gekoppelten Computers getippt. Im eigenen Netz ist die Verbindung verschlüsselt und das Relais läuft über TLS; den aktuellen Zustand zeigt „Verschlüsselung" auf diesem Telefon.',
   disc_s5_title: '5. Was zurückbleibt',
   disc_s5_body: 'Wir speichern keine Transkripte — diese Tabelle wurde gelöscht. Die Zeitleiste lebt auf deinem Handy und deinem Computer, und beide können sie exportieren. Wir behalten dein Konto, gekoppelte Geräte, synchronisierte Einstellungen und monatliche Nutzungssummen (Minuten und Tokens) — nie den Inhalt.',
   disc_legal_title: 'Datenschutzerklärung und Nutzungsbedingungen',
@@ -4083,7 +4095,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 664/664 translated;
+// ja (日本語) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4183,10 +4195,14 @@ const S_JA_OWN = {
   cloud_key_expires: 'Cloud Key の有効期限',
   cloud_key_expires_long_lived: '長期有効 — このPCでログアウトするまで',
   cloud_key_expires_tip: 'これはこのPCに保存されたCloud Keyの寿命で、プランとは関係ありません。自動的に期限切れになることはなく、このPCでログアウトするまで有効です。サブスクリプションにも影響しません。',
-  cloud_usage: '今月の利用量',
+  cloud_usage: '今のサイクルの利用量',
   cloud_usage_minutes: '{used} / {limit} 分',
   cloud_usage_minutes_exempt: '{used} / {limit} 分 · 請求なし',
   cloud_usage_context: 'コンテキスト {used} / {limit}M',
+  cloud_usage_reset: '{at} にリセット · {relative}',
+  cloud_usage_reset_today: '今日',
+  cloud_usage_reset_tomorrow: '明日',
+  cloud_usage_reset_in_days: 'あと{days}日',
   cloud_src_permanent_free: '永久無料',
   cloud_src_paddle: '契約中',
   cloud_src_mock: 'テスト契約',
@@ -4411,7 +4427,6 @@ const S_JA_OWN = {
   cap_image_open: '画像 · クリックしてメインウィンドウで表示',
   cap_chars: '文字',
   cap_secs: '秒',
-  cap_seg: 'seg',
   cap_session_default: 'スマホ',
   cap_diag: '接続診断',
   cap_settings: '設定',
@@ -4604,8 +4619,7 @@ const S_JA_OWN = {
   disc_s3_title: '③ 言語モデル処理（設定によって変わります）',
   disc_s3_body: '翻訳と整理は必ず言語モデルを通ります。リアルタイムは「AI 仕上げ」がオンの間だけ、各録音の確定転写を送ります——「記録のみ」も含みます。スイッチはこの電話の「設定 → 認識と AI」にあります。オフの間、リアルタイムは何も送りません。未確定の文字は決して送られません。プラットフォームのモデルは私たちのアカウントの DeepSeek で、入力も出力も保持しません。',
   disc_s4_title: '④ PC へ届き、フォーカス中の入力欄へ入力',
-  disc_s4_body: '自分のネットワーク経由か、私たちのクラウド中継経由（フレームを渡してすぐ忘れます）で届き、ペアリング済みパソコンのフォーカス中の入力欄に入力されます。',
-  disc_s4_lan_plain: '⚠️ ローカルネットワークでの暗号化は、そのペアリングがどう作られたかで決まります：QR コードに PC の身元が入っている場合は暗号化され、電話は接続ごとに照合します。それ以前のペアリングは今も平文です——ペアリングし直すと更新されます。この接続の状態は電話の「接続の暗号化」にあります。中継は TLS です。',
+  disc_s4_body: '自分のネットワーク経由か、私たちのクラウド中継経由（フレームを渡してすぐ忘れます）で届き、ペアリング済みパソコンのフォーカス中の入力欄に入力されます。自分のネットワークでの通信は暗号化され、中継は TLS で、現在の状態はこの電話の「接続の暗号化」にあります。',
   disc_s5_title: '⑤ 何が残るのか',
   disc_s5_body: '転写は保存しません——そのテーブルは削除済みです。タイムラインはあなたの電話とパソコンにあり、どちらからも書き出せます。私たちが保持するのはアカウント、ペアリング済み端末、同期された設定、月間使用量の合計（分とトークン）だけで、内容は決して含みません。',
   disc_legal_title: 'プライバシーポリシーと利用規約',
@@ -4761,7 +4775,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 664/664 translated;
+// ko (한국어) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -4861,10 +4875,14 @@ const S_KO_OWN = {
   cloud_key_expires: 'Cloud Key 유효 기간',
   cloud_key_expires_long_lived: '장기 유효 — 이 PC에서 로그아웃할 때까지',
   cloud_key_expires_tip: '이것은 이 PC에 저장된 Cloud Key의 수명이며 플랜과는 무관합니다. 저절로 만료되지 않고 이 PC에서 로그아웃할 때까지 유효하며, 구독에도 영향이 없습니다.',
-  cloud_usage: '이번 달 사용량',
+  cloud_usage: '이번 주기 사용량',
   cloud_usage_minutes: '{used} / {limit} 분',
   cloud_usage_minutes_exempt: '{used} / {limit} 분 · 청구 없음',
   cloud_usage_context: '컨텍스트 {used} / {limit}M',
+  cloud_usage_reset: '{at} 초기화 · {relative}',
+  cloud_usage_reset_today: '오늘',
+  cloud_usage_reset_tomorrow: '내일',
+  cloud_usage_reset_in_days: '{days}일 남음',
   cloud_src_permanent_free: '영구 무료',
   cloud_src_paddle: '구독 중',
   cloud_src_mock: '테스트 구독',
@@ -5089,7 +5107,6 @@ const S_KO_OWN = {
   cap_image_open: '이미지 · 클릭하면 메인 창에서 보기',
   cap_chars: '자',
   cap_secs: '초',
-  cap_seg: 'seg',
   cap_session_default: '휴대폰',
   cap_diag: '연결 진단',
   cap_settings: '설정',
@@ -5282,8 +5299,7 @@ const S_KO_OWN = {
   disc_s3_title: '③ 언어 모델 처리 (설정에 따라 달라집니다)',
   disc_s3_body: '번역과 정리는 항상 언어 모델을 거칩니다. 실시간은 "AI 다듬기"가 켜져 있는 동안에만 각 녹음의 마감 전사를 보냅니다("기록만"도 포함). 스위치는 이 휴대폰의 설정 → 인식과 AI 에 있습니다. 꺼져 있는 동안 실시간은 아무것도 보내지 않으며, 임시 글자는 절대 전송되지 않습니다. 플랫폼 모델은 우리 계정의 DeepSeek이며, 입력도 출력도 보관하지 않습니다.',
   disc_s4_title: '④ PC로 전달되어 포커스된 입력창에 입력',
-  disc_s4_body: '자신의 네트워크로, 또는 우리의 클라우드 릴레이(프레임을 넘기고 바로 잊습니다)로 전달되어, 페어링된 컴퓨터의 포커스된 입력창에 입력됩니다.',
-  disc_s4_lan_plain: '⚠️ 로컬 네트워크 구간의 암호화 여부는 페어링이 어떻게 만들어졌는지에 달려 있습니다. 컴퓨터의 신원이 실려 있는 QR로 만든 페어링은 암호화되며, 휴대폰이 연결마다 대조합니다. 그 이전의 페어링은 지금도 평문입니다. 다시 페어링하면 업그레이드됩니다. 이 연결의 상태는 휴대폰의 "연결 암호화"에서 확인합니다. 중계는 TLS로 보호됩니다.',
+  disc_s4_body: '자신의 네트워크로, 또는 우리의 클라우드 릴레이(프레임을 넘기고 바로 잊습니다)로 전달되어, 페어링된 컴퓨터의 포커스된 입력창에 입력됩니다. 자신의 네트워크에서는 통신이 암호화되고 중계는 TLS로 보호되며, 현재 상태는 이 휴대폰의 "연결 암호화"에서 확인합니다.',
   disc_s5_title: '⑤ 무엇이 남는가',
   disc_s5_body: '우리는 전사를 저장하지 않습니다. 그 테이블은 삭제되었습니다. 타임라인은 당신의 휴대폰과 컴퓨터에 있으며 양쪽 모두 내보낼 수 있습니다. 우리가 보관하는 것은 계정, 페어링된 기기, 동기화된 설정, 월간 사용량 합계(분과 토큰)뿐이며 내용은 절대 포함하지 않습니다.',
   disc_legal_title: '개인정보 처리방침과 이용약관',
@@ -5439,7 +5455,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 664/664 translated;
+// ru (Русский) — 666/666 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5539,10 +5555,14 @@ const S_RU_OWN = {
   cloud_key_expires: 'Cloud Key действует до',
   cloud_key_expires_long_lived: 'Долгосрочный — пока вы не выйдете на этом ПК',
   cloud_key_expires_tip: 'Это срок жизни Cloud Key, сохранённого на этом компьютере, — он не связан с тарифом. Он не истекает сам по себе и действует, пока вы не выйдете из аккаунта на этом ПК. На подписку это не влияет.',
-  cloud_usage: 'За этот месяц',
+  cloud_usage: 'За этот период',
   cloud_usage_minutes: '{used} / {limit} мин',
   cloud_usage_minutes_exempt: '{used} / {limit} мин · без списания',
   cloud_usage_context: 'Контекст {used} / {limit} млн',
+  cloud_usage_reset: 'Лимит обновится {at} · {relative}',
+  cloud_usage_reset_today: 'сегодня',
+  cloud_usage_reset_tomorrow: 'завтра',
+  cloud_usage_reset_in_days: 'через {days} дн.',
   cloud_src_permanent_free: 'Бессрочно бесплатно',
   cloud_src_paddle: 'Подписка активна',
   cloud_src_mock: 'Тестовая подписка',
@@ -5767,7 +5787,6 @@ const S_RU_OWN = {
   cap_image_open: 'Изображение · нажмите, чтобы открыть в главном окне',
   cap_chars: 'симв.',
   cap_secs: 'с',
-  cap_seg: 'сегм.',
   cap_session_default: 'Телефон',
   cap_diag: 'Диагностика подключения',
   cap_settings: 'Настройки',
@@ -5960,8 +5979,7 @@ const S_RU_OWN = {
   disc_s3_title: '3. Обработка языковой моделью (зависит от ваших настроек)',
   disc_s3_body: 'Перевод и Структура всегда проходят через языковую модель. Реальное время отправляет итоговую расшифровку каждой записи — включая «только запись» — лишь пока включена ИИ-доводка; переключатель на этом телефоне, в Настройки → Распознавание и ИИ. Пока он выключен, реальное время не отправляет ничего; предварительные слова не отправляются никогда. Модель платформы — DeepSeek, на нашем аккаунте; мы не храним ни вход, ни выход.',
   disc_s4_title: '4. Доставка на компьютер и ввод в активное поле',
-  disc_s4_body: 'По вашей собственной сети или через наш облачный ретранслятор — он передаёт кадры дальше и забывает их — и затем вводится в активное поле сопряжённого компьютера.',
-  disc_s4_lan_plain: '⚠️ Шифрование в локальной сети зависит от того, как создано сопряжение: если QR-код несёт в себе идентификатор компьютера, связь шифруется, и телефон сверяет её при каждом последующем подключении. Более ранние сопряжения остаются незашифрованными — повторное сопряжение обновляет их. Текущее состояние — в разделе «Шифрование связи» на телефоне. Ретранслятор работает по TLS.',
+  disc_s4_body: 'По вашей собственной сети или через наш облачный ретранслятор — он передаёт кадры дальше и забывает их — и затем вводится в активное поле сопряжённого компьютера. В вашей собственной сети связь шифруется, а ретранслятор работает по TLS; текущее состояние — в разделе «Шифрование связи» на этом телефоне.',
   disc_s5_title: '5. Что остаётся',
   disc_s5_body: 'Мы не храним расшифровки — та таблица удалена. Лента живёт на вашем телефоне и компьютере, и оба могут её экспортировать. Мы храним ваш аккаунт, сопряжённые устройства, синхронизированные настройки и месячные итоги использования (минуты и токены) — никогда не содержание.',
   disc_legal_title: 'Политика конфиденциальности и условия использования',

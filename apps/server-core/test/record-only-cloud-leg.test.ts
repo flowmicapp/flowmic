@@ -35,7 +35,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { startServer, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
-import { currentMonth } from '../src/db/repos/usage.repo';
+import { parseUtcStamp, usagePeriodAt } from '../src/billing/usage-period';
 
 const SECRET = 'record-only-cloud-leg-secret-32-bytes';
 
@@ -204,7 +204,10 @@ describe('K-2: record-only on the cloud leg, zero PCs', () => {
     // Spend the free tier's whole STT allowance on the ACTING account. This is
     // the same month bucket `QuotaGuard` reads (usage.repo `currentMonth`), so
     // the refusal below comes from the real solver, not from a stub.
-    server!.db.usage.increment(id, currentMonth(), { stt_minutes: 100_000 });
+    // 2026-09-05: the guard reads the account's CYCLE bucket (owner, option 乙),
+    // keyed by the cycle start — for a fresh Free account, its registration day.
+    const registeredAt = parseUtcStamp(server!.db.users.findById(id)!.created_at);
+    server!.db.usage.increment(id, usagePeriodAt(registeredAt, Date.now()).key, { stt_minutes: 100_000 });
 
     const { phone } = await cloudPhone(url, token, id);
     const errors = collectSttErrors(phone, 1200);

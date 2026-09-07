@@ -25,6 +25,7 @@ import 'package:meta/meta.dart';
 
 import 'machine_key.dart';
 import 'outbox_item.dart';
+import 'outbox_notice_gate.dart';
 
 /// Everything the UI reads synchronously about the queue, from ONE load.
 @immutable
@@ -32,15 +33,21 @@ class OutboxPendingView {
   const OutboxPendingView._({
     required this.totalCount,
     required Map<String, int> byInstance,
+    required Map<String, bool> retriedByInstance,
+    required Map<String, DateTime> oldestByInstance,
     required this.unaddressedCount,
     required this.queuedEntryIds,
     required this.owedEntryIds,
     required this.resendableImageEntryIds,
-  }) : _byInstance = byInstance;
+  })  : _byInstance = byInstance,
+        _retriedByInstance = retriedByInstance,
+        _oldestByInstance = oldestByInstance;
 
   static const OutboxPendingView empty = OutboxPendingView._(
     totalCount: 0,
     byInstance: <String, int>{},
+    retriedByInstance: <String, bool>{},
+    oldestByInstance: <String, DateTime>{},
     unaddressedCount: 0,
     queuedEntryIds: <String>{},
     owedEntryIds: <String>{},
@@ -50,6 +57,12 @@ class OutboxPendingView {
   /// One pass over the pending items — see this file's header for why one.
   factory OutboxPendingView.of(List<OutboxItem> pending) {
     final Map<String, int> byInstance = <String, int>{};
+    // Card UX2-2 - the two extra facts the banner's gate needs, bucketed by
+    // the SAME scope key as the count, for the same reason the count is
+    // bucketed at all: a verdict taken over another screen's queue is the
+    // RV-91 defect wearing a boolean.
+    final Map<String, bool> retriedByInstance = <String, bool>{};
+    final Map<String, DateTime> oldestByInstance = <String, DateTime>{};
     final Set<String> queued = <String>{};
     final Set<String> owed = <String>{};
     final Set<String> resendable = <String>{};
@@ -84,6 +97,11 @@ class OutboxPendingView {
         unaddressed++;
       } else {
         byInstance[scope] = (byInstance[scope] ?? 0) + 1;
+        if (outboxItemHasSpentAnAttempt(item)) retriedByInstance[scope] = true;
+        final DateTime? seen = oldestByInstance[scope];
+        if (seen == null || item.enqueuedAt.isBefore(seen)) {
+          oldestByInstance[scope] = item.enqueuedAt;
+        }
       }
       if (item.state == OutboxDeliveryState.queued) {
         queued.addAll(item.coveredEntryIds);
@@ -128,6 +146,8 @@ class OutboxPendingView {
     return OutboxPendingView._(
       totalCount: pending.length,
       byInstance: Map<String, int>.unmodifiable(byInstance),
+      retriedByInstance: Map<String, bool>.unmodifiable(retriedByInstance),
+      oldestByInstance: Map<String, DateTime>.unmodifiable(oldestByInstance),
       unaddressedCount: unaddressed,
       queuedEntryIds: Set<String>.unmodifiable(queued),
       owedEntryIds: Set<String>.unmodifiable(owed),
@@ -143,6 +163,11 @@ class OutboxPendingView {
   final int totalCount;
 
   final Map<String, int> _byInstance;
+
+  /// Card UX2-2 - per scope: has anything here already spent an attempt, and
+  /// when was the oldest pending item enqueued. Read only through [noticeFor].
+  final Map<String, bool> _retriedByInstance;
+  final Map<String, DateTime> _oldestByInstance;
 
   /// Pending items that could not name the pairing they were enqueued on.
   ///
@@ -284,5 +309,30 @@ class OutboxPendingView {
     );
     if (key == null) return 0;
     return (_byInstance[key] ?? 0) + unaddressedCount;
+  }
+
+  /// Card UX2-2 - the count PLUS the two facts that decide whether it is worth
+  /// saying out loud. Same scope rules as [countFor], and routed THROUGH it so
+  /// the number in the sentence and the number the gate reasons about cannot
+  /// come apart.
+  ///
+  /// [unaddressedCount] contributes to the count on every screen, as it always
+  /// has, but carries no age or attempt history here: it is counted, never the
+  /// thing that raises the banner by itself.
+  OutboxPendingNotice noticeFor({String? machineUid, String? pairingIdentity}) {
+    final int n = countFor(
+      machineUid: machineUid,
+      pairingIdentity: pairingIdentity,
+    );
+    if (n <= 0) return OutboxPendingNotice.none;
+    final String? key = scopeKeyFor(
+      machineUid: machineUid,
+      pairingIdentity: pairingIdentity,
+    );
+    return OutboxPendingNotice(
+      count: n,
+      anyRetried: key != null && (_retriedByInstance[key] ?? false),
+      oldestPendingAt: key == null ? null : _oldestByInstance[key],
+    );
   }
 }

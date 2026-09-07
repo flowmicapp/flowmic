@@ -19,6 +19,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import type { ServicePurchaseRoutesDeps } from './service-purchase-routes';
+import type { SubscriptionCheckoutDeps } from './subscription-checkout-routes';
 import type { ServerConfig } from '../config';
 import type { BillingService } from '../billing/billing-service';
 import type { BillingRoutesDeps } from './billing-routes';
@@ -31,6 +32,7 @@ import type { OpsUserRoutesDeps } from './ops-user-routes';
 import type { OpsUsageEventsRoutesDeps } from './ops-usage-events-routes';
 import type { OpsPurchaseRoutesDeps } from './ops-purchase-routes';
 import type { OpsRefundReleaseRoutesDeps } from './ops-refund-release-routes';
+import type { OpsSubscriptionRoutesDeps } from './ops-subscription-routes';
 import type { ProbeRoutesDeps } from './probe-routes';
 import type { SttModelRoutesDeps } from './stt-model-routes';
 import type { PresenceRoutesDeps } from './presence-routes';
@@ -55,6 +57,10 @@ export interface HttpDeps {
   /** The paid one-time service's routes. Absent ⇒ they 404, which is the honest
    *  answer on a deployment that cannot sell it. */
   servicePurchases?: ServicePurchaseRoutesDeps;
+  /** 🔴 The ONE route that can start a recurring charge. saas-only, mounted even
+   *  when this box cannot sell so that it refuses by name instead of 404-ing —
+   *  see subscriptionCheckoutDeps. */
+  subscriptionCheckout?: SubscriptionCheckoutDeps;
   version: string;
   /** Who is this request? A VERDICT, not a string: the saas branch can fail, and
    *  a `string` return has no way to say so except by inventing a user (which is
@@ -148,6 +154,11 @@ export interface HttpDeps {
    *  carries `advanceOneTimePurchase`, and this surface's whole design is that
    *  it cannot reach the delivery states by another name. */
   opsRefundRelease?: OpsRefundReleaseRoutesDeps;
+  /** 2026-09-07 (REQ-002) — the operator's cancel/resume pair. Built in
+   *  bootstrap-billing-deps.ts beside the self-service twin, because both need
+   *  the SAME `writerFor` resolver and building it twice would construct two
+   *  outbound clients. */
+  opsSubscriptions?: OpsSubscriptionRoutesDeps;
   /** GA-12 STT/LLM "test connection" probes. Test seams only — production passes {} and
    *  the module's own defaults dial the real engines. */
   probe?: ProbeRoutesDeps;
