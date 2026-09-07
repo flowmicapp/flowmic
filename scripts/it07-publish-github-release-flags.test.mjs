@@ -96,6 +96,17 @@ section('IT-07 GREEN — publish-github-release.mjs --publish=1 rejected (same h
 // regression that makes --dry-run wrongly rejected still fails on `must not
 // reject bare --dry-run`, unconditionally, before this line is even reached.
 const detectRepoLocalFailure = /could not read git remote "origin"|does not look like a github\.com remote/;
+// note-B (2026-09-07): a THIRD legitimate local failure joined the list, and it
+// arrived because THIS COMMIT moved the body gates ahead of collectArtifacts()
+// in main(). Before the move, a bare --dry-run on a tree with no ./publish died
+// on the artifacts; after it, a tree with no CHANGELOG.md dies earlier, on
+// buildBody(). The open-source export has no CHANGELOG.md, so the public CI
+// runs on exactly that tree -- and this control went red there while every
+// private gate stayed green. Iron rule S1-13, word for word: a test that
+// assumes something only the private repo has dies with the wrong face. The
+// assertion this file exists for is untouched: a regression that wrongly
+// rejects bare --dry-run still fails the line above, unconditionally.
+const noChangelogSection = /CHANGELOG\.md has no section for/;
 section('IT-07 positive control — bare --dry-run is NOT rejected (github-release)');
 {
   const r = run(GITHUB, ['--dry-run']);
@@ -106,8 +117,9 @@ section('IT-07 positive control — bare --dry-run is NOT rejected (github-relea
   const accepted =
     /Zero network requests were made/.test(r.stdout ?? '')
     || /no \.\/publish|no .+ installers|no \.sha256/.test(r.stderr ?? '')
-    || detectRepoLocalFailure.test(r.stderr ?? '');
-  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
+    || detectRepoLocalFailure.test(r.stderr ?? '')
+    || noChangelogSection.test(r.stderr ?? '');
+  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error, no CHANGELOG.md section, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
 }
 
 // -- --catch-up-release (owner ruling 2026-09-07) ---------------------------
