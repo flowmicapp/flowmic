@@ -93,6 +93,24 @@ const boolFlag = (name) => {
 };
 const DRY = boolFlag('dry-run');
 const PUBLISH = boolFlag('publish'); // default: draft
+// 🔴 --catch-up-release — owner ruling 2026-09-07, and it is an OPT-IN, never a
+// default. The 2026-08-16 ruling that assertConcise() enforces answers "what
+// does THIS version do for me" and caps the page at six items; it assumes one
+// released version per release page. 0.3.77 is not that: 0.3.63 was the last
+// public release and 0.3.64 through 0.3.76 never went out, so the page has to
+// list fourteen versions' worth of user-visible change or the reader is simply
+// not told. The owner asked for all of it, today, naming this release.
+//
+// WHAT IT DOES NOT LIFT, stated here so a future reader does not have to go
+// and check: the English-only refusal (2026-08-15) still runs, unchanged, for
+// every run; the `###`-subsection refusal still runs, because the internal
+// ledger is not a release page at any length; and the flag ADDS two refusals
+// that the normal path does not have (assertCatchUpBodyClean below). A longer
+// page is a bigger surface for exactly the two things owner rulings have
+// already had to strip off a release page once each — console/billing detail
+// (2026-08-23, iron rule §1-19) and machine-written punctuation (2026-09-01) —
+// so the flag that permits the length pays for it with those two checks.
+const CATCH_UP = boolFlag('catch-up-release');
 const REPO_OVERRIDE = typeof flag('repo') === 'string' ? flag('repo') : undefined;
 
 const ok = (m) => console.log(`✓ ${m}`);
@@ -254,11 +272,19 @@ function assertConcise(body) {
   if (/^#{3,}\s/m.test(body)) {
     problems.push('it carries `###` subsections — those are the internal ledger, not the release page');
   }
-  if (body.length > MAX_BODY_CHARS) {
-    problems.push(`it is ${body.length} characters (limit ${MAX_BODY_CHARS})`);
-  }
-  if (items.length > MAX_BODY_LINES) {
-    problems.push(`it is ${items.length} items (limit ${MAX_BODY_LINES}; wrapped continuation lines are indented and not counted)`);
+  // The two SIZE caps, and only these two, are what --catch-up-release lifts.
+  // The `###` refusal above is deliberately outside this branch: a release page
+  // that carries the internal ledger is wrong at six items and wrong at sixty.
+  if (!CATCH_UP) {
+    if (body.length > MAX_BODY_CHARS) {
+      problems.push(`it is ${body.length} characters (limit ${MAX_BODY_CHARS})`);
+    }
+    if (items.length > MAX_BODY_LINES) {
+      problems.push(`it is ${items.length} items (limit ${MAX_BODY_LINES}; wrapped continuation lines are indented and not counted)`);
+    }
+    if (problems.length > 0) {
+      problems.push('if this release is a catch-up covering several unreleased versions, pass --catch-up-release (owner ruling 2026-09-07) - it lifts these two caps and adds two of its own');
+    }
   }
   if (problems.length === 0) return;
   console.error('✗ the release body is not the short, human summary a release page is for:');
@@ -266,6 +292,60 @@ function assertConcise(body) {
   console.error('  Write three to five short lines at the top of the CHANGELOG section, above the first `###`;');
   console.error('  that lead is what gets published. Everything below it stays in the file for whoever wants it.');
   console.error('  (owner ruling 2026-08-16 — docs/decisions/2026-08-16-owner-concise-human-release-notes.md).');
+  process.exit(1);
+}
+
+// The price of --catch-up-release. Both refusals below exist ONLY on the
+// catch-up path; the normal six-item page is unaffected and keeps behaving
+// exactly as it did before this flag existed.
+//
+// (a) DASHES. Owner ruling 2026-09-01 (docs/decisions/2026-09-01-owner-non-human-
+//     copy-scent-ironrule.md) makes non-human copy scent a quality gate, and the
+//     em dash is the one machine-punctuation tell a script can decide on its own:
+//     `verify:lint outward-voice` already counts them in product copy, and a
+//     release page is the most-read outward copy this project has. Nothing else
+//     reads the release body, so without this line the longest page we ever
+//     publish would be the only outward surface with no punctuation check at all.
+//
+// (b) CONSOLE / BILLING WORDS. Iron rule S1-19 (owner 2026-08-23): the public
+//     release page carries PC-app and phone-app changes only. That rule was
+//     written after two console/subscription sentences had to be pulled off a
+//     live release page by hand, and S1-19 itself parks the gate as a "candidate,
+//     write it the next time this bites", the reason given being false positives.
+//     So this list is deliberately NARROW and deliberately opt-in: every term
+//     below names a surface that is not the PC app or the phone app, with no
+//     innocent reading in a release note.
+//
+// `plan` IS NOT ON THIS LIST, on purpose. S1-19 names it as the exact word whose
+// legitimate uses ("planned", "we plan to") would make the gate miskill, and a
+// refusal that fires on a correct page is worse than no refusal: it gets switched
+// off, and then neither half is there. Judgement on that word stays with the
+// operator, which is where S1-19 left it.
+const CATCH_UP_BANNED = [
+  'console', 'subscription', 'subscriptions', 'subscribe', 'billing',
+  'invoice', 'refund', 'payment', 'checkout', 'quota',
+  'relay', 'webhook', 'sidecar', 'paddle', 'creem',
+];
+
+function assertCatchUpBodyClean(body) {
+  const problems = [];
+  const dashes = body.match(/[—–]/g);
+  if (dashes) {
+    problems.push(`it contains ${dashes.length} em/en dash(es); release copy is written the way a person types it (owner ruling 2026-09-01)`);
+  }
+  // Word-for-word, with no boundary regex: a template literal turns a lone
+  // backslash-b into the BACKSPACE character rather than a word boundary, and
+  // the gate would then match nothing while looking exactly like it works.
+  // Splitting the body into words says the same thing and cannot mis-escape.
+  const words = body.toLowerCase().match(/[a-z]+/g) || [];
+  for (const w of CATCH_UP_BANNED) {
+    const n = words.filter((x) => x === w).length;
+    if (n) problems.push(`it says "${w}" (${n}x); that surface is not the PC app or the phone app (iron rule S1-19, owner 2026-08-23)`);
+  }
+  if (problems.length === 0) return;
+  console.error('✗ --catch-up-release refuses this body:');
+  for (const p of problems) console.error(`  . ${p}`);
+  console.error('  A catch-up page is longer, so it is checked harder, not less. Fix the body and re-run.');
   process.exit(1);
 }
 
@@ -300,7 +380,12 @@ async function api(repo, token, method, path, body, extraHeaders = {}) {
 
 async function main() {
   const repo = detectRepo();
-  const artifacts = collectArtifacts();
+  // Body BEFORE artifacts, deliberately. The body gates need no filesystem and
+  // no network; collectArtifacts() hashes hundreds of megabytes. Refusing a
+  // release page after paying for that is backwards, and it also made the
+  // body gates untestable on any tree without a ./publish directory -- which
+  // is every tree the public CI runs on (iron rule S1-13: a test that assumes
+  // something only the private repo has is a test that dies with the wrong face).
   const section = changelogSection();
   const body = buildBody(section);
 
@@ -318,7 +403,20 @@ async function main() {
     process.exit(1);
   }
 
+  if (CATCH_UP) {
+    console.log('');
+    console.log('CATCH-UP RELEASE MODE IS ON (--catch-up-release).');
+    console.log('  The six-item / 1200-character cap from the 2026-08-16 ruling is lifted for');
+    console.log('  THIS run only, by the owner ruling of 2026-09-07: this page covers several');
+    console.log('  versions that were never released publicly, so it lists all of their');
+    console.log('  user-visible change. English-only and no-`###` still apply, plus two extra');
+    console.log('  refusals (dashes, console/billing words) the normal path does not have.');
+    assertCatchUpBodyClean(body);
+  }
+
   assertConcise(body);
+
+  const artifacts = collectArtifacts();
 
   console.log(`\n── GitHub Release preview ──`);
   console.log(`repo   : ${repo}`);

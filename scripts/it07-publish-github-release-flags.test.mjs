@@ -110,5 +110,84 @@ section('IT-07 positive control — bare --dry-run is NOT rejected (github-relea
   assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
 }
 
+// -- --catch-up-release (owner ruling 2026-09-07) ---------------------------
+// The flag lifts assertConcise()'s six-item / 1200-character caps for one run,
+// so that a release page can cover several versions that were never published.
+// Three things have to stay true, or the flag is a hole rather than a door:
+//   1. the DEFAULT still refuses a long body (else the cap is gone, not lifted);
+//   2. the flag actually accepts that same body (else it does nothing);
+//   3. the flag ADDS the two refusals it pays with, and they really fire.
+// Every spawn below carries --dry-run and --notes=, so no network call is made,
+// no token is read, and CHANGELOG.md is never consulted. That last one matters:
+// the open-source export has no CHANGELOG.md, and a drill that assumed one
+// would die on the public CI with the wrong face (iron rule S1-13). --repo= is
+// passed for the same reason: an exported checkout's "origin" is whoever cloned
+// it, and detectRepo() runs before anything this file is about.
+const REPO = '--repo=flowmicapp/flowmic';
+const LONG_BODY = ['## 9.9.9'].concat(
+  Array.from(
+    { length: 14 },
+    (_, i) => `- A user-visible change number ${i + 1}, written out at enough length that the character cap is passed as well as the item cap.`,
+  ),
+).join('\n');
+
+section('catch-up GREEN 1 -- WITHOUT the flag a 14-item body is still refused');
+{
+  const r = run(GITHUB, ['--dry-run', REPO, `--notes=${LONG_BODY}`]);
+  console.log((r.stderr ?? '').slice(0, 600));
+  console.log(`--- exit: ${r.status} ---`);
+  assertTrue(r.status !== 0, 'exit non-zero');
+  assertTrue((r.stderr ?? '').includes('it is 14 items (limit 6'), 'stderr names the item cap');
+  assertTrue((r.stderr ?? '').includes('--catch-up-release'), 'stderr points at the opt-in that would allow it');
+}
+
+section('catch-up GREEN 2 -- WITH the flag the same body gets through the caps');
+{
+  const r = run(GITHUB, ['--dry-run', REPO, '--catch-up-release', `--notes=${LONG_BODY}`]);
+  console.log((r.stdout ?? '').slice(0, 300));
+  console.log((r.stderr ?? '').slice(0, 300));
+  console.log(`--- exit: ${r.status} ---`);
+  const err = r.stderr ?? '';
+  assertTrue(!err.includes('limit 6') && !err.includes('limit 1200'), 'the size caps did not fire');
+  assertTrue((r.stdout ?? '').includes('CATCH-UP RELEASE MODE IS ON'), 'stdout says loudly that the caps are lifted, and why');
+  // Past the gates it either previews (a tree that has ./publish) or fails on
+  // artifacts it has no way to have. Both prove the BODY was accepted, which is
+  // the only thing this case is about.
+  const past = (r.stdout ?? '').includes('Zero network requests were made')
+    || /no \.\/publish|no .+ installers|no \.sha256/.test(err);
+  assertTrue(past, 'reached the artifact stage, i.e. the body was accepted');
+}
+
+section('catch-up GREEN 3 -- the flag REFUSES an em dash (owner ruling 2026-09-01)');
+{
+  const body = '## 9.9.9\n\n- A change the reader can see — and a second clause.';
+  const r = run(GITHUB, ['--dry-run', REPO, '--catch-up-release', `--notes=${body}`]);
+  console.log((r.stderr ?? '').slice(0, 400));
+  console.log(`--- exit: ${r.status} ---`);
+  assertTrue(r.status !== 0, 'exit non-zero');
+  assertTrue((r.stderr ?? '').includes('em/en dash'), 'stderr names the dash');
+}
+
+section('catch-up GREEN 4 -- the flag REFUSES console/billing words (iron rule S1-19)');
+{
+  const body = '## 9.9.9\n\n- The console can cancel a subscription, and the relay was redeployed.';
+  const r = run(GITHUB, ['--dry-run', REPO, '--catch-up-release', `--notes=${body}`]);
+  console.log((r.stderr ?? '').slice(0, 600));
+  console.log(`--- exit: ${r.status} ---`);
+  assertTrue(r.status !== 0, 'exit non-zero');
+  for (const w of ['console', 'subscription', 'relay']) {
+    assertTrue((r.stderr ?? '').includes(`it says "${w}"`), `stderr names "${w}"`);
+  }
+}
+
+section('catch-up GREEN 5 -- --catch-up-release=1 rejected like every other bare boolean');
+{
+  const r = run(GITHUB, ['--catch-up-release=1', '--dry-run']);
+  console.log(r.stderr);
+  console.log(`--- exit: ${r.status} ---`);
+  assertTrue(r.status !== 0, 'exit non-zero');
+  assertTrue(rejectRe('catch-up-release').test(r.stderr ?? ''), 'stderr names bare --catch-up-release');
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
 process.exitCode = failures === 0 ? 0 : 1;
