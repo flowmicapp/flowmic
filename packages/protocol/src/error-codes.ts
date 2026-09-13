@@ -68,7 +68,7 @@ export interface ErrorMessage {
 
 export const ERROR_CODES = {
   // Authentication / pairing
-  AUTH_TOKEN_INVALID:        { zh_CN: '令牌无效，请重新配对。',                en: 'Token invalid, please pair again.' },
+  AUTH_TOKEN_INVALID:        { zh_CN: '配对凭证已失效，请重新配对。',                en: 'Token invalid, please pair again.' },
   AUTH_TOKEN_EXPIRED:        { zh_CN: '登录已过期，请重新登录。',              en: 'Session expired, please sign in again.' },
   AUTH_LOGIN_FAILED:         { zh_CN: '邮箱或密码不正确。',                    en: 'Email or password incorrect.' },
   // AUTH_USE_REST_LOGIN retired 2026-09-02 (WP-8 registry hygiene) — see the
@@ -97,7 +97,7 @@ export const ERROR_CODES = {
   // after it lands.
   REGISTER_EMAIL_INVALID:    { zh_CN: '邮箱地址格式不正确，请检查后重新填写。',  en: 'This email address is not in a valid format — check it and try again.' },
   PAIR_INVALID_CODE:         { zh_CN: '配对码无效。',                          en: 'Invalid pairing code.' },
-  PAIR_INVALID_PAYLOAD:      { zh_CN: '配对载荷无效；请重新扫描二维码或重新输入配对码。', en: 'Invalid pairing payload; please rescan the QR code or re-enter the code.' },
+  PAIR_INVALID_PAYLOAD:      { zh_CN: '配对数据无效，请重新扫描二维码或重新输入配对码。', en: 'Invalid pairing payload; please rescan the QR code or re-enter the code.' },
   PAIR_EXPIRED_CODE:         { zh_CN: '配对码已过期，请刷新。',                en: 'Pairing code expired, please refresh.' },
   PAIR_PC_OFFLINE:           { zh_CN: '电脑离线，无法配对。',                  en: 'PC is offline, cannot pair.' },
   // PC_MOBILE_SLOT_BUSY and PAIR_NOT_CONNECTED retired 2026-09-02 (WP-8
@@ -116,7 +116,7 @@ export const ERROR_CODES = {
   // window lapses), while AUTH_TOKEN_INVALID would wipe the pairing the user
   // never revoked. Distinct from PAIR_RATE_LIMITED (a brute-force verdict about
   // the caller) — this is a deliberate, operator-initiated pause.
-  PAIR_RELEASED:             { zh_CN: '电脑刚刚断开了这台手机，请稍后再连接。',      en: 'The PC just disconnected this phone; please reconnect in a moment.' },
+  PAIR_RELEASED:             { zh_CN: '电脑已主动断开与本手机的连接，请稍后再试。',      en: 'The PC just disconnected this phone; please reconnect in a moment.' },
   // GA-29: the PC keeps BOTH channels resident (07 §6) but the capsule admits
   // exactly ONE phone at a time — and only the PC can see both channels, so only
   // the PC can decide. A second phone is refused with THIS code rather than being
@@ -187,7 +187,7 @@ export const ERROR_CODES = {
   // waiting for the next attempt — same "no imperative because there is
   // nothing to imperative about" shape as NODE_IS_REPLICA and
   // PC_HANDSHAKE_PENDING.
-  AUTH_TOKEN_UNVERIFIABLE:   { zh_CN: '暂时无法确认这把凭证是否有效，请稍后再试。', en: 'Could not confirm this credential right now — please try again shortly.' },
+  AUTH_TOKEN_UNVERIFIABLE:   { zh_CN: '暂时无法验证连接凭证，请稍后再试。', en: 'Could not confirm this credential right now — please try again shortly.' },
   // ── PCID addressing (0.2.66) · 69 → 71, owner approved 2026-08-14 ────────────
   // Ruling   docs/decisions/2026-08-14-owner-cloud-pairing-requires-pcid.md
   // Design   docs/strategy/…-0266-cloud-pcid-pairing-design.md §5.3 — the full
@@ -244,10 +244,10 @@ export const ERROR_CODES = {
 
   // STT engine / config
   STT_CONFIG_MISSING:        { zh_CN: '该语言尚未配置识别引擎。',              en: 'No STT engine configured for this language.' },
-  STT_ENGINE_AUTH_FAIL:      { zh_CN: '识别引擎鉴权失败，请检查 API Key。',    en: 'STT engine authentication failed, check API key.' },
-  STT_ENGINE_RATE_LIMITED:   { zh_CN: '识别引擎请求过频，请稍后重试。',        en: 'STT engine rate limited, retry later.' },
-  STT_ENGINE_TIMEOUT:        { zh_CN: '识别引擎响应超时。',                    en: 'STT engine timeout.' },
-  STT_NETWORK_DROP:          { zh_CN: '网络中断，识别会话终止。',              en: 'Network drop, STT session terminated.' },
+  STT_ENGINE_AUTH_FAIL:      { zh_CN: '语音识别服务身份验证失败，请检查 API Key。',    en: 'STT engine authentication failed, check API key.' },
+  STT_ENGINE_RATE_LIMITED:   { zh_CN: '语音识别服务请求过于频繁，请稍后重试。',        en: 'STT engine rate limited, retry later.' },
+  STT_ENGINE_TIMEOUT:        { zh_CN: '语音识别服务响应超时，请重试。',                en: 'STT engine timeout.' },
+  STT_NETWORK_DROP:          { zh_CN: '网络中断，识别会话终止。',                      en: 'Network drop, STT session terminated.' },
   // 72 → 73. B2-G (2026-09-02): every one of the eight bundled STT adapters
   // (apps/server-core/src/stt/engines/*.ts + packages/stt-cloud/src/engines/
   // soniox.ts) throws when `push()` is called while the engine's own state is
@@ -275,7 +275,7 @@ export const ERROR_CODES = {
   // condition is very often transient (a chunk arriving mid-rollover, mid-
   // reconnect, or just after a clean close) and the reconnect ladder is what
   // decides whether to act on that, not this code.
-  STT_ENGINE_NOT_OPEN:       { zh_CN: '识别引擎当时未处于可接收状态，这段音频没有送达引擎。', en: 'The STT engine was not in a state to receive audio, so this segment was not delivered to it.' },
+  STT_ENGINE_NOT_OPEN:       { zh_CN: '语音识别服务尚未准备就绪，未能接收音频，请重试。', en: 'The STT engine was not in a state to receive audio, so this segment was not delivered to it.' },
   // 66 → 67. owner approved on 2026-08-10 (ruling group #5-c). The utterance was captured
   // and NO speech engine ever received it. Producer lands with card fix-022
   // (`apps/server-core/src/stt/orchestrator-core.ts`).
@@ -299,7 +299,7 @@ export const ERROR_CODES = {
   // cannot separate the two keeps the old code and gets reported; stating an
   // unknown as a definite answer is the very defect this code exists to fix, one
   // level up.
-  STT_NO_ENGINE_REACHED:     { zh_CN: '这段录音没有到达任何识别引擎，没有转成文字。请重新说一次；如果一直这样，请检查识别引擎设置。', en: 'This recording reached no speech engine, so nothing was transcribed. Say it again; if it keeps happening, check the engine settings.' },
+  STT_NO_ENGINE_REACHED:     { zh_CN: '录音未能送达语音识别服务，没有转成文字。请重新说话；如持续出现，请检查语音设置。', en: 'This recording reached no speech engine, so nothing was transcribed. Say it again; if it keeps happening, check the engine settings.' },
   // 71 → 72. owner approved on 2026-08-17 (WP-2 card C1; the ruling is recorded in
   // docs/strategy/2026-08-17-wp2-task-book-settings-and-presence-followups.md §3-2).
   // The PLATFORM's engine pool was consulted and had no route it could give this
@@ -356,7 +356,7 @@ export const ERROR_CODES = {
   // `stt:error` path has no closed set anywhere on it — an unrecognised code
   // degrades to `sttStallEngineErrorCoded` (a readable sentence plus the raw
   // identifier) and the stall still converges. `whitelist=54` is untouched.
-  STT_POOL_NO_ROUTE:         { zh_CN: '平台这边没有可用于这次识别的引擎线路。这不是你的设置的问题——如果一直这样，请联系我们。', en: 'The service has no speech engine route available for this request. This is not a problem with your settings — if it keeps happening, tell us.' },
+  STT_POOL_NO_ROUTE:         { zh_CN: '云端服务暂无可用的语音识别线路。这不是您的设备设置问题，若持续出现请联系客服。', en: 'The service has no speech engine route available for this request. This is not a problem with your settings — if it keeps happening, tell us.' },
   // 72 → 73. owner approved on 2026-08-17, answering the request registered in the
   // WP-3 handback §7-2 (`docs/strategy/2026-08-18-lan-fable-wp3-report.md`).
   // A route WAS found and an engine WAS selected — and that engine's model cannot
@@ -402,9 +402,9 @@ export const ERROR_CODES = {
   // raw identifier — which is a worse read than the STT_CONFIG_MISSING sentence it
   // used to get. Relay and client ship together this round; a relay deployed alone
   // would make every affected phone read the identifier.
-  STT_LANGUAGE_UNSUPPORTED:  { zh_CN: '这次识别用的引擎不支持你选的说话语种。请到设置里为这个语种换一个引擎，或者改说它支持的语种。', en: 'The speech engine used for this recording does not support the spoken language you selected. Choose a different engine for this language in settings, or speak one it supports.' },
+  STT_LANGUAGE_UNSUPPORTED:  { zh_CN: '当前语音识别引擎不支持您所选的说话语种。请在设置中更换引擎，或切换至支持的语种。', en: 'The speech engine used for this recording does not support the spoken language you selected. Choose a different engine for this language in settings, or speak one it supports.' },
   STT_PROBE_FAIL:            { zh_CN: '连接测试失败，请检查地址或密钥。',      en: 'Connection test failed, check endpoint or key.' },
-  STT_PROBE_SCHEME_MISMATCH: { zh_CN: '服务可经 ws:// 访问，但 wss:// 握手失败 — 该服务未启用 TLS，请把端点改为 ws://。', en: 'Server reachable via ws:// but wss:// handshake failed — endpoint has no TLS, change scheme to ws://.' },
+  STT_PROBE_SCHEME_MISMATCH: { zh_CN: '该服务不支持加密连接（wss:// 握手失败），请将服务地址协议更改为 ws://。', en: 'Server reachable via ws:// but wss:// handshake failed — endpoint has no TLS, change scheme to ws://.' },
   // STT_HARD_LIMIT_REACHED retired 2026-09-02 (WP-8 registry hygiene) — see
   // the "75 → 69" note near EXPECTED_ERROR_CODE_COUNT.
 
@@ -442,12 +442,12 @@ export const ERROR_CODES = {
   //
   // Wire shape unchanged: `SttErrorSchema.code` is `NonEmpty`, not a closed enum,
   // and no event was added, removed or renamed.
-  AUDIO_OP_BINDING_CONFLICT: { zh_CN: '这次重发描述的不是原来那段录音，所以没有处理。原来那次的结果和计费都没有变。', en: 'This re-send does not describe the original recording, so it was not processed. The earlier result and charge are unchanged.' },
+  AUDIO_OP_BINDING_CONFLICT: { zh_CN: '该录音重发请求与原记录不匹配，已取消处理。原记录及计费均未发生变动。', en: 'This re-send does not describe the original recording, so it was not processed. The earlier result and charge are unchanged.' },
 
   // LLM / compose
   LLM_TIMEOUT:               { zh_CN: '大模型响应超时。',                      en: 'LLM response timeout.' },
-  LLM_AUTH_FAIL:             { zh_CN: '大模型鉴权失败，请检查 API Key。',      en: 'LLM authentication failed, check API key.' },
-  LLM_RATE_LIMITED:          { zh_CN: '大模型请求过频，请稍后重试。',          en: 'LLM rate limited, retry later.' },
+  LLM_AUTH_FAIL:             { zh_CN: '大模型服务身份验证失败，请检查 API Key。',      en: 'LLM authentication failed, check API key.' },
+  LLM_RATE_LIMITED:          { zh_CN: '大模型服务请求过于频繁，请稍后重试。',          en: 'LLM rate limited, retry later.' },
   LLM_PROBE_FAIL:            { zh_CN: '大模型连接测试失败。',                  en: 'LLM connection test failed.' },
   LLM_INVALID_MODEL:         { zh_CN: '指定的模型不可用。',                    en: 'Specified model is unavailable.' },
   // 61 → 62. owner approved on 2026-08-07 (`docs/decisions/2026-08-07-owner-grants-
@@ -501,10 +501,10 @@ export const ERROR_CODES = {
   // and the same round's comment added to that lint pushed those two lines down,
   // tripping `coordinate-anchors` red on the spot ⇒ **coordinate-anchor rot can
   // happen on a timescale of minutes**.
-  COMPOSE_OUTPUT_REJECTED:   { zh_CN: 'AI 的结果不合要求，已拦下。',            en: 'The AI\'s answer did not meet the request, so we held it back.' },
+  COMPOSE_OUTPUT_REJECTED:   { zh_CN: 'AI 生成的内容不符合要求，已自动拦截并保留原文。', en: 'The AI\'s answer did not meet the request, so we held it back.' },
 
   // Inject
-  INJECT_TARGET_INVALID:     { zh_CN: '目标无效，无法注入。已缓存。',          en: 'Target invalid, cannot inject. Cached.' },
+  INJECT_TARGET_INVALID:     { zh_CN: '目标输入位置无效，文字未能输入，已暂存至电脑时间线。', en: 'Target invalid, cannot inject. Cached.' },
   // owner 2026-07-27: a focused WINDOW is not a focused INPUT. SendInput has no
   // receipt — it hands keystrokes to whatever holds keyboard focus — so with
   // nothing usable focused they were swallowed while we reported 「已注入」. The
@@ -516,7 +516,7 @@ export const ERROR_CODES = {
   // outside the target process: nothing holds keyboard focus, or a menu /
   // move-resize is active. The user-facing sentence is unchanged and still the
   // actionable one for both.
-  INJECT_NO_TEXT_TARGET:     { zh_CN: '没有可输入的位置——请先点进输入框再说话。', en: 'No editable field is focused — click into a text box first.' },
+  INJECT_NO_TEXT_TARGET:     { zh_CN: '当前没有聚焦的输入框，请先点击目标输入位置后再说话。', en: 'No editable field is focused — click into a text box first.' },
   INJECT_SENDINPUT_FAIL:     { zh_CN: '应用拒绝了直接输入，已自动改用粘贴。',  en: 'App rejected input, used paste fallback.' },
   // ⚠️ 2026-07-30: INJECT_NO_RECEIPT was REMOVED here (56 → 55 codes). It named
   // the desktop read-back's 「发出去了但读不回来」 verdict, and read-back is retired
@@ -542,8 +542,8 @@ export const ERROR_CODES = {
   // (image_b64 over the 5.5M cap, seen live: 「reason: image_b64: too_big」) or in
   // relay's `getPc(room)?.emit` when no PC was in the room. Each verdict now has
   // an honest code and rides a server-authored inject:result back to the sender.
-  INJECT_FRAME_TOO_LARGE:    { zh_CN: '图片数据超过上限，电脑侧未接收。',        en: 'Image data exceeds the wire cap; the PC never received it.' },
-  INJECT_FRAME_INVALID:      { zh_CN: '发送的数据不符合协议，电脑侧未接收。',    en: 'Malformed frame; the PC never received it.' },
+  INJECT_FRAME_TOO_LARGE:    { zh_CN: '图片大小超出传输上限，电脑未能接收。',        en: 'Image data exceeds the wire cap; the PC never received it.' },
+  INJECT_FRAME_INVALID:      { zh_CN: '数据格式异常，电脑未能接收，请重试。',        en: 'Malformed frame; the PC never received it.' },
   // 2026-08-09 (DOC-HYG, conductor-reviewed): this used to read 「电脑不在线，
   // 未注入。」/ "nothing was injected" — a DELIVERY-segment code wearing an
   // INJECTION-segment word (投递 ≠ 注入, 15 册 §2.0). The frame never reached a
@@ -553,7 +553,7 @@ export const ERROR_CODES = {
   // Deliberately NO retry promise here: the phone's copy may promise a resend
   // because it owns the queue that honours it; this string has consumers with no
   // such mechanism, and a promise without a mechanism is the F-1 red line.
-  INJECT_PC_OFFLINE:         { zh_CN: '电脑不在线，这一条未送达。',              en: 'PC is not connected; this was never delivered.' },
+  INJECT_PC_OFFLINE:         { zh_CN: '电脑当前处于离线状态，文字未能送达。',          en: 'PC is not connected; this was never delivered.' },
   // 2026-07-30 (image-transit RCA-v3): the LAST silent drop on the relay path. A frame
   // arriving on a socket with no auth or no room used to `return` with no log
   // and no answer — which is exactly where a client-side reconnect flushes its
@@ -561,7 +561,7 @@ export const ERROR_CODES = {
   // indistinguishable from 「帧从未发出」. Deliberately distinct from
   // INJECT_PC_OFFLINE: that one says the ROOM has no PC (retrying later may
   // help); this one says the SENDER isn't in a room yet (rejoin, then retry).
-  INJECT_NOT_IN_ROOM:        { zh_CN: '连接尚未就绪（未进入会话），请稍候重试。',  en: 'Connection not ready (not in a session yet); retry shortly.' },
+  INJECT_NOT_IN_ROOM:        { zh_CN: '连接尚未就绪，请稍候重试。',                  en: 'Connection not ready (not in a session yet); retry shortly.' },
   // 2026-07-30 (RV-04): the http image ingress refuses to relay a frame it could
   // not report a verdict for — its request_id ledger is momentarily full. First
   // written as PC_BUSY, which was a LIE in a user-visible string: PC_BUSY says
@@ -569,7 +569,7 @@ export const ERROR_CODES = {
   // actual fact is 「服务器这一刻接不下」 — nothing to do with another phone and
   // nothing the user could act on by leaving a page on it. Distinct code so the
   // sentence can be true; retryable either way.
-  INJECT_SERVER_BUSY:        { zh_CN: '服务器同时处理的投递过多，这一次未发出，请稍候重试。', en: 'The server has too many deliveries in flight; this one was not sent — retry shortly.' },
+  INJECT_SERVER_BUSY:        { zh_CN: '服务器繁忙，本次发送未成功，请稍候重试。',      en: 'The server has too many deliveries in flight; this one was not sent — retry shortly.' },
   // 🔴 2026-07-31 (卡 P, owner's iron rule 「投递 id 与目标 PC 的 id 必须对应，不能串」).
   // The frame named a target PC (`inject:request.target_pc_id`) that is not the PC
   // on this connection. The verdict is REFUSE — never re-route, never deliver it
@@ -597,7 +597,7 @@ export const ERROR_CODES = {
   // implement against it. The rule that keeps that honest: if the wave ships
   // without the server-side target check, THIS CODE GOES WITH IT — a sentence no
   // branch can say is a façade regardless of which side of the producer it is on.
-  INJECT_PC_MISMATCH:        { zh_CN: '这条投递指定的是另一台电脑，未在这台电脑上注入。', en: 'This delivery is addressed to a different PC; nothing was injected on this one.' },
+  INJECT_PC_MISMATCH:        { zh_CN: '本条消息的目标设备为其他电脑，未在当前电脑注入。', en: 'This delivery is addressed to a different PC; nothing was injected on this one.' },
   // 🔴 2026-07-31 (window B3, 0.2.33). The frame named NO target PC at all. Until this
   // round that was a KNOWN COMPATIBILITY GAP — a 0.2.28 phone could not stamp
   // `target_pc_id`, so an address-less frame was forwarded unchecked with a log
@@ -626,7 +626,7 @@ export const ERROR_CODES = {
   // ⚠️ Like every INJECT_* refusal, ONLY THE PHONE EVER SEES IT (the desktop does
   // not subscribe to inject:result). Do not add desktop copy for it — that would
   // be a new façade.
-  INJECT_PC_UNSPECIFIED:     { zh_CN: '这条投递没有指明目标电脑，未注入。请更新手机端后重试。', en: 'This delivery named no target PC; nothing was injected. Update the phone app and retry.' },
+  INJECT_PC_UNSPECIFIED:     { zh_CN: '未指定目标电脑，文字未能注入。请将手机端更新至最新版本后重试。', en: 'This delivery named no target PC; nothing was injected. Update the phone app and retry.' },
   // ── RV-87 (owner 2026-08-01): the cloud relay's image policy — two codes ─────
   //
   // owner, verbatim: 「如果是中继通道，服务器统一拦客户端，图片超过 1M 就不允许传，防止将
@@ -669,8 +669,8 @@ export const ERROR_CODES = {
   // ⚠️ ONLY THE PHONE EVER SEES THESE (the desktop does not subscribe to
   // inject:result — see the note at INJECT_PC_UNSPECIFIED). Do not add desktop
   // copy for them.
-  INJECT_CLOUD_IMAGE_TOO_LARGE: { zh_CN: '云端中继不传超过 1 MB 的图片，这一张未发出。连到同一局域网就能发。', en: 'The cloud relay does not carry images over 1 MB; this one was not sent. Connect over the same LAN to send it.' },
-  INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED: { zh_CN: '这个账号 24 小时内经云端中继发送的图片已达 200 张上限，这一张未发出。请稍后再试，或连到同一局域网发送。', en: 'This account has reached the 200-image / 24-hour cloud relay limit; this one was not sent. Try again later, or connect over the same LAN.' },
+  INJECT_CLOUD_IMAGE_TOO_LARGE: { zh_CN: '通过云端中继仅支持发送 1 MB 以内的图片，本次未发送。连接至同一局域网即可发送大图。', en: 'The cloud relay does not carry images over 1 MB; this one was not sent. Connect over the same LAN to send it.' },
+  INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED: { zh_CN: '该账号 24 小时内通过云端中继发送的图片已达 200 张上限，本次未发送。请稍后再试，或连接至同一局域网发送。', en: 'This account has reached the 200-image / 24-hour cloud relay limit; this one was not sent. Try again later, or connect over the same LAN.' },
   // ── 🔴 2026-08-02 (owner ruling: re-delivered messages must not auto-inject) ──
   //
   // docs/decisions/2026-08-02-deferred-delivery-must-not-autoinject.md. The frame
@@ -746,7 +746,7 @@ export const ERROR_CODES = {
   // silent about the code (`chat_message_tile.dart` `_reasonLineFor`: 未投递 speaks
   // only for the two cloud-image codes). Adding a third exception belongs with the
   // 投递/注入 word pass that owns that table, not here.
-  INJECT_DEFERRED_NOT_AUTOINJECTED: { zh_CN: '这条是自动补投的消息，已送到电脑并留在电脑的时间线上；为免打断你手上的事，没有自动注入。', en: 'Re-delivered automatically: it reached the PC and is on its timeline. It was deliberately not auto-injected, so it could not interrupt what you were doing.' },
+  INJECT_DEFERRED_NOT_AUTOINJECTED: { zh_CN: '本条为连接恢复后自动补发的消息，已存入电脑时间线；为避免打扰当前操作，未自动注入。', en: 'Re-delivered automatically: it reached the PC and is on its timeline. It was deliberately not auto-injected, so it could not interrupt what you were doing.' },
   // 🔴 owner 2026-08-02 (F1a reversal ruling, docs/strategy/2026-08-02-0248-status-truth-analysis.md
   // 「owner clarification」 item 1):「FlowMic 自家输入框（如时间线搜索框）必须能注入——它本身就是
   // PC 端的一个窗口，光标定位到这里我说的话肯定能注入，这是非常正常的要求。」("FlowMic's
@@ -799,7 +799,7 @@ export const ERROR_CODES = {
   // every relay forwards the string untouched (the same property that made
   // INJECT_DEFERRED_NOT_AUTOINJECTED a code rather than a field). No relay redeploy is
   // required BY THIS CODE.
-  INJECT_SELF_WINDOW_NO_INPUT: { zh_CN: '焦点在 FlowMic 自己的窗口上，没有停在可以输入的位置，所以没有注入。点进 FlowMic 的输入框，或切到你要输入的程序，再重新注入。', en: 'Focus was on FlowMic\'s own window and not in an editable field, so nothing was typed. Click into a FlowMic input box, or switch to the app you want, then re-inject.' },
+  INJECT_SELF_WINDOW_NO_INPUT: { zh_CN: '当前焦点在 FlowMic 自身窗口且未处于输入框中，未执行输入。请点击输入框或切换到目标程序后再重新注入。', en: 'Focus was on FlowMic\'s own window and not in an editable field, so nothing was typed. Click into a FlowMic input box, or switch to the app you want, then re-inject.' },
   // ── MAC-05: the two macOS conditions under which the OS silently swallows a
   //    synthetic keystroke. owner approved on 2026-08-07 (docs/decisions/2026-08-07-owner-
   //    grants-mac-injection-refusal-codes-63-64.md). Producer for both:
@@ -844,7 +844,7 @@ export const ERROR_CODES = {
   // in `preflight.rs`'s `error_message`, which is the developer-facing surface).
   //
   // 62 → 63.
-  INJECT_SECURE_INPUT_ACTIVE: { zh_CN: '电脑正处在系统的安全输入状态（密码框、终端的「安全键盘输入」或锁屏），系统不接收任何模拟按键，所以没有注入。这一句已经送到电脑，留在电脑的时间线上。离开密码框后在电脑上重新注入。', en: 'The PC is in the system\'s secure input mode (a password field, Terminal\'s Secure Keyboard Entry, or the lock screen), where synthetic keystrokes reach nobody, so nothing was typed. It did reach the PC and is on its timeline. Leave the secure field, then re-inject on the PC.' },
+  INJECT_SECURE_INPUT_ACTIVE: { zh_CN: '电脑处于系统安全输入状态（如密码框或锁屏），系统已拦截模拟按键输入。文字已保存至电脑时间线，离开安全输入区域后可在电脑上重新注入。', en: 'The PC is in the system\'s secure input mode (a password field, Terminal\'s Secure Keyboard Entry, or the lock screen), where synthetic keystrokes reach nobody, so nothing was typed. It did reach the PC and is on its timeline. Leave the secure field, then re-inject on the PC.' },
   // 63 → 64. ZERO wire-shape change for both: `error` is a KNOWN key of
   // InjectResultSchema, so every relay forwards the string untouched and no relay
   // redeploy is required by either code (the same property that made
@@ -857,7 +857,7 @@ export const ERROR_CODES = {
   // rendered as 「INJECT_ACCESSIBILITY_NOT_GRA…」, a verbatim repeat of the defect
   // that caused the 0.2.53 release — on the one failure a user can actually fix.
   // `INJECT_NO_ACCESSIBILITY` is 23.
-  INJECT_NO_ACCESSIBILITY: { zh_CN: '电脑上还没给 FlowMic「辅助功能」权限，系统会丢掉它发出的每一个按键，所以没有注入。这一句已经送到电脑，留在电脑的时间线上。到电脑上打开「系统设置 ▸ 隐私与安全性 ▸ 辅助功能」，把 FlowMic 打开，再重新注入。', en: 'FlowMic has not been granted Accessibility on the PC, so the system discards every keystroke it sends and nothing was typed. It did reach the PC and is on its timeline. On the PC open System Settings ▸ Privacy & Security ▸ Accessibility, turn FlowMic on, then re-inject.' },
+  INJECT_NO_ACCESSIBILITY: { zh_CN: '电脑尚未授予 FlowMic「辅助功能」权限，无法模拟按键输入。文字已保存至电脑时间线，请在电脑系统设置中打开「系统设置 ▸ 隐私与安全性 ▸ 辅助功能」开启权限后重新注入。', en: 'FlowMic has not been granted Accessibility on the PC, so the system discards every keystroke it sends and nothing was typed. It did reach the PC and is on its timeline. On the PC open System Settings ▸ Privacy & Security ▸ Accessibility, turn FlowMic on, then re-inject.' },
   // R-i18n-1 SSOT: mandated by the R-mobile-5 "Invalid kind → typed error"
   // rule. Produced by the Rust key command (F-2110), surfaced by the desktop
   // control:key consumer (F-2111) via result.error_code. Renamed in the
@@ -929,7 +929,7 @@ export const ERROR_CODES = {
   // segment that neither word covers: the frame demonstrably arrived, the row is
   // minted, and whether the keystrokes landed is a different question answered by
   // a different code.
-  PC_IMAGE_STORE_FAILED:     { zh_CN: '图片已经送到电脑，但电脑没能把它保存下来，这张图没有留在电脑上。请检查电脑的磁盘空间和写入权限。', en: 'The picture reached the PC but the PC could not save it, so it was not kept there. Check the free disk space and write permissions on the PC.' },
+  PC_IMAGE_STORE_FAILED:     { zh_CN: '图片已送达电脑，但电脑本地保存失败。请检查电脑磁盘剩余空间及存储权限。', en: 'The picture reached the PC but the PC could not save it, so it was not kept there. Check the free disk space and write permissions on the PC.' },
 
   // Settings
   SETTINGS_SYNC_FAIL:        { zh_CN: '云端同步失败，已保存本地。',            en: 'Cloud sync failed, saved locally.' },
@@ -991,7 +991,7 @@ export const ERROR_CODES = {
   // F-3005/F-3008: timeline_blobs write path rejects any ciphertext that
   // does not carry the e2e:v1: prefix (strictly distinct from F-705's
   // server-decryptable enc:v1: — never coerced into it).
-  TIMELINE_BLOB_REJECTED:    { zh_CN: '云同步内容格式无效，已拒绝写入。',      en: 'Cloud sync payload invalid, write rejected.' },
+  TIMELINE_BLOB_REJECTED:    { zh_CN: '云同步数据格式无效，同步失败。',        en: 'Cloud sync payload invalid, write rejected.' },
   // WP-5D (F-3094..F-3097): cloud-web E2EE timeline preview grant handshake.
   // TIMELINE_WEB_READ_ONLY: a kind:'web' socket attempted timeline:push/tombstone
   // (server-enforced read-only).
@@ -1092,7 +1092,7 @@ export const ERROR_CODES = {
   // ⚠️ Name is 15 characters, inside the phone's 28-char raw-code slot.
   // ZERO wire-shape change: this rides the existing `{error}` ack field.
   // `whitelist=54` is untouched — no event was added, removed, or renamed.
-  NODE_IS_REPLICA:           { zh_CN: '当前服务器不处理注册和配对，请重新连接后再试。', en: 'The current server does not handle registration or pairing — reconnect and try again.' },
+  NODE_IS_REPLICA:           { zh_CN: '当前服务器暂不支持注册与配对，请重新连接后再试。', en: 'The current server does not handle registration or pairing — reconnect and try again.' },
 
   // ── 2026-09-02 (WP-8, registry hygiene) — two long-standing SHADOW codes
   // promoted into this registry. Both already had real producers and real
@@ -1112,7 +1112,7 @@ export const ERROR_CODES = {
   // `inject:result` SOCKET event — which is why `inject-verdict-authorship.ts`
   // gives it `'none'` rather than `'relay'` (that value is reserved for "this
   // frame never reached any PC", and here the opposite is true: it did).
-  INJECT_RESULT_TIMEOUT:     { zh_CN: '电脑那边响应超时，不确定是否已处理，请重试。', en: 'No response from the PC in time — unsure whether it was handled, please retry.' },
+  INJECT_RESULT_TIMEOUT:     { zh_CN: '电脑端响应超时，未能确认处理状态，请重试。', en: 'No response from the PC in time — unsure whether it was handled, please retry.' },
   // EMAIL_VERIFY_GRACE_EXPIRED — `auth/verification-grace.ts`'s 3-day
   // unverified-email grace period (owner ruling 2026-08-27 items 3/4) ran out,
   // and `audio:start` / `compose:start` refused to open a new managed-cloud
@@ -1123,6 +1123,146 @@ export const ERROR_CODES = {
   // ("EMAIL_VERIFY_GRACE_EXPIRED is NOT a protocol error code") is flipped in
   // the same commit.
   EMAIL_VERIFY_GRACE_EXPIRED: { zh_CN: '邮箱验证宽限期已结束，请先完成邮箱验证。', en: 'The unverified-email grace period has ended — please verify your email first.' },
+
+  // ── Web target rooms (card S2-04) · 74 → 75 ──────────────────────────
+  // Owner gate: ruling W-P (docs/decisions/2026-09-06-owner-web-client-rulings-
+  // repo-protocol-domains.md) approved the three WEB_ROOM_* codes named in the
+  // protocol addendum §2.1 AND ruled that each is registered WITH ITS FIRST
+  // PRODUCER rather than up front. This is that first producer, and it is ONE of
+  // the three: `POST /api/web/rooms` refusing a build that came too fast.
+  //
+  // ⚠️ 2026-09-09, card M4-01 — the paragraph that used to stand here said the
+  // other two were 「deliberately still absent」 because no line of code could
+  // produce them. That was true and is now spent: both have producers below,
+  // registered in the SAME commit as those producers, which is the whole of what
+  // ruling W-P asked for. Kept as a correction rather than deleted, because the
+  // argument it made is the one that governs the NEXT reserved code.
+  //
+  // WHY NOT REUSE `REGISTER_RATE_LIMITED`, the nearest existing sentence: that
+  // one says 「too many SIGN-UPS from this network」. This refusal is charged
+  // against ONE ACCOUNT that is already signed in, so the holder who read it
+  // would go looking for somebody else on their network — a true-sounding
+  // sentence pointing at the wrong actor. It is the same reason
+  // `PAIR_RATE_LIMITED` and `TIMELINE_RATE_LIMITED` are separate rows rather
+  // than one shared 「rate limited」.
+  //
+  // The copy names the only action that helps (wait) and nothing else, because
+  // there is nothing else: the caller owns the account and has done nothing
+  // worse than clicking twice. The waiting TIME rides beside this code as the
+  // 429's `retry_after_ms`, never inside the sentence, so the budget and the
+  // translations cannot drift apart.
+  WEB_ROOM_RATE_LIMITED:     { zh_CN: '开启网页会话过于频繁，请稍后再试。', en: 'Too many attempts to start a web session, please try again later.' },
+
+  // ── The site demo (card M4-01) · 75 → 78 ────────────────────────────────
+  // Owner gate: ruling 11 of 2026-09-09 (docs/decisions/2026-09-09-owner-stage4-
+  // site-demo-twelve-rulings.md) approved these three as ONE batch with the
+  // schema they ride beside. Producers: http/web-anon-routes.ts (all three) and
+  // the anonymous arm of http/web-room-routes.ts (the first).
+  //
+  // 🔴 ALL THREE ARE HTTP-ONLY AND THE PHONE NEVER SEES ONE. They answer a
+  // browser asking for a demo identity or a demo room; no `inject:result`, no
+  // `stt:error`, no `compose:error` can carry them. That is why there is no
+  // mirror in apps/mobile's own string table and no change to
+  // `kPcInjectionVerdictCodes` — the closed set the phone uses to decide whether
+  // a delivery is still owed. `WEB_ROOM_RATE_LIMITED` beside them set that
+  // precedent on 2026-09-08 for the same reason.
+  //
+  // WEB_ROOM_ORIGIN_NOT_ALLOWED — the request came from a page this deployment
+  // does not serve the demo to (or from no page at all: a missing `Origin` is
+  // refused the same way, because 「we could not tell」 must not be the loose
+  // arm on a gate). It rides the demo endpoints (http/web-anon-routes.ts's
+  // mint and `handleAnonymous` in http/web-room-routes.ts) and, since card
+  // MP-1, `handleIntegrator` in that same file — the third-party site-key
+  // room arm. The account arm of /api/web/rooms deliberately does not check
+  // an Origin at all (a desktop console is not a page), so this code can
+  // never appear there.
+  //
+  // WHY NOT REUSE `AUTH_TOKEN_INVALID`: that one says 「your credential is bad」,
+  // and a caller who read it would throw away a perfectly good token and mint
+  // another from the same disallowed page, forever. The credential is fine; the
+  // place it was used from is not.
+  //
+  // The copy states the fact and names no action, because for the visitor this
+  // can reach there is none: an ordinary person on the real site never sees it,
+  // and whoever does is the operator of the embedding page.
+  WEB_ROOM_ORIGIN_NOT_ALLOWED: { zh_CN: '这个网站不允许使用语音输入。', en: 'Voice input is not allowed on this website.' },
+
+  // WEB_ROOM_TURNSTILE_FAILED — the Cloudflare Turnstile token did not verify.
+  //
+  // 🔴 IT IS NOT THE SAME AS 「this deployment cannot run a challenge」, which is
+  // WEB_DEMO_UNAVAILABLE below. auth/captcha.ts keeps those two facts apart on
+  // purpose (`configured` beside `verify`), and collapsing them here would undo
+  // that: one is this visitor's problem and refreshing fixes it, the other is
+  // ours and refreshing forever will not.
+  //
+  // The copy names refreshing because that is what actually re-arms the widget —
+  // a Turnstile token is single-use and short-lived, so 「try again」 without the
+  // refresh would send someone to press a button that cannot succeed.
+  WEB_ROOM_TURNSTILE_FAILED: { zh_CN: '人机验证没有通过，刷新页面后可以再试一次。', en: 'The human check did not pass. Refresh the page to try again.' },
+
+  // WEB_DEMO_UNAVAILABLE — the demo is not being served right now: the master
+  // switch is off, this deployment has no Turnstile secret, the site's daily
+  // minutes are spent, or there are already as many live demo rooms as the
+  // deployment allows.
+  //
+  // 🔴 ONE CODE FOR FOUR CAUSES ON PURPOSE, WHICH IS THE OPPOSITE OF THIS
+  // REPO'S USUAL RULE, and the reason is that the rule is about the READER's
+  // action, not about our taxonomy: every one of the four leaves a visitor with
+  // exactly the same thing to do (come back later, or download the app), and
+  // four sentences would be four ways of saying that. The four are told apart
+  // where telling them apart is actionable — the operator's log, one line per
+  // refusal with its own `reason` (design §3.2).
+  //
+  // WHY NOT REUSE `SERVER_BUSY`: that says a load spike will pass on its own. A
+  // switch that is off does not pass on its own, and a visitor told to wait for
+  // it would wait forever.
+  //
+  // The copy promises no time, because we have none to promise: the daily budget
+  // resets at UTC midnight, the switch resets when a person flips it.
+  WEB_DEMO_UNAVAILABLE:      { zh_CN: '现在暂时不能开始体验，请稍后再来。', en: 'The demo is not available right now. Please come back a little later.' },
+
+  // INTEGRATOR_QUOTA_EXCEEDED — card MP-1. A third-party page embedded FlowMic
+  // with a publishable key, and the allowance THAT PAGE'S OWNER pays from is
+  // spent: either the integrator account's own plan minutes, or the smaller
+  // per-key sub-quota they set beside it (whichever ran out first — the server
+  // takes the lower of the two and never says which, because the visitor can act
+  // on neither).
+  //
+  // 🔴 owner APPROVED IT ON 2026-09-11 (78 → 79), ruling §11 追认 item 4, in
+  // docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md.
+  // The design that asks for it is docs/strategy/2026-09-11-metering-principal-
+  // matrix-design.md §4.
+  //
+  // 🔴 WHY NOT QUOTA_EXCEEDED, which is the obvious reuse: that code's sentence
+  // is 「本月套餐用量已达上限」 — a statement about THE READER's subscription. The
+  // reader here has no subscription in this story and may have no account at all;
+  // on an integrator page the payer is decided BEFORE the speaker is even looked
+  // at (`auth/metering-principal.ts` `resolvePayer` step 1). Telling a visitor
+  // their plan is exhausted is false in both halves — it is not their plan, and
+  // signing in or upgrading would not move this ceiling by a second, because
+  // signing in does not change who pays.
+  //
+  // 🔴 WHY NOT WEB_DEMO_UNAVAILABLE, the other near neighbour: that one answers
+  // 「FlowMic's own demo is not being served」, and its four causes are all OURS.
+  // This is a specific third party's allowance, on a page we do not run. Folding
+  // them would put「come back a little later」in front of somebody whose wait ends
+  // only when a site owner they cannot contact tops up.
+  //
+  // ── WHAT THE COPY MAY NOT SAY, AND WHY EACH OMISSION IS LOAD-BEARING ───────
+  // No plan name and no remaining figure: the payer is a DIFFERENT PARTY, and
+  // both are that party's commercial facts — the design (§4) puts them off the
+  // wire, so a sentence naming one would be inventing what the frame refuses to
+  // carry. No sign-in prompt and no upgrade link: a visitor who signed in would
+  // still be billed to the host (owner §11 追认 item 1), so an invitation to act
+  // is an invitation to an action that changes nothing — the 「a control that
+  // changes nothing is worse than no control」 rule, in sentence form.
+  //
+  // ⚠️ THE PHONE MIRRORS THIS BY HAND (`apps/mobile/lib/src/settings/strings/
+  // recording_strings.dart`, `sttStallIntegratorQuotaExceeded`) because a handset
+  // that scans an integrator page's QR is a speaker in that room too. Nothing
+  // binds the two tables — CLAUDE.md's standing open account — so the mirror is
+  // named here as well as there.
+  INTEGRATOR_QUOTA_EXCEEDED: { zh_CN: '这个网站的语音额度已用完，这段话没有转成文字。', en: "This site's voice quota is used up, so this recording was not transcribed." },
 } as const satisfies Record<string, ErrorMessage>;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

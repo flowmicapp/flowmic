@@ -34,9 +34,16 @@
 // It says what THIS MACHINE did with the keys. It says nothing about the phone,
 // and the phone's own row says nothing about this machine (vol. 15 §2.0-e: 两端各自
 // 铸自己的行，各自只说自己能证的那一半 — "each side mints its own row, each
-// only stating the half it can prove"). There is no receipt frame on `control:key`,
-// so the two rows are deliberately never reconciled — inventing a correlation
-// here would imply a round trip that does not exist.
+// only stating the half it can prove").
+//
+// ⚠️ 「There is no receipt frame on `control:key`, so the two rows are deliberately
+// never reconciled」 stood here until card MP-14 and half of it is now FALSE: the
+// receipt exists ([`KeyReceipt`] / [`emit_key_receipt`] below). The CONCLUSION is
+// unchanged and the reason is worth keeping straight — the receipt says what THIS
+// MACHINE did with the key, which is exactly what this row already says. It is not
+// a correlation between two rows and it does not make one: the phone uses it to
+// raise a transient notice, never to rewrite its own row. Inventing a round trip
+// between the rows would still imply something that does not exist.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -203,12 +210,123 @@ fn minted_line(id: &str, channel: Channel, kind: &str, outcome: ControlOutcome, 
     )
 }
 
+/// MP-14 — WHAT THIS MACHINE PUTS ON THE WIRE about one remote keypress.
+///
+/// 🔴 DELIBERATELY COARSER THAN BOTH [`ControlOutcome`] AND THE FORENSIC LINE, and
+/// that is the same split this file already draws once. `ChordExit::line` carries
+/// the OS's own words because a diagnosis needs them; `ControlOutcome` drops those
+/// but keeps six variants because the local row renders a named face for each. The
+/// WIRE keeps three, because on the far end each one leads to a DIFFERENT thing the
+/// person can do — and a receipt that offers a distinction the reader cannot act on
+/// is a receipt that makes them guess which distinction mattered.
+///
+/// 🔴 NOT AN ERROR CODE, and the registry is untouched. The full argument is on
+/// `ControlKeyResultSchema` in packages/protocol; the short form is that an
+/// `ErrorCode` is the user-facing vocabulary in which a DELIVERY verdict is argued
+/// about (with an authorship table behind it), and a keypress is not a delivery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::socket) enum KeyReceipt {
+    /// The chord went to the focused window / the glyph was typed. The far side
+    /// draws NOTHING for this — but it is still sent, because a receipt that only
+    /// ever appears on failure cannot be told apart from one that got lost.
+    Ok,
+    /// Carries the wire `reason`, one of the three in `CONTROL_KEY_RESULT_REASONS`.
+    Refused(&'static str),
+}
+
+/// `reason` when this end does not have the key at all (a kind outside the six-key
+/// map and outside the punctuation table). Pressing it again will never work here.
+pub(in crate::socket) const REASON_UNSUPPORTED_HERE: &str = "unsupported_here";
+/// `reason` when there was nothing focused to press it into.
+pub(in crate::socket) const REASON_NO_TARGET: &str = "no_target";
+/// `reason` when this end tried and the attempt did not go through.
+pub(in crate::socket) const REASON_FAILED: &str = "failed";
+
+impl KeyReceipt {
+    /// The wire's view of a local outcome.
+    ///
+    /// 🔴 FIVE OF THE SIX LOCAL VARIANTS COLLAPSE INTO TWO, on purpose. The user on
+    /// the other end of this room cannot do anything differently about
+    /// `ForegroundRefused` than about `SendFailed` than about `NotPrimary` — all
+    /// three mean 「this computer tried or declined, and nothing happened」, and the
+    /// difference between them is a diagnosis that lives in the forensic line
+    /// written on the same press. Only `NoTarget` earns its own word, because it is
+    /// the one with a move attached: click into a box.
+    pub(in crate::socket) fn from_outcome(outcome: ControlOutcome) -> KeyReceipt {
+        match outcome {
+            ControlOutcome::Sent => KeyReceipt::Ok,
+            ControlOutcome::NoTarget => KeyReceipt::Refused(REASON_NO_TARGET),
+            ControlOutcome::ForegroundRefused
+            | ControlOutcome::OsRefused
+            | ControlOutcome::SendFailed
+            | ControlOutcome::NotPrimary => KeyReceipt::Refused(REASON_FAILED),
+        }
+    }
+}
+
+/// The `control:key-result` payload. Split from the emit so a test can read the
+/// frame without a socket — the same reason `build_row` is separate from
+/// [`mint_control_row`].
+///
+/// `request_id` is OMITTED when absent rather than sent as `null` or `""`: the
+/// schema is `NonEmpty.optional()`, so an empty string dies at the relay's zod
+/// boundary, and a boundary refusal is anonymous (the frame dies naming no field).
+/// Absent means 「the press did not carry one」, which is a real state — an older
+/// phone, or an older relay that stripped it — and the far side then matches this
+/// receipt by kind + recency.
+pub(in crate::socket) fn build_key_receipt(
+    kind: &str,
+    request_id: Option<&str>,
+    receipt: KeyReceipt,
+) -> Value {
+    let mut frame = json!({ "kind": kind, "ok": matches!(receipt, KeyReceipt::Ok) });
+    if let KeyReceipt::Refused(reason) = receipt {
+        frame["reason"] = json!(reason);
+    }
+    if let Some(id) = request_id.filter(|id| !id.is_empty()) {
+        frame["request_id"] = json!(id);
+    }
+    frame
+}
+
+/// Answer one remote keypress on the wire (MP-14).
+///
+/// 🔴 CALLED ON EVERY PRESS THIS MACHINE IS HANDED, including the ones that mint no
+/// row (`punct_*`, an unknown kind) and the one that never reaches the key map at
+/// all (a non-primary channel). The row and the receipt answer different questions
+/// — 「what does this PC remember」 vs 「what does the person who pressed it get
+/// told」 — and tying the second to the first is exactly how the unknown-kind case
+/// stayed silent for the whole life of this feature.
+///
+/// The forensic line is NOT replaced by this and every existing one stays where it
+/// is: the log is the only place the OS's own words can live, and this frame
+/// deliberately does not carry them.
+pub(in crate::socket) fn emit_key_receipt(
+    socket: &rust_socketio::RawClient,
+    kind: &str,
+    request_id: Option<&str>,
+    receipt: KeyReceipt,
+) {
+    let frame = build_key_receipt(kind, request_id, receipt);
+    // `let _ =` for the same reason the inject:result emit uses it: a dead socket
+    // is already reported by the connection layer, and turning a send error into a
+    // panic here would take the process down over a keypress.
+    let _ = socket.emit(crate::events::CONTROL_KEY_RESULT, frame);
+}
+
 /// Mint the PC timeline row for one remote key press.
 ///
 /// Called from the ONE place that knows the outcome, and only there. It returns
-/// nothing: unlike a delivery there is no verdict to hand back to a caller and none
-/// to put on the socket — `control:key` has no result frame (vol. 15 §6 G-24 records
-/// what that costs and what adding one would take).
+/// nothing: unlike a delivery there is no verdict to hand back to a caller.
+///
+/// ⚠️ 「and none to put on the socket — `control:key` has no result frame (vol. 15
+/// §6 G-24 records what that costs and what adding one would take)」 stood here
+/// until card MP-14, which is what added it. There IS something to put on the
+/// socket now, and it is [`emit_key_receipt`] — a SIBLING of this function, called
+/// from the same place, never from inside it. Keeping them apart is the point: the
+/// receipt is sent for presses that mint no row at all (`punct_*`, an unknown
+/// kind, a non-primary channel), so folding the emit in here would silently reduce
+/// the receipt's coverage to whatever the row's coverage happens to be.
 pub(in crate::socket) fn mint_control_row(
     sink: &Option<BridgeSink>,
     channel: Channel,

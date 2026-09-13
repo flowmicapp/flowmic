@@ -26,13 +26,21 @@
 // before cargo — which is the half this repo can actually keep honest.
 //
 // EXIT CODES (scripts/run-script-tests.mjs header): 0 = PASS, 1 = FAIL,
-// 2 = SKIP. This file never skips: it depends only on repo source text and
-// synthetic fixtures, both present in a fresh clone and in the export tree.
+// 2 = SKIP. §§1–3b / synthetic §4 / §§5–7 depend only on repo source text
+// and fixtures, so they run on a fresh clone and in the export tree.
+// §4's positive control is the exception: it points `missingResources` at
+// this checkout's REAL `apps/desktop/src-tauri/resources`, and those four
+// paths are gitignored build output. A tree that has never run
+// `build:sidecar` is ABSENCE, not WRONGNESS (same split as
+// scripts/it27-publish-node-pin.test.mjs §1, scripts/eng1b-portable-sherpa-staging.test.mjs,
+// scripts/mac-app-addon-gate-args.test.mjs). That one control SKIPs
+// (exit 2, a `SKIP: ` line naming what was not verified and the command
+// that stages the tree). FAIL is reserved for the preflight being wrong —
+// the synthetic halves still prove that, and they still go red if it is.
 //
 // Run: `node scripts/build1-sidecar-preflight.test.mjs`
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +59,10 @@ const REAL_TAURI_DIR = join(ROOT, 'apps', 'desktop', 'src-tauri');
 
 let failures = 0;
 let sectionsRun = 0;
+// Set when §4's real-tree control cannot run because this checkout has
+// never staged the sidecar payload. Independent of `missingResources` —
+// the skip decision must not share a ruler with the function under test.
+let skippedRealTreeControl = null;
 // 8 since 2026-08-27: §3b (every real overlay carries every base payload) was
 // added after the macOS bundle shipped for five releases without the sherpa
 // addon. The count is a guard against a section dying silently mid-file, so it
@@ -191,14 +203,34 @@ try {
   });
   assertEqual(missingResources('win32', allStaged), [], 'fully staged ⇒ empty');
 
-  // POSITIVE CONTROL for the section above. Every assertion so far is a
-  // negative ("these are absent"), and a zero can mean the probe is blind — so
-  // prove the same mechanism reports GREEN against the repo's own real, staged
-  // tree. If this line ever fails, the four above prove nothing.
-  assertEqual(
-    missingResources(process.platform === 'darwin' ? 'darwin' : 'win32', REAL_TAURI_DIR), [],
-    'positive control: the repo\'s own staged tree reports nothing missing',
-  );
+  // POSITIVE CONTROL for the section above. Every synthetic assertion so
+  // far can pass while the probe is blind to a REAL directory — so when this
+  // checkout actually has a staged tree, prove the same mechanism reports
+  // GREEN against it. When it does not, that is the normal state of a fresh
+  // worktree (the four paths are gitignored), not a defect in the preflight.
+  // `existsSync` here is a SEPARATE ruler from `missingResources`: the skip
+  // decision must not share a probe with the function under test.
+  const realPlatform = process.platform === 'darwin' ? 'darwin' : 'win32';
+  const realDeclared = declaredResources(realPlatform, REAL_TAURI_DIR);
+  const realAbsent = realDeclared.filter((rel) => !existsSync(join(REAL_TAURI_DIR, rel)));
+  if (realAbsent.length === realDeclared.length) {
+    skippedRealTreeControl =
+      `§4 positive control (real staged tree) was not verified — this checkout ` +
+      `has never staged the sidecar resources (all ${realDeclared.length} declared ` +
+      `paths absent: ${realAbsent.map((rel) => `apps/desktop/src-tauri/${rel}`).join(', ')}). ` +
+      `They are gitignored build output, not source. Synthetic §4 (empty / partial / ` +
+      `full fixtures) and §§1–3b / §5–7 ran. Run \`${SIDECAR_BUILD_COMMAND}\` to ` +
+      `stage apps/desktop/src-tauri/resources and re-run this drill to also probe ` +
+      `the real tree.`;
+    console.log('  SKIP  positive control: real staged tree never built in this checkout (reason on the SKIP: line)');
+  } else {
+    // Something is on disk. Partial / drifted staging is a real FAIL — the
+    // probe is being asked about a tree that has been built at least once.
+    assertEqual(
+      missingResources(realPlatform, REAL_TAURI_DIR), [],
+      'positive control: the repo\'s own staged tree reports nothing missing',
+    );
+  }
 
   // ── §5 ────────────────────────────────────────────────────────────────────
   section('§5 the refusal names the FIX, not just a path');
@@ -250,5 +282,17 @@ try {
   for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
 }
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}: ${sectionsRun}/${TOTAL_SECTIONS} sections ran, ${failures} failure(s)`);
-process.exit(failures === 0 && sectionsRun === TOTAL_SECTIONS ? 0 : 1);
+if (failures > 0 || sectionsRun !== TOTAL_SECTIONS) {
+  console.log(`\nFAIL: ${sectionsRun}/${TOTAL_SECTIONS} sections ran, ${failures} failure(s)`);
+  process.exit(1);
+}
+if (skippedRealTreeControl) {
+  // Exactly one `SKIP: ` line — the runner (IT-38) escalates exit 2 without
+  // this prefix to FAIL. The line names what was not verified and the
+  // command that would make the control run; a skip that reads like a pass
+  // is worse than the environmental failure this used to be.
+  console.log(`\nSKIP: ${skippedRealTreeControl}`);
+  process.exit(2);
+}
+console.log(`\nPASS: ${sectionsRun}/${TOTAL_SECTIONS} sections ran, 0 failure(s)`);
+process.exit(0);

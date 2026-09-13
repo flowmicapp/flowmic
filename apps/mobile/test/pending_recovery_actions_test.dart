@@ -16,6 +16,7 @@
 // ⚠️ Ordinary `test`, not `testWidgets`: nothing here renders. The screen's own
 // behaviour is the other file's subject.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -38,6 +39,7 @@ import 'package:flowmic/src/signaling/state_machine.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/delete_race_fs.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
 import 'support/temp_teardown.dart';
@@ -54,11 +56,23 @@ const List<String> kTierA = <String>[
 class _StartRecordingTransport extends FakeSocketTransport {
   final List<Map<String, Object?>> starts = <Map<String, Object?>>[];
 
+  final Completer<void> _onWire = Completer<void>();
+
+  /// Completes the instant the FIRST `audio:start` leaves the phone.
+  ///
+  /// 🔴 IT EXISTS SO A CASE CAN SAY 「the attempt is on the wire」 INSTEAD OF
+  /// 「10 ms have passed」. See the delete-race case below for the whole story;
+  /// the short version is that a wall-clock head start decides WHICH PART of
+  /// the leg the delete lands in, and on a loaded machine it chose a different
+  /// part than the case claims to be about.
+  Future<void> get onWire => _onWire.future;
+
   @override
   void emit(String event, Object? payload) {
     super.emit(event, payload);
     if (event == FlowMicEvents.audioStart && payload is Map<String, Object?>) {
       starts.add(payload);
+      if (!_onWire.isCompleted) _onWire.complete();
     }
   }
 }
@@ -109,120 +123,6 @@ class _RefusingDeleteFs implements JournalFileSystem {
       _inner.writeBytes(path, bytes, flush: flush);
 }
 
-/// A filesystem that models POSIX `unlink` on a file that is still open.
-///
-/// 🔴 IT EXISTS BECAUSE WINDOWS CANNOT REPRODUCE THE RACE. The leg holds an
-/// append handle on the PCM while an attempt runs; on Windows the OS refuses
-/// to remove an open file, so the user's delete fails cleanly and the bug is
-/// unreachable on this machine. On Android and iOS - every device that ships -
-/// the unlink succeeds, the handle stays valid, and the closing commit writes
-/// the manifest back for audio that is gone. This double is the phone's
-/// behaviour, on the seam `RetainedAudioSpill` already exposes.
-///
-/// A deleted path reads as absent and unreadable from here on; a later WRITE
-/// to it brings it back, which is exactly the resurrection under test.
-class _PosixUnlinkFs implements JournalFileSystem {
-  final JournalFileSystem _inner = const IoJournalFileSystem();
-  final Set<String> unlinked = <String>{};
-
-  /// ⚠️ SEPARATORS ARE NORMALISED BEFORE ANYTHING IS COMPARED. Production
-  /// builds these paths with '/' while `Platform.pathSeparator` is a backslash
-  /// here, so a set keyed on the raw string would answer 「never deleted」 to
-  /// every question and this double would silently model nothing. (Same shape
-  /// as the 8.3-short-name bug in the worktree-location lint: measure your own
-  /// ruler first.)
-  static String _norm(String p) => p.replaceAll(r'\', '/');
-
-  @override
-  Future<void> deleteFile(String path) async {
-    unlinked.add(_norm(path));
-    try {
-      await _inner.deleteFile(path);
-    } on Object {
-      // Windows refuses while the leg's handle is open. The point of this
-      // double is that the CALLER is told the same thing a phone would tell
-      // it, so the refusal is swallowed here and nowhere else.
-    }
-  }
-
-  @override
-  Future<bool> exists(String path) async =>
-      unlinked.contains(_norm(path)) ? false : _inner.exists(path);
-
-  @override
-  Future<void> writeBytes(String path, Uint8List bytes,
-      {bool flush = true}) async {
-    unlinked.remove(_norm(path));
-    await _inner.writeBytes(path, bytes, flush: flush);
-  }
-
-  @override
-  Future<void> rename(String from, String to) async {
-    unlinked.remove(_norm(to));
-    unlinked.remove(_norm(from));
-    await _inner.rename(from, to);
-  }
-
-  @override
-  Future<void> ensureDirectory(String path) => _inner.ensureDirectory(path);
-  @override
-  Future<int> lengthOf(String path) async =>
-      unlinked.contains(_norm(path)) ? 0 : _inner.lengthOf(path);
-  @override
-  Future<List<String>> listNames(String path) async {
-    final List<String> names = await _inner.listNames(path);
-    return names
-        .where((String n) =>
-            !unlinked.any((String u) => u.endsWith(_norm(n))))
-        .toList(growable: false);
-  }
-
-  @override
-  Future<JournalFileHandle> openAppend(String path) => _inner.openAppend(path);
-  @override
-  Future<Uint8List> readBytes(String path) async =>
-      unlinked.contains(_norm(path)) ? Uint8List(0) : _inner.readBytes(path);
-  @override
-  Future<Uint8List> readRange(String path, int start, int end) async =>
-      unlinked.contains(_norm(path))
-          ? Uint8List(0)
-          : _inner.readRange(path, start, end);
-}
-
-/// The delete lands INSIDE the window between a check and the write it guards.
-///
-/// 🔴 THE FIXED DELAY IN THE CASE ABOVE CANNOT REACH THAT WINDOW ON PURPOSE,
-/// AND THAT IS WHY IT WENT GREEN WHILE THE DEFECT WAS ALIVE. Every write in
-/// the leg is preceded by its own `await _fs.exists(<manifest>)`; what the
-/// gate-0 flake hit was a delete arriving AFTER one of those checks passed and
-/// BEFORE its write landed. A wall-clock delay can only find that window by
-/// luck — it is microseconds wide — so this double opens it on demand: the
-/// first time the journal publishes a manifest, [onManifestWrite] runs first.
-///
-/// ⚠️ It models a real interleaving, it does not invent one. Nothing here
-/// changes what the leg does; it only decides WHEN the user's delete happens,
-/// which on a phone is decided by the user.
-class _DeleteAtWriteFs extends _PosixUnlinkFs {
-  /// Fired once, before the write that would publish a manifest.
-  Future<void> Function()? onManifestWrite;
-
-  bool _firing = false;
-
-  @override
-  Future<void> writeBytes(String path, Uint8List bytes,
-      {bool flush = true}) async {
-    final Future<void> Function()? hook = onManifestWrite;
-    if (hook != null &&
-        !_firing &&
-        _PosixUnlinkFs._norm(path).endsWith('.manifest.json.tmp')) {
-      _firing = true;
-      onManifestWrite = null;
-      await hook();
-      _firing = false;
-    }
-    return super.writeBytes(path, bytes, flush: flush);
-  }
-}
 
 class _Rig {
   _Rig._(this.tmp, this.store, this.spill);
@@ -672,6 +572,74 @@ void main() {
     });
   });
 
+  // ── Card WB-6 / audit A5-4, the second time ──────────────────────────────
+  //
+  // An empty result offers the button because a retry can legitimately fix it.
+  // When the USER has taken that offer and the engine answered with nothing
+  // again, the offer stops being honest: nothing is scheduled, the automatic
+  // route is permanently closed for every settled state, and the card was
+  // repeating an invitation we had measured twice to change nothing. What
+  // carries the fact across a restart is the attempt history, which is what
+  // these two cases read.
+  group('an empty result the user has already retried is the end of the road',
+      () {
+    Future<void> settleEmpty(_Rig rig, String id, RecoveryAttemptKind kind)
+        async {
+      final RetainedAudioJournal j = await RetainedAudioJournal.open(
+        dirPath: rig.tmp.path,
+        recordingId: id,
+        commitInterval: const Duration(days: 1),
+      );
+      j.addAttempt(JournalAttempt(
+        attemptId: 'a0',
+        startedAtMs: 0,
+        kind: kind.wire,
+      ));
+      j.closeAttempt('a0',
+          outcome: JournalAttempt.outcomeSettledUnverified,
+          failureCode: RecoverySettleRefusal.emptyResult.name);
+      j.setRecoveryState(RecoveryQueueState.settledUnverified);
+      await j.commit();
+      await j.close();
+    }
+
+    test('an AUTOMATIC attempt that came back empty still offers the button',
+        () async {
+      // The control. Without it, the case below could simply be returning the
+      // terminal state for every empty result, which would take away the one
+      // route §A6 R-2 exists to provide.
+      final _Rig rig = await _Rig.open();
+      addTearDown(rig.dispose);
+      await rig.writeJournal(id: 'rec-auto-empty', bytes: kBytesPerSecond);
+      await settleEmpty(rig, 'rec-auto-empty', RecoveryAttemptKind.autoRetry);
+
+      final PendingRecoveryItem item = (await rig.pending.list()).single;
+      expect(item.state, PendingRecoveryState.emptyResult);
+      expect(item.actions.contains(PendingRecoveryAction.retryNow), isTrue);
+      expect(item.awaitingTranscription, isTrue);
+    });
+
+    test('🔴 the user pressing it and getting nothing back closes it',
+        () async {
+      final _Rig rig = await _Rig.open();
+      addTearDown(rig.dispose);
+      await rig.writeJournal(id: 'rec-user-empty', bytes: kBytesPerSecond);
+      await settleEmpty(
+          rig, 'rec-user-empty', RecoveryAttemptKind.userRetranscribe);
+
+      final PendingRecoveryItem item = (await rig.pending.list()).single;
+      expect(item.state, PendingRecoveryState.emptyConfirmed);
+      expect(item.actions,
+          <PendingRecoveryAction>{PendingRecoveryAction.delete},
+          reason: 'the bytes stay and the user may remove them (O-2 / O-5); '
+              'what ends is the promise that something is still going to '
+              'happen to them');
+      expect(item.awaitingTranscription, isFalse,
+          reason: 'so the door on the light-record screen stops counting it '
+              'among the recordings that are waiting');
+    });
+  });
+
   group('a delete that lands while an attempt is running', () {
     test('🔴 the leg does not resurrect the manifest of a deleted recording',
         () async {
@@ -681,7 +649,7 @@ void main() {
       // RECREATE the manifest — the scan would list the recording again, with
       // its claim ahead of an absent file, and the delete would look as if it
       // had silently failed.
-      final _PosixUnlinkFs fs = _PosixUnlinkFs();
+      final PosixUnlinkFs fs = PosixUnlinkFs();
       final _Rig rig = await _Rig.open(journalFs: fs);
       addTearDown(rig.dispose);
       await rig.writeJournal(id: 'rec-race', bytes: 6400);
@@ -690,8 +658,43 @@ void main() {
       final Future<PendingRetryOutcome> attempt = rig.pending.retryNow(item);
       // Deleted through the store, which is what the leg cannot see: another
       // object, another handle, while this attempt is on the wire.
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      expect(await rig.pending.delete(item), PendingDeleteOutcome.done);
+      //
+      // 🔴 ON THE WIRE IS A FACT, AND IT USED TO BE A STOPWATCH (fixed
+      // 2026-09-12). This line was `await Future.delayed(10 ms)`, and 10 ms is
+      // not a description of anything — it is a bet about how long
+      // `retryNow` takes to get from the button to `audio:start`. The leg does
+      // real work first (it SCANS the directory before it dials), so on a
+      // loaded box the 10 ms expired mid-scan and the delete landed there
+      // instead. MEASURED on dev-pc-a, 2026-09-12: the
+      // `rec-race.manifest.json` assertion below went `Expected: false
+      // Actual: <true>` — the manifest was back — twice during a cold cargo
+      // build, and once in 15 runs under a 48-worker CPU hog with this
+      // stopwatch put back deliberately. (No line number here on purpose:
+      // this file moves, and a coordinate in a comment rots silently.)
+      //
+      // ⚠️ AND THE THING IT HIT THERE IS REAL, SO IT IS WRITTEN DOWN RATHER
+      // THAN WAITED OUT. A file-level probe on the failing run showed the
+      // resurrecting write was NEITHER `RetainedAudioJournal._commitLocked`
+      // (both of its `deleted` guards were silent — it never ran) NOR
+      // `publishManifest` (it returns early when the PCM is gone, and the PCM
+      // was already marked by then). By elimination it is
+      // `RetainedAudioJournalScan._publishManifest`, which republishes a
+      // `claimAheadOfObserved`-marked manifest with NO `DeletedRecordings`
+      // guard and no post-write undo — a fourth check-then-write door of the
+      // RF-2 family, in the scan rather than in the leg. That is a DIFFERENT
+      // case from this one, and it now has one of its own: 「a delete that
+      // lands inside the recovery SCAN」 at the end of this group, which pins
+      // that door deterministically instead of waiting for a loaded machine to
+      // find it. This test never claimed the scan: its own sentence is 「the leg
+      // opens a journal handle, and the audio is deleted underneath it」.
+      //
+      // So: wait for the leg to actually reach the wire, then delete. The
+      // interleaving is now the same one on every machine, and the ceiling is a
+      // liveness bound — nothing is concluded from reaching it.
+      await rig.transport.onWire.timeout(const Duration(seconds: 30));
+      expect(await rig.pending.delete(item), PendingDeleteOutcome.done,
+          reason: 'positive control: the delete itself worked, and it ran while '
+              'the attempt was demonstrably on the wire');
       await attempt;
       while (rig.runner.isBusy) {
         await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -729,7 +732,7 @@ void main() {
       // that is microseconds wide. It is kept because it covers the ordinary
       // interleavings cheaply; the case BELOW is the one that actually pins
       // the defect, and its reverse control is the one that went red.
-      final _PosixUnlinkFs fs = _PosixUnlinkFs();
+      final PosixUnlinkFs fs = PosixUnlinkFs();
       final _Rig rig = await _Rig.open(journalFs: fs);
       addTearDown(rig.dispose);
 
@@ -760,7 +763,7 @@ void main() {
     test('🔴 a delete that lands between the check and the write it guards',
         () async {
       // THE INTERLEAVING THE OTHER TWO CASES CANNOT REACH. See
-      // [_DeleteAtWriteFs]: the delete runs inside the leg's own publish, i.e.
+      // [DeleteAtWriteFs]: the delete runs inside the leg's own publish, i.e.
       // after `await _fs.exists(<manifest>)` said the recording was still
       // there. That is the shape gate 0 hit once on a loaded machine, and no
       // number of extra existence checks can close it — only a fact that is
@@ -776,7 +779,7 @@ void main() {
       //       pre-check inside `_commitLocked` cannot catch this one either:
       //       the delete lands after IT has run too.
       // Both restored; green again.
-      final _DeleteAtWriteFs fs = _DeleteAtWriteFs();
+      final DeleteAtWriteFs fs = DeleteAtWriteFs();
       final _Rig rig = await _Rig.open(journalFs: fs);
       addTearDown(rig.dispose);
       await rig.writeJournal(id: 'rec-mid', bytes: 6400);
@@ -799,6 +802,163 @@ void main() {
           reason: 'a write that was already past its guard put the manifest of '
               'a deleted recording back on disk');
       expect(await rig.pending.list(), isEmpty);
+    });
+
+    test('🔴 a delete that lands inside the recovery SCAN', () async {
+      // THE FOURTH DOOR OF THE RF-2 FAMILY, AND THE ONLY ONE THAT IS NOT IN A
+      // WRITER. `RetainedAudioJournalScan` is documented as a reader, so it was
+      // not counted when the registry was introduced — but it performs one
+      // write: a manifest whose claim ran ahead of its file gets a
+      // `claimAheadOfObservedAt` marker republished onto it, through the same
+      // temp-file-and-rename as every other publish.
+      //
+      // 🔴 IT IS ALSO THE DOOR THE USER IS MOST LIKELY TO WALK THROUGH, which
+      // is why the leg case above kept hitting it by accident: pressing Retry
+      // SCANS the directory before it dials, and the pending screen scans on
+      // every `list()`. The delete-while-a-retry-is-starting interleaving lands
+      // here, not in the leg's own writes.
+      //
+      // ⚠️ NO CLOCK ANYWHERE IN THIS CASE. The other two cases in this group
+      // bet on wall-clock offsets, and the sweep one is honest that with the
+      // fix removed it was still 30/30 green on an idle machine — a delay
+      // cannot reliably land inside a window that is microseconds wide. Here
+      // the filesystem seam opens the window on demand and a Completer carries
+      // the outcome back out, so the interleaving is identical on every machine
+      // and nothing is concluded from a duration.
+      //
+      // REVERSE CONTROL, REALLY RUN 2026-09-12 — both halves, one at a time:
+      //   (a) remove the pre-check from `RetainedAudioJournalScan
+      //       ._publishManifest` only ⇒ still GREEN. Written down rather than
+      //       quietly omitted: this case does not pin that half, and no case
+      //       does. The pre-check is not a second defence, it answers the
+      //       EARLIER question (the mark was already standing when the scan
+      //       reached the write, so there is nothing to publish and nothing to
+      //       take back) and keeps the three manifest writers reading alike;
+      //   (b) remove the post-write undo ⇒ `Expected: false  Actual: <true>`
+      //       on the manifest, and the card is back in `list()` with no audio
+      //       behind it. That is the defect, and it is the half this case pins.
+      final DeleteAtWriteFs fs = DeleteAtWriteFs();
+      final _Rig rig = await _Rig.open(journalFs: fs);
+      addTearDown(rig.dispose);
+
+      // A manifest whose claim outruns its file is what makes the scan write at
+      // all. Built the way a crash does it: commit the claim, then leave less
+      // on disk than was claimed. NOT `settled`, so this is the §A3-8
+      // commit-order violation and not card LS-1b's benign released-bytes case.
+      await rig.writeJournal(id: 'rec-scan', bytes: kBytesPerSecond);
+      await File(rig.pathOf('rec-scan.pcm'))
+          .writeAsBytes(Uint8List(kBytesPerSecond ~/ 2), flush: true);
+
+      final PendingRecoveryItem item = (await rig.pending.list()).single;
+      expect(item.id, 'rec-scan',
+          reason: 'positive control: the claim-ahead recording is listed, so '
+              'the scan really did take the branch that publishes a marker');
+
+      // The delete runs INSIDE the scan's own publish, after it decided to
+      // write and before the write lands — the window no extra check can close.
+      final Completer<PendingDeleteOutcome> deletedMidWrite =
+          Completer<PendingDeleteOutcome>();
+      fs.onManifestWrite = () async {
+        deletedMidWrite.complete(await rig.pending.delete(item));
+      };
+      await rig.pending.list();
+
+      expect(await deletedMidWrite.future, PendingDeleteOutcome.done,
+          reason: 'positive control: the hook really did fire inside the scan '
+              'and the delete really did run there');
+      expect(await fs.exists(rig.pathOf('rec-scan.pcm')), isFalse);
+      expect(await fs.exists(rig.pathOf('rec-scan.manifest.json')), isFalse,
+          reason: 'the scan republished the marker onto a recording the user '
+              'had just deleted, and the manifest came back with it');
+      expect(await rig.pending.list(), isEmpty,
+          reason: 'and that manifest is what the next scan reads: the card '
+              'returns with no audio behind it, which reads as a delete that '
+              'silently failed');
+    });
+
+    test('🔴 a delete that lands inside the manifest REPUBLISH QUEUE', () async {
+      // THE FIFTH DOOR, AND THE ONE WITH THE LONGEST FUSE.
+      // `ManifestRepublishQueue` holds a manifest whose publish threw and
+      // retries it at the START and the END of every later recording,
+      // UNAWAITED. Its guard was a lone `fs.exists(<pcm>)` inside
+      // `publishManifest` - a check-then-write, with no registry and no undo -
+      // so a delete arriving after that check republished the manifest of a
+      // recording the user had just removed. The card then returns to the
+      // pending list with no audio behind it, which is what a delete that
+      // silently failed looks like.
+      //
+      // 🔴 WHY IT SURVIVED FOUR PASSES OVER THIS FAMILY. The comment on the
+      // leg case above eliminated `publishManifest` by reasoning - 「it returns
+      // early when the PCM is gone」 - and that sentence is true of the instant
+      // it was asked about and false of the instant that matters. Reaching
+      // this writer at all needs a FAILED COMMIT first, which no other case in
+      // this file produces, so nothing was ever driven through it.
+      //
+      // ⚠️ NO CLOCK IN THIS CASE EITHER. The disk is full on demand and the
+      // delete runs inside the retry's own write, so the interleaving is
+      // identical on every machine.
+      //
+      // REVERSE CONTROL, REALLY RUN 2026-09-12 - the current guard pasted back
+      // (`if (!await fs.exists('$base.pcm')) return;` and nothing else):
+      //   `Expected: false  Actual: <true>` on `<id>.manifest.json`, with the
+      //   card back in `list()`. Restored; green again.
+      // And, one at a time on top of the fix:
+      //   (a) pre-check only removed  => still GREEN. Written down rather than
+      //       quietly omitted: this case does not pin that half. The pre-check
+      //       answers the EARLIER question (the mark was already standing when
+      //       the retry reached the write) and keeps all three manifest writers
+      //       reading alike;
+      //   (b) post-rename undo only removed => `Expected: false Actual: <true>`
+      //       again. That is the half this case pins.
+      final EnospcThenDeleteAtWriteFs fs = EnospcThenDeleteAtWriteFs();
+      final _Rig rig = await _Rig.open(journalFs: fs);
+      addTearDown(rig.dispose);
+
+      // A real recording through the production spill, because the queue is
+      // only reachable that way: one healthy commit, then the disk fills.
+      await rig.spill.beginRecording();
+      final String id = rig.spill.currentRecordingId!;
+      rig.spill.appendCaptured(Uint8List(kBytesPerSecond));
+      await rig.spill.journalFlush();
+      expect(await fs.exists(rig.pathOf('$id.manifest.json')), isTrue,
+          reason: 'positive control: the healthy commit landed, so the failure '
+              'below is the disk and not the rig');
+
+      fs.blockManifestWrites = true;
+      rig.spill.appendCaptured(Uint8List(kBytesPerSecond));
+      await rig.spill.journalFlush();
+      await rig.spill.endRecording(interruptReason: JournalInterrupt.ioError);
+
+      expect(await rig.spill.republishPendingManifests(), 0,
+          reason: 'still full: nothing can land yet');
+      expect(rig.spill.unpublishedManifestIds, <String>[id],
+          reason: 'positive control: the manifest really is queued, so the '
+              'retry below is the production path and not a no-op');
+
+      // Space came back. The delete runs INSIDE the retry's own write.
+      fs.blockManifestWrites = false;
+      final PendingRecoveryItem item = (await rig.pending.list())
+          .firstWhere((PendingRecoveryItem i) => i.id == id);
+      final Completer<PendingDeleteOutcome> deletedMidWrite =
+          Completer<PendingDeleteOutcome>();
+      fs.onManifestWrite = () async {
+        deletedMidWrite.complete(await rig.pending.delete(item));
+      };
+      await rig.spill.republishPendingManifests();
+
+      expect(await deletedMidWrite.future, PendingDeleteOutcome.done,
+          reason: 'positive control: the hook really did fire inside the retry '
+              'and the delete really did run there');
+      expect(await fs.exists(rig.pathOf('$id.pcm')), isFalse);
+      expect(await fs.exists(rig.pathOf('$id.manifest.json')), isFalse,
+          reason: 'the republish queue put the manifest of a deleted recording '
+              'back on disk');
+      expect(await rig.pending.list(), isEmpty,
+          reason: 'the card must stay gone - a row that reappears after a '
+              'confirmed delete reads as a delete that failed');
+      expect(rig.spill.unpublishedManifestIds, isEmpty,
+          reason: 'and the entry is dropped rather than retried forever: the '
+              'recording it describes will never exist again');
     });
   });
 

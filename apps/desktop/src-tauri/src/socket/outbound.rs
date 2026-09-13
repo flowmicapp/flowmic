@@ -335,7 +335,7 @@ impl DesktopSocket {
 
     /// pc:list-mobiles — the phones PAIRED to this PC (R6 T-8 device page). Like
     /// refresh_pairing_code / fetch_settings_list this AWAITS the ack; the ack's
-    /// `mobiles` array is narrowed to the five public fields by
+    /// `mobiles` array is narrowed to the seven public fields by
     /// `wire::parse_list_mobiles_ack` before it leaves this layer (no token can
     /// reach the frontend). `None` on a down socket / ack timeout / error ack —
     /// the page then says so instead of rendering a confident empty table.

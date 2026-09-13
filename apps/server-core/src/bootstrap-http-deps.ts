@@ -43,10 +43,12 @@ import type { DbConnection } from './db/connection';
 import type { PaddleSubRow } from './db/repos/billing.repo';
 import type { AuthService } from './auth/auth-service';
 import type { RegisterRateLimiter } from './auth/register-rate-limit';
+import { webRoomDeps, type WebRoomWiring } from './bootstrap-web-room-deps';
 import type { QrGrantStore } from './auth/qr-grant';
 import type { VerificationSendLimiter } from './auth/email-verification';
 import type { GoogleIdTokenVerifier } from './auth/google-id-token';
-import { resolveRegistrationSurgeGate } from './auth/registration-surge';
+import { registrationSurgeGateFor } from './bootstrap-http-singletons';
+import { unconfiguredCaptchaVerifier } from './auth/captcha';
 import type { Registry } from './room/registry';
 import type { RoomStore } from './room/store';
 import type { ReleaseSuppression } from './room/release-suppression';
@@ -99,6 +101,9 @@ export interface HttpDepsWiring {
   registerLimiter: RegisterRateLimiter;
   /** Separate per-IP limiter for POST /api/site/collect. */
   siteAnalyticsLimiter: RegisterRateLimiter;
+  /** card S2-04 — what `POST /api/web/rooms` needs and nothing else has; one
+   *  grouped field, both arguments in ./bootstrap-web-room-deps.ts. */
+  webRoom: WebRoomWiring;
   passwordLimiter: RegisterRateLimiter;
   qrGrants: QrGrantStore;
   registry: Registry;
@@ -196,26 +201,10 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
   // and two `parseNodeHostMap(process.env…)` calls would be two places one typo
   // can be half-applied.
   const nodeHostMap = parseNodeHostMap(process.env.FLOWMIC_NODE_HOSTS);
-  // ── 2026-08-27 batch-2 item 4 — the GLOBAL daily registration surge gate ───
-  //
-  // 🔴 ONE INSTANCE PER PROCESS, and it is built HERE rather than in
-  // bootstrap.ts for one measured reason: that function is at 799 of its
-  // 800-line cap, and this file exists precisely to hold what does not fit
-  // (see the header's move record). `composeHttpDeps` is called exactly once
-  // per server, immediately before `makeHttpHandler`, so a construction here
-  // has the same lifetime a construction there would — which is the property
-  // that matters. A per-request counter would count to one and gate nothing.
-  //
-  // 🔴 SAAS ONLY. Standalone is a LAN sidecar with no accounts and no
-  // registration route, so a gate there would be a mechanism nobody can reach;
-  // more importantly, `resolveCaptchaVerifier` WARNS about a missing secret,
-  // and firing that on every desktop launch would train the one reader of that
-  // log to ignore it. Both dep literals below are already saas-gated, so an
-  // `undefined` here reaches nothing.
-  //
-  // Env: FLOWMIC_TURNSTILE_SECRET, FLOWMIC_REGISTER_SURGE_THRESHOLD (both
-  // documented at their readers — auth/captcha.ts and auth/registration-surge.ts).
-  const surgeGate = config.mode === 'saas' ? resolveRegistrationSurgeGate(process.env, now) : undefined;
+  // Card MP-1 — the surge gate's construction and its whole argument moved
+  // VERBATIM to ./bootstrap-http-singletons.ts for the 800-line cap. Same
+  // construction, same condition, same once-per-server lifetime.
+  const surgeGate = registrationSurgeGateFor(config, now);
   return {
     config,
     billing,
@@ -273,6 +262,9 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
       rowsFromReplicationPull: w.nodeRuntime.nodeConfig.role === 'replica',
       ...(now ? { now } : {}),
     },
+    // card S2-04 — POST /api/web/rooms, saas-only. Own module for the same reason
+    // `servicePurchaseDeps` above has one (and this file is at the cap).
+    ...webRoomDeps({ mode: config.mode, auth: authService, registry, captcha: surgeGate?.verifier ?? unconfiguredCaptchaVerifier(), ...w.webRoom }),
     // D6 (2026-08-04) — the pairing registry `POST /api/diag/mobile` judges its
     // Bearer against, wired in BOTH modes because the route is now mounted in
     // both. The SAME `registry` the socket handlers use; a dep of its own rather
@@ -600,6 +592,14 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             opsAudit: db.opsAudit,
             pcs: db.pcs,
             mobiles: db.mobiles,
+            // Card MP-1 — the key store the delegated key routes read. The SAME
+            // repo the socket path reaches through its guard.
+            integratorKeys: db.integratorKeys,
+            // Card MP-12 — the SAME per-event log `recordQuotaRefusal` writes
+            // through, so the refusal count a console renders and the refusal
+            // rows the admission writes cannot be two stores. Passed whole here
+            // and narrowed at the route's own dep to the one counting method.
+            usageEvents: db.usageEvents,
             // 2026-08-28 (owner §5-1/§5-2) — the console's device surface needs
             // LIVE room membership for two things it could not do before: answer
             // "is this computer here right now" without consulting the persisted

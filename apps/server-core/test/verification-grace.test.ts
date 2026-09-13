@@ -72,12 +72,14 @@ function verdict(o: {
   emailVerifiedAt?: number | null;
   createdAtMs: number;
   hasEmail?: boolean;
+  graceUntilMs?: number | null;
   nowMs: number;
 }): ReturnType<typeof verificationGrace> {
   return verificationGrace({
     emailVerifiedAt: o.emailVerifiedAt ?? null,
     createdAtMs: o.createdAtMs,
     hasEmail: o.hasEmail ?? true,
+    graceUntilMs: o.graceUntilMs ?? null,
     nowMs: o.nowMs,
     epochMs: EPOCH,
   });
@@ -145,9 +147,10 @@ function guardFor(mode: 'saas' | 'standalone', row: {
   emailVerifiedAt: number | null;
   createdAtMs: number;
   hasEmail: boolean;
+  graceUntilMs?: number | null;
 } | null, nowMs: number): ReturnType<typeof makeVerificationGraceGuard> {
   return makeVerificationGraceGuard(
-    { graceInputs: () => row },
+    { graceInputs: () => (row === null ? null : { ...row, graceUntilMs: row.graceUntilMs ?? null }) },
     { mode, now: () => nowMs, epochMs: EPOCH },
   );
 }
@@ -200,7 +203,7 @@ class FakeSocket {
 }
 
 const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
-const openQuota: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+const openQuota: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
 const stubOrchestrator = { pushChunk() {}, finish: async () => {}, dispose() {} };
 const AUDIO_START = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh' };
 const COMPOSE_START = { request_id: 'req-1', task: 'organize', source_text: 'hello', source_lang: 'zh' };
@@ -298,6 +301,72 @@ describe('③ enforcement: the two session-start sites, driven through the real 
     let ackOk = false;
     socket.fire('audio:start', AUDIO_START, (r) => { ackOk = (r as { ok?: boolean }).ok === true; });
     expect(ackOk).toBe(true);
+  });
+});
+
+// ── ④ the per-account override (REVIEW-GRACE, 2026-09-09) ───────────────────
+//
+// owner authorised extending the five store-review accounts to 2026-11-30
+// (「延长时间到11月」). `users.verify_grace_until` is how, and these four cases
+// are the whole of what it may do. The reverse control that proved they are
+// load-bearing is recorded in
+// .local/session-2026-09-09-catchup/review-accounts-grace.md: deleting the
+// `graceUntilMs` read from `verificationGrace` turned EXACTLY ONE of the four
+// cases below red — the second, verbatim `expected { state: 'expired',
+// daysLeft: +0 } to deeply equal { state: 'in_grace', daysLeft: 3 }`.
+//
+// 🔴 THE OTHER THREE STAYING GREEN IS THE RESULT, NOT A GAP IN IT. Each of
+// them asserts that the override does NOT act (null, a past date, a verified
+// account), so a build with no override at all satisfies them by construction.
+// A first draft of this comment claimed two went red; the run said one. Written
+// down because a reverse control whose reported shape is guessed rather than
+// read is worth as little as one that was never run.
+describe('④ the per-account grace override', () => {
+  // The expired baseline every case below is measured against: created the day
+  // after the epoch, read 30 days later. No override ⇒ 'expired'.
+  const CREATED = AFTER_EPOCH;
+  const READ_AT = AFTER_EPOCH + 30 * DAY_MS;
+
+  it('NULL changes nothing — the ordinary policy, unaltered', () => {
+    expect(verdict({ createdAtMs: CREATED, nowMs: READ_AT })).toEqual({ state: 'expired', daysLeft: 0 });
+    expect(verdict({ createdAtMs: CREATED, graceUntilMs: null, nowMs: READ_AT }))
+      .toEqual({ state: 'expired', daysLeft: 0 });
+  });
+
+  it('🔴 an override in the FUTURE puts the account back in grace, with the days counted to IT', () => {
+    // Two whole days and a bit past the read instant ⇒ rounded UP to 3, the
+    // same rounding rule the computed deadline uses. Asserting the NUMBER and
+    // not just the state is the point: a state that is right while the
+    // countdown is wrong is the banner-vs-wall disagreement this module exists
+    // to make impossible.
+    const until = READ_AT + 2 * DAY_MS + 1;
+    expect(verdict({ createdAtMs: CREATED, graceUntilMs: until, nowMs: READ_AT }))
+      .toEqual({ state: 'in_grace', daysLeft: 3 });
+    // And through the guard, which is what the two session-start sites call.
+    expect(guardFor('saas', { ...EXPIRED_ROW, graceUntilMs: until }, READ_AT).check('u1')).toBeNull();
+    expect(guardFor('saas', { ...EXPIRED_ROW, graceUntilMs: until }, READ_AT).daysLeft('u1')).toBe(3);
+  });
+
+  it('🔴 an override in the PAST changes nothing — it can only ever EXTEND', () => {
+    // The fail-safe direction, asserted rather than commented: a stale grant
+    // must not shorten anybody's grace. Same expectation as the NULL case, on
+    // purpose — 「no override」 and 「an override that ran out」 are one path.
+    expect(verdict({ createdAtMs: CREATED, graceUntilMs: READ_AT - DAY_MS, nowMs: READ_AT }))
+      .toEqual({ state: 'expired', daysLeft: 0 });
+    // …including one BEFORE the account existed, which is what a 0 landing
+    // from a NOT NULL DEFAULT 0 column would look like (db/schema.ts explains
+    // why the column is nullable instead).
+    expect(verdict({ createdAtMs: CREATED, graceUntilMs: 0, nowMs: READ_AT }))
+      .toEqual({ state: 'expired', daysLeft: 0 });
+  });
+
+  it('an override never overrides VERIFICATION — a verified account still has no countdown', () => {
+    // The override widens one deadline; it does not invent a second state. A
+    // verified account short-circuits before the arithmetic is reached, so the
+    // answer stays null and never becomes 「N days left」 on somebody who has
+    // nothing left to do.
+    expect(verdict({ emailVerifiedAt: 1, createdAtMs: CREATED, graceUntilMs: READ_AT + DAY_MS, nowMs: READ_AT }))
+      .toEqual({ state: 'verified', daysLeft: null });
   });
 });
 

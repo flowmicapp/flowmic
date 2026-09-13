@@ -905,6 +905,27 @@
       "params": []
     },
     {
+      "key": "controlKeyRefusedFailed",
+      "leaf": "_lfControlKeyRefusedFailed",
+      "params": [
+        "key"
+      ]
+    },
+    {
+      "key": "controlKeyRefusedNoTarget",
+      "leaf": "_lfControlKeyRefusedNoTarget",
+      "params": [
+        "key"
+      ]
+    },
+    {
+      "key": "controlKeyRefusedUnsupported",
+      "leaf": "_lfControlKeyRefusedUnsupported",
+      "params": [
+        "key"
+      ]
+    },
+    {
       "key": "controlRowClearNote",
       "leaf": "_lfControlRowClearNote",
       "params": []
@@ -1512,6 +1533,86 @@
       "params": []
     },
     {
+      "key": "goBack",
+      "leaf": "_lfGoBack",
+      "params": []
+    },
+    {
+      "key": "goClose",
+      "leaf": "_lfGoClose",
+      "params": []
+    },
+    {
+      "key": "goDownloadAndroid",
+      "leaf": "_lfGoDownloadAndroid",
+      "params": []
+    },
+    {
+      "key": "goDownloadApp",
+      "leaf": "_lfGoDownloadApp",
+      "params": []
+    },
+    {
+      "key": "goDownloadIos",
+      "leaf": "_lfGoDownloadIos",
+      "params": []
+    },
+    {
+      "key": "goDownloadScanHint",
+      "leaf": "_lfGoDownloadScanHint",
+      "params": []
+    },
+    {
+      "key": "goHeaderFrom",
+      "leaf": "_lfGoHeaderFrom",
+      "params": []
+    },
+    {
+      "key": "goHeaderToUnnamedPc",
+      "leaf": "_lfGoHeaderToUnnamedPc",
+      "params": []
+    },
+    {
+      "key": "goInterfaceLangNote",
+      "leaf": "_lfGoInterfaceLangNote",
+      "params": []
+    },
+    {
+      "key": "goLeaveConfirmTitle",
+      "leaf": "_lfGoLeaveConfirmTitle",
+      "params": []
+    },
+    {
+      "key": "goLeaveConfirmBody",
+      "leaf": "_lfGoLeaveConfirmBody",
+      "params": []
+    },
+    {
+      "key": "goLeaveConfirmLeave",
+      "leaf": "_lfGoLeaveConfirmLeave",
+      "params": []
+    },
+    {
+      "key": "goOfficialSite",
+      "leaf": "_lfGoOfficialSite",
+      "params": []
+    },
+    {
+      "key": "goPlusNeedsSignIn",
+      "leaf": "_lfGoPlusNeedsSignIn",
+      "params": []
+    },
+    {
+      "key": "goPrefsSessionOnly",
+      "leaf": "_lfGoPrefsSessionOnly",
+      "params": []
+    },
+    {
+      "key": "goTermsNeedSignIn",
+      "leaf": "_lfGoTermsNeedSignIn",
+      "params": []
+    },
+    {
       "key": "guideClose",
       "leaf": "_lfGuideClose",
       "params": []
@@ -2066,6 +2167,11 @@
     {
       "key": "importTitle",
       "leaf": "_lfImportTitle",
+      "params": []
+    },
+    {
+      "key": "integratorVoiceUnavailable",
+      "leaf": "_lfIntegratorVoiceUnavailable",
       "params": []
     },
     {
@@ -3067,6 +3173,21 @@
       "params": []
     },
     {
+      "key": "pttMicPipelineFailed",
+      "leaf": "_lfPttMicPipelineFailed",
+      "params": []
+    },
+    {
+      "key": "pttInstallHint",
+      "leaf": "_lfPttInstallHint",
+      "params": []
+    },
+    {
+      "key": "pttInstallHintLink",
+      "leaf": "_lfPttInstallHintLink",
+      "params": []
+    },
+    {
       "key": "pttSubDirect",
       "leaf": "_lfPttSubDirect",
       "params": []
@@ -3134,6 +3255,51 @@
       ]
     },
     {
+      "key": "quotaRulesTitle",
+      "leaf": "_lfQuotaRulesTitle",
+      "params": []
+    },
+    {
+      "key": "quotaRulesSub",
+      "leaf": "_lfQuotaRulesSub",
+      "params": []
+    },
+    {
+      "key": "quotaRulesLine1",
+      "leaf": "_lfQuotaRulesLine1",
+      "params": []
+    },
+    {
+      "key": "quotaRulesLine2",
+      "leaf": "_lfQuotaRulesLine2",
+      "params": []
+    },
+    {
+      "key": "quotaRulesLine3",
+      "leaf": "_lfQuotaRulesLine3",
+      "params": []
+    },
+    {
+      "key": "quotaRulesLine4",
+      "leaf": "_lfQuotaRulesLine4",
+      "params": []
+    },
+    {
+      "key": "quotaRulesLine5",
+      "leaf": "_lfQuotaRulesLine5",
+      "params": []
+    },
+    {
+      "key": "quotaRulesClosing",
+      "leaf": "_lfQuotaRulesClosing",
+      "params": []
+    },
+    {
+      "key": "quotaRulesConsoleLink",
+      "leaf": "_lfQuotaRulesConsoleLink",
+      "params": []
+    },
+    {
       "key": "quotaVoiceUsed",
       "leaf": "_lfQuotaVoiceUsed",
       "params": [
@@ -3145,6 +3311,13 @@
       "key": "reachUnanswered",
       "leaf": "_lfReachUnanswered",
       "params": []
+    },
+    {
+      "key": "recInterruptedPartial",
+      "leaf": "_lfRecInterruptedPartial",
+      "params": [
+        "seconds"
+      ]
     },
     {
       "key": "recLinkDegraded",
@@ -3801,6 +3974,11 @@
       ]
     },
     {
+      "key": "sttStallIntegratorQuotaExceeded",
+      "leaf": "_lfSttStallIntegratorQuotaExceeded",
+      "params": []
+    },
+    {
       "key": "sttStallLanguageUnsupported",
       "leaf": "_lfSttStallLanguageUnsupported",
       "params": []
@@ -3858,6 +4036,11 @@
       "params": []
     },
     {
+      "key": "sttStallNoAudioCaptured",
+      "leaf": "_lfSttStallNoAudioCaptured",
+      "params": []
+    },
+    {
       "key": "sttStallNoEngineReached",
       "leaf": "_lfSttStallNoEngineReached",
       "params": []
@@ -3895,6 +4078,11 @@
     {
       "key": "sttStallSettingsInvalid",
       "leaf": "_lfSttStallSettingsInvalid",
+      "params": []
+    },
+    {
+      "key": "sttStallTrialQuotaExceeded",
+      "leaf": "_lfSttStallTrialQuotaExceeded",
       "params": []
     },
     {
@@ -4417,9 +4605,23 @@
       "params": []
     },
     {
-      "key": "pendingRecoveryEntry",
-      "leaf": "_lfPendingRecoveryEntry",
+      "key": "pendingRecoveryTitleKept",
+      "leaf": "_lfPendingRecoveryTitleKept",
       "params": []
+    },
+    {
+      "key": "pendingRecoveryEntryWaiting",
+      "leaf": "_lfPendingRecoveryEntryWaiting",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "pendingRecoveryEntryKept",
+      "leaf": "_lfPendingRecoveryEntryKept",
+      "params": [
+        "n"
+      ]
     },
     {
       "key": "pendingRecoveryEmpty",
@@ -4449,6 +4651,11 @@
     {
       "key": "pendingRecoveryStateEmptyResult",
       "leaf": "_lfPendingRecoveryStateEmptyResult",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryStateEmptyConfirmed",
+      "leaf": "_lfPendingRecoveryStateEmptyConfirmed",
       "params": []
     },
     {
@@ -4487,6 +4694,31 @@
       "params": []
     },
     {
+      "key": "pendingRecoveryRetryNeedsLink",
+      "leaf": "_lfPendingRecoveryRetryNeedsLink",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetrying",
+      "leaf": "_lfPendingRecoveryRetrying",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryStillEmpty",
+      "leaf": "_lfPendingRecoveryRetryStillEmpty",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryKept",
+      "leaf": "_lfPendingRecoveryRetryKept",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryRetryUnavailable",
+      "leaf": "_lfPendingRecoveryRetryUnavailable",
+      "params": []
+    },
+    {
       "key": "pendingRecoveryRetryFailed",
       "leaf": "_lfPendingRecoveryRetryFailed",
       "params": []
@@ -4504,6 +4736,462 @@
     {
       "key": "pendingRecoveryBannerAction",
       "leaf": "_lfPendingRecoveryBannerAction",
+      "params": []
+    },
+    {
+      "key": "sessionNotSavedNotice",
+      "leaf": "_lfSessionNotSavedNotice",
+      "params": []
+    },
+    {
+      "key": "webLimitsCardTitle",
+      "leaf": "_lfWebLimitsCardTitle",
+      "params": []
+    },
+    {
+      "key": "webLimitsNoBackgroundRecording",
+      "leaf": "_lfWebLimitsNoBackgroundRecording",
+      "params": []
+    },
+    {
+      "key": "webLimitsNoLocalNetwork",
+      "leaf": "_lfWebLimitsNoLocalNetwork",
+      "params": []
+    },
+    {
+      "key": "webLimitsImages",
+      "leaf": "_lfWebLimitsImages",
+      "params": []
+    },
+    {
+      "key": "imagePickLabel",
+      "leaf": "_lfImagePickLabel",
+      "params": []
+    },
+    {
+      "key": "imagePickTooLarge",
+      "leaf": "_lfImagePickTooLarge",
+      "params": []
+    },
+    {
+      "key": "imageShrinking",
+      "leaf": "_lfImageShrinking",
+      "params": []
+    },
+    {
+      "key": "imageOneAtATime",
+      "leaf": "_lfImageOneAtATime",
+      "params": []
+    },
+    {
+      "key": "imageSendFailed",
+      "leaf": "_lfImageSendFailed",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsIosSafari",
+      "leaf": "_lfMicRecoveryStepsIosSafari",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsIosOtherBrowser",
+      "leaf": "_lfMicRecoveryStepsIosOtherBrowser",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsAndroidChrome",
+      "leaf": "_lfMicRecoveryStepsAndroidChrome",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsAndroidOtherBrowser",
+      "leaf": "_lfMicRecoveryStepsAndroidOtherBrowser",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsDesktop",
+      "leaf": "_lfMicRecoveryStepsDesktop",
+      "params": []
+    },
+    {
+      "key": "micRecoveryStepsUnknown",
+      "leaf": "_lfMicRecoveryStepsUnknown",
+      "params": []
+    },
+    {
+      "key": "micOpenInBrowser",
+      "leaf": "_lfMicOpenInBrowser",
+      "params": []
+    },
+    {
+      "key": "micNoDevice",
+      "leaf": "_lfMicNoDevice",
+      "params": []
+    },
+    {
+      "key": "pttLockContinuous",
+      "leaf": "_lfPttLockContinuous",
+      "params": []
+    },
+    {
+      "key": "admissionUnverifiableNotice",
+      "leaf": "_lfAdmissionUnverifiableNotice",
+      "params": []
+    },
+    {
+      "key": "admissionRefusedUnknownCode",
+      "leaf": "_lfAdmissionRefusedUnknownCode",
+      "params": [
+        "code"
+      ]
+    },
+    {
+      "key": "pairLinkOutdated",
+      "leaf": "_lfPairLinkOutdated",
+      "params": []
+    },
+    {
+      "key": "pairLanOnlyUseApp",
+      "leaf": "_lfPairLanOnlyUseApp",
+      "params": []
+    },
+    {
+      "key": "pttNoSpokenLang",
+      "leaf": "_lfPttNoSpokenLang",
+      "params": []
+    },
+    {
+      "key": "admissionJoiningRoom",
+      "leaf": "_lfAdmissionJoiningRoom",
+      "params": []
+    },
+    {
+      "key": "pcOnlineNamed",
+      "leaf": "_lfPcOnlineNamed",
+      "params": [
+        "pc"
+      ]
+    },
+    {
+      "key": "presenceRechecking",
+      "leaf": "_lfPresenceRechecking",
+      "params": []
+    },
+    {
+      "key": "signInTitle",
+      "leaf": "_lfSignInTitle",
+      "params": []
+    },
+    {
+      "key": "signInEmailLabel",
+      "leaf": "_lfSignInEmailLabel",
+      "params": []
+    },
+    {
+      "key": "signInPasswordLabel",
+      "leaf": "_lfSignInPasswordLabel",
+      "params": []
+    },
+    {
+      "key": "signInPasswordTooShort",
+      "leaf": "_lfSignInPasswordTooShort",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "signInCreateAccount",
+      "leaf": "_lfSignInCreateAccount",
+      "params": []
+    },
+    {
+      "key": "signInForgotPassword",
+      "leaf": "_lfSignInForgotPassword",
+      "params": []
+    },
+    {
+      "key": "signInErrorUnreadableReply",
+      "leaf": "_lfSignInErrorUnreadableReply",
+      "params": []
+    },
+    {
+      "key": "accountMinutesRemaining",
+      "leaf": "_lfAccountMinutesRemaining",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "accountPeriodResets",
+      "leaf": "_lfAccountPeriodResets",
+      "params": [
+        "date"
+      ]
+    },
+    {
+      "key": "saveHistoryTitle",
+      "leaf": "_lfSaveHistoryTitle",
+      "params": []
+    },
+    {
+      "key": "saveHistoryNote",
+      "leaf": "_lfSaveHistoryNote",
+      "params": [
+        "rows",
+        "days"
+      ]
+    },
+    {
+      "key": "signOutClearsHistoryNotice",
+      "leaf": "_lfSignOutClearsHistoryNotice",
+      "params": []
+    },
+    {
+      "key": "signInGoogleDivider",
+      "leaf": "_lfSignInGoogleDivider",
+      "params": []
+    },
+    {
+      "key": "signInErrorGoogleFailed",
+      "leaf": "_lfSignInErrorGoogleFailed",
+      "params": []
+    },
+    {
+      "key": "signInErrorGoogleExpired",
+      "leaf": "_lfSignInErrorGoogleExpired",
+      "params": []
+    },
+    {
+      "key": "signInErrorGoogleEmailUnverified",
+      "leaf": "_lfSignInErrorGoogleEmailUnverified",
+      "params": []
+    },
+    {
+      "key": "signInErrorGoogleUnavailable",
+      "leaf": "_lfSignInErrorGoogleUnavailable",
+      "params": []
+    },
+    {
+      "key": "signInSubmit",
+      "leaf": "_lfSignInSubmit",
+      "params": []
+    },
+    {
+      "key": "signInWithGoogle",
+      "leaf": "_lfSignInWithGoogle",
+      "params": []
+    },
+    {
+      "key": "switchOn",
+      "leaf": "_lfSwitchOn",
+      "params": []
+    },
+    {
+      "key": "switchOff",
+      "leaf": "_lfSwitchOff",
+      "params": []
+    },
+    {
+      "key": "targetHeaderIdle",
+      "leaf": "_lfTargetHeaderIdle",
+      "params": []
+    },
+    {
+      "key": "targetHeaderBuilding",
+      "leaf": "_lfTargetHeaderBuilding",
+      "params": []
+    },
+    {
+      "key": "targetHeaderOpening",
+      "leaf": "_lfTargetHeaderOpening",
+      "params": []
+    },
+    {
+      "key": "targetHeaderOpen",
+      "leaf": "_lfTargetHeaderOpen",
+      "params": [
+        "name"
+      ]
+    },
+    {
+      "key": "targetHeaderPhoneSpeaking",
+      "leaf": "_lfTargetHeaderPhoneSpeaking",
+      "params": [
+        "name"
+      ]
+    },
+    {
+      "key": "targetPairTitle",
+      "leaf": "_lfTargetPairTitle",
+      "params": []
+    },
+    {
+      "key": "targetPairScanHint",
+      "leaf": "_lfTargetPairScanHint",
+      "params": []
+    },
+    {
+      "key": "targetPairCodeLabel",
+      "leaf": "_lfTargetPairCodeLabel",
+      "params": []
+    },
+    {
+      "key": "targetPairPcidLabel",
+      "leaf": "_lfTargetPairPcidLabel",
+      "params": []
+    },
+    {
+      "key": "targetPairCodeUnavailable",
+      "leaf": "_lfTargetPairCodeUnavailable",
+      "params": []
+    },
+    {
+      "key": "targetTranscriptTitle",
+      "leaf": "_lfTargetTranscriptTitle",
+      "params": []
+    },
+    {
+      "key": "targetTranscriptEmpty",
+      "leaf": "_lfTargetTranscriptEmpty",
+      "params": []
+    },
+    {
+      "key": "targetSessionStats",
+      "leaf": "_lfTargetSessionStats",
+      "params": [
+        "clock",
+        "n"
+      ]
+    },
+    {
+      "key": "targetCopyAll",
+      "leaf": "_lfTargetCopyAll",
+      "params": []
+    },
+    {
+      "key": "targetClear",
+      "leaf": "_lfTargetClear",
+      "params": []
+    },
+    {
+      "key": "targetDownload",
+      "leaf": "_lfTargetDownload",
+      "params": []
+    },
+    {
+      "key": "targetRoomExpired",
+      "leaf": "_lfTargetRoomExpired",
+      "params": []
+    },
+    {
+      "key": "targetRoomRestart",
+      "leaf": "_lfTargetRoomRestart",
+      "params": []
+    },
+    {
+      "key": "targetRoomRateLimited",
+      "leaf": "_lfTargetRoomRateLimited",
+      "params": [
+        "seconds"
+      ]
+    },
+    {
+      "key": "targetRoomBuildFailed",
+      "leaf": "_lfTargetRoomBuildFailed",
+      "params": []
+    },
+    {
+      "key": "targetRoomOriginRefused",
+      "leaf": "_lfTargetRoomOriginRefused",
+      "params": []
+    },
+    {
+      "key": "targetLinkReconnecting",
+      "leaf": "_lfTargetLinkReconnecting",
+      "params": []
+    },
+    {
+      "key": "targetLinkGaveUp",
+      "leaf": "_lfTargetLinkGaveUp",
+      "params": []
+    },
+    {
+      "key": "targetBudgetOtherSpeaker",
+      "leaf": "_lfTargetBudgetOtherSpeaker",
+      "params": []
+    },
+    {
+      "key": "targetBudgetExhausted",
+      "leaf": "_lfTargetBudgetExhausted",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_NO_TEXT_TARGET",
+      "leaf": "_lfInjectVerdictNote_INJECT_NO_TEXT_TARGET",
+      "params": []
+    },
+    {
+      "key": "goDemoTrialLeft",
+      "leaf": "_lfGoDemoTrialLeft",
+      "params": [
+        "time"
+      ]
+    },
+    {
+      "key": "goDemoTrialOver",
+      "leaf": "_lfGoDemoTrialOver",
+      "params": []
+    },
+    {
+      "key": "goDemoLanded",
+      "leaf": "_lfGoDemoLanded",
+      "params": []
+    },
+    {
+      "key": "goUnsignedLimitedBadge",
+      "leaf": "_lfGoUnsignedLimitedBadge",
+      "params": []
+    },
+    {
+      "key": "goUnsignedExpiredTitle",
+      "leaf": "_lfGoUnsignedExpiredTitle",
+      "params": []
+    },
+    {
+      "key": "goUnsignedExpiredBody",
+      "leaf": "_lfGoUnsignedExpiredBody",
+      "params": [
+        "minutes"
+      ]
+    },
+    {
+      "key": "goUnsignedSignInCta",
+      "leaf": "_lfGoUnsignedSignInCta",
+      "params": []
+    },
+    {
+      "key": "goUnsignedLaterCta",
+      "leaf": "_lfGoUnsignedLaterCta",
+      "params": []
+    },
+    {
+      "key": "goFarEndPays",
+      "leaf": "_lfGoFarEndPays",
+      "params": []
+    },
+    {
+      "key": "goWeChatOverlayTitle",
+      "leaf": "_lfGoWeChatOverlayTitle",
+      "params": []
+    },
+    {
+      "key": "goWeChatOpenInBrowserStepIos",
+      "leaf": "_lfGoWeChatOpenInBrowserStepIos",
+      "params": []
+    },
+    {
+      "key": "goWeChatOpenInBrowserStepAndroid",
+      "leaf": "_lfGoWeChatOpenInBrowserStepAndroid",
       "params": []
     }
   ]

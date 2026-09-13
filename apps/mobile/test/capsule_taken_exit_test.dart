@@ -301,11 +301,11 @@ void main() {
       }
     });
 
-    test('Chinese says 「这台电脑」 not 「这条通道」 (occupancy is judged per machine)', () {
+    test('Chinese says 「单台电脑」 not 「这条通道」 (occupancy is judged per machine)', () {
       // The criterion did not change: desktop Admission is one per process,
       // shared by both channels
       // (admission.rs: a second phone on EITHER channel is REFUSED).
-      expect(_zh.capsuleTakenNotice, contains('这台电脑'));
+      expect(_zh.capsuleTakenNotice, contains('单台电脑'));
       expect(_zh.capsuleTakenNotice.contains('通道'), isFalse);
     });
   });

@@ -125,6 +125,16 @@ export const DEVICES_KEYS = [
   // 2026-07-29 polish (D1): rows are GROUPED per physical handset now, so the
   //「同一台手机」chip is gone; this sentence moved to the multi-pairing group
   // header's count-chip tooltip — the fact is the structure, the tooltip says why.
+  // card ID-2 — the mark a paired-phone ROW carries when the pairing was made
+  // from the WEB client rather than the app (`client === 'web'`). One word, next
+  // to the channel badge, because the row already answers「哪条通道」("which
+  // channel") there and this answers「哪种端」("which kind of end") — two
+  // questions, two marks, neither standing in for the other.
+  // ⚠️ There is deliberately NO sibling key for 'app': absence of the mark is
+  // the app's rendering, and a row whose `client` is null (a pairing older than
+  // the field) renders identically — we cannot tell those two apart and must not
+  // pretend to. Only 'web' is a positive statement (paired-mobiles.ts's `client`).
+  'dev_client_web',
   'dev_group_pairings',
   'dev_group_hint',
   'dev_paired_count',

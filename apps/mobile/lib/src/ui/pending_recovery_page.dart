@@ -59,6 +59,16 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
   /// press's own reload would already have redrawn the list underneath them.
   String? _busy;
 
+  /// Card WB-6 — is the action in flight a RETRY (as opposed to a delete)?
+  ///
+  /// 🔴 IT DRIVES A FACE, WHICH IS THE FIX. `_busy` alone only ever removed the
+  /// two buttons, so a press looked like 「the buttons vanished for two or three
+  /// seconds and came back」 — MEASURED 2026-09-12 on TB335ZC: 1.8 s, 3.3 s,
+  /// 3.3 s, with nothing whatever in their place. A delete keeps the old
+  /// behaviour on purpose: it is answered by the card disappearing, and
+  /// 「trying again…」 would be the wrong sentence over it.
+  bool _retrying = false;
+
   /// The last refusal, shown under the list until the next action.
   ///
   /// ⚠️ It is NOT a banner and NOT a timer: this page is the only thing on
@@ -92,36 +102,76 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
   Future<void> _retry(PendingRecoveryItem item) async {
     setState(() {
       _busy = item.id;
+      _retrying = true;
       _notice = null;
     });
     final PendingRetryOutcome outcome = await widget.source.retryNow(item);
     if (!mounted) return;
+    // 🔴 CARD WB-6 — THE LIST IS RE-READ BEFORE THE SENTENCE IS CHOSEN, not
+    // after. 「Did this card change」 is the one thing that decides whether
+    // silence is an answer, and the old order (say something, then reload) made
+    // that question unaskable.
+    final List<PendingRecoveryItem> rows = await widget.source.list();
+    if (!mounted) return;
     setState(() {
+      _items = rows;
+      _loading = false;
       _busy = null;
-      _notice = _noticeFor(outcome);
+      _retrying = false;
+      _notice = _noticeFor(outcome, _findById(rows, item.id));
     });
-    await _reload();
+  }
+
+  PendingRecoveryItem? _findById(List<PendingRecoveryItem> rows, String id) {
+    for (final PendingRecoveryItem e in rows) {
+      if (e.id == id) return e;
+    }
+    return null;
   }
 
   /// 🔴 EXHAUSTIVE, NO DEFAULT — see [PendingRecoveryCard.sentenceFor] for the
   /// same rule and the same reason.
   ///
-  /// [PendingRetryOutcome.done] says nothing: the list is re-read and the card
-  /// either changed or went away, which is a stronger statement than a sentence
-  /// claiming a success this layer cannot see (A5-3 may still have kept the
-  /// bytes).
-  String? _noticeFor(PendingRetryOutcome outcome) {
+  /// 🔴 CARD WB-6 — EVERY PRESS NOW PRODUCES SOMETHING THE PERSON CAN READ, and
+  /// the rule that decides what is [after]: the recording as the list reports it
+  /// NOW, once the attempt has finished.
+  ///
+  ///   · GONE from the list ⇒ silence. The card disappearing is itself the
+  ///     answer, and a sentence about 「this recording」 next to a row that is no
+  ///     longer there would be worse than none. This is the half of the old
+  ///     comment that was true.
+  ///   · STILL THERE ⇒ a sentence, always. This is the half that was false:
+  ///     `emptyResult` re-transcribes to `emptyResult`, so the card came back
+  ///     BYTE FOR BYTE IDENTICAL and the product said nothing at all. MEASURED
+  ///     2026-09-12 on TB335ZC — three presses, three identical screenshots
+  ///     (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md).
+  ///
+  /// ⚠️ IT STILL DOES NOT CLAIM A SUCCESS. 「Tried again」 plus what the list
+  /// says now is the whole of what this layer knows; A5-3 may have kept the
+  /// bytes and nothing here can see that.
+  String? _noticeFor(PendingRetryOutcome outcome, PendingRecoveryItem? after) {
     final AppStrings s = widget.strings;
     return switch (outcome) {
-      PendingRetryOutcome.done => null,
+      PendingRetryOutcome.done => after == null
+          ? null
+          : (after.state == PendingRecoveryState.emptyResult ||
+                  after.state == PendingRecoveryState.emptyConfirmed
+              ? s.pendingRecoveryRetryStillEmpty
+              : s.pendingRecoveryRetryKept),
       PendingRetryOutcome.refusedBusy => s.pendingRecoveryRetryBusy,
+      // Card WB-6 — the other half of what `refusedBusy` used to answer. The
+      // button is withheld while there is no link, so reaching this means the
+      // link went down between the draw and the press.
+      PendingRetryOutcome.refusedNoLink => s.pendingRecoveryRetryNeedsLink,
       PendingRetryOutcome.refusedServer =>
         s.pendingRecoveryStateServerUnsupported,
       PendingRetryOutcome.failed => s.pendingRecoveryRetryFailed,
-      // Nothing to drive and nothing went wrong. The card is simply gone on the
-      // next read (it was settled, cancelled or removed under us), so the
-      // reload below is the whole answer.
-      PendingRetryOutcome.unavailable => null,
+      // Nothing to drive and nothing went wrong. When the card went away with
+      // it (settled, cancelled or removed under us) that IS the answer; when it
+      // is still sitting there, 「nothing happened」 needs saying, or the press
+      // is silent for the seventh time.
+      PendingRetryOutcome.unavailable =>
+        after == null ? null : s.pendingRecoveryRetryUnavailable,
     };
   }
 
@@ -168,7 +218,7 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
         backgroundColor: FlowMicColors.surface,
         surfaceTintColor: FlowMicColors.surface,
         title: Text(
-          s.pendingRecoveryTitle,
+          _screenName(s),
           key: const Key('pendingRecovery.title'),
           style: TextStyle(color: FlowMicColors.t1, fontSize: 15),
         ),
@@ -177,6 +227,24 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
       body: SafeArea(child: _body(s)),
     );
   }
+
+  /// Card WB-6 — what this screen is called, which depends on what is on it.
+  ///
+  /// 🔴 THE LIST HOLDS TWO KINDS OF THING AND HAD ONE NAME. 「Recordings waiting
+  /// to be transcribed」 is a promise (Book 15 §2.0-b lets the word 「waiting」
+  /// appear only where a mechanism redeems it), and a screen holding nothing but
+  /// cancelled, settled or already-tried-and-empty recordings redeems nothing.
+  /// The door on the light-record screen asks the same question of the same
+  /// predicate, so the row and the page it opens never disagree.
+  ///
+  /// ⚠️ AN EMPTY LIST KEEPS THE ORDINARY NAME. There is nothing to be wrong
+  /// about, and [AppStrings.pendingRecoveryEmpty] is the sentence that answers
+  /// it.
+  String _screenName(AppStrings s) =>
+      _items.isNotEmpty &&
+              !_items.any((PendingRecoveryItem e) => e.awaitingTranscription)
+          ? s.pendingRecoveryTitleKept
+          : s.pendingRecoveryTitle;
 
   Widget _body(AppStrings s) {
     if (_loading) {
@@ -199,22 +267,46 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
         ),
       );
     }
-    // 🔴 `recordingNow` IS READ ONCE PER BUILD, NOT CACHED IN STATE. The
+    // 🔴 THE BLOCKER IS READ ONCE PER BUILD, NOT CACHED IN STATE. The
     // microphone can open while this page is up (the chat page is underneath
-    // it), and a snapshot taken in `initState` would leave a button enabled
-    // through a whole recording. It is still only a courtesy — see [_retry].
-    final bool recording = widget.source.recordingNow;
+    // it), and so can the link go down; a snapshot taken in `initState` would
+    // leave a button enabled through a whole recording. It is still only a
+    // courtesy — see [_retry].
+    final PendingRetryBlocker? blocker = widget.source.retryBlocker;
+    // Card WB-6 — a button that is not drawn has to say why it is not drawn.
+    // 「No link」 is the one the person can act on and could not otherwise guess:
+    // with the network off, the old screen drew the button, ran the attempt and
+    // answered 「a recording is running」 (MEASURED 2026-09-12, TB335ZC).
+    // 「A recording is running」 needs no line here — the microphone they are
+    // holding is the explanation.
+    final String? blockerLine =
+        blocker == PendingRetryBlocker.noLink && _anyOffersRetry()
+            ? s.pendingRecoveryRetryNeedsLink
+            : null;
+    final int extras = (blockerLine == null ? 0 : 1) + (_notice == null ? 0 : 1);
     return ListView.builder(
       key: const Key('pendingRecovery.list'),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
-      itemCount: _items.length + (_notice == null ? 0 : 1),
+      itemCount: _items.length + extras,
       itemBuilder: (BuildContext context, int i) {
-        if (i == _items.length) return _noticeLine(_notice!);
+        if (i >= _items.length) {
+          // Two different lines, so two different keys: a blocker says why the
+          // button is absent, a notice says what the last press did, and they
+          // can be on screen together.
+          final List<Widget> lines = <Widget>[
+            if (blockerLine != null)
+              _noticeLine(blockerLine, const Key('pendingRecovery.blocker')),
+            if (_notice != null)
+              _noticeLine(_notice!, const Key('pendingRecovery.notice')),
+          ];
+          return lines[i - _items.length];
+        }
         final PendingRecoveryItem item = _items[i];
         return PendingRecoveryCard(
           item: item,
           strings: s,
-          onRetry: recording || _busy != null
+          retrying: _retrying && _busy == item.id,
+          onRetry: blocker != null || _busy != null
               ? null
               : () => unawaited(_retry(item)),
           // 🔴 DELETE IS GATED ON `_busy` TOO, and it is not symmetry for its
@@ -232,8 +324,17 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
     );
   }
 
-  Widget _noticeLine(String text) => Padding(
-        key: const Key('pendingRecovery.notice'),
+  /// Would any card on this screen have offered a retry, if the link were up?
+  ///
+  /// 🔴 THE 「CONNECT FIRST」 LINE IS ONLY TRUE ABOUT A RECORDING THAT COULD BE
+  /// RETRIED. On a page holding nothing but cancelled or unreadable audio the
+  /// link is irrelevant, and saying it would send somebody to fix a connection
+  /// that would change nothing for them.
+  bool _anyOffersRetry() => _items.any((PendingRecoveryItem e) =>
+      e.actions.contains(PendingRecoveryAction.retryNow));
+
+  Widget _noticeLine(String text, Key key) => Padding(
+        key: key,
         padding: const EdgeInsets.only(top: 4),
         child: Text(
           text,

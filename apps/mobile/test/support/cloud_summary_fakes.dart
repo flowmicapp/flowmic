@@ -14,6 +14,7 @@
 import 'package:flowmic/src/auth/cloud_summary.dart';
 import 'package:flowmic/src/auth/cloud_summary_controller.dart';
 import 'package:flowmic/src/auth/login_controller.dart';
+import 'package:flowmic/src/signaling/inbound_payloads.dart' show BillingBudget;
 
 /// A controller wired to a fake fetcher.
 ///
@@ -25,10 +26,16 @@ CloudSummaryController newTestCloudSummary({
   CloudSummaryFetcher? fetcher,
   String saasEndpoint = 'http://127.0.0.1:1',
   Duration timeout = const Duration(milliseconds: 50),
+  /// Card S2-02 - the live billing:budget feed. Defaulted to ABSENT, which is
+  /// what a settings-page test that is not about the meter should get: no live
+  /// updates and no stream to keep alive. A test that IS about the path passes
+  /// a real PttSession.billingBudget.
+  Stream<BillingBudget>? budgetFeed,
 }) => CloudSummaryController(
   login: login,
   saasEndpoint: saasEndpoint,
   timeout: timeout,
+  budgetFeed: budgetFeed,
   fetcher:
       fetcher ??
       ((Uri url, String bearer, Duration budget) async =>

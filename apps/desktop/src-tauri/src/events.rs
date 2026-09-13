@@ -83,10 +83,37 @@ pub const STT_LEVEL: &str = "stt:level";
 // touches the SPEAKING lock or inject pipeline.
 pub const STT_ENGINE_STATUS: &str = "stt:engine-status";
 
+// ─── §3.9 billing ─────────────────────────────────────────────────────
+// Card MP-3. The desktop SUBSCRIBES to the account-allowance reading the server
+// pushes to BOTH ends of a room (server-core socket/handlers/budget-frames.ts —
+// the microphone gets its own number, the PC gets the PC's own number).
+//
+// 🔴 THE DESKTOP DOES NOT SUBSCRIBE FOR THE NUMBER. Its meter is an HTTP read
+// (`cloud_account_fetch` → lib/cloud-account.ts) and stays one. What only this
+// frame can answer is `payer`: since card MP-0 a phone signed into ITS OWN
+// account is billed to that account while it speaks into this computer, so this
+// computer's meter correctly does not move — and without this frame nothing on
+// screen says why a recording is running against a still meter. That is the
+// status-truth red line (R11) with a plausible number in it.
+//
+// Whitelist unchanged: `billing:budget` was already canonical (card S2-02);
+// this crate merely starts referencing the name, and DESKTOP_EVENTS is a SUBSET
+// check against packages/protocol/src/events.ts.
+pub const BILLING_BUDGET: &str = "billing:budget";
+
 // ─── §3.5 inject / control ────────────────────────────────────────────
 pub const INJECT_REQUEST: &str = "inject:request";
 pub const INJECT_RESULT: &str = "inject:result";
 pub const CONTROL_KEY: &str = "control:key";
+
+/// MP-14 — the receipt `control:key` never had (04 §3.5 F-3116, whitelist 56→57).
+///
+/// This end answers every remote keypress it is handed: `ok:true` when the chord
+/// went to the focused window, `ok:false` with a reason when it could not. Until
+/// this card the ONLY trace a refused key left anywhere was a forensic line on
+/// this machine — the phone that pressed it went on saying it was sent, which it
+/// was, while nothing ever said it did nothing.
+pub const CONTROL_KEY_RESULT: &str = "control:key-result";
 pub const FOCUS_STATE: &str = "focus:state";
 
 // ─── §3.6 history sync / §3.7 settings sync (WP-R2-2 timeline + settings UI) ──
@@ -154,6 +181,7 @@ pub const DESKTOP_EVENTS: &[&str] = &[
     SETTINGS_LIST,
     HISTORY_UPDATED,
     HISTORY_DELETED,
+    BILLING_BUDGET,
 ];
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EVENT_NAMES, type EventName } from '../src/events';
 import { EVENT_SCHEMAS, safeParseEvent } from '../src/protocol-schemas';
+import { BudgetAckFieldsSchema } from '../src/protocol-schemas-billing';
 
 // A well-formed and an ill-formed sample for EVERY whitelisted event. The
 // well-formed one MUST parse; the ill-formed one MUST be rejected. Several
@@ -103,6 +104,14 @@ const FIXTURES: Record<EventName, Fixture> = {
   'focus:state': { valid: { window_title: 'Notepad', process_name: 'notepad' }, invalid: { window_title: 'Notepad' } },
   // kind 'escape' is outside the locked whitelist — must be rejected.
   'control:key': { valid: { kind: 'enter' }, invalid: { kind: 'escape' } },
+  // Card MP-14. The invalid fixture is a reason OUTSIDE the three — the
+  // realistic way this frame goes wrong is a far end inventing a fourth cause,
+  // not a malformed object, and a receipt carrying an unreadable reason is one
+  // the client would have to guess about.
+  'control:key-result': {
+    valid: { request_id: 'k-1', kind: 'tab', ok: false, reason: 'unsupported_here' },
+    invalid: { kind: 'tab', ok: false, reason: 'busy' },
+  },
 
   // §3.6 history sync
   'history:list': { valid: { limit: 50 }, invalid: { limit: 0 } },
@@ -136,6 +145,16 @@ const FIXTURES: Record<EventName, Fixture> = {
   // carries them (pinning the addition) and the INVALID one is a negative
   // budget — a window that already expired before it started.
   'mobile:released': { valid: { retry_after_ms: 60000, revoked: false }, invalid: { retry_after_ms: -1 } },
+
+  // §3.9 billing (card S2-02). The INVALID case is `remaining_ms: -1` rather
+  // than a missing key on purpose: "minus one millisecond of budget" is the
+  // shape a subtraction that forgot its clamp produces, and a schema that let it
+  // through would put a negative number on a meter. `resets_at` is required and
+  // nullable — `null` says "no cycle", and omitting it would say nothing at all.
+  'billing:budget': {
+    valid: { remaining_ms: 1_200_000, mode: 'plan', resets_at: 1_800_000_000_000, reason: 'granted' },
+    invalid: { remaining_ms: -1, mode: 'plan', resets_at: null },
+  },
 };
 
 describe('every event schema round-trips', () => {
@@ -167,5 +186,39 @@ describe('GRANT-1 additivity: the pre-GRANT-1 minimal grant frames still parse',
   });
   it('timeline:grant without gid/expires_at_ms parses (handler refuses it, zod does not)', () => {
     expect(safeParseEvent('timeline:grant', { wrap: 'e2e:v1:AAAA' }).success).toBe(true);
+  });
+});
+
+describe("NR-31 additivity: billing:budget's free_plan_minutes", () => {
+  // The field the unsigned sign-in prompt interpolates 「a free plan with N
+  // minutes every month」 from. Three properties, and the middle one is the
+  // whole point of the card.
+  const base = { remaining_ms: 0, mode: 'trial' as const, resets_at: null };
+
+  it('round-trips when present', () => {
+    const r = safeParseEvent('billing:budget', { ...base, free_plan_minutes: 20, reason: 'granted' });
+    expect(r.success, r.success ? '' : JSON.stringify(r.error.issues)).toBe(true);
+    expect(r.success && r.data.free_plan_minutes).toBe(20);
+  });
+
+  it('parses without it — an older relay does not send it, and absence is not zero', () => {
+    const r = safeParseEvent('billing:budget', base);
+    expect(r.success).toBe(true);
+    // 🔴 The rendering rule this absence buys: `undefined`, never a number the
+    // client could interpolate. A default of 0 here would put 「a free plan with
+    // 0 minutes every month」 on the page of every visitor of every relay older
+    // than this card.
+    expect(r.success && r.data.free_plan_minutes).toBeUndefined();
+  });
+
+  it('refuses zero and refuses fractions — a ceiling is whole minutes, and 0 is not an invitation', () => {
+    expect(safeParseEvent('billing:budget', { ...base, free_plan_minutes: 0 }).success).toBe(false);
+    expect(safeParseEvent('billing:budget', { ...base, free_plan_minutes: 20.5 }).success).toBe(false);
+  });
+
+  it('rides the reconnect ack too — one shape, one parser (addendum §1.5)', () => {
+    const r = BudgetAckFieldsSchema.safeParse({ budget: { ...base, free_plan_minutes: 20 } });
+    expect(r.success, r.success ? '' : JSON.stringify(r.error.issues)).toBe(true);
+    expect(r.success && r.data.budget?.free_plan_minutes).toBe(20);
   });
 });

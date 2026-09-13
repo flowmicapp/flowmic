@@ -177,6 +177,9 @@ export interface ShutdownSteps {
    *  its two tables are in INIT_SQL unconditionally, so the timer is always
    *  armed and must always be disarmed. */
   recoveryPrune: { stop(): void };
+  /** Card M4-01 — the anonymous site-demo row sweep. Not optional, for the same
+   *  reason as the one above, and it touches the DB in exactly the same way. */
+  anonCleanup: { stop(): void };
   closeSocket: () => Promise<void> | void;
   audioRegistry: { stopAll(): void };
   httpServer: HttpServer;
@@ -195,7 +198,7 @@ export interface ShutdownSteps {
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
     retention, statusProbes, latencyReader, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
-    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune, recoveryPrune,
+    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune, recoveryPrune, anonCleanup,
   } = steps;
   return async (): Promise<void> => {
     // GA-06: disarm the sweep FIRST — a tick that fired after db.close() would
@@ -209,6 +212,10 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     }
     // Card PR-2: the same argument once more — this one DOES touch the DB.
     await announceShutdownStep('recoveryPrune.stop', () => recoveryPrune.stop());
+    // Card M4-01: the same argument once more, and this one can DELETE — a tick
+    // firing into a closing database is the one place a half-finished sweep
+    // could leave a users row without its cascade.
+    await announceShutdownStep('anonCleanup.stop', () => anonCleanup.stop());
     // W-5a: the same argument, one line later. This timer touches no DB, so its
     // order relative to `retention` is free; it is here rather than at the end so
     // that BOTH timers are dead before anything starts closing.

@@ -126,7 +126,7 @@ const MANIFEST = join(OUT, 'update-manifest.json');
 /** Version is read from the root package.json — the same reference face as
  *  publish.mjs:49 / publish-download-center.mjs:35, and the one version-sync
  *  lint compares the other 8 faces against.
- *  🔴 Never hard-code: `使用说明.txt` once shipped a hard-coded `0.1.0` with
+ *  🔴 Never hard-code: the portable README.txt once shipped a hard-coded `0.1.0` with
  *  the artifacts for four versions (CLAUDE.md version-number discipline). */
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 

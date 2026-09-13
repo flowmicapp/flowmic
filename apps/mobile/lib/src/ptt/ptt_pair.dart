@@ -103,9 +103,14 @@ extension PttSessionPair on PttSession {
         // v0.2.4: the uid rides the same cache and the same 「never await」
         // rule. It is the field the server keys row reuse on, so sending it is
         // what stops one handset accumulating a row per re-pair.
+        // card S2-01: WHICH KIND of end this is, plus a diagnostic version.
+        // Same never-await rule as the two above — the version rides its own
+        // warm cache and a null simply omits the field.
         entry.payload.toJson(
           mobileName: cachedDeviceLabel(),
           deviceUid: cachedDeviceUid(),
+          client: kClientKind,
+          clientVersion: cachedClientVersion(),
         ),
         timeout: const Duration(seconds: 5),
       );
@@ -172,6 +177,10 @@ extension PttSessionPair on PttSession {
     // reconnect leg does; the node fields were asymmetric here once already and
     // it was a real defect. NO CONSUMER YET — read by card RC-1.
     reconnect.noteServerCapabilities(ack);
+    // card S2-01 — and what the TARGET can receive. Beside the line above, not
+    // folded into it: two questions with two right answers (target_caps.dart).
+    // NO CONSUMER YET — the image UI that asks first is card S3-02.
+    reconnect.noteTargetCaps(ack);
     paired.value = true; _startPresencePoll(); // G-15①: really paired, see ptt_presence_poll.dart
     // 🔴 P0 — THE TOKEN EXISTS ON THE WRITER AND NOWHERE ELSE YET.
     // `mobile:pair` is writer-only; a replica learns about this row on its next

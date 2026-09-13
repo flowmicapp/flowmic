@@ -198,7 +198,7 @@ class _Snapshot implements PendingRecoverySource {
   final PendingRecoveryStore inner;
 
   @override
-  bool get recordingNow => inner.recordingNow;
+  PendingRetryBlocker? get retryBlocker => inner.retryBlocker;
 
   @override
   Future<List<PendingRecoveryItem>> list() async => rows;

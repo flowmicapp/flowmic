@@ -10,6 +10,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../portable/platform_portable.dart';
+import '../portable/portable_ports.dart';
+
 import 'device_label.dart';
 
 /// The platform seam; tests pass a fake.
@@ -99,4 +102,56 @@ String? cachedDeviceLabel() => _cached;
 void resetDeviceLabelCache() {
   _cached = null;
   _cachedUid = null;
+}
+
+// ── card S2-01 · WHAT THIS END IS, beside what the handset is ───────────
+//
+// FLOWMIC-WEB is a third end — a browser page that pairs over the very same
+// `mobile:pair` — and until this card nothing on the wire could tell it apart
+// from this app. `client: 'app'` is this build stating what it is; the relay's
+// default for an absent field is the same value, so an older phone and this one
+// are indistinguishable in effect, which is what makes the field safe to add.
+//
+// It lives in THIS file rather than one of its own because it is the same shape
+// as everything above: a platform-read fact about this end, warmed once at boot,
+// read SYNCHRONOUSLY at pairing so no round-trip lands in front of the user's
+// pairing tap. Two modules with one discipline drift apart; one does not.
+//
+// 🔴 THE VERSION IS DIAGNOSTIC AND NOTHING MAY BRANCH ON IT. It is a claim the
+// client makes about itself, so a decision taken on it is a decision taken on
+// text the client chose. It exists so a support conversation can start from a
+// fact instead of a question.
+
+/// The `client` value this build sends. A constant, not a setting: a phone that
+/// could describe itself as something else would be describing a build it is not.
+const String kClientKind = 'app';
+
+/// Resolved once per process — the version cannot change while the app runs.
+String? _cachedVersion;
+
+/// Warm the cache (app start), exactly as [deviceLabel] does for the name.
+///
+/// Awaited at boot for the same reason that one is: the pairing path reads it
+/// SYNCHRONOUSLY, because a diagnostic string must never insert a platform
+/// round-trip — or a new async ordering — in front of the user's pairing tap.
+/// A null simply omits the field, which is byte-for-byte what a pre-S2-01 build
+/// sends.
+Future<String?> warmClientVersion({AppVersionPort? port}) async {
+  final String? hit = _cachedVersion;
+  if (hit != null) return hit;
+  final String? v = await (port ?? const PackageAppVersion()).appVersion();
+  final String trimmed = (v ?? '').trim();
+  return _cachedVersion = trimmed.isEmpty ? null : trimmed;
+}
+
+/// The resolved version, or null when it has not been read yet or the platform
+/// could not answer. Never an empty string and never a placeholder: 「we do not
+/// know which version this is」 and 「this is version ''」 are different facts, and
+/// only the first one is true here.
+String? cachedClientVersion() => _cachedVersion;
+
+/// Test seam — no production caller (the cache is process-lifetime by design).
+@visibleForTesting
+void resetClientVersionCache() {
+  _cachedVersion = null;
 }

@@ -31,6 +31,7 @@ import 'http_endpoint.dart' show secureDialUrl;
 import 'network_watch.dart';
 import 'node_labels.dart';
 import 'server_capabilities.dart';
+import 'target_caps.dart';
 import 'socket_core.dart';
 
 typedef BufferedChunksProvider = List<Map<String, Object?>> Function();
@@ -275,6 +276,30 @@ class ReconnectCoordinator {
   /// Sole writer for [serverCapabilities], called from the two ack legs.
   void noteServerCapabilities(Object? ack) {
     _serverCapabilities = parseServerCapabilities(ack);
+  }
+
+  /// card S2-01 — what the TARGET at the other end can receive, read off the
+  /// same two acks and kept beside [serverCapabilities] for the same reason
+  /// (this class's subject is 「what the connection that just answered said」).
+  ///
+  /// 🔴 A DIFFERENT QUESTION FROM [serverCapabilities], which is why it is a
+  /// different field: that one is about the SERVER and is identical for every
+  /// pairing on a node; this one is about the PC (or browser room) and is per
+  /// pairing. They also fail in opposite directions — see target_caps.dart.
+  ///
+  /// A FRESH ack REPLACES it, never merges, exactly as above: the target may
+  /// have been replaced between two acks, and a capability that survived the
+  /// connection that declared it is a claim nobody present has made.
+  ///
+  /// ⚠️ STORED, NOT YET ACTED ON. The image UI that asks before sending is card
+  /// S3-02; nothing in production reads this today, and it ships now so the
+  /// phone can see the answer before it has to use it.
+  TargetCaps get targetCaps => _targetCaps;
+  TargetCaps _targetCaps = const TargetCaps.undeclared();
+
+  /// Sole writer for [targetCaps], called from the same two ack legs.
+  void noteTargetCaps(Object? ack) {
+    _targetCaps = parseTargetCaps(ack);
   }
 
   /// Single writer for all three, called from the reconnect and pair ack legs.

@@ -49,8 +49,8 @@ use crate::socket::refusal::AuthFailureHook;
 use crate::socket::pump;
 use crate::socket::reconcile::Reconciler;
 use crate::socket::speak_liveness::SpeakLiveness;
-use crate::socket::inject_ops::{run_control_key, run_inject, TargetIntent};
-use crate::socket::{control_row, presence, row_transit, wire};
+use crate::socket::inject_ops::{run_inject, TargetIntent};
+use crate::socket::{control_key, presence, row_transit, wire};
 
 pub(in crate::socket) type SharedFsm = Arc<Mutex<FocusStateMachine>>;
 pub(in crate::socket) type SharedDeadline = Arc<Mutex<Option<Instant>>>;
@@ -408,6 +408,11 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     builder = on_forward_speaking(builder, events::STT_LEVEL, bridge::channel::STT_LEVEL, bridge.clone(), gate.clone(), liveness.clone());
     // R6-R2: forward engine health to the capsule diagnostic (honest STT row).
     builder = on_forward(builder, events::STT_ENGINE_STATUS, bridge::channel::STT_ENGINE_STATUS, bridge.clone(), gate.clone());
+    // MP-3: the account-allowance frame. PRIMARY-GATED like the capsule fan-out and
+    // for the same reason — two resident channels are two rooms, and a recording in
+    // the non-primary room must not put a sentence about who pays on the window that
+    // is showing the other room.
+    builder = on_forward(builder, events::BILLING_BUDGET, bridge::channel::BILLING_BUDGET, bridge.clone(), gate.clone());
     // RV-01: the timeline frames go through the TAGGED forward — a row whose server is
     // unknown cannot be addressed later.
     // owner 2026-07-30 ①: and they are NOT primary-gated. The timeline is「投递到这台
@@ -649,51 +654,19 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     }
 
     // ── control:key → six-key map (unknown → CONTROL_UNKNOWN_KIND) ──
-    {
-        let allow = allowlist.clone();
-        let fsm_c = fsm.clone();
-        let g_c = gate.clone();
-        let br_c = bridge.clone();
-        builder = builder.on(events::CONTROL_KEY, move |payload, _socket| {
-            // The frame has to be read BEFORE the admission gate now, because a
-            // refusal mints a row too and a row needs the kind. Nothing else moved:
-            // no key is pressed on a non-primary channel (the gate below is still
-            // evaluated before `run_control_key`).
-            let Payload::Text(vals) = payload else { return };
-            let Some(obj) = wire::first_arg(&vals) else { return };
-            let Some(kind) = wire::parse_control_kind(obj) else { return };
-            // REQ-12-13 — WHICH PHONE pressed it (vol. 04 F-3115). `None` on an older
-            // phone or across an older relay; the row then says it cannot name its
-            // sender rather than guessing one.
-            let label = wire::parse_device_label(obj);
-            // Same rule as inject: only the capsule owner's channel may press keys
-            // on this machine. control:key has NO result frame in the protocol, so
-            // there is nothing to report ON THE WIRE — the refusal is recorded
-            // locally instead of inventing a wire answer that does not exist.
-            //
-            // 🔴 REQ-12-13: it is also MINTED, for the same reason a refused
-            // inject:request is (row_transit ruling two, 裁定二) — the press really did arrive at
-            // this PC and really did nothing, and both halves have to be visible.
-            // Only for a CHORD key: a `punct_*` press is out of this card's scope
-            // (vol. 15 §2.0-e), and `is_chord_key` is what keeps the two apart here.
-            if !g_c.open() {
-                forensic::record("admission", "control:key ignored — channel not primary");
-                if crate::inject::key_sequence_for(&kind).is_some() {
-                    control_row::mint_control_row(
-                        &br_c,
-                        my_channel,
-                        &kind,
-                        control_row::ControlOutcome::NotPrimary,
-                        label.as_deref(),
-                    );
-                }
-                return;
-            }
-            if let Some(outcome) = run_control_key(&kind, &allow, &fsm_c) {
-                control_row::mint_control_row(&br_c, my_channel, &kind, outcome, label.as_deref());
-            }
-        });
-    }
+    // Whole handler moved VERBATIM to socket/control_key.rs (800-line cap, the
+    // same move that produced fanout.rs / pump.rs / inject_ops.rs / presence.rs)
+    // — see `on_control_key` there for REQ-12-13's row and for MP-14's receipt,
+    // which have deliberately DIFFERENT coverage (a `punct_*` press and an
+    // unknown kind mint no row and are still answered on the wire).
+    builder = control_key::on_control_key(
+        builder,
+        allowlist.clone(),
+        fsm.clone(),
+        gate.clone(),
+        bridge.clone(),
+        my_channel,
+    );
 
     // ── sys:ping → sys:pong ──
     builder = builder.on(events::SYS_PING, move |payload, socket| {

@@ -475,7 +475,7 @@ void main() {
     expect(controller.sendPolicy, SendPolicy.direct);
     // The flash is identified by its HINT sentence (only the flash renders it;
     // the chip prints the bare label).
-    expect(find.textContaining('说完先进输入框'), findsNothing);
+    expect(find.textContaining(_zh.sendPolicyManualHint), findsNothing);
 
     // Tap the chip to toggle — the wire is on the real controller.
     await tester.tap(_policy);
@@ -487,10 +487,10 @@ void main() {
       reason: '🔴 tapping the chip did nothing ⇒ 「the entry is invisible」was swapped for 「the entry is visible but dead」, which is worse',
     );
     // The flash names the state the switch moved TO, exactly once…
-    expect(find.textContaining('说完先进输入框'), findsOneWidget);
+    expect(find.textContaining(_zh.sendPolicyManualHint), findsOneWidget);
     // …and is on screen (not clipped away above the dock or off the page).
     final Rect flash =
-        tester.getRect(find.textContaining('说完先进输入框'));
+        tester.getRect(find.textContaining(_zh.sendPolicyManualHint));
     expect(flash.bottom, lessThanOrEqualTo(780));
     expect(flash.left, greaterThanOrEqualTo(0));
 
@@ -498,7 +498,7 @@ void main() {
     // the switch leaves no permanent UI behind).
     await tester.pump(const Duration(milliseconds: 900));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.textContaining('说完先进输入框'), findsNothing);
+    expect(find.textContaining(_zh.sendPolicyManualHint), findsNothing);
     // …and the standing chip is untouched by the flash coming and going.
     expect(_policy, findsOneWidget);
     controller.session.debugStopIdlePresencePoll();

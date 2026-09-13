@@ -14,7 +14,43 @@ import { z } from 'zod';
 export const Iso8601 = z.string().min(1);
 export const NonEmpty = z.string().min(1);
 export const Token = z.string().min(32);
-export const ClientInstanceId = z.string().min(16);
+/**
+ * `client_instance_id` — the per-connection-slot LABEL a client hands us.
+ *
+ * 🔴 IT DEGRADES TO ABSENT, exactly like `DeviceUid` below, and for the same
+ * reason spelled out there: a value that is only a label must never be able to
+ * refuse the frame that carries it.
+ *
+ * This used to be a bare `z.string().min(16)`, so a PRESENT value of the wrong
+ * length failed `PcRegisterSchema` / `PcReconnectSchema` outright — and a
+ * boundary refusal is anonymous, which `pc.handler.ts` then answers with
+ * `AUTH_TOKEN_INVALID` (`where: 'pc:reconnect-parse'`). That code is not a
+ * complaint about a label: the desktop reads it as 「this device credential is
+ * dead」 and CLEARS the token (socket/pairing.rs). So the cost of a wrong label
+ * was a destroyed credential, over a string nothing branches on.
+ *
+ * ⚠️ MEASURED, NOT HYPOTHETICAL (defect D5, 2026-09-08). The web target page
+ * builds its id as `web-` + 8 hex — TWELVE characters, always
+ * (flowmic-web `packages/core/src/target/wire.ts` `webClientInstanceId`) — so
+ * EVERY browser target's `pc:reconnect` was refused `AUTH_TOKEN_INVALID` on
+ * every node, including the writer that had just minted the room over HTTP
+ * seconds earlier. `POST /api/web/rooms` answered 200 and the socket said the
+ * credential was invalid: the mint and the admission disagreeing about the same
+ * token, with the real cause two fields away.
+ *
+ * WHAT STILL GUARDS THE COLUMN: `sanitizeClientInstanceId` (server-core
+ * `room/registry-shared.ts`) refuses the reserved `CLOUD_INSTANCE_ID` literal,
+ * and that check is about the VALUE, never the length. Nothing has ever read
+ * this field's length — grep `client_instance_id` before assuming otherwise.
+ *
+ * ⚠️ THE COST, STATED: a client that sends a malformed id is treated as one
+ * that sent none. On `pc:reconnect` that only skips a backfill. On
+ * `pc:register` it means the returning-machine lookup (`findByClientInstance`)
+ * cannot recognise it and a fresh row is minted — the pre-0.2.4 shape, i.e.
+ * exactly what a client sending nothing has always got. A refused registration
+ * is worse than a duplicate row, which is the same trade `DeviceUid` made.
+ */
+export const ClientInstanceId = z.string().min(16).optional().catch(undefined);
 
 // ─── row primitives, shared by §3.5 inject and §3.6 history ───────────
 //

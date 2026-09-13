@@ -27,7 +27,7 @@ class FakeSocket {
   received(event: string): unknown[] { return this.emitted.filter((e) => e.event === event).map((e) => e.payload); }
 }
 
-const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
 const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 const emptyOrchestrator: ComposeOrchestrator = { async *run() { /* no deltas */ } };
 
@@ -126,6 +126,8 @@ describe('compose:start fills processName from the tracked focus (store → fact
     const exhausted: QuotaGuard = {
       ensureQuota(): void { throw new ServerError('QUOTA_EXCEEDED', 'llm quota exceeded (used 9/9)'); },
       remainingSttMs: () => Infinity,
+      // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+      continuousCapMs: () => Infinity,
     };
     const { mobile, calls } = wire(store, exhausted);
     let ack: Record<string, unknown> | undefined;

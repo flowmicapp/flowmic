@@ -267,14 +267,17 @@ void main() {
       // this assertion could pass simply because nothing anywhere promises
       // anything, and the G-16-a promise could rot away unnoticed.
       //
-      // ⚠️ The substring is 「再送」 and not the old 「会再送」: that copy now reads
-      // 「会自动再送一次」, and pinning the two characters that happened to be
-      // adjacent in one draft made this control fail on a rewrite that kept the
-      // promise perfectly intact. A control that reddens on wording rather than
-      // on meaning trains people to edit the control.
+      // ⚠️ The substring is now 「自动」 — the FIRST ENTRY OF THE BAN LIST ABOVE —
+      // and not the old 「再送」 / 「会再送」. Each earlier form pinned characters
+      // that happened to be adjacent in one draft, and each failed on a rewrite
+      // that kept the promise perfectly intact (「会自动再送一次」 →
+      // 「将自动重试投递」). Pinning the banned word itself is what a reverse
+      // control is for: it proves the probe above can see the thing it bans,
+      // which no wording-specific substring ever proved. A control that reddens
+      // on wording rather than on meaning trains people to edit the control.
       expect(
         _zh.deliveryRefusalNote('INJECT_PC_OFFLINE'),
-        contains('再送'),
+        contains('自动'),
       );
     });
   });

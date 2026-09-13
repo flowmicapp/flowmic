@@ -64,7 +64,7 @@ describe('🔴 F8 — the guard reads the SAME month the meter just wrote', () =
     const { tracker, guard } = wire(db, () => NOW);
 
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000);
-    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 });
+    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 }, {});
 
     // 🔴 THE ASSERTION THIS FILE EXISTS FOR: the guard's remaining budget moved
     // by exactly what the tracker just recorded. If the two computed different
@@ -95,12 +95,12 @@ describe('🔴 F8 — the guard reads the SAME month the meter just wrote', () =
     let nowMs = first.endMs - 1; // the last millisecond of the first cycle
     const { tracker, guard, billing } = wire(db, () => nowMs);
 
-    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 });
+    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 }, {});
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000 - TWENTY_MIN_MS);
 
     nowMs = first.endMs; // the first instant of the second cycle
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000);
-    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 });
+    tracker.recordSttUsage(USER, { is_byok: false }, TWENTY_MIN_MS, { transcript: 0, delivered: 0 }, {});
     expect(guard.remainingSttMs(USER)).toBe(planLimits('max').stt_minutes * 60_000 - TWENTY_MIN_MS);
 
     // Two rows, keyed by cycle start — and the keys are what the solver says.

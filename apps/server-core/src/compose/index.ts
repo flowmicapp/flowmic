@@ -16,7 +16,7 @@
 
 import type { ComposeOrchestrator } from '../engine/orchestrator';
 import type { SettingsRepo } from '../db/repos/settings.repo';
-import type { UsageTracker } from '../billing/usage-tracker';
+import type { UsageTracker, MeteredPrincipalRef } from '../billing/usage-tracker';
 import { streamerFor as defaultStreamerFor, type LlmStreamer } from './llm';
 import { resolveLlmConfigWithSource, resolveByokLlm } from './llm-config';
 import { resolveScenarioContext, resolveReplacementRules } from './scenario-context';
@@ -46,6 +46,21 @@ export interface ComposeStartArgs {
    *  an old phone ⇒ the database, exactly as before. Bootstrap closes the
    *  factory over the socket to supply it; the handler is untouched. */
   sessionPrefs?: SessionPrefs | null;
+  /**
+   * card MP-9 — WHY this turn's tokens land on `userId`, and WHO SPOKE, as the
+   * compose:start admission recorded it (`principalRefOf(socket)`).
+   *
+   * 🔴 IT RIDES THE ARGS FOR THE REASON `sessionPrefs` DOES: the factory is
+   * built once per process and the scenario-inference call it schedules never
+   * passes back through the handler, so the socket is out of reach by the time
+   * that call is metered. Supplied at the same seam
+   * (`bootstrap-connection-handlers.ts`), which is the one place a socket and
+   * the factory are both in hand.
+   *
+   * Absent (old wiring, tests) ⇒ `{}` ⇒ NULL on both columns, i.e. 「this
+   * admission did not record it」.
+   */
+  principal?: MeteredPrincipalRef;
 }
 
 export interface ComposeFactoryDeps {
@@ -99,8 +114,12 @@ export function createComposeFactory(
     // compose + polish — owner ruling ⑨ (2026-08-04): usage is NOT split per
     // engine, no per-engine dimension is added. BYOK is waived inside the
     // tracker, keyed off the SAME provenance judgement the compose turn uses.
-    recordUsage: (userId, tokensIn, tokensOut, isByok): void => {
-      deps.usage.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut);
+    // card MP-9 — the principal comes from the store, which got it from the
+    // compose:start that scheduled this call. This closure is built ONCE per
+    // process, so it cannot read it from anywhere else, and a value invented
+    // here would name whichever session happened to construct the factory.
+    recordUsage: (userId, tokensIn, tokensOut, isByok, principal): void => {
+      deps.usage.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principal);
     },
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
     ...(deps.inference ?? {}),
@@ -130,6 +149,8 @@ export function createComposeFactory(
       cfg,
       byok,
       consent: { row: settings.read(args.userId, SCENARIO_INFERENCE_CONSENT_KEY)?.value },
+      // card MP-9 — this turn's admission, forwarded rather than re-derived.
+      ...(args.principal !== undefined ? { principal: args.principal } : {}),
       ...(args.processName !== undefined ? { processName: args.processName } : {}),
     });
     const ctx = resolveScenarioContext(settings, args.userId, appScenario);

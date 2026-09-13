@@ -113,6 +113,7 @@ import {
   isMachineServingAnotherAccount,
 } from '../room/machine-reassigned';
 import { sendJson } from './body';
+import { applyWebCors, handleWebCorsPreflight } from './web-cors';
 
 /** The route path.
  *
@@ -260,6 +261,17 @@ export function tryHandlePresenceRoutes(
 ): boolean {
   const url = (req.url ?? '').split('?')[0];
   if (url !== PC_PRESENCE_PATH) return false;
+
+  // CORS-1 (2026-09-08) — the web mic page reads this cross-origin, from a
+  // relay node's own domain (this route's whole reason to exist: the resting
+  // instance list). The preflight must be answered BEFORE the method switch
+  // below, or an OPTIONS falls into the 405 branch with no grant headers and
+  // the browser never sends the real GET (see web-cors.ts's header for the
+  // measured failure). The grant then rides every response this route sends,
+  // 405 included, so a caller that got the method wrong can still read why.
+  if (handleWebCorsPreflight(req, res, { methods: 'GET, OPTIONS', allowHeaders: 'authorization' })) return true;
+  applyWebCors(req, res);
+
   if (req.method !== 'GET') {
     sendJson(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED' });
     return true;

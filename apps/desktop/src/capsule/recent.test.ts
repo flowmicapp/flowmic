@@ -343,7 +343,7 @@ describe('V2-16 wiring: connection edge → directory → state.session', () => 
 
   it('a phone joining names the capsule before its first utterance', async () => {
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(1));
     await flush();
@@ -353,13 +353,13 @@ describe('V2-16 wiring: connection edge → directory → state.session', () => 
 
   it('the phone leaving returns the title to the generic default', async () => {
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(1));
     await flush();
     expect(state.session).toBe('Pixel 8-ab12');
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: false, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: false, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(0));
     await flush();
@@ -368,8 +368,8 @@ describe('V2-16 wiring: connection edge → directory → state.session', () => 
 
   it('two online phones keep the generic title (honest ambiguity)', async () => {
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
-      { pairing_id: 'p2', mobile_name: 'Mate 60-cd34', paired_at: '2026-07-21T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
+      { pairing_id: 'p2', mobile_name: 'Mate 60-cd34', paired_at: '2026-07-21T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(2));
     await flush();
@@ -381,7 +381,7 @@ describe('V2-16 wiring: connection edge → directory → state.session', () => 
 
   it('a FAILED directory read keeps the previous title + map (null ≠ no phones)', async () => {
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(1));
     await flush();
@@ -398,7 +398,7 @@ describe('V2-16 wiring: connection edge → directory → state.session', () => 
     state.session = 'Mate 60-cd34';
     state.speaking = true;
     setDirectoryFetcher(async () => [
-      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null },
+      { pairing_id: 'p1', mobile_name: 'Pixel 8-ab12', paired_at: '2026-07-20T00:00:00Z', last_seen_at: null, online: true, channel: 'lan' as const, device_uid: null, client: 'app' as const },
     ]);
     onConnection(frame(1));
     await flush();

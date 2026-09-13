@@ -217,6 +217,15 @@ class FlowMicDarkColors {
   // slate (noted — the fifth badge colour, master-plan §4.0 D)
   static const Color slate = Color(0xFF94A3B8);
   static const Color slateSoft = Color(0x2994A3B8); // rgba(148,163,184,.16)
+
+  // Banner faces (ui/banner_slot.dart). Tokens rather than the literals that
+  // used to sit in that file — its `_BannerFace.of` records what one hard-coded
+  // face cost. These five are that retune's values, byte for byte.
+  static const Color bannerBlockingFill = Color(0x59F87171);
+  static const Color bannerBlockingBorder = Color(0xB3F87171);
+  static const Color bannerBlockingInk = Color(0xFFFFF1F2);
+  static const Color bannerDegradedBorder = Color(0x4DFBBF24);
+  static const Color bannerInfoBorder = Color(0x4D818CF8);
   // surfaces
   static const Color canvas = Color(0xFF0B0D14);
   static const Color body = Color(0xFF06080F);
@@ -317,6 +326,16 @@ class FlowMicLightColors {
   // slate (slate-600)
   static const Color slate = Color(0xFF475569); // 7.6:1 on surface
   static const Color slateSoft = Color(0x29475569); // same .16 alpha
+
+  // Banner faces. Fill and border are the dark values verbatim: over this
+  // canvas `0x59F87171` composites to #F5C7CA, the same visible red strip. Only
+  // the INK moves, and it has to — near-white on #F5C7CA is 1.37:1, red-900 is
+  // 6.64:1 (and 10.0:1 on `surface`, where the near-white dot was 1.10:1).
+  static const Color bannerBlockingFill = FlowMicDarkColors.bannerBlockingFill;
+  static const Color bannerBlockingBorder = FlowMicDarkColors.bannerBlockingBorder;
+  static const Color bannerBlockingInk = Color(0xFF7F1D1D); // red-900
+  static const Color bannerDegradedBorder = Color(0x4D92400E);
+  static const Color bannerInfoBorder = Color(0x4D4F46E5);
   // surfaces — white card on a faintly cool page; surface2 stays one step
   // OFF white (input fills / chips), line is a hairline, not a text colour.
   static const Color canvas = Color(0xFFF4F5FA);
@@ -393,6 +412,11 @@ class FlowMicColors {
   static Color get greenSoft => FlowMicTheme.isLight ? FlowMicLightColors.greenSoft : FlowMicDarkColors.greenSoft;
   static Color get slate => FlowMicTheme.isLight ? FlowMicLightColors.slate : FlowMicDarkColors.slate;
   static Color get slateSoft => FlowMicTheme.isLight ? FlowMicLightColors.slateSoft : FlowMicDarkColors.slateSoft;
+  static Color get bannerBlockingFill => FlowMicTheme.isLight ? FlowMicLightColors.bannerBlockingFill : FlowMicDarkColors.bannerBlockingFill;
+  static Color get bannerBlockingBorder => FlowMicTheme.isLight ? FlowMicLightColors.bannerBlockingBorder : FlowMicDarkColors.bannerBlockingBorder;
+  static Color get bannerBlockingInk => FlowMicTheme.isLight ? FlowMicLightColors.bannerBlockingInk : FlowMicDarkColors.bannerBlockingInk;
+  static Color get bannerDegradedBorder => FlowMicTheme.isLight ? FlowMicLightColors.bannerDegradedBorder : FlowMicDarkColors.bannerDegradedBorder;
+  static Color get bannerInfoBorder => FlowMicTheme.isLight ? FlowMicLightColors.bannerInfoBorder : FlowMicDarkColors.bannerInfoBorder;
   static Color get canvas => FlowMicTheme.isLight ? FlowMicLightColors.canvas : FlowMicDarkColors.canvas;
   static Color get body => FlowMicTheme.isLight ? FlowMicLightColors.body : FlowMicDarkColors.body;
   static Color get surface => FlowMicTheme.isLight ? FlowMicLightColors.surface : FlowMicDarkColors.surface;

@@ -20,8 +20,13 @@
 //   • the `pending` reason — a snapshot describing the OTHER channel can answer
 //     none of this modal's questions, so nothing is drawn from it (see below).
 
+import { PAIR_HTTPS_HOST, PAIR_HTTPS_PATH } from '@flowmic/protocol';
 import type { CloudReadiness } from './channel';
+import { UI_LOCALES } from './strings/generated/locales.g';
 import type { ChannelTag } from './types';
+
+/** Re-export of the protocol SSOT so pairing tests keep one import surface. */
+export { PAIR_HTTPS_HOST, PAIR_HTTPS_PATH };
 
 export interface PairingInfo {
   /** The current 4-digit code, or null after a token reconnect (needs refresh). */
@@ -150,8 +155,16 @@ export type PairingReason = 'ok' | 'loopback' | 'no-code' | 'disconnected' | 'pe
 export interface PairingModalView {
   /** The 4-digit code to display big, or null when none is available yet. */
   code: string | null;
-  /** The QR payload string to render, or null when the QR is suppressed. */
+  /** The QR payload string to render, or null when the QR is suppressed.
+   *  This is the LEGACY `flowmic://` form — the small/secondary code during
+   *  the W-12 transition (an unmigrated app build only understands this one). */
   qrPayload: string | null;
+  /** W-12 — the `https://flowmic.app/go/pair?...` form: the PRIMARY/big code,
+   *  scannable by a phone's system camera. Same suppression rules as
+   *  `qrPayload` (both are null together, both are non-null together) — they
+   *  describe the same pairing opportunity in two schemes, never two different
+   *  ones. */
+  qrPayloadHttps: string | null;
   /** True → render the loopback/short-code-only hint instead of a QR. */
   qrSuppressed: boolean;
   reason: PairingReason;
@@ -267,6 +280,47 @@ export function qrAltHosts(endpoint: string, candidates?: readonly string[]): st
  *  would be able to see why. */
 function isQrSafeValue(value: string): boolean {
   return value !== '' && !/[,&\s]/.test(value);
+}
+
+/** M-2 (web client stage 1, design 2026-09-08-web-client-mic-ui-design.md §5) —
+ *  the DESKTOP's UI language, spelled the way the web mic client spells it in a
+ *  URL. `null` = emit no `lang=` key at all.
+ *
+ *  🔴 LOWERCASE, because that is the vocabulary the destination already has: the
+ *  page's own addresses are `https://flowmic.app/go/<seg>/…` with
+ *  `seg ∈ zh-cn zh-tw fr es de ja ko ru` (§5; the site's `LOCALE_URL_SEGMENTS`),
+ *  and the page's parse order is 路径段 > `?lang=` > browser language. English is
+ *  spelled `en` here even though its PATH form is no segment at all — a key whose
+ *  value is the empty string would say nothing, and「说不出话的键」is
+ *  indistinguishable on the receiving side from a desktop too old to send one,
+ *  which is the one thing the receiver must be able to tell apart.
+ *
+ *  🔴 AN UNKNOWN TAG EMITS NOTHING, it is not passed through and not guessed at.
+ *  The web client's third fallback (browser language) is a real answer for a
+ *  first arrival; a `lang=` it cannot resolve is not, and would only make the
+ *  page choose between two wrong answers. Same shape as `fp=`/`pcid=` above: a
+ *  value we cannot carry honestly is DROPPED, never emitted broken.
+ *
+ *  ⚠️ THIS IS THE DESKTOP'S LANGUAGE, NOT THE PHONE'S (§5, last bullet). owner's
+ *  ruling is that the URL decides the web page's language; the desktop knows its
+ *  own and cannot know the phone's. The user changes it in the page's settings,
+ *  and the address they end up on is then their own.
+ *
+ *  The membership test reads the SAME registry every language menu iterates
+ *  (`strings/generated/locales.g.ts`, generated from `packages/protocol/src/
+ *  locales.ts`), so a tenth locale is carried the day it is added, with no list
+ *  re-typed here — the failure `spoken-langs.ts` documents at length (a copied
+ *  language list that reports a smaller world than the product has). */
+export function pairLinkLang(locale: string | null | undefined): string | null {
+  const tag = (locale ?? '').trim();
+  if (!(UI_LOCALES as readonly string[]).includes(tag)) return null;
+  const seg = tag.toLowerCase();
+  // Structurally unreachable today (no registry tag contains `,`, `&` or a
+  // space) and kept anyway for the reason the two calls above keep it: this
+  // module owns the payload GRAMMAR, and a value that could split into two keys
+  // must be refused where the payload is built, not where the registry is
+  // edited.
+  return isQrSafeValue(seg) ? seg : null;
 }
 
 /** Build the exact QR payload (04 §3.1 L64). The endpoint is emitted as a raw
@@ -389,6 +443,74 @@ export function buildQrPayload(opts: {
   return `flowmic://pair?endpoint=${ws}&code=${opts.code}&channel=${channel}${altPart}${fpPart}${pcidPart}`;
 }
 
+/** Sibling of `buildQrPayload`, NOT an option on it: the two payloads are
+ *  rendered SIDE BY SIDE during the transition (big https / small legacy
+ *  `flowmic://`, §5 of the addendum above), so both strings must exist at
+ *  once, and `buildQrPayload`'s own byte-for-byte output is depended on by
+ *  `qr-roundtrip.test.ts` / `pairing-pcid.test.ts` / `pairing-fingerprint*.test.ts`
+ *  — folding this into it would risk exactly the kind of behaviour drift this
+ *  module's comments spend a page warning against.
+ *
+ *  SAME KEYS, SAME ORDER as `buildQrPayload` (`endpoint`, `code`, `channel`,
+ *  `alt`, `fp`, `pcid`) — the structural reason is identical: the server reads
+ *  the pairing code with the FIRST `/code=(\d{4})/` match
+ *  (`Registry.resolvePcForPair`), so nothing that could look like a 4-digit
+ *  or 9-digit run may sit ahead of `code=`. `v=1` is appended LAST, after
+ *  `pcid=`, for the same append-only reason `pcid=` sits after `fp=`.
+ *
+ *  🔴 `endpoint` is percent-encoded here (`encodeURIComponent`) — this is a
+ *  REAL https URL a phone's browser/camera will parse with a standard URL
+ *  parser, unlike `flowmic://pair?...`, which no such parser ever touches
+ *  (the mobile app reads it with hand-written regexes, not `Uri.parse`). The
+ *  design doc's own worked example
+ *  (`…endpoint=wss%3A%2F%2Fhk.flowmic.app%2Frelay&code=4831…`) shows exactly
+ *  this. `alt=`/`fp=`/`pcid=` stay RAW, matching `buildQrPayload`, because
+ *  every value that can reach them is already restricted to `isQrSafeValue`
+ *  (no `,`/`&`/whitespace) — nothing in them needs escaping, and leaving them
+ *  raw is what makes the two builders' shared tail comparable byte-for-byte. */
+export function buildHttpsQrPayload(opts: {
+  endpoint: string;
+  code: string;
+  channel?: PairChannel;
+  /** Every LAN IPv4 this host listens on (`PairingInfo.lan_candidates`). */
+  candidates?: readonly string[];
+  /** D2-LAN: the sidecar's SPKI fingerprint. Absent/blank → no `fp=` at all. */
+  fingerprint?: string | null;
+  /** 0.2.66: the relay's PCID for this PC. Absent/blank → no `pcid=` at all. */
+  pcid?: string | null;
+  /** M-2: the desktop's UI locale tag (`UiLocale`, e.g. `zh-CN`). Absent, blank
+   *  or unknown → no `lang=` at all, and the payload is byte-identical to the
+   *  pre-M-2 one. Normalised by [pairLinkLang]; NOT pre-lowercased by callers,
+   *  so the registry tag and the URL spelling have exactly one translator. */
+  lang?: string | null;
+}): string {
+  const ws = toWsUrl(opts.endpoint);
+  const channel = opts.channel ?? 'standalone';
+  const alt = qrAltHosts(opts.endpoint, opts.candidates);
+  const altPart = alt.length > 0 ? `&alt=${alt.join(',')}` : '';
+  const fp = (opts.fingerprint ?? '').trim();
+  const fpPart = isQrSafeValue(fp) ? `&fp=${fp}` : '';
+  const pcid = (opts.pcid ?? '').trim();
+  const pcidPart = isQrSafeValue(pcid) ? `&pcid=${pcid}` : '';
+  // M-2 — LAST OF THE OPTIONAL KEYS, AND STILL AHEAD OF `v=1`. Two separate
+  // reasons, neither of which is aesthetic:
+  //   · behind `code=`, like every key before it, because the server reads the
+  //     pairing code with the FIRST `/code=(\d{4})/` match
+  //     (`Registry.resolvePcForPair`). No registry tag contains a digit, so this
+  //     one could not be misread even in front — the rule is kept because it is
+  //     structural, not because this value happens to be safe (the same sentence
+  //     `pcid=` already earns above).
+  //   · ahead of `v=1`, because `v` says WHICH SHAPE the keys before it are in.
+  //     A version marker that new keys are appended after would be describing a
+  //     payload that ends before it.
+  const lang = pairLinkLang(opts.lang);
+  const langPart = lang === null ? '' : `&lang=${lang}`;
+  return (
+    `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=${encodeURIComponent(ws)}` +
+    `&code=${opts.code}&channel=${channel}${altPart}${fpPart}${pcidPart}${langPart}&v=1`
+  );
+}
+
 /** B4-15 — what the modal prints beside the QR so the MANUAL path is possible.
  *
  *  owner 2026-08-01 (真机截图, "real-device screenshot"): the phone's manual-entry
@@ -472,12 +594,21 @@ export function initialPairTab(active: ChannelTag, cloudBlocked: boolean): Chann
  *  decision core: pending / disconnected / no-code / loopback all suppress the QR;
  *  only a connected, coded, LAN-reachable endpoint on the SELECTED channel renders
  *  one. */
-export function derivePairingModal(info: PairingInfo, channel: PairChannel = 'standalone'): PairingModalView {
+export function derivePairingModal(
+  info: PairingInfo,
+  channel: PairChannel = 'standalone',
+  /** M-2 — the desktop's CURRENT UI locale (`getLocale()`), for the https
+   *  payload's `lang=`. Optional so this decision core stays callable from a
+   *  test with no locale store wired; the ONE production caller
+   *  (`main-window/components/PairingModal.vue`, inside the `view` computed, so
+   *  the code re-renders when the language changes) always passes it. */
+  uiLocale?: string | null,
+): PairingModalView {
   // N5 — first gate, because a snapshot from the other channel answers none of the
   // questions below: its `connected` is that channel's link, its code was minted by
   // that channel's server. Nothing (not even the big code) is drawn from it.
   if (info.channel !== undefined && pairChannelOf(info.channel) !== channel) {
-    return { code: null, qrPayload: null, qrSuppressed: true, reason: 'pending', pcid: null };
+    return { code: null, qrPayload: null, qrPayloadHttps: null, qrSuppressed: true, reason: 'pending', pcid: null };
   }
   // 0.2.66 — THE PCID GATE, and the only one on this side. owner 2026-08-14:「本地
   // 局域网……没有 PCID」("the local LAN … has no PCID"). Computed once, above the
@@ -489,41 +620,56 @@ export function derivePairingModal(info: PairingInfo, channel: PairChannel = 'st
   // function knows which tab is on screen.
   const pcid = channel === 'saas' ? info.pcid ?? null : null;
   if (!info.connected) {
-    return { code: info.short_code, qrPayload: null, qrSuppressed: true, reason: 'disconnected', pcid };
+    return { code: info.short_code, qrPayload: null, qrPayloadHttps: null, qrSuppressed: true, reason: 'disconnected', pcid };
   }
   if (!info.short_code) {
     // No code, but the PCID still answers 「这是哪台电脑」("which computer is
     // this") — it is not derived from the code and does not expire with it.
-    return { code: null, qrPayload: null, qrSuppressed: true, reason: 'no-code', pcid };
+    return { code: null, qrPayload: null, qrPayloadHttps: null, qrSuppressed: true, reason: 'no-code', pcid };
   }
   if (isLoopbackEndpoint(info.endpoint)) {
-    return { code: info.short_code, qrPayload: null, qrSuppressed: true, reason: 'loopback', pcid };
+    return { code: info.short_code, qrPayload: null, qrPayloadHttps: null, qrSuppressed: true, reason: 'loopback', pcid };
   }
+  // Shared by BOTH builders (`buildQrPayload` and `buildHttpsQrPayload`) so the
+  // two payloads can never disagree about which facts they carry — one gate
+  // (the conditional spreads below) feeding two renderers, same principle the
+  // `pcid`/`fp` comments above already spell out for this function.
+  const qrOpts = {
+    endpoint: info.endpoint,
+    code: info.short_code,
+    channel,
+    // B4-15 — LAN ONLY. On the relay there is exactly one address the phone can
+    // dial and a local NIC is not a pairing destination at all (Rust already
+    // sends an empty list there — `connection.rs:219`); offering one would tell
+    // the phone to try reaching this machine directly, which is the opposite of
+    // what choosing the cloud channel means.
+    //
+    // D2-LAN — the fingerprint is LAN ONLY for a second, independent reason:
+    // the cloud relay is reached over real `https://flowmic.app` with a real
+    // CA chain, so a self-signed pin there would be answering a question that
+    // channel does not ask. Same guard, two reasons, one condition.
+    ...(channel === 'standalone'
+      ? { candidates: info.lan_candidates, ...(info.lan_tls_fp ? { fingerprint: info.lan_tls_fp } : {}) }
+      : {}),
+    // 0.2.66 — the same conditional spread in the OTHER direction, from the one
+    // `pcid` computed above: whatever the modal renders as this PC's id is exactly
+    // what the QR tells the phone to address, and the LAN payload keeps its bytes.
+    ...(pcid ? { pcid } : {}),
+  };
   return {
     code: info.short_code,
     pcid,
-    qrPayload: buildQrPayload({
-      endpoint: info.endpoint,
-      code: info.short_code,
-      channel,
-      // B4-15 — LAN ONLY. On the relay there is exactly one address the phone can
-      // dial and a local NIC is not a pairing destination at all (Rust already
-      // sends an empty list there — `connection.rs:219`); offering one would tell
-      // the phone to try reaching this machine directly, which is the opposite of
-      // what choosing the cloud channel means.
-      //
-      // D2-LAN — the fingerprint is LAN ONLY for a second, independent reason:
-      // the cloud relay is reached over real `https://flowmic.app` with a real
-      // CA chain, so a self-signed pin there would be answering a question that
-      // channel does not ask. Same guard, two reasons, one condition.
-      ...(channel === 'standalone'
-        ? { candidates: info.lan_candidates, ...(info.lan_tls_fp ? { fingerprint: info.lan_tls_fp } : {}) }
-        : {}),
-      // 0.2.66 — the same conditional spread in the OTHER direction, from the one
-      // `pcid` computed above: whatever the modal renders as this PC's id is exactly
-      // what the QR tells the phone to address, and the LAN payload keeps its bytes.
-      ...(pcid ? { pcid } : {}),
-    }),
+    qrPayload: buildQrPayload(qrOpts),
+    // W-12 (transitional dual code) — same facts, https scheme, primary/big code.
+    //
+    // M-2 — `lang=` is spread in HERE and not into `qrOpts`, so the legacy
+    // `flowmic://` payload stays byte-for-byte what it was. That is not caution
+    // about the assertions in `qr-roundtrip.test.ts`: the two links have
+    // different readers. The https one can land on the WEB mic client, which has
+    // no installed-app preference to read and takes its language from the URL;
+    // the `flowmic://` one can only ever reach the installed app, which owns its
+    // own UI language and would have to ignore this key anyway.
+    qrPayloadHttps: buildHttpsQrPayload({ ...qrOpts, ...(uiLocale ? { lang: uiLocale } : {}) }),
     qrSuppressed: false,
     reason: 'ok',
   };

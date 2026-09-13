@@ -432,7 +432,51 @@ export const FocusWindowSchema      = z.object({
 export const InjectResultSchema     = z.object({
   ok: z.boolean(),
   target_window: NonEmpty.optional(),
-  mode: z.enum(['sendinput', 'clipboard', 'cached']),
+  /**
+   * WHICH PATH PUT THE WORDS WHERE THEY WENT. 🔴 IT IS NOT, AND MAY NOT BECOME, A
+   * JUDGEMENT: who authored a verdict is decided by the error CODE
+   * (`inject-verdict-authorship.ts`, read its header) — the same `mode` value has
+   * two authors on more than one of these, which is this repo's #1 bug shape.
+   *
+   * ── S2-03 (2026-09-07, owner's 2026-09-06 ruling 2) — `'dom'` ────────────────
+   *
+   * A web target (FLOWMIC-WEB's `apps/target`, a page acting as a "virtual
+   * computer") writes the words into the input element it is bound to. That is
+   * none of the other three, and BORROWING ONE WOULD LIE:
+   *   · `sendinput` — no OS-level key synthesis happens; nothing is typed into a
+   *     focused window, because there is no focused window on that end;
+   *   · `clipboard` — 🔴 the loudest lie of the three: it names the SYSTEM
+   *     clipboard, whose whole failure surface (RV-39 withdrawal, the 0.3.26
+   *     restore race, "we overwrote what the user had copied") does not exist
+   *     here, and whose diagnosis would send someone hunting a clipboard that was
+   *     never touched;
+   *   · `cached` — means 「没投递，可补投」("not delivered, can be backfilled"),
+   *     which is the opposite of what happened.
+   *
+   * `ok:true, mode:'dom'` ⇒ **INJECTED**, both segments (docs/rebuild/15 §2.0:
+   * delivery is phone→target, injection is target→its own text box; `dom` is an
+   * INJECTION-segment word and may never be used to describe delivery). The page
+   * may substantiate it by reading the element back, reported the same way every
+   * other end reports it — `focus_evidence: 'editable'`, no new field.
+   *
+   * ⚠️ DEPLOY ORDER IS HARD, AND IT IS THE OPPOSITE OF `focus_window`'s: this is
+   * a REQUIRED key, so a relay older than this line does not strip `'dom'` — it
+   * REFUSES THE WHOLE FRAME. `relay.handler.ts` validates every `inject:result`
+   * with `safeParseEvent` and forwards `parsed.data`, so a failed parse is
+   * `logDrop` and the phone gets NOTHING: the row sits at 「待投递」 and the queue
+   * keeps owing an utterance that already landed in the page. MEASURED, not
+   * assumed — verify/golden/g23-dom-inject-mode.mjs runs exactly that frame
+   * against a real relay. ⇒ RELAY FIRST, WEB TARGET SECOND.
+   * (docs/strategy/2026-09-05-web-client-protocol-and-api-addendum.md §1.4 says
+   * the relay 「透传不校验」 ("forwards transparently, no validation") — that
+   * sentence is false of this path; the code above is what was measured.)
+   *
+   * ⚠️ NO PRODUCER IN THIS REPO. The emitter is FLOWMIC-WEB's target end (card
+   * S2-06, another repository); the desktop's `InjectMode::wire()`
+   * (`apps/desktop/src-tauri/src/inject/pipeline.rs`) has three arms and keeps
+   * them — a Windows/macOS PC can never honestly say `dom`.
+   */
+  mode: z.enum(['sendinput', 'clipboard', 'cached', 'dom']),
   error: NonEmpty.optional(),
   inject_target: InjectTargetSchema.optional(),
   entry_id: NonEmpty.optional(),
@@ -601,6 +645,112 @@ export const ControlKeySchema       = z.object({
   // judgement changes. That is the opposite of `inject_origin`, whose absence
   // CHANGED BEHAVIOUR and therefore forced deploying the relay before shipping the APK.
   device_label: NonEmpty.max(48).optional(),
+  // ── `request_id` — WHICH PRESS a `control:key-result` is answering (MP-14,
+  //    2026-09-11; owner approved the event in ruling 3 of
+  //    docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md
+  //    §11 追认三 item 8) ───────────────────────────────────
+  //
+  // Additive optional, and it exists for exactly one reason: until MP-14 this
+  // event had NO RESULT FRAME, which is what the long note above says makes a
+  // silent refusal the only refusal available here. `control:key-result` ends
+  // that, and a receipt that cannot name the press it answers is only half an
+  // end to it — two taps of ⏎ half a second apart would produce two receipts
+  // nothing could tell apart.
+  //
+  // 🔴 STILL NOT `target_pc_id`, and the note above keeps every word of its
+  // reasoning: the receipt makes a REFUSAL speakable, it does not give this
+  // event a queue, a drain or a backfill. Addressing is still the room's PC.
+  //
+  // ⚠️ FAILURE DIRECTION, and it is the benign one: a relay older than this
+  // round zod-strips the key in flight (it forwards `parsed.data`), so the far
+  // end cannot echo it and the receipt — if one arrives at all — is matched by
+  // `kind` + recency instead. That is a WEAKER match, never a wrong one, and it
+  // degrades to exactly the state that existed before this card (no receipt at
+  // all). Same shape as `device_label` above; the opposite of `inject_origin`.
+  request_id: NonEmpty.max(128).optional(),
+});
+
+// ─── `control:key-result` — the receipt a control key never had (MP-14) ──────
+//
+// FAR END → relay → the speaker that pressed it. "Far end" is whatever holds
+// the other side of the room: a desktop PC, or a web target page (FLOWMIC-WEB
+// `packages/core/src/target/session.ts`). On the wire it is the PC-role socket
+// in both cases, which is why the relay routes it with the same rule
+// `inject:result` uses.
+//
+// 🔴 WHY A NEW EVENT NAME AND NOT A FIELD. There was nothing to add a field to.
+// `control:key` is one-way by construction — the argument for that is written
+// out at `ControlKeySchema.device_label` above, and its conclusion is the
+// sentence this card exists to delete: "a mismatched address could only be
+// refused SILENTLY, which is the red line itself". It cannot ride
+// `inject:result` either: that frame is a DELIVERY verdict for an utterance,
+// with a required `mode` naming which injection path typed the words and an
+// `entry_id`/`request_id` that settle a timeline ROW. A keypress has no row, no
+// text and no mode (the desktop's `mint_control_row` and the phone's
+// `buildControlRowOf` each state the same three absences from their own end) —
+// borrowing that frame would mean inventing all three, and a filler value read
+// downstream as a judgement is the 0.2.49 F2b lesson verbatim.
+//
+// 🔴 `reason` IS NOT AN ERROR CODE, and that is deliberate rather than lazy.
+// The registry (`error-codes.ts`) is untouched. An `ErrorCode` is a
+// USER-FACING, nine-language, registry-wide identifier with an authorship table
+// behind it (`inject-verdict-authorship.ts`) — the vocabulary in which a
+// DELIVERY verdict is argued about. This is a three-valued, event-local enum
+// answering one question ("why could this end not apply the key") for one
+// event, and it is the only consumer of its own values. Minting registry codes
+// for it would (a) add names to the closed sets the phone keys DELIVERY
+// authorship on, which is a different question entirely, and (b) hand a
+// keypress the vocabulary of a delivery — the exact conflation
+// docs/rebuild/15 §2.0 forbids between the two segments. No existing code was
+// honest here either: `INJECT_NO_TEXT_TARGET` answers about TEXT,
+// `INJECT_TARGET_INVALID` is the vague one whose reuse is "one code, two
+// questions", and `CONTROL_UNKNOWN_KIND` is a desktop-local Rust constant that
+// has never been a protocol code at all.
+//
+// The three values, and why there are exactly three — each leads to a DIFFERENT
+// thing the person can do:
+//   · `unsupported_here` — this end does not have this key. A web target page
+//     honours text and a few edits but cannot press Tab or Undo inside someone
+//     else's browser (FLOWMIC-WEB card TP-1's `notHonourableHere`); the desktop
+//     answers it for a kind outside its own six-key map. Pressing it again will
+//     never work; another destination might.
+//   · `no_target` — there is nothing focused to press it into (no live
+//     foreground on the desktop, no bound input element on a page). Click into
+//     a box and press it again.
+//   · `failed` — this end tried and the attempt did not go through (the OS
+//     refused synthetic input, the foreground could not be taken, the send
+//     errored, the channel was not the primary one). Deliberately COARSE: the
+//     detail belongs in the far end's own forensic line, written on the same
+//     press — the same split `ChordExit::line` vs `ChordExit::outcome` already
+//     draws on the desktop.
+//
+// ⚠️ `ok:true` IS ON THE WIRE AND DRAWS NOTHING. Not decoration: a receipt that
+// only ever appears on failure cannot be told apart from a relay that dropped
+// it, and "no news" would again be two different facts wearing one face. The
+// clients are required to render nothing for it.
+export const CONTROL_KEY_RESULT_REASONS = [
+  'unsupported_here', 'no_target', 'failed',
+] as const;
+
+export type ControlKeyResultReason = (typeof CONTROL_KEY_RESULT_REASONS)[number];
+
+export const ControlKeyResultSchema = z.object({
+  /** The press being answered, echoed verbatim from `ControlKeySchema.request_id`.
+   *  Absent when the press carried none (an older phone, or an older relay that
+   *  stripped it) — the client then matches on `kind` + recency, which is weaker
+   *  and says so rather than guessing. */
+  request_id: NonEmpty.max(128).optional(),
+  /** 🔴 THE SAME ENUM AS THE PRESS, not a free string. The receipt has to be
+   *  readable on its own — a client matching by recency has nothing else to go
+   *  on — and a kind it cannot name is a receipt it cannot render. */
+  kind: z.enum([...CONTROL_KEY_CHORD_KINDS, ...CONTROL_KEY_PUNCTUATION_KINDS]),
+  ok: z.boolean(),
+  /** Present only when `ok` is false. "Required on failure" is not expressible
+   *  in zod without a refinement that would also refuse senders older than it,
+   *  so it is optional here and the clients read its absence on a failure as
+   *  `failed` — the coarsest of the three, which is the only safe direction: it
+   *  never invents a specific cause and it never claims success. */
+  reason: z.enum(CONTROL_KEY_RESULT_REASONS).optional(),
 });
 
 // Sub-map spread into protocol-schemas.ts's EVENT_SCHEMAS registry so that
@@ -610,4 +760,5 @@ export const INJECT_EVENT_SCHEMAS = {
   'inject:request':        InjectRequestSchema,
   'inject:result':         InjectResultSchema,
   'control:key':           ControlKeySchema,
+  'control:key-result':    ControlKeyResultSchema,
 } as const;

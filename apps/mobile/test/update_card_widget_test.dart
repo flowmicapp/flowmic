@@ -29,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/legibility.dart';
 import 'support/locale_terms.dart';
+import 'support/temp_teardown.dart';
 import 'support/update_fakes.dart';
 
 const String _sha = 'abc1230000000000000000000000000000000000000000000000000000000def';
@@ -446,6 +447,19 @@ void main() {
     testWidgets('the success screen: says 「已交给系统安装器」, readable in all four locales', (
       WidgetTester tester,
     ) async {
+      // A per-run directory, not a fixed name under systemTemp. Nothing on this
+      // path opens the file (the downloader below is a fake and the installer
+      // never runs), so the old fixed `flowmic-up2b-fake.apk` never actually
+      // collided — but a name every process would pick is the shape that stops
+      // being harmless the moment two runners share the machine. Teardown uses
+      // the shared helper for the reason written in its header
+      // (test/support/temp_teardown.dart).
+      final Directory fakeApkDir = Directory.systemTemp.createTempSync(
+        'flowmic-up2b-fake-',
+      );
+      addTearDown(() => removeTempDir(fakeApkDir));
+      final String fakeApkPath =
+          '${fakeApkDir.path}${Platform.pathSeparator}flowmic-up2b-fake.apk';
       for (final AppLocale locale in AppLocale.values) {
         final UpdateController c = await _rig(
           result: UpdateCheckResult(
@@ -458,7 +472,7 @@ void main() {
           downloader: (UpdateArtifact a, {UpdateDownloadProgress? onProgress}) async =>
               UpdateDownloadResult(
                 UpdateDownloadOutcome.verified,
-                file: File('${Directory.systemTemp.path}/flowmic-up2b-fake.apk'),
+                file: File(fakeApkPath),
               ),
           installer: (String _) async =>
               const UpdateInstallResult(UpdateInstallOutcome.permissionRequired),

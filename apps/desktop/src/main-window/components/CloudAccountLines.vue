@@ -50,6 +50,16 @@ const emit = defineEmits<{ (e: 'retry'): void }>();
 //      none of it", which is not an answer we have. Every width and every sentence
 //      is decided in lib/cloud-account.ts [quotaGauge]; this file only paints them,
 //      which is why the honesty rules stay testable without a browser;
+//   ④-quater whose minutes — present ONLY while a recording in this room is being
+//      charged somewhere other than the obvious place: to the OTHER end's account
+//      (card MP-3, so ④ stands still), or to THIS account because somebody else is
+//      the one speaking (card MP-8/G-2b, so ④ moves while nobody here is talking).
+//      ONE line, never two: they answer the same question and the decision is made
+//      once, in lib/cloud-account-payer.ts. It sits directly under ④ because it
+//      exists to explain ④, and it carries no number in either case: the other
+//      end's remaining minutes never reach this process, and the other speaker is
+//      spending the very meter drawn above. Absent is the ordinary case and absent
+//      renders nothing — never a "you are paying" line, which is a claim nobody made;
 //   ⑤ Subscription valid-until — the whole line is absent on the free tier (not "—");
 //   ⑥ Cloud Key valid-until — below the divider, its label already carries the
 //      words "Cloud Key".
@@ -111,6 +121,11 @@ const hasRowsAbove = computed(
              lib/cloud-account.ts [resetLine]. -->
         <div v-if="card.gauge.reset" class="qg-reset">{{ card.gauge.reset }}</div>
       </div>
+    </div>
+
+    <div v-if="card.payerNote" class="ca-line ca-payer">
+      <span class="ca-k"></span>
+      <span class="ca-v">{{ card.payerNote }}</span>
     </div>
 
     <div v-if="card.subExpiresText" class="ca-line">
@@ -181,6 +196,14 @@ const hasRowsAbove = computed(
    while this one is a sentence — and 0.2.53 is the standing bill for cutting one
    (a refusal code reached a real phone as "INJ…"). German is the long case here. */
 .qg-reset { font-size: 11px; color: var(--t3); line-height: 1.35; }
+/* ④-quater Whose minutes (cards MP-3 / MP-8). An EMPTY key cell rather than a label: the
+   sentence is a footnote to the meter above it, not a field with a name, and giving
+   it a label would make it look like a permanent property of the account instead of
+   a statement about the recording happening this second. It WRAPS for the same
+   reason .qg-reset does — it is a sentence, and 0.2.53 is the standing bill for
+   truncating one. `word-break: normal` undoes .ca-v's break-all, which exists for
+   ids and email addresses and would chop this mid-word. */
+.ca-payer .ca-v { font-size: 11px; color: var(--t3); line-height: 1.35; word-break: normal; }
 /* The rule that keeps "Subscription" and "Cloud Key" from being read as one block. */
 .ca-sep { height: 1px; background: var(--line); margin: 4px 0 2px; }
 /* Sibling of PairedList's `.pm-seen`: a dotted underline is this app's ONE mark for

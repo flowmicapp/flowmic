@@ -1,5 +1,65 @@
+# T0 — the commit gate. Target: under 10 s. Design:
+# docs/strategy/2026-09-13-gate-tiering-design.md §1.
+#
+# verify:lint stays WHOLE and unscoped. It is the only layer that reads
+# CHANGELOG.md, CLAUDE.md, the version faces, the protocol whitelist and the
+# sibling-repo mirrors, and scoping 40 checks would mean each of them declaring
+# which roots it reads — which most of them do not, because they walk the whole
+# tree (verify/lint/file-size.mjs, verify/lint/no-cloud-keys.mjs).
+#
+# verify:scripts is NOT here — it is ~11 s, which does not fit a commit hook —
+# but note that it is unconditional one layer up, in `pnpm verify:lane` (ruling
+# MAIN 2026-09-13). So a change to apps/server-core/src/compose/output-guard.ts
+# still meets its resident gate (scripts/w2-eval-corpus.test.mjs:147) at T1,
+# just not at T0.
 pnpm verify:lint
+
+# Types: incremental, and only the packages this commit touches. Replaces
+# `pnpm verify:types` (all four packages from cold, measured 23.4 s in
+# docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2).
+#
+# 🔴 PATH A, KEPT. Measured, then decided, then decided again — and the second
+# decision is the one that stands (owner's priority this round is quality
+# first).
+#
+# MEASURED 2026-09-13 on dev-pc-a, worst case (a one-line comment staged in
+# apps/server-core/src/, the slowest of the four projects), warm buildinfo,
+# `git commit` end to end, sampled only in windows where neither the flutter
+# nor the golden lane held the machine lock (a run where a lock appeared
+# mid-flight was discarded and re-taken):
+#
+#     run   total     types   lint
+#     m1    11086ms   3.4s    3292ms
+#     m2    11360ms   4.3s    4314ms
+#     m3     7130ms   1.9s    3170ms
+#     median 11086ms  3.4s
+#
+# THE TYPE CHECK MET ITS OWN BUDGET: median 3.4 s against 4 s. The 10 s total
+# was a target, and it is over by 1.1 s.
+#
+# ⚠️ AND ONE MORE READING, taken after the decision, on a QUIET box (both lane
+# locks free, no flutter_tester, no cargo): the same worst-case commit went
+# through in 7835 ms end to end — lint 3282 ms, types 2.0 s (server-core only,
+# incremental). So the 11.1 s median above was measured while two other lanes
+# were working the machine, and the hook is inside the 10 s target when it is
+# not competing. Both numbers are kept: the median is the honest pessimistic
+# one, and this is the honest typical one. Neither is a promise.
+#
+# 🔴 WHY THAT OVERSHOOT DOES NOT BUY A CHECK'S REMOVAL. Of the 11.1 s median,
+# lint reports 3.3 s of its own and types 3.4 s. The remaining ~4.4 s is not
+# verification at all: two `pnpm` launches, husky, and the commit-msg hook's
+# own node start, on Windows. Deleting the type check would pay for process
+# startup with coverage — the wrong side of the trade, and the one that is hard
+# to notice later, because the hook would still look fast and still say "ok".
+#
+# OPEN ITEM, NOT BUILT HERE: the honest lever on that 4.4 s is running the whole
+# hook as ONE node process instead of two pnpm launches plus a node. That is
+# worth more than any further slicing of checks, and it removes no coverage.
+# Logged deliberately rather than done, because it changes how every commit in
+# the repo is gated and that is not a side quest of this card.
+#
 # desktop vue-tsc stays OUT of this gate: it is the slow one (vue-tsc over the
-# whole SFC graph). Ran by the 主控 before delivery instead — stated here so the
-# gap is visible rather than assumed covered.
-pnpm verify:types
+# whole SFC graph). It runs in `pnpm verify:lane` (verify:types:desktop) and in
+# both full gates — stated here so the gap is visible rather than assumed
+# covered.
+node verify/precommit-types.mjs

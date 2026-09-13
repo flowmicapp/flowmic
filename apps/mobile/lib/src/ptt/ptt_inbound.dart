@@ -161,6 +161,16 @@ extension PttSessionInbound on PttSession {
             code: e.code,
             message: e.message,
             judgedAccount: e.judgedAccount,
+            // Card G-2c — WHICH KIND OF CEILING REFUSED, which this frame
+            // cannot say: `judged_account` is a closed two-value enum and the
+            // site-demo gate honestly reports `'self'` (the grant IS this
+            // device's). The only fact on this phone that separates a demo
+            // grant from a monthly plan is the last budget frame's `mode`, so
+            // it is read here — at the one place that has both the refusal and
+            // the session — rather than plumbed to the copy table as a second
+            // parameter every caller would have to remember to pass.
+            // Absent/'plan' ⇒ the pre-existing monthly sentence, byte for byte.
+            trialCeiling: latestBudget.value?.mode == 'trial',
           );
         } else if (e != null) {
           // 🔴 P2-4 (2026-09-02 audit) — THIS ARM USED TO DROP THE FRAME
@@ -360,6 +370,22 @@ extension PttSessionInbound on PttSession {
           _refinedCtl.add(SttRefined(utteranceId: utteranceId, text: refined));
         }
         break;
+      // Card S2-02 - the account allowance reading. Dropped whole when it does
+      // not parse (tryFromJson returns null): a budget frame we cannot read is
+      // one we say nothing about, never one we half-apply to a meter.
+      case FlowMicEvents.billingBudget:
+        final BillingBudget? budget = BillingBudget.tryFromJson(data);
+        if (budget == null) {
+          diag('billing.budget.dropped', <String, Object?>{'reason': 'unparseable'});
+          break;
+        }
+        // Card G-2c — HELD BEFORE IT IS BROADCAST, and the order is not
+        // cosmetic: a subscriber woken by the stream may read `latestBudget`
+        // in the same turn, and a notifier one frame behind its own stream is
+        // two answers to one question.
+        latestBudget.value = budget;
+        if (!_billingBudgetCtl.isClosed) _billingBudgetCtl.add(budget);
+        break;
       case FlowMicEvents.injectResult:
         final InjectResult? r = InjectResult.tryFromJson(data);
         if (r != null) {
@@ -378,6 +404,22 @@ extension PttSessionInbound on PttSession {
           );
           if (!_injectResultCtl.isClosed) _injectResultCtl.add(r);
         }
+        break;
+      // Card MP-14 — the far end could not apply a key this phone pressed.
+      //
+      // 🔴 DELIBERATELY DOES NOT TOUCH `_pcPresence`, unlike the arm above it.
+      // An inject:result is the one frame that can say 「the PC is gone」 (RV-92);
+      // this one is emitted BY the far end about its own keyboard, so it proves
+      // the far end is there — and a refusal is not a presence signal in either
+      // direction. Reading it as one would let a refused Tab repaint a working
+      // computer.
+      case FlowMicEvents.controlKeyResult:
+        final ControlKeyResult? r = ControlKeyResult.tryFromJson(data);
+        if (r == null) {
+          diag('control.key.result.dropped', <String, Object?>{'reason': 'unparseable'});
+          break;
+        }
+        if (!_controlKeyResultCtl.isClosed) _controlKeyResultCtl.add(r);
         break;
       case FlowMicEvents.focusState:
         final FocusState? f = FocusState.tryFromJson(data);

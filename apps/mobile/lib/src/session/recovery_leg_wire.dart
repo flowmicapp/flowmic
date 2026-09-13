@@ -50,13 +50,21 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
     RecoveryIdentity identity,
     String sourceLang,
   ) async {
-    if (!_session.beginBackfill(
+    final BackfillStart start = _session.beginBackfill(
       mode: FlowMode.realtime,
       sourceLang: sourceLang,
       prefs: _phonePrefs?.call(),
       identity: identity,
-    )) {
-      return const _AttemptResult(refusedByGate: true);
+    );
+    if (!start.ok) {
+      // 🔴 CARD WB-6 — WHICH refusal is carried out, because the two lead the
+      // person to opposite actions. The gate is still the only authority on
+      // whether this may start; this reads the answer it gave, it does not
+      // take the decision a second time.
+      return _AttemptResult(
+        refusedByGate: true,
+        refusedNoLink: start == BackfillStart.noLink,
+      );
     }
     final _ProgressClocks clocks = _ProgressClocks(_clock);
     final StreamSubscription<SttInterim> interims =

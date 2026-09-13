@@ -33,6 +33,7 @@ const LAN_ROW: PresenceMobile = {
   online: true,
   channel: 'lan',
   device_uid: 'uid-lan',
+  client: 'app',
   presence: 'online',
   asOf: null,
 };
@@ -96,6 +97,63 @@ describe('PairedList channel badge (C-8, one definition)', () => {
 // technique also proves the positive probe is not blind — the probe itself
 // fails under this change by going from "found two different badges" to
 // "both badges are identical," not because it cannot read the content.
+
+// ── card ID-2: a pairing made from the WEB CLIENT says so ────────────────────
+//
+// Asserted on the RENDER, not on the model. The model half lives in
+// lib/paired-mobiles.test.ts; neither half implies the other, and the shape this
+// card exists to prevent is exactly「both ends were tested and nothing walked
+// the middle」(anti-façade ⑥). Three whitelists sit between the relay and this
+// span — the server projection, the Rust bridge's `parse_list_mobiles_ack`, and
+// `asPairedMobiles` — and dropping the field in any one of them renders a
+// browser tab as one more indistinguishable phone.
+describe('the web-client mark (card ID-2)', () => {
+  const WEB_ROW: PresenceMobile = {
+    ...LAN_ROW,
+    pairing_id: 'p-web-1',
+    // What ID-1 makes the web client claim for itself: 「Web-」 + the last four of
+    // its persistent uid. The name is the phone's own claim, same mechanism the
+    // app uses — the desktop renders it, it does not invent it.
+    mobile_name: 'Web-1a2b',
+    channel: 'cloud',
+    device_uid: 'wb-0a0b0c0d0e0f01020304050607080910',
+    client: 'web',
+  };
+
+  function renderRows(rows: PresenceMobile[]): Promise<string> {
+    return renderToString(
+      createSSRApp(PairedList, {
+        view: { rows, unlisted: [] } satisfies PairedPresenceView,
+        reload: () => Promise.resolve(),
+      }),
+    );
+  }
+
+  it('🔴 a web row renders the mark, WITH its name and its channel badge still there', async () => {
+    const html = await renderRows([WEB_ROW]);
+    expect(html).toContain('client-web');
+    expect(html).toContain(S.dev_client_web);
+    // The mark is an ADDITION, not a replacement: the row must still answer
+    // 「哪条通道」("which channel") and the header must still carry the name the
+    // web client claimed, or we traded one missing fact for another.
+    expect(html).toContain('class="cloud chan-badge"');
+    expect(html).toContain('Web-1a2b');
+  });
+
+  it('🔴 an app row and a legacy row draw NOTHING — the mark is a positive statement only', async () => {
+    // Positive control: the same probe finds the mark when it should be there,
+    // so the zero below is the implementation and not a blind read.
+    expect(await renderRows([WEB_ROW])).toContain('client-web');
+    const html = await renderRows([LAN_ROW]);
+    expect(html).not.toContain('client-web');
+    expect(html).not.toContain(S.dev_client_web);
+  });
+
+  it('marks exactly the web row when both kinds are listed side by side', async () => {
+    const html = await renderRows([LAN_ROW, WEB_ROW]);
+    expect(html.match(/client-web/g) ?? []).toHaveLength(1);
+  });
+});
 
 // ── owner 2026-08-02 UI batch 1 ②: "offline" and "last active: just now" appear side by side ──────────────
 //

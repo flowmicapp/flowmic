@@ -367,10 +367,96 @@ async function collectWeb({ webRoot, locales }) {
 }
 
 /**
+ * Copy authored in the FLOWMIC-WEB client checkout, not a re-export of this
+ * monorepo. The nine-locale catalogue that checkout renders is `@flowmic/i18n-web`,
+ * generated here from `i18n/web/subset.json` × `i18n/mobile/<locale>.json` and
+ * already collected above as `app`. Scanning the vendored tarball (or the
+ * generated messages next to it) would audit the same sentence under a second
+ * filename and hide the real hole: sentences written only over there.
+ *
+ * Today that hole is one file. `missingWebCopy.ts` holds English drafts for
+ * keys the subset does not yet name; the stage-1 UI renders those drafts
+ * (wrapped in an obvious scaffold). They are not in `i18n/mobile`. A new
+ * authored catalogue over there gets a new row here -- a directory walk would
+ * also pick up the derived package the moment someone extracts the tarball.
+ *
+ * Absence is a named SKIP that says the corpus shrank, never a silent empty
+ * set and never a throw. A green run that quietly lost this surface is the
+ * failure this table exists to refuse.
+ */
+export const WEB_CLIENT_COPY_FILES = [
+  {
+    file: 'apps/mic/src/i18n/missingWebCopy.ts',
+    shape: 'englishDrafts',
+    locale: 'en',
+    what: 'web-only sentences not in @flowmic/i18n-web (rendered today as scaffold)',
+  },
+];
+
+const WEB_CLIENT_SKIP =
+  'SKIP: web-client corpus omitted — sibling checkout not found (pass --web-client-root or set FLOWMIC_COPY_AUDIT_WEB_CLIENT_ROOT). This run audited a reduced corpus; a green here is not a green on the web client.';
+
+/** `proposedKey` + `englishDraft` pairs. Anything else in that file is a path, a key name, or a source citation -- not copy. */
+function sweepEnglishDrafts(src) {
+  const re = new RegExp(String.raw`proposedKey\s*:\s*(${TS_STRING})[\s\S]*?englishDraft\s*:\s*(${TS_STRING})`, 'g');
+  const out = [];
+  let hit;
+  while ((hit = re.exec(src)) !== null) {
+    out.push({ keyRaw: hit[1], raw: hit[2], index: hit.index + hit[0].lastIndexOf(hit[2]) });
+  }
+  return out;
+}
+
+async function collectWebClient({ clientRoot, locales }) {
+  if (!clientRoot) return { units: [], notes: [WEB_CLIENT_SKIP] };
+  try {
+    const st = await stat(clientRoot);
+    if (!st.isDirectory()) {
+      return { units: [], notes: [`SKIP: web-client corpus omitted — sibling checkout is not a directory (${clientRoot}). This run audited a reduced corpus; a green here is not a green on the web client.`] };
+    }
+  } catch {
+    return { units: [], notes: [`SKIP: web-client corpus omitted — sibling checkout not readable at ${clientRoot}. This run audited a reduced corpus; a green here is not a green on the web client.`] };
+  }
+  const units = [];
+  const notes = [];
+  let readAny = false;
+  for (const { file, shape, locale } of WEB_CLIENT_COPY_FILES) {
+    if (locales && !locales.includes(locale)) continue;
+    const abs = path.join(clientRoot, ...file.split('/'));
+    let src;
+    try {
+      src = maskTsComments(await readFile(abs, 'utf8'));
+    } catch {
+      notes.push(`SKIP: web-client corpus reduced — not readable: ${abs} (declared authored-there file).`);
+      continue;
+    }
+    readAny = true;
+    if (shape !== 'englishDrafts') continue;
+    for (const { keyRaw, raw, index } of sweepEnglishDrafts(src)) {
+      const key = decodeLiteral(keyRaw);
+      const text = raw[0] === '`' ? raw.slice(1, -1) : decodeLiteral(raw);
+      if (key === null || text === null || !isAuditableText(text)) continue;
+      units.push({
+        id: `web-client/${file}/${locale}#${key}@${index}`,
+        surface: 'webclient',
+        locale,
+        file: `web-client/${file}`,
+        key,
+        text,
+      });
+    }
+  }
+  if (!readAny && notes.length === 0) {
+    return { units: [], notes: [`SKIP: web-client corpus omitted — no declared authored-there file readable under ${clientRoot}. This run audited a reduced corpus; a green here is not a green on the web client.`] };
+  }
+  return { units, notes };
+}
+
+/**
  * Collect every unit for the requested surfaces.
  * @returns {Promise<{units: Array, notes: string[]}>}
  */
-export async function collectUnits({ root = ROOT, surfaces = null, locales = null, webRoot = null } = {}) {
+export async function collectUnits({ root = ROOT, surfaces = null, locales = null, webRoot = null, webClientRoot = null } = {}) {
   const want = (s) => !surfaces || surfaces.includes(s);
   const notes = [];
   let units = [];
@@ -384,7 +470,13 @@ export async function collectUnits({ root = ROOT, surfaces = null, locales = nul
     for (const reason of web.notes) notes.push(`site/console NOT fully audited -- ${reason}`);
     units = units.concat(web.units);
   }
+  if (want('webclient')) {
+    const client = await collectWebClient({ clientRoot: webClientRoot, locales });
+    notes.push(...client.notes);
+    units = units.concat(client.units);
+  }
   return { units, notes };
 }
 
-export const SURFACE_IDS = ['app', 'readme', 'contrib', 'site', 'console'];
+export const SURFACE_IDS = ['app', 'readme', 'contrib', 'site', 'console', 'webclient'];
+export { WEB_CLIENT_SKIP };

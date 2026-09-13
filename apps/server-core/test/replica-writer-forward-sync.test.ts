@@ -273,7 +273,7 @@ describe('pc:release-mobile forwarded from a replica (B5)', () => {
     expect(writer.suppression.reasonFor(paired.mobile.id)).toBe('busy');
   });
 
-  it('revoke DELETES the row on the WRITER — and does NOT touch the replica copy', async () => {
+  it('revoke DELETES the row on the WRITER — and drops this replica copy too', async () => {
     const { pc, paired } = fixture();
     const fwd = productionForwardSync();
     const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
@@ -285,9 +285,151 @@ describe('pc:release-mobile forwarded from a replica (B5)', () => {
     expect(ack).toMatchObject({ ok: true, released: 1, revoked: 1 });
     // ① again: the writer's row is gone…
     expect(writer.db.mobiles.findById(paired.mobile.id)).toBeNull();
-    // …but the replica's copy of the OLD row is UNTOUCHED — it dies at the next
-    // pull, not by this handler reaching into a database it must not write.
+    // …AND SO IS THIS NODE'S COPY.
+    //
+    // 🔴 THIS ASSERTION USED TO BE ITS OWN NEGATION, and the comment above it
+    // read: 「the replica's copy of the OLD row is UNTOUCHED — it dies at the
+    // next pull, not by this handler reaching into a database it must not
+    // write」. The premise was true (a replica must not DECIDE a write) and the
+    // conclusion was false, so the test pinned the defect as the spec — the
+    // shape CLAUDE.md records from 0.2.52: a reverse control pointed the wrong
+    // way is worse than none. The user cannot see the writer's database. The
+    // list they are looking at is answered from THIS one (see the next test),
+    // so a deletion that stops at the writer is not a deletion as far as they
+    // can tell — they press again and are told it failed.
+    expect(replica.db.mobiles.findById(paired.mobile.id)).toBeNull();
+  });
+
+  // ── owner 2026-09-10:「网页建立的配对实例无法正常取消」───────────────
+  //
+  // The deliverable is not a DB row, it is WHAT THE DEVICE PAGE LISTS — and the
+  // desktop's reload right after a revoke is a `pc:list-mobiles` to THIS node.
+  // Asserting only on `db.mobiles` would leave the projection untested, which is
+  // exactly the gap CLAUDE.md's anti-façade ⑥ describes (both ends measured,
+  // nothing walked the middle).
+  it('the revoked pairing leaves this replica pc:list-mobiles — the surface the user reads', async () => {
+    const { pc, paired } = fixture();
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    const before = await socket.invoke('pc:list-mobiles', {});
+    expect((before.mobiles as { pairing_id: string }[]).map((m) => m.pairing_id)).toContain(paired.mobile.id);
+
+    await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    const after = await socket.invoke('pc:list-mobiles', {});
+    expect((after.mobiles as { pairing_id: string }[]).map((m) => m.pairing_id)).not.toContain(paired.mobile.id);
+  });
+
+  // The rows owner reported were paired from the WEB client (device_uid
+  // `wb-…`); the ones that had always worked were the Flutter app's (`mb-…`).
+  // That difference is a red herring and this test is here to keep it one: the
+  // defect was the node the PC happened to be connected to, not the identity on
+  // the row. Both are driven through the SAME production path.
+  it.each([
+    ['web-paired (wb)', 'wb-758c15edee95722b71aa61990db873b2', 'web'],
+    ['app-paired (mb)', 'mb-7523660a11812ce5', null],
+  ])('%s: revocable from the PC, and it leaves the list', async (_label, deviceUid, client) => {
+    const { pc } = writer.registry.registerPc({ device_name: 'dev-pc-a', user_id: 'default' });
+    const paired = writer.registry.pairMobile({ short_code: pc.short_code, mobile_name: 'Phone-9044', user_id: 'default' });
+    writer.db.mobiles.setDeviceUid(paired.mobile.id, deviceUid as string);
+    writer.db.mobiles.setClientOrigin(paired.mobile.id, client, client === null ? null : '0.3.78');
+    replica.db.pcs.insert({
+      id: pc.id, user_id: 'default', device_name: pc.device_name, room_uuid: pc.room_uuid,
+      device_token: pc.device_token, short_code: pc.short_code,
+    });
+    replica.db.mobiles.insert({
+      id: paired.mobile.id, user_id: 'default', pc_device_id: pc.id, mobile_token: paired.token,
+      mobile_name: 'Phone-9044', device_uid: deviceUid, client, client_version: client === null ? null : '0.3.78',
+    });
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    const ack = await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    expect(ack).toMatchObject({ ok: true, revoked: 1 });
+    const after = await socket.invoke('pc:list-mobiles', {});
+    expect(after.mobiles).toEqual([]);
+  });
+
+  // The second press is what owner actually saw: on srvjp's journal his six
+  // presses produced three `revoked:1` and three `targets:0, revoked:0` — the
+  // same three rows, pressed twice, because the first press left them on screen.
+  // The desktop is RIGHT to read `revoked: 0` as did-not-happen (socket/wire.rs
+  // `parse_release_mobile_ack`) and this fix does not soften that.
+  //
+  // ⚠️ THIS TEST IS GREEN WITH OR WITHOUT THE LOCAL DROP, and saying so is the
+  // point: the harness has no replication lag, so the writer answers
+  // `targets: 0` on the second call either way. It pins IDEMPOTENCE (an
+  // already-gone row acks ok, never an error or a crash), not the fix — the
+  // four tests above are the ones that went red when the drop was removed.
+  it('a second press acks the honest idempotent shape, never an error', async () => {
+    const { pc, paired } = fixture();
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    expect(await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true }))
+      .toMatchObject({ ok: true, revoked: 1 });
+    // Nothing lists it any more, so a real user never gets here — and if they
+    // do (a row deleted by some other path), the ack is still the honest
+    // idempotent one rather than an error or a crash.
+    expect(await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true }))
+      .toMatchObject({ ok: true, revoked: 0 });
+  });
+
+  // REVERSE CONTROL. A disconnect deletes NOTHING anywhere — the pairing stays
+  // valid and the phone returns by itself after the suppression window. If the
+  // local drop were unconditional instead of gated on `revoke`, this would be a
+  // replica quietly destroying a live credential the writer still holds, which
+  // is a far worse defect than the one being fixed.
+  it('a DISCONNECT leaves the replica row alone — the drop is gated on revoke', async () => {
+    const { pc, paired } = fixture();
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id });
+
+    expect(writer.db.mobiles.findById(paired.mobile.id)).not.toBeNull();
     expect(replica.db.mobiles.findById(paired.mobile.id)).not.toBeNull();
+    const after = await socket.invoke('pc:list-mobiles', {});
+    expect((after.mobiles as { pairing_id: string }[]).map((m) => m.pairing_id)).toContain(paired.mobile.id);
+  });
+
+  // A pairing belonging to ANOTHER PC must not be reachable from this one —
+  // stated on `Registry.revokeMobile` and now also true of the local drop,
+  // because it goes through that same ownership-checked method rather than the
+  // wider `retireMobile`.
+  it('the local drop cannot reach another PC row on this replica', async () => {
+    const { pc, paired } = fixture();
+    const other = writer.registry.registerPc({ device_name: 'other-pc', user_id: 'default' }).pc;
+    replica.db.pcs.insert({
+      id: other.id, user_id: 'default', device_name: other.device_name, room_uuid: other.room_uuid,
+      device_token: other.device_token, short_code: other.short_code,
+    });
+    // The same pairing id, but on this stale snapshot it is filed under the
+    // OTHER PC. The writer will still name it in `target_ids`; the drop must
+    // decline it here.
+    replica.db.mobiles.remove(paired.mobile.id);
+    replica.db.mobiles.insert({
+      id: paired.mobile.id, user_id: 'default', pc_device_id: other.id,
+      mobile_token: paired.token, mobile_name: 'Pixel',
+    });
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    expect(replica.db.mobiles.findById(paired.mobile.id)?.pc_device_id).toBe(other.id);
   });
 
   it('an unreachable writer yields the REFUSAL, never a fabricated ok', async () => {
@@ -388,6 +530,31 @@ describe('mobile:unpair forwarded from a replica (B4)', () => {
     // …and the LOCALLY-connected PC (this node's own room) was told, even
     // though the mutation itself happened on a different machine.
     expect(pcSock.emitted).toContainEqual({ event: 'pc:mobile-left', payload: { mobile_id: paired.mobile.id } });
+    // 🔴 owner 2026-09-10 — AND THE ROW IS GONE FROM THIS NODE. The emit above
+    // clears the live ROSTER; `pc:list-mobiles` does not read the roster, it
+    // reads the ROW. Without this the PC keeps listing a phone that unpaired
+    // itself, for up to one 30-second pull — the same hole as the PC-side
+    // revoke, in the other direction.
+    expect(replica.db.mobiles.findById(paired.mobile.id)).toBeNull();
+  });
+
+  it('the PC list on this replica drops the self-retired pairing immediately', async () => {
+    const { pc, paired } = fixture();
+    const pcSock = fakeSocket('sock-pc-local', { userId: 'default', deviceId: pc.id, kind: 'pc' }, pc.room_uuid);
+    registerPcHandlers(pcSock as unknown as Socket, {
+      io, registry: replica.registry, store: replica.store,
+      resolveActingUser: () => ({ userId: 'default' }),
+      writerOnly: makeWriterOnlyGuard(WRITER_URL),
+    });
+    replica.store.joinPc(pc.room_uuid, pcSock as unknown as Socket);
+    expect(((await pcSock.invoke('pc:list-mobiles', {})).mobiles as unknown[]).length).toBe(1);
+
+    const fwd = productionForwardSync();
+    const socket = wireMobile(forwardUnpairMobileVia(fwd));
+    socket.data.auth = { userId: 'default', pairingId: paired.mobile.id, kind: 'mobile' };
+    await socket.invoke('mobile:unpair', {});
+
+    expect((await pcSock.invoke('pc:list-mobiles', {})).mobiles).toEqual([]);
   });
 
   it('an already-retired pairing is idempotent — ok:true, no crash, no local emit', async () => {

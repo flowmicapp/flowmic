@@ -295,6 +295,12 @@
       "name": "dev_paired_last_seen_tip"
     },
     {
+      "key": "dev_client_web",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_client_web"
+    },
+    {
       "key": "dev_group_pairings",
       "shard": "devices",
       "kind": "string",
@@ -625,6 +631,18 @@
       "name": "cloud_usage_reset_in_days"
     },
     {
+      "key": "cloud_usage_paid_by_peer",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_paid_by_peer"
+    },
+    {
+      "key": "cloud_usage_spent_by_other",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_usage_spent_by_other"
+    },
+    {
       "key": "cloud_src_permanent_free",
       "shard": "cloud",
       "kind": "string",
@@ -953,6 +971,30 @@
       "shard": "pairing",
       "kind": "string",
       "name": "pair_qr_render_failed"
+    },
+    {
+      "key": "pair_cloud_app_or_browser",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_cloud_app_or_browser"
+    },
+    {
+      "key": "pair_lan_no_web",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_lan_no_web"
+    },
+    {
+      "key": "pair_legacy_qr_label",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_legacy_qr_label"
+    },
+    {
+      "key": "pair_legacy_qr_hide",
+      "shard": "pairing",
+      "kind": "string",
+      "name": "pair_legacy_qr_hide"
     },
     {
       "key": "pair_refresh",

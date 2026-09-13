@@ -39,8 +39,12 @@ import type { TokenReadThroughSeam } from '../../auth/middleware';
 import { logAuthRefusal } from '../../auth/refusal-log';
 import { getAccount, getAccountAuthError, getAuth, safeAck, setAuth, setRoomUuid, type ActingIdentity } from '../wire';
 import { registerPcListMobilesHandler } from './pc-list-mobiles';
+import { dropRevokedPairingsOnReplica } from '../../node/replica-row-reconcile';
+import { dropDisplacedPc } from './pc-slot-displacement';
+import { clientDeclarationOf } from './client-declaration'; // card S2-01
+import { budgetAckFields, pushJoinBudget, type BudgetHandlerDeps } from './budget-frames';
 
-export interface PcHandlerDeps {
+export interface PcHandlerDeps extends BudgetHandlerDeps {
   io: Server;
   registry: Registry;
   store: RoomStore<Socket>;
@@ -204,72 +208,6 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     }
   };
 
-  // F-3 Fix#2 — CONSUME `joinPc`'s `previous`. Both legs below used to throw it
-  // away, and that discard IS the defect: `RoomStore.joinPc` REPLACES the room's
-  // PC slot, so the socket it hands back is left connected, authenticated, and
-  // permanently deaf — every frame addressed to the room now goes to the new
-  // owner, and nothing will ever be addressed to it again. W9 experiment (A)
-  // measured that state 6/6 (last registrant owns the room; the loser stays
-  // alive). It is the server half of F-3: the desktop's devices page says
-  // "no phone connected currently" while a phone is connected and text is landing.
-  //
-  // WHY A DISCONNECT AND NOT A LOG OR A NEW EVENT — the three candidates:
-  //   · log only: nothing the peer can act on ever changes. That is F-3's OWN
-  //     shape (the desktop already writes 「No further CONNECTION frames will
-  //     reach the UI」 and nobody consumes it); repeating it one layer up would
-  //     produce a second sentence nobody reads.
-  //   · a 「you were displaced」 event: needs a protocol slot (owner gate), and an
-  //     unregistered event name is SILENTLY DISCARDED by every desktop already in
-  //     the field — so it would change nothing out there for months.
-  //   · a transport close: a true statement on the wire we already have — 「this
-  //     link is over」. `connected === true` on a deaf socket is the lie; closing
-  //     it makes the transport agree with the room. The peer's reconnect ladder
-  //     and its RV-26 register watchdog are exactly the machinery already shipped
-  //     to act on that fact, on every desktop version in the field.
-  // It is also byte-for-byte what the MOBILE leg has done with the identical
-  // `previous`, from the identical store, since GA-26 (mobile.handler
-  // `joinAndNotify`): "the same fact handled two different ways" is a shape this repo has paid for.
-  //
-  // THE TWO LEGS DO NOT DIFFER, and that was checked rather than assumed. Both
-  // resolve ONE pc_devices row (register by client_instance_id/machine_uid,
-  // reconnect by token) and both join THAT row's room_uuid, so `previous` is
-  // always an older session of the SAME machine in both. The one asymmetry —
-  // registerPc may have just ROTATED device_token, leaving the displaced socket
-  // holding a dead credential — argues for the same action, harder. So: ONE
-  // implementation, called from both, for the reason `confirmedMobiles` above
-  // gives verbatim — 0.2.1 shipped two copies of "what is this PC called" and only one
-  // ever got fixed.
-  //
-  // 🔴 `previous.id === socket.id` IS NOT A DISPLACEMENT. A second register on
-  // ONE live socket (the RV-26 register watchdog re-firing, or register followed
-  // by reconnect on the same connection) would otherwise kill the very session
-  // just admitted — before its ack was sent. Same guard as the mobile leg.
-  //
-  // FAILURE DIRECTION: never throws, and never reaches the caller's `try` — that
-  // one answers the ack, and a failed disconnect must not turn a successful
-  // registration into an error ack. If this whole function were skipped, the
-  // result is exactly today's behaviour, which is the bar.
-  //
-  // KNOWN RESIDUAL (recorded, deliberately NOT given an invented recovery path):
-  // if TWO genuinely live desktop sessions ever share one pc row, each will
-  // reconnect and re-register, and they will trade the slot — the 「endless
-  // re-register ping-pong」 registry.ts already names as the reason machine_uid
-  // folds in the Windows user. Not observed; the log line below is its evidence (the
-  // same two socket ids alternating at speed).
-  const dropDisplacedPc = (roomUuid: string, previous: Socket | null, current: Socket): void => {
-    if (previous === null || previous.id === current.id) return;
-    try {
-      log.warn('pc slot displaced — closing the previous session', {
-        room_uuid: roomUuid,
-        previous_socket_id: previous.id,
-        socket_id: current.id,
-      });
-      previous.disconnect(true);
-    } catch (err) {
-      log.error('pc slot displacement: disconnect failed', { room_uuid: roomUuid, err: String(err) });
-    }
-  };
-
   socket.on('pc:register', (payload: unknown, ack: unknown) => {
     const parsed = safeParseEvent('pc:register', payload);
     if (!parsed.success) return safeAck(ack, { error: 'PAIR_INVALID_PAYLOAD' });
@@ -291,6 +229,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
         user_id: userId,
         ...(parsed.data.client_instance_id !== undefined ? { client_instance_id: parsed.data.client_instance_id } : {}),
         ...(parsed.data.machine_uid !== undefined ? { machine_uid: parsed.data.machine_uid } : {}),
+        ...clientDeclarationOf(parsed.data), // card S2-01
       });
       setAuth(socket, { userId, deviceId: pc.id, kind: 'pc' });
       deps.stampHomeNode?.(pc.id);
@@ -360,6 +299,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
           connectedMobiles,
           schema_ver: PROTOCOL_SCHEMA_VERSION,
         });
+        pushJoinBudget(socket, deps.budget); // card S2-02 - push point 1 of 4
       };
       void confirmedMobiles(pc.room_uuid).then(finish);
     } catch (err) {
@@ -520,6 +460,10 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       }
       const { pc } = result;
       setAuth(socket, { userId: pc.user_id, deviceId: pc.id, kind: 'pc' });
+      // card S2-01 — 🔴 THE LEG THAT ACTUALLY RUNS IN PRODUCTION: a desktop
+      // registers once and reconnects by token forever after, so a declaration
+      // collected only at register reaches almost nobody (`pcid`, fixed in 0.3.1).
+      registry.notePcClientDeclaration(pc.id, clientDeclarationOf(parsed.data));
       deps.stampHomeNode?.(pc.id);
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
@@ -530,6 +474,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       pcAbsenceReasons.clearFor(pc);
       const finish = (connectedMobiles: string[]): void => {
         safeAck(ack, {
+          ...budgetAckFields(pc.user_id, deps.budget), // card S2-02 (addendum §1.5)
           device_id: pc.id,
           pc_id: pc.id,
           pc_instance_id: pc.client_instance_id,
@@ -745,6 +690,15 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
           if (outcome.status !== 'ok') return safeAck(ack, replicaRelease);
           const { target_ids, revoked_count, suppressed_ms } = outcome.result;
           const released = applyLocalReleaseEffects(roomUuid, target_ids, revoke, suppressed_ms);
+          // 🔴 owner 2026-09-10 — WITHOUT THIS THE DELETION IS INVISIBLE TO THE
+          // USER WHO ASKED FOR IT. The row is gone on the writer, but this PC's
+          // reload asks THIS node, whose snapshot keeps the pairing for up to
+          // one 30-second pull; the row comes back, the user presses again, the
+          // writer answers `targets: 0`, and the desktop says「撤销失败」about a
+          // pairing that no longer exists. Only on `revoke` — a disconnect
+          // deletes nothing anywhere. See node/replica-row-reconcile.ts for the
+          // measured trace and why this is not a replica deciding a write.
+          if (revoke) dropRevokedPairingsOnReplica(registry, pc.id, target_ids);
           log.info('pc:release-mobile (forwarded)', {
             pc_id: pc.id, revoke, targets: target_ids.length, released, revoked: revoked_count,
           });

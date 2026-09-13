@@ -1,0 +1,11 @@
+{
+  // Same split as packages/protocol: the build tsconfig pins rootDir=src, which
+  // makes test/ structurally invisible to `tsc` (GATE-3b). This config exists
+  // ONLY for `typecheck`; the build stays on tsconfig.json (tsup).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src", "test"]
+}

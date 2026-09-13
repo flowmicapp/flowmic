@@ -222,8 +222,9 @@ export function tryHandleConsoleDeviceRoutes(
   // route, or the reaper" as its callers since D11; both were fiction until this
   // line, so a user who filled the free tier's 2 machines by reinstalling Windows
   // had no way off the ceiling except paying. `room/registry.ts` recomputes the
-  // count fresh on every registration (`listByUser(...).filter(isRealPc)`, no
-  // cache), so a row deleted here is a slot free on the very next connect.
+  // count fresh on every registration (`listByUser(...).filter(occupiesPcSlot)`,
+  // no cache — card S2-04 split that predicate off `isRealPc`), so a row deleted
+  // here is a slot free on the very next connect.
   //
   // ANSWERS, not error codes. Like the revoke above, the refusals are domain
   // answers on a 200: `{ok:true, removed:false, reason}`. That is deliberate and

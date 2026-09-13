@@ -175,7 +175,7 @@ void main() {
       final String copy = AppStrings.of(AppLocale.zh).pairError(r.error);
       expect(copy, contains(kVpn));
       expect(copy, contains(kLan));
-      expect(copy, contains('够不着'));
+      expect(copy, contains('无法连通'));
       // …and it is NOT the one-line 「无法连接到电脑」 that hid this before.
       expect(copy, isNot('无法连接到电脑'));
     });

@@ -44,7 +44,7 @@ function harness(delivery: 'inject' | 'none' = 'inject') {
   const pc = new FakeSocket('pc');
   store.joinPc(ROOM, pc);
 
-  const guard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+  const guard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
   const usage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 
   const sttFactory = (args: SttStartArgs) => {

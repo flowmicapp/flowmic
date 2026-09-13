@@ -206,7 +206,7 @@ function fakePortableZip({ control = 7, feature = 4, exeName = PORTABLE_EXE_ENTR
     zipEntry('FlowMic-portable/', Buffer.alloc(0), { store: true }),
     zipEntry(exeName, fakeExe({ control, feature }), { store }),
     zipEntry('FlowMic-portable/resources/package.json', Buffer.from('{"type":"module"}\n')),
-    zipEntry('FlowMic-portable/使用说明.txt', Buffer.from('一键运行版\n', 'utf8')),
+    zipEntry('FlowMic-portable/README.txt', Buffer.from('Portable Edition\n', 'utf8')),
   ]);
 }
 

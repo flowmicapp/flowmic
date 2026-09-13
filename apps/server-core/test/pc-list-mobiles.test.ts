@@ -105,7 +105,7 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe('pc:list-mobiles — the paired-phone table', () => {
-  it('lists THIS PC\'s pairings with the public six fields', async () => {
+  it('lists THIS PC\'s pairings with the public eight fields', async () => {
     const { pc, paired } = pcWithMobiles('default', 'PC-A', ['Pixel 9', 'iPhone 16']);
     const sock = wire(fakeSocket('s-pc', { userId: 'default', deviceId: pc.id, kind: 'pc' }));
 
@@ -118,9 +118,12 @@ describe('pc:list-mobiles — the paired-phone table', () => {
       // An EXACT key set, not a subset: this is the zero-secret projection, and
       // a field that appears without anyone deciding to add it is exactly how a
       // token would eventually ride along. v0.2.4 adds `device_uid` — the sixth
-      // is a decision, recorded here.
+      // is a decision, recorded here. Card S2-01 adds `client` /
+      // `client_version` (seventh and eighth), so the desktop can mark a browser
+      // instead of showing it as an indistinguishable phone.
       expect(Object.keys(m).sort()).toEqual([
-        'device_uid', 'last_seen_at', 'mobile_name', 'online', 'paired_at', 'pairing_id',
+        'client', 'client_version', 'device_uid', 'last_seen_at', 'mobile_name',
+        'online', 'paired_at', 'pairing_id',
       ]);
       expect(typeof m.paired_at).toBe('string');
       expect(m.last_seen_at).toBeNull(); // never connected yet — honest null
@@ -128,6 +131,14 @@ describe('pc:list-mobiles — the paired-phone table', () => {
       // honest answer is null — never a fabricated id that would make two
       // unrelated phones look like one machine on the desktop's table.
       expect(m.device_uid).toBeNull();
+      // card S2-01 — and the same discipline for the client fields: these rows
+      // were made with no declaration, so the wire says NULL. 🔴 NOT 'app'. The
+      // 「absent means app」 reading belongs to the renderer and has one author
+      // (protocol clientOriginOf); a projection that wrote it here would make
+      // 「paired by the app」 and 「paired before the field existed」 the same
+      // statement, and only one of those is something anyone observed.
+      expect(m.client).toBeNull();
+      expect(m.client_version).toBeNull();
     }
   });
 

@@ -11,7 +11,21 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 
-export type SiteCountKind = 'pageview' | 'download_click' | 'register_ok' | 'login_ok';
+// The five `demo_*` kinds are the on-site voice-demo funnel (M4-02 / stage
+// four site demo design doc §3.2/§8.1-R row 4): a demo starting, a phone
+// pairing to it, text landing on the page, the trial running out, and a
+// click through to download. Client-reported like `pageview`, counted the
+// same way, no visitor identity attached.
+export type SiteCountKind =
+  | 'pageview'
+  | 'download_click'
+  | 'register_ok'
+  | 'login_ok'
+  | 'demo_mint'
+  | 'demo_paired'
+  | 'demo_flight'
+  | 'demo_expired'
+  | 'demo_cta';
 export type SiteCountDim = 'path' | 'locale' | 'referrer_host' | 'utm' | 'src' | '_';
 
 /** The total-only dimension used by register_ok / login_ok (and by summary

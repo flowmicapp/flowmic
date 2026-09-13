@@ -58,7 +58,16 @@ class PendingRecoveryEntry extends StatefulWidget {
 }
 
 class _PendingRecoveryEntryState extends State<PendingRecoveryEntry> {
-  bool _any = false;
+  /// Card WB-6 — HOW MANY, AND OF WHICH KIND, because the row used to say
+  /// neither.
+  ///
+  /// 🔴 THE LIST HOLDS TWO KINDS OF THING AND THE DOOR HAD ONE NAME. 「Recordings
+  /// waiting to be transcribed」 was said about a recording that had been tried,
+  /// answered, and was never going to be tried again — Book 15 §2.0-b's banned
+  /// shape, a wait no mechanism redeems. MEASURED 2026-09-12 on TB335ZC: a
+  /// six-second recording of silence from 2026-09-10 under exactly that row.
+  int _waiting = 0;
+  int _kept = 0;
 
   @override
   void initState() {
@@ -78,8 +87,16 @@ class _PendingRecoveryEntryState extends State<PendingRecoveryEntry> {
   Future<void> _read() async {
     final List<PendingRecoveryItem> rows = await widget.source.list();
     if (!mounted) return;
-    final bool any = rows.isNotEmpty;
-    if (any != _any) setState(() => _any = any);
+    final int waiting = rows
+        .where((PendingRecoveryItem e) => e.awaitingTranscription)
+        .length;
+    final int kept = rows.length - waiting;
+    if (waiting != _waiting || kept != _kept) {
+      setState(() {
+        _waiting = waiting;
+        _kept = kept;
+      });
+    }
   }
 
   Future<void> _open() async {
@@ -95,9 +112,20 @@ class _PendingRecoveryEntryState extends State<PendingRecoveryEntry> {
     if (mounted) await _read();
   }
 
+  /// Which sentence this row gets.
+  ///
+  /// 🔴 THE PROMISE WINS WHEN THERE IS ONE TO MAKE. With both kinds behind the
+  /// row it counts the ones something is still going to happen to, because that
+  /// is the fact a person would act on; the rest are one tap away and each says
+  /// for itself what it is. Only when NOTHING is owed an attempt does the row
+  /// stop using the word 「waiting」 at all.
+  String _label(AppStrings s) => _waiting > 0
+      ? s.pendingRecoveryEntryWaiting(_waiting)
+      : s.pendingRecoveryEntryKept(_kept);
+
   @override
   Widget build(BuildContext context) {
-    if (!_any) return const SizedBox.shrink();
+    if (_waiting + _kept == 0) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
       child: InkWell(
@@ -117,7 +145,7 @@ class _PendingRecoveryEntryState extends State<PendingRecoveryEntry> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  widget.strings.pendingRecoveryEntry,
+                  _label(widget.strings),
                   key: const Key('pendingRecovery.entry.label'),
                   style: TextStyle(color: FlowMicColors.t1, fontSize: 12.5),
                 ),

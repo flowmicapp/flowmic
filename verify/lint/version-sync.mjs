@@ -17,7 +17,16 @@
 //     scripts/opensource-manifest.mjs applies on public export — before this
 //     it only became a face AFTER that rename, so a public export tree could
 //     fail its own version-sync on arrival with nobody here to see it fail)
-// EXCEPTION: @flowmic/protocol carries an independent version and is excluded.
+// 🔴 NO EXCEPTIONS SINCE 2026-09-07 (card S1-04). This header used to read
+// "EXCEPTION: @flowmic/protocol carries an independent version and is excluded",
+// and it was true: the package was workspace-internal, so its number answered
+// nothing anybody could observe. Publishing it to a registry changed that. An
+// outside repo now pins `@flowmic/protocol@x.y.z` and deploys against a relay
+// that reports its own SERVER_VERSION, and if those two numbers come from
+// different lines nobody can tell from the outside whether they match — which is
+// the same D5 defect ("three artefacts all called 0.1.0") one repository over.
+// The package therefore joined the product's single version line (owner
+// 2026-07-29「一个产品一条版本线」), and EXCLUDED_PKG_NAMES is empty.
 //
 // This header undercounted its own coverage for a while — a guard that
 // under-reports what it checks makes the next reader assume the missing
@@ -88,7 +97,10 @@ refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 export const name = 'version-sync';
 
-const EXCLUDED_PKG_NAMES = new Set(['@flowmic/protocol']);
+/** Workspace packages whose version is NOT the product's. Empty since S1-04 —
+ *  see the header. Kept as a set rather than deleted so that adding one back is
+ *  an edit to a named thing with a reason, not a quiet `if` somewhere. */
+const EXCLUDED_PKG_NAMES = new Set([]);
 
 function skipDir(basename) {
   return DEFAULT_SKIP_DIRS.has(basename);
@@ -120,7 +132,7 @@ export default async function run(rootAbs = ROOT) {
       if (r.split('/').length !== 3) continue;
       const pkg = await readJson(abs);
       if (!pkg) continue;
-      if (pkg.name && EXCLUDED_PKG_NAMES.has(pkg.name)) continue; // protocol excluded
+      if (pkg.name && EXCLUDED_PKG_NAMES.has(pkg.name)) continue;
       pkgCount++;
       faces.push({ face: r, version: pkg.version ?? '(none)' });
     }
@@ -256,7 +268,7 @@ export default async function run(rootAbs = ROOT) {
 
   const skipNote = skipped.length ? `; skipped: ${skipped.join(', ')}` : '';
   if (faces.length === 0) {
-    return { status: 'PASS', detail: `root=${ref}; no other faces present (protocol excluded)${skipNote}` };
+    return { status: 'PASS', detail: `root=${ref}; no other faces present${skipNote}` };
   }
   return { status: 'PASS', detail: `${faces.length + 1} face(s) @ ${ref}${skipNote}` };
 }

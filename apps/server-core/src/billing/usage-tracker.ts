@@ -51,6 +51,7 @@ import type { ServerMode } from '@flowmic/protocol';
 import type { UsageRepo } from '../db/repos/usage.repo';
 import type { UsageEffectClaim, UsageEffectKind } from '../db/repos/usage-effects.repo';
 import type { UsageChannel, UsageEventKind, UsageEventsRepo } from '../db/repos/usage-events.repo';
+import type { PayerReason } from '../auth/metering-principal';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import { log } from '../log';
 
@@ -82,6 +83,71 @@ export interface EngineUsageMeta {
  */
 export const RECORD_BYOK_EVENTS: boolean = true;
 
+/**
+ * card MP-6 — WHY these seconds landed on this account, and WHO SPOKE, as the
+ * admission recorded it (`AuthContext.payerReason` / `.speakerRef`, stamped by
+ * `auth/metering-principal.ts` `resolvePayer`).
+ *
+ * 🔴 ONE OBJECT RATHER THAN TWO ARGUMENTS, because the two facts are only ever
+ * true together: they are read off ONE `AuthContext` at ONE moment, and a
+ * signature that let a caller pass a reason without a speaker would invite a row
+ * that says 「a guest paid」 without saying which guest.
+ *
+ * Both fields optional INSIDE a REQUIRED parameter. The parameter is required so
+ * the compiler names any future call site that has not thought about this — 「a
+ * capability is defined but nobody calls it」 is this repo's number-one
+ * historical bug class, and an optional parameter is how the two columns would
+ * sit at NULL forever with every gate green. The FIELDS are optional because a
+ * real admission genuinely may not have them (a context stamped by the token
+ * middleware rather than by the payer rule), and a required field would force
+ * that caller to invent one.
+ */
+export interface MeteredPrincipalRef {
+  payer_reason?: PayerReason;
+  speaker_ref?: string;
+  /**
+   * card MP-6 — the site demo's per-browser ceiling identity, when this session
+   * has one (`resolvePayer`'s `'demo'` branch is the only producer).
+   *
+   * 🔴 IT IS DEBITED, AND IT IS NOT A SECOND BILL. `usage_records` for an
+   * ANONYMOUS identity is not money and never has been: nobody can subscribe it,
+   * nothing charges it, and the trial ledger's own `msUsedByUser` already reads
+   * that table to answer 「how much has this browser spent」. Before this card the
+   * anonymous identity WAS the payer, so the subtraction moved for free; owner
+   * §11 moved the money to a real account and left the counter with no writer,
+   * which made the 120 s a picture of a ceiling — a fresh two minutes on every
+   * reload, with a countdown on screen and nothing behind it.
+   *
+   * ⚠️ SO 「one recording must not decrement two ledgers」 IS NOT BROKEN HERE, and
+   * the distinction is worth stating precisely: one recording still moves one
+   * BILL. What moves twice is a bill and a counter, and the counter exists for
+   * exactly the question the bill cannot answer — the demo account's month says
+   * how much the site spent, never how much THIS visitor did.
+   *
+   * 🔴 AND IT WRITES NO `usage_events` ROW. The detail log is one row per metered
+   * EVENT; a second row would double-count the same seconds in the only table an
+   * operator aggregates, and 「who paid」 already has its answer there
+   * (`payer_reason:'demo'`, `user_id` = the demo account).
+   */
+  cap_user_id?: string;
+  /**
+   * card MP-1 — the publishable key whose per-cycle SUB-QUOTA these seconds also
+   * spend (`resolvePayer`'s `'host'` branch is the only producer).
+   *
+   * 🔴 IT IS DEBITED, AND IT IS NOT A SECOND BILL — the same distinction
+   * `cap_user_id` above draws, for a different table. The BILL is `user_id`
+   * (the integrator T, whose `usage_records` row moves once). What moves beside
+   * it is a COUNTER on the key row, and it exists for the question the bill
+   * cannot answer: T's month says how much the integration spent in total, never
+   * how much THIS key on THIS page did. Without the counter the sub-quota would
+   * be a number in a console with no mechanism behind it (R11).
+   *
+   * 🔴 IT ALSO REACHES `usage_events.integrator_key_id`, so the per-event log an
+   * operator aggregates can answer the same question row by row.
+   */
+  integrator_key_id?: string;
+}
+
 export interface UsageTracker {
   /**
    * The ONE STT metering call (mock-billing §5: exactly one production site).
@@ -97,11 +163,38 @@ export interface UsageTracker {
    */
   recordSttUsage(
     user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
-    operation_id?: string,
+    principal: MeteredPrincipalRef, operation_id?: string,
   ): void;
+  /**
+   * The LLM metering calls — three sites (billing-call-sites.test.ts): the
+   * compose turn, the polish pass, and the off-band scenario inference.
+   *
+   * 🔴 card MP-9 — `principal` is REQUIRED, and it is the same parameter the STT
+   * leg above takes, for the same reason and in the same position. Owner ruling
+   * §11 asks that EVERY metered unit name its payer and its speaker; production
+   * on 2026-09-11 held an `stt` row saying `payer_reason='self'` beside an `llm`
+   * row from the same session saying nothing at all, because card MP-6 stamped
+   * one leg and this one kept a four-argument signature that nobody had to
+   * revisit. An optional parameter is how those two columns would have stayed at
+   * NULL on this leg forever with every gate green.
+   *
+   * 🔴 IT MUST BE THE RECORDING'S OWN DECISION, NOT A SECOND ONE. The tokens a
+   * translate/organize turn spends belong to the utterance that produced the
+   * text, so the value handed in here is read off the SAME admission
+   * (`principalRefOf(socket)`) that the STT leg passes — never re-derived. Two
+   * resolutions of one question is how a session ends up with two answers.
+   *
+   * ⚠️ `cap_user_id` TRAVELS AND IS DELIBERATELY NOT DEBITED HERE. The site-demo
+   * cap is a ceiling on SECONDS OF RECOGNITION (`billing/capped-remaining.ts` is
+   * milliseconds throughout, and the three enforcement points are all on the
+   * audio path); tokens have no per-browser ceiling, so debiting one here would
+   * invent a limit no rule states. Carried rather than stripped because there is
+   * ONE reader of an admission's principal and a second shape of it would be a
+   * second author.
+   */
   recordLlmUsage(
     user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
-    operation_id?: string,
+    principal: MeteredPrincipalRef, operation_id?: string,
   ): void;
   /**
    * A2-5 — "this attempt was blocked by the quota".
@@ -135,11 +228,25 @@ export interface UsageTracker {
    * a filler: `compose:start` has exactly one `ensureQuota` and exactly one
    * account, so "the acting account's own quota refused" is what happened.
    */
-  recordQuotaRefusal(user_id: string, kind: UsageEventKind, refused_user_id: string): void;
+  recordQuotaRefusal(
+    user_id: string, kind: UsageEventKind, refused_user_id: string, principal: MeteredPrincipalRef,
+  ): void;
 }
 
 export interface UsageTrackerConfig {
   mode: ServerMode;
+  /**
+   * card MP-1 — the per-key sub-quota counter, or absent on a deployment with no
+   * integrator arm wired.
+   *
+   * ABSENT IS NOT A FALLBACK. A session that carries an `integrator_key_id` and
+   * finds no sink here would spend a ceiling nothing decrements — a demo of the
+   * exact failure `cap_user_id`'s own note records (「a fresh two minutes on
+   * every reload, with a countdown on screen and nothing behind it」). The
+   * construction check below refuses that combination the same way the
+   * `usage_events` sink check above it does.
+   */
+  integratorKeys?: { addUsage(id: string, period: string, ms: number): void };
   now?: () => number;
   /**
    * Which bucket a user's spend lands in at a given instant — the account's
@@ -251,6 +358,15 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
     const at = clock();
     return config.periodKeyFor === undefined ? 'standalone' : config.periodKeyFor(user_id, at);
   };
+  // card MP-1 — the same refusal shape the `usage_events` sink check below uses,
+  // for the same reason: a deployment that can MINT integrator rooms and cannot
+  // decrement their sub-quota would enforce a ceiling on the admission path and
+  // never move the number behind it.
+  if (config.mode === 'saas' && config.integratorKeys === undefined) {
+    log.info('integrator keys: no sub-quota sink wired — integrator rooms cannot be minted on this process', {
+      mode: config.mode,
+    });
+  }
   const events = config.events;
   // 🔴 `enabled` is BOTH conditions, resolved once. Not `config.usageEventsEnabled`
   // alone: a truthy switch with no sink is a lie, and it is refused below rather
@@ -302,6 +418,12 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
     /** 2026-08-17 — omitted by both `ok` legs, because nothing refused anything
      *  there and NULL is what says so. See {@link UsageTracker.recordQuotaRefusal}. */
     refused_user_id?: string;
+    /** card MP-6/MP-1 — the payer branch, the speaker and the integrator key,
+     *  forwarded verbatim from the admission that recorded them. This layer derives NEITHER: a meter that
+     *  worked out for itself why an account was chosen would be a second author
+     *  of a fact `resolvePayer` already owns, and the two would disagree the
+     *  first time either moved. */
+    principal?: MeteredPrincipalRef;
   }): void {
     if (!enabled || !events) return;
     try {
@@ -340,6 +462,17 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
         // store NULL here, and NULL must keep meaning "nobody recorded which
         // account's quota refused" rather than "the acting one did".
         ...(input.refused_user_id !== undefined ? { refused_user_id: input.refused_user_id } : {}),
+        // Spread-or-nothing again, same discipline and same reason: an admission
+        // that recorded no reason must store NULL, and NULL must keep meaning
+        // 「nobody recorded it」 rather than 「self」.
+        ...(input.principal?.payer_reason !== undefined ? { payer_reason: input.principal.payer_reason } : {}),
+        ...(input.principal?.speaker_ref !== undefined ? { speaker_ref: input.principal.speaker_ref } : {}),
+        // card MP-1 — WHICH KEY. Omitted (stored NULL) on every non-integrator
+        // row, which is 「this recording spent no key's sub-quota」 and never
+        // 「we did not record which one」: the payer branch beside it says
+        // `'host'` exactly when a key is expected, so the two columns check
+        // each other.
+        ...(input.principal?.integrator_key_id !== undefined ? { integrator_key_id: input.principal.integrator_key_id } : {}),
       });
     } catch (err) {
       log.error('usage_events: append FAILED — the meter is unaffected, the detail row is lost', {
@@ -387,7 +520,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
   }
 
   return {
-    recordSttUsage(user_id, engine, duration_ms, chars, operation_id): void {
+    recordSttUsage(user_id, engine, duration_ms, chars, principal, operation_id): void {
       if (config.mode !== 'saas') return; // standalone never bills
       // 🔴 MOVED ABOVE the BYOK check, and this reorder changes NO billing
       // behaviour: both branches returned before `increment` before, and both
@@ -421,6 +554,35 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'stt', () => {
         if (!engine.is_byok) {
           repo.increment(user_id, bucket(user_id), { stt_minutes: duration_ms / 60_000 });
+          // card MP-6 — and the per-browser COUNTER, inside the same effect so a
+          // re-sent operation cannot spend the cap twice while the bill is
+          // correctly charged once. See {@link MeteredPrincipalRef.cap_user_id}
+          // for why this is not a second bill. BYOK is excluded for the reason
+          // the line above is: nothing was consumed on our side.
+          if (principal.cap_user_id !== undefined) {
+            repo.increment(
+              principal.cap_user_id,
+              bucket(principal.cap_user_id),
+              { stt_minutes: duration_ms / 60_000 },
+            );
+          }
+          // card MP-1 — and the integrator KEY's per-cycle counter, inside the
+          // same effect for the same reason: a re-sent operation must not spend
+          // the sub-quota twice while the bill is correctly charged once.
+          //
+          // 🔴 `bucket(user_id)` AND NOT A BUCKET OF ITS OWN. On this branch
+          // `user_id` IS the integrator T, so this is T's own cycle key — the
+          // same string `repo.increment` just wrote with. A second derivation
+          // would let the key's counter roll over on a different day from the
+          // plan it is compared against, and `Math.min` over two ceilings that
+          // reset on different days is not a ceiling at all.
+          if (principal.integrator_key_id !== undefined) {
+            config.integratorKeys?.addUsage(
+              principal.integrator_key_id,
+              bucket(user_id),
+              Math.round(duration_ms),
+            );
+          }
         }
         // ── the record, AFTER the meter, wrapped ──
         appendEvent({
@@ -436,10 +598,13 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           // meter that "fixed up" a character count would be a second author of a
           // number the bridge already owns.
           chars,
+          // card MP-6 — likewise verbatim: WHY this account and WHO spoke are
+          // the admission's answers, not this layer's.
+          principal,
         });
       });
     },
-    recordLlmUsage(user_id, engine, tokens_in, tokens_out, operation_id): void {
+    recordLlmUsage(user_id, engine, tokens_in, tokens_out, principal, operation_id): void {
       if (config.mode !== 'saas') return;
       const inN = Number.isFinite(tokens_in) ? Math.max(0, tokens_in) : 0;
       const outN = Number.isFinite(tokens_out) ? Math.max(0, tokens_out) : 0;
@@ -463,10 +628,14 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           tokens_out: outN,
           is_byok: engine.is_byok,
           outcome: 'ok',
+          // card MP-9 — verbatim, exactly as the STT leg above forwards it. No
+          // `cap_user_id` debit accompanies it: see `recordLlmUsage` on the
+          // interface for why a seconds ceiling has no meaning on a token count.
+          principal,
         });
       });
     },
-    recordQuotaRefusal(user_id, kind, refused_user_id): void {
+    recordQuotaRefusal(user_id, kind, refused_user_id, principal): void {
       if (config.mode !== 'saas') return; // standalone has no quota to refuse
       // Every count stays at its 0 default and `is_byok` stays 0 — nothing was
       // consumed, on anybody's key. The row's meaning is carried entirely by
@@ -476,7 +645,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // derive anything from them: the caller is the only layer that knows which
       // gate threw, and a meter that second-guessed it would become a second
       // author of a fact the handler already owns.
-      appendEvent({ user_id, kind, is_byok: false, outcome: 'quota_refused', refused_user_id });
+      appendEvent({ user_id, kind, is_byok: false, outcome: 'quota_refused', refused_user_id, principal });
     },
   };
 }

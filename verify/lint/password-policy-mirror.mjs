@@ -5,6 +5,28 @@
 // SPEC-REF: docs/decisions/2026-08-12-password-policy-medium-complexity.md §3
 //           ("why there must be a cross-repo lint (rather than 'sharing one package')")
 //
+// 🔴 UPDATED — CARD PW-1 (2026-09-08): the two numbers' SSOT moved. It is no
+// longer `apps/server-core/src/auth/password-policy.ts` — it is
+// `packages/protocol/src/constants.ts`. A THIRD repo (the web CLIENT, separate
+// from both server-core and `@flowmic/web`) needed the same two numbers, and
+// "declared once in server-core" stopped being true the moment a second
+// monorepo-external consumer showed up; password-policy.ts now IMPORTS and
+// re-exports them instead of declaring literals. Everything below this note
+// that talks about the numbers living in password-policy.ts is HISTORY — it
+// describes A4-3's shape, not today's — except the parts explicitly called out
+// as still true. Two things changed in what THIS lint checks:
+//   (1) the in-repo half now reads the literal from `packages/protocol/src/
+//       constants.ts`, not from password-policy.ts (see `PROTOCOL_FILE`
+//       below), and separately asserts password-policy.ts carries NO
+//       competing local literal for either name — only an import;
+//   (2) the cross-repo half (against `@flowmic/web`) is UNCHANGED in every
+//       other respect: same anchor/required rules, same "NUMBERS ONLY, not
+//       the measure or the class regexes" ceiling, same reason it lives here
+//       and not as "sharing one package".
+// The web CLIENT (the third repo) is NOT covered by this lint — it is not a
+// hand-copy, it can and does import `@flowmic/protocol` directly, so there is
+// nothing here for a mirror lint to pin.
+//
 // ── WHAT THE PROBLEM ACTUALLY IS ───────────────────────────────────────────
 // The console/web front end is a SEPARATE REPO (`@flowmic/web`). It shows the
 // user the password rules WHILE THEY TYPE (the owner's ruling: "the user needs
@@ -105,9 +127,25 @@ refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 export const name = 'password-policy-mirror';
 
 const WEB_PKG_NAME = '@flowmic/web';
+const PROTOCOL_PKG_NAME = '@flowmic/protocol';
 
-/** The server-side declaration for every constant below. Repo-relative. */
+/** `MIN_PASSWORD_CLASSES` (not moved by PW-1 — see MIRRORS below) is still
+ *  declared, and read, here. Repo-relative. */
 const POLICY_FILE = 'apps/server-core/src/auth/password-policy.ts';
+
+/** `MIN_PASSWORD_LENGTH` / `MAX_PASSWORD_LENGTH`'s SSOT since card PW-1
+ *  (2026-09-08) — moved out of POLICY_FILE because a THIRD repo (the web
+ *  client) needed the same two numbers and could not import server-core
+ *  either. Repo-relative. */
+const PROTOCOL_FILE = 'packages/protocol/src/constants.ts';
+
+/** `MAX_ORIGINS`'s SSOT — a plain literal declared and used only inside this
+ *  one route file, unrelated to the password-policy pair above. It landed in
+ *  MIRRORS because this lint's cross-repo sweep (below) is what caught the
+ *  web side's hand-copy of it in the first place: the sweep does not care
+ *  what topic a constant belongs to, only that its name collides with a
+ *  server-core declaration and was not registered. Repo-relative. */
+const CONSOLE_INTEGRATOR_FILE = 'apps/server-core/src/http/console-integrator-routes.ts';
 
 /**
  * The registry of mirrors. A constant is listed here because someone WROTE a
@@ -123,11 +161,26 @@ const POLICY_FILE = 'apps/server-core/src/auth/password-policy.ts';
  *             side may or may not hand-copy it, and demanding it would be
  *             demanding a constant nobody wrote. It is listed only so that a web
  *             copy of it is COMPARED rather than reported as unregistered.
+ * `source`  — which file this lint reads the SSOT literal from. PW-1 moved
+ *             only the two `required` numbers to PROTOCOL_FILE; the pair the
+ *             `@flowmic/web` mirror is obligated to match now lives there, not
+ *             in POLICY_FILE. MIN_PASSWORD_CLASSES was left in POLICY_FILE —
+ *             nobody hand-copies it, so there was nothing to fix by moving it.
  */
 const MIRRORS = [
-  { decl: 'MIN_PASSWORD_LENGTH', anchor: true, required: true },
-  { decl: 'MAX_PASSWORD_LENGTH', anchor: false, required: true },
-  { decl: 'MIN_PASSWORD_CLASSES', anchor: false, required: false },
+  { decl: 'MIN_PASSWORD_LENGTH', anchor: true, required: true, source: PROTOCOL_FILE },
+  { decl: 'MAX_PASSWORD_LENGTH', anchor: false, required: true, source: PROTOCOL_FILE },
+  { decl: 'MIN_PASSWORD_CLASSES', anchor: false, required: false, source: POLICY_FILE },
+  // Registered by the sweep, not by the password ruling: @flowmic/web's
+  // WebsiteVoiceView.vue hand-copies the console integrator's site-count cap
+  // as a COURTESY message-only number (the server still refuses on its own),
+  // which is why it is `required: false` like MIN_PASSWORD_CLASSES above.
+  { decl: 'MAX_ORIGINS', anchor: false, required: false, source: CONSOLE_INTEGRATOR_FILE },
+  // Same file, same reason: WebsiteVoiceView.vue also hand-copies the label
+  // length cap (card MP-13/CON-2) as a courtesy client-side check — the
+  // server still refuses on its own. `required: false` for the same reason
+  // as MAX_ORIGINS above.
+  { decl: 'MAX_LABEL_CHARS', anchor: false, required: false, source: CONSOLE_INTEGRATOR_FILE },
 ];
 
 /** `const NAME = <int>;` / `export const NAME = <int>;`, optionally `: number`.
@@ -141,6 +194,26 @@ function declRe(constName) {
 
 /** Same shape, sweeping every integer constant in a file. */
 const ANY_DECL_RE = /^[ \t]*(?:export[ \t]+)?const[ \t]+([A-Z][A-Z0-9_]*)[ \t]*(?::[ \t]*number[ \t]*)?=[ \t]*(\d+)[ \t]*;/gm;
+
+/**
+ * CARD PW-1. `true` iff `text` has a
+ * `import { …, constName, … } from '@flowmic/protocol'` (or `import type`)
+ * statement naming `constName` as a bare specifier (an `as`-aliased import
+ * does not count — the re-export below relies on the name matching exactly).
+ * Deliberately does not care how many other names share the statement, or
+ * whether there are several such statements — POLICY_FILE already imports
+ * other protocol types elsewhere and this must not require the two names to
+ * be the only ones on their line.
+ */
+function importsFromProtocol(text, constName) {
+  const re = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]@flowmic\/protocol['"]\s*;?/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const names = m[1].split(',').map((s) => s.trim().split(/\s+as\s+/)[0].trim());
+    if (names.includes(constName)) return true;
+  }
+  return false;
+}
 
 /**
  * A `.vue` SFC is not JavaScript. Reduce it to its `<script>` blocks before any
@@ -271,30 +344,81 @@ async function findWebRepo() {
 }
 
 export default async function run() {
-  // ── in-repo half: the policy must still be plain named integer literals ────
+  // ── in-repo half: each MIRROR's `source` file must carry a plain named
+  //    integer literal for it (unchanged shape from before PW-1 — only WHERE
+  //    two of the three now live has changed; see MIRRORS' `source` field). ──
   const policyText = await readText(path.join(ROOT, POLICY_FILE));
   if (policyText === null) {
     return {
       status: 'FAIL',
-      detail: `${POLICY_FILE} is missing — it declares the password policy every mirror is compared against`,
+      detail: `${POLICY_FILE} is missing — it declares MIN_PASSWORD_CLASSES and must import the two protocol constants`,
     };
   }
+  const protocolText = await readText(path.join(ROOT, PROTOCOL_FILE));
+  if (protocolText === null) {
+    return {
+      status: 'FAIL',
+      detail: `${PROTOCOL_FILE} is missing — it is the SSOT for MIN_PASSWORD_LENGTH / MAX_PASSWORD_LENGTH since card PW-1`,
+    };
+  }
+  const consoleIntegratorText = await readText(path.join(ROOT, CONSOLE_INTEGRATOR_FILE));
+  if (consoleIntegratorText === null) {
+    return {
+      status: 'FAIL',
+      detail: `${CONSOLE_INTEGRATOR_FILE} is missing — it is the SSOT for MAX_ORIGINS`,
+    };
+  }
+  const textBySource = {
+    [POLICY_FILE]: policyText,
+    [PROTOCOL_FILE]: protocolText,
+    [CONSOLE_INTEGRATOR_FILE]: consoleIntegratorText,
+  };
 
   const ssot = new Map();
   for (const m of MIRRORS) {
-    const hit = declRe(m.decl).exec(policyText);
+    const sourceText = textBySource[m.source];
+    const hit = declRe(m.decl).exec(sourceText);
     if (!hit) {
       if (!m.required) continue; // an optional constant may legitimately not exist
       return {
         status: 'FAIL',
         detail:
-          `${m.decl} is no longer declared as a plain integer literal in ${POLICY_FILE}. ` +
+          `${m.decl} is no longer declared as a plain integer literal in ${m.source}. ` +
           'Renamed, moved, or computed — either way the mirror registered against it would ' +
           'now be compared against nothing and this lint would go green while covering zero. ' +
           'Update MIRRORS in verify/lint/password-policy-mirror.mjs.',
       };
     }
     ssot.set(m.decl, Number(hit[1]));
+  }
+
+  // 🔴 PW-1's actual point: POLICY_FILE must not grow a SECOND, competing
+  // literal for a constant whose SSOT moved to PROTOCOL_FILE — that would be
+  // the exact drift this move exists to make impossible (two numbers, two
+  // authors, one of them silent). It must instead import the name from
+  // `@flowmic/protocol`. Both directions are checked; either failing alone
+  // means server-core's own two numbers could disagree with each other before
+  // the web mirror even enters the picture.
+  for (const m of MIRRORS.filter((x) => x.source === PROTOCOL_FILE)) {
+    if (declRe(m.decl).test(policyText)) {
+      return {
+        status: 'FAIL',
+        detail:
+          `${POLICY_FILE} declares its OWN literal for \`${m.decl}\` again, alongside the SSOT in ` +
+          `${PROTOCOL_FILE} — exactly the two-authors-one-number shape card PW-1 moved this constant ` +
+          `to stop. Import it from ${PROTOCOL_PKG_NAME} instead of re-declaring it.`,
+      };
+    }
+    if (!importsFromProtocol(policyText, m.decl)) {
+      return {
+        status: 'FAIL',
+        detail:
+          `${POLICY_FILE} neither declares nor imports \`${m.decl}\` from ${PROTOCOL_PKG_NAME} — its ` +
+          `SSOT is ${PROTOCOL_FILE} (=${ssot.get(m.decl)}) and nothing in ${POLICY_FILE} reads it, so ` +
+          `every consumer of ./password-policy for this name (auth-service.ts's callers, ` +
+          'test/password-policy.test.ts, test/registration-email-code.test.ts) would be undefined.',
+      };
+    }
   }
 
   const inRepoNote = `${ssot.size} server constant(s) verified in-repo`;
@@ -334,7 +458,7 @@ export default async function run() {
       if (m.required) {
         problems.push(
           `${label} declares ${anchorName} but NOT \`${m.decl}\` — a half-landed mirror. ` +
-            `${POLICY_FILE} says ${m.decl}=${ssot.get(m.decl)}; the web side is enforcing a policy ` +
+            `${m.source} says ${m.decl}=${ssot.get(m.decl)}; the web side is enforcing a policy ` +
             'made of one number from this repo and one from somewhere else.'
         );
       }
@@ -342,7 +466,7 @@ export default async function run() {
     }
     if (!ssot.has(m.decl)) {
       problems.push(
-        `${label}:${sites[0].file}:${sites[0].line} declares \`${m.decl}\` but ${POLICY_FILE} no longer ` +
+        `${label}:${sites[0].file}:${sites[0].line} declares \`${m.decl}\` but ${m.source} no longer ` +
           'does — the mirror outlived the thing it mirrors.'
       );
       continue;
@@ -359,7 +483,7 @@ export default async function run() {
     const expected = ssot.get(m.decl);
     if (sites[0].value !== expected) {
       problems.push(
-        `${label}:${sites[0].file}:${sites[0].line} ${m.decl}=${sites[0].value} but ${POLICY_FILE} ` +
+        `${label}:${sites[0].file}:${sites[0].line} ${m.decl}=${sites[0].value} but ${m.source} ` +
           `says ${m.decl}=${expected} — the form and the server disagree about what it will accept`
       );
     }
@@ -388,7 +512,8 @@ export default async function run() {
   return {
     status: 'PASS',
     detail:
-      `${compared} mirror(s) agree with ${ssot.size} server constant(s) in ${POLICY_FILE}; ` +
+      `${compared} mirror(s) agree with ${ssot.size} SSOT constant(s) (${PROTOCOL_FILE} + ${POLICY_FILE}); ` +
+      `confirmed ${POLICY_FILE} imports rather than re-declares the ${PROTOCOL_FILE} pair; ` +
       `swept ${webConsts.size} ${WEB_PKG_NAME} constant(s) / ${serverConsts.size} server constant(s) ` +
       'for unregistered copies. NUMBERS ONLY — the code-point measure and the class regexes are ' +
       'pinned by the shared vector table (apps/server-core/test/password-policy.test.ts), not here.',

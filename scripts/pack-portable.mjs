@@ -57,14 +57,19 @@
 // final name yet anyway.
 //
 // FILENAME ENCODING — `--options zip:hdrcharset=UTF-8`. Measured on this
-// machine: WITHOUT it, bsdtar stores `使用说明.txt` as GBK bytes
-// (`cab9d3c3cbb5c3f7`) with the zip UTF-8 flag CLEAR, which extracts as mojibake
-// on any machine whose ANSI codepage is not GBK — i.e. every non-Chinese
-// Windows, which is precisely the audience a portable download reaches. WITH it,
-// that entry carries flag 0x808 and UTF-8 bytes (`e4bdbfe794a8e8afb4e6988e`),
-// while pure-ASCII entries are left alone (they are identical in every
-// codepage). verifyPortableArchive() below re-asserts this on the real output,
-// so the flag cannot silently stop working.
+// machine (at the time, the bundle's README was still named `使用说明.txt` —
+// the owner's 2026-09-09 ruling later made every shipped text English-only,
+// including that filename, so this bundle no longer has a non-ASCII entry;
+// the flag stays, because the risk below is real for ANY future non-ASCII
+// entry, not just that one file): WITHOUT it, bsdtar stores a non-ASCII name
+// as GBK bytes (measured on `使用说明.txt`: `cab9d3c3cbb5c3f7`) with the zip
+// UTF-8 flag CLEAR, which extracts as mojibake on any machine whose ANSI
+// codepage is not GBK — i.e. every non-Chinese Windows, which is precisely
+// the audience a portable download reaches. WITH it, that entry carries flag
+// 0x808 and UTF-8 bytes (`e4bdbfe794a8e8afb4e6988e`), while pure-ASCII
+// entries are left alone (they are identical in every codepage).
+// verifyPortableArchive() below re-asserts this on the real output, so the
+// flag cannot silently stop working.
 //
 // 🔴 NOT REPRODUCIBLE — packing the same unchanged tree twice produces a
 // DIFFERENT sha256, and that is measured, not assumed:

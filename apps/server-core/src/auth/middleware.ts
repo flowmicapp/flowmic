@@ -30,6 +30,7 @@
 // doc just below and `node/token-read-through.ts`'s `TokenReadThroughOutcome`.
 
 import { PROTOCOL_SCHEMA_VERSION, type Plan } from '@flowmic/protocol';
+import type { PayerReason } from './metering-principal';
 import { isValidTokenShape } from './token';
 import { verifyJwt, JwtError } from './jwt';
 import { logAuthRefusal } from './refusal-log';
@@ -42,11 +43,61 @@ import { logAuthRefusal } from './refusal-log';
  *  declared-web branch below — the pc/mobile token paths never produce it. */
 export type AuthKind = 'pc' | 'mobile' | 'web';
 
+
 export interface AuthContext {
   userId: string;
   deviceId?: string;
   pairingId?: string;
   kind: AuthKind;
+  /**
+   * card MP-6 — WHICH BRANCH of the payer rule put {@link userId} here
+   * (`auth/metering-principal.ts` `resolvePayer`), and WHO WAS SPEAKING when it
+   * did.
+   *
+   * 🔴 STAMPED AT ADMISSION AND CARRIED, NOT RE-DERIVED AT SETTLE. The facts the
+   * rule reads — the handshake account, `pc_devices.room_kind`, the pairing row
+   * — belong to the moment the socket was admitted; by the time a recording
+   * settles, the row can have been revoked and the socket's account is gone with
+   * it. A layer that re-asked would be answering a different question with the
+   * same words, which is R11 exactly: the layer writing the ledger row must
+   * HOLD the fact the row asserts.
+   *
+   * Optional because two things stamp an `AuthContext` and only one of them is
+   * the payer rule: `resolveHandshakeJwt`/the token middleware stamps a `pc` or
+   * `web` context before any room is known. Absent ⇒ `usage_events` stores NULL,
+   * which means 「this admission did not record it」 and never 「self」.
+   */
+  payerReason?: PayerReason;
+  /** card MP-6 — the site demo's per-browser ceiling this admission must also
+   *  stay under, or absent. See `PayerDecision.capUserId`: it is a cap, never a
+   *  second payer, and only the `'demo'` branch produces one. */
+  capUserId?: string;
+  /** card MP-1 — the publishable key whose SUB-QUOTA this admission must also
+   *  stay under, or absent. Stamped only on an `'integrator'` far end
+   *  (`PayerDecision.integratorKeyId`). It is a ceiling and never a payer: the
+   *  bill is `userId`, which on that branch is the integrator T. */
+  integratorKeyId?: string;
+  /** card MP-6 — WHO SPOKE: the account id when signed in, otherwise the
+   *  browser/device uid (`mobile_pairings.device_uid`). NEVER an email, and
+   *  never anything a `users` row would have to be joined to in order to
+   *  identify a person. `usage_events.speaker_ref`. */
+  speakerRef?: string;
+  /**
+   * card MP-10 — was there a VERIFIED ACCOUNT at the microphone on this
+   * admission.
+   *
+   * 🔴 IT IS NOT `speakerRef !== userId`, AND IT IS NOT DERIVABLE FROM
+   * `speakerRef` AT ALL. Since MP-10 the far end pays whether or not the speaker
+   * is signed in, so `payerReason:'peer'` covers both; the only other trace is
+   * `speakerRef`, which is a users id in one case and a `wb-…` browser uid in
+   * the other — two id spaces a reader would have to tell apart BY SHAPE.
+   *
+   * Its one consumer is the sentence the room OWNER is told
+   * (`billing/budget-push.ts` `payerHintFor`). Absent ⇒ the frame carries
+   * neither `guest_speaker` nor `signed_in_speaker`, which is 「this relay did
+   * not say」 and is what an admission stamped by the token middleware means.
+   */
+  speakerSignedIn?: boolean;
 }
 
 export interface SchemaNegotiation {

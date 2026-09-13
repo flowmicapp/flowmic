@@ -79,9 +79,19 @@ describe('control:key — the punctuation family', () => {
   it('adds NO event — the whitelist count is untouched by THIS change', () => {
     // Pinned in events-count.test.ts; here the point is only that widening an
     // enum is not an event addition.
-    // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; unrelated
-    // to control:key, which is exactly what this case exists to show.
-    expect(EVENT_NAMES).toHaveLength(55);
+    // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; 55 → 56 by
+    // card S2-02 adding billing:budget on 2026-09-08; 56 → 57 by card MP-14
+    // adding `control:key-result` on 2026-09-11 — all of them unrelated to the
+    // punctuation enum, which is exactly what this case exists to show. It goes
+    // red for reasons that have nothing to do with its subject every single time
+    // the number moves, and protocol-contract.test.ts already says out loud that
+    // this copy is the one that teaches its bumper nothing.
+    //
+    // ⚠️ MP-14 IS THE FIRST BUMP HERE THAT TOUCHES `control:key` ITSELF, and the
+    // distinction this case draws still holds: MP-14 added an event (the receipt
+    // the press never had) AND an additive optional field on the press. The
+    // enum-widening this file is about added neither, then or now.
+    expect(EVENT_NAMES).toHaveLength(57);
     expect(EVENT_NAMES).toContain('control:key');
   });
 });
@@ -132,9 +142,19 @@ describe('control:key — device_label (additive optional)', () => {
   it('adds NO event and no error code', () => {
     // Pinned in events-count.test.ts; here the point is only that widening an
     // enum is not an event addition.
-    // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; unrelated
-    // to control:key, which is exactly what this case exists to show.
-    expect(EVENT_NAMES).toHaveLength(55);
+    // 58 → 54 by the 2026-07-31 stage-5 deletion of four dead names; 55 → 56 by
+    // card S2-02 adding billing:budget on 2026-09-08; 56 → 57 by card MP-14
+    // adding `control:key-result` on 2026-09-11 — all of them unrelated to the
+    // punctuation enum, which is exactly what this case exists to show. It goes
+    // red for reasons that have nothing to do with its subject every single time
+    // the number moves, and protocol-contract.test.ts already says out loud that
+    // this copy is the one that teaches its bumper nothing.
+    //
+    // ⚠️ MP-14 IS THE FIRST BUMP HERE THAT TOUCHES `control:key` ITSELF, and the
+    // distinction this case draws still holds: MP-14 added an event (the receipt
+    // the press never had) AND an additive optional field on the press. The
+    // enum-widening this file is about added neither, then or now.
+    expect(EVENT_NAMES).toHaveLength(57);
     expect(EVENT_NAMES).toContain('control:key');
   });
 });

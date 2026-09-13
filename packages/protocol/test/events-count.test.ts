@@ -38,7 +38,41 @@ import { EVENT_SCHEMAS } from '../src/protocol-schemas';
 // The guard exists to make either direction a conscious act — deletions are not
 // cheaper than additions, and an old client that still emits a removed name now
 // gets silence from the server's whitelist, which is why owner approval gates it.
-const CANONICAL_EVENT_COUNT = 55;
+//
+// 55 → 56: `billing:budget` (card S2-02; owner approved 2026-09-06, ruling 2 of
+// docs/decisions/2026-09-06-owner-web-client-rulings-repo-protocol-domains.md).
+// It could NOT be an additive field, and the argument is the same one every
+// note above had to make. The number has to be readable at three moments and
+// only one of them has a frame to ride: at rest, before anyone speaks (no frame
+// exists); repeatedly mid-recording (the frames that flow then, `stt:interim`
+// and `stt:level`, are about the utterance's text and loudness — an account
+// balance on one of those is a frame with two subjects); and just after a
+// reconnect — which IS a field, `BudgetAckFieldsSchema`, chosen over the
+// alternative `billing:budget-request` event precisely so this costs ONE name.
+// Nor could it ride `stt:error`: the refusal already has two owners
+// (`QUOTA_EXCEEDED` on a turned-away press, `audio:auto-stopped
+// {reason:'quota_exhausted'}` on a recording that hits the ceiling), and this
+// name deliberately answers a different question — "how much is left" — so that
+// "why did this end" keeps exactly one answer.
+// Owner's approval carried a condition that is itself part of the guard's
+// point: it lands in the SAME commit as its first real emitter, never as a
+// registered placeholder waiting for one.
+//
+// 56 → 57: `control:key-result` (card MP-14; owner approved it on 2026-09-11,
+// ruling 3 of docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-
+// polish.md §11 追认三 item 8). It could NOT be an additive field, and for once
+// the reason is the simplest one this guard has ever been given: THERE WAS NO
+// FRAME TO ADD A FIELD TO. `control:key` is one-way — the far end receives a
+// keypress and answers nothing — so 「this end cannot press that key」 had no way
+// to be said at all, and the product said 「sent」 for it. Riding `inject:result`
+// was the only other candidate and it is worse than it looks: that frame is a
+// delivery verdict for an UTTERANCE (required `mode`, plus the ids that settle a
+// timeline row), and a keypress has no text, no mode and no row — three
+// placeholder values, which is how a filler becomes a judgement (0.2.49 F2b).
+// The refusal vocabulary deliberately did NOT go into the error-code registry
+// either: it is a three-valued enum local to this one event, and a delivery
+// code would hand a keypress the vocabulary of a delivery (15 §2.0).
+const CANONICAL_EVENT_COUNT = 57;
 
 describe('event whitelist count guard', () => {
   it(`holds exactly ${CANONICAL_EVENT_COUNT} canonical event names`, () => {

@@ -71,6 +71,7 @@ import type { DbConnection } from '../db/connection';
 import type { MobileRecord, MobileRepo } from '../db/repos/mobile.repo';
 import type { PcRecord, PcRepo } from '../db/repos/pc.repo';
 import type { UserRecord, UserRepo } from '../db/repos/user.repo';
+import { isKnownRoomKind } from '../room/registry-shared';
 
 /**
  * What a token stands for. Two members rather than one optional field, because
@@ -117,7 +118,11 @@ export function resolveTokenRows(
   // by the very next event. `null` here says 「nothing usable」, which is exactly
   // what the caller needs to hear.
   if (!owner) return null;
-  const users = ownersOf(repos, owner.user_id, mobile.user_id);
+  // card R-1 — the trial identity is a THIRD account this answer depends on. It
+  // is fetched here for the same reason `mobile.user_id` is: `trial_user_id` is
+  // a foreign key, so a response that named it without carrying it could not be
+  // landed on the replica at all.
+  const users = ownersOf(repos, owner.user_id, mobile.user_id, mobile.trial_user_id);
   if (!users) return null;
   return { kind: 'mobile', users, pc: owner, mobile };
 }
@@ -138,8 +143,12 @@ function ownersOf(
   repos: { users: Pick<UserRepo, 'findById'> },
   pcUserId: string,
   mobileUserId: string | null,
+  trialUserId: string | null = null,
 ): UserRecord[] | null {
-  const wanted = mobileUserId !== null && mobileUserId !== pcUserId ? [pcUserId, mobileUserId] : [pcUserId];
+  const wanted = [pcUserId];
+  for (const extra of [mobileUserId, trialUserId]) {
+    if (extra !== null && !wanted.includes(extra)) wanted.push(extra);
+  }
   const out: UserRecord[] = [];
   for (const id of wanted) {
     const row = repos.users.findById(id);
@@ -181,12 +190,46 @@ function parsePc(v: unknown): PcRecord | null {
   const machine_uid = strOrNull(o.machine_uid);
   const pcid = strOrNull(o.pcid);
   const home_node = strOrNull(o.home_node);
+  // card S2-01 — the three declaration columns cross node boundaries too. A
+  // reader that dropped them would make a phone's `target_caps` depend on WHICH
+  // NODE answered its pairing: the writer would say「this PC takes images」 and a
+  // replica, having read the row through this parser, would say nothing at all —
+  // one fact with two answers, decided by routing.
+  const client = strOrNull(o.client);
+  const client_version = strOrNull(o.client_version);
+  const target_caps = strOrNull(o.target_caps);
+  // card S2-04 — and for a SHARPER version of the same reason. `room_kind` is
+  // what `occupiesPcSlot` reads to decide whether a row spends one of the
+  // account's paid computer slots; a reader that dropped it here would hand a
+  // replica a browser room that looks like an ordinary PC, and the ceiling would
+  // then depend on which node did the arithmetic.
+  const room_kind = strOrNull(o.room_kind);
+  const room_expires_at = strOrNull(o.room_expires_at);
+  // card MP-0 — A ROW THIS BUILD CANNOT BILL IS DROPPED, NOT SERVED.
+  //
+  // 🔴 THIS IS THE FAILURE DIRECTION FOR THE WHOLE PAYER RULE (design §5), and
+  // it is the only place a foreign `room_kind` can enter this process: nothing
+  // local writes one. During a mixed-version deploy window (NR-22 — both nodes
+  // in ONE window, precisely so this is short) a newer writer may snapshot an
+  // `'integrator'` room to a replica that has never heard of publishable keys.
+  // Serving it would mean guessing a payer, and every guess available here is
+  // wrong in the expensive direction: FlowMic's free grant, or a desktop
+  // owner's month, for an integrator's visitors.
+  //
+  // ⚠️ DROPPING IT IS NOT SILENT IN EFFECT — the room simply does not exist on
+  // this node, so a phone gets the ordinary 「no such PC」 answer and retries onto
+  // the writer, which is where that room's home node points anyway. It IS silent
+  // in the log, deliberately: one line per replicated row would print thousands
+  // per pull. The count of served rows is the observable.
+  if (room_kind !== null && !isKnownRoomKind(room_kind.value)) return null;
   const last_seen_at = strOrNull(o.last_seen_at);
   if (
     id === null || user_id === null || device_name === null || device_token === null
     || room_uuid === null || short_code === null || created_at === null
     || client_instance_id === null || machine_uid === null || pcid === null
     || home_node === null || last_seen_at === null
+    || client === null || client_version === null || target_caps === null
+    || room_kind === null || room_expires_at === null
   ) return null;
   return {
     id,
@@ -196,6 +239,11 @@ function parsePc(v: unknown): PcRecord | null {
     machine_uid: machine_uid.value,
     pcid: pcid.value,
     home_node: home_node.value,
+    client: client.value,
+    client_version: client_version.value,
+    target_caps: target_caps.value,
+    room_kind: room_kind.value,
+    room_expires_at: room_expires_at.value,
     device_token,
     room_uuid,
     short_code,
@@ -246,6 +294,16 @@ function parseUser(v: unknown): UserRecord | null {
     restriction_reason: restriction_reason.value,
     last_login_at: typeof o.last_login_at === 'number' ? o.last_login_at : null,
     google_sub: google_sub.value,
+    // card M4-01 — `=== true` for the reason its two boolean siblings above
+    // give. The fail-closed direction here is FALSE: a value we could not read
+    // must mean 「a real account」, because the opposite would make a stranger's
+    // row eligible for the anonymous-row sweep's DELETE.
+    anonymous: o.anonymous === true,
+    // REVIEW-GRACE — same `typeof === 'number'` shape as its three nullable
+    // neighbours above. A writer that predates this column simply does not send
+    // the key, and the account then reads as「no extension」on this node — the
+    // fail-closed direction, and one the 30-second replication pull corrects.
+    verify_grace_until: typeof o.verify_grace_until === 'number' ? o.verify_grace_until : null,
     created_at,
   };
 }
@@ -260,10 +318,30 @@ function parseMobile(v: unknown): MobileRecord | null {
   const paired_at = str(o.paired_at);
   const user_id = strOrNull(o.user_id);
   const device_uid = strOrNull(o.device_uid);
+  // card S2-01 — same reason as parsePc: a row that crosses nodes must not lose
+  // which kind of end paired it, or the desktop's table would show a browser as
+  // a phone depending on which node answered.
+  const client = strOrNull(o.client);
+  const client_version = strOrNull(o.client_version);
   const last_seen_at = strOrNull(o.last_seen_at);
+  // card R-1 — the anonymous trial identity an unsigned WEB pairing spends.
+  //
+  // ⚠️ AN OLDER WRITER SENDS NO KEY AT ALL, AND THAT IS NOT A REFUSAL:
+  // `strOrNull(undefined)` is `{value:null}`, so a pre-R-1 writer's answer lands
+  // with no trial identity and the pairing is metered exactly the way it was
+  // yesterday. That direction is deliberate — during the two-node deploy window
+  // the honest degradation is 「still today」, not 「every reconnect on this
+  // replica is refused」. Only a wrong TYPE (a number, an object) fails the guard
+  // below, because that is a writer we do not understand rather than an older
+  // one. (NR-22's stall is a separate thing and it is the 30-second table pull,
+  // not this read-through: `INSERT INTO main.t SELECT * FROM snap.t` compares
+  // COLUMN COUNTS, so it fails in BOTH deploy orders until both nodes carry the
+  // column.)
+  const trial_user_id = strOrNull(o.trial_user_id);
   if (
     id === null || pc_device_id === null || mobile_token === null || mobile_name === null
     || paired_at === null || user_id === null || device_uid === null || last_seen_at === null
+    || client === null || client_version === null || trial_user_id === null
   ) return null;
   return {
     id,
@@ -272,6 +350,9 @@ function parseMobile(v: unknown): MobileRecord | null {
     mobile_token,
     mobile_name,
     device_uid: device_uid.value,
+    client: client.value,
+    client_version: client_version.value,
+    trial_user_id: trial_user_id.value,
     paired_at,
     last_seen_at: last_seen_at.value,
   };
@@ -311,6 +392,8 @@ export function parseTokenResolution(body: unknown): TokenResolution | null {
   // Null is legal (a pairing with no account of its own inherits the PC's) and
   // is not a missing row — the same distinction `ownersOf` draws on the writer.
   if (mobile.user_id !== null && !have.has(mobile.user_id)) return null;
+  // card R-1 — the same check for the same reason, on the third foreign key.
+  if (mobile.trial_user_id !== null && !have.has(mobile.trial_user_id)) return null;
   // 🔴 The one cross-field check, and it is the wrong-target red line in
   // miniature (CLAUDE.md: a delivery id and its target PC id must correspond,
   // 100%): a pairing must be handed back with ITS OWN PC, never with some other

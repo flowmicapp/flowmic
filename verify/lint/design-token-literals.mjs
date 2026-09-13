@@ -106,11 +106,6 @@ export const ALLOWLIST = [
   // the pill restyle replaced the on/busy border with FlowMicDockColors tokens,
   // so the literal no longer exists. Pruned rather than banked — a stale slot
   // is budget somebody can silently re-spend.
-  'apps/mobile/lib/src/ui/banner_slot.dart|Color(0x59F87171)',
-  'apps/mobile/lib/src/ui/banner_slot.dart|Color(0xB3F87171)',
-  'apps/mobile/lib/src/ui/banner_slot.dart|Color(0xFFFFF1F2)',
-  'apps/mobile/lib/src/ui/banner_slot.dart|Color(0x4DFBBF24)',
-  'apps/mobile/lib/src/ui/banner_slot.dart|Color(0x4D818CF8)',
   // Was `chat_message_tile.dart` until the 800-line-cap split (FB-7): the
   // literal travelled VERBATIM with LiveDraftTile into its own part file. Same
   // colour, same one use, new home — the allowlist is keyed by file, so a pure

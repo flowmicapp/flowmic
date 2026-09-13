@@ -337,7 +337,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartWriteFailed => match locale {
             UiLocale::En => "Failed to write the startup entry: {detail}",
-            UiLocale::ZhCn => "写入开机自启项失败：{detail}",
+            UiLocale::ZhCn => "设置开机自启动失败：{detail}",
             UiLocale::ZhTw => "寫入開機自動啟動項目失敗：{detail}",
             UiLocale::Fr => "Échec de l'écriture de l'entrée de démarrage : {detail}",
             UiLocale::Es => "No se pudo escribir la entrada de inicio: {detail}",
@@ -348,7 +348,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartRemoveFailed => match locale {
             UiLocale::En => "Failed to remove the startup entry: {detail}",
-            UiLocale::ZhCn => "移除开机自启项失败：{detail}",
+            UiLocale::ZhCn => "取消开机自启动失败：{detail}",
             UiLocale::ZhTw => "移除開機自動啟動項目失敗：{detail}",
             UiLocale::Fr => "Échec de la suppression de l'entrée de démarrage : {detail}",
             UiLocale::Es => "No se pudo quitar la entrada de inicio: {detail}",
@@ -359,7 +359,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartReadFailed => match locale {
             UiLocale::En => "Failed to read the startup state: {detail}",
-            UiLocale::ZhCn => "读取开机自启状态失败：{detail}",
+            UiLocale::ZhCn => "获取开机自启动状态失败：{detail}",
             UiLocale::ZhTw => "讀取開機自動啟動狀態失敗：{detail}",
             UiLocale::Fr => "Échec de la lecture de l'état de démarrage : {detail}",
             UiLocale::Es => "No se pudo leer el estado de inicio: {detail}",
@@ -370,7 +370,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartExePathFailed => match locale {
             UiLocale::En => "Could not resolve the current executable path: {detail}",
-            UiLocale::ZhCn => "无法解析当前程序路径：{detail}",
+            UiLocale::ZhCn => "无法获取应用程序路径：{detail}",
             UiLocale::ZhTw => "無法解析目前的程式路徑：{detail}",
             UiLocale::Fr => "Impossible de déterminer le chemin de l'exécutable actuel : {detail}",
             UiLocale::Es => "No se pudo determinar la ruta del ejecutable actual: {detail}",
@@ -381,7 +381,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartVerifyMismatch => match locale {
             UiLocale::En => "Startup entry read-back mismatch: expected \"{want}\", found \"{got}\". A third-party startup manager may have rewritten it.",
-            UiLocale::ZhCn => "开机自启项回读不符：期望「{want}」，实际「{got}」。可能有第三方启动管理工具改写了它。",
+            UiLocale::ZhCn => "开机自启动配置校验不一致（预期为 \"{want}\"，实际为 \"{got}\"），可能已被系统安全软件修改。",
             UiLocale::ZhTw => "開機自動啟動項目回讀不符：預期「{want}」，實際「{got}」。可能有第三方啟動管理工具改寫了它。",
             UiLocale::Fr => "Relecture de l'entrée de démarrage non conforme : attendu « {want} », trouvé « {got} ». Un gestionnaire de démarrage tiers l'a peut-être réécrite.",
             UiLocale::Es => "La relectura de la entrada de inicio no coincide: se esperaba «{want}» y se encontró «{got}». Puede que un gestor de inicio de terceros la haya reescrito.",
@@ -392,7 +392,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartVerifyEmpty => match locale {
             UiLocale::En => "The startup entry read back empty after writing — the registration did not take effect",
-            UiLocale::ZhCn => "开机自启项写入后回读为空——注册未生效",
+            UiLocale::ZhCn => "开机自启动配置未生效，可能被系统安全策略拦截，请检查权限设置。",
             UiLocale::ZhTw => "開機自動啟動項目寫入後回讀為空——註冊未生效",
             UiLocale::Fr => "L'entrée de démarrage est revenue vide après l'écriture — l'enregistrement n'a pas pris effet",
             UiLocale::Es => "La entrada de inicio se leyó vacía después de escribirla: el registro no surtió efecto",
@@ -403,7 +403,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartRecheckFailed => match locale {
             UiLocale::En => "Startup state re-check failed: {detail}",
-            UiLocale::ZhCn => "开机自启状态复核失败：{detail}",
+            UiLocale::ZhCn => "检查开机自启动状态失败：{detail}",
             UiLocale::ZhTw => "開機自動啟動狀態複查失敗：{detail}",
             UiLocale::Fr => "Échec de la nouvelle vérification de l'état de démarrage : {detail}",
             UiLocale::Es => "Falló la nueva comprobación del estado de inicio: {detail}",
@@ -414,7 +414,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartEnabledButOff => match locale {
             UiLocale::En => "The startup entry was written, but the system reports it as disabled (it may be turned off in Task Manager's Startup tab)",
-            UiLocale::ZhCn => "开机自启项已写入，但系统层复核为未启用（可能被任务管理器启动项禁用）",
+            UiLocale::ZhCn => "已开启开机自启动，但在系统设置中未生效（可能被任务管理器或安全软件禁用）",
             UiLocale::ZhTw => "開機自動啟動項目已寫入，但系統層複查為未啟用（可能在工作管理員的「開機」索引標籤被停用）",
             UiLocale::Fr => "L'entrée de démarrage a été écrite, mais le système la signale comme désactivée (elle a pu être désactivée dans l'onglet Démarrage du Gestionnaire des tâches)",
             UiLocale::Es => "La entrada de inicio se escribió, pero el sistema la indica como desactivada (puede estar desactivada en la pestaña Inicio del Administrador de tareas)",
@@ -425,7 +425,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartStillEnabled => match locale {
             UiLocale::En => "The system still reports autostart as enabled after removal — the removal did not take effect",
-            UiLocale::ZhCn => "开机自启项删除后系统层仍报告启用——移除未生效",
+            UiLocale::ZhCn => "已关闭开机自启动，但系统仍显示启用，未能成功取消",
             UiLocale::ZhTw => "開機自動啟動項目刪除後系統層仍回報為已啟用——移除未生效",
             UiLocale::Fr => "Après la suppression, le système signale toujours le démarrage automatique comme activé — la suppression n'a pas pris effet",
             UiLocale::Es => "Tras quitarla, el sistema sigue indicando el inicio automático como activado: la eliminación no surtió efecto",
@@ -436,7 +436,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartRegOpenFailed => match locale {
             UiLocale::En => "Failed to open the startup registry key: {detail}",
-            UiLocale::ZhCn => "打开启动项注册表键失败：{detail}",
+            UiLocale::ZhCn => "无法访问系统启动项配置：{detail}",
             UiLocale::ZhTw => "開啟開機自動啟動的登錄檔機碼失敗：{detail}",
             UiLocale::Fr => "Échec de l'ouverture de la clé de registre de démarrage : {detail}",
             UiLocale::Es => "No se pudo abrir la clave del registro de inicio: {detail}",
@@ -447,7 +447,7 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
         },
         Msg::AutostartRewriteFailed => match locale {
             UiLocale::En => "Failed to rewrite the startup entry with a quoted path: {detail}",
-            UiLocale::ZhCn => "自启项改写为带引号路径失败：{detail}",
+            UiLocale::ZhCn => "更新开机自启动路径配置失败：{detail}",
             UiLocale::ZhTw => "自動啟動項目改寫為帶引號路徑失敗：{detail}",
             UiLocale::Fr => "Échec de la réécriture de l'entrée de démarrage avec un chemin entre guillemets : {detail}",
             UiLocale::Es => "No se pudo reescribir la entrada de inicio con la ruta entre comillas: {detail}",

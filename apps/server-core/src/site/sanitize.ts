@@ -20,7 +20,13 @@ export type SitePathAllowed = (typeof SITE_PATH_ALLOWLIST)[number];
 
 const PATH_SET = new Set<string>(SITE_PATH_ALLOWLIST);
 
-export const DOWNLOAD_SRC_ALLOWLIST = Object.freeze(['hero', 'band', 'nav'] as const);
+export const DOWNLOAD_SRC_ALLOWLIST = Object.freeze([
+  'hero',
+  'band',
+  'nav',
+  'demo_card',
+  'demo_phone',
+] as const);
 
 const SRC_SET = new Set<string>(DOWNLOAD_SRC_ALLOWLIST);
 
@@ -126,14 +132,39 @@ export function sanitizeDownloadSrc(raw: unknown): string {
   return SRC_SET.has(s) ? s : '(other)';
 }
 
-/** Collect body may only carry pageview (client-reported). Auth kinds are
- *  server-authored and refused here. */
-export function sanitizeCollectKind(raw: unknown): 'pageview' | null {
-  return raw === 'pageview' ? 'pageview' : null;
+/** Collect body may only carry `pageview` and the five `demo_*` site-demo
+ *  funnel kinds (M4-02: a demo starting, pairing, text landing, the trial
+ *  running out, a click through to download) — all client-reported. Auth
+ *  kinds (`register_ok` / `login_ok`) are server-authored and refused here. */
+const CLIENT_COLLECT_KINDS = new Set([
+  'pageview',
+  'demo_mint',
+  'demo_paired',
+  'demo_flight',
+  'demo_expired',
+  'demo_cta',
+]);
+
+export type ClientCollectKind =
+  | 'pageview'
+  | 'demo_mint'
+  | 'demo_paired'
+  | 'demo_flight'
+  | 'demo_expired'
+  | 'demo_cta';
+
+export function sanitizeCollectKind(raw: unknown): ClientCollectKind | null {
+  return typeof raw === 'string' && CLIENT_COLLECT_KINDS.has(raw) ? (raw as ClientCollectKind) : null;
 }
 
 export function isSiteCountKind(raw: unknown): raw is SiteCountKind {
-  return raw === 'pageview' || raw === 'download_click' || raw === 'register_ok' || raw === 'login_ok';
+  return (
+    raw === 'pageview' ||
+    raw === 'download_click' ||
+    raw === 'register_ok' ||
+    raw === 'login_ok' ||
+    CLIENT_COLLECT_KINDS.has(raw as string)
+  );
 }
 
 export function isSiteCountDim(raw: unknown): raw is SiteCountDim {

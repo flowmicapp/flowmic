@@ -11,7 +11,13 @@
 // second kind, and they run wherever `scripts/*.test.mjs` runs, so they have a
 // caller (CLAUDE.md: 「测试写了没人叫 = façade 的运行时版」).
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { splitLiteral, renderLiteral, paramNameFor, planEntry } from './i18n/interpolation.mjs';
+import { convert } from './i18n/gen-i18n-web.mjs';
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 let failures = 0;
 function ok(cond, what) {
@@ -164,6 +170,44 @@ console.log('planEntry');
     'en',
   );
   eq(computed.kind, 'skip', 'an arm that is a bare expression while the others are not is refused');
+}
+
+console.log('web convert() wrapped adjacent literals');
+{
+  // Phone rendering of en#spokenLangNote, obtained by running Dart on the two
+  // pieces copied verbatim from i18n/mobile/en.json (adjacent literals, no
+  // separator). Command: `dart run .local/genfix-phone-render.dart`.
+  const PHONE_EN =
+    'Used on both connections. When you are connected to your own computer, it uses its local model for this language and tells you if it has none.';
+
+  const en = JSON.parse(readFileSync(join(REPO, 'i18n', 'mobile', 'en.json'), 'utf8'));
+  const pieces = en.strings.spokenLangNote;
+  ok(Array.isArray(pieces) && pieces.length >= 2, 'en#spokenLangNote is stored as a wrapped pair');
+
+  const { text, params } = convert(pieces, 'en#spokenLangNote');
+  eq(text, PHONE_EN, 'wrapped en#spokenLangNote is byte-identical to the phone render');
+  ok(params.length === 0, 'spokenLangNote has no placeholders');
+
+  // Placeholders live in separate pieces of one sentence. Converting each
+  // piece and concatenating must keep both holes and first-seen param order.
+  const holes = convert(["'Hello $name, '", "'you have $n left'"], 'synth#holes');
+  eq(holes.text, 'Hello {name}, you have {n} left', 'holes in separate pieces become one sentence');
+  eq(holes.params.join(','), 'name,n', 'params are first-seen across pieces, not reordered');
+
+  eq(convert("'plain'", 'synth#plain').text, 'plain', 'a single literal still converts');
+
+  // zh-CN authors this key as one literal — the other shape the same key takes.
+  const zh = JSON.parse(readFileSync(join(REPO, 'i18n', 'mobile', 'zh-CN.json'), 'utf8'));
+  ok(typeof zh.strings.spokenLangNote === 'string', 'zh-CN#spokenLangNote is a single literal');
+  const zhOut = convert(zh.strings.spokenLangNote, 'zh-CN#spokenLangNote');
+  eq(
+    zhOut.text,
+    // Repointed 2026-09-11 at the zh-CN copy rewrite (0cd113bb / 8420cf7a).
+    // The probe is about the SHAPE (one literal converts like a wrapped pair),
+    // not about the sentence, so the fixture follows the catalogue verbatim.
+    '所有连接通道均依据此处所选语种识别。连接电脑端时将优先使用对应的本地离线模型，若未配置将给予提示。',
+    'a single-literal locale still converts',
+  );
 }
 
 console.log(failures === 0 ? '\nOK i18n interpolation probes' : `\nFAILED ${failures} probe(s)`);

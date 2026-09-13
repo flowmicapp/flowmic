@@ -42,6 +42,7 @@ function phone(over: Partial<PairedMobile> = {}): PairedMobile {
     online: false,
     channel: 'lan',
     device_uid: 'uid-a',
+    client: 'app',
     ...over,
   };
 }

@@ -56,6 +56,8 @@ import '../timeline/timeline_sync.dart';
 // key list stays 1:1 with the queue's own ids instead of a second copy of the
 // literals.
 import '../ui/banner_queue.dart' show BannerIds;
+// Card MP-14 — [ControlKeyRefusal], the held face of a refused keypress.
+import '../ui/control_key_face.dart';
 import '../ui/haptics.dart' show FlowMicHaptics;
 import 'ai_compose_controller.dart';
 import 'asr_health.dart';
@@ -298,6 +300,7 @@ class ChatController extends ChangeNotifier
   StreamSubscription<SttFinal>? _finalSub;
   StreamSubscription<SttInterim>? _interimSub;
   StreamSubscription<InjectResult>? _injectSub;
+  StreamSubscription<ControlKeyResult>? _controlKeyResultSub;
   StreamSubscription<FocusState>? _focusSub;
   StreamSubscription<String>? _autoStoppedSub;
   StreamSubscription<SttStall>? _sttStalledSub;

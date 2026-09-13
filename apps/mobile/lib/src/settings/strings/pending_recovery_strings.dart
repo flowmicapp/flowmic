@@ -48,7 +48,30 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// differently makes the user check whether they arrived somewhere else.
   String get pendingRecoveryTitle => _lfPendingRecoveryTitle;
 
-  String get pendingRecoveryEntry => _lfPendingRecoveryEntry;
+  /// Card WB-6 — the same screen when NOTHING on it is waiting for anything.
+  ///
+  /// 🔴 IT IS NOT A SECOND NAME FOR THE SAME THING, IT IS THE HONEST ONE FOR A
+  /// DIFFERENT SCREENFUL. A list of cancelled, settled or already-tried-and-
+  /// empty recordings is audio we are keeping, not audio anything is going to
+  /// be done with, and Book 15 §2.0-b allows 「waiting」 only where a mechanism
+  /// redeems it. The door on the light-record screen switches on the same
+  /// predicate ([PendingRecoveryItem.awaitingTranscription]), so the row and
+  /// the page it opens are never two different claims.
+  String get pendingRecoveryTitleKept => _lfPendingRecoveryTitleKept;
+
+  /// The door, when something IS owed an attempt. 「$n」 is how many of those
+  /// there are — NOT how many rows the page has, because the number is here to
+  /// size the promise and the other rows are not part of it.
+  ///
+  /// ⚠️ IT COUNTS RECORDINGS, NOT MINUTES OR MEGABYTES. Neither of the other
+  /// two would tell the person anything they could act on, and the card's own
+  /// duration line already carries the length of each one.
+  String pendingRecoveryEntryWaiting(int n) =>
+      _lfPendingRecoveryEntryWaiting(n);
+
+  /// The door, when nothing is. Same noun as [pendingRecoveryTitleKept], so
+  /// arriving does not feel like arriving somewhere else.
+  String pendingRecoveryEntryKept(int n) => _lfPendingRecoveryEntryKept(n);
 
   /// The screen with nothing on it.
   ///
@@ -109,6 +132,23 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// the honest answer to all three.
   String get pendingRecoveryStateEmptyResult =>
       _lfPendingRecoveryStateEmptyResult;
+
+  /// Card WB-6 (A5-4, second time) — the user's own attempt came back empty
+  /// too, so there is nothing further to try.
+  ///
+  /// 🔴 IT IS THE END OF A ROAD, AND IT HAS TO READ LIKE ONE.
+  /// [pendingRecoveryStateEmptyResult] is 「nothing was recognised」 next to a
+  /// button, which is an invitation; this is the same fact after that
+  /// invitation was taken and answered the same way. If it read identically,
+  /// the person would press again, and again, against a mechanism we have
+  /// measured twice to change nothing.
+  ///
+  /// ⚠️ IT STILL NAMES NO CAUSE and still says where the audio is. A silent
+  /// room, a muted microphone and an engine that hears nothing are
+  /// indistinguishable from here — the same reasoning that sentence gives —
+  /// and the audio is going nowhere until the person deletes it (O-2 / O-5).
+  String get pendingRecoveryStateEmptyConfirmed =>
+      _lfPendingRecoveryStateEmptyConfirmed;
 
   /// A7-3 tier C.
   ///
@@ -184,6 +224,60 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
 
   /// [PendingRetryOutcome.refusedBusy] — a press is holding the microphone.
   String get pendingRecoveryRetryBusy => _lfPendingRecoveryRetryBusy;
+
+  /// Card WB-6 — [PendingRetryOutcome.refusedNoLink], and the line that
+  /// explains a retry button this screen did not draw.
+  ///
+  /// 🔴 IT IS THE SENTENCE THE OLD `refusedBusy` WAS TELLING THESE PEOPLE.
+  /// MEASURED 2026-09-12 on TB335ZC with WiFi and data off: the card answered
+  /// 「a recording is running, try again once it ends」 to a phone whose
+  /// microphone was closed — so the one thing the person could have done about
+  /// it was the one thing the product did not say.
+  ///
+  /// ⚠️ IT NAMES NO COMPUTER (owner ruling O-8: this screen has no 「send to
+  /// PC」, and naming one here would imply the recording is going somewhere).
+  /// It names the CONNECTION, which is what the gate actually refused on.
+  String get pendingRecoveryRetryNeedsLink => _lfPendingRecoveryRetryNeedsLink;
+
+  /// Card WB-6 — an attempt on this recording is running.
+  ///
+  /// Present tense and no estimate: nothing on this device knows how long the
+  /// engine will take, and 「about a minute」 would be a number we made up.
+  String get pendingRecoveryRetrying => _lfPendingRecoveryRetrying;
+
+  /// Card WB-6 — the attempt ran, and this recording still has no words in it.
+  ///
+  /// 🔴 THE PRESS THAT USED TO SAY NOTHING AT ALL. `emptyResult` re-transcribes
+  /// to `emptyResult`, so the card came back identical and silence was the
+  /// product's entire answer — 「it does nothing」 is what owner concluded, and
+  /// he was right about the answer if not about the machinery
+  /// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §0).
+  ///
+  /// ⚠️ 「Still」 is doing the work: it says this is the SECOND identical answer,
+  /// which is what distinguishes it from the card's own sentence above it.
+  String get pendingRecoveryRetryStillEmpty =>
+      _lfPendingRecoveryRetryStillEmpty;
+
+  /// Card WB-6 — the attempt ran and this recording is still on the phone.
+  ///
+  /// The arm for every 「it finished and the card is still here」 that is not an
+  /// empty result: a settle that kept the bytes, or a range this build could
+  /// not feed. 🔴 IT CLAIMS NOTHING ABOUT WORDS — the card's own sentence, one
+  /// line above, is what changed and it says what happened. This one exists so
+  /// that a press is never answered with nothing.
+  String get pendingRecoveryRetryKept => _lfPendingRecoveryRetryKept;
+
+  /// Card WB-6 — [PendingRetryOutcome.unavailable] on a card that is still
+  /// there.
+  ///
+  /// 🔴 NOT A FAILURE AND NOT A PROMISE. Nothing went wrong and nothing was
+  /// sent: this build has no route into that recording (the legacy storage
+  /// face, or no retained-audio layer at all). Shown only when the row is still
+  /// on screen — when the recording went away with the press, the row's absence
+  /// is the answer and a sentence about it would name something that is no
+  /// longer there.
+  String get pendingRecoveryRetryUnavailable =>
+      _lfPendingRecoveryRetryUnavailable;
 
   /// [PendingRetryOutcome.failed] — it ran and did not land.
   ///

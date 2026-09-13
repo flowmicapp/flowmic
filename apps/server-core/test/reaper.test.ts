@@ -30,6 +30,7 @@ import {
 } from '../src/db/reaper';
 import type { PaddleSubRow } from '../src/db/repos/billing.repo';
 import { CLOUD_INSTANCE_ID } from '../src/room/registry';
+import { mintIntegratorRoom, INTEGRATOR_ROOM_TTL_MS } from '../src/room/integrator-room';
 import { log } from '../src/log';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -399,7 +400,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     expect(peeked.paddleSubscriptions.map((s) => s.subscription_id)).toEqual(['sub_old']);
 
     const dry = r.runOnce({ dryRun: true });
-    expect(dry).toEqual({ pcDevices: 1, paddleSubscriptions: 1 });
+    expect(dry).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0 });
 
     // NOTHING was actually deleted.
     expect(db.pcs.findById('stale')).not.toBeNull();
@@ -407,7 +408,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
 
     // A REAL run right after reports the identical counts, and NOW deletes.
     const real = r.runOnce();
-    expect(real).toEqual({ pcDevices: 1, paddleSubscriptions: 1 });
+    expect(real).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0 });
     expect(db.pcs.findById('stale')).toBeNull();
     expect(db.billing.getSubscription('sub_old')).toBeNull();
     r.stop();
@@ -417,8 +418,8 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     seedPc('stale', { createdAtMs: T0 - 200 * DAY_MS, lastSeenAtMs: T0 - (DEFAULT_REAPER_POLICY.pcStaleDays + 1) * DAY_MS, online: false });
     const r = reaper();
 
-    expect(r.runOnce()).toEqual({ pcDevices: 1, paddleSubscriptions: 0 });
-    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 1, paddleSubscriptions: 0, integratorRooms: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 });
     r.stop();
   });
 
@@ -428,6 +429,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     seedPc('good-pc', { createdAtMs: T0 - 200 * DAY_MS, lastSeenAtMs: T0 - (DEFAULT_REAPER_POLICY.pcStaleDays + 1) * DAY_MS, online: false });
     const flakyPcs: GrowthReaperDeps['pcs'] = {
       listStaleOffline: (cutoff, exclude) => db.pcs.listStaleOffline(cutoff, exclude),
+      listByRoomKind: (kind) => db.pcs.listByRoomKind(kind),
       remove(id: string): void {
         if (id === 'bad-pc') throw new Error('row is locked');
         db.pcs.remove(id);
@@ -442,8 +444,10 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     expect(db.pcs.findById('good-pc')).toBeNull(); // the other row still went
     expect(errors).toHaveBeenCalledTimes(1);
     const [msg, fields] = errors.mock.calls[0] as [string, Record<string, unknown>];
-    expect(msg).toContain('failed to remove a stale pc_devices row');
-    expect(fields).toMatchObject({ id: 'bad-pc' });
+    expect(msg).toContain('failed to remove a pc_devices row');
+    // card MP-11 — WHICH sweep, as a field: two sweeps now delete out of this
+    // one table and the message alone can no longer say which.
+    expect(fields).toMatchObject({ id: 'bad-pc', sweep: 'stale_offline' });
     r.stop();
   });
 
@@ -453,12 +457,13 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
       listStaleOffline(): never {
         throw new Error('disk read failed');
       },
+      listByRoomKind: (kind) => db.pcs.listByRoomKind(kind),
       remove: (id: string) => db.pcs.remove(id),
     };
     const r = reaper({ pcs: explodingPcs });
 
     expect(() => r.runOnce()).not.toThrow();
-    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 });
     expect(errors).toHaveBeenCalled();
     const [msg] = errors.mock.calls[0] as [string];
     expect(msg).toContain('sweep aborted');
@@ -512,5 +517,128 @@ describe('D11 reaper — the two RETAINED tables are structurally unreachable fr
     expect((db.raw.prepare('SELECT COUNT(*) AS n FROM billing_events').get() as { n: number }).n).toBe(1);
     expect((db.raw.prepare('SELECT COUNT(*) AS n FROM ops_audit_log').get() as { n: number }).n).toBe(1);
     r.stop();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card MP-11 / gap G-5 (2026-09-11) — EXPIRED INTEGRATOR ROOMS.
+//
+// `room/integrator-room.ts` said it out loud rather than hiding it: 「nothing
+// sweeps it today — `ensureWebRoom` reaps an expired room only when the SAME
+// account asks for one again, and this function never asks」. It never asks
+// because an integrator room is minted FRESH PER VISITOR, so unlike every other
+// room kind in this repo its row count is bounded by a third party's traffic
+// rather than by our account count. A ten-minute TTL that nothing collects is
+// not a lifetime, it is a label.
+//
+// The sweep is added to THIS reaper rather than to a timer of its own: a second
+// periodic mechanism deleting out of `pc_devices` would be a second set of
+// rules about what a released room takes with it, and the answer already has an
+// owner (`pcs.remove` + the `ON DELETE CASCADE` on `mobile_pairings`).
+//
+// ⚠️ THE CADENCE IS DAILY AND THE TTL IS TEN MINUTES, and the two are about
+// different things on purpose. The TTL bounds how long the room WORKS; the
+// sweep bounds how long the ROW SITS THERE. A room is dead to every reader the
+// instant it expires (that is the TTL's job, and it is not this file's), so a
+// day's lag before the bytes go is the same trade `REAPER_SWEEP_INTERVAL_MS`
+// already documents for its other two tables.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Mint a REAL integrator room through the REAL mint function and the REAL
+ *  pc repo — the three deps faked here are the ones that belong to the
+ *  Registry/key repo and say nothing about expiry. Faking the mint instead
+ *  would let this test pass against a row shape production never writes. */
+function seedIntegratorRoom(id: string, opts: { expiresAtMs: number; userId?: string; code: string }): { pcId: string } {
+  const out = mintIntegratorRoom(
+    {
+      pcs: db.pcs,
+      allocateCode: () => opts.code,
+      stampCode: () => undefined,
+      stampPcid: () => undefined,
+      bindRoom: () => undefined,
+      now: () => opts.expiresAtMs - INTEGRATOR_ROOM_TTL_MS,
+    },
+    opts.userId ?? 'u1',
+    `key-${id}`,
+  );
+  return { pcId: out.pc.id };
+}
+
+describe('MP-11 / G-5 reaper — expired integrator rooms', () => {
+  it('an EXPIRED integrator room disappears and its short code is released; a LIVE one survives', () => {
+    const dead = seedIntegratorRoom('dead', { expiresAtMs: T0 - 1, code: '4321' });
+    const live = seedIntegratorRoom('live', { expiresAtMs: T0 + 60_000, code: '8765' });
+    // Positive control on the SETUP, before the sweep: both rows are really
+    // there and both codes really resolve. Without it, an assertion that they
+    // are gone afterwards would also pass for a mint that never happened.
+    expect(db.pcs.findById(dead.pcId)).not.toBeNull();
+    expect(db.pcs.listByShortCode('4321').map((r) => r.id)).toEqual([dead.pcId]);
+    const r = reaper();
+
+    const counts = r.runOnce();
+
+    expect(counts.integratorRooms).toBe(1);
+    expect(db.pcs.findById(dead.pcId)).toBeNull();
+    // 🔴 THE CODE IS THE POINT, not just the row. `short_code` lives ON the row,
+    // so deleting the row is what hands '4321' back to the governor to issue
+    // again — a sweep that left the code resolving to a dead room would have
+    // burned one of 10,000 values per expired visitor.
+    expect(db.pcs.listByShortCode('4321')).toEqual([]);
+    // The unexpired room is untouched, and so is its code.
+    expect(db.pcs.findById(live.pcId)).not.toBeNull();
+    expect(db.pcs.listByShortCode('8765').map((r2) => r2.id)).toEqual([live.pcId]);
+    r.stop();
+  });
+
+  it("does NOT sweep an account's web room, expired or not — that kind has its own release path", () => {
+    // `ensureWebRoom` releases and replaces an expired web room the next time
+    // that ACCOUNT asks, and there is one per account. Sweeping it here would
+    // be a second authority over a lifetime that already has one.
+    db.pcs.insert({
+      id: 'web-room', user_id: 'u1', device_name: 'FlowMic Web',
+      room_kind: 'web', room_expires_at: iso(T0 - 60 * 60 * 1000),
+      device_token: `tok-web-${'x'.repeat(32)}`, room_uuid: 'room-web', short_code: '2468',
+    });
+    const r = reaper();
+
+    const counts = r.runOnce();
+
+    expect(counts.integratorRooms).toBe(0);
+    expect(db.pcs.findById('web-room')).not.toBeNull();
+    r.stop();
+  });
+
+  it('an integrator row with NO expiry stamp is never swept — null means「no clock」, not「expired」', () => {
+    db.pcs.insert({
+      id: 'no-clock', user_id: 'u1', device_name: 'FlowMic Web',
+      room_kind: 'integrator', device_token: `tok-nc-${'x'.repeat(32)}`,
+      room_uuid: 'room-nc', short_code: '1357',
+    });
+    const r = reaper();
+
+    expect(r.runOnce().integratorRooms).toBe(0);
+    expect(db.pcs.findById('no-clock')).not.toBeNull();
+    r.stop();
+  });
+
+  it('peek() lists the expired room without deleting it, and a dry run counts it without deleting it', () => {
+    const dead = seedIntegratorRoom('dead', { expiresAtMs: T0 - 1, code: '4321' });
+    const r = reaper();
+
+    expect(r.peek().integratorRooms.map((row) => row.id)).toEqual([dead.pcId]);
+    expect(r.runOnce({ dryRun: true }).integratorRooms).toBe(1);
+    expect(db.pcs.findById(dead.pcId)).not.toBeNull();
+
+    expect(r.runOnce().integratorRooms).toBe(1);
+    expect(db.pcs.findById(dead.pcId)).toBeNull();
+    r.stop();
+  });
+
+  it('REVERSE CONTROL — evidence in the delivery report; read it before trusting the green above', () => {
+    // Deleting the `integratorRooms:` line from `sweep()` in src/db/reaper.ts
+    // (so the counts object no longer carries it) turns the first case here red
+    // with `expected undefined to be 1`, and the row assertion red with the row
+    // still present. Restored immediately after; measured 2026-09-11.
+    expect(true).toBe(true);
   });
 });

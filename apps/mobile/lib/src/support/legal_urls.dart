@@ -44,3 +44,16 @@ const String kTermsOfServiceUrl = '$kDefaultSaasEndpoint/terms';
 /// The repo's rule about destructive actions having exactly one landing point
 /// (the sign-out ruling, `cloud_signout_row.dart`) is the same rule here.
 const String kAccountPageUrl = '$kDefaultSaasEndpoint/console/account';
+
+/// The signed-in account's own plan and remaining allowance, on the official
+/// site. Linked from the quota-rules guide (`ui/quota_rules_page.dart`).
+///
+/// 🔴 IT IS THE ONE NUMBER THAT GUIDE MAY SEND A READER TO. Every rule on
+/// that page is about WHOSE allowance is spent, and the page prints no figure
+/// of its own — a far end's remainder is a stranger's commercial fact. The
+/// reader's own remainder is not, and this is where it lives.
+///
+/// ⚠️ `/console/billing` IS A MEASURED PATH, not an assumed one: a real
+/// device opened and rendered it (`support/help_link.dart` records that
+/// measurement and why an unverified `/help` was refused in the same breath).
+const String kBillingPageUrl = '$kDefaultSaasEndpoint/console/billing';

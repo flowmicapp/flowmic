@@ -137,10 +137,11 @@ fn a_row_that_cannot_name_its_phone_says_so_in_the_log() {
 
 #[test]
 fn the_minted_line_names_the_channel_the_kind_and_the_outcome() {
-    // The forensic line is the ONLY evidence surface `control:key` has on the wire
-    // side (no result frame), so it has to answer 「哪条通道、哪个键、结果是什么」
-    // ("which channel, which key, what result") in
-    // one greppable string.
+    // The forensic line is the only place the FULL local outcome lives: card MP-14
+    // put a receipt on the wire, but it carries three coarse reasons (the far side
+    // cannot act on the difference between `os_refused` and `send_failed`), so
+    // this line still has to answer 「哪条通道、哪个键、结果是什么」("which channel,
+    // which key, what result") in one greppable string.
     let line = minted_line("ctl:9-3", Channel::Cloud, "undo", ControlOutcome::OsRefused, None);
     assert!(line.contains("channel=cloud"), "{line}");
     assert!(line.contains("kind=undo"), "{line}");
@@ -203,4 +204,80 @@ fn the_mode_filler_is_a_legal_mode_and_never_a_fourth_one() {
     let (sink, log) = capturing();
     mint_control_row(&sink, Channel::Lan, "clear", ControlOutcome::Sent, None);
     assert_eq!(rows(&log)[0]["mode"], "realtime");
+}
+
+// ── MP-14: the wire receipt ──────────────────────────────────────────────────
+//
+// These pin the frame itself rather than the emit: a socket is not available to
+// `cargo test`, and the thing that can be wrong here is the CONTENT. Every case
+// below is a way to build a receipt that looks right and lies.
+
+#[test]
+fn the_receipt_says_ok_with_no_reason_when_the_keys_went_out() {
+    let f = build_key_receipt("enter", Some("k-7"), KeyReceipt::Ok);
+    assert_eq!(f["ok"], true);
+    assert_eq!(f["kind"], "enter");
+    assert_eq!(f["request_id"], "k-7");
+    // 🔴 A `reason` on a success would be read by the far side as a refusal it
+    // could not name — the schema makes the key optional precisely so success can
+    // be silent about cause.
+    assert!(f.get("reason").is_none(), "{f}");
+}
+
+#[test]
+fn the_receipt_carries_the_reason_on_a_refusal() {
+    let f = build_key_receipt("tab", Some("k-8"), KeyReceipt::Refused(REASON_UNSUPPORTED_HERE));
+    assert_eq!(f["ok"], false);
+    assert_eq!(f["reason"], "unsupported_here");
+}
+
+#[test]
+fn an_absent_request_id_is_omitted_rather_than_sent_empty() {
+    // `NonEmpty.optional()` at the relay's zod boundary: an empty string kills the
+    // whole frame, and a boundary refusal is ANONYMOUS (the frame dies naming no
+    // field). Omission is a real state — 「the press did not carry one」 — and the
+    // far side then matches by kind + recency.
+    for id in [None, Some("")] {
+        let f = build_key_receipt("undo", id, KeyReceipt::Refused(REASON_NO_TARGET));
+        assert!(f.get("request_id").is_none(), "{id:?} produced {f}");
+    }
+}
+
+#[test]
+fn five_of_the_six_local_outcomes_collapse_into_failed_and_only_no_target_stands_apart() {
+    // 🔴 THE COLLAPSE IS THE DECISION, so it is asserted rather than left to the
+    // comment that explains it. The far side's MOVE is what separates the three
+    // wire reasons: `no_target` means 「click into a box」, everything else here
+    // means 「this computer tried or declined and nothing happened」. If someone
+    // later gives `os_refused` its own wire word, this goes red and they have to
+    // say which new move it buys.
+    assert_eq!(KeyReceipt::from_outcome(ControlOutcome::Sent), KeyReceipt::Ok);
+    assert_eq!(
+        KeyReceipt::from_outcome(ControlOutcome::NoTarget),
+        KeyReceipt::Refused(REASON_NO_TARGET)
+    );
+    for o in [
+        ControlOutcome::ForegroundRefused,
+        ControlOutcome::OsRefused,
+        ControlOutcome::SendFailed,
+        ControlOutcome::NotPrimary,
+    ] {
+        assert_eq!(
+            KeyReceipt::from_outcome(o),
+            KeyReceipt::Refused(REASON_FAILED),
+            "{o:?} must not grow a wire word of its own without a move to go with it"
+        );
+    }
+}
+
+#[test]
+fn the_three_reasons_are_the_three_the_protocol_declares() {
+    // A hand-spelled literal on this side is a SECOND source of truth for a string
+    // the relay validates with zod. This case is the only thing standing between a
+    // typo here and a receipt that dies anonymously at the boundary — the shape
+    // `CONTROL_KEY_RESULT_REASONS` exists for in packages/protocol.
+    assert_eq!(
+        [REASON_UNSUPPORTED_HERE, REASON_NO_TARGET, REASON_FAILED],
+        ["unsupported_here", "no_target", "failed"]
+    );
 }

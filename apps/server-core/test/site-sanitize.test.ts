@@ -55,10 +55,24 @@ describe('site sanitize — other dims', () => {
     expect(sanitizeDownloadSrc('evil')).toBe('(other)');
   });
 
-  it('collect kind: only pageview from the client', () => {
+  it('download src whitelist: site-demo card and phone hops (M4-02)', () => {
+    expect(sanitizeDownloadSrc('demo_card')).toBe('demo_card');
+    expect(sanitizeDownloadSrc('demo_phone')).toBe('demo_phone');
+  });
+
+  it('collect kind: pageview and the five site-demo funnel kinds from the client', () => {
     expect(sanitizeCollectKind('pageview')).toBe('pageview');
     expect(sanitizeCollectKind('register_ok')).toBeNull();
     expect(sanitizeCollectKind('login_ok')).toBeNull();
+  });
+
+  it('collect kind: site-demo funnel (M4-02) — reverse control below proves this is load-bearing', () => {
+    expect(sanitizeCollectKind('demo_mint')).toBe('demo_mint');
+    expect(sanitizeCollectKind('demo_paired')).toBe('demo_paired');
+    expect(sanitizeCollectKind('demo_flight')).toBe('demo_flight');
+    expect(sanitizeCollectKind('demo_expired')).toBe('demo_expired');
+    expect(sanitizeCollectKind('demo_cta')).toBe('demo_cta');
+    expect(sanitizeCollectKind('demo_bogus')).toBeNull();
   });
 
   it('origin allow-list', () => {

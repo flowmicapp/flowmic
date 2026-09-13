@@ -224,6 +224,10 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // the first join is "none read yet". The pair leg (ptt_pair.dart) has
         // always had them in this order; this leg was the asymmetric one.
         s.reconnect.noteServerCapabilities(ack);
+        // card S2-01 — re-read at THIS instant rather than carried over from the
+        // pair ack: the target may have been replaced in between (see
+        // target_caps.dart). NO CONSUMER YET — card S3-02.
+        s.reconnect.noteTargetCaps(ack);
         s.noteRoomJoined(atHomeNode: settledAtHomeNode(ack));
         // 🔴 P0 — being IN a room is proof that the node we are talking to knows
         // this token, so there is nothing left to blame on replication lag. Left

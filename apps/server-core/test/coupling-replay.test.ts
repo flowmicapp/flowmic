@@ -1,3 +1,11 @@
+// COST BUDGET: 4.1 s because CE-6b waits for the product's own DEFAULT_ENGINE_SPAWN_TIMEOUT_MS (5 s, src/stt/orchestrator-types.ts:27) to be the thing that finally emits a frame — measured 2026-09-13 dev-pc-a: CE-6b 4,311 ms of the file's 4,999 ms, and the file is 4,116 ms once the two 300 ms negative-assertion windows below became ordering barriers.
+//
+// ⚠️ THE OTHER NUMBERS IN THIS FILE ARE CEILINGS, NOT WAITS. `connect` 3000,
+// `ack` 8000 and `once` 3000 are reached ONLY when the thing never arrives, so
+// they cost nothing on a passing run and lowering them buys no time — it only
+// moves the day a loaded box loses. Do not "tune" them; see the CE-6b header
+// below for what happens when a wait is sized from a product deadline.
+//
 // WP-R3.5 — REAL-server backing for the two server-authoritative coupling edges
 // (the desktop-FSM half lives in apps/desktop/src/lib/replay/coupling-edges.test.ts):
 //   CE-1 (pairing-drain half): a mobile drop DRAINS the room slot — the PC is told
@@ -30,11 +38,22 @@ const sockets: ClientSocket[] = [];
 // instead of waiting for it. Nothing else in a standalone server uses it.
 const pendingTimers = new Map<number, () => void>();
 let timerSeq = 0;
+let onArm: (() => void) | null = null;
 const fakeSetTimeout = ((cb: () => void) => {
   const id = ++timerSeq;
   pendingTimers.set(id, cb);
+  const arm = onArm;
+  onArm = null;
+  arm?.();
   return id as unknown as NodeJS.Timeout;
 }) as unknown as typeof setTimeout;
+/** Resolves when the server ARMS deferred work on the injectable scheduler —
+ *  i.e. proof it has already processed the edge that arms it. Used instead of
+ *  sleeping to find out whether a disconnect has been seen yet. */
+function armedTimer(): Promise<void> {
+  if (pendingTimers.size > 0) return Promise.resolve();
+  return new Promise((resolve) => { onArm = resolve; });
+}
 const fakeClearTimeout = ((h: unknown) => { pendingTimers.delete(h as number); }) as unknown as typeof clearTimeout;
 function expireServerTimers(): void {
   const due = [...pendingTimers.values()];
@@ -67,13 +86,29 @@ function once<T = unknown>(socket: ClientSocket, event: string): Promise<T> {
     socket.once(event, (d: T) => { clearTimeout(t); resolve(d); });
   });
 }
-function neverWithin(socket: ClientSocket, event: string, ms: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    let fired = false;
-    const h = (): void => { fired = true; };
-    socket.once(event, h);
-    setTimeout(() => { socket.off(event, h); resolve(!fired); }, ms);
-  });
+/** Records every frame of `event` on a socket for as long as the test wants,
+ *  and hands back the reader. Replaces the old `neverWithin(socket, event, ms)`
+ *  window (deleted 2026-09-13): a fixed window is a stopwatch racing a
+ *  stopwatch, and CE-6b's header below is the receipt for what that costs —
+ *  its five 1200 ms probes all closed BEFORE the only frames that session ever
+ *  emits, so they asserted that nothing arrived during a stretch in which
+ *  nothing could have arrived. A negative is read after an ORDERING BARRIER
+ *  instead (a round trip on the same socket): socket.io preserves per-connection
+ *  order, so anything the server had already written to that socket is
+ *  delivered before the ack of a request sent afterwards. No window, no sleep,
+ *  and no load can beat it.
+ *
+ *  🔴 REVERSE CONTROLS FOR THE TWO EDGES THAT LOST THEIR WINDOW, measured red
+ *  2026-09-13 — a negative read through a barrier has to still bite:
+ *    · marker REVERSE-CONTROL-D — the delivery gate deleted from audio.handler.ts
+ *      (`const fannedOut = roomUuid !== null`) ⇒ CE-6 FAILED on the record-only leg;
+ *    · marker REVERSE-CONTROL-E — `isDeliberateLeave` forced to `true`, i.e. a blip
+ *      drained on the transport edge ⇒ CE-1 FAILED on `leftFrames`.
+ *  Both restored; `grep -rn "REVERSE-CONTROL-[DE]" apps/server-core/src` = 0. */
+function record(socket: ClientSocket, event: string): unknown[] {
+  const seen: unknown[] = [];
+  socket.on(event, (d: unknown) => seen.push(d));
+  return seen;
 }
 
 const AUDIO_START = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh' };
@@ -121,6 +156,7 @@ afterAll(async () => {
 describe('WP-R3.5 server-authoritative coupling edges (real in-process server)', () => {
   it('CE-1 (pairing drain): a mobile BLIP drains the slot at GRACE EXPIRY, not on the transport edge', async () => {
     const { pc, mobile, token, roomUuid, pairingId } = await pairMobile('inst-couplingedge-ce1');
+    const leftFrames = record(pc, 'pc:mobile-left');
     // A blip is the transport dying UNANNOUNCED (server reason `transport close`).
     // It must be killed at the engine, not via socket.disconnect(): the latter
     // sends a namespace DISCONNECT packet first, which the server now reads as a
@@ -129,7 +165,16 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
     // GA-04 changed WHEN this edge fires, not whether: a drop is not a departure
     // until the mobile-drop grace window expires (blip debounce — a phone back inside
     // the window must leave the PC none the wiser).
-    expect(await neverWithin(pc, 'pc:mobile-left', 300)).toBe(true);
+    //
+    // The negative is read against two FACTS rather than a 300 ms window: the
+    // server has armed the grace timer (so it has demonstrably processed the
+    // drop — a window could have closed before it even saw it, which is the
+    // vacuous shape CE-6b was caught in), and a round trip on the PC's own
+    // socket has come back (so any pc:mobile-left the server had written to
+    // that connection was delivered first).
+    await armedTimer();
+    await ack(pc, 'pc:list-mobiles', {});
+    expect(leftFrames).toEqual([]); // not drained on the transport edge
     const leftP = once<{ mobile_id: string }>(pc, 'pc:mobile-left');
     expireServerTimers(); // the 30 s window runs out
     const left = await leftP;
@@ -164,9 +209,15 @@ describe('WP-R3.5 server-authoritative coupling edges (real in-process server)',
     expect(fanned.mode).toBe('realtime');
     await ack(mobile, 'audio:stop', {}).catch(() => {});
     // delivery:'none' record-only → the PC must stay dark (no fan-out).
-    const pcQuiet = neverWithin(pc, 'audio:start', 300);
+    // Read after an ordering barrier, not after a window: the fan-out emit is
+    // inside the audio:start handler (audio.handler.ts symbol `fannedOut`,
+    // `startPc.emit('audio:start', …)`), i.e. written to the PC's socket BEFORE
+    // the mobile's ack was written. So a pc:list-mobiles sent after that ack
+    // comes back strictly later on the PC's connection than any leaked frame.
+    const pcSawStart = record(pc, 'audio:start');
     await ack(mobile, 'audio:start', { ...AUDIO_START, delivery: 'none' }).catch(() => {});
-    expect(await pcQuiet).toBe(true);
+    await ack(pc, 'pc:list-mobiles', {});
+    expect(pcSawStart).toEqual([]);
   });
 
   // 🔴 EXPLICIT TIMEOUT, and since 2026-09-02 it is the ONLY deadline in this test.

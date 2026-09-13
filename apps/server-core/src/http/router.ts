@@ -30,6 +30,9 @@ import { tryHandleUsageEventsRoutes } from './usage-events-routes';
 import { tryHandleProbeRoutes } from './probe-routes';
 import { tryHandleSttModelRoutes } from './stt-model-routes';
 import { tryHandlePresenceRoutes } from './presence-routes';
+import { WEB_CORS_PREFLIGHT_PATHS } from './web-cors-preflight-paths';
+import { tryHandleWebRoomRoutes } from './web-room-routes';
+import { tryHandleWebAnonRoutes } from './web-anon-routes';
 import { DiagUploadThrottle, tryHandleDiagRoutes } from './diag-routes';
 import { tryHandleInjectRoutes } from './inject-routes';
 import { tryHandleTimelineKeymetaRoutes } from './timeline-keymeta-routes';
@@ -43,6 +46,7 @@ import { tryHandleSiteCollectRoutes } from './site-collect-routes';
 import { tryHandleOpsSiteRoutes } from './ops-site-routes';
 import { tryHandlePaddleRoutes } from './paddle-routes';
 import { isLocalRequest, refuseNonLocal } from './local-only';
+import { applyWebCors, handleWebCorsPreflight } from './web-cors';
 import { refuseUnidentified } from './account-auth';
 import { isWellFormedFingerprint } from '../lan-tls/fingerprint';
 import { makeWriterOnlyGuard } from '../node/writer-only';
@@ -234,7 +238,13 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // every other POST, and the next route that wants an exception writes its
     // own paragraph here instead of widening this condition.
     const isReplicaSafeDiagUpload = method === 'POST' && url.split('?')[0] === '/api/diag/mobile';
-    if (deps.nodes?.writerUrl && method !== 'GET' && method !== 'HEAD' && url.startsWith('/api/') && !isReplicaSafeDiagUpload) {
+    // CORS-2 (2026-09-08) — the SECOND named exception, same shape as the one
+    // just above: OPTIONS cannot mutate, and each of these four paths already
+    // owns a preflight handler that scopes its own grant. See the paragraph
+    // above `makeHttpHandler` for the full reasoning and why this is a named
+    // path list rather than "let OPTIONS through everywhere".
+    const isReplicaSafeCorsPreflight = method === 'OPTIONS' && WEB_CORS_PREFLIGHT_PATHS.has(url.split('?')[0] ?? url);
+    if (deps.nodes?.writerUrl && method !== 'GET' && method !== 'HEAD' && url.startsWith('/api/') && !isReplicaSafeDiagUpload && !isReplicaSafeCorsPreflight) {
       // 🔴 BUILT BY THE SAME FUNCTION THE SOCKET REFUSAL USES, and that is the
       // whole reason it is a call and not a literal. This route answered with a
       // hand-spelled `'NODE_IS_REPLICA'` and a hand-written sentence before the
@@ -255,7 +265,13 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
 
     // 2026-08-31 — PATH, not whole URL: `/api/health?cb=1` used to 404, so a
     // monitor that cache-busts read a healthy relay as gone (health-route-query.test.ts).
-    if (url.split('?')[0] === '/api/health' && method === 'GET') {
+    // CORS-1 (2026-09-08) — OPTIONS answered here too: the web mic page's
+    // instance list reads this cross-origin (a relay node's own domain), and
+    // once a route grants CORS at all a browser preflights the GET it means to
+    // read — see web-cors.ts's header for the 405 that closes.
+    if (url.split('?')[0] === '/api/health' && (method === 'GET' || method === 'OPTIONS')) {
+      if (handleWebCorsPreflight(req, res, { methods: 'GET, OPTIONS' })) return true;
+      applyWebCors(req, res);
       // PUBLIC BY NECESSITY, and the ONE route that must stay that way: a phone
       // with no token yet probes it to draw the instance list and to learn which
       // channel answered (mobile/src/session/instance_probe.dart reads `ok` +
@@ -399,6 +415,29 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // argument. Placed above the standalone-only block so the mounting difference
     // is visually obvious rather than buried in a shared `&&`.
     if (deps.presence && tryHandlePresenceRoutes(req, res, deps.presence)) return true;
+
+    // card S2-04 — POST /api/web/rooms. saas-only, TWO conditions (the dep is
+    // built saas-only and the mode is re-checked), the same pair
+    // `router-ops-mounts.ts` argues for its six: standalone has no account layer,
+    // so a mis-wired dep would put a row-minting POST on somebody's LAN box
+    // behind an account gate that can never say no.
+    //
+    // ⚠️ IT NEEDS NO 421 OF ITS OWN. Minting a room is a write, and the
+    // replica guard at the top of this function already refuses every non-GET
+    // `/api/` request on a replica with `NODE_IS_REPLICA` + the writer's URL —
+    // which is exactly the response the addendum §2.1 specifies for this
+    // endpoint, produced by the rule rather than by a copy of it.
+    if (config.mode === 'saas' && deps.webRooms
+      && tryHandleWebRoomRoutes(req, res, deps.webRooms)) return true;
+
+    // Card M4-01 — POST /api/web/anon, the site demo's identity mint. saas-only
+    // and mode-rechecked here for the same two reasons the route above is: a
+    // standalone box has no account layer to hang an anonymous row on, and it
+    // serves no marketing site to be reached from. Mounted BESIDE its sibling,
+    // after it, because a reader looking for 「the demo's two endpoints」 should
+    // find them together.
+    if (config.mode === 'saas' && deps.webAnon
+      && tryHandleWebAnonRoutes(req, res, deps.webAnon)) return true;
 
     // L-④ — GET /api/updates/latest. PUBLIC and UNAUTHENTICATED, on the same
     // argument as /api/health above: a client that has not logged in (or has not

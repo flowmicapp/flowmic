@@ -55,15 +55,18 @@
 // current status of the mail channel, and the redline paragraph two paragraphs
 // up (the echo flag) is still enforced by that file.
 
-import { countMobileDevices, isRealPc } from '../room/registry';
+import { countMobileDevices, isRealPc, occupiesPcSlot } from '../room/registry';
 import { CloudSummarySchema } from '@flowmic/protocol';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
+import { tryHandleConsoleIntegratorRoutes } from './console-integrator-routes';
+import type { IntegratorKeyRepo } from '../db/repos/integrator-key.repo';
 import { pcPresence } from '../room/pc-presence';
 import type { AuthService } from '../auth/auth-service';
 import type { RegisterRateLimiter } from '../auth/register-rate-limit';
 import type { BillingService } from '../billing/billing-service';
 import type { BillingRepo } from '../db/repos/billing.repo';
+import type { UsageEventsRepo } from '../db/repos/usage-events.repo';
 import type { PcRepo } from '../db/repos/pc.repo';
 import type { MobileRepo } from '../db/repos/mobile.repo';
 import type { SettingsRepo } from '../db/repos/settings.repo';
@@ -91,108 +94,12 @@ import { tryHandlePasswordResetRoutes } from './password-reset-routes';
 const EVENTS_DEFAULT_LIMIT = 20;
 const EVENTS_MAX_LIMIT = 100;
 
-export interface ConsoleRoutesDeps {
-  auth: AuthService;
-  billing: BillingService;
-  /** D1 §6.2 — the `billing_events` ledger behind GET /api/cloud/billing/events.
-   *
-   *  A SEPARATE dep from `billing` above even though both are "billing": that one
-   *  is the SERVICE that decides "what tier is this user on", this one is the STORE that
-   *  remembers "which webhooks we've received". Folding the read into BillingService
-   *  would put a second responsibility on the file whose whole point is to answer
-   *  exactly one question. Required, not optional — an absent ledger would make
-   *  the reconciliation page render "no events yet" for an account that has plenty,
-   *  which is a lie the compiler can prevent. */
-  billingLedger: BillingRepo;
-  /**
-   * 0.2.48 — where the admin gate's trail goes (`ops_audit_log`).
-   *
-   * REQUIRED, with no `?` and no default, and that is the whole point: book 13 §7
-   * F1 ② (a DI default is the real thing or a throw, never a friendly empty). An
-   * optional sink would mean a bootstrap missing one line still serves
-   * /billing/orphans perfectly — just with nobody able to say who read it — and
-   * there would be no new symbol to grep and nothing red to notice. Making it
-   * required turns that omission into a compile error.
-   *
-   * Typed as the WRITE slice (`OpsAuditSink`), not the repo: nothing in this file
-   * has any business reading the trail back.
-   */
-  opsAudit: OpsAuditSink;
-  pcs: PcRepo;
-  mobiles: MobileRepo;
-  /**
-   * 2026-08-28 (owner §5-1) — live room membership, for the ONE question
-   * `pc_devices.is_online` must not be asked: "is this computer here right now".
-   * The SAME store the socket handlers hold, so the console cannot grow a second
-   * definition of presence; the judgement itself is `pcPresence()` in
-   * room/pc-presence.ts and this file only calls it.
-   *
-   * REQUIRED (book 13 §7 F1 ②): optional would mean a bootstrap missing one line
-   * still serves the device list, just with every row silently reading absent —
-   * and "absent" is the state that ENABLES removal, so the failure would hand
-   * users a working remove button for computers that are running.
-   */
-  store: RoomLookup;
-  /** This node's own id — see ConsoleDeviceRoutesDeps.nodeId. Absent = single node. */
-  nodeId?: string | null;
-  settings: SettingsRepo;
-  /**
-   * 0.3.0 P4 — the account row itself, for the ONE route that destroys it
-   * (POST /api/account/delete → `users.remove`).
-   *
-   * REQUIRED, with no `?` and no default (book 13 §7 F1 ②). An optional repo would
-   * mean a bootstrap missing one line still MOUNTS the deletion route, which
-   * would then throw per request — a GDPR obligation that answers 500 while the
-   * console shows a button. Making it required turns that omission into a compile
-   * error at the one object literal that has to change.
-   */
-  users: UserRepo;
-  /** 0.3.0 P4 — the account's monthly usage rows for GET /api/account/export
-   *  (`usage.listByUser`). The privacy policy names 「monthly usage totals」 among
-   *  the things a user may have back; `billing.getQuota` answers only "this month",
-   *  which is a different question and a shorter answer. Required for the same
-   *  reason as `users` above. */
-  usage: UsageRepo;
-  /** Per-IP throttle for the password reset surface — same discipline as the
-   *  register/login limiter (5 / 10-min), a SEPARATE bucket so a legitimate
-   *  reset never starves the login budget (and vice-versa). */
-  passwordLimiter: RegisterRateLimiter;
-  /**
-   * 🔴 MAIL-1 — the channel that carries a reset token to the human.
-   *
-   * REQUIRED, with no `?` and no default, for the reason `opsAudit` above is:
-   * an optional mailer would let a bootstrap missing one line still mount
-   * `/api/password/forgot`, which would mint a token, persist it, answer 200 and
-   * deliver nothing — with no new symbol to grep and nothing red to notice.
-   *
-   * Declared here (and not only on `PasswordResetRoutesDeps`) because this file
-   * hands its whole deps object to `tryHandlePasswordResetRoutes`: the subset
-   * interface is what the routes READ, this is where the composition root has to
-   * SUPPLY it. See http/password-reset-routes.ts for the full argument, and
-   * mail/unconfigured.ts for what a deployment without mail env actually gets.
-   */
-  mail: PasswordResetMailer;
-  /**
-   * VERIFY-1 D3 — the verified-email gate's reader (owner 2026-08-11: the first
-   * console sign-in offers nothing but verification; the SERVER holds the door,
-   * the UI only paints it).
-   *
-   * REQUIRED, with no `?` and no default (book 13 §7 F1 ② — the same argument as
-   * `opsAudit`/`mail` above): an optional reader would let a bootstrap missing
-   * one line serve every console feature to unverified accounts, with no new
-   * symbol to grep and nothing red to notice. bootstrap wires
-   * `db.emailVerification` — the SAME instance the confirm route writes
-   * through, so the gate cannot disagree with the confirm that opens it.
-   */
-  verifiedEmail: EmailVerifiedReader;
-  /** WP-W1b: fan a console REST settings write out to the user's online sockets
-   *  (bootstrap wires this to settings.handler broadcastUpdated with no origin
-   *  socket) — keeps save-on-change peer sync semantics identical across channels.
-   *  Absent (unit tests) → no fan-out, write still lands. */
-  broadcastSettingsUpdated?: (userId: string, payload: { key: string; value: unknown }) => void;
-  /** ms-since-epoch clock; defaults to Date.now. Injectable for TTL tests. */
-  now?: () => number;
-}
+// Card MP-12 — `ConsoleRoutesDeps` moved VERBATIM to ./console-routes-deps.ts
+// (this file stood at 796 of the 800-line cap). RE-EXPORTED so every existing
+// importer is unchanged; that file's header carries the argument and names the
+// 2026-08-12 `router-deps.ts` split it copies.
+export type { ConsoleRoutesDeps } from './console-routes-deps';
+import type { ConsoleRoutesDeps } from './console-routes-deps';
 
 /** Bearer → verified user row, or a 401 verdict (AUTH_TOKEN_INVALID /
  *  AUTH_TOKEN_EXPIRED, same contract as GET /api/me). A validly-signed token for
@@ -405,6 +312,14 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
     // excludes its auto-pairing — which is what the quota already does, and the
     // two numbers must not be able to disagree.
     const pcs = deps.pcs.listByUser(who.userId).filter(isRealPc);
+    // card S2-04 — the PC COUNT drops browser rooms (`room_kind='web'`), the
+    // MOBILE count above does not, and the split is the same one
+    // `registry.ts` makes between `slotPcs` and `realPcs`: owner ruling W-3 says
+    // a web room must not spend a paid computer slot, while the handsets paired
+    // to one are ordinary handsets. Counting them here with `pcs.length` would
+    // print a number the ceiling beside it is not judging — which is the
+    // 「Device 5 · PC 2」 defect this filter was added for, one row later.
+    const slotPcs = pcs.filter(occupiesPcSlot);
     // WP-9 (findings-crossend-quota.md #4) — the SAME dedup-by-handset
     // registry.ts's `ensureMobileSlot` enforces, not a second `.length` sum:
     // the two used to disagree (this one counted pairing ROWS, the limit
@@ -448,7 +363,7 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       plan: deps.billing.getPlan(who.userId),
       quota: deps.billing.getQuota(who.userId),
       devices: {
-        pc_count: pcs.length,
+        pc_count: slotPcs.length,
         mobile_count: mobileCount,
         pc_limit: finiteOrNull(limits.pcs),
         mobile_limit: finiteOrNull(limits.mobiles),
@@ -743,6 +658,18 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
   // device surface uses — which for `store` is the whole ballgame, since a
   // second store instance would be a second answer to "is that PC here".
   if (tryHandleConsoleDeviceRoutes(req, res, deps)) return true;
+
+  // ── card MP-1: the integrator's publishable keys — DELEGATED ───────────────
+  //
+  // Its own file for the reason the device routes above have one: it is a
+  // surface that hands out a credential and sets a spending ceiling, and the
+  // 2026-08-12 substitute for the pre-merge human gate asks that such a surface
+  // be separately grep-able and separately revertible.
+  //
+  // `deps` passed WHOLE, like every delegation here — `ConsoleIntegratorRoutesDeps`
+  // is a structural subset of this file's own, so there is one dependency list
+  // and no second copy that could start disagreeing about which store answers.
+  if (tryHandleConsoleIntegratorRoutes(req, res, deps)) return true;
 
   // ── 0.3.0 P4 GET /api/account/export + POST /api/account/delete — DELEGATED ─
   //

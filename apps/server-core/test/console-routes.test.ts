@@ -334,7 +334,7 @@ describe('console: device + pairing management (④)', () => {
   });
 
   // 🔴 owner 2026-08-02 (PC instances 2/3/10) — "counts and ceilings must share one source, must not drift"
-  // (room/registry-shared.ts:74 `isRealPc`, written after the console and the quota path disagreed
+  // (room/registry-shared.ts:92 `isRealPc`, written after the console and the quota path disagreed
   // about what a PC even is; moved out of registry.ts verbatim by WP-9's file-size split). The console cannot derive the ceiling from the tier
   // NAME: an exempt account resolves to plan 'free' with ∞ machines, so a browser
   // computing "free ⇒ 2" would print a wall owner is not behind. This asserts the

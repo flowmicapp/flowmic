@@ -130,6 +130,57 @@ export const CLOUD_KEYS = [
   'cloud_usage_reset_today',
   'cloud_usage_reset_tomorrow',
   'cloud_usage_reset_in_days',
+  // ── who is paying for the recording happening right now (card MP-3) ──────
+  //
+  // 🔴 THE METER STANDING STILL DURING A RECORDING IS THE CORRECT BEHAVIOUR, AND
+  // THAT IS EXACTLY WHY THIS SENTENCE EXISTS. Since card MP-0 the account being
+  // spent is the account of whoever SPEAKS (owner 2026-09-11 「谁说扣谁」), so a
+  // phone signed into its own account, paired to this computer, spends its own
+  // minutes. This computer is told its OWN reading — truthfully — and that
+  // reading does not move while the words appear on screen. Without a sentence
+  // the user is left to conclude either 「it is not recording」 or 「the meter is
+  // broken」, and both are wrong: the design's own words for this row are
+  // 「PC 屏幕不许把「别人在扣」画成自己的表」
+  // (docs/strategy/2026-09-11-metering-principal-matrix-design.md D5).
+  //
+  // 🔴 NO AMOUNT. The other end's remaining minutes are not this end's business
+  // and never cross the wire (design §4: 「不透对方余量」) — the frame carries the
+  // word `far_end` and nothing else about that ledger. A translation that adds
+  // a number would be inventing one.
+  //
+  // ⚠️ It says 「the other device」 and not 「the phone」. The far end of a room is
+  // whatever is holding the microphone, and since the web client that can be a
+  // page rather than a phone; naming the phone would be right today and quietly
+  // wrong the first time somebody speaks from a browser.
+  'cloud_usage_paid_by_peer',
+  // ── the same slot, the opposite fact (card MP-8) ────────────────────────
+  //
+  // 🔴 THE METER MOVING IS ALSO CORRECT HERE, AND ALSO UNEXPLAINED. Since card
+  // MP-6 a visitor who never signed in — a browser tab, or a phone with no
+  // account — is metered against the account of the computer they are paired to
+  // (owner §11; design §10-1 step 4). This computer's own reading is honest and
+  // it goes down while nobody who owns it is talking. The frame's
+  // `guest_speaker` is the only fact on the wire that says why, and the design
+  // says in as many words that it must not be inferred here (§10-3
+  // 「不许由客户端推断」).
+  //
+  // 🔴 RENAMED, AND THE SIGN-IN CLAUSE DROPPED (card G-2b,
+  // docs/rebuild/22-METERING-AND-BILLING-BASELINE.md §7.2). The predecessor said
+  // 「because the person speaking is not signed in」, which the 09-11 target state
+  // makes false in general: a SIGNED-IN other account paired to this computer is
+  // also billed here (§2.4), and the day that reaches this sentence's trigger
+  // (card MP-10, in flight) the old clause would be lying about the reason while
+  // getting the charge right. 「someone else is speaking」 is the fact that holds
+  // either way, so it is the only fact this sentence claims.
+  //
+  // 🔴 NO AMOUNT, for the same reason as its sibling above: this sentence is
+  // about WHOSE words are being charged, and a number would turn it into a
+  // second, competing meter beside ④.
+  //
+  // ⚠️ 「someone else」 — not 「the visitor's phone」 and not 「the web page」. Which
+  // of those it is depends on how the other speaker arrived and the frame does
+  // not say; naming one would be right about half the time.
+  'cloud_usage_spent_by_other',
   'cloud_src_permanent_free',
   'cloud_src_paddle',
   'cloud_src_mock',

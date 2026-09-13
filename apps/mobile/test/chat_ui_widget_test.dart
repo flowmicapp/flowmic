@@ -456,7 +456,11 @@ void main() {
                 BannerItem(
                   id: BannerIds.autoStop,
                   severity: BannerSeverity.degraded,
-                  message: '录音已达 5 分钟上限，已自动停止',
+                  // Card G-2c — the CATALOGUE, not a hand-typed copy of it.
+                  // This literal said 「录音已达 5 分钟上限」 and went on saying
+                  // it after the product stopped: a test fixture that quotes
+                  // copy from memory is a second, unversioned catalogue.
+                  message: AppStrings.of(AppLocale.zh).recordingAutoStopped,
                   dismissible: true,
                   onAction: () => dismissed = true,
                 ),
@@ -465,7 +469,10 @@ void main() {
           ),
         ),
       );
-      expect(find.text('录音已达 5 分钟上限，已自动停止'), findsOneWidget);
+      expect(
+        find.text(AppStrings.of(AppLocale.zh).recordingAutoStopped),
+        findsOneWidget,
+      );
       await tester.tap(find.byIcon(Icons.close));
       expect(dismissed, isTrue);
     },
@@ -510,7 +517,7 @@ void main() {
     expect(find.text('重发'), findsNothing);
   });
 
-  testWidgets('R6 P0-R4: a paired entry offers 注入到 PC in the context menu', (
+  testWidgets('R6 P0-R4: a paired entry offers 注入到电脑 in the context menu', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -522,13 +529,13 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('注入到 PC'), findsOneWidget);
+    expect(find.text('注入到电脑'), findsOneWidget);
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('复制'), findsOneWidget);
     expect(find.text('删除'), findsOneWidget);
   });
 
-  testWidgets('R6 P0-R4: a cloud-instance entry HIDES 注入到 PC (no PC target) '
+  testWidgets('R6 P0-R4: a cloud-instance entry HIDES 注入到电脑 (no PC target) '
       'but keeps edit/copy/delete', (WidgetTester tester) async {
     await tester.pumpWidget(
       _wrap(
@@ -543,8 +550,8 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('注入到 PC'), findsNothing);
-    expect(find.text('补投到当前焦点窗口'), findsNothing);
+    expect(find.text('注入到电脑'), findsNothing);
+    expect(find.text('重新注入至电脑前台焦点窗口'), findsNothing);
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('复制'), findsOneWidget);
     expect(find.text('删除'), findsOneWidget);

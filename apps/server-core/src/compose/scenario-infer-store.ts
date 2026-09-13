@@ -43,6 +43,7 @@
 
 import type { LlmConfig } from '@flowmic/protocol';
 import type { SettingsRepo } from '../db/repos/settings.repo';
+import type { MeteredPrincipalRef } from '../billing/usage-tracker';
 import { isErrorCode } from '../errors';
 import type { ErrorCode } from '@flowmic/protocol';
 import { log } from '../log';
@@ -168,7 +169,10 @@ export interface ScenarioInferenceDeps extends ScenarioInferenceSeams {
    * `isByok` is the caller's provenance judgement (resolveByokLlm) — the tracker
    * waives BYOK inside.
    */
-  readonly recordUsage: (userId: string, tokensIn: number, tokensOut: number, isByok: boolean) => void;
+  readonly recordUsage: (
+    userId: string, tokensIn: number, tokensOut: number, isByok: boolean,
+    principal: MeteredPrincipalRef,
+  ) => void;
   readonly fetch?: typeof globalThis.fetch;
 }
 
@@ -240,6 +244,17 @@ export class ScenarioInferenceStore {
      *  "the caller did not say" (argument omitted ⇒ read the database) are
      *  two different inputs rather than one `undefined` answering both. */
     consent?: { row: unknown };
+    /**
+     * card MP-9 — WHOSE admission this off-band call is being spent on behalf
+     * of, forwarded to `recordUsage` untouched.
+     *
+     * 🔴 THE STORE MUST NOT DERIVE IT. This call is scheduled off-band and lands
+     * after `resolve()` has returned, on a process-wide store that never saw a
+     * socket; the only honest answer is the one the compose:start admission
+     * already recorded. Absent (old wiring, tests) ⇒ `{}` ⇒ both columns store
+     * NULL, which is 「nobody recorded it」 and never 'self'.
+     */
+    principal?: MeteredPrincipalRef;
   }): ResolvedDescriptor | undefined {
     const name = args.processName?.trim() ?? '';
     // No focus signal at all (no PC in the room, PC never reported, focus
@@ -299,7 +314,10 @@ export class ScenarioInferenceStore {
     // blocked === undefined guarantees a granted consent (that is the first
     // branch of inferenceBlockedReason), so the non-null assert is the gate's
     // guarantee rather than an assumption about the caller.
-    this.kick(args.userId, args.cfg, args.byok ?? false, consent as ScenarioInferenceConsent, name, key, destination);
+    this.kick(
+      args.userId, args.cfg, args.byok ?? false, consent as ScenarioInferenceConsent,
+      name, key, destination, args.principal ?? {},
+    );
     return undefined;
   }
 
@@ -429,6 +447,8 @@ export class ScenarioInferenceStore {
     name: string,
     key: string,
     destination: ModelDestination,
+    /** card MP-9 — the compose:start admission's principal, carried to the meter. */
+    principal: MeteredPrincipalRef,
   ): void {
     const id = this.cacheKey(userId, key);
     if (this.inFlight.has(id)) return;
@@ -443,7 +463,7 @@ export class ScenarioInferenceStore {
     const fp = this.fingerprints.get(userId);
     const schedule = this.deps.schedule ?? ((task: () => void): void => { setTimeout(task, 0); });
     schedule(() => {
-      void this.runInference(userId, cfg, byok, consent, name, key, destination, fp)
+      void this.runInference(userId, cfg, byok, consent, name, key, destination, fp, principal)
         .catch((err: unknown) => {
           // runInference is total, so reaching here means a bug in it. Still not
           // allowed to become an unhandled rejection (that kills the process) and
@@ -476,6 +496,8 @@ export class ScenarioInferenceStore {
     key: string,
     destination: ModelDestination,
     fp: string | undefined,
+    /** card MP-9 — see `kick`. Untouched between the admission and the meter. */
+    principal: MeteredPrincipalRef,
   ): Promise<void> {
     let streamer: LlmStreamer;
     try {
@@ -507,7 +529,7 @@ export class ScenarioInferenceStore {
       outcome.kind === 'ok' || outcome.kind === 'unknown' || outcome.kind === 'rejected'
         ? outcome.usage
         : undefined;
-    if (usage) this.deps.recordUsage(userId, usage.tokensIn, usage.tokensOut, byok);
+    if (usage) this.deps.recordUsage(userId, usage.tokensIn, usage.tokensOut, byok, principal);
 
     if (this.fingerprints.get(userId) !== fp) {
       this.line(

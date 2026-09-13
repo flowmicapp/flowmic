@@ -10,29 +10,8 @@
 // reconnect. Pure over the repos + token/uuid deps; the in-memory RoomStore is
 // updated by the socket handlers, not here.
 //
-// GA-16 — device-count limits. PLAN_LIMITS.pcs/.mobiles (billing/plans.ts, the
-// ONE place those numbers live) are enforced HERE and nowhere else, at exactly
-// the two row-MINTING sites: registerPc's insert branch and pairMobile. Three
-// deliberate short-circuits, mirroring QuotaGuard's shape:
-//   · standalone NOOP — one user, no plans, no commercial boundary (mode gate);
-//   · UNLOCK_ALL / subscription expiry / permanent_free — NOT re-decided here;
-//     `limitsOf` is wired to billing.effectiveLimits, the single solver that
-//     already resolves all three;
-//   · reconnect/re-register never checks — an already-registered PC that comes
-//     back would otherwise be locked out by its own slot (the classic off-by-one
-//     that makes a limit un-recoverable). Only NEW rows consume a slot.
-// This path only READS limits: no usage recorded, no ensureQuota call.
-//
-// 0.2.38 (D1 §6.1-bis) — the dep was `planOf: (u) => Plan` and this file called
-// `planLimits(planOf(u))[kind]`. 🔴 That second derivation was a real hole, not a
-// style point: `users.permanent_free` is an EXEMPTION with no tier to be
-// expressed as, so an exempt owner resolves to `plan:'free'` (he bought nothing)
-// and this file would have walled him at free's 2 PCs / 2 phones — a CAPABILITY
-// wall, which is a product red line, and one that stays invisible until someone
-// plugs in a third machine. Asking for the LIMITS deletes the second derivation.
-
 import { randomInt, randomUUID } from 'node:crypto';
-import type { ServerMode } from '@flowmic/protocol';
+import type { ServerMode, TargetCaps } from '@flowmic/protocol';
 import { ServerError } from '../errors';
 import { log } from '../log';
 import { reapCrossAccountSiblings } from './cross-account-reap';
@@ -56,6 +35,11 @@ export interface RegistryDeps {
    *  here. Required in saas (constructor throws without it, so a mis-wired
    *  deployment fails loud instead of silently unlimited). */
   limitsOf?: (user_id: string) => PlanLimits;
+  /** card MP-1 — the room→key edge writer. Absent on a deployment with no
+   *  integrator arm, in which case `mintIntegratorRoom` is never reached (the
+   *  route refuses first) — never a room minted without its key recorded, which
+   *  would be a room billed to T with no sub-quota ceiling. */
+  integratorKeys?: { bindRoom(pcDeviceId: string, keyId: string, createdAt: number): void };
 }
 
 // 🔴 STRUCTURAL SPLIT (WP-9, 2026-09-02) — `PairInput` / `isRealPc` /
@@ -65,50 +49,37 @@ export interface RegistryDeps {
 // every existing `import { isRealPc } from '../room/registry'`
 // (console-routes.ts and others) keeps working unchanged.
 export * from './registry-shared';
+// card NR-29 (2026-09-10) - the GA-16 device-slot family (its header paragraph,
+// `countMobileDevices`, and the six members that count and refuse) moved VERBATIM
+// to `device-slots.ts`; see that file's header for what moved and why it moved
+// now. Re-exported for the same reason `registry-shared` is: `console-routes.ts`
+// imports `countMobileDevices` from HERE, and one arithmetic reached by two
+// import paths is one arithmetic with two futures.
+export * from './device-slots';
+import { makeDeviceSlots, type DeviceSlots } from './device-slots';
 import {
-  isRealPc, type PairInput,
+  isRealPc, occupiesMobileSlot, sanitizeClientInstanceId, type PairInput,
   CLOUD_INSTANCE_ID, CLOUD_INSTANCE_SHORT_CODE, CLOUD_INSTANCE_PC_NAME,
   PCID_DIGITS, PCID_SPACE,
 } from './registry-shared';
 import { resolvePcForPair as resolvePcForPairImpl } from './registry-pair-resolve';
-
-/** GA-16 fix (WP-9, findings-crossend-quota.md #4) — the `mobiles` device
- *  count, DEDUPED BY PHYSICAL HANDSET rather than counted as pairing ROWS.
- *
- *  🔴 A `mobile_pairings` ROW IS ONE (PC, HANDSET) EDGE, NOT ONE DEVICE. Before
- *  this the free tier's 2-mobile ceiling was `Σ listByPc(pc.id).length` over
- *  every real PC — so ONE physical phone paired to TWO of the user's PCs (an
- *  ordinary thing to do, and the exact shape `device_uid` was minted to
- *  recognise — v0.2.4, `mobile.repo.ts`) counted as TWO mobiles and filled the
- *  free ceiling by itself, before a second handset ever existed. The console's
- *  device card and the registry's enforcement must answer "how many phones"
- *  with the same arithmetic (5-4 ① in the 2026-09-02 audit: a local table
- *  answering a question that needs the whole picture), so this is exported and
- *  used by BOTH (`ensureMobileSlot` below, `console-routes.ts` ③'s
- *  `mobile_count`).
- *
- *  Rows with no `device_uid` (paired by a pre-0.2.4 build, or before the first
- *  reconnect stamps one) CANNOT be deduped — there is no key to dedupe them
- *  BY — so each such row still counts on its own. This can only ever
- *  OVER-count relative to the true device number, never under, which keeps the
- *  refusal direction safe: a user is never let past a ceiling they have
- *  actually reached, only (at worst) refused one pairing later than the exact
- *  device count would allow. */
-export function countMobileDevices(pcs: readonly PcRecord[], mobiles: Pick<MobileRepo, 'listByPc'>): number {
-  const seen = new Set<string>();
-  let undeduped = 0;
-  for (const pc of pcs) {
-    for (const m of mobiles.listByPc(pc.id)) {
-      if (m.device_uid) seen.add(m.device_uid);
-      else undeduped++;
-    }
-  }
-  return seen.size + undeduped;
-}
+import { serializeTargetCaps } from './target-caps';
+import { ensureWebRoom, type WebRoomOutcome } from './web-room';
+import { mintIntegratorRoom, type IntegratorRoomOutcome } from './integrator-room';
 
 export class Registry {
   private readonly codes: ShortCodeGovernor;
+  /** card S2-04b — the per-account gate `ensureWebRoom` chains through.
+   *  IN-PROCESS ONLY: cross-node duplication is already impossible by
+   *  construction (router.ts's replica guard answers every non-GET `/api/*`
+   *  with 421 before this class is ever reached), so only two requests on the
+   *  SAME writer can race. Self-cleaning: an entry drops once nothing chains
+   *  after it, so size tracks in-flight calls, not accounts ever seen. */
+  private readonly webRoomLocks = new Map<string, Promise<void>>();
+  /** card NR-29 - the GA-16 ceilings, unchanged in behaviour and now next door. */
+  private readonly slots: DeviceSlots;
   constructor(private readonly deps: RegistryDeps) {
+    this.slots = makeDeviceSlots(deps);
     this.codes = new ShortCodeGovernor(deps.pcs, deps.now ?? Date.now, deps.shortCodeTtlMs);
     if (deps.mode === 'saas' && !deps.limitsOf) {
       throw new Error(
@@ -116,73 +87,6 @@ export class Registry {
           '(0.2.38 replaced planOf — a Plan can no longer express the permanent_free exemption)',
       );
     }
-  }
-
-  // ── GA-16 device slots ────────────────────────────────────────────────────
-
-  /** The user's REAL registered PCs. The F-3140 cloud-instance row is a virtual
-   *  device the server mints on cloud admission — the user never registered it,
-   *  so it must not eat a plan slot (nor may its lone auto-pairing eat a mobile
-   *  slot; excluding the PC here excludes that pairing from the mobile count
-   *  below too, since mobiles are counted through their owning PC). */
-  private realPcs(user_id: string): PcRecord[] {
-    return this.deps.pcs.listByUser(user_id).filter(isRealPc);
-  }
-
-  /** EFFECTIVE limit for one device dimension, or Infinity when unenforced.
-   *  Infinity (not null) is the "unlimited" encoding so every callsite is a
-   *  single `Number.isFinite` guard — identical to QuotaGuard's shape. */
-  private deviceLimit(user_id: string, kind: 'pcs' | 'mobiles'): number {
-    if (this.deps.mode !== 'saas') return Number.POSITIVE_INFINITY; // standalone NOOP
-    const limitsOf = this.deps.limitsOf;
-    // Unreachable (constructor guards it) — but never fall back to unlimited.
-    if (!limitsOf) throw new Error('registry: limitsOf missing in saas mode');
-    return limitsOf(user_id)[kind];
-  }
-
-  /** "Record" — owner 2026-08-02 asked for the instance limit to be "recorded
-   *  and judged both on the billing page and when a PC instance connects".
-   *  This is the RECORD half of the second one; the
-   *  JUDGEMENT half is the throw at the callsite.
-   *
-   *  🔴 IT IS A SERVER LOG LINE, NOT AN `ops_audit_log` ROW, and that is a
-   *  decision rather than an omission. `ops_audit_log` answers "what did **our
-   *  own people** touch" (db/schema.ts table 10, verbatim): `actor_user_id` is NOT NULL and is
-   *  defined as "a users.id already proven by a Bearer", and its only sanctioned writer is
-   *  the admin gate (http/ops-audit-trail.ts, whose `route` parameter is a type
-   *  fence over four admin-gated GETs). A user tripping his own plan ceiling on a
-   *  socket handshake is not an operator action and there is no Bearer in sight;
-   *  putting it in that table would make one table answer two questions — the
-   *  exact defect its own DDL comment forbids one paragraph above the columns.
-   *  ⚠️ Consequence, stated so nobody reads an absence as evidence: querying
-   *  `ops_audit_log` for "who hit the limit" finds NOTHING, forever. It is in the server
-   *  log (server.log / FLOWMIC_LOG_PATH), grep `device limit refused`.
-   *
-   *  `used`/`limit` both go in the line because "refused" without them cannot answer
-   *  the only question worth asking next — "does he really have that many
-   *  devices, or was the limit misconfigured". */
-  private refuse(kind: 'pcs' | 'mobiles', user_id: string, used: number, limit: number): never {
-    log.warn('device limit refused', { kind, user_id, used, limit });
-    const code = kind === 'pcs' ? 'PCS_LIMIT_EXCEEDED' : 'MOBILES_LIMIT_EXCEEDED';
-    const noun = kind === 'pcs' ? 'pc' : 'mobile';
-    throw new ServerError(code, `${noun} limit reached (${used}/${limit})`);
-  }
-
-  /** Called ONLY before minting a new pc_devices row. */
-  private ensurePcSlot(user_id: string): void {
-    const limit = this.deviceLimit(user_id, 'pcs');
-    if (!Number.isFinite(limit)) return;
-    const used = this.realPcs(user_id).length;
-    if (used >= limit) this.refuse('pcs', user_id, used, limit);
-  }
-
-  /** Called ONLY before minting a new mobile_pairings row via code pairing. */
-  private ensureMobileSlot(user_id: string): void {
-    const limit = this.deviceLimit(user_id, 'mobiles');
-    if (!Number.isFinite(limit)) return;
-    // WP-9 — device count, not pairing-row count. See {@link countMobileDevices}.
-    const used = countMobileDevices(this.realPcs(user_id), this.deps.mobiles);
-    if (used >= limit) this.refuse('mobiles', user_id, used, limit);
   }
 
   private allocateCode(ownerId?: string): string {
@@ -298,11 +202,24 @@ export class Registry {
     user_id: string;
     client_instance_id?: string;
     machine_uid?: string;
+    /** card S2-01 — what the end holding this row says about itself. Recorded,
+     *  never consulted: nothing in registration branches on any of the three,
+     *  and `client_version` in particular is a claim the client makes about
+     *  itself, so a decision taken on it is a decision taken on user text. */
+    client?: string;
+    client_version?: string;
+    target_caps?: TargetCaps;
   }): { pc: PcRecord; token: string } {
     const { pcs } = this.deps;
+    // SECURITY — `client_instance_id` on this leg is a CLIENT FRAME
+    // (pc.handler.ts passes `parsed.data.client_instance_id` straight
+    // through). Sanitize BEFORE it is used for lookup, adoption or insert:
+    // see registry-shared.ts `sanitizeClientInstanceId` for why the reserved
+    // `CLOUD_INSTANCE_ID` literal must never reach a write from here.
+    const client_instance_id = sanitizeClientInstanceId(input.client_instance_id);
     const existing =
-      (input.client_instance_id
-        ? pcs.findByClientInstance(input.user_id, input.client_instance_id)
+      (client_instance_id
+        ? pcs.findByClientInstance(input.user_id, client_instance_id)
         : null) ??
       (input.machine_uid ? (pcs.listByMachineUid(input.user_id, input.machine_uid)[0] ?? null) : null);
     if (existing) {
@@ -317,8 +234,8 @@ export class Registry {
       // registration resolves through ① directly and ② stays the rare path.
       // Best-effort on both: losing the unique-index race must not fail a
       // registration (see PcRepo.adoptClientInstance).
-      if (input.client_instance_id && existing.client_instance_id !== input.client_instance_id) {
-        pcs.adoptClientInstance(existing.id, input.client_instance_id);
+      if (client_instance_id && existing.client_instance_id !== client_instance_id) {
+        pcs.adoptClientInstance(existing.id, client_instance_id);
       }
       this.stampMachineUid(existing, input.machine_uid);
       // 0.2.66 — backfill a PCID onto a row that predates the column. No-op once
@@ -326,19 +243,25 @@ export class Registry {
       // code two lines up which is rotated on purpose. Rotating it here would
       // silently invalidate a number the user may have written down.
       this.stampPcid(existing);
+      // card S2-01 — the row now describes THIS occupant. Unconditional, and it
+      // overwrites: see stampClientDeclaration.
+      this.stampClientDeclaration(existing.id, input);
       return { pc: pcs.findById(existing.id) ?? existing, token };
     }
     // GA-16: past the `existing` return, this is a genuinely NEW device row —
     // the only registerPc path that consumes a plan slot.
-    this.ensurePcSlot(input.user_id);
+    this.slots.ensurePcSlot(input.user_id);
     const token = newToken();
     const shortCode = this.allocateCode();
     const pc = pcs.insert({
       id: randomUUID(),
       user_id: input.user_id,
       device_name: input.device_name,
-      client_instance_id: input.client_instance_id ?? null,
+      client_instance_id: client_instance_id ?? null,
       machine_uid: input.machine_uid ?? null,
+      client: input.client ?? null,
+      client_version: input.client_version ?? null,
+      target_caps: serializeTargetCaps(input.target_caps),
       device_token: token,
       room_uuid: randomUUID(),
       short_code: shortCode,
@@ -349,12 +272,119 @@ export class Registry {
     return { pc: pcs.findById(pc.id) ?? pc, token };
   }
 
+  /**
+   * card S2-01 — record what the end holding this PC row just declared about
+   * itself: which kind of client it is, its version, and what it can receive.
+   *
+   * 🔴 CALLED FROM BOTH ADMISSION LEGS, and the reconnect one is the one that
+   * matters in production. A desktop registers when it FIRST pairs and
+   * reconnects by token forever after, so a declaration collected only at
+   * register would be collected from almost nobody — the exact trap `pcid` fell
+   * into (「register-only backfill proved unreachable for established desktops」,
+   * db/schema.ts), which cost a whole release to notice.
+   *
+   * 🔴 IT OVERWRITES, INCLUDING WITH NULL, and that is not carelessness. All
+   * three fields describe the CURRENT occupant of the row, and a frame that says
+   * nothing is a client saying「I make no claim」. Filling only NULLs would let a
+   * row keep advertising `image:true` on behalf of a build that has since been
+   * replaced by one that cannot take images — a capability nobody currently
+   * present has declared. Absence has to be able to travel.
+   */
+  private stampClientDeclaration(
+    pc_device_id: string,
+    input: { client?: string; client_version?: string; target_caps?: TargetCaps },
+  ): void {
+    this.deps.pcs.setClientDeclaration(pc_device_id, {
+      client: input.client ?? null,
+      client_version: input.client_version ?? null,
+      target_caps: serializeTargetCaps(input.target_caps),
+    });
+  }
+
+  /**
+   * card S2-01 — the `pc:reconnect` leg's way in. Public because the handler
+   * calls it directly: reconnect resolves its row by token in the auth
+   * middleware and never passes through `registerPc`.
+   */
+  notePcClientDeclaration(
+    pc_device_id: string,
+    input: { client?: string; client_version?: string; target_caps?: TargetCaps },
+  ): void {
+    this.stampClientDeclaration(pc_device_id, input);
+  }
+
   /** Write the machine uid onto `pc` when the client claims one and the stored
    *  value differs. This is how a row that predates 0.2.4 acquires its uid —
    *  on the very next connection, with no migration that has to guess. */
   private stampMachineUid(pc: PcRecord, machine_uid?: string): void {
     if (!machine_uid || pc.machine_uid === machine_uid) return;
     this.deps.pcs.setMachineUid(pc.id, machine_uid);
+  }
+
+  /** card S2-04 — the browser target's room. Whole account (why it is not a
+   *  branch of `registerPc`, what the TTL does and does not enforce, and the
+   *  cascade ruling) in `room/web-room.ts`; this is only the seam that lends it
+   *  the two private things it needs — the short-code governor and PCID minting.
+   *
+   *  🔴 THE FOUR CLOSURES ARE THE POINT. Handing that module the whole
+   *  `Registry` would have given a row-minting helper the pairing surface, the
+   *  device ceilings and the cross-account reaper as well; handing it four named
+   *  capabilities means the list of things it can do is readable at its own
+   *  `WebRoomDeps`. Same reason `reapCrossAccountSiblings` below takes two repos
+   *  rather than `this`.
+   *
+   *  card S2-04b — SERIALIZED PER ACCOUNT on top of that seam: a repeat build
+   *  call from the SAME account must never observe「no room yet」twice and mint
+   *  two rows. The module function above is pure with no lock of its own, so
+   *  the ONE writer of `pc_devices` for this account is serialized here,
+   *  per-user_id rather than one global lock (two DIFFERENT accounts never wait
+   *  on each other). Queued work is awaited first regardless of outcome
+   *  (`.then(noop, noop)`) so one throw can never wedge later calls. DB
+   *  backstop for what this misses: web-room.ts's insert catch + `idx_pc_devices_web_room_owner`. */
+  ensureWebRoom(user_id: string, opts?: { ttlMs?: number }): Promise<WebRoomOutcome> {
+    const prior = this.webRoomLocks.get(user_id) ?? Promise.resolve();
+    const result = prior.then(() => ensureWebRoom({
+      pcs: this.deps.pcs,
+      mobiles: this.deps.mobiles,
+      allocateCode: (ownerId) => this.allocateCode(ownerId),
+      stampCode: (pcId, code) => this.codes.stamp(pcId, code),
+      codeIsActive: (pcId) => this.codes.isActive(pcId),
+      stampPcid: (pc) => this.stampPcid(pc),
+      now: this.deps.now ?? Date.now,
+    }, user_id, opts));
+    const settled = result.then(() => undefined, () => undefined);
+    this.webRoomLocks.set(user_id, settled);
+    // Only drop if nothing newer replaced it — a call that arrived WHILE this
+    // one was in flight already overwrote the map with its own `settled`.
+    void settled.then(() => {
+      if (this.webRoomLocks.get(user_id) === settled) this.webRoomLocks.delete(user_id);
+    });
+    return result;
+  }
+
+  /**
+   * card MP-1 — a room for a third-party host page. ALWAYS MINTS (see
+   * `room/integrator-room.ts` for why an integration cannot share one room), so
+   * unlike `ensureWebRoom` it takes no per-account lock: there is nothing to
+   * serialize when every call is meant to produce a different row.
+   */
+  mintIntegratorRoom(user_id: string, key_id: string, opts?: { ttlMs?: number; deviceName?: string }): IntegratorRoomOutcome {
+    return mintIntegratorRoom({
+      pcs: this.deps.pcs,
+      allocateCode: (ownerId) => this.allocateCode(ownerId),
+      stampCode: (pcId, code) => this.codes.stamp(pcId, code),
+      stampPcid: (pc) => this.stampPcid(pc),
+      bindRoom: (pcId, keyId, at) => {
+        const sink = this.deps.integratorKeys;
+        // 🔴 THROWS RATHER THAN SHRUGS. A room minted without its key edge is a
+        // room billed to the integrator with NO sub-quota ceiling; refusing to
+        // create it at all is the direction that costs a page load rather than
+        // an unbounded bill.
+        if (!sink) throw new Error("registry: mintIntegratorRoom needs an integratorKeys sink");
+        sink.bindRoom(pcId, keyId, at);
+      },
+      now: this.deps.now ?? Date.now,
+    }, user_id, key_id, opts);
   }
 
   /** card ACC-1 — full account, evidence and the release-vs-revoke argument in
@@ -373,8 +403,14 @@ export class Registry {
   ): { pc: PcRecord } | null {
     let pc = this.deps.pcs.findByToken(token);
     if (!pc) return null;
-    if (client_instance_id && pc.client_instance_id === null) {
-      this.deps.pcs.claimClientInstance(pc.id, client_instance_id);
+    // SECURITY — same wire-trust hole as registerPc's, on the backfill leg: a
+    // token holder could otherwise claim the reserved CLOUD_INSTANCE_ID onto
+    // an already-counted row (one with client_instance_id still NULL) and
+    // walk it out of isRealPc/occupiesPcSlot after the fact. Same sanitizer,
+    // same reason — see registry-shared.ts.
+    const safeClientInstanceId = sanitizeClientInstanceId(client_instance_id);
+    if (safeClientInstanceId && pc.client_instance_id === null) {
+      this.deps.pcs.claimClientInstance(pc.id, safeClientInstanceId);
       pc = this.deps.pcs.findById(pc.id) ?? pc;
     }
     // The row is already resolved by token here, so the uid is never a LOOKUP
@@ -484,13 +520,34 @@ export class Registry {
         // Backfill: a row matched by NAME (pre-0.2.4) now learns its uid, so
         // the next re-pair takes the ① path and the name stops being load-bearing.
         this.stampDeviceUid(existing, claimedUid);
+        // card S2-01 — the SAME handset can come back as the app one day and as
+        // a browser page the next (the reuse key is the device uid, not the
+        // kind), so this overwrites rather than filling a NULL. A row that kept
+        // the first end's answer would label a browser as a phone forever.
+        mobiles.setClientOrigin(existing.id, input.client ?? null, input.client_version ?? null);
         const mobile = mobiles.findById(existing.id) ?? existing;
         return { mobile, pc, token };
       }
     }
 
     // Past here this is a genuinely NEW pairing — the only path that takes a slot.
-    this.ensureMobileSlot(input.user_id ?? pc.user_id);
+    //
+    // 🔴 card NR-29, REWORKED BY MP-6 — a browser tab is not a device on this
+    // account, so it is not measured against the account's handset ceiling. It
+    // asks `occupiesMobileSlot` about the row it is ABOUT TO WRITE, which is the
+    // same predicate the count itself walks (`device-slots.ts`): one rule, one
+    // reader, asked twice about the same fact.
+    //
+    // ⚠️ IT USED TO BE THE CALLER'S STATEMENT (`PairInput.trial_visitor`, fed by
+    // `webTrialIdentities.willMint`), and that whole seam is gone. It existed for
+    // a TIMING problem: the exemption was read off `trial_user_id`, which the
+    // admission stamped a moment AFTER this line ran, so the ceiling judged a row
+    // that would not be counted a millisecond later. MP-6 moved the predicate onto
+    // `client`, which is written by this very insert — the timing problem, and
+    // therefore the seam, no longer has anything to solve.
+    if (occupiesMobileSlot({ client: input.client ?? null })) {
+      this.slots.ensureMobileSlot(input.user_id ?? pc.user_id);
+    }
     const token = newToken();
     const id = randomUUID();
     // owner 2026-07-27: the default used to be the bare literal 'Phone', so every
@@ -511,6 +568,8 @@ export class Registry {
       // form, and storing an untrimmed one would let 「 X 」 and 「X」 fork a row.
       mobile_name: claimedName !== '' ? claimedName : `Phone-${shortId}`,
       device_uid: claimedUid !== '' ? claimedUid : null,
+      client: input.client ?? null,
+      client_version: input.client_version ?? null,
     });
     return { mobile, pc, token };
   }

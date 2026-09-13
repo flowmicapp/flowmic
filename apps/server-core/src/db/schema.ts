@@ -57,8 +57,12 @@
 // (server-decryptable); timeline_blobs.ciphertext is e2e:v1: (server-blind). The
 // two are NEVER interchangeable — enforced at the write path, not in SQL.
 
-import { BILLING_ADDITIVE_TEXT_COLUMNS, BILLING_SQL } from './schema-billing';
+import { BILLING_SQL } from './schema-billing';
+import { OPS_SQL } from './schema-ops';
 import { RECOVERY_SQL } from './schema-recovery';
+import { SITE_SQL } from './schema-site';
+import { TRIAL_SQL } from './schema-trial';
+import { INTEGRATOR_SQL } from './schema-integrator';
 
 export const INIT_SQL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -104,6 +108,31 @@ CREATE TABLE IF NOT EXISTS users (
   -- datetime shape; the one NULL/number → verdict conversion is
   -- auth/email-verification.ts "isEmailVerified".
   email_verified_at INTEGER,
+  -- REVIEW-GRACE (2026-09-09, owner: 「延长时间到11月」): ms-since-epoch until
+  -- which THIS ONE ACCOUNT's unverified grace runs, overriding the computed
+  -- deadline when it is later. NULL = no override, i.e. the ordinary policy.
+  --
+  -- 🔴 NOT A STAMP ON email_verified_at, which was the cheaper write. The five
+  -- store-review accounts hold @flowmic.test addresses (a reserved TLD; nothing
+  -- can deliver to them), so nobody has verified or ever can, and that column is
+  -- also what opens the web-console surfaces (auth/email-verification.ts
+  -- "isEmailVerified") — a second, unasked-for change riding on the first. This
+  -- column asserts only what is true: these accounts are not being asked to
+  -- verify before the stated date.
+  --
+  -- 🔴 AN EXPIRY, NOT A FLAG, so the gate returns on its own: a boolean
+  -- exemption needs somebody to remember to remove it, a date cannot be
+  -- forgotten into permanence. The worst outcome of nobody touching the row
+  -- again is that the ordinary policy resumes.
+  --
+  -- INTEGER ms-epoch and NULLABLE like email_verified_at above and restricted_at
+  -- below, so it CANNOT ride ADDITIVE_INT_COLUMNS (INTEGER NOT NULL DEFAULT 0;
+  -- 0 is a legal ms-epoch). 0 would be harmless arithmetically — max() never
+  -- picks 1970 — but it would still be every row on the platform saying「grace
+  -- extended until 1970-01-01」. Its guarded step is in connection.ts
+  -- reconcileSchema and BACKFILLS NOTHING. The one place it becomes a verdict is
+  -- auth/verification-grace.ts "verificationGrace"; nothing else may decide.
+  verify_grace_until INTEGER,
   -- A2-3 "restricted use" (docs/strategy/2026-08-12-a2-3-restricted-use-design.md §8-1;
   -- owner ruling docs/decisions/owner-web-rulings/latest.md:71): ms-since-epoch
   -- when an operator RESTRICTED this account; NULL = not restricted.
@@ -219,6 +248,24 @@ CREATE TABLE IF NOT EXISTS users (
   -- index either way; the predicate states the intent and keeps the index off the
   -- (many) rows that will never have one.
   google_sub      TEXT,
+  -- card M4-01 (docs/strategy/2026-09-09-web-client-stage4-site-demo-design.md
+  -- §2.4; owner ruling 11 of 2026-09-09): 1 = this row is an ANONYMOUS SITE-DEMO
+  -- identity, minted by POST /api/web/anon for a visitor who never signed up.
+  --
+  -- 🔴 IT RIDES ADDITIVE_INT_COLUMNS, unlike its four hand-written neighbours
+  -- above, and it is the one column on this table for which that loop's fixed
+  -- 「INTEGER NOT NULL DEFAULT 0」 is exactly right: 0 means 「a real account」,
+  -- which is true of every row that exists on every deployment the day this
+  -- ships. There is nothing to invent and nothing to backfill.
+  --
+  -- ⚠️ INTEGER for the reason 「permanent_free」 is: a TEXT '0' arrives on the JS
+  -- side as TRUTHY, and this flag decides whether an automatic sweep may DELETE
+  -- the row. The one INTEGER→boolean conversion is repos/user.repo.ts 「toRecord」.
+  --
+  -- It answers ONE question — 「did anyone ever sign up for this account」 — and
+  -- never 「what tier」 (plan), 「is it exempt」 (permanent_free) or 「may it be
+  -- swept right now」 (that is the sweep's age test, db/anon-cleanup.ts).
+  anonymous       INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -237,6 +284,61 @@ CREATE TABLE IF NOT EXISTS pc_devices (
   -- NULL ⇒ 「dial the host you already have」. Also in the additive loop below,
   -- so fresh and migrated databases match. Design §4-2.
   home_node          TEXT,
+  -- card S2-01 · WHAT KIND OF END holds this room, and what it can receive.
+  -- client is 'app' | 'web' ('web' = a browser page acting as a target); NULL
+  -- on every row written before the column, which READS as 'app' at exactly one
+  -- place (protocol clientOriginOf) and is never backfilled here — a sweep would
+  -- be asserting something about rows nobody looked at.
+  -- target_caps is the JSON the target declared about itself, e.g.
+  -- {"image":true}. NULL means UNDECLARED, which is a third state and not a
+  -- no: the microphone end must ALLOW an image to an undeclared target, because
+  -- that is where every installed FLOWMIC-PC sits on the day this ships.
+  client             TEXT,
+  client_version     TEXT,
+  target_caps        TEXT,
+  -- card S2-04 · WHO MINTED THIS ROW, and until when it is worth keeping.
+  --
+  -- 🔴 room_kind IS SERVER-MINTED AND A CLIENT CAN NEVER SET IT. That is the
+  -- entire reason it exists as a column instead of being read off
+  -- client_instance_id (a reserved 「web-」 prefix, which is what the design
+  -- register proposed) or off client one line up. Both of those arrive INSIDE A
+  -- CLIENT FRAME: pc:register takes client_instance_id from its payload and
+  -- client is documented right here as 「a claim the client makes about
+  -- itself」. room_kind is what occupiesPcSlot (via isWebRoom) consults to
+  -- decide whether a row eats one of the account's paid PC slots (owner
+  -- ruling W-3: a browser room must not) — NOT isRealPc, which never reads
+  -- this column at all (registry-shared.ts: isRealPc answers a narrower
+  -- question, 「is this the F-3140 virtual cloud-instance row」, and stays that
+  -- narrow on purpose so pairing's two isRealPc call sites keep resolving a
+  -- browser room instead of finding nothing to pair with),
+  -- so a value any desktop could put in its own registration frame would be a
+  -- one-line opt-out of a plan dimension we sell.
+  --   NULL  = an ordinary PC row (every row that existed before this column, and
+  --           every desktop registration since). NEVER backfilled: there is
+  --           nothing to infer, and 「ordinary」 is exactly what NULL already says.
+  --   'web' = minted by POST /api/web/rooms for a browser acting as a target.
+  --
+  -- room_expires_at is that room's TTL, written as an ISO-8601 UTC string —
+  -- the spelling setOnline already uses for last_seen_at on this same table
+  -- (new Date().toISOString()), NOT the space-separated form SQLite's own
+  -- datetime('now') default puts in created_at. Read it with db/utc-stamp.ts
+  -- parseUtcStamp, never a bare Date.parse: that helper accepts both
+  -- spellings, and this table now contains both — see its header for the 8-hour
+  -- production drift a bare parse caused on the Tokyo replica. NULL on every row
+  -- that is not a web room, and there it means what it says: nothing expires.
+  -- ⚠️ WHAT ENFORCES IT TODAY IS ONE PLACE ONLY — POST /api/web/rooms, which
+  -- releases an expired room and mints a fresh one in its place. There is no
+  -- sweeper on a 30-minute clock: an abandoned browser room therefore OUTLIVES
+  -- its stamp until the account opens another one, or until the 90-day growth
+  -- reaper (db/reaper.ts) takes it as an ordinary stale offline row. That is the
+  -- safe direction of the two — a room that lasts longer than advertised
+  -- degrades to today's behaviour, whereas a room deleted out from under a live
+  -- page would be a session vanishing mid-sentence — but it is a HALF, and the
+  -- half that is missing is the socket leg: a page holding a token for an
+  -- expired room still reconnects. Stated here rather than in a report because
+  -- the next reader of this column will assume the stamp is authoritative.
+  room_kind          TEXT,
+  room_expires_at    TEXT,
   device_token       TEXT NOT NULL UNIQUE,
   room_uuid          TEXT NOT NULL UNIQUE,
   short_code         TEXT NOT NULL,
@@ -254,6 +356,30 @@ CREATE TABLE IF NOT EXISTS mobile_pairings (
   mobile_token    TEXT NOT NULL UNIQUE,
   mobile_name     TEXT DEFAULT 'Phone',
   device_uid      TEXT,
+  -- card S2-01 · which kind of end PAIRED here, so the desktop's paired-devices
+  -- table can mark a browser instead of showing it as an indistinguishable
+  -- phone. Same NULL discipline as pc_devices.client above.
+  client          TEXT,
+  client_version  TEXT,
+  -- card R-1 (2026-09-10) · the ANONYMOUS TRIAL IDENTITY this pairing spends
+  -- when it is a web end with nobody signed in. NULL for every App pairing and
+  -- for every signed-in one.
+  --
+  -- 🔴 IT IS A SECOND COLUMN AND NOT user_id, AND THE DIFFERENCE IS THE WHOLE
+  -- POINT. user_id above is ON DELETE CASCADE: writing a demo identity there
+  -- would make db/anon-cleanup.ts's 48-hour sweep DELETE THIS PAIRING ROW, and
+  -- the desktop's 「永不重复实例」 promise (card ID-1) would quietly expire two
+  -- days after every visit. ON DELETE SET NULL says the other thing: the
+  -- identity is temporary, the instance is not. When the sweep takes the
+  -- identity, this column empties and the next unsigned admission mints a fresh
+  -- one — still under that network's daily sequence, so a refresh buys nothing.
+  --
+  -- ⚠️ ALSO NOT user_id FOR A BILLING REASON: user_id is what
+  -- registry.ensureMobileSlot counts against a plan's device limit, so a demo
+  -- identity there would spend a slot on an account nobody signed into.
+  -- (No backticks anywhere in this DDL: it lives inside a TS template literal,
+  -- and one would end the string mid-schema.)
+  trial_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
   paired_at       TEXT NOT NULL DEFAULT (datetime('now')),
   last_seen_at    TEXT
 );
@@ -314,86 +440,16 @@ CREATE INDEX IF NOT EXISTS idx_timeline_blobs_user_seq ON timeline_blobs(user_id
 -- byte-for-byte what it was, in the same order, in one exec.
 ${BILLING_SQL}
 
--- 10. ops_audit_log (0.2.47 -- ops-action audit trail: who, did what, to whom, when)
---
--- 🔴 THIS IS NOT billing_events. That table answers "which webhooks did we
--- receive" -- it records **events sent to us by someone else**, has no actor
--- column, and never could. THIS table answers "what did **our own people** do".
--- Two questions, two tables; cramming ops actions into billing_events would be
--- this repo's #1 bug shape (one table answering
--- two questions), and besides, its primary key is event_id, and an ops action
--- has no such thing at all.
---
--- ⚠️ actor_user_id **deliberately has NO FK**, and the reason is NOT the same as
--- billing_events' reason:
--- a REFERENCES users(id) ON DELETE CASCADE would make "delete this account"
--- casually delete **the entire record of what they did**
--- -- an audit record that can be deleted is not an audit record, and account
--- deletion is exactly the kind of action
--- that most needs a trace. The cost of no FK is that this column may point to a
--- user that no longer exists; that is exactly the fact we want to SEE,
--- not an inconsistency to fix.
---
--- ⚠️ actor_user_id is **NOT NULL** (the opposite of billing_events.user_id): an
--- ops action has no
--- "anonymous" tier. The only writer is a route sitting behind an admin gate,
--- and that gate structurally already knows who the
--- caller is (http/account-auth.ts adminFromBearer returns userId). If we
--- cannot say who did it,
--- this action should not happen -- so the NOT NULL here is a real constraint,
--- not decoration.
---
--- 🔴 id is INTEGER PRIMARY KEY AUTOINCREMENT, the only table in this database
--- that does not use a TEXT primary key,
--- and this is **deliberate**, for two reasons:
---   ① strictly increasing ⇒ "A happened before B" has a precise answer. Sorting
---      two rows within the same millisecond by created_at
---      is a coin flip, and the order of audit records IS the evidence;
---   ② AUTOINCREMENT guarantees **a used number is never reused** ⇒ a hole in the
---      sequence itself means "there used to be a row here".
---      For a table that is intended to be append-only, this is the cheapest
---      tamper signal available.
--- (sqlite_sequence is a byproduct of AUTOINCREMENT, appearing only after the
--- first insert; both the schema snapshot and
---  the table-creation list filter by name NOT LIKE 'sqlite_%', so it never
---  enters any assertion.)
---
--- ⚠️ Append-only is a **repository-layer** constraint (the repo has only
--- append + read, no update/delete), not a
--- SQL trigger. The reason for not adding a trigger needs to be stated clearly:
--- this table's threat model is "an operator uses the product itself to erase
--- their own tracks", and the product side does not even have a single
--- UPDATE/DELETE statement; a trigger would not stop someone who has actually
--- gotten hold of the db file (they can delete the trigger), yet it would turn
--- any future retention-period policy from a single query into
--- a migration. The day there is "a writer that bypasses this process", that is
--- when a trigger starts to be worth the price.
---
--- ⚠️ detail holds only **one sentence we wrote ourselves** (same discipline as
--- billing_events.detail):
--- never the raw request body. This route family includes /api/password/reset,
--- whose body contains a plaintext password.
---
--- ⚠️ target is **two columns**, not one: target_kind answers "what kind of
--- thing", target_id answers
--- "which one". Synthesizing a single 'user:abc' string would turn "list every
--- action against an account" into a LIKE prefix
--- match -- yet another one-value-answers-two-questions. Both columns are
--- nullable: some actions **have no** target ("read an orphan view"
--- has none), and inventing a fake target for it is worse than leaving it empty.
-CREATE TABLE IF NOT EXISTS ops_audit_log (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  actor_user_id  TEXT NOT NULL,          -- who: a users.id already proven by Bearer
-  action         TEXT NOT NULL,          -- did what: <domain>.<object>.<verb>
-  target_kind    TEXT,                   -- to whom ①: the target's **kind** (user/pairing/...)
-  target_id      TEXT,                   -- to whom ②: the id of **that one** target
-  detail         TEXT,                   -- one sentence we wrote ourselves, never the request body
-  created_at     TEXT NOT NULL           -- when: RFC3339, UTC, fixed width (stamped by the repo)
-);
--- "what happened recently" -- this table's only read pattern, so the index is built for exactly that.
-CREATE INDEX IF NOT EXISTS idx_ops_audit_created ON ops_audit_log(created_at DESC, id DESC);
--- "what did this person do" -- the second question when assigning blame. Without it, filtering by actor is a full table scan.
-CREATE INDEX IF NOT EXISTS idx_ops_audit_actor ON ops_audit_log(actor_user_id, created_at DESC);
+-- 10. THE OPS AUDIT TRAIL lives in ./schema-ops.ts (OPS_SQL): ops_audit_log plus
+-- its two indexes, and the whole argument for why it is not billing_events, why
+-- actor_user_id has no FK, and why target is two columns. Split out for the reason
+-- BILLING_SQL was; interpolated the same way (unconditional, one exec), in this
+-- position, so the STATEMENTS the migration emits are unchanged and in the same
+-- order. Measured rather than asserted: rendering INIT_SQL before and after the
+-- move differs only by these five comment lines and one blank line, which SQLite
+-- ignores. NOT 「byte-for-byte identical」 — this comment is itself part of the
+-- string now, and saying otherwise would be a claim nobody could check.
+${OPS_SQL}
 
 -- 11. timeline_keymeta (card SALT-1, 2026-08-11 -- per-account blind-store key
 --     metadata: the Argon2id KDF salt + the passphrase-verification sentinel.
@@ -652,6 +708,35 @@ CREATE TABLE IF NOT EXISTS email_verifications (
 -- PHONE user's usage rows -- one account erasing another's record. The FK count
 -- on this table therefore stays at exactly one, pinned by the cascade census.
 --
+-- 🔴 payer_reason / speaker_ref (2026-09-11, card MP-6) -- WHY THESE SECONDS
+-- LANDED ON THIS ACCOUNT, and WHO WAS SPEAKING WHEN THEY DID. owner SS11 asks
+-- that every second of recognition name a payer somebody can look up, so "how
+-- much did the site demo burn this month" and "is a guest spending my minutes"
+-- are answerable from the ledger.
+--   . payer_reason -- 'self' | 'peer' | 'host' | 'demo': the branch of
+--     auth/metering-principal.ts resolvePayer that chose user_id. A DIFFERENT
+--     QUESTION from user_id, the separation refused_user_id above is built on:
+--     user_id says WHOSE ledger moved, this says WHY -- one account appears with
+--     opposite reasons for its owner recording and for a guest spending it.
+--   . speaker_ref  -- WHO SPOKE: the speaker's users.id when signed in, else the
+--     browser/device identity (mobile_pairings.device_uid). 🔴 NEVER AN EMAIL
+--     and never anything else off the users row: this table's column list IS the
+--     privacy whitelist (top of this DDL), and an opaque id already present
+--     elsewhere adds no new fact about a person. It repeats user_id on a 'self'
+--     row and differs everywhere else, so it is not redundant.
+-- 🔴 integrator_key_id (2026-09-11, card MP-1) -- WHICH of T's publishable keys
+-- spent these seconds, on a payer_reason='host' row. A THIRD question: user_id
+-- says whose ledger moved, payer_reason why, this WHICH PAGE -- T may set a
+-- different ceiling per key, and without this the ceiling is enforceable but not
+-- auditable. NO FK (refused_user_id's reason, plus: an account deletion cascades
+-- integrator_keys away and a usage row must not die because a key did).
+-- Both NULLABLE TEXT, no default, NO BACKFILL, for refused_user_id's reason:
+-- only the admission knows the answer and NULL says so -- inventing 'self' for a
+-- pre-column row would manufacture the claim these columns exist to make
+-- checkable. 🔴 AND NO FK ON speaker_ref, also for
+-- refused_user_id's reason: it can hold ANOTHER account's id (a second cascade
+-- would let one account's deletion erase another's usage rows) or a device uid,
+-- which is not a users id at all. The FK count stays at exactly one.
 -- FK CASCADE to users like every per-account table here: the delete census
 -- (http/account-lifecycle.ts USER_CASCADING_TABLES) relies on the FK graph
 -- being THE answer to "which tables does deleting an account delete", and a
@@ -670,7 +755,10 @@ CREATE TABLE IF NOT EXISTS usage_events (
   outcome      TEXT NOT NULL,             -- 'ok' | 'quota_refused'
   transcript_chars INTEGER,                -- 🔴 NULLABLE = "this leg does not measure character counts", see above
   delivered_chars  INTEGER,                -- 🔴 NULLABLE, same reason
-  refused_user_id  TEXT                    -- 🔴 NULLABLE, and NO FK on purpose, see above
+  refused_user_id  TEXT,                   -- 🔴 NULLABLE, and NO FK on purpose, see above
+  payer_reason     TEXT,                   -- 🔴 'self'|'peer'|'host'|'demo' -- WHY this account, see above
+  speaker_ref      TEXT,                   -- 🔴 NULLABLE, NO FK, never an email, see above
+  integrator_key_id TEXT                   -- 🔴 NULLABLE, NO FK -- WHICH key, see above
 );
 -- "this account's events, in the order they occurred" -- the ONLY read shape both APIs use, so the index
 -- is exactly it. (user_id, id) rather than (user_id, occurred_at): id is both
@@ -683,117 +771,30 @@ CREATE TABLE IF NOT EXISTS usage_events (
 -- rediscover it.
 CREATE INDEX IF NOT EXISTS idx_usage_events_user_seq ON usage_events(user_id, id);
 
--- ── site_daily_counts (2026-08-15 — first-party public-site aggregate counts) ─
--- SPEC-REF: docs/strategy/2026-08-15-site-analytics-first-party-design.md
---
--- Daily BUCKETS only — never a per-visitor row. Primary key is the whole
--- dimension tuple so concurrent increments UPSERT rather than race into
--- duplicates. Not FK-linked to users: register_ok / login_ok are platform
--- totals, not account-scoped events (privacy: no visitor id, no account id).
--- Retention = 90 days (db/retention.ts SITE_COUNTS_RETENTION_DAYS), swept
--- table-wide because there is no per-account owner to walk.
-CREATE TABLE IF NOT EXISTS site_daily_counts (
-  day        TEXT NOT NULL,               -- UTC YYYY-MM-DD
-  kind       TEXT NOT NULL,               -- pageview | download_click | register_ok | login_ok
-  dim        TEXT NOT NULL,               -- path | locale | referrer_host | utm | src | _
-  dim_value  TEXT NOT NULL,
-  count      INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (day, kind, dim, dim_value)
-);
-CREATE INDEX IF NOT EXISTS idx_site_daily_counts_day ON site_daily_counts(day);
+-- 20. SITE ANALYTICS BUCKETS live in ./schema-site.ts (SITE_SQL): 「site_daily_counts」
+-- plus its index, moved VERBATIM for the 800-line cap. Interpolated like TRIAL_SQL.
+${SITE_SQL}
 
 -- 15/16. THE RECOVERY DOMAIN lives in ./schema-recovery.ts (RECOVERY_SQL): the PR-2
 -- operation registry and the metering-effect ledger, with the whole argument. Split
 -- out for the reason BILLING_SQL was; interpolated the same way (unconditional, one exec).
 ${RECOVERY_SQL}
+
+-- 17. THE SITE-DEMO TRIAL LEDGER lives in ./schema-trial.ts (TRIAL_SQL): card
+-- M4-01's one table plus its two indexes. Split out for the reason RECOVERY_SQL
+-- was; interpolated the same way (unconditional, one exec).
+${TRIAL_SQL}
+
+-- 21/22. THE THIRD-PARTY INTEGRATION DOMAIN lives in ./schema-integrator.ts
+-- (INTEGRATOR_SQL): card MP-1's publishable keys and the room-to-key edge, with
+-- the whole argument for why BOTH are new tables and why 「pc_devices」 gains no
+-- column. Split out for the reason TRIAL_SQL was; interpolated the same way
+-- (unconditional, one exec).
+${INTEGRATOR_SQL}
 `;
 
-/** Additive columns reconciled onto pre-existing DBs (guarded ADD COLUMN). On a
- *  fresh DB they already exist (CREATE above), so every ALTER is skipped — this
- *  is the "only add columns, never alter" discipline (05 §1), and the mechanism
- *  the migration-idempotency test exercises by running the migration twice. */
-export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  // The `transcript_history` entry (entry_type / origin / attachment_ref /
-  // device_label / processed_text / process_mode / process_params /
-  // inject_target / thumb_b64) was removed on 2026-07-31 with the table itself —
-  // reconcileSchema DROPs it before this loop runs, so an ALTER here would try to
-  // add a column to a table that no longer exists.
-  // v0.2.4 machine-level identity (owner 2026-07-29: "should be able to clearly
-  // tell whether it's the same phone and the same PC each time"). Both are DERIVED digests, never the raw seed — see
-  // protocol/protocol-primitives.ts DeviceUid.
-  //
-  // Deliberately NOT unique. Two rows CAN legitimately share one: a machine
-  // that re-registered before this column existed left a second row behind,
-  // and the whole point of the column is to be able to SEE that. A unique
-  // constraint would make the migration fail on exactly the databases that
-  // most need it, which is the worst possible time for a migration to throw.
-  // 0.2.66 `pcid` — the PUBLIC addressing half of a cloud pairing (owner
-  // 2026-08-14). Nullable TEXT with no default is the honest shape: a row that
-  // predates this column has no PCID, and NULL says exactly that. It is filled
-  // lazily on the row's next connection — register OR token reconnect
-  // (registry.stampPcid; the reconnect leg was added in 0.3.1 after the
-  // register-only backfill proved unreachable for established desktops) — the
-  // same 「backfill on next connection」 shape `machine_uid` uses — deliberately NOT a
-  // table sweep, because a row that has never reached the relay cannot be paired
-  // by PCID anyway (its PCID has never been displayed to anyone).
-  //
-  // 🔴 UNLIKE its two neighbours here, this one IS unique — enforced by a PARTIAL
-  // unique index created after the ALTER loop (connection.ts), `WHERE pcid IS NOT
-  // NULL`. The partial predicate is what makes that safe on a legacy database:
-  // every pre-existing row is NULL and NULLs are outside the index, so the
-  // migration cannot fail on the databases that most need it (the failure mode
-  // machine_uid's comment above is about). Uniqueness must be the DATABASE's
-  // answer and not an application-level 「check then write」, which is a race with
-  // no lock behind it.
-  // 2026-08-29 `home_node` (design §4-2) — 🔴 THE WHOLE OF THE CROSS-NODE DIRECTORY.
-  // Rooms live in a per-process Map (room/store.ts 「Live socket presence ONLY」), so
-  // the design does not synchronise them: the phone FOLLOWS the PC onto the same
-  // node, and this column is what it follows. NULL must read as 「dial the host you
-  // already have」 — a default would assert where a PC is with nothing having looked.
-  pc_devices: ['machine_uid', 'pcid', 'home_node'],
-  mobile_pairings: ['device_uid'],
-  // Q2 (2026-08-12) — `users.restriction_reason`, the enumerated reason shown to
-  // a restricted account holder. 🔴 IT RIDES THIS LOOP AND ITS SIBLING
-  // `restricted_at` DELIBERATELY CANNOT: that one is an INTEGER ms-epoch where
-  // the INT loop's `NOT NULL DEFAULT 0` would read as「restricted since
-  // 1970-01-01」on every legacy row, so it has a hand-written guarded step in
-  // reconcileSchema. This one is a nullable TEXT with no default — exactly what
-  // this loop emits — and NULL on a legacy row is the truth: nobody recorded a
-  // reason, and the surfaces render nothing rather than guessing one.
-  users: ['restriction_reason'],
-  // Window D1 §3.3-bis. TEXT and nullable on purpose: on a row that predates this
-  // column there IS no "most recent redelivery", and NULL is the only honest
-  // value for it. Its INTEGER sibling `redelivery_count` rides the other loop.
-  billing_events: ['last_notification_id'],
-  // The billing tables' additive columns live with their DDL, in
-  // ./schema-billing.ts — including the `contract_concluded_at` note, which the
-  // withdrawal surface has to respect and which belongs beside the column.
-  ...BILLING_ADDITIVE_TEXT_COLUMNS,
-};
-
-/** Additive INTEGER columns, reconciled the same way (guarded ADD COLUMN, same
- *  idempotency). Emitted as `INTEGER NOT NULL DEFAULT 0` — see the loop in
- *  connection.ts.
- *
- *  🔴 Why a SECOND table instead of one more entry in ADDITIVE_TEXT_COLUMNS:
- *  that loop emits `ADD COLUMN <col> TEXT`, so an int flag stored there arrives
- *  as the STRING `'0'` on every pre-existing database — and `'0'` is TRUTHY in
- *  JS. `permanent_free` would then read as "yes, exempt" for every account that
- *  was never marked, on exactly the databases that have real users on them
- *  (a fresh DB, where CREATE made it a real INTEGER, would be fine — which is
- *  the worst possible split: green in tests, wrong in production).
- *
- *  Why `NOT NULL DEFAULT 0` is the fixed shape rather than per-column config:
- *  SQLite REFUSES `ADD COLUMN ... NOT NULL` without a non-null default, and for
- *  an int flag/counter added to rows that predate it, 0 is the only value that
- *  asserts nothing. A column that needs a different default is not additive —
- *  it needs its own guarded step, written out in reconcileSchema. */
-export const ADDITIVE_INT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  users: ['permanent_free'],
-  // Window D1 §3.3-bis. A COUNTER, so the backfilled 0 is literally true for a row
-  // that predates the column: we did not count its redeliveries, and 0 is what we
-  // can honestly say we counted. (The unknowable part — whether it WAS redelivered
-  // before we started counting — is why `last_notification_id` stays NULL there
-  // rather than being invented.)
-  billing_events: ['redelivery_count'],
-};
+// The two additive-column tables moved to ./schema-additive-columns.ts (card
+// S2-01) when this file crossed the 800-line cap. Re-exported here so every
+// existing `import { ADDITIVE_TEXT_COLUMNS } from './schema'` still resolves —
+// the split is structural, and a consumer must not have to know it happened.
+export { ADDITIVE_INT_COLUMNS, ADDITIVE_TEXT_COLUMNS } from './schema-additive-columns';

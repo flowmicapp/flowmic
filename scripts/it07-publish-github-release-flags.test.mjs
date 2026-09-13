@@ -25,6 +25,8 @@
 // Run: `node scripts/it07-publish-github-release-flags.test.mjs`
 
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,12 +40,12 @@ function assertTrue(cond, label) {
   else { console.log(`  FAIL  ${label}`); failures++; }
 }
 
-function run(script, scriptArgs) {
+function run(script, scriptArgs, extraEnv = {}) {
   return spawnSync(process.execPath, [script, ...scriptArgs], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 15_000,
-    env: { ...process.env },
+    env: { ...process.env, ...extraEnv },
   });
 }
 
@@ -107,9 +109,27 @@ const detectRepoLocalFailure = /could not read git remote "origin"|does not look
 // assertion this file exists for is untouched: a regression that wrongly
 // rejects bare --dry-run still fails the line above, unconditionally.
 const noChangelogSection = /CHANGELOG\.md has no section for/;
+// note-C (2026-09-09 incident): this control used to spawn GITHUB with the
+// repo's REAL ./publish, and treated whatever local failure it produced as
+// "reached main() local path" -- fine while ./publish only ever held this
+// version's own fresh artifacts. It stopped being fine the day
+// release-portable-cjk-scan.mjs landed (docs/decisions/2026-09-09-owner-portable-
+// release-english-only.md): a pre-ruling `*-portable-*.zip` with a Chinese
+// README.txt was still sitting in ./publish from an earlier round, the new gate
+// correctly refused it, and this control -- which was never supposed to be
+// testing artefact contents, only flag parsing -- broke on state it did not
+// create. Iron rule from CLAUDE.md's drill discipline: a drill must not depend
+// on state it did not create. Fix is here, not in the gate: point OUT at an
+// isolated, empty temp directory this test builds and destroys itself, via
+// FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR (added to publish-github-release.mjs
+// naming this file as its consumer). Empty means detectRepo()'s env facts are
+// still reachable (no ./publish override for THAT), but collectArtifacts()
+// always dies on "no VERSION installers" -- the same already-accepted local
+// failure shape, just no longer coupled to whatever the real ./publish holds.
+const isolatedOut = mkdtempSync(join(tmpdir(), 'it07-gh-release-out-'));
 section('IT-07 positive control — bare --dry-run is NOT rejected (github-release)');
-{
-  const r = run(GITHUB, ['--dry-run']);
+try {
+  const r = run(GITHUB, ['--dry-run'], { FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR: isolatedOut });
   console.log('--- stderr (first 400) ---');
   console.log((r.stderr ?? '').slice(0, 400));
   console.log(`--- exit: ${r.status} ---`);
@@ -119,7 +139,9 @@ section('IT-07 positive control — bare --dry-run is NOT rejected (github-relea
     || /no \.\/publish|no .+ installers|no \.sha256/.test(r.stderr ?? '')
     || detectRepoLocalFailure.test(r.stderr ?? '')
     || noChangelogSection.test(r.stderr ?? '');
-  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error, no CHANGELOG.md section, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
+  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error against the isolated empty ./publish, no CHANGELOG.md section, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
+} finally {
+  rmSync(isolatedOut, { recursive: true, force: true });
 }
 
 // -- --catch-up-release (owner ruling 2026-09-07) ---------------------------
@@ -155,19 +177,27 @@ section('catch-up GREEN 1 -- WITHOUT the flag a 14-item body is still refused');
 
 section('catch-up GREEN 2 -- WITH the flag the same body gets through the caps');
 {
-  const r = run(GITHUB, ['--dry-run', REPO, '--catch-up-release', `--notes=${LONG_BODY}`]);
-  console.log((r.stdout ?? '').slice(0, 300));
-  console.log((r.stderr ?? '').slice(0, 300));
-  console.log(`--- exit: ${r.status} ---`);
-  const err = r.stderr ?? '';
-  assertTrue(!err.includes('limit 6') && !err.includes('limit 1200'), 'the size caps did not fire');
-  assertTrue((r.stdout ?? '').includes('CATCH-UP RELEASE MODE IS ON'), 'stdout says loudly that the caps are lifted, and why');
-  // Past the gates it either previews (a tree that has ./publish) or fails on
-  // artifacts it has no way to have. Both prove the BODY was accepted, which is
-  // the only thing this case is about.
-  const past = (r.stdout ?? '').includes('Zero network requests were made')
-    || /no \.\/publish|no .+ installers|no \.sha256/.test(err);
-  assertTrue(past, 'reached the artifact stage, i.e. the body was accepted');
+  // Same 2026-09-09 incident as the positive control above: this run also
+  // clears the caps and reaches collectArtifacts(), so it hit the CJK gate on
+  // whatever the real ./publish held. Same fix -- isolate OUT.
+  const out2 = mkdtempSync(join(tmpdir(), 'it07-gh-release-out-'));
+  try {
+    const r = run(GITHUB, ['--dry-run', REPO, '--catch-up-release', `--notes=${LONG_BODY}`], { FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR: out2 });
+    console.log((r.stdout ?? '').slice(0, 300));
+    console.log((r.stderr ?? '').slice(0, 300));
+    console.log(`--- exit: ${r.status} ---`);
+    const err = r.stderr ?? '';
+    assertTrue(!err.includes('limit 6') && !err.includes('limit 1200'), 'the size caps did not fire');
+    assertTrue((r.stdout ?? '').includes('CATCH-UP RELEASE MODE IS ON'), 'stdout says loudly that the caps are lifted, and why');
+    // Past the gates it either previews (a tree that has ./publish) or fails on
+    // artifacts it has no way to have. Both prove the BODY was accepted, which is
+    // the only thing this case is about.
+    const past = (r.stdout ?? '').includes('Zero network requests were made')
+      || /no \.\/publish|no .+ installers|no \.sha256/.test(err);
+    assertTrue(past, 'reached the artifact stage, i.e. the body was accepted');
+  } finally {
+    rmSync(out2, { recursive: true, force: true });
+  }
 }
 
 section('catch-up GREEN 3 -- the flag REFUSES an em dash (owner ruling 2026-09-01)');

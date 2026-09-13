@@ -128,7 +128,7 @@ void main() {
     expect(find.text('还没有配对的电脑'), findsOneWidget);
     expect(find.text('添加设备'), findsOneWidget);
     expect(find.text('轻记录'), findsOneWidget); // migrated-in cloud entry
-    expect(find.text('启动不自动连接 · 点实例连接'), findsOneWidget);
+    expect(find.text('启动时不自动连接 · 点击设备卡片手动连接'), findsOneWidget);
   });
 
   testWidgets('GA-33: the cloud ENTRY card retires once the cloud instance is remembered',
@@ -413,7 +413,7 @@ void main() {
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('它那边的记录还在'), findsOneWidget);
+    expect(find.textContaining('电脑端对应记录仍保留'), findsOneWidget);
     // …and it really is gone from THIS phone: the message is an added truth,
     // not a refusal.
     expect(find.text('Studio PC'), findsNothing);

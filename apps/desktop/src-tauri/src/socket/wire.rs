@@ -320,17 +320,65 @@ pub fn build_focus_state(window_title: &str, process_name: &str) -> Value {
 /// machine could not be identified (pc_name::machine_uid → None). Omitted, not
 /// null and not empty: the server's lookup treats a blank uid as "no answer"
 /// anyway, and sending one would put a value on the wire that means nothing.
+///
+/// card S2-01 — every frame also says WHAT THIS IS (`client`/`client_version`)
+/// and WHAT IT CAN RECEIVE (`target_caps`). See [`client_declaration`].
 pub fn build_pc_register(device_name: &str, client_instance_id: &str, machine_uid: Option<&str>) -> Value {
     let mut v = json!({ "device_name": device_name, "client_instance_id": client_instance_id });
     insert_machine_uid(&mut v, machine_uid);
+    insert_client_declaration(&mut v);
     v
 }
 
 /// pc:reconnect payload.
+///
+/// card S2-01 — 🔴 IT DECLARES TOO, AND THIS IS THE LEG THAT MATTERS. A desktop
+/// emits `pc:register` once (the first pairing) and `pc:reconnect` on every
+/// connection for the rest of its life, so a declaration sent only on the other
+/// builder would reach the relay from almost no installed machine. `pcid` was
+/// built that way and its backfill was unreachable for established desktops
+/// until 0.3.1 added exactly this leg.
 pub fn build_pc_reconnect(token: &str, client_instance_id: &str, machine_uid: Option<&str>) -> Value {
     let mut v = json!({ "token": token, "client_instance_id": client_instance_id });
     insert_machine_uid(&mut v, machine_uid);
+    insert_client_declaration(&mut v);
     v
+}
+
+/// card S2-01 — can THIS BUILD put a picture where a paste can reach it?
+///
+/// 🔴 IT IS NOT A CONSTANT `true`, and the difference is a platform this repo
+/// ships. `inject::image::clipboard_formats` has a Windows arm (registered PNG +
+/// CF_DIB) and a macOS arm (the original bytes under `public.png`), and on every
+/// other target the Windows arm's decoder answers
+/// `「image decoding is Windows-only (WIC)」` — so a Linux build cannot receive a
+/// picture and saying otherwise would invite a microphone end to spend an upload
+/// on a delivery that ends in `AppRejected`.
+///
+/// ⚠️ `cfg!` AND NOT `#[cfg]`, deliberately: this is an ordinary boolean whose
+/// both operands compile on every target, so the Windows gate really does check
+/// this line — unlike a macOS-only `#[cfg]` branch, which it does not compile at
+/// all. It also keeps `verify:lint platform-cfg-count` measuring what it says it
+/// measures (conditionally-compiled branches), rather than counting a line that
+/// has no branch in it.
+///
+/// ⚠️ And the spelling of that sentence is load-bearing: `platform-cfg-count`
+/// scans TEXT, so writing the attribute out in full here — even inside a comment
+/// explaining why this line is not one — moved its count and turned the gate red.
+/// A gate that reads source as text cannot tell prose from code.
+const CAN_RECEIVE_IMAGE: bool = cfg!(target_os = "windows") || cfg!(target_os = "macos");
+
+/// The three additive fields FLOWMIC-PC puts on both admission legs.
+///
+/// `client: "app"` is this build stating what it is; the relay's default for an
+/// absent field is the same value, so an older desktop and this one are
+/// indistinguishable in effect — which is what makes the field safe to add.
+/// `client_version` is diagnostic only and nothing may branch on it.
+fn insert_client_declaration(v: &mut Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    obj.insert("client".into(), json!("app"));
+    obj.insert("client_version".into(), json!(crate::update::breadcrumb::current_version()));
+    obj.insert("target_caps".into(), json!({ "image": CAN_RECEIVE_IMAGE }));
 }
 
 fn insert_machine_uid(v: &mut Value, machine_uid: Option<&str>) {
@@ -478,10 +526,10 @@ pub fn build_pc_list_mobiles() -> Value {
     json!({})
 }
 
-/// Read the `mobiles` array out of a pc:list-mobiles ack, keeping ONLY the five
+/// Read the `mobiles` array out of a pc:list-mobiles ack, keeping ONLY the seven
 /// public projection fields per row (R6 T-8). This is a second, client-side
 /// narrowing on top of the server's projection: even if some future server were
-/// to over-share, nothing beyond these five reaches the desktop frontend, and a
+/// to over-share, nothing beyond these seven reaches the desktop frontend, and a
 /// `mobile_token` can never be plumbed into the UI by accident.
 /// `None` on an error / malformed ack so the page shows a loud unknown state
 /// rather than an invented empty list.
@@ -507,6 +555,26 @@ pub fn parse_list_mobiles_ack(v: &Value) -> Option<Value> {
                 // `as_str` → absent/null/non-string all become JSON null, and
                 // null groups with NOTHING (see derivePairedList).
                 "device_uid": r.get("device_uid").and_then(Value::as_str),
+                // card ID-2 — WHICH KIND OF END this pairing was made from, so
+                // the paired-phones table can mark a browser instead of drawing
+                // it as one more indistinguishable handset. Same whitelist trap
+                // `device_uid` fell into above: the column, the schema and the
+                // server projection all shipped in S2-01, and this one missing
+                // line is why nothing rendered.
+                //
+                // Passed through RAW (string / null / absent), exactly as the
+                // server projects it. The 「absent means app」 reading has ONE
+                // author — protocol `clientOriginOf` — and it is applied one
+                // layer up, in `asPairedMobiles`. Writing `"app"` here would
+                // make this a second author of that default, and「paired by the
+                // app」and「predates the field」would stop being tellable apart.
+                //
+                // ⚠️ `client_version` is deliberately NOT whitelisted. The
+                // server projects it, but nothing on this side renders or
+                // branches on it, and a field carried into the UI layer with no
+                // consumer is the anti-façade rule's own example. It costs one
+                // line the day something actually needs it.
+                "client": r.get("client").and_then(Value::as_str),
             })
         })
         .collect();
@@ -629,6 +697,57 @@ pub fn parse_pcid(v: &Value) -> Option<String> {
         return Some(s.to_string());
     }
     None
+}
+
+#[cfg(test)]
+mod client_declaration_wire_tests {
+    use super::*;
+
+    /// card S2-01 — the declaration is on BOTH legs. The reconnect one is the
+    /// one an installed desktop actually emits, so a test that only checked
+    /// `pc:register` would pass on a build no real machine's frames match.
+    #[test]
+    fn both_admission_legs_say_what_this_is_and_what_it_takes() {
+        for v in [
+            build_pc_register("PC", "inst-0123456789abcdef", Some("pc-0011223344556677")),
+            build_pc_reconnect(&"t".repeat(32), "inst-0123456789abcdef", Some("pc-0011223344556677")),
+        ] {
+            assert_eq!(v["client"], "app");
+            assert_eq!(v["client_version"], crate::update::breadcrumb::current_version());
+            assert!(v["target_caps"]["image"].is_boolean(), "target_caps must be declared, not omitted");
+        }
+    }
+
+    /// 🔴 The capability follows the PLATFORM, not a wish. Windows and macOS have
+    /// a clipboard image path; every other target's decoder answers
+    /// 「image decoding is Windows-only (WIC)」, and declaring `true` there would
+    /// buy the microphone end an upload that ends in `AppRejected`.
+    ///
+    /// Written as a `cfg!` comparison rather than a hard-coded `true` so the
+    /// assertion states the RULE — a build that flips the constant fails here on
+    /// whichever platform it is wrong for, instead of only on Windows.
+    #[test]
+    fn the_image_capability_states_what_this_platform_can_actually_do() {
+        let expected = cfg!(target_os = "windows") || cfg!(target_os = "macos");
+        let v = build_pc_register("PC", "inst-0123456789abcdef", None);
+        assert_eq!(v["target_caps"]["image"], serde_json::json!(expected));
+        // And it is a real boolean, never the string "true": the relay stores
+        // this verbatim and a phone reads it as a capability.
+        assert!(v["target_caps"]["image"].is_boolean());
+    }
+
+    /// The pre-S2-01 fields are untouched. Additive has to be true of the FRAME,
+    /// not only of the schema — the same assertion the machine_uid round made.
+    #[test]
+    fn the_fields_that_were_already_there_are_unchanged() {
+        let r = build_pc_register("PC", "inst-0123456789abcdef", Some("pc-0011223344556677"));
+        assert_eq!(r["device_name"], "PC");
+        assert_eq!(r["client_instance_id"], "inst-0123456789abcdef");
+        assert_eq!(r["machine_uid"], "pc-0011223344556677");
+        let c = build_pc_reconnect(&"t".repeat(32), "inst-0123456789abcdef", None);
+        assert_eq!(c["token"], "t".repeat(32));
+        assert!(c.get("machine_uid").is_none());
+    }
 }
 
 #[cfg(test)]

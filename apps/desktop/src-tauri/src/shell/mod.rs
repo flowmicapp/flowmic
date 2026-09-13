@@ -268,7 +268,7 @@ pub use tray::setup_tray;
 mod channel_session;
 
 /// The phones PAIRED to this PC — the device page's 「paired phones」 table (R6 T-8).
-/// Returns the ack's `mobiles` array narrowed to the five public fields
+/// Returns the ack's `mobiles` array narrowed to the seven public fields
 /// (`pairing_id`/`mobile_name`/`paired_at`/`last_seen_at`/`online`), or `None`
 /// when the socket is down / the ack timed out / the server refused. The
 /// frontend renders that `None` as a loud 「read failed」 — it never degrades to an

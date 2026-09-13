@@ -44,11 +44,31 @@ mixin RecordingStrings on AppStringsLeaves {
   // themselves are `AudioAutoStoppedSchema` in
   // `packages/protocol/src/protocol-schemas-audio.ts`.
 
-  /// `reason: 'hard_limit'` — a real time ceiling. UNCHANGED, and deliberately
-  /// so: this sentence is still exactly true for the case it was written for,
-  /// and the next step it implies (「按一次接着说」/ "press once and keep
-  /// talking") is the right one. 08 §B-5: a
-  /// recording that stops must never silently vanish.
+  /// `reason: 'hard_limit'` — a real time ceiling. 08 §B-5: a recording that
+  /// stops must never silently vanish.
+  ///
+  /// 🔴 CARD G-2c (2026-09-11) — THE NUMBER CAME OUT, AND THE PARAGRAPH THAT
+  /// USED TO STAND HERE SAID THE OPPOSITE: 「UNCHANGED, and deliberately so:
+  /// this sentence is still exactly true for the case it was written for」.
+  /// It said 「5 minutes」 in nine languages, and one `reason` value now covers
+  /// more than one wall:
+  ///   · `engine_session` — `AUDIO_DEFAULTS.hard_limit_ms`, five minutes TODAY
+  ///     and already overridable per session (`opts.hardLimitMs`);
+  ///   · `session_cap` — card G-8's per-sitting ceiling, which is **10 or 30
+  ///     minutes depending on the payer's tier** (`PLAN_LIMITS`
+  ///     `continuous_minutes`).
+  /// `stt-session-autostop.ts` maps both onto `'hard_limit'` deliberately (the
+  /// KIND of fact is the same and the next step is the same), and registered
+  /// this file as the open bill in as many words rather than softening a
+  /// server-side word to fit a phone-side sentence.
+  ///
+  /// ⚠️ SO THE FIX IS TO STATE NO FIGURE, not to state a different one. The
+  /// phone cannot know which wall fired — the frame carries `reason`, not a
+  /// ceiling — and a second number would be the same defect with a longer life
+  /// (「一句过期的真话」). What survives is the whole of what the event proves:
+  /// a single recording hit a time limit and ended by itself, and pressing
+  /// again carries on. The instruction is now IN the sentence rather than
+  /// merely implied by it, because that is the one thing the reader has to do.
   String get recordingAutoStopped => _lfRecordingAutoStopped;
 
   /// `reason: 'quota_exhausted'` — the user is out of transcription minutes.
@@ -356,6 +376,36 @@ mixin RecordingStrings on AppStringsLeaves {
   /// account would not touch the ceiling that was actually hit.
   String get sttStallQuotaExceededPcOwner => _lfSttStallQuotaExceededPcOwner;
 
+  /// `INTEGRATOR_QUOTA_EXCEEDED` — card MP-1 (2026-09-11). The room this phone
+  /// is paired to is a THIRD-PARTY PAGE that embedded FlowMic, and the allowance
+  /// **that page's owner** pays from is spent.
+  ///
+  /// 🔴 IT MUST NOT FALL THROUGH TO [sttStallQuotaExceeded]. That sentence says
+  /// 「本月转录额度已用完」 — a statement about THE READER's own subscription — and
+  /// on this path it is false in both halves: the reader may have no plan at
+  /// all, and the one that ran out belongs to a company they have no
+  /// relationship with. This is the WP-9 defect (「the SUBJECT of the sentence
+  /// was wrong」) one far end along.
+  ///
+  /// ⚠️ NO SIGN-IN AND NO UPGRADE PROMPT, and here that restraint is stronger
+  /// than its two neighbours': on a third-party page the payer is decided BEFORE
+  /// the speaker is looked at (owner §11 追认 item 1, `resolvePayer` step 1), so
+  /// signing in would not move this ceiling by a second. An invitation to act
+  /// would be a control that changes nothing.
+  ///
+  /// ⚠️ AND NO REMAINING FIGURE AND NO PLAN NAME, because the relay does not
+  /// send them: design §4 keeps a third party's commercial facts off a
+  /// stranger's screen. There is nothing here to render even if this table
+  /// wanted to.
+  ///
+  /// Mirrors `ERROR_CODES.INTEGRATOR_QUOTA_EXCEEDED`. Hand-maintained for the
+  /// usual reason (the phone cannot import TypeScript, and nothing binds the two
+  /// tables — the open account in CLAUDE.md). Without it the code prints as
+  /// 「转写引擎报错（INTEGRATOR_QUOTA_EXCEEDED）」 — a raw identifier inside a
+  /// sentence blaming an engine that is in perfect health, which is the 0.2.53
+  /// shape yet again.
+  String get sttStallIntegratorQuotaExceeded => _lfSttStallIntegratorQuotaExceeded;
+
   /// `SETTINGS_SCHEMA_INVALID` — a stored settings ROW failed validation while
   /// the server was setting this utterance up, so the press was refused at
   /// `audio:start` and no engine was ever asked.
@@ -409,6 +459,12 @@ mixin RecordingStrings on AppStringsLeaves {
   String get sttStallEngineAuthFail;
   String get sttStallEngineRateLimited;
   String get sttStallEngineTimeout;
+
+  // Card G-2c — same cross-shard pattern, one shard over
+  // (`metering_strings.dart`): the sentence's reasoning lives with it there,
+  // the switch that CHOOSES it stays here, because a second place that decides
+  // which stall sentence to show is how two places come to disagree.
+  String get sttStallTrialQuotaExceeded;
 
   /// An engine error whose code this build has no BESPOKE sentence for, and
   /// whose code the protocol registry ALSO does not recognise (a phone-local
@@ -495,7 +551,19 @@ mixin RecordingStrings on AppStringsLeaves {
       // this list matches the order of the questions: is anything configured,
       // did the platform give us a line, can what we got do the job.
       if (code == 'STT_LANGUAGE_UNSUPPORTED') return sttStallLanguageUnsupported;
+      // Card MP-1 — a THIRD-PARTY page's allowance, not this reader's. Ordered
+      // beside `QUOTA_EXCEEDED` because they are the same shape of fact and a
+      // reader comparing the two arms should find them together; ordered BEFORE
+      // it makes no difference (the codes are distinct) and ordering it after
+      // the engine arms would.
+      if (code == 'INTEGRATOR_QUOTA_EXCEEDED') return sttStallIntegratorQuotaExceeded;
       if (code == 'QUOTA_EXCEEDED') {
+        // Card G-2c — the DEMO grant is asked FIRST because it is the one
+        // ceiling whose sentence must not promise a monthly reset, and because
+        // the two facts cannot conflict: the trial gate reports
+        // `judged_account:'self'`, so reading the pc_owner arm first would
+        // never reach this one. See [sttStallTrialQuotaExceeded].
+        if (stall.trialCeiling) return sttStallTrialQuotaExceeded;
         // WP-9 — see [sttStallQuotaExceededPcOwner]: same code, two possible
         // accounts, and the wire now says which one was judged.
         return stall.judgedAccount == 'pc_owner'

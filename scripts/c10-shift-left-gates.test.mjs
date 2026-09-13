@@ -1,3 +1,4 @@
+// COST BUDGET: 8 s because section 3 spawns the real scripts/publish.mjs preflight (~4 s) and sections 1-2 build a real temp git repo; measured 7.85 s standalone on dev-pc-a 2026-09-13 (lane L3)
 // Drill for the three C10 scripts that ship in the public tree:
 //   scripts/preflight-toolchain.mjs  (C10-1)
 //   scripts/gate-receipt.mjs         (C10-4)
@@ -14,11 +15,18 @@
 // opposite reason: the interesting direction is "a tool is MISSING", and the
 // only way to produce that on a machine that has all four would be to break the
 // machine.
+// 🔴 CORRECTED 2026-09-13 (card L3): "the only way … would be to break the
+// machine" was false — a fake `flutter` FIRST ON PATH produces it without
+// touching anything, and §1 now drives the real script BOTH ways that way. The
+// sentence stays because the rest of it is still the rule; what changed is that
+// the MISSING direction is no longer only reachable through the exports. See
+// §1's own note for the second reason it changed, and for the measurement that
+// corrected the one the change was ordered on.
 //
 // Run: `node scripts/c10-shift-left-gates.test.mjs`
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,15 +91,77 @@ console.log('§1 toolchain preflight (C10-1)');
   // name the tool that is missing, and hand back the toolchain-free subset —
   // which is the behaviour the four checks above already pin in isolation, here
   // driven through the real script instead of through its exports.
-  const real = spawnSync(node, [path.join(ROOT, 'scripts', 'preflight-toolchain.mjs')], { encoding: 'utf8', cwd: ROOT });
-  const out = `${real.stdout ?? ''}${real.stderr ?? ''}`;
-  const namesEveryTool = m.TOOLS.every((t) => out.includes(t.id));
-  const complete = real.status === 0;
-  check('running it on this box reports every tool, and its exit code agrees with what it found',
-    namesEveryTool && (complete
-      ? !/MISSING/.test(out)
-      : /MISSING/.test(out) && out.includes(m.NODE_ONLY_SUBSET)),
-    `status=${real.status} ${out.slice(0, 240)}`);
+  //
+  // ── WHY FLUTTER IS A SHIM ON PATH AND NOT THE REAL ONE (card L3, 2026-09-13)
+  //
+  // 🔴 THE REASON IS COVERAGE. The speed is real but small, and the number that
+  // sent me here was wrong — so both are written down, measured, rather than
+  // repeated.
+  //
+  // WHAT THE COVERAGE ARGUMENT IS. This case has two branches and the MACHINE
+  // picks which one runs: on a box with all four tools only the happy branch is
+  // ever executed, so the refusal path — the one the 2026-08-17 public-CI
+  // failure was actually about — has never run here. A `flutter` this test
+  // controls can answer both ways, so both now run on every box. The box's own
+  // toolchain is still probed for real on every gate run
+  // (`scripts/preflight-toolchain.mjs` IS `pnpm verify:preflight`, Stage 0 of
+  // verify/run-delivery-fast.mjs, and the first link of `verify:delivery`), so
+  // nothing was given up by stopping the second real probe here.
+  //
+  // WHAT IT SAVES, MEASURED on dev-pc-a rather than assumed (two runs each, this
+  // file alone, nothing else running): 7.85 s before → 6.2 s after. That is one
+  // `flutter --version` (1.9 s measured on its own) minus the second, cheap
+  // script run this adds.
+  //
+  // 🔴 AND THE CORRECTION THAT MATTERS MORE THAN THE SAVING. The card that
+  // ordered this work said this file "is 10.7 s of the 10.9 s scripts set, and
+  // it runs the real preflight incl. flutter --version" — reading the cause off
+  // the biggest name in the sentence. Measured here: the whole real preflight is
+  // 2.2 s, and this file's cost centre is §3 at 4.2 s (it spawns publish.mjs),
+  // not §1. The 10.7 s in the ledger was this file's time INSIDE the pool, with
+  // fifteen other children competing for the box — a pool timing read as a
+  // per-file cost. So: §1 is now cheap and better covered, and the file is still
+  // the slowest in the set. Whoever wants it under a second should read §3.
+  //
+  // The shim is a `.cmd` on Windows on purpose: that is also the shape
+  // probeTool's `shell: true` exists for (Node refuses to spawn a `.cmd`
+  // without a shell), so the substitution exercises that seam rather than
+  // stepping around it.
+  const shimDir = mkdtempSync(path.join(tmpdir(), 'c10-flutter-shim-'));
+  const win = process.platform === 'win32';
+  /** Put a fake `flutter` first on PATH; `ok:false` makes it answer like a
+   *  missing tool (non-zero exit), which is the only way to reach the refusal
+   *  branch on a box that has the real thing installed. */
+  const shimEnv = (ok) => {
+    const file = path.join(shimDir, win ? 'flutter.cmd' : 'flutter');
+    writeFileSync(file, win
+      ? `@echo off\r\n${ok ? 'echo Flutter 3.41.9 (c10 drill shim)\r\nexit /b 0' : 'echo not a flutter\r\nexit /b 1'}\r\n`
+      : `#!/bin/sh\n${ok ? "echo 'Flutter 3.41.9 (c10 drill shim)'\nexit 0" : "echo 'not a flutter'\nexit 1"}\n`);
+    if (!win) chmodSync(file, 0o755);
+    const env = { ...process.env };
+    const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+    env[key] = `${shimDir}${path.delimiter}${env[key] ?? ''}`;
+    return env;
+  };
+  const runReal = (ok) => {
+    const r = spawnSync(node, [path.join(ROOT, 'scripts', 'preflight-toolchain.mjs')],
+      { encoding: 'utf8', cwd: ROOT, env: shimEnv(ok) });
+    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  };
+  try {
+    const good = runReal(true);
+    check('with every tool answering, the real script names all four and exits 0',
+      m.TOOLS.every((t) => good.out.includes(t.id)) && good.status === 0 && !/MISSING/.test(good.out),
+      `status=${good.status} ${good.out.slice(0, 240)}`);
+
+    const bad = runReal(false);
+    check('with one tool refusing, the real script exits non-zero, names it MISSING, names its stages, and hands back the toolchain-free subset',
+      bad.status !== 0 && /flutter\s+MISSING/.test(bad.out)
+      && bad.out.includes('verify:mobile-tests') && bad.out.includes(m.NODE_ONLY_SUBSET),
+      `status=${bad.status} ${bad.out.slice(0, 240)}`);
+  } finally {
+    rmSync(shimDir, { recursive: true, force: true });
+  }
 }
 
 // ── § 2  gate receipt ───────────────────────────────────────────────────────

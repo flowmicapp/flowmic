@@ -20,6 +20,7 @@ import * as Inject from './protocol-schemas-inject';     // §3.5
 import * as Focus from './protocol-schemas-focus';       // §3.5 (F-3113)
 import * as Sync from './protocol-schemas-sync';         // §3.6 + §3.7
 import * as Timeline from './protocol-schemas-timeline'; // §3.8 split (F-801)
+import * as Billing from './protocol-schemas-billing';   // §3.9 (billing:budget)
 export * from './protocol-schemas-auth';     // re-export for consumers
 export * from './protocol-schemas-audio';    // re-export for consumers
 export * from './protocol-schemas-compose';  // re-export for consumers
@@ -27,6 +28,7 @@ export * from './protocol-schemas-inject';   // re-export for consumers
 export * from './protocol-schemas-focus';    // re-export for consumers
 export * from './protocol-schemas-sync';     // re-export for consumers
 export * from './protocol-schemas-timeline'; // re-export for consumers
+export * from './protocol-schemas-billing';  // re-export for consumers
 
 // ─── registry: event-name → schema ────────────────────────────────────
 export const EVENT_SCHEMAS = {
@@ -37,6 +39,7 @@ export const EVENT_SCHEMAS = {
   ...Focus.FOCUS_EVENT_SCHEMAS,       // §3.5 (F-3113 focus-target mirror)
   ...Sync.SYNC_EVENT_SCHEMAS,         // §3.6 + §3.7
   ...Timeline.TIMELINE_EVENT_SCHEMAS, // §3.8 (v2.0 — A-49)
+  ...Billing.BILLING_EVENT_SCHEMAS,   // §3.9 (billing:budget — card S2-02)
 } as const satisfies Record<EventName, z.ZodTypeAny>;
 
 export type EventSchemaOf<E extends EventName> = (typeof EVENT_SCHEMAS)[E];

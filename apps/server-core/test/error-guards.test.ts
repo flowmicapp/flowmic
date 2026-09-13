@@ -214,7 +214,10 @@ describe('production wiring — the guards are installed, not just implemented',
   });
 
   it('bootstrap.ts wraps every connection socket BEFORE any handler registration', () => {
-    const bootstrap = src('bootstrap.ts');
+    // 2026-09-09 — both call sites moved VERBATIM from bootstrap.ts's
+    // `io.on('connection', ...)` callback to bootstrap-connection-handlers.ts
+    // (800-line cap split; see that file's own header).
+    const bootstrap = src('bootstrap-connection-handlers.ts');
     const wrapAt = bootstrap.indexOf('wrapSocketHandlers(socket)');
     const firstRegisterAt = bootstrap.indexOf('registerAuthHandlers(socket');
     expect(wrapAt).toBeGreaterThan(-1);

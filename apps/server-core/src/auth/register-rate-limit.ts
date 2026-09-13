@@ -238,6 +238,9 @@ export class RegisterRateLimiter {
  *                          cannot bound a total);
  *   · `verificationLink` — the anonymous one-click confirm route. A burst of
  *                          link clicks must not lock anyone out of signing in.
+ *   · `webRoom`          — card S2-04, `POST /api/web/rooms` (5 / min). SEE ITS
+ *                          OWN NOTE BELOW: it is the one budget in this factory
+ *                          that is NOT keyed on an IP.
  */
 export interface AuthRateLimiters {
   register: RegisterRateLimiter;
@@ -245,6 +248,26 @@ export interface AuthRateLimiters {
   password: RegisterRateLimiter;
   accountMint: RegisterRateLimiter;
   verificationLink: RegisterRateLimiter;
+  /**
+   * card S2-04 — how often ONE ACCOUNT may build its web target room.
+   *
+   * 🔴 KEYED ON `users.id`, NOT ON AN IP, and that is a decision the addendum
+   * made for us: §2.1's 09-07 note says the account branch of that endpoint must
+   * not touch any of the minting gates, and that 「there must not be one IP gate
+   * at the entrance that applies to all three identities」. The caller here has
+   * already proven who they are, so the account is both the more precise key and
+   * the one that cannot punish an office NAT for a colleague's reloading.
+   * ⚠️ The class stores its keys in a field called `ips`; it is a plain keyed
+   * sliding window (`siteAnalytics` and this one prove it by using it as one),
+   * and the name is history, not a contract.
+   *
+   * 5 per minute is the addendum's per-IP draft number reused for the account
+   * key, and the addendum marks the numbers 【待裁】. It is a burst brake, not a
+   * budget: the endpoint is idempotent, so the honest cost of a repeat call is a
+   * lookup, and the only thing worth braking is a page in a reload loop minting
+   * codes out of a 10 000-wide space.
+   */
+  webRoom: RegisterRateLimiter;
 }
 
 export function makeAuthRateLimiters(now?: () => number, env: NodeJS.ProcessEnv = process.env): AuthRateLimiters {
@@ -263,5 +286,7 @@ export function makeAuthRateLimiters(now?: () => number, env: NodeJS.ProcessEnv 
       maxAttempts: resolveRegisterDailyCap(env),
     }),
     verificationLink: new RegisterRateLimiter(clock),
+    // card S2-04 — see the field's own note for why the key is an account id.
+    webRoom: new RegisterRateLimiter({ ...clock, maxAttempts: 5, windowMs: 60_000 }),
   };
 }

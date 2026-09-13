@@ -63,6 +63,47 @@ void onAutoStoppedRouted(ChatController c) {
   c.notifyUi();
 }
 
+/// Card MP-14 — the far end answered one of this phone's keypresses with
+/// `ok:false`.
+///
+/// 🔴 `ok:true` IS DROPPED ON THE FLOOR HERE, ON PURPOSE. It crosses the wire so
+/// that silence cannot mean two things to the PROTOCOL (「it worked」 vs 「the
+/// receipt was lost」), and it draws nothing so that the product does not narrate
+/// every successful keypress back at the person who pressed it. Those are two
+/// different questions and the frame answers both by existing and being ignored.
+///
+/// 🔴 IT DOES NOT TOUCH THE ROW. `buildControlRowOf` minted 「the frame left this
+/// device」 and that remains true — this is a second fact about the same press,
+/// with its own (much shorter) lifetime, and 15 §2.0-e's rule is that each side
+/// states only the half it can prove.
+void onControlKeyResultRouted(ChatController c, ControlKeyResult r) {
+  if (r.ok) return;
+  c._controlKeyRefusalTicket += 1;
+  c._controlKeyRefusal = ControlKeyRefusal(
+    ticket: c._controlKeyRefusalTicket,
+    kind: r.kind,
+    reason: r.reason,
+  );
+  // G-20: the scope is read at the moment the fact is produced (§2.5.1 fourth
+  // rule), never at display time.
+  c._controlKeyRefusalInstanceId = c.session.connectedInstanceId;
+  c.notifyUi();
+}
+
+/// Dismiss the refused-key notice (the ✕, or the auto-hide window firing the
+/// same callback). Gated on the SCOPED view for the same reason
+/// [dismissAutoStoppedRouted] is: an action on this screen may only clear this
+/// screen's own conclusion.
+void dismissControlKeyRefusalRouted(ChatController c) {
+  if (c._controlKeyRefusal == null ||
+      !c._noticeOnScreen(c._controlKeyRefusalInstanceId)) {
+    return;
+  }
+  c._controlKeyRefusal = null;
+  c._controlKeyRefusalInstanceId = null;
+  c.notifyUi();
+}
+
 /// Dismiss the auto-stop banner (user tapped ✕). No-op when already clear.
 ///
 /// G-20 ①: gated on the SCOPED view, not the raw flag — a ✕ on this screen must

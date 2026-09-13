@@ -37,6 +37,7 @@ import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { UserRepo } from '../db/repos/user.repo';
 import type { UsageRepo } from '../db/repos/usage.repo';
 import { effectiveAnchorMs, parseUtcStamp, subscriptionRowExpiry, usagePeriodAt, type UsagePeriod } from './usage-period';
+import { trialLimitsFrom, type TrialGrantReader } from './trial-ledger';
 import { planLimits, type PlanLimits } from './plans';
 import { withdrawalDeadline } from './withdrawal';
 import { ServerError } from '../errors';
@@ -240,6 +241,15 @@ export interface BillingServiceDeps {
    *  real implementation or a throw, never a friendly nothing. Requiring it makes
    *  a mis-wired deployment a COMPILE error instead. */
   billing: BillingRepo;
+  /** Card M4-01 — the site-demo grant record, for `users.anonymous` rows.
+   *
+   *  OPTIONAL because most of this repo's deployments and every unit fixture
+   *  have no anonymous identity at all — but NOT defaulted: [effectiveLimits]
+   *  THROWS when it meets one and this is absent, rather than falling back to a
+   *  tier. A demo identity resolved through `planLimits('free')` would be handed
+   *  a whole free month (20 minutes) instead of its 2 minutes, which is the
+   *  friendly-DI-default shape volume-13 §7 F1 ② rules out on a paid dimension. */
+  trials?: TrialGrantReader;
   unlockAll: boolean;
   /** Injectable base clock (ms). Tests advance via advanceClock. */
   now?: () => number;
@@ -653,6 +663,18 @@ export class BillingService {
    */
   effectiveLimits(userId: string): PlanLimits {
     const view = this.resolve(userId);
+    // Card M4-01 — an anonymous site-demo identity is not a tier and must never
+    // be expressed as one: it has no cycle, no subscription and no exemption,
+    // and its allowance is a number of SECONDS that was frozen onto its ledger
+    // row at mint. Checked BEFORE the exemption for the reason the exemption is
+    // checked before the plan — the more specific answer wins, and a demo
+    // identity can never be `permanent_free` (nobody can mark one).
+    if (this.deps.users.findById(userId)?.anonymous === true) {
+      if (!this.deps.trials) {
+        throw new Error('billing: an anonymous identity was resolved with no trial-ledger reader wired (refusing to fall back to a plan)');
+      }
+      return trialLimitsFrom(this.deps.trials.grantedMsFor(userId));
+    }
     return view.quota_exempt ? { ...EXEMPT_LIMITS } : planLimits(view.plan);
   }
 

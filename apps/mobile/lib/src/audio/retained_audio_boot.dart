@@ -72,7 +72,7 @@ const bool kRetainFromFirstFrameDefault = true;
 ///      apps/mobile/lib/src/audio/retained_audio_legacy_face.dart:66 `_appendOne`;
 ///   ② cancel semantics (owner ruling O-5, card LS-4) — a swiped-away
 ///      recording gets a tombstone on both faces and loses no byte:
-///      apps/mobile/lib/src/audio/retained_audio_spill.dart:481
+///      apps/mobile/lib/src/audio/retained_audio_spill.dart:489
 ///      `tombstoneCurrentRecording`;
 ///   ③ space policy (owner ruling O-2, card LS-3) — the cap refuses new bytes
 ///      and says so instead of evicting unrecovered audio:

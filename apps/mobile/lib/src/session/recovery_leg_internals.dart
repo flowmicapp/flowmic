@@ -24,7 +24,17 @@ part of 'recovery_journal_leg.dart';
 /// [PendingRetryOutcome.done] on a press that transcribed nothing. It is also
 /// not a failure, so it must not stop a sweep — there is simply nothing left
 /// to work on.
-enum _StepOutcome { completed, refusedByGate, linkLost, recordingGone }
+/// [refusedNoLink] — card WB-6. Split out of [refusedByGate] for the reason
+/// that enum's own doc gives one layer down ([BackfillStart]): 「a press is
+/// holding the microphone」 and 「this phone is not connected」 were one value,
+/// and the screen said the first one to a person whose network was off.
+enum _StepOutcome {
+  completed,
+  refusedByGate,
+  refusedNoLink,
+  linkLost,
+  recordingGone,
+}
 
 @immutable
 class _Candidate {
@@ -93,6 +103,7 @@ class _AttemptResult {
     this.timeoutKind,
     this.refusalCode,
     this.refusedByGate = false,
+    this.refusedNoLink = false,
     this.linkLost = false,
   });
 
@@ -118,6 +129,11 @@ class _AttemptResult {
   /// The FSM refused to open a recovery session (a press, or no link). Nothing
   /// was sent and nothing was recorded.
   final bool refusedByGate;
+
+  /// Card WB-6 — WHICH of [refusedByGate]'s two causes it was. True only for
+  /// 「there is no connected link」; false is 「a press holds the session」.
+  /// Meaningless unless [refusedByGate].
+  final bool refusedNoLink;
 
   final bool linkLost;
 }

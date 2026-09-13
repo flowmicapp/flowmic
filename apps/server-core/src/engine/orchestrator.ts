@@ -36,6 +36,15 @@ export interface SttOrchestrator {
    *  (design §2-R5 failure direction). Implemented by SttSessionBridge
    *  (engine/stt-session.ts). */
   readonly lastContiguousSeq?: number;
+  /** Card S2-02 — the instant this recording runs out of BUDGET (epoch ms), or
+   *  `null` when no quota ceiling governs it. Surfaced READ-ONLY for the same
+   *  reason as `lastContiguousSeq` above, and answered by the same object that
+   *  enforces it (`AudioSession.quotaDeadlineAt`), so the number a client
+   *  watches count down and the timer that ends the recording cannot disagree.
+   *  OPTIONAL on the seam: an implementation that does not answer (test fakes)
+   *  simply gets no while-streaming budget frames, which degrades to the
+   *  join-time reading rather than to a made-up one. */
+  readonly quotaDeadlineAt?: number | null;
 }
 
 /** Compose orchestrator seam (R1-4): runs one translate/organize/draft_polish

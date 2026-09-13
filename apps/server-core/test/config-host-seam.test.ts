@@ -3,14 +3,17 @@
 // saas loopback); a set-but-empty value fails loud at boot.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CORS_ORIGIN, loadConfig, SAAS_LISTEN_HOST } from '../src/config';
+import { DEFAULT_CORS_ORIGIN, loadConfig, SAAS_LISTEN_HOST, socketCorsOrigin } from '../src/config';
 
 const SECRET = 'host-seam-secret-32-bytes-minimum-xxx';
 const savedHost = process.env.FLOWMIC_HOST;
+const savedCors = process.env.FLOWMIC_CORS_ORIGIN;
 
 afterEach(() => {
   if (savedHost === undefined) delete process.env.FLOWMIC_HOST;
   else process.env.FLOWMIC_HOST = savedHost;
+  if (savedCors === undefined) delete process.env.FLOWMIC_CORS_ORIGIN;
+  else process.env.FLOWMIC_CORS_ORIGIN = savedCors;
 });
 
 describe('FLOWMIC_HOST seam', () => {
@@ -74,9 +77,13 @@ describe('GA-15 saas deployment guards', () => {
     expect(loadConfig({ mode: 'standalone', secret: SECRET }).dbPath).toBe(':memory:');
   });
 
-  it('CORS: defaults to production, env-overridable, blank env fails loud', () => {
+  it('CORS: defaults to production + web-client hosts, env-overridable, blank env fails loud', () => {
     delete process.env.FLOWMIC_CORS_ORIGIN;
-    expect(loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins).toEqual([DEFAULT_CORS_ORIGIN]);
+    expect(loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins).toEqual([
+      DEFAULT_CORS_ORIGIN,
+      'https://web.flowmic.app',
+      'https://cdn.flowmic.app',
+    ]);
     process.env.FLOWMIC_CORS_ORIGIN = 'https://flowmic.app, https://flowmic.app';
     expect(loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins).toEqual([
       'https://flowmic.app',
@@ -86,6 +93,49 @@ describe('GA-15 saas deployment guards', () => {
     // nothing would silently break every browser call.
     process.env.FLOWMIC_CORS_ORIGIN = '  ,  ';
     expect(() => loadConfig({ ...SAAS, dbPath: ':memory:' })).toThrow(/lists no origin/);
+    delete process.env.FLOWMIC_CORS_ORIGIN;
+  });
+
+  // S1-03 — web-client hosts on the built-in saas list. The origin
+  // strings are written as literals here on purpose: importing
+  // DEFAULT_SAAS_CORS_ORIGINS and asserting equality against itself would
+  // stay green after a list edit. Reverse-control is "delete one host from
+  // the default, this file goes red".
+  it('S1-03: each web-client origin is on the saas default allow-list', () => {
+    delete process.env.FLOWMIC_CORS_ORIGIN;
+    const origins = loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins;
+    // DOM-1: the mic client is served from the marketing origin itself
+    // (`https://flowmic.app/go/`), so ITS origin is DEFAULT_CORS_ORIGIN. There
+    // is no `go.` host to allow, and asserting one would pin a dead name.
+    expect(origins).toContain(DEFAULT_CORS_ORIGIN);
+    expect(origins).not.toContain('https://go.flowmic.app');
+    expect(origins).toContain('https://web.flowmic.app');
+    expect(origins).toContain('https://cdn.flowmic.app');
+    expect(socketCorsOrigin('saas', origins)).toEqual(origins);
+  });
+
+  it('S1-03: a random third-party origin is not on the saas default list', () => {
+    delete process.env.FLOWMIC_CORS_ORIGIN;
+    const origins = loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins;
+    expect(origins).not.toContain('https://evil.example');
+    const applied = socketCorsOrigin('saas', origins);
+    expect(applied).not.toBe('*');
+    expect(Array.isArray(applied) && applied.includes('https://evil.example')).toBe(false);
+  });
+
+  it('S1-03: standalone still applies * — the saas list does not constrain LAN', () => {
+    delete process.env.FLOWMIC_CORS_ORIGIN;
+    const cfg = loadConfig({ mode: 'standalone', secret: SECRET });
+    expect(socketCorsOrigin(cfg.mode, cfg.corsOrigins)).toBe('*');
+  });
+
+  it('S1-03: explicit FLOWMIC_CORS_ORIGIN fully overrides, it does not merge', () => {
+    process.env.FLOWMIC_CORS_ORIGIN = 'https://staging.example';
+    const origins = loadConfig({ ...SAAS, dbPath: ':memory:' }).corsOrigins;
+    expect(origins).toEqual(['https://staging.example']);
+    expect(origins).not.toContain('https://web.flowmic.app');
+    expect(origins).not.toContain('https://cdn.flowmic.app');
+    expect(origins).not.toContain(DEFAULT_CORS_ORIGIN);
     delete process.env.FLOWMIC_CORS_ORIGIN;
   });
 });

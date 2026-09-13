@@ -53,6 +53,86 @@
 // (apps/mobile/test/utterance_compose_test.dart), which is `requires`d so the
 // evidence cannot quietly disappear. When a G's story needs the phone, cite the
 // phone's own test — do not re-enact it here.
+//
+// ── HOW THE 32 CASES ARE SCHEDULED (card L3, 2026-09-13) ────────────────────
+//
+// They used to run in one `for` loop, one at a time, and the suite cost the sum
+// of every wait in it. Two of those waits are PRODUCT constants and cannot be
+// shortened without destroying what the case proves (G32 spends a real minute
+// because `FLOWMIC_PLAN_LIMITS` takes integer minutes; G28 spends GA-04's real
+// 30 s grace window) — so the only honest lever left is to spend them AT THE
+// SAME TIME. No product knob was added; nothing waits for less than it did.
+//
+// A case may only share the machine if it shares NOTHING ELSE. That splits the
+// suite in two, and the split is measured off each case's own source rather
+// than assumed:
+//
+//   SHARED-STANDALONE (19) — takes the `url` of the ONE standalone server this
+//   runner starts, and registers PCs / pairs phones / mints short codes in its
+//   single in-memory database. Two of these at once would be two cases writing
+//   one room table: `pc:list-mobiles` would see the other's phone, a
+//   presence probe would see the other's PC. They stay SEQUENTIAL, in table
+//   order, as one chain.
+//     G1 G2 G3 G5 G6 G7 G8  registerAndPair(url) on the shared instance
+//     G10  registerAndPair(url)          G12  four sockets + pc:list-mobiles
+//     G13  crosstalkLeg(url) LAN leg     G14  setupMachine(url) ×2 + HTTP POST
+//     G16  presence over the shared url  G17  posts a webhook AT standaloneUrl
+//     G19 G20 G23  registerAndPair(url)  G27  8 sockets, one shared room
+//     G28  parks/drops web clients       G33  registerAndPair(url)
+//   ⚠️ G13/G14/G16/G17/G19/G20/G23 ALSO start their own saas server; that half
+//   is isolated, but their standalone half is not, so the whole case is shared.
+//
+//   SELF-STARTING (13) — start every server they touch, with FLOWMIC_PORT '0'
+//   (an ephemeral port), FLOWMIC_DB_PATH `:memory:` or a `mkdtempSync` file, and
+//   a `mailFileDir()` that is itself a mkdtemp (harness.mjs says why). Nothing
+//   they write is addressed by a fixed name, so N of them can run at once.
+//     G4 (pure SKIP, touches nothing)  G9 G11 G15 G18 G21 G22 G24 G25 G26 G30
+//     G31 G32
+//   ⚠️ G22 is the one entry whose signature takes a parameter (`_sharedUrl`)
+//   and ignores it — declared with `ignoresUrl` below so the arity cross-check
+//   below does not have to trust this sentence.
+//
+// The chain counts as ONE task in the same pool, so `FLOWMIC_GOLDEN_CONCURRENCY`
+// means "at most N cases executing at once" for the whole suite. Set it to 1 and
+// the runner is sequential again — that is the reverse control, and its wall
+// clock is written beside the pooled ones under MEASURED below.
+//
+// 🔴 OUTPUT ORDER IS STILL TABLE ORDER. Results are stored by id and printed
+// from `GOLDEN`, never in completion order — same rule as
+// scripts/run-script-tests.mjs, and for the same reason: a summary that
+// reshuffles itself run to run cannot be diffed against the last one.
+//
+// 🔴 A CLAIM THIS CHANGE MADE STALE, AND WHAT REPLACED IT:
+// verify/golden/g31-integrator-arm.mjs:613 used to argue that a G31 edit could
+// not have caused a G10 failure because the suite ran one case at a time. That
+// reason is gone. The schedule now "puts G31 in the `pool` group and G10 in the
+// `chain` group", so the two DO overlap whenever FLOWMIC_GOLDEN_CONCURRENCY > 1.
+// The comment there has been rewritten to rest on isolation instead of order —
+// G31 brings its own saas server on an ephemeral port with a mkdtemp db, so the
+// two share the CPU and nothing else. The same file also records that G10 is
+// flaky on its own clock — 4 pass / 1 fail across six clean sequential runs —
+// which is worth knowing before reading one pooled run as evidence about the
+// pool.
+//
+// MEASURED on dev-pc-a (16C/32T), quiet box (another lane's flutter run was
+// locked out for every reading), medians of three:
+//   FLOWMIC_GOLDEN_CONCURRENCY=1 → 174.8 s  (reverse control: the pool is real)
+//   FLOWMIC_GOLDEN_CONCURRENCY=4 →  65.6 s  ⇐ default when nothing is set
+//   FLOWMIC_GOLDEN_CONCURRENCY=6 →  65.7 s
+// All nine runs printed PASS=30 SKIPPED=2 FAIL=0 and exited 0.
+//
+// 🔴 4 AND 6 ARE THE SAME NUMBER, AND THAT IS THE INTERESTING PART: past three
+// workers the suite is no longer bounded by the pool. Sequentially the cases
+// cost 170.6 s in total, but two tasks own almost all of it — G32 at 61.4 s
+// (its own header: `FLOWMIC_PLAN_LIMITS` takes integer minutes, so 60 s is the
+// shortest ceiling the PRODUCTION config path can express) and the shared chain
+// at 61.0 s, of which G28 alone is 39.3 s (GA-04's real grace window). Three
+// workers already run those two side by side with one spare for the 48 s tail,
+// so the floor is ~62 s + ~4 s of protocol/server-core build and no worker
+// count goes under it. Making it faster from here means making G32 or G28 cheap,
+// and both are refused for the reason each states in its own file.
+// Per-case wall clock is on every row and the five slowest are printed under the
+// summary, so the next person re-derives this instead of believing it.
 
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -68,11 +148,19 @@ import {
   PASS, SKIP, FAIL, registerAndPair, terminalFrameWindowMs,
 } from './harness.mjs';
 
-// The deadlines G2/G3/G10 wait on are the PRODUCT's, read from the product's own
+// The deadlines G2/G3 wait on are the PRODUCT's, read from the product's own
 // source — see terminalFrameWindowMs in harness.mjs for the CI failure that put
 // them here and the measurements that sized them.
+//
+// 🔴 G10 USED TO BE ON THAT LIST AND IS NOT ANY MORE (2026-09-11, card G10-TIMING).
+// It read `DEFAULT_ENGINE_SPAWN_TIMEOUT_MS` from src/stt/orchestrator-types.ts
+// and waited spawn-cap + 2 s. MEASURED: that cap does not — and on this path
+// CANNOT — govern the frame it was waiting for. See G10's own `MOBILE_TOLD_*`
+// constant for the numbers; the short version is that the cap's timer is a
+// `setTimeout` and sherpa-local's cold open blocks the event loop for seconds,
+// so the cap never fires and the frame is a SUCCESS (`engine-status{ready}`),
+// not the timeout failure the window was sized for.
 const COMPOSE_SRC = 'src/compose/mode.ts';
-const STT_SPAWN_SRC = 'src/stt/orchestrator-types.ts';
 // What a `requires` entry means, including the internal-only waiver. Same reason
 // the wire helpers live in one place: the rule has ONE definition, and both this
 // runner and scripts/opensource-export.mjs answer to it.
@@ -80,8 +168,13 @@ import { publicExportExclusions, resolveRequires, requirePath } from './requires
 // The declared skip budget (lane L4) — see that file's header for the rule and
 // the measured seed. Data only; the enforcement lives in main()'s summary.
 import { EXPECTED_SKIPS } from './expected-skips.mjs';
+// Which cases may share the box, and the pool that lets them (card L3). Data +
+// its drift checks live there; the narrative is this file's header.
+import { planSchedule, resolveConcurrency, runPool } from './scenario-schedule.mjs';
 import { G9 } from './g9-cloud-admission.mjs';
+import { G10 } from './g10-record-only.mjs';
 import { G11 } from './g11-console-surface.mjs';
+import { G12 } from './g12-paired-phone-table.mjs';
 import { G13 } from './g13-no-crosstalk.mjs';
 import { G14 } from './g14-outbox-drain-crosstalk.mjs';
 import { G15 } from './g15-cloud-image-policy.mjs';
@@ -92,8 +185,18 @@ import { G19 } from './g19-deferred-not-autoinjected.mjs';
 import { G20 } from './g20-cloud-leg-roundtrip.mjs';
 import { G21 } from './g21-pcid-cloud-pairing.mjs';
 import { G22 } from './g22-settings-cross-channel.mjs';
+import { G23 } from './g23-dom-inject-mode.mjs';
+import { G24 } from './g24-billing-budget.mjs';
+import { G25 } from './g25-web-room.mjs';
+import { G26 } from './g26-site-demo.mjs';
+import { G27 } from './g27-web-identity-dedup.mjs';
+import { G28 } from './g28-web-room-release.mjs';
+import { G30 } from './g30-payer-matrix.mjs';
+import { G31 } from './g31-integrator-arm.mjs';
+import { G32 } from './g32-continuous-minutes-cap.mjs';
+import { G33 } from './g33-control-key-receipt.mjs';
 
-const AUDIO = { sample_rate: 16000, channels: 1, encoding: 'pcm_s16le', mode: 'realtime', source_lang: 'zh' };
+// `AUDIO` left with G10 (card G10-TIMING) — it was this file's only reader.
 
 // ── the eight golden paths ──────────────────────────────────────────────────
 const GOLDEN = [
@@ -309,259 +412,16 @@ const GOLDEN = [
   // Card VERIFY-1 (2026-08-11): G9's gate step pushed this file past the
   // 800-line cap — split VERBATIM into its own module, the G11/M1 precedent.
   G9,
-  {
-    id: 'G10',
-    name: 'record-only → kept locally → deferred redelivery (record-only, no fan-out, later re-inject)',
-    requires: [SERVER_DIST, path.join(SERVER_CORE, STT_SPAWN_SRC)],
-    async fn(url) {
-      // §6.4 headline narrative: an utterance the user keeps on the phone (delivery:'none')
-      // is NEVER injected — the server must not fan the audio:start out to the PC
-      // (the record-only red line). Later the same entry is deferred-redelivered via inject:request
-      // and THEN the delivery truth chain runs: PC gets the request, replies
-      // inject:result, and the row's status flips noted → injected. Hermetic:
-      // standalone in-process server, sim PC + sim mobile, no LAN / no real STT.
-      const { pc, mobile, reg, pair } = await registerAndPair(url);
-      try {
-        // 1. RED LINE — delivery:'none' says "keep it on the phone": the PC must
-        //    receive NO audio:start fan-out (STT engine is unwired here; the
-        //    fan-out gate runs BEFORE that, so this asserts the gate, not STT).
-        //    GA-02 widened this from "zero audio fan-out" to "zero audio AND zero
-        //    stt:* fan-out": the content leg used to cross unconditionally.
-        //    Honest scope note (book 13 P7 — no stand-in coverage): this hermetic run
-        //    has no STT engine, so the frames that really fly here are audio:start
-        //    (gated in audio.handler) and the fail-loud stt:error (emitted straight
-        //    at the mobile socket). Those two are asserted below for real. The
-        //    stt:interim / stt:final / stt:level content leg cannot be produced
-        //    without an engine, so it is asserted on the PRODUCTION seam itself —
-        //    makeSttEmitter, every frame the bridge can send — in
-        //    apps/server-core/test/audio-fanout.test.ts (GA-02 describe block).
-        //    A LAN-engine end-to-end version is an owner-realenv item (GA-24).
-        //    🔴 UPGRADED 2026-07-31 (card G) FROM AN EVENT-NAME LIST TO A RED LINE.
-        //    Everything above is an allow-list of names that must not arrive, and
-        //    an allow-list only ever guards the names somebody thought of. The
-        //    rule owner stated is "'record-only' entries are unconditionally not synced to the PC" — not one character may
-        //    reach the PC — so the assertion is now written against the FRAMES: across
-        //    the whole record-only window (the audio:start below AND the
-        //    history:create in step 2, which is the only place this run's text
-        //    ever crosses the server at all), the PC socket must receive NOTHING,
-        //    under any event name. A future fan-out invented for record-only
-        //    entries fails here even though nobody added it to the list.
-        //    The recorder stays armed into step 3 on purpose — see the probe
-        //    control there, which is what keeps this silence from being vacuous.
-        const pcFrames = recordAll(pc);
-        const pcQuietP = neverWithin(pc, 'audio:start', 500);
-        const pcSttQuietP = Promise.all(
-          ['stt:interim', 'stt:final', 'stt:level', 'stt:error', 'stt:engine-status', 'audio:auto-stopped']
-            .map((e) => neverWithin(pc, e, 500).then((quiet) => (quiet ? null : e))),
-        );
-        // The mobile MUST still be told what is happening on its own session
-        // (withholding from the PC is not the same as swallowing: no silent failure
-        // cuts both ways). Either face counts: stt:engine-status{failed} or the
-        // terminal stt:error.
-        // 🔴 CORRECTED 2026-08-07 — the sentence that used to stand here said
-        // "the ladder speaks first and the terminal error only lands after the
-        // 1/2/4s ×3 retry ladder". Measured on dev-pc-a: FALSE, and it
-        // is what made 2500ms look sufficient. A cold-connect failure never
-        // reaches the ladder at all — orchestrator-core.ts holds `engineOpening`
-        // for the whole of engine.open(), so the spawn cap owns the verdict:
-        // BOTH frames arrive together at 5007ms, with no `retry_count` and not
-        // one `reconnecting` in between. Nothing is emitted before that cap, so
-        // a window under it can only ever report a silence that isn't there.
-        // (anti-façade ④: a comment asserting behaviour elsewhere is an assertion,
-        // and this one had gone stale into a load-bearing wrong answer.)
-        const w = terminalFrameWindowMs(STT_SPAWN_SRC, 'DEFAULT_ENGINE_SPAWN_TIMEOUT_MS');
-        const mobileToldP = Promise.race([
-          once(mobile, 'stt:engine-status', w).catch(() => null),
-          once(mobile, 'stt:error', w).catch(() => null),
-        ]);
-        mobile.emit('audio:start', { ...AUDIO, delivery: 'none' });
-        if (!(await pcQuietP)) return FAIL('delivery:none leaked an audio:start fan-out to the PC (record-only red line)');
-        const leaked = (await pcSttQuietP).filter(Boolean);
-        if (leaked.length) return FAIL(`delivery:none leaked ${leaked.join(', ')} to the PC (内容根本没去 PC red line)`);
-        if (!(await mobileToldP)) return FAIL('record-only utterance failed on the server but the MOBILE was told nothing (silent failure)');
-
-        // 2. kept locally — REWRITTEN 2026-07-31 (0.2.27, owner architecture ruling no-cloud-sync).
-        //    This used to assert a server row with status:'noted'. "Local" now means what
-        //    the word says — the phone owns it, the server stores nothing — so what is
-        //    worth asserting flipped: not "the row was created" but "the server said so
-        //    OUT LOUD". Retiring an event by unregistering it is a silent drop (red line);
-        //    the handler stays and refuses.
-        const nowIso = new Date().toISOString();
-        const entryId = 'g10-noted-entry';
-        const spoken = '这句话留在手机上';
-        const item = {
-          id: entryId, pairing_id: pair.pairing_id ?? null, pc_device_id: reg.pc_id,
-          user_id: 'default', mobile_id: null, mode: 'realtime',
-          source_text: spoken, source_lang: 'zh', output_text: spoken, output_lang: null,
-          duration_ms: null, segments_count: 0, status: 'noted', edited: false,
-          created_at: nowIso, updated_at: nowIso,
-        };
-        const created = await ack(mobile, 'history:create', { item });
-        if (created === undefined) return FAIL('history:create was SILENTLY DROPPED (no ack at all) — retiring an event by unregistering it is the red line');
-        // The specific wrong answer, pinned so it can never come back: a 0.2.26 phone
-        // hard-codes SETTINGS_SYNC_FAIL into "the other side deleted this row" and DELETES the local row
-        // (timeline_sync.dart → timeline_store.removeDeletedByPeer). Reusing that code
-        // to report a server-side retirement would destroy the user's own record and
-        // tell them a peer did it. Two questions, one wire answer — this repo's #1 bug.
-        if (created?.error === 'SETTINGS_SYNC_FAIL') return FAIL('retirement answered with the code the phone turns into a local DELETE (SETTINGS_SYNC_FAIL)');
-        if (created?.error !== 'HISTORY_SYNC_RETIRED') return FAIL(`history:create should be refused with HISTORY_SYNC_RETIRED, got: ${JSON.stringify(created)}`);
-
-        // 🔴 2b. THE RED LINE, read now that the whole record-only window is over:
-        //     the PC received not one frame of any kind while the user kept this
-        //     utterance on the phone. Stated as "zero frames" rather than "zero
-        //     frames carrying the text" deliberately — the text only exists on the
-        //     wire during history:create here, so a text-only probe would be silent
-        //     about a fan-out that announces the entry without quoting it (that is
-        //     precisely what the retired `history:updated` did).
-        if (pcFrames.frames.length > 0) {
-          return FAIL(`a delivery:'none' utterance put ${pcFrames.frames.length} frame(s) on the PC socket: ${pcFrames.frames.map((f) => f.event).join(', ')} — 「仅记录」条目无条件不同步 PC`);
-        }
-
-        // 3. deferred redelivery — the mobile re-injects the kept entry; the PC receives it with
-        //    the entry_id echoed verbatim (A-58 exact correlation, no FIFO drift).
-        const injReqP = once(pc, 'inject:request');
-        // 0.2.33: `target_pc_id` is mandatory — an unaddressed frame is refused
-        // (INJECT_PC_UNSPECIFIED) and would never reach the PC, so a deferred redelivery that omits
-        // it would fail this step for a reason that has nothing to do with deferred redelivery.
-        // The address a real phone writes is the `pc_id` from its pairing ack; G13
-        // owns the addressing verdicts themselves.
-        mobile.emit('inject:request', { text: spoken, source: 'history', entry_id: entryId, target_pc_id: pair.pc_id });
-        const injReq = await injReqP;
-        if (injReq.entry_id !== entryId || injReq.text !== spoken) return FAIL(`补投 inject:request mis-echoed to PC: ${JSON.stringify(injReq)}`);
-        // ⚠️ THE PROBE'S OWN CONTROL, on the SAME recorder that reported the
-        //    silence above. A recorder that sees nothing because it is wired to
-        //    nothing reports a perfect red line forever. Here it is looking at a
-        //    frame that DID arrive, carrying the very sentence step 2b said had
-        //    not: if this is empty, the "zero frames" assertion above proved nothing.
-        if (pcFrames.carrying(spoken).length === 0) {
-          return FAIL('the recorder that reported 「零帧」 cannot see a frame that DID carry the sentence — that assertion is vacuous');
-        }
-
-        // 4. Delivery truth — PC reports the outcome and the MOBILE hears it with the
-        //    same entry_id. This step is unchanged and it is now where the whole
-        //    delivery truth lives: the phone owns the row, so the echo IS the record.
-        const injResP = once(mobile, 'inject:result');
-        pc.emit('inject:result', { ok: true, entry_id: entryId, mode: 'sendinput' });
-        const injRes = await injResP;
-        if (injRes.ok !== true || injRes.entry_id !== entryId) return FAIL(`inject:result truth-chain inconsistent: ${JSON.stringify(injRes)}`);
-
-        // 5. The server keeps NOTHING. The old step 5 read the row back and asserted
-        //    noted→injected; that moved to step 4's echo (the phone is the owner). What
-        //    is left to prove is the negative, and over the WIRE rather than by reading
-        //    the DB: a read that answers with a CODE cannot quietly answer with an empty
-        //    page, which would look identical to "you have no records" (0.2.26's web console).
-        const list = await ack(mobile, 'history:list', {});
-        if (list === undefined) return FAIL('history:list was SILENTLY DROPPED (no ack at all)');
-        if (Array.isArray(list?.items)) return FAIL(`history:list still returns a page — the server is still serving history: ${JSON.stringify(list)}`);
-        if (list?.error !== 'HISTORY_SYNC_RETIRED') return FAIL(`history:list should be refused with HISTORY_SYNC_RETIRED, got: ${JSON.stringify(list)}`);
-
-        return PASS('🔴 delivery:none put ZERO frames OF ANY NAME on the PC socket across the whole record-only window (audio:start + the history:create that carries the sentence) — the named audio:start/stt:* checks still run inside it, and the same recorder is proved non-blind against the 补投 frame that DID carry the sentence; the mobile was still told (fail-loud intact); 补投 inject:request relayed with entry_id echo and the PC verdict reached the phone (delivery truth now lives on the owner); server history REFUSED out loud on both create and list (HISTORY_SYNC_RETIRED, never a silent drop, never an empty page)');
-      } finally {
-        pc.disconnect(); mobile.disconnect();
-      }
-    },
-  },
+  // card G10-TIMING (2026-09-11) moved G10 into its own module — the measured
+  // account of why its window was wrong is longer than the case, and this file
+  // was at the 800-line cap. Same remedy as G9/G11/G13–G20, body VERBATIM.
+  G10,
   // card M1 (0.3.0) pushed step 6 past a paragraph of explanation and this file past
   // its 800-line cap, so G11 moved into its own module — same reason as G13–G20,
   // and the body went over VERBATIM. Cap breach fixed by SPLITTING, never by
   // deleting the reasoning (0.2.52 §5 set that precedent on two Dart files).
   G11,
-  {
-    id: 'G12',
-    name: 'paired-phone table (R6 T-8: pc:list-mobiles — projection has no token / ownership isolation / real online state)',
-    requires: [SERVER_DIST],
-    async fn(url) {
-      // The PC-side pairing query the device page reads. Three properties, all
-      // security- or honesty-shaped, over the REAL server:
-      //   ① the ack projection carries NO token (key or value, at any depth);
-      //   ② ownership isolation — PC-A cannot see a phone paired to PC-B, and a mobile-role
-      //      socket cannot run the query at all;
-      //   ③ `online` is REAL room presence — it flips false when the phone's
-      //      socket goes away, while the pairing ROW survives (a pairing table,
-      //      not a presence table).
-      // SIM-MOBILE CAVEAT applies to the phone half (see the file header): this
-      // proves the SERVER + PC halves only.
-      const sockets = [];
-      const track = (s) => { sockets.push(s); return s; };
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      const tokenKeys = (v, path = '$') => {
-        const hits = [];
-        if (Array.isArray(v)) return v.flatMap((x, i) => tokenKeys(x, `${path}[${i}]`));
-        if (v !== null && typeof v === 'object') {
-          for (const [k, x] of Object.entries(v)) {
-            if (/token|secret|password/i.test(k)) hits.push(`${path}.${k}`);
-            hits.push(...tokenKeys(x, `${path}.${k}`));
-          }
-        }
-        return hits;
-      };
-      try {
-        // ── PC-A + its phone ──
-        const pcA = track(await connect(url));
-        const regA = await ack(pcA, 'pc:register', { device_name: 'Golden PC A', client_instance_id: 'inst-g12-a-0123456789' });
-        const mobA = track(await connect(url));
-        const joinedA = once(pcA, 'pc:mobile-joined');
-        const pairA = await ack(mobA, 'mobile:pair', { short_code: regA.short_code });
-        await joinedA;
-        if (!pairA.pairing_id || !pairA.mobile_token) return FAIL(`pair A produced no pairing: ${JSON.stringify(pairA)}`);
-
-        // ── PC-B + its own phone (the cross-room negative, same user) ──
-        const pcB = track(await connect(url));
-        const regB = await ack(pcB, 'pc:register', { device_name: 'Golden PC B', client_instance_id: 'inst-g12-b-0123456789' });
-        const mobB = track(await connect(url));
-        const joinedB = once(pcB, 'pc:mobile-joined');
-        const pairB = await ack(mobB, 'mobile:pair', { short_code: regB.short_code });
-        await joinedB;
-        if (regA.pc_id === regB.pc_id) return FAIL('the two PCs collapsed onto one device row — the isolation check would be vacuous');
-
-        // ① it lists them + projection has no token.
-        const listA = await ack(pcA, 'pc:list-mobiles', {});
-        const rowsA = listA.mobiles;
-        if (!Array.isArray(rowsA)) return FAIL(`pc:list-mobiles returned no mobiles array: ${JSON.stringify(listA)}`);
-        const mine = rowsA.find((m) => m.pairing_id === pairA.pairing_id);
-        if (!mine) return FAIL(`the just-paired phone is NOT listed: ${JSON.stringify(rowsA)}`);
-        const leaked = tokenKeys(listA);
-        if (leaked.length > 0) return FAIL(`ack leaked secret-ish key(s): ${leaked.join(', ')}`);
-        if (JSON.stringify(listA).includes(pairA.mobile_token)) return FAIL('ack leaked the mobile_token VALUE');
-        const fields = Object.keys(mine).sort().join(',');
-        // `device_uid` joined the projection in db52ca0 (v0.2.4 machine-level
-        // identity, owner-authorised) and this list was never updated — so G12 has
-        // been RED since 2026-07-29 and nobody saw it, because `pnpm golden` sits
-        // in no gate at all (pre-commit runs verify:lint + verify:types only).
-        // Kept as an exact-set assertion on purpose: the guard exists to catch a
-        // field APPEARING here, and a loose check would not. A token would still
-        // fail it — device_uid is a machine identity, not a secret (tokenKeys above
-        // is the separate secret-leak guard, and it still passes).
-        if (fields !== 'device_uid,last_seen_at,mobile_name,online,paired_at,pairing_id')
-          return FAIL(`unexpected projection fields: ${fields}`);
-        if (mine.online !== true) return FAIL(`a phone with a LIVE socket reported online=${mine.online}`);
-
-        // ② ownership isolation: A cannot see B's phone, B cannot see A's.
-        if (rowsA.some((m) => m.pairing_id === pairB.pairing_id)) return FAIL('PC-A listed a phone paired to PC-B (跨房泄漏)');
-        const listB = await ack(pcB, 'pc:list-mobiles', {});
-        if (!(listB.mobiles ?? []).some((m) => m.pairing_id === pairB.pairing_id)) return FAIL('PC-B cannot see its OWN phone');
-        if ((listB.mobiles ?? []).some((m) => m.pairing_id === pairA.pairing_id)) return FAIL('PC-B listed a phone paired to PC-A (跨房泄漏)');
-
-        // ② the query is PC-only — a mobile-role socket is refused, not answered.
-        const asMobile = await ack(mobA, 'pc:list-mobiles', {});
-        if (asMobile.error !== 'AUTH_TOKEN_INVALID') return FAIL(`a MOBILE socket got an answer instead of AUTH_TOKEN_INVALID: ${JSON.stringify(asMobile)}`);
-
-        // ③ real online state: the phone leaves → online flips false, the ROW stays.
-        mobA.disconnect();
-        await sleep(300);
-        const afterLeave = await ack(pcA, 'pc:list-mobiles', {});
-        const stillThere = (afterLeave.mobiles ?? []).find((m) => m.pairing_id === pairA.pairing_id);
-        if (!stillThere) return FAIL('the pairing row vanished when the phone disconnected (this is a pairing table, not a presence table)');
-        if (stillThere.online !== false) return FAIL(`a disconnected phone still reports online=${stillThere.online} (编造在线态)`);
-
-        return PASS('paired phone listed after pairing; projection = the public six with NO token key or value; PC-A/PC-B mutually invisible; mobile-role socket refused (AUTH_TOKEN_INVALID); online flips true→false on disconnect while the pairing row survives');
-      } catch (e) {
-        return FAIL(`threw: ${e.message}`);
-      } finally {
-        for (const s of sockets) { try { s.disconnect(); } catch { /* already gone */ } }
-      }
-    },
-  },
+  G12,
   // 🔴 The owner's "life-or-death line" regression. Lives in its own module because this
   // file is at its 800-line cap (see harness.mjs's header).
   G13,
@@ -609,6 +469,106 @@ const GOLDEN = [
   // and it is the only path that needs a standalone AND a saas server alive at the
   // same moment, because the divergence it asserts on cannot exist inside one KV.
   G22,
+  // S2-03 — the `mode:'dom'` receipt a FLOWMIC-WEB target sends. Own module for
+  // the same 800-line-cap reason as G13-G22. It is the only path whose CENTRAL
+  // assertion is a NEGATIVE one about the relay (an off-enum mode reaches nobody),
+  // because the addendum that specified the card claimed the opposite and the
+  // deploy order depends on which is true.
+  G23,
+  // card S2-02 — the budget meter: pushed at join and at every press, moving
+  // while somebody speaks, reaching zero, and the relay ending the recording
+  // itself. Own module for the same 800-line-cap reason as G13/G14/G15, and it
+  // needs no vendor engine (see its header), so it never SKIPs.
+  G24,
+  // card S2-04 — the browser target's room: minted by an HTTP POST, entered by
+  // `pc:reconnect`, paired into by a phone, and carrying an utterance. Here
+  // rather than in a unit test because the claim spans two protocols and four
+  // modules that each have to agree about one row (see its header).
+  G25,
+  // card M4-01 — the site demo end to end: an anonymous identity, its room, a
+  // phone pairing in, `budget.mode:'trial'` on every surface that carries it,
+  // and the meter stopping the recording. Here rather than in a unit test
+  // because that one field is the ONLY way either end knows it is a demo, and
+  // it is derived five layers away from where it is rendered (see its header).
+  G26,
+  // card ID-3 — the relay half of web-client identity dedup: a stable
+  // device_uid keeps a browser tab's pairing to ONE row across reconnect,
+  // re-pair, and revoke-then-re-pair, over the real server. Own module for
+  // the same 800-line-cap reason as G13/G14/G15. It needs no vendor engine,
+  // so it never SKIPs.
+  G27,
+  // card R-2 — how fast the relay frees a room when a web client parks vs
+  // when its TCP connection is merely destroyed: a deliberate close collapses
+  // GA-04's grace window (<1s to pc:mobile-left, no ReleaseSuppression armed,
+  // A's own return is never PAIR_RELEASED); a destroyed socket runs the full
+  // grace window before pc:mobile-left, even though — measured, not assumed,
+  // see the file's own header — admission of a NEW device_uid is gated by
+  // socket.connected alone and is NOT delayed by that same window. No vendor
+  // engine, so it never SKIPs.
+  G28,
+  // 🔴🔴 G29 IS GONE — RETIRED 2026-09-11 BY CARD MP-6, NOT LOST. Its whole
+  // subject was 「an UNSIGNED BROWSER paired to somebody's REAL computer spends
+  // its OWN two minutes at `mode:'trial'`, not the owner's month」, and owner
+  // §11 removed that sentence from the product: an unsigned guest on a real
+  // desktop is now billed to the DESKTOP'S OWNER (`resolvePayer` step 4,
+  // reason 'peer'), mints no trial identity at all
+  // (`auth/web-trial-identity.ts` mints for `'demo'` rooms and nowhere else),
+  // and is told `mode:'plan'`. Every one of that file's fourteen sections
+  // asserted the superseded half.
+  //
+  // 🔴 IT IS DELETED RATHER THAN LEFT REGISTERED-AND-WEAKENED, which is this
+  // repo's rule for a cancelled flow: either the flow goes, or the reason it
+  // is kept is written where it stood. A file repointed at the demo room would
+  // have been a second, thinner copy of G26 — and 「two goldens about one
+  // behaviour」 is how one of them quietly stops being maintained.
+  //
+  // WHERE ITS LIVE COVERAGE WENT, so nobody has to reconstruct this:
+  //   · 「an unsigned guest on a real desktop is billed to the owner, mints no
+  //     trial row, and the owner's frame carries `guest_speaker`」 → G30 §7.
+  //   · 「a trial view exists, says `mode:'trial'`, carries `resets_at:null`
+  //     and NR-31's `free_plan_minutes` off the EFFECTIVE plan table, and is
+  //     absent from every `mode:'plan'` view」 → G26 §8 and §14. The demo room
+  //     is now the only room kind that has a trial at all, so that is also the
+  //     only place those assertions can live.
+  //   · 「the same browser continues on the grant it already has; a different
+  //     browser starts fresh; exactly one anonymous row per browser」 → G26
+  //     §7 and §12, and G27 for the pairing-row dedup half.
+  //   · 「QTA-2 still gates on the PC owner's ledger」 → G30 §5, which drives it
+  //     with a SIGNED-IN phone. G29's version drove it with an unsigned
+  //     visitor, and under MP-6 that visitor is metered to the owner anyway —
+  //     so the refusal would have arrived from the FIRST gate and proved
+  //     nothing about the second.
+  //
+  // ⚠️ ONE THING IS GENUINELY UNCOVERED AND IS NAMED HERE RATHER THAN DROPPED:
+  // card NR-29's mobile-slot exemption. G29 §11 was its only end-to-end proof,
+  // and MP-6 changed what it covers — `willMint` now answers true only inside a
+  // demo room, so an unsigned browser on a REAL desktop takes one of the
+  // owner's handset slots again. That may well be right (the owner is paying
+  // for that visitor now), but it is a behaviour change nobody asserted, and a
+  // deleted file is exactly where such a thing disappears without a trace.
+  G30,
+  // card MP-1 — the third-party host arm. Its own file rather than five more
+  // sections in G30: that one stands at 787 of the 800-line cap, and it asks a
+  // different question (「which branch chose this payer」 vs 「does the integrator
+  // ARM exist and does its ceiling stop a recording」).
+  G31,
+  // card G-8 — the per-tier SITTING LENGTH ceiling, enforced by the relay. Its
+  // own file rather than a section of G24: that case spends an account to zero
+  // and asks 「does the MONEY wall work」, while this one deliberately leaves the
+  // money untouched and asks 「does the LENGTH wall work」 — the two ceilings are
+  // the pair `billing/session-cap.ts` exists to keep apart.
+  // ⚠️ It costs about a minute of wall clock and says why in its own header:
+  // `FLOWMIC_PLAN_LIMITS` takes integer minutes, so 60 s is the shortest ceiling
+  // the PRODUCTION config path can express — and going around that path is the
+  // one thing that would stop this case from being able to fail for the original
+  // reason.
+  G32,
+  // card MP-14 — the receipt `control:key` never had. Its own file rather than a
+  // section of G23: that one asks whether a DELIVERY verdict survives the relay
+  // verbatim, this one asks whether a KEYPRESS can be refused out loud at all.
+  // The two frames are deliberately different events for the same reason
+  // (a keypress has no row, no text and no mode), so their paths are too.
+  G33,
 ];
 
 async function main() {
@@ -645,8 +605,34 @@ async function main() {
   // missed twice. Both packages are built every run: protocol first, because
   // server-core's dist embeds it. ~10 s on a gate that already takes ~20 s, in
   // exchange for the run being ABOUT the code in the working tree.
-  process.stdout.write('[golden] building @flowmic/protocol + @flowmic/server-core (dist is what golden runs) …\n');
-  for (const pkg of ['@flowmic/protocol', '@flowmic/server-core']) {
+  //
+  // -- THE ONE WAY TO SKIP HALF OF IT, AND WHY (2026-09-12) -----------------
+  // `FLOWMIC_GATE_PROTOCOL_DIST_PREBUILT=1` means: the caller built
+  // `packages/protocol` from THIS tree moments ago and is running other lanes
+  // that are reading `packages/protocol/dist` RIGHT NOW. Rebuilding it here
+  // would have tsup delete and rewrite those files under a concurrent
+  // `tsc --noEmit` or vitest -- a false red with no relation to the product.
+  //
+  // Only verify/run-delivery-fast.mjs sets it, and only after its Stage 0
+  // barrier ran `pnpm verify:protocol-dist` to completion. `pnpm golden` on
+  // its own, `verify:delivery`, and CI never set it, so the freshness rule
+  // above is untouched on every path a release takes.
+  //
+  // THE FLAG IS ABOUT PROTOCOL ONLY. server-core's dist is still rebuilt here
+  // every run, unconditionally: it is what `startServer()` spawns, no other
+  // lane touches it, so there is nothing to race and no reason to trust
+  // anyone else to have built it. A flag that skipped BOTH would be one env
+  // var away from golden reporting on a build nobody made.
+  const protocolPrebuilt = process.env.FLOWMIC_GATE_PROTOCOL_DIST_PREBUILT === '1';
+  const toBuild = protocolPrebuilt
+    ? ['@flowmic/server-core']
+    : ['@flowmic/protocol', '@flowmic/server-core'];
+  process.stdout.write(
+    protocolPrebuilt
+      ? '[golden] building @flowmic/server-core (dist is what golden runs); @flowmic/protocol was already built from this tree by the caller (FLOWMIC_GATE_PROTOCOL_DIST_PREBUILT=1) …\n'
+      : '[golden] building @flowmic/protocol + @flowmic/server-core (dist is what golden runs) …\n'
+  );
+  for (const pkg of toBuild) {
     const { code } = await run('pnpm', ['--filter', pkg, 'build']);
     if (code !== 0) {
       // Loud, not silent: a build failure here makes every server-dependent G
@@ -675,43 +661,68 @@ async function main() {
   // Read once: every G asks the same question about the same tree.
   const exclude = await publicExportExclusions();
 
-  const results = [];
+  const byId = new Map(); // G id → result. Printed from GOLDEN, never from this.
   const waivers = new Map(); // G id → [{rel, why}] — printed by name in the summary
-  for (const g of GOLDEN) {
+
+  // One case, start to finish, INCLUDING its precondition checks — so the ms a
+  // row reports is the wall clock the suite actually spent on it, not just the
+  // part inside `fn`.
+  const runOne = async (g) => {
+    const t0 = Date.now();
+    const done = (r) => byId.set(g.id, { ...g, ...r, ms: Date.now() - t0 });
     const { missing, waived, drift } = resolveRequires(g.requires, exclude);
     if (drift.length > 0) {
       // The declaration and opensource-manifest.mjs disagree. Not a product
       // failure — a contract failure — so it is named as one instead of hiding
       // inside "missing required file(s)".
-      results.push({ ...g, ...FAIL(`\`requires\` contract violation:\n           · ${drift.join('\n           · ')}`) });
-      continue;
+      return done(FAIL(`\`requires\` contract violation:\n           · ${drift.join('\n           · ')}`));
     }
-    if (missing.length > 0) {
-      // A missing file counts as FAIL, never a silent pass.
-      results.push({ ...g, ...FAIL(`missing required file(s): ${missing.join(', ')}`) });
-      continue;
-    }
+    // A missing file counts as FAIL, never a silent pass.
+    if (missing.length > 0) return done(FAIL(`missing required file(s): ${missing.join(', ')}`));
     if (waived.length > 0) waivers.set(g.id, waived);
     const needsServer = (g.requires ?? []).some((e) => requirePath(e) === SERVER_DIST);
-    if (needsServer && !url) {
-      results.push({ ...g, ...FAIL('real server unavailable (build/start failed)') });
-      continue;
-    }
+    if (needsServer && !url) return done(FAIL('real server unavailable (build/start failed)'));
     try {
-      const r = await g.fn(url);
-      results.push({ ...g, ...r });
+      return done(await g.fn(url));
     } catch (e) {
-      results.push({ ...g, ...FAIL(`threw: ${e.message}`) });
+      return done(FAIL(`threw: ${e.message}`));
     }
-  }
+  };
+
+  const { chain, pool, notes } = planSchedule(GOLDEN);
+  const { n: concurrency, note: concurrencyNote } = resolveConcurrency();
+  if (concurrencyNote) process.stdout.write(`[golden] ${concurrencyNote}\n`);
+  for (const note of notes) process.stdout.write(`[golden] SCHEDULE: ${note}\n`);
+  process.stdout.write(
+    `[golden] ${chain.length} case(s) share the one standalone server and run in table order as a single chain; `
+    + `${pool.length} start their own servers; at most ${concurrency} of these ${pool.length + 1} tasks run at once `
+    // The parenthetical is a HINT about a value you could set, not a report
+    // of the value in force - `at most N` above is the one in force. Spelled
+    // out because a reader who takes it as a report will attribute a POOLED
+    // run's wall clock to a sequential one, and mis-reading your own ruler is
+    // this repo's second headline failure shape.
+    + '(set FLOWMIC_GOLDEN_CONCURRENCY=1 for a fully sequential run)\n');
+
+  // The chain is ONE task in the same pool, so `concurrency` is the number of
+  // cases in flight for the whole suite rather than for half of it.
+  const chainTask = async () => { for (const g of chain) await runOne(g); };
+  await runPool([chainTask, ...pool.map((g) => () => runOne(g))], concurrency);
+
+  const results = GOLDEN.map((g) => byId.get(g.id) ?? { ...g, ...FAIL('never ran — the scheduler dropped it'), ms: 0 });
 
   if (server) server.child.kill();
 
   // ── summary table ──
   const icon = { PASS: 'PASS   ', SKIPPED: 'SKIPPED', FAIL: 'FAIL   ' };
   process.stdout.write('\n══════════════════════════ GOLDEN PATH SUMMARY ══════════════════════════\n');
+  // The `(N ms)` on every row is the whole point of being able to read this
+  // suite's cost at all: before card L3 the runner printed one summary at the
+  // end and NOTHING said which case spent the time, so the only way to find the
+  // expensive ones was to instrument it from outside (the 2026-09-13 cost
+  // ledger had to give up and report five checkpoints for 32 cases).
+  const ms = (r) => `(${String(r.ms ?? 0).padStart(6)} ms)`;
   for (const r of results) {
-    process.stdout.write(`  ${r.id}  ${icon[r.status]}  ${r.name}\n`);
+    process.stdout.write(`  ${r.id}  ${icon[r.status]}  ${ms(r)}  ${r.name}\n`);
     if (r.reason) process.stdout.write(`        └─ ${r.reason}\n`);
     // A waived requirement is NOT allowed to be invisible. Same `SKIP: <reason>`
     // vocabulary as scripts/run-script-tests.mjs, printed under the G it belongs
@@ -740,6 +751,14 @@ async function main() {
     );
   }
   process.stdout.write('──────────────────────────────────────────────────────────────────────────\n');
+  // Five slowest, because under a pool the suite's wall clock is the LONGEST
+  // task and not the sum — so "what would make this faster" is a question about
+  // these five and nothing else. ⚠️ Two of them are meant to be there: G32
+  // spends a real minute (integer-minute plan limits) and G28 spends GA-04's
+  // real grace window; each says so in its own header. Shortening those is
+  // refused, not pending.
+  const slowest = [...results].sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0)).slice(0, 5);
+  process.stdout.write(`  slowest 5: ${slowest.map((r) => `${r.id} ${((r.ms ?? 0) / 1000).toFixed(1)}s`).join('  ')}\n`);
   process.stdout.write(`  PASS=${n('PASS')}  SKIPPED=${n('SKIPPED')}  FAIL=${n('FAIL')}  (total ${results.length})\n`);
   if (undeclared.length > 0) {
     process.stdout.write(`  ✗ ${undeclared.length} UNDECLARED skip(s) — the gate fails (see the lines above).\n`);

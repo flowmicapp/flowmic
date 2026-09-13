@@ -268,6 +268,11 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     // was wired only sometimes would be a build that claims the protection
     // sometimes. It engages only for calls that carry an `operation_id`.
     operations: db.usageEffects,
+    // Card MP-1 — the per-key sub-quota counter, UNCONDITIONALLY for `events`'
+    // reason: a build that wired it only sometimes would enforce an integrator's
+    // ceiling on the admission path and move the number behind it only on some
+    // machines. `addUsage` is a no-op for every session that carries no key.
+    integratorKeys: db.integratorKeys,
     periodKeyFor: deps.periodKeyFor,
     ...(deps.now ? { now: deps.now } : {}),
   });
@@ -349,6 +354,11 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
         usageEventsEnabled: config.usageEventsEnabled,
         events: db.usageEvents,
         operations: claimInCallerTransaction(db.usageEffects),
+        // Card MP-1 — the replay tracker debits the SAME counter. A forwarded
+        // record that moved the bill on the writer without moving the key's
+        // counter would leave the sub-quota permanently behind on exactly the
+        // deployment that has two nodes.
+        integratorKeys: db.integratorKeys,
         // 🔴 THE SAME `usage_effects` CLAIM THE LOCAL TRACKER TAKES, joined to
         // the transaction this tracker already runs inside (audit F1). This
         // tracker is called from `forward-ledger.once`'s `BEGIN IMMEDIATE` and

@@ -24,29 +24,19 @@ import 'package:flutter/widgets.dart';
 import '../settings/app_strings.dart';
 import '../timeline/timeline_entry.dart';
 import 'time_label.dart';
+import 'control_key_face.dart';
+// Re-exported so `controlKeyLabel` is still reached through this file: the move
+// to control_key_face.dart was made for banner_queue.dart's sake, and a move
+// must not make callers (or their tests) edit imports to keep working.
+export 'control_key_face.dart' show controlKeyLabel;
 import 'tokens.dart';
 
-/// Translates the wire kind into **the name the key itself carries on the
-/// toolbar**.
-///
-/// 🔴 Reuses `keyEnter` and the three other existing getters, rather than
-/// starting a second vocabulary: the same key called 「清除」("Clear") on the
-/// button and something else in history is the same thing under two names
-/// (the copy-side version of this repo's #1 defect shape).
-///
-/// An unrecognised kind prints **the raw identifier verbatim**, never a made-up
-/// sentence — the same posture the phone takes for an unregistered error code
-/// (the 0.2.53 lesson: inventing a sentence for a code you don't recognise is
-/// worse than printing the identifier). `tab`/`space` are in the whitelist but
-/// have no button on the toolbar; landing here they can still say who they
-/// are.
-String controlKeyLabel(AppStrings strings, String kind) => switch (kind) {
-  'enter' => strings.keyEnter,
-  'backspace' => strings.keyBackspace,
-  'undo' => strings.keyUndo,
-  'clear' => strings.keyClear,
-  _ => kind,
-};
+// 🔴 `controlKeyLabel` moved VERBATIM to control_key_face.dart (card MP-14).
+// It is unchanged and still reached from here — the move exists because
+// banner_queue.dart now needs the same function and declares itself
+// Flutter-free, and a second copy of a display name is the copy-side version of
+// this repo's #1 defect shape, which that function's own comment already names.
+
 
 /// A single remote control-key row.
 class ChatControlTile extends StatelessWidget {

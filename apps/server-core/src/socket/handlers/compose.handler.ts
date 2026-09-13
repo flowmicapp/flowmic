@@ -25,6 +25,7 @@ import { errorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import { log } from '../../log';
 import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
+import { principalRefOf } from './audio-metering';
 
 export type { ComposeStartArgs };
 
@@ -83,8 +84,18 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
   const { guard, usageTracker } = deps;
 
   // *** billing call site (LLM metering) — the ONE recordLlmUsage site ***
+  //
+  // 🔴 card MP-9 — the admission's principal rides along, read off the SAME
+  // socket the STT leg reads (`principalRefOf`). Until this card the AI turn's
+  // row named nobody: a production `usage_events` on 2026-09-11 held an `stt`
+  // row with `payer_reason='self'` next to an `llm` row from the same session
+  // with NULL, so the one table an operator aggregates could answer 「who paid
+  // for the recognition」 and not 「who paid for the AI turn that followed it」.
+  // Nothing is re-derived here on purpose: whose allowance this turn spends was
+  // decided when the socket was admitted, and asking again would answer a
+  // different question with the same words.
   function commitLlmUsage(userId: string, tokensIn: number, tokensOut: number, isByok: boolean): void {
-    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut);
+    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket));
   }
 
   socket.on('compose:start', async (payload: unknown, ack: unknown) => {
@@ -182,7 +193,19 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       // ⚠️ If a second gate is ever added to this handler, this line is one of
       // the things that has to change with it; passing `auth.userId` blindly
       // would then re-create on this leg the exact defect the STT leg just fixed.
-      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'llm', auth.userId);
+      // card MP-6 — the compose leg records the SAME two facts, off the same
+      // admission. It is `auth.userId` on both ids for the reason the line above
+      // already states (one `ensureQuota`, one account), and `payerReason` is
+      // whatever the admission decided — a guest speaking into somebody's
+      // computer runs AI actions on that owner's tokens too, and a row that said
+      // nothing about it would leave the LLM leg the one place the ledger cannot
+      // answer 「who was this for」.
+      if (e.error === 'QUOTA_EXCEEDED') {
+        usageTracker.recordQuotaRefusal(auth.userId, 'llm', auth.userId, {
+          ...(auth.payerReason !== undefined ? { payer_reason: auth.payerReason } : {}),
+          ...(auth.speakerRef !== undefined ? { speaker_ref: auth.speakerRef } : {}),
+        });
+      }
       socket.emit('compose:error', { code: e.error, message: e.message ?? 'quota exceeded', ...echo });
       return safeAck(ack, e);
     }

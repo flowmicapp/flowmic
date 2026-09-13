@@ -450,7 +450,7 @@ void main() {
         );
       }
       // The action the user CAN take is present, in both spellings we can pin.
-      expect(AppStrings.of(AppLocale.zh).sttStallNoEngineReached, contains('重新说一次'));
+      expect(AppStrings.of(AppLocale.zh).sttStallNoEngineReached, contains('重新尝试录音'));
       expect(AppStrings.of(AppLocale.en).sttStallNoEngineReached, contains('Say it again'));
       // …and the install claim is absent — that is the sentence being retired.
       expect(AppStrings.of(AppLocale.zh).sttStallNoEngineReached, isNot(contains('引擎组件')));

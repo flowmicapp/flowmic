@@ -287,7 +287,15 @@ class _AddPairingSheetState extends State<_AddPairingSheet>
   Future<void> _submit() async {
     if (widget.controller.busy) return;
     final String code = _code.text.trim();
-    final bool isLink = code.startsWith('flowmic://');
+    // S1-02 - same shared, host-literal `kPairLinkPrefixHttps` this file's
+    // classifyScan/PairEntry.parse already use, so a pasted https link clears
+    // this gate too. CAVEAT: `_code` is `keyboardType.number` (digits-only,
+    // predates S1-02, e5a1130ec) - a real paste of EITHER link form is
+    // filtered to a few digits first, so neither prefix is reachable through
+    // this field today. Fixing the field is a UI call outside this change.
+    final String codeLower = code.toLowerCase();
+    final bool isLink = code.startsWith('flowmic://') ||
+        codeLower.startsWith(kPairLinkPrefixHttps);
     final bool cloud = _channel == PairChannel.cloud;
     // P2 — the cloud segment has no address box: the endpoint is RESOLVED,
     // not typed (owner 2026-08-14: 「不用输端点URL，因为是确定的」). Same source

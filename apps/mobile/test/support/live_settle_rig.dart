@@ -8,6 +8,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/audio/audio_capture.dart';
@@ -28,6 +29,100 @@ import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'di.dart';
 import 'fakes.dart';
 import 'temp_teardown.dart';
+
+/// 🔴 THE RIG USED TO BREAK THE WRITE IT WAS WAITING FOR. This class is the fix,
+/// and the measurement that produced it is worth keeping because the failure
+/// looked exactly like a product defect.
+///
+/// [Rig.awaitSettleOf] polls `<id>.manifest.json` every 2 ms. The settle
+/// PUBLISHES that manifest by renaming `<id>.manifest.json.tmp` over it, and on
+/// Windows a reader that holds the target open makes that rename fail with
+/// `PathAccessException … (OS Error: access denied, errno = 5)`. The journal's
+/// `_commitLocked` catches a failed publish, keeps the facts in memory and
+/// RETURNS NORMALLY (A9 P1-1 ③ — a commit failure must not stop capture), and
+/// the settle's own journal handle is opened without a [ManifestRepublishQueue]
+/// and without a notices listener, so nothing retried it and nothing said so.
+/// The rig then waited out its whole budget and reported
+/// 「state=pending attempts=[]」 — a sentence about the product, produced by the
+/// observer.
+///
+/// MEASURED 2026-09-07 (dev-pc-a, 12 concurrent runs of
+/// `live_settle_test.dart`): with the instrumented commit, the failing case
+/// always showed the rename throwing errno 5 between `precommit` and the
+/// handle's close, on the path the poll was reading. A standalone drill on the
+/// same machine renamed onto a path 4,135 times with nobody reading it (273
+/// failures, 6.6%) and 4,087 times with a `readAsString` loop on the target
+/// (2,458 failures, 60%).
+///
+/// ⚠️ SO THE MUTEX IS THE POINT, NOT THE RETRY. Serialising the rig's reads
+/// against the product's publishes removes the interference the rig itself
+/// introduced; it does not paper over a publish that failed for any other
+/// reason, and [publishFailures] is reported when the wait expires precisely so
+/// that case cannot be read as this one.
+class RigJournalFs implements JournalFileSystem {
+  RigJournalFs([this._inner = const IoJournalFileSystem()]);
+
+  final JournalFileSystem _inner;
+
+  /// Publishes that threw anyway — environment, not product. Surfaced by
+  /// [Rig.awaitSettleOf] when it gives up, so a hang has a named cause.
+  final List<String> publishFailures = <String>[];
+
+  Future<void> _lock = Future<void>.value();
+
+  /// One at a time, in the order asked. The rig's own reads take this too, so a
+  /// poll can never sit on the path a rename is about to land on.
+  Future<T> guard<T>(Future<T> Function() body) {
+    final Completer<T> out = Completer<T>();
+    _lock = _lock.then((_) async {
+      try {
+        out.complete(await body());
+      } on Object catch (e, st) {
+        out.completeError(e, st);
+      }
+    });
+    return out.future;
+  }
+
+  @override
+  Future<void> rename(String from, String to) => guard(() async {
+        try {
+          await _inner.rename(from, to);
+        } on Object catch (e) {
+          publishFailures.add('rename $from -> $to: $e');
+          rethrow;
+        }
+      });
+
+  @override
+  Future<void> deleteFile(String path) => guard(() => _inner.deleteFile(path));
+
+  @override
+  Future<void> ensureDirectory(String path) => _inner.ensureDirectory(path);
+
+  @override
+  Future<bool> exists(String path) => _inner.exists(path);
+
+  @override
+  Future<int> lengthOf(String path) => _inner.lengthOf(path);
+
+  @override
+  Future<Uint8List> readBytes(String path) => _inner.readBytes(path);
+
+  @override
+  Future<Uint8List> readRange(String path, int start, int end) =>
+      _inner.readRange(path, start, end);
+
+  @override
+  Future<void> writeBytes(String path, Uint8List bytes, {bool flush = true}) =>
+      _inner.writeBytes(path, bytes, flush: flush);
+
+  @override
+  Future<JournalFileHandle> openAppend(String path) => _inner.openAppend(path);
+
+  @override
+  Future<List<String>> listNames(String dirPath) => _inner.listNames(dirPath);
+}
 
 /// The three bits a metered server must advertise for tier A (A7-3). The rig's
 /// channel probe has not run, so the connection reads as metered — the
@@ -186,7 +281,7 @@ class StallingPersistence extends InMemoryTimelinePersistence {
 }
 
 class Rig {
-  Rig._(this.tmp, this.store, this.spill, this.recorder);
+  Rig._(this.tmp, this.store, this.spill, this.recorder, this.journalFs);
 
   static Future<Rig> open({
     List<String> capabilities = tierA,
@@ -198,11 +293,19 @@ class Rig {
     final RetainedAudioStore store =
         RetainedAudioStore(dir: tmp, clock: () => 0);
     await store.open();
+    // See [RigJournalFs]: the rig's manifest poll and the product's manifest
+    // publish are the same file, and on Windows they are mutually exclusive.
+    final RigJournalFs journalFs = RigJournalFs();
     final Rig r = Rig._(
       tmp,
       store,
-      RetainedAudioSpill(store: store, retainFromFirstFrame: true),
+      RetainedAudioSpill(
+        store: store,
+        retainFromFirstFrame: true,
+        journalFs: journalFs,
+      ),
       FakeAudioRecorder(),
+      journalFs,
     );
     r._build(capabilities, persistence, keepBackfill);
     return r;
@@ -212,6 +315,10 @@ class Rig {
   final RetainedAudioStore store;
   final RetainedAudioSpill spill;
   final FakeAudioRecorder recorder;
+
+  /// The product's journal filesystem, wrapped so this rig's reads and the
+  /// product's publishes take turns. See [RigJournalFs].
+  final RigJournalFs journalFs;
 
   late final EchoTransport transport;
   late final PttSession session;
@@ -327,7 +434,17 @@ class Rig {
         'Last manifest: ${m == null ? 'absent' : 'state=${m.recoveryState} '
             'attempts=${m.attempts.map((JournalAttempt a) =>
                 '${a.kind}/${a.outcome}').toList()}'}. '
-        'This is the rig running out of patience, NOT a product verdict.');
+        'This is the rig running out of patience, NOT a product verdict. '
+        // 🔴 NAMED, BECAUSE THE TWO CAUSES LOOK IDENTICAL FROM HERE AND CALL
+        // FOR OPPOSITE ACTIONS. An empty list means the settle never wrote —
+        // look at the product. A non-empty one means the manifest publish
+        // THREW: the journal swallows that by design (A9 P1-1 ③) and the
+        // settle's handle has no republish queue, so the state on disk stays
+        // one commit behind for reasons that are nothing to do with the card
+        // under test.
+        'Manifest publishes that failed: '
+        '${journalFs.publishFailures.isEmpty ? 'none' :
+            journalFs.publishFailures.join(' ; ')}');
   }
 
   /// 🔴 KEEP THE RECOVERY LEG OUT OF THE LIVE LEG'S ASSERTIONS. The controller's
@@ -376,13 +493,24 @@ class Rig {
     final File m = File('${tmp.path}${Platform.pathSeparator}$id'
         '${RetainedAudioJournal.manifestSuffix}');
     for (int i = 0;; i++) {
-      if (!m.existsSync()) return null;
-      try {
-        return RecordingManifest.decode(await m.readAsString());
-      } on FileSystemException {
-        if (i >= 40) rethrow;
+      // 🔴 THROUGH THE SAME GATE THE PRODUCT'S PUBLISH TAKES. Reading this path
+      // while a rename is landing on it is what used to make the publish fail
+      // (see [RigJournalFs]); `guard` makes the two take turns instead. The
+      // retry below stays: it covers a collision with anything else on the
+      // machine, which this rig does not get to serialise.
+      final String? body = await journalFs.guard<String?>(() async {
+        if (!m.existsSync()) return null;
+        return m.readAsString();
+      }).catchError((Object e) {
+        if (e is FileSystemException && i < 40) return null;
+        throw e;
+      });
+      if (body == null) {
+        if (!m.existsSync()) return null;
         await Future<void>.delayed(const Duration(milliseconds: 5));
+        continue;
       }
+      return RecordingManifest.decode(body);
     }
   }
 

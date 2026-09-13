@@ -88,6 +88,20 @@ const FACES = [
     find: (v) => new RegExp(`("version":\\s*")${esc(v)}(")`),
     optional: 'EXCLUDEd from the public export tree (packages/stt-cloud/ — private vendor adapters)',
   },
+  // 🔴 S1-04 (2026-09-07): `@flowmic/protocol` and `@flowmic/i18n-web`, the two
+  // packages published to the private registry so an outside repo (flowmic-web)
+  // can speak this relay's protocol and render this product's copy.
+  //
+  // protocol was on its OWN line (0.2.0) for as long as it was workspace-only —
+  // verify/lint/version-sync.mjs excluded it by name and its header said why.
+  // Publishing it ends that: the consumer pins a version and deploys against a
+  // relay that reports SERVER_VERSION, and two numbers from two lines cannot be
+  // compared from outside. Both packages are on the product line now, so both
+  // must move when the product moves — and this is the hand-maintained half of
+  // the pair the comment above describes, so forgetting one turns the NEXT bump
+  // red rather than this one.
+  { file: 'packages/protocol/package.json', find: (v) => new RegExp(`("version":\\s*")${esc(v)}(")`) },
+  { file: 'packages/i18n-web/package.json', find: (v) => new RegExp(`("version":\\s*")${esc(v)}(")`) },
   { file: 'apps/desktop/src-tauri/tauri.conf.json', find: (v) => new RegExp(`("version":\\s*")${esc(v)}(")`) },
   { file: 'apps/mobile/pubspec.yaml', find: (v) => new RegExp(`(^version:\\s*)${esc(v)}(\\s*$)`, 'm') },
   // Not covered by the lint before today — see verify/lint/version-sync.mjs.

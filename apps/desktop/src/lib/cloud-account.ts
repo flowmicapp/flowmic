@@ -49,6 +49,8 @@ import { maskAccountEmail } from './account-mask';
 // account (see that file's header).
 import { resetLine } from './cloud-account-reset';
 export { resetLine } from './cloud-account-reset';
+// ④-quater. Same reason as ④-ter above; not re-exported (no caller outside).
+import { payerNote } from './cloud-account-payer';
 
 /** What the Rust `cloud_account_fetch` command reports. Mirrors `CloudAccountDto`
  *  in src-tauri/src/shell/cloud.rs — see the long note there for why these are
@@ -366,6 +368,8 @@ export interface AccountCard {
   canRetry: boolean;
   /** A LOUD (red) line — only `expired` produces one. */
   loud: string | null;
+  /** ④-quater 「whose minutes is this recording costing」 — at most ONE sentence (MP-3 + MP-8; `null` renders nothing). See lib/cloud-account-payer.ts. */
+  payerNote: string | null;
 }
 
 export interface AccountCardInput {
@@ -383,6 +387,11 @@ export interface AccountCardInput {
    *  「is this date so far out that it is not a date any more」 branch can be
    *  asserted without waiting a year. */
   nowMs?: number;
+  /** Cards MP-3 / MP-8 — the two opposite readings of one `billing:budget` frame, decided by
+   *  lib/billing-payer.ts (one latch, one watchdog, there). BOOLEANS, not the `payer` word and not
+   *  the flag, so no second reading grows here; absent ⇒ false ⇒ today's product; never both true. */
+  farEndPays?: boolean;
+  guestSpends?: boolean;
 }
 
 /**
@@ -437,6 +446,7 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
     statusText: null,
     canRetry: false,
     loud: null,
+    payerNote: null,
   };
   if (!cloud.key_set) return empty;
 
@@ -478,8 +488,10 @@ export function deriveAccountCard(input: AccountCardInput): AccountCard {
     // the paired-list rework already ruled against.
     canRetry: phase === 'live' || phase === 'stale' || phase === 'unknown',
     loud: loudLine(phase, raw?.detail ?? null),
+    payerNote: payerNote(account !== null, input.farEndPays === true, input.guestSpends === true),
   };
 }
+
 
 /**
  * The red line. Two phases produce one, and they say opposite things about what

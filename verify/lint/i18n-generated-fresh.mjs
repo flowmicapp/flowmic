@@ -109,6 +109,23 @@ const GENERATORS = [
     args: ['--check', '--skip-missing'],
   },
   {
+    // S1-04 (2026-09-07) — the browser clients' nine-locale subset catalogue
+    // (packages/i18n-web/src/generated/). COMMITTED, and no `--skip-missing`:
+    // the package is published to a private registry and built by tsup from
+    // exactly these files, so "not generated yet" is a broken checkout, not a
+    // normal one.
+    //
+    // What this row catches is the drift the other side cannot see at all. The
+    // consumer repo installs a tarball; it has no path back to
+    // i18n/mobile/*.json, so a wording ruling that lands here and is never
+    // regenerated ships the OLD sentence to the web client while every gate in
+    // both repos stays green — the same shape as the desktop/mobile catalogue
+    // rows above, one repository further away from the evidence.
+    label: 'web client message subset (packages/i18n-web/src/generated/)',
+    script: 'scripts/i18n/gen-i18n-web.mjs',
+    args: ['--check'],
+  },
+  {
     // The mobile migration golden's HARNESS (apps/mobile/test/
     // i18n_migration_golden_test.dart). Committed, and generated — which is the
     // combination that bit us.

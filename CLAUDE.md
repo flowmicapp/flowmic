@@ -31,7 +31,7 @@
 > alike; most of this codebase was written by agents under these rules, and the
 > rules exist because each one was paid for with a real bug.
 
-**Current version: <!--version:current-->0.3.77<!--/version:current-->**
+**Current version: <!--version:current-->0.3.85<!--/version:current-->**
 
 ## What this is
 
@@ -50,9 +50,12 @@ apps/server-core    Node server. One binary, two modes: `standalone` (the LAN
                     sidecar the desktop app spawns) and `saas` (the relay).
 apps/desktop        Windows desktop — Tauri v2 + Vue 3 + a Rust injection layer.
 apps/mobile         Flutter app (Android today; iOS in progress).
-verify/             The gates. `verify/lint` (10 static rules) and
-                    `verify/golden` (18 end-to-end paths against a real server
-                    over real sockets).
+verify/             The gates. `verify/lint` is the static rule set (the
+                    authoritative list is the LINTS table in
+                    `verify/lint/run-all.mjs`) and `verify/golden` is the
+                    end-to-end set, run against a real server over real sockets
+                    (the GOLDEN table in `verify/golden/run-golden.mjs`). Neither
+                    count is written here, because a copied count drifts.
 docs/rebuild/       The behaviour contracts. 04 protocol · 05 data · 06 engine ·
                     07 desktop · 08 mobile · 15 channels/states/failures ·
                     16 portable record format. Written in Chinese.
@@ -64,12 +67,24 @@ docs/decisions/     Decision log. Four sections (Situation / Options / Chose /
 ## Before you commit
 
 ```bash
-pnpm verify:delivery      # lint + types + clippy + golden  (~35s)
+pnpm verify:lane          # scoped to your diff; prints which stages it skipped and why
+pnpm verify:delivery:fast # every stage, six concurrent lanes — run before merging to main
+pnpm verify:delivery      # every stage, sequential — the only gate a release may cite
 ```
 
-All four must pass. `verify:lint` and `verify:types` also run in the
-pre-commit hook; the golden suite does not, because it starts a real server and
-real sockets (~7.5s) — so **you have to run it yourself**. A test nobody runs is
+The authoritative stage list is the `verify:delivery` script in the root `package.json`;
+no count is written here because a copied count drifts.
+
+The lane gate always runs the static lint set and the release-script self-tests. Every
+other stage is chosen from the paths you changed, and each unselected stage prints its own
+line saying it was skipped and why — one line per stage, never one line for "the rest". A
+path the map does not recognise fails closed: everything runs. So a green lane gate means
+"the stages this change touches are green", and nothing wider than that; only the
+sequential `verify:delivery` is a release-grade answer.
+
+`verify:lint` also runs in the pre-commit hook, alongside a type check trimmed to the
+files you staged. The golden suite is in no hook at all, because it starts a real server
+and real sockets — so **you have to run it yourself**. A test nobody runs is
 the runtime form of a feature nobody calls: it being red and it not existing are
 the same thing. That is not hypothetical here — one golden path sat red for
 weeks because nothing invoked it.
@@ -83,9 +98,12 @@ pnpm --filter @flowmic/protocol build
 `server-core` consumes protocol's `dist/` (gitignored), not `src/`. A stale
 `dist` lies in both directions: it has produced a false green (a new zod field
 silently stripped, so an assertion that should have failed passed) and a false
-red. `verify:types` cannot catch it — tsc resolves through path mappings to
-`src`. `pnpm golden` now rebuilds both packages every run for exactly this
-reason.
+red. Type-checking does not save you either. Measured 2026-08-07 with
+`--traceResolution`: there is no `paths` mapping anywhere in the repo, so `tsc`
+resolves `@flowmic/protocol` to `packages/protocol/dist/index.d.ts` as well —
+meaning a stale `dist` type-checks green against an outdated contract. That is
+why `pnpm verify:delivery` builds the package before it type-checks anything,
+and why `pnpm golden` rebuilds it on every run.
 
 ## Rules that are not style preferences
 

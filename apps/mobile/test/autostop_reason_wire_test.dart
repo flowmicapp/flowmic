@@ -41,6 +41,15 @@
 // quota stop would arrive here labelled `hard_limit` and this whole path would
 // faithfully render the five-minute sentence. That half is device-line.
 //
+// 🔴 UPDATE (card G-2c, 2026-09-11): THE NUMBER IS NO LONGER IN THE SENTENCE.
+// `'hard_limit'` stopped meaning one wall — card G-8's per-sitting cap (10 or
+// 30 minutes by the payer's tier) maps onto the same reason as the engine's own
+// five-minute ceiling — so `recordingAutoStopped` was rewritten in nine
+// languages to state a time limit and no figure. Everything below is unchanged
+// and still passes, because every assertion here reads the catalogue instead of
+// quoting it. The history narrated above is kept verbatim: it is what these
+// cases were written against.
+//
 // ⚠️ THE FONT IS AHEM, so every glyph is a full em square: at 12 px a 360 dp
 // banner fits ~20 characters per line where a real font fits far more. The
 // direction is conservative for "will it be clipped" (not clipped under Ahem ⇒ not
@@ -143,7 +152,7 @@ class _Rig {
   /// An OFF-CONTRACT frame: `reason` is required on the wire, so this is either
   /// a relay that stripped it or a server older than fix-020. The phone reads
   /// inbound frames as plain JSON and never re-validates, so this really can
-  /// arrive — and it must NOT be smoothed into the five-minute sentence.
+  /// arrive — and it must NOT be smoothed into the time-ceiling sentence.
   void capWithNoReason() => transport.pushIncoming(
     FlowMicEvents.audioAutoStopped,
     const <String, Object?>{},
@@ -365,7 +374,7 @@ void main() {
 
   // ── ② the rendered sentence, one wire reason at a time ────────────────────
   group('a frame arrives → the matching sentence is on screen', () {
-    testWidgets('hard_limit renders the five-minute sentence, byte-for-byte',
+    testWidgets('hard_limit renders the time-ceiling sentence, byte-for-byte',
         (WidgetTester tester) async {
       _narrowPhone(tester);
       final _Rig r = _rig();
@@ -379,6 +388,13 @@ void main() {
 
       // 🔴 The constraint this card must not break: the sentence written for a
       // real time ceiling is still exactly that sentence for that ceiling.
+      //
+      // ⚠️ CARD G-2c TOOK THE FIGURE OUT OF IT (「5 分钟」 → a time limit with no
+      // number), because `'hard_limit'` stopped meaning one wall: card G-8's
+      // per-sitting cap is 10 or 30 minutes by tier and maps onto the same
+      // reason. This assertion is unaffected BY CONSTRUCTION — it compares the
+      // rendered glyphs against the catalogue rather than a literal — which is
+      // the whole argument for reading copy off the catalogue in a test.
       expect(_renderedSentence(tester), _zh.recordingAutoStopped);
       _expectFullyInsideBanner(tester);
       _releaseTimers(r);
@@ -395,8 +411,8 @@ void main() {
       final String shown = _renderedSentence(tester);
       expect(shown, _zh.recordingAutoStoppedQuota);
       // 🔴 The defect, stated as an assertion. This is the ONE reason that
-      // actually ends a recording in production (N1-B4 turned the five-minute
-      // wall into an invisible engine rollover), so before this card the phone
+      // actually ends a recording in production (N1-B4 turned the engine's own
+      // wall into an invisible rollover), so before this card the phone
       // was wrong at the exact moment it spoke.
       expect(shown, isNot(_zh.recordingAutoStopped));
       _expectFullyInsideBanner(tester);
@@ -425,7 +441,7 @@ void main() {
       });
     }
 
-    testWidgets('🔴 an UNKNOWN reason never renders the five-minute sentence',
+    testWidgets('🔴 an UNKNOWN reason never renders the time-ceiling sentence',
         (WidgetTester tester) async {
       _narrowPhone(tester);
       final _Rig r = _rig();
@@ -526,7 +542,7 @@ void main() {
       ),
       findsOneWidget,
       reason: 'the page builds its queue through chatBannerSources — if the '
-          'reason stops there, the whole chain ends at the five-minute sentence',
+          'reason stops there, the whole chain ends at the time-ceiling sentence',
     );
     r.controller.delivery.dispose();
     _releaseTimers(r);
@@ -534,7 +550,7 @@ void main() {
 
   // ── ⑤ the copy contract, in all four languages ────────────────────────────
   group('the selector, four languages', () {
-    test('hard_limit maps to the UNCHANGED five-minute sentence everywhere', () {
+    test('hard_limit maps to the time-ceiling sentence everywhere', () {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);
         expect(
@@ -558,7 +574,7 @@ void main() {
       }
     });
 
-    test('🔴 no unknown reason may reach the five-minute sentence, any language',
+    test('🔴 no unknown reason may reach the time-ceiling sentence, any language',
         () {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);

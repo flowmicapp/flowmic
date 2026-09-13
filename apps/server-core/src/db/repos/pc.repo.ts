@@ -28,6 +28,34 @@ export interface PcRecord {
    *  treated NULL as 「PC is nowhere」 would break every existing pairing on the
    *  day multi-node ships. See design §4-2. */
   home_node: string | null;
+  /** card S2-01 — 'app' | 'web', or NULL for a row that predates the column.
+   *  🔴 NULL IS NOT 'app' AT THIS LAYER. The default lives in the protocol
+   *  package ({@link clientOriginOf}) so exactly one place applies it; a repo
+   *  that helpfully returned 'app' here would be a second author of the same
+   *  default, and this repo's headline bug shape is a value with two authors. */
+  client: string | null;
+  /** card S2-01 — the far end's own version string. DIAGNOSTIC ONLY: nothing may
+   *  branch on it (it is a claim the client makes about itself). */
+  client_version: string | null;
+  /** card S2-01 — the JSON the target declared about what it can receive
+   *  (`{"image":true}`). NULL means UNDECLARED, which is the third state and the
+   *  common one — see schema.ts and TargetCapsSchema for why it must not be
+   *  folded into `{image:false}`. Parsed by the ONE reader
+   *  (room/target-caps.ts), never here: a repo that parsed it would
+   *  have to decide what a malformed value means, and that is a wire decision. */
+  target_caps: string | null;
+  /** card S2-04 — 'web' when `POST /api/web/rooms` minted this row for a browser
+   *  target, NULL for every ordinary PC row. SERVER-MINTED: no client frame can
+   *  reach this column, which is what makes it safe for `isRealPc` to spend a
+   *  paid PC slot on the answer. See schema.ts for the full argument. */
+  room_kind: string | null;
+  /** card S2-04 — when this web room stops being worth keeping, as an ISO-8601
+   *  UTC string (the spelling `setOnline` writes into `last_seen_at`, not the
+   *  space-separated form SQLite defaults `created_at` to). NULL = nothing expires.
+   *  Read it with db/utc-stamp.ts `parseUtcStamp`. ⚠️ Only ONE surface acts on
+   *  it today (`POST /api/web/rooms` replacing an expired room); schema.ts says
+   *  what that leaves open. */
+  room_expires_at: string | null;
   device_token: string;
   room_uuid: string;
   short_code: string;
@@ -42,6 +70,14 @@ export interface PcInsertInput {
   device_name: string;
   client_instance_id?: string | null;
   machine_uid?: string | null;
+  client?: string | null;
+  client_version?: string | null;
+  target_caps?: string | null;
+  /** card S2-04 — 'web' for a browser room. Absent/NULL for everything else,
+   *  and there is exactly one caller that may pass it: `Registry.ensureWebRoom`. */
+  room_kind?: string | null;
+  /** card S2-04 — the web room's TTL stamp. Absent/NULL means nothing expires. */
+  room_expires_at?: string | null;
   device_token: string;
   room_uuid: string;
   short_code: string;
@@ -93,10 +129,36 @@ export interface PcRepo {
    *  left the old value behind would send its phone to the wrong node — the one
    *  failure this column exists to prevent. */
   setHomeNode(id: string, home_node: string): void;
+  /** card S2-04 — push a web room's TTL out to `stamp` (an ISO-8601 UTC string;
+   *  `db/utc-stamp.ts` `parseUtcStamp` is the only sanctioned reader).
+   *
+   *  🔴 IT ONLY EVER EXTENDS, and the reason belongs at the CALLER, not here:
+   *  this is the storage verb with no policy in it (`setDeviceName`'s shape).
+   *  The one caller is `Registry.ensureWebRoom`, which calls it when the account
+   *  asks for its room again — evidence the page is still there. Nothing shortens
+   *  a TTL, because 「the page went away」 is not something this server ever
+   *  observes: a browser tab closing produces a socket disconnect that is
+   *  indistinguishable from a tunnel dropping. */
+  setRoomExpiry(id: string, stamp: string): void;
   /** Stamp the machine uid. Unconditional — unlike `claimClientInstance` this
    *  fills NULLs AND corrects a stale value, because the uid is derived from
    *  the hardware and the client is the authority on it. */
   setMachineUid(id: string, machine_uid: string): void;
+  /** card S2-01 — write what the end holding this row just said about itself:
+   *  which kind of client it is, its version, and what it can receive (JSON, or
+   *  null for「it did not say」).
+   *
+   *  🔴 UNCONDITIONAL AND ALL THREE AT ONCE, like `setHomeNode` and unlike
+   *  `claimClientInstance`. The client is the authority on itself, so this must
+   *  CORRECT a stale value: a machine that was the app yesterday and a browser
+   *  today (the same account, the same row) would otherwise keep declaring
+   *  capabilities its current occupant does not have. And writing only the
+   *  fields that are present would leave a row mixing two connections'
+   *  declarations — see setClientDeclStmt. */
+  setClientDeclaration(
+    id: string,
+    decl: { client: string | null; client_version: string | null; target_caps: string | null },
+  ): void;
   /**
    * 2026-08-31 multi-node — write a WHOLE row that came from the writer, on a
    * replica, keyed on the primary key. The only caller is the handshake
@@ -138,7 +200,7 @@ export interface PcRepo {
    * D11 — hard-delete ONE pc_devices row. THE self-service escape hatch: a
    * free-tier user who reinstalls Windows twice has no other way off the
    * device ceiling (`room/registry.ts`'s `ensurePcSlot` counts live rows via
-   * `listByUser(...).filter(isRealPc)`, recomputed fresh on every call — there
+   * `listByUser(...).filter(occupiesPcSlot)`, recomputed fresh on every call — there
    * is no cache to invalidate, so a row removed here is a slot freed on the
    * very next `registerPc`).
    *
@@ -180,6 +242,24 @@ export interface PcRepo {
    * rows.
    */
   listStaleOffline(cutoffIso: string, excludeClientInstanceId: string): PcRecord[];
+  /**
+   * Card MP-11 / gap G-5 — every row of one `room_kind`, newest-agnostic, with
+   * NO expiry filter.
+   *
+   * 🔴 THE EXPIRY IS DELIBERATELY NOT IN THE SQL, and that is the whole reason
+   * this method is shaped the way it is. `room_expires_at` may be read in
+   * exactly one way — `db/utc-stamp.ts` `parseUtcStamp` — because a bare parse
+   * of a stamped column answers differently on two machines (that file carries
+   * the measurement). A `WHERE room_expires_at <= ?` here would be a SECOND
+   * reader of that column, written in a different language, free to disagree
+   * with the first the day anything ever writes the bare SQLite form into it.
+   * The caller filters, with the sanctioned parser, on rows this returns.
+   *
+   * Browser-minted room kinds only, in practice: they are the short-lived ones
+   * and there are few of them alive at any instant. A caller that wants an
+   * account's computers wants `listByUser`.
+   */
+  listByRoomKind(room_kind: string): PcRecord[];
 }
 
 function toRecord(r: Record<string, unknown>): PcRecord {
@@ -191,6 +271,11 @@ function toRecord(r: Record<string, unknown>): PcRecord {
     machine_uid: (r.machine_uid as string | null) ?? null,
     pcid: (r.pcid as string | null) ?? null,
     home_node: (r.home_node as string | null) ?? null,
+    client: (r.client as string | null) ?? null,
+    client_version: (r.client_version as string | null) ?? null,
+    target_caps: (r.target_caps as string | null) ?? null,
+    room_kind: (r.room_kind as string | null) ?? null,
+    room_expires_at: (r.room_expires_at as string | null) ?? null,
     device_token: r.device_token as string,
     room_uuid: r.room_uuid as string,
     short_code: r.short_code as string,
@@ -202,8 +287,8 @@ function toRecord(r: Record<string, unknown>): PcRecord {
 
 export function makePcRepo(db: DatabaseSync): PcRepo {
   const ins = db.prepare(
-    `INSERT INTO pc_devices (id, user_id, device_name, client_instance_id, machine_uid, device_token, room_uuid, short_code, is_online, last_seen_at)
-     VALUES (?,?,?,?,?,?,?,?,0,NULL)`,
+    `INSERT INTO pc_devices (id, user_id, device_name, client_instance_id, machine_uid, client, client_version, target_caps, room_kind, room_expires_at, device_token, room_uuid, short_code, is_online, last_seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,NULL)`,
   );
   const byId = db.prepare('SELECT * FROM pc_devices WHERE id=?');
   const byToken = db.prepare('SELECT * FROM pc_devices WHERE device_token=?');
@@ -224,8 +309,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
   const upsertStmt = db.prepare(
     `INSERT INTO pc_devices
        (id, user_id, device_name, client_instance_id, machine_uid, pcid, home_node,
+        client, client_version, target_caps, room_kind, room_expires_at,
         device_token, room_uuid, short_code, is_online, last_seen_at, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET
        user_id=excluded.user_id,
        device_name=excluded.device_name,
@@ -233,6 +319,11 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
        machine_uid=excluded.machine_uid,
        pcid=excluded.pcid,
        home_node=excluded.home_node,
+       client=excluded.client,
+       client_version=excluded.client_version,
+       target_caps=excluded.target_caps,
+       room_kind=excluded.room_kind,
+       room_expires_at=excluded.room_expires_at,
        device_token=excluded.device_token,
        room_uuid=excluded.room_uuid,
        short_code=excluded.short_code,
@@ -246,6 +337,15 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
   const byPcid = db.prepare('SELECT * FROM pc_devices WHERE pcid=?');
   const setPcidStmt = db.prepare('UPDATE pc_devices SET pcid=? WHERE id=?');
   const setHomeNodeStmt = db.prepare('UPDATE pc_devices SET home_node=? WHERE id=?');
+  const setRoomExpiryStmt = db.prepare('UPDATE pc_devices SET room_expires_at=? WHERE id=?');
+  // card S2-01 — ONE statement for all three, because they are ONE declaration
+  // made in ONE frame. Splitting them would let a row end up claiming
+  // 「I am a web client」 from this connection and 「I can take images」 from a
+  // previous one, and a capability read off two different frames is a capability
+  // nobody declared.
+  const setClientDeclStmt = db.prepare(
+    'UPDATE pc_devices SET client=?, client_version=?, target_caps=? WHERE id=?',
+  );
   const adoptInstanceStmt = db.prepare('UPDATE OR IGNORE pc_devices SET client_instance_id=? WHERE id=?');
   const setOnlineStmt = db.prepare('UPDATE pc_devices SET is_online=?, last_seen_at=? WHERE id=?');
   const touchSeenStmt = db.prepare('UPDATE pc_devices SET last_seen_at=? WHERE id=?');
@@ -266,6 +366,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
         AND (client_instance_id IS NULL OR client_instance_id != ?)
       ORDER BY created_at ASC`,
   );
+  // card MP-11 / gap G-5 — no expiry predicate here ON PURPOSE; see the
+  // interface doc for why `room_expires_at` has exactly one reader.
+  const byRoomKind = db.prepare('SELECT * FROM pc_devices WHERE room_kind=? ORDER BY created_at ASC');
 
   return {
     insert(input): PcRecord {
@@ -275,6 +378,11 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
         input.device_name,
         input.client_instance_id ?? null,
         input.machine_uid ?? null,
+        input.client ?? null,
+        input.client_version ?? null,
+        input.target_caps ?? null,
+        input.room_kind ?? null,
+        input.room_expires_at ?? null,
         input.device_token,
         input.room_uuid,
         input.short_code,
@@ -312,6 +420,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     setMachineUid(id, machine_uid): void {
       setMachineStmt.run(machine_uid, id);
     },
+    setClientDeclaration(id, decl): void {
+      setClientDeclStmt.run(decl.client, decl.client_version, decl.target_caps, id);
+    },
     upsertReplicated(row): void {
       upsertStmt.run(
         row.id,
@@ -321,6 +432,11 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
         row.machine_uid,
         row.pcid,
         row.home_node,
+        row.client,
+        row.client_version,
+        row.target_caps,
+        row.room_kind,
+        row.room_expires_at,
         row.device_token,
         row.room_uuid,
         row.short_code,
@@ -340,6 +456,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     },
     setPcid(id, pcid): void {
       setPcidStmt.run(pcid, id);
+    },
+    setRoomExpiry(id, stamp): void {
+      setRoomExpiryStmt.run(stamp, id);
     },
     setHomeNode(id, home_node): void {
       setHomeNodeStmt.run(home_node, id);
@@ -373,6 +492,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     },
     listStaleOffline(cutoffIso, excludeClientInstanceId): PcRecord[] {
       return (staleOffline.all(cutoffIso, excludeClientInstanceId) as Record<string, unknown>[]).map(toRecord);
+    },
+    listByRoomKind(room_kind): PcRecord[] {
+      return (byRoomKind.all(room_kind) as Record<string, unknown>[]).map(toRecord);
     },
   };
 }

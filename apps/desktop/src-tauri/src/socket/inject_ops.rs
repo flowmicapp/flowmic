@@ -24,7 +24,7 @@ use crate::focus::{self, FocusEvent, FocusState, FocusStateMachine};
 use crate::forensic;
 use crate::inject;
 use crate::socket::client::now_millis;
-use crate::socket::control_row::ControlOutcome;
+use crate::socket::control_row::{ControlOutcome, KeyReceipt, REASON_UNSUPPORTED_HERE};
 use crate::socket::dedup::{InjectDecision, InjectDeduper};
 use crate::socket::wire::{self, InjectRequest};
 
@@ -619,28 +619,46 @@ impl ChordExit {
     }
 }
 
+/// What one `control:key` press produced: the local row (when it mints one) and
+/// the wire receipt (always). Two fields rather than two calls, because they are
+/// decided by the SAME predicates and a second pass over them would be a second
+/// place for the answers to diverge — the shape `ChordExit`'s single expression
+/// already exists to prevent for the row and the forensic line.
+pub(super) struct ControlKeyRun {
+    pub(super) row: Option<ControlOutcome>,
+    pub(super) receipt: KeyReceipt,
+}
+
 /// Run one control:key kind. Unknown kinds fail loud (CONTROL_UNKNOWN_KIND) and
 /// are never injected. The target is resolved from the FSM exactly like inject
 /// (a `clear`/`enter` mid-utterance must land in the SPEAKING-locked window, not
 /// a window the user switched to — 07 §3).
 ///
-/// RETURNS the row-facing outcome for a CHORD key, or `None` when this press mints
-/// no row at all. The two `None` cases are deliberately different things and both
-/// are out of REQ-12-13's scope by ruling rather than by accident:
-///   · a `punct_*` key — it edits the newest EXISTING row's text (owner 2026-07-28)
-///     rather than being an act of its own, and the execution card puts the six
-///     punctuation keys out of scope in so many words;
-///   · an unknown kind — nothing happened, and "minting a row that says nothing happened" would be a
-///     receipt for a non-event. It is already answered loudly in the forensic log.
+/// RETURNS BOTH ANSWERS THIS PRESS PRODUCES, and they have different coverage:
 ///
-/// ⚠️ The caller mints; this function does not. Minting needs the bridge sink and the
-/// channel, which are socket-lifecycle facts — the same split `run_inject` /
-/// `mint_row` already uses, and it keeps this function testable without a window.
+///   · [`ControlKeyRun::row`] — the row-facing outcome for a CHORD key, or `None`
+///     when this press mints no row at all. The two `None` cases are deliberately
+///     different things and both are out of REQ-12-13's scope by ruling rather than
+///     by accident: a `punct_*` key edits the newest EXISTING row's text (owner
+///     2026-07-28) rather than being an act of its own, and the execution card puts
+///     the six punctuation keys out of scope in so many words; an unknown kind did
+///     nothing, and "minting a row that says nothing happened" would be a receipt
+///     for a non-event.
+///   · [`ControlKeyRun::receipt`] — MP-14, what goes back to the phone that pressed
+///     it. 🔴 IT IS PRODUCED ON EVERY PATH, INCLUDING THE TWO THAT MINT NO ROW.
+///     That asymmetry is the whole card: the unknown-kind arm below has always been
+///     loud in the forensic log and silent to the person who pressed the key, and a
+///     log on this machine is not an answer to someone holding a phone.
+///
+/// ⚠️ The caller mints AND emits; this function does neither. Minting needs the
+/// bridge sink and the channel, emitting needs the socket — all socket-lifecycle
+/// facts — the same split `run_inject` / `mint_row` already uses, and it keeps this
+/// function testable without a window and without a connection.
 pub(super) fn run_control_key(
     kind: &str,
     allowlist: &Option<Vec<String>>,
     fsm: &Mutex<FocusStateMachine>,
-) -> Option<ControlOutcome> {
+) -> ControlKeyRun {
     // v0.2.1 — the punctuation half of the whitelist is TYPED, not chorded (there
     // is no virtual key for 「、」). Routing it through the ordinary text pipeline
     // rather than a bespoke path is the point: it inherits Stage-1 focus, Stage-1b
@@ -654,9 +672,13 @@ pub(super) fn run_control_key(
             None => (None, None),
         };
         let outcome = inject::inject_text(glyph, locked, app_id, focus::set_foreground_window);
-        // control:key has NO result frame in the protocol, so the outcome cannot
-        // be answered on the wire. It is recorded instead — an unreportable
-        // outcome still has to be a discoverable one.
+        // 🔴 MP-14 CHANGED THE SECOND HALF OF THIS COMMENT, NOT THE FIRST. What
+        // stood here was 「control:key has NO result frame in the protocol, so the
+        // outcome cannot be answered on the wire. It is recorded instead — an
+        // unreportable outcome still has to be a discoverable one.」 The recording
+        // stays, every word of it, because the forensic line is still the only
+        // place the mode and the error code can live. What is no longer true is
+        // 「cannot be answered on the wire」.
         forensic::record(
             "control",
             &format!(
@@ -666,7 +688,22 @@ pub(super) fn run_control_key(
                 outcome.error_code
             ),
         );
-        return None;
+        // Mapped through the SAME table the chord path uses, by first turning this
+        // into the local vocabulary — rather than reaching for a wire `reason`
+        // directly here, which would be a second implementation of the collapse
+        // rule and the place the two paths would drift apart. `locked.is_none()`
+        // is 「the allowlist declined it, or there was no live foreground」, which
+        // is exactly `NoTarget`.
+        let as_outcome = if locked.is_none() {
+            ControlOutcome::NoTarget
+        } else if outcome.ok {
+            ControlOutcome::Sent
+        } else {
+            ControlOutcome::SendFailed
+        };
+        // 🔴 `row: None` IS UNCHANGED — a punctuation press still mints no row
+        // (REQ-12-13 scope). Only the wire answer is new.
+        return ControlKeyRun { row: None, receipt: KeyReceipt::from_outcome(as_outcome) };
     }
     match inject::key_sequence_for(kind) {
         Some(seq) => {
@@ -717,10 +754,12 @@ pub(super) fn run_control_key(
                     ChordExit::ForegroundRefused
                 };
                 forensic::record("control", &exit.line(kind, Some(h), seq.len()));
-                Some(exit.outcome())
+                let outcome = exit.outcome();
+                ControlKeyRun { row: Some(outcome), receipt: KeyReceipt::from_outcome(outcome) }
             } else {
                 forensic::record("control", &ChordExit::NoTarget.line(kind, None, seq.len()));
-                Some(ChordExit::NoTarget.outcome())
+                let outcome = ChordExit::NoTarget.outcome();
+                ControlKeyRun { row: Some(outcome), receipt: KeyReceipt::from_outcome(outcome) }
             }
         }
         None => {
@@ -734,7 +773,15 @@ pub(super) fn run_control_key(
             );
             // No row: see the doc comment. An unknown kind did nothing, and a row
             // saying so would be a receipt for a non-event.
-            None
+            //
+            // 🔴 BUT IT DOES GET A WIRE RECEIPT, AND THIS ARM IS THE REASON MP-14
+            // EXISTS. The two lines above are the entire trace this press used to
+            // leave, both of them on THIS machine — while the phone that pressed
+            // the key kept saying it was sent. `unsupported_here` rather than
+            // `failed`: nothing was attempted and nothing could be, so 「try again」
+            // is the wrong move and 「this destination does not have that key」 is
+            // the true one.
+            ControlKeyRun { row: None, receipt: KeyReceipt::Refused(REASON_UNSUPPORTED_HERE) }
         }
     }
 }

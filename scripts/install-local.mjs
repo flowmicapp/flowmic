@@ -30,7 +30,7 @@
 //     `server.log`, `credentials.bin`). Binaries and data in one tree means the
 //     "clear the logs" gesture (`rm -rf %LOCALAPPDATA%\FlowMic`) also deletes the
 //     application, and the "uninstall by deleting the folder" gesture (which the
-//     portable bundle's own 使用说明.txt teaches) also deletes the credentials.
+//     portable bundle's own README.txt teaches) also deletes the credentials.
 //     Two lifetimes, two directories — the same separation this whole card is about;
 //   · it is deliberately NOT `C:\FlowMic\`: a directory created at the root of C:
 //     inherits permissive ACLs that let any authenticated user replace the exe,

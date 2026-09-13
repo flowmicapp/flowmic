@@ -22,7 +22,7 @@ import { ServerError } from '../src/errors';
 import type { QuotaGuard, QuotaKind } from '../src/billing/quota-guard';
 import type { UsageTracker } from '../src/billing/usage-tracker';
 
-const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
 const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 
 /** A guard that records every kind it was asked about, and optionally refuses one
@@ -36,6 +36,8 @@ function recordingGuard(refuse?: QuotaKind): QuotaGuard & { asked: QuotaKind[] }
       if (kind === refuse) throw new ServerError('QUOTA_EXCEEDED', `${kind} quota exceeded (used 9/9)`);
     },
     remainingSttMs: () => Infinity,
+    // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+    continuousCapMs: () => Infinity,
   };
 }
 
@@ -194,11 +196,15 @@ describe('M6 — the llm_tokens valve gates the polish pass (and never the recor
     const wrongCode: QuotaGuard = {
       ensureQuota(): void { throw new ServerError('SETTINGS_SCHEMA_INVALID', 'not the valve'); },
       remainingSttMs: () => Infinity,
+      // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+      continuousCapMs: () => Infinity,
     };
     expect(() => resolvePolishDep({ settings: db.settings, quota: wrongCode }, 'u1', [])).toThrow(ServerError);
     const bug: QuotaGuard = {
       ensureQuota(): void { throw new TypeError('usage repo is undefined'); },
       remainingSttMs: () => Infinity,
+      // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+      continuousCapMs: () => Infinity,
     };
     expect(() => resolvePolishDep({ settings: db.settings, quota: bug }, 'u1', [])).toThrow(TypeError);
   });
@@ -384,6 +390,8 @@ describe('RT-1a — polish ON with no usable LLM degrades to a bare final (never
     const bug: QuotaGuard = {
       ensureQuota(): void { throw new TypeError('usage repo is undefined'); },
       remainingSttMs: () => Infinity,
+      // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+      continuousCapMs: () => Infinity,
     };
     expect(() => resolvePolishDep({ settings: db.settings, quota: bug }, 'u1', [])).toThrow(TypeError);
   });

@@ -94,7 +94,9 @@ describe('relay drops malformed mirror frames — logged, never forwarded', () =
 // relay path — and a REACHABLE one (a client-side reconnect flushes its send
 // buffer BEFORE the app re-registers/rejoins, landing frames exactly there).
 // These pin that the drop now ANSWERS (inject:request) or at least leaves a
-// breadcrumb (control:key — it has no result event to answer with).
+// breadcrumb (control:key — see the handler's own note: since card MP-14 a
+// receipt event DOES exist, and the relay still may not author one here,
+// because that receipt cannot name its author).
 describe('relay answers frames arriving on a socket with no auth/room', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
@@ -128,7 +130,7 @@ describe('relay answers frames arriving on a socket with no auth/room', () => {
     // row's owner can move it off ⏳.
   });
 
-  it('control:key → breadcrumb logged (no result event exists to answer with)', () => {
+  it('control:key → breadcrumb logged, and the relay does NOT author a receipt of its own', () => {
     const { mobile } = roomlessHarness();
     mobile.fire('control:key', { kind: 'enter' });
     expect(warnSpy).toHaveBeenCalledWith('relay: control:key on a socket with no auth/room', expect.anything());

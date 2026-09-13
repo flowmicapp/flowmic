@@ -36,6 +36,8 @@ import type { OpsSubscriptionRoutesDeps } from './ops-subscription-routes';
 import type { ProbeRoutesDeps } from './probe-routes';
 import type { SttModelRoutesDeps } from './stt-model-routes';
 import type { PresenceRoutesDeps } from './presence-routes';
+import type { WebRoomRoutesDeps } from './web-room-routes';
+import type { WebAnonRoutesDeps } from './web-anon-routes';
 import type { DiagRoutesDeps } from './diag-routes';
 import type { PairingRegistry } from './pairing-auth';
 import type { InjectRoutesDeps } from './inject-routes';
@@ -247,6 +249,24 @@ export interface HttpDeps {
    *  wants it too, because a sidecar orphaned by a dead desktop keeps answering
    *  health while nobody is in the room. Absent → the path 404s and the phone
    *  reads that as "unknown", which is the honest pre-0.2.36 answer. */
+  /**
+   * card S2-04 — `POST /api/web/rooms`, the browser target's room.
+   *
+   * saas-only and built saas-only in bootstrap, with the mode RE-CHECKED at the
+   * mount for the reason `router-ops-mounts.ts` states for its six: standalone
+   * has no account layer at all, so a mis-wire would expose a row-minting POST
+   * behind a gate that can never say no.
+   */
+  webRooms?: WebRoomRoutesDeps;
+  /**
+   * card M4-01 — `POST /api/web/anon`, the site demo's identity mint.
+   *
+   * Same conditions as `webRooms` above and built in the same place, so a
+   * deployment can never hold one without the other. Absent → the path 404s, and
+   * the card renders its 「not available」 face because the mint it needs is
+   * simply not there — no fallback, no degraded demo.
+   */
+  webAnon?: WebAnonRoutesDeps;
   presence?: PresenceRoutesDeps;
   /** D1 §5.1 — POST /api/paddle/webhook. Present ONLY when bootstrap resolved
    *  `mode === 'saas' && config.paddle.enabled`; absent → the path falls through

@@ -227,6 +227,46 @@ export function updateArtifactUrl(base, version, filename) {
   return `${base}/download/v${version}/${encodeURIComponent(filename)}`;
 }
 
+/**
+ * Card M-3 (owner ruling 2026-09-08 --
+ * docs/decisions/2026-09-08-owner-web-client-signed-in-controls-and-stable-apk-url.md):
+ * the SAME Android bytes are attached to every public release a SECOND time
+ * under this one, version-less name, so that one fixed URL always serves the
+ * newest build.
+ *
+ * The name is the whole contract, so it lives here, once. The download popup
+ * on /go bakes it into a QR code and the web repo mirrors this constant; a
+ * renamed asset invalidates every printed or scanned copy of that URL, which is
+ * exactly the failure the ruling exists to prevent. Owner wrote it
+ * `flowmic-released-lasted.apk`; read as `latest` per the ruling's landing note
+ * -- if that reading is ever overruled, this line is the only edit.
+ *
+ * It does NOT replace the version-pinned asset. Both are uploaded from the
+ * same file: `FlowMic-<version>-release.apk` answers "which version is this"
+ * (and is what updateArtifactUrl() hands an old client, deliberately pinned so
+ * it still resolves in a year), this one answers "give me the newest".
+ */
+export const LATEST_APK_ASSET_NAME = 'flowmic-release-latest.apk';
+
+/**
+ * The one URL that never changes.
+ *
+ * GitHub resolves `<repo>/releases/latest/download/<name>` server-side to the
+ * asset of that name on whatever release is currently "latest" -- so the string
+ * is minted once and never re-minted per version. Two consequences worth
+ * stating, because both look like this function being wrong:
+ *   - "latest" EXCLUDES drafts and prereleases. While a release is still a
+ *     draft, this URL keeps serving the PREVIOUS release's bytes -- not a 404,
+ *     a stale-but-plausible answer.
+ *   - If the fixed-name asset is missing from the latest release, this 404s
+ *     while the release page itself looks perfectly healthy.
+ * publish-github-release.mjs turns both of those into a refusal instead of a
+ * guess (assertLatestApkUrlServesThisBuild).
+ */
+export function latestApkDownloadUrl(base = PUBLIC_RELEASE_BASE) {
+  return `${base}/latest/download/${LATEST_APK_ASSET_NAME}`;
+}
+
 /** The release page for this version. `notes_url` is only ever OPENED as a link
  *  — desktop `UpdateBlock.vue`/`UpdateCard.vue`, mobile `settings_update_card.dart`
  *  — never fetched or parsed, so the rendered release page is the right target

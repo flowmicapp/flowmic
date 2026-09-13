@@ -37,10 +37,13 @@ extension PttSessionDispose on PttSession {
     await fsm.dispose();
     await stt.dispose();
     await _injectResultCtl.close();
+    await _controlKeyResultCtl.close();
     await _focusStateCtl.close();
     await _autoStoppedCtl.close();
     await _aiComposeCtl.close();
     await _refinedCtl.close();
+    await _billingBudgetCtl.close();
+    latestBudget.dispose(); // G-2c, the held half of the same frame
     paired.dispose();
     connectedDeviceName.dispose();
     _pcPresence.dispose();

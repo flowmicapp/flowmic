@@ -274,7 +274,12 @@ void main() {
 
       final Map<String, Object?>? frame = lastPairFrame();
       expect(frame, isNotNull);
-      expect(frame, <String, Object?>{'short_code': '1234'});
+      // An EXACT map, not a subset, and it stays exact: this control's whole
+      // job is 「nothing else rode along」, so it has to see a new key rather
+      // than tolerate one. Card S2-01 added `client` (the version is absent
+      // because this harness never warms that cache); `pcid` is still missing,
+      // which is the claim.
+      expect(frame, <String, Object?>{'short_code': '1234', 'client': 'app'});
     },
   );
 
@@ -338,7 +343,8 @@ void main() {
       await tester.tap(find.text(s.pairConnect));
       await tester.pumpAndSettle();
 
-      expect(lastPairFrame(), <String, Object?>{'short_code': '1234'});
+      // Exact, for the reason spelled out at ④c above.
+      expect(lastPairFrame(), <String, Object?>{'short_code': '1234', 'client': 'app'});
     },
   );
 

@@ -306,6 +306,14 @@ class BackfillRunner {
   /// absent instead of present-and-doomed while a recording is running.
   bool get recordingNow => _session.fsm.session == SessionState.recording;
 
+  /// Card WB-6 — is there a link a recovery could be started on?
+  ///
+  /// THE SAME FIELD `beginBackfill` REFUSES ON, read through the same object,
+  /// so the screen cannot disagree with the gate about what it is looking at.
+  /// It is still only a courtesy: the gate is asked again, later, for real.
+  bool get linkConnected =>
+      _session.fsm.connection == ConnectionState.connected;
+
   /// Card RC-1b (audit A6 R-2) - the user asked for one recording to be tried
   /// again, now.
   ///
@@ -468,11 +476,13 @@ class BackfillRunner {
     required String sourceLang,
   }) async {
     if (target != null) _session.articles.beginReplay(target);
-    if (!_session.beginBackfill(
-      mode: kRecoveryMode,
-      sourceLang: sourceLang,
-      prefs: _phonePrefs?.call(),
-    )) {
+    if (!_session
+        .beginBackfill(
+          mode: kRecoveryMode,
+          sourceLang: sourceLang,
+          prefs: _phonePrefs?.call(),
+        )
+        .ok) {
       _session.articles.endReplay();
       return false;
     }

@@ -21,6 +21,10 @@ import 'dart:typed_data';
 // the manifest, and the analyzer refuses the redundant pair.
 import 'retained_audio_journal.dart';
 
+// 🔴 NOT re-exported by the journal (it imports this one privately), so the
+// scan asks for it by name. Card RF-2 — see [_publishManifest].
+import 'retained_audio_deleted.dart';
+
 /// What the startup scan concluded about one recording. §A3-8 requires the
 /// three quantities to be NAMED SEPARATELY; this class is that requirement.
 class RecordingScan {
@@ -135,6 +139,23 @@ class RecordingScan {
 /// performs are (a) publishing a `claimAheadOfObservedAt` marker onto a
 /// manifest whose claim ran ahead, preserving that manifest's high-water mark,
 /// and (b) renaming an unreadable manifest aside to quarantine it.
+///
+/// 🔴 AND (a) IS A WRITE, WHICH IS WHY THIS READER TAKES [DeletedRecordings].
+/// Card RF-2 named the choke point for 「the user deleted this while we were
+/// writing about it」 and found three writers of a manifest path; this was the
+/// one nobody counted, because the class it lives in is documented as a
+/// reader. Measured shape (pending_recovery_actions_test.dart's delete-race
+/// case, 2026-09-12): a Retry press SCANS the directory before it dials, the
+/// delete landed inside that scan, and the marker publish put
+/// `<id>.manifest.json` back for audio that was gone — the card returned with
+/// nothing behind it, and the user's delete read as having silently failed.
+///
+/// ⚠️ THE REGISTRY GUARDS THE WRITE, NOT THE REPORT. A scan already under way
+/// still returns the row it read before the delete landed (the bytes were
+/// there when it looked); what it no longer does is leave a file behind that
+/// makes the NEXT scan say so too. Filtering the report here would be a second
+/// answer to 「which recordings exist」 — the delete already removed the files,
+/// and that is the answer.
 class RetainedAudioJournalScan {
   const RetainedAudioJournalScan._();
 
@@ -144,6 +165,7 @@ class RetainedAudioJournalScan {
     AudioJournalFormat expected = AudioJournalFormat.current,
     int Function()? clock,
     void Function(JournalNotice notice)? onNotice,
+    DeletedRecordings? deleted,
   }) async {
     final int Function() now =
         clock ?? (() => DateTime.now().millisecondsSinceEpoch);
@@ -169,6 +191,7 @@ class RetainedAudioJournalScan {
         expected: expected,
         now: now,
         onNotice: onNotice,
+        deleted: deleted,
       ));
     }
     return out;
@@ -181,6 +204,7 @@ class RetainedAudioJournalScan {
     required AudioJournalFormat expected,
     required int Function() now,
     void Function(JournalNotice notice)? onNotice,
+    DeletedRecordings? deleted,
   }) async {
     final String pcmPath = '$base${RetainedAudioJournal.pcmSuffix}';
     final String manifestPath = '$base${RetainedAudioJournal.manifestSuffix}';
@@ -284,7 +308,7 @@ class RetainedAudioJournalScan {
       // marker; recover only what is actually there.
       final RecordingManifest marked =
           parsed.copyWith(claimAheadOfObservedAt: now());
-      await _publishManifest(fs, base, marked);
+      await _publishManifest(fs, base, marked, id, deleted);
       notice(JournalNotice(
         code: JournalNotice.codeClaimAheadOfObserved,
         recordingId: id,
@@ -360,15 +384,54 @@ class RetainedAudioJournalScan {
     return age >= 0 && age < kLiveSettlePendingGraceMs;
   }
 
+  /// Publish [m], unless the user threw this recording away.
+  ///
+  /// 🔴 CARD RF-2, THE SAME TWO HALVES AS `RetainedAudioJournal._commitLocked`,
+  /// AND THEY DO NOT DO THE SAME JOB. The second `contains`, AFTER the rename,
+  /// is the one that closes the defect: the first is a check-then-write like
+  /// every existence check this family replaced, and a delete arriving between
+  /// it and the rename publishes anyway. MEASURED 2026-09-12 on the case that
+  /// pins this door («a delete that lands inside the recovery SCAN»): remove
+  /// the pre-check alone and it is still green; remove the undo alone and it is
+  /// `Expected: false  Actual: <true>`.
+  ///
+  /// ⚠️ THE PRE-CHECK IS KEPT ANYWAY, AND NOT AS A SECOND DEFENCE. It answers a
+  /// different question — the mark was already standing when this scan reached
+  /// the write, so there is nothing to say about this recording and no reason
+  /// to write a file only to delete it again. It also keeps all three manifest
+  /// writers reading the same, which is what stops the next reader from
+  /// concluding that this one was left out on purpose.
+  ///
+  /// ⚠️ IT REMOVES ONLY THE MANIFEST THIS CALL PUT THERE, and never any PCM:
+  /// §A3-8, nothing in the journal layer deletes audio. A swallowed failure
+  /// leaves a few hundred bytes of JSON that the next scan reads as
+  /// claim-ahead-of-an-absent-file — the same leftover `_deleteJournal`'s own
+  /// PCM-first order accepts.
   static Future<void> _publishManifest(
-      JournalFileSystem fs, String base, RecordingManifest m) async {
+    JournalFileSystem fs,
+    String base,
+    RecordingManifest m,
+    String recordingId,
+    DeletedRecordings? deleted,
+  ) async {
+    if (deleted?.contains(recordingId) ?? false) return;
     final String tmp = '$base${RetainedAudioJournal.manifestTempSuffix}';
     await fs.writeBytes(
       tmp,
       Uint8List.fromList(m.encode().codeUnits),
       flush: true,
     );
-    await fs.rename(tmp, '$base${RetainedAudioJournal.manifestSuffix}');
+    final String manifestPath = '$base${RetainedAudioJournal.manifestSuffix}';
+    await fs.rename(tmp, manifestPath);
+    if (deleted?.contains(recordingId) ?? false) {
+      try {
+        await fs.deleteFile(manifestPath);
+      } on Object {
+        // Swallowed for the same reason the journal swallows its own undo: the
+        // audio is exactly where the user put it (gone), and a scan may not
+        // fail because of a write it performs on the side.
+      }
+    }
   }
 
   static int _floorEven(int n, int frame) => n - (n % frame);

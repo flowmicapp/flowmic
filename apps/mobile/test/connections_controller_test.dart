@@ -50,7 +50,34 @@ void main() {
       audio: AudioCapture(recorder: FakeAudioRecorder()),
       stateMachine: FlowmicStateMachine(),
       tokenStorage: InMemoryTokenStorage(),
-    );
+      // MEASURED 2026-09-13 (dev-pc-a): without this seam `remove
+      // forgets a pairing` took 5,023 ms of the file's 42 s, because
+      // `retirePairing` defaults to a REAL `SocketCore` (ptt_session.dart's
+      // `_retireTransport` field comment names this exact hazard and 「a real
+      // dial to 192.168.1.5 was still outstanding」) and 192.168.1.5:41879 is
+      // whatever happens to answer on the machine's LAN. Sixteen other files
+      // already pass it — `grep -rn 'retireTransport:' test`.
+      //
+      // The verdict is unchanged, not merely fast: a fake born
+      // `connectSucceeds = false` pushes `error`, so `emitWithAck` throws and
+      // `retirePairingOn`'s `on Object` returns false — the same 「the server
+      // did not acknowledge」 this test saw from the timeout.
+      retireTransport: () => FakeSocketTransport(),
+    )
+      // The third real-network seam in this file, and the one that cost the two
+      // `addByCode` cases 2 s each. `PttSession.lanFingerprintLearner` defaults
+      // to `learnLanTlsFingerprint` (ptt_session.dart, `lanFingerprintLearner =
+      // learnLanTlsFingerprint`), which opens a REAL TLS connection, and
+      // ptt_pair.dart calls it with `candidateProbeTimeout` (2 s) — so pairing
+      // by a typed address dialled 192.168.1.5:41879 and sat out that timeout.
+      // `test/support/di.dart`'s `newTestSession` already defaults this to
+      // 「no TLS identity on file」 and its comment names this exact hazard; this
+      // file builds `PttSession` directly, so it has to say it itself.
+      //
+      // ⚠️ MEASURED, so the next reader does not repeat it: injecting
+      // `session.healthReader` instead changed nothing here (6,355 ms vs
+      // 6,271 ms). That seam is real but these cases never reach it.
+      ..lanFingerprintLearner = (Uri url, Duration timeout) async => null;
     login = LoginController(
       transport: t,
       accountStore: InMemoryAccountStore(),
@@ -525,6 +552,16 @@ void main() {
           login: login,
           saasEndpoint: 'https://saas.test:443',
           healthReader: (Uri url, Duration timeout) => gate.future,
+          // The presence seam, for the reason the header states about the
+          // health seam. MEASURED 2026-09-13 (dev-pc-a): omitted, this
+          // controller ran the PRODUCTION probe against 192.168.1.5 / saas.test
+          // and each of these three cases cost ~10.25 s — exactly
+          // `kInstanceListPresenceBudget.worstCase` (3 × 3 s + 0.3 + 0.9, see
+          // lib/src/session/pc_presence_probe.dart), i.e. real network I/O in a
+          // unit test. Nothing here asserts on presence; the subject is
+          // `reachOf`, which the health seam above answers.
+          presenceReader: (Uri url, String token, Duration timeout) async =>
+              PcPresenceReading.unknown,
         );
         await slow.load();
 
@@ -543,6 +580,16 @@ void main() {
           login: login,
           saasEndpoint: 'https://saas.test:443',
           healthReader: (Uri url, Duration timeout) async => throw const SocketException('no route'),
+          // The presence seam, for the reason the header states about the
+          // health seam. MEASURED 2026-09-13 (dev-pc-a): omitted, this
+          // controller ran the PRODUCTION probe against 192.168.1.5 / saas.test
+          // and each of these three cases cost ~10.25 s — exactly
+          // `kInstanceListPresenceBudget.worstCase` (3 × 3 s + 0.3 + 0.9, see
+          // lib/src/session/pc_presence_probe.dart), i.e. real network I/O in a
+          // unit test. Nothing here asserts on presence; the subject is
+          // `reachOf`, which the health seam above answers.
+          presenceReader: (Uri url, String token, Duration timeout) async =>
+              PcPresenceReading.unknown,
         );
         await boom.load();
         await boom.refreshReachability();
@@ -560,6 +607,16 @@ void main() {
           login: login,
           saasEndpoint: 'https://saas.test:443',
           healthReader: (Uri url, Duration timeout) async => throw StateError('not an Exception'),
+          // The presence seam, for the reason the header states about the
+          // health seam. MEASURED 2026-09-13 (dev-pc-a): omitted, this
+          // controller ran the PRODUCTION probe against 192.168.1.5 / saas.test
+          // and each of these three cases cost ~10.25 s — exactly
+          // `kInstanceListPresenceBudget.worstCase` (3 × 3 s + 0.3 + 0.9, see
+          // lib/src/session/pc_presence_probe.dart), i.e. real network I/O in a
+          // unit test. Nothing here asserts on presence; the subject is
+          // `reachOf`, which the health seam above answers.
+          presenceReader: (Uri url, String token, Duration timeout) async =>
+              PcPresenceReading.unknown,
         );
         await boom.load();
         await boom.refreshReachability();

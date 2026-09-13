@@ -23,7 +23,7 @@ import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { afterEach, describe, expect, it } from 'vitest';
 import PairingModal from './components/PairingModal.vue';
-import { S, setLocale } from '../lib/strings';
+import { S, UI_LOCALES, setLocale } from '../lib/strings';
 import { PAIR_APP_URL } from '../lib/strings/pairing';
 import { EMPTY_CLOUD_STATUS, type ChannelId, type CloudStatus } from '../lib/channel';
 import type { PairingInfo } from '../lib/pairing';
@@ -60,6 +60,21 @@ function render(props: {
       cloud: props.cloud ?? { ...EMPTY_CLOUD_STATUS },
     }),
   );
+}
+
+/** Vue SSR escapes interpolated text and keeps template comments in the output.
+ *  Assertions about what a PERSON reads must see neither: an apostrophe in a
+ *  French sentence comes back as `&#39;`, and a comment that happens to quote a
+ *  caption would make a `toContain` pass on markup nobody can read (measured —
+ *  a first draft of the RL-1 case went green off its own comment). */
+function plain(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 }
 
 /** The one <img class="qr"> the template can produce. */
@@ -236,12 +251,53 @@ describe('N5 wiring anchors (source literals — the click→re-read path)', () 
     expect(page).toContain('fetchPairingInfo(pairTarget.value)');
   });
 
-  it('there is exactly ONE QR image and it is gated on the suppression decision', () => {
-    // The 「no QR」 assertions above are only as strong as this: if a second <img>
-    // appeared outside the gate, a blocked channel could still show a code picture.
-    expect((tpl.match(/<img/g) ?? []).length).toBe(1);
-    expect(tpl).toContain('v-if="!view.qrSuppressed && qrDataUrl"');
+  it('W-12: there are exactly TWO QR images (primary https + legacy small), and BOTH live inside the suppression gate', () => {
+    // The 「no QR」 assertions above are only as strong as this: if an <img>
+    // appeared outside the gate, a blocked channel could still show a code
+    // picture. S1-01 added a SECOND <img> (the small legacy `flowmic://` code
+    // beside the primary https one, owner ruling W-12) — the count changed
+    // from 1 to 2 on purpose, but the invariant this test guards (nothing
+    // outside the gate) did not, so it is asserted structurally rather than by
+    // just bumping the total: every `<img` in the WHOLE template must fall
+    // inside the substring the suppression `<template v-if=...>` opens.
+    const gateOpen = tpl.indexOf('v-if="!view.qrSuppressed && qrDataUrl"');
+    expect(gateOpen).toBeGreaterThan(-1);
+    const gateClose = tpl.indexOf('</template>', gateOpen);
+    expect(gateClose).toBeGreaterThan(gateOpen);
+    const gated = tpl.slice(gateOpen, gateClose);
+    const totalImgs = (tpl.match(/<img/g) ?? []).length;
+    const gatedImgs = (gated.match(/<img/g) ?? []).length;
+    expect(gatedImgs).toBe(2);
+    expect(totalImgs).toBe(gatedImgs); // nothing outside the gate
+    // Primary (big/hero) code is the HTTPS payload; secondary (small) is the
+    // legacy `flowmic://` one — same `view`, so they can never disagree about
+    // which pairing opportunity they describe (lib/pairing.ts, "Shared by
+    // BOTH builders").
+    expect(src).toContain('() => view.value.qrPayloadHttps');
     expect(src).toContain('() => view.value.qrPayload');
+  });
+
+  it('M-2: the https code is built with THIS desktop`s UI language, read inside the computed', () => {
+    // The wiring half of M-2, and the only place it can be checked: the builder
+    // and its `lang=` are unit-tested in lib/pairing.test.ts, but a payload
+    // function nobody hands a locale to emits no `lang=` and every one of those
+    // tests stays green — the repo`s oldest defect shape (a capability defined
+    // and never called).
+    //
+    // `getLocale()` must sit INSIDE the computed: it is a module ref, so
+    // reading it there is what makes the QR re-render when the user switches
+    // the desktop`s language. Hoisted to a `const` at setup it would freeze the
+    // code at whatever language the app started in, and nothing on screen would
+    // say so.
+    const CALL = 'derivePairingModal(props.info, pairChannelOf(props.channel), getLocale())';
+    expect(src).toContain(CALL);
+    const computedAt = src.indexOf('const view = computed(');
+    expect(computedAt).toBeGreaterThan(-1);
+    // The call is INSIDE the computed, not hoisted above it. Deliberately
+    // anchored on the call and not on the bare string `getLocale()`: the
+    // comment above the computed names it too, so a search for the bare string
+    // finds prose and answers a question this test is not asking.
+    expect(src.indexOf(CALL)).toBeGreaterThan(computedAt);
   });
 
   it('the blocked-channel branch comes BEFORE anything that could draw a code', () => {
@@ -362,11 +418,37 @@ describe('PairingModal LAN address list (B4-15)', () => {
 // in the catalogue but is never interpolated into the template would pass a
 // `Object.keys(S)` check and still leave the user stuck.
 describe('U8 — pairing dialog is no longer a dead end for a first-time user', () => {
-  it('always tells the user they need the phone app, on BOTH channels', async () => {
-    const lan = await render({ channel: 'lan' });
+  // Card RL-1 (owner 2026-09-13) — this used to assert ONE sentence on BOTH
+  // tabs, and that is the decision the card reverses: over the relay the https
+  // QR (`qrPayloadHttps`) opens FlowMic-web in whatever browser scanned it, so
+  // 「you will need the app before pairing」 stopped being true on the cloud
+  // tab. U8's claim is not dropped — it is split, and the cloud half now names
+  // both ways in.
+  //
+  // The assertions name the KEYS, never the finished wording: these sentences
+  // are written by the copy pipeline (ruling 2026-09-01 — the executor does not
+  // type user-visible prose), so a literal here would be a second copy of a
+  // string that may be rewritten without touching this behaviour.
+  //
+  // Reverse control (run before this landed): swapping the two arms of the
+  // ternary in PairingModal.vue fails both halves of the first case.
+  it('tells the user what the phone needs — per tab, because the answer differs', async () => {
+    const lan = plain(await render({ channel: 'lan' }));
     expect(lan).toContain(S.pair_need_app);
-    const cloud = await render({ channel: 'cloud', info: { channel: 'cloud' }, cloud: CLOUD_READY });
-    expect(cloud).toContain(S.pair_need_app);
+    expect(lan).not.toContain(S.pair_cloud_app_or_browser);
+
+    const cloud = plain(await render({ channel: 'cloud', info: { channel: 'cloud' }, cloud: CLOUD_READY }));
+    expect(cloud).toContain(S.pair_cloud_app_or_browser);
+    expect(cloud).not.toContain(S.pair_need_app);
+  });
+
+  it('the two sentences are different strings in every locale — otherwise the case above proves nothing', () => {
+    for (const code of UI_LOCALES) {
+      setLocale(code);
+      expect(S.pair_cloud_app_or_browser.length, `empty in ${code}`).toBeGreaterThan(0);
+      expect(S.pair_cloud_app_or_browser, `identical to pair_need_app in ${code}`).not.toBe(S.pair_need_app);
+    }
+    setLocale('zh-CN');
   });
 
   it('does NOT render a download link while PAIR_APP_URL is empty (no fake URL)', async () => {

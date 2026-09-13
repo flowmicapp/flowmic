@@ -40,11 +40,22 @@ import {
 import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
+import type { AnonymousRowReader } from '../../auth/metering-principal';
+import { principalRefOf, secondLedgerFor, targetEndUserId, type PcRoomReader } from './audio-metering';
 import type { RecoveryOperationsRepo } from '../../db/repos/recovery-operations.repo';
 import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
+import type { BudgetPusher } from '../../billing/budget-push';
+import { makeAudioBudgetPushes } from './budget-frames';
 import { markAudioStop } from '../../obs/latency';
 import { log } from '../../log';
-import { createRefuseStart, type StartRefusalGate } from './audio-start-quota';
+import { createRefuseStart, integratorKeyRefusal, type StartRefusalGate } from './audio-start-quota';
+// 🔴 STRUCTURAL SPLIT (card MP-1) — `SttStartArgs` and `AudioHandlerDeps` moved
+// VERBATIM to ./audio-handler-deps.ts for the 800-line cap, and are RE-EXPORTED
+// here so no importer has to know it happened. That file's header carries the
+// argument, including why the three billing call sites did NOT move with them.
+import type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
+
+export type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
 import { admitOperation } from './audio-start-operation';
 import { hashedRoomId } from '../../http/presence-routes';
 
@@ -71,77 +82,6 @@ import { hashedRoomId } from '../../http/presence-routes';
  */
 const AUDIO_STOP_FINISH_WATCHDOG_MS = 20_000;
 
-export interface SttStartArgs {
-  userId: string;
-  mode: 'realtime' | 'translate' | 'organize';
-  delivery: Delivery;
-  sourceLang: string;
-  targetLang?: string;
-  /** Card CV-1 — the recovery identifiers off `audio:start`, echoed back on the
-   *  terminal final. Lifted by `recoveryEchoOf`; undefined when the frame
-   *  carried none. Never parsed or validated here. */
-  recovery?: RecoveryEcho;
-  /** GA-04: the stt:* emitter must follow the session across a reconnect, so the
-   *  mobile leg is resolved PER FRAME instead of closing over the socket that
-   *  happened to send audio:start. Absent → the factory falls back to that
-   *  socket (unpaired/local sessions, and every pre-GA-04 call site). */
-  resolveSocket?: () => Pick<Socket, 'emit'> | null;
-  /** Called exactly once by the orchestrator (R1-3) at session finalize.
-   *
-   *  A2-5 — `chars` is the third argument the seam grew so the per-event usage
-   *  log can answer "how many characters were spoken this time / how many were sent out". See [[SttCharCounts]] for why
-   *  it had to travel here rather than be defaulted at the table. */
-  onComplete(durationMs: number, isByok: boolean, chars: SttCharCounts): void;
-  /** v0.2.3 — the polish LLM's usage, once per polished terminal-final and only
-   *  when the model reported it. See the metering note on commitPolishUsage. */
-  onPolishUsage?(tokensIn: number, tokensOut: number, isByok: boolean): void;
-}
-
-export interface AudioHandlerDeps {
-  io: Server;
-  guard: QuotaGuard;
-  usageTracker: UsageTracker;
-  /** Room presence — the S→PC audio fan-out target (WP-R2-1b, F-2375). */
-  store: RoomStore<Socket>;
-  /** GA-04 session ownership. Absent → sessions stay socket-scoped (old behaviour). */
-  sessions?: AudioSessionRegistry;
-  /** STT engine seam (R1-3). Absent in R1-2 → the handler fails loud. */
-  sttFactory?: (args: SttStartArgs) => SttOrchestrator;
-  /**
-   * card QTA-2 (owner 2026-08-15: 「计费在 PC 和手机端都进行检查，两边有一方
-   * 不满足都不能继续」) — resolve the PC OWNER's account for this socket's
-   * paired PC. `auth.userId` is the acting account (`mobile.user_id ??
-   * pc.user_id` — the phone's own when it has one); when the desktop is signed
-   * into a DIFFERENT account, that second account's quota must also admit the
-   * session. Absent (old wiring, tests that predate the card) ⇒ single-account
-   * behaviour, which is also correct whenever the two ids are equal.
-   */
-  pcOwnerUserId?: (pc_device_id: string) => string | null;
-  /**
-   * NR-2a — the 3-day unverified grace (auth/verification-grace.ts). ONE of the
-   * two enforcement sites in the whole server, deliberately the SAME two the
-   * quota guard uses: 「云端拒新会话」 (owner ruling item 4) is a statement about
-   * SESSION STARTS, and this is where a session starts.
-   *
-   * Absent ⇒ no gate, which is the pre-NR-2a behaviour every existing test was
-   * written against. Standalone is exempt inside the guard itself
-   * (`config.mode !== 'saas'` NOOP), not by being unwired here — so the
-   * exemption is a fact a test can drive rather than a wiring accident.
-   */
-  verificationGrace?: VerificationGraceGuard;
-  /**
-   * Card PR-2 (2026-09-06) — the operation registry (db.recoveryOps).
-   *
-   * Absent ⇒ a frame carrying an `operation_id` is REFUSED rather than admitted
-   * unprotected, because this server advertises `recovery.idempotent_operation`
-   * (audio-start-operation.ts argues the direction). Absent + no operation ⇒
-   * exactly today's behaviour, which is every test that predates this card.
-   */
-  recoveryOps?: RecoveryOperationsRepo;
-  /** Injected so a test can pin the registry's timestamps to its own clock.
-   *  Defaults to `Date.now`. */
-  now?: () => number;
-}
 
 // card K-5's StartRefusalGate type and the refuseStart function (with the
 // QTA-1 incident writeup) moved verbatim to ./audio-start-quota.ts — a
@@ -189,7 +129,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   function commitSttUsage(
     userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string,
   ): void {
-    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, operationId);
+    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, principalRefOf(socket), operationId);
   }
 
   // *** billing call site (LLM metering) — the SECOND recordLlmUsage site ***
@@ -203,10 +143,11 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // So the invariant is now "exactly TWO sites", and it is asserted rather than
   // remembered (billing-call-sites.test.ts). Two is the number of things that
   // actually call an LLM: the compose turn and the polish pass.
+  // 🔴 card MP-9 — it carries the SAME principal `commitSttUsage` passes (whole argument at `principalRefOf`).
   function commitPolishUsage(
     userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string,
   ): void {
-    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, operationId);
+    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket), operationId);
   }
 
   /** Mirror an utterance-lifecycle edge to the paired PC — iff this utterance
@@ -261,6 +202,57 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // moved verbatim to ./audio-start-quota.ts (createRefuseStart) — structural
   // split only, see that file's header. Every call site below is unchanged.
   const refuseStart = createRefuseStart(socket);
+
+  /**
+   * WHO THE ROOM'S TARGET END IS — one lookup, asked by two gates.
+   *
+   * The TARGET END's account and not the acting one: budget-push.ts's header on
+   * whose number a socket is entitled to; `./audio-metering.ts` carries the one
+   * exception and why it is not the payer. `null` for「no room / no PC in it /
+   * no owner」, which is the shape every PC-directed frame here already has.
+   *
+   * 🔴 card MP-11 — PULLED OUT OF `peer` RATHER THAN COPIED BESIDE IT. G-17
+   * needs the target end on a path where no utterance is in flight; writing a
+   * second resolver for that would put two answers behind「who is the target」,
+   * and the two would be free to drift on the next change to either. `peer`
+   * below is now visibly THIS PLUS ONE GATE.
+   */
+  const roomTarget = (): { socket: Socket; userId: string } | null => {
+    const auth = getAuth(socket);
+    const roomUuid = getRoomUuid(socket);
+    if (roomUuid === null || !auth) return null;
+    const pc = store.getPc(roomUuid);
+    if (!pc) return null;
+    const owner = targetEndUserId(deps, auth.userId, auth.deviceId ?? '');
+    return owner === null ? null : { socket: pc, userId: owner };
+  };
+
+  // card S2-02 — the three `audio:*` budget push points. Everything interesting
+  // about them (whose account, which clock, which number, and why the exhaustion
+  // frame has exactly one trigger) lives in ./budget-frames.ts and in
+  // billing/budget-push.ts; this is only the binding.
+  const budgetPushes = makeAudioBudgetPushes(socket, {
+    ...(deps.budget ? { budget: deps.budget } : {}),
+    ...(deps.budgetHeartbeatMs !== undefined ? { heartbeatMs: deps.budgetHeartbeatMs } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
+    // 🔴 The target end, resolved PER FRAME and gated exactly as `mirrorToPc` is.
+    // Same three conditions, same order, same reason:
+    //   · `fannedOut` false ⇒ record-only. The PC was never told this recording
+    //     BEGAN (GA-02, the P0 privacy line), so it must not be handed a meter
+    //     that ticks in step with one. This is the ONE place the "tell both
+    //     ends" rule bends, and it bends toward the red line.
+    //   · no room, or no PC in it ⇒ nothing to tell, silently. That is the shape
+    //     every PC-directed frame here already has.
+    // The TARGET END's account and not the acting one: budget-push.ts's header
+    // on whose number a socket is entitled to; `./audio-metering.ts` carries the
+    // one exception and why it is not the payer.
+    peer: (): { socket: Socket; userId: string } | null =>
+      (current()?.fannedOut ? roomTarget() : null),
+    // card MP-11 / gap G-17 — the same lookup with the GA-02 gate NOT applied,
+    // for the one frame that fires when no utterance exists to apply it to. See
+    // `roomTarget` above and the dep's own doc in budget-frames.ts.
+    roomTarget,
+  });
 
   socket.on('audio:start', (payload: unknown, ack: unknown) => {
     const auth = getAuth(socket);
@@ -373,12 +365,69 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     try {
       guard.ensureQuota(auth.userId, 'stt');
       if (delivery !== 'none') {
-        const pcUserId = deps.pcOwnerUserId?.(auth.deviceId ?? '') ?? null;
-        if (pcUserId !== null && pcUserId !== auth.userId) {
+        // 🔴 card W4-05 — `pcOwnerQuotaGate` folds in the ONE exception this gate
+        // has ever had: an ANONYMOUS site-demo owner is not asked. Its allowance
+        // is the very thing owner's ruling says stops applying once the visitor
+        // signs in, so asking it would refuse every sentence a paid account
+        // speaks, for a reason that is true of nobody's minutes.
+        //
+        // 🔴 card MP-0 — AND IT SURVIVES 「谁说扣谁」 UNCHANGED (design §8 Q1,
+        // answered 甲). `./audio-metering.ts` `secondLedgerFor` carries the
+        // argument and the two far ends that are not asked.
+        const pcUserId = secondLedgerFor(deps, auth.userId, auth.deviceId ?? '');
+        if (pcUserId !== null) {
           gate = 'pc_owner';
           judged = pcUserId;
           guard.ensureQuota(pcUserId, 'stt');
         }
+      }
+      // 🔴 card MP-6 — THE SITE DEMO'S PER-BROWSER CEILING, a gate for QTA-2's
+      // reason: it decides whether this press may RUN, and one ledger is still
+      // the one written. Outside the `delivery` branch: the grant is spent by
+      // the recognition, not by who sees the words.
+      if (auth.capUserId !== undefined) {
+        gate = 'trial_cap'; judged = auth.capUserId;
+        guard.ensureQuota(auth.capUserId, 'stt');
+      }
+      // card MP-1 — the integrator key's SUB-QUOTA, the third ceiling and the
+      // only one that is not an account. `integratorKeyRefusal` (audio-start-
+      // quota.ts) carries the argument for its own error code and for why it
+      // writes no `usage_events` refusal row.
+      const keyRefusal = integratorKeyRefusal(auth, deps.integratorKeys, (deps.now ?? Date.now)());
+      if (keyRefusal !== null) {
+        // 🔴 card MP-11 / gap G-17 — TELL THE HOST PAGE, NOT ONLY THE SPEAKER.
+        // Before this line the site whose key ran out saw nothing at all while
+        // the phone showed the sentence (MP-2 measured it): the exhaustion
+        // frame hangs off the AUTO-STOP, and a recording refused at the door
+        // never starts, so it never auto-stops. The target end is the
+        // integrator's own page, on the integrator's own key, and it is the one
+        // end that can act on this.
+        //
+        // ⚠️ ORDER — the meter reaches zero BEFORE the verdict goes out, the
+        // same ordering rule `AudioBudgetPushes.exhausted` states for the
+        // auto-stop: a meter that lands after the refusal explains nothing
+        // about it.
+        budgetPushes.refusedExhausted();
+        // 🔴 card MP-12 (owner §11 追认 item 3) — AND LEAVE A ROW, which this arm
+        // deliberately did not until today. `audio-start-quota.ts`'s correction
+        // block carries the whole argument; the short version is that the
+        // journal line beside this one rotates, and 「how many visitors did my
+        // site turn away this cycle」 is a question T asks weeks later.
+        //
+        // 🔴 BOTH IDS ARE T, AND THAT IS NOT A COPY-PASTE. `user_id` is whose
+        // attempt this was and `refused_user_id` is whose ceiling said no; on an
+        // integrator room `auth.userId` IS T for both, because `resolvePayer`'s
+        // `'host'` branch made T the account this press runs against (the
+        // speaker is a visitor and is never either id — they are `speaker_ref`,
+        // which `principalRefOf` carries). The one thing the row must not do is
+        // claim T's PLAN ran out: `integrator_key_id`, also from
+        // `principalRefOf`, is what says a KEY refused this press.
+        //
+        // ⚠️ ORDER, same as the push above: the record lands before the verdict
+        // leaves, so nothing can be told about a refusal that is not yet written.
+        usageTracker.recordQuotaRefusal(auth.userId, 'stt', auth.userId, principalRefOf(socket));
+        refuseStart(keyRefusal, { gate: 'integrator_key', userId: auth.userId, delivery });
+        return safeAck(ack, keyRefusal);
       }
     } catch (err) {
       const e = errorPayload(err);
@@ -403,7 +452,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       // durable, because the journal rotates and the ledger is what a billing
       // question gets answered from months later. `user_id`'s meaning is
       // untouched, so rows written before today still mean what they meant.
-      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'stt', judged);
+      if (e.error === 'QUOTA_EXCEEDED') usageTracker.recordQuotaRefusal(auth.userId, 'stt', judged, principalRefOf(socket));
       // QTA-1 — and SAY it. `recordQuotaRefusal` above writes a row that is
       // invisible in production anyway (`FLOWMIC_USAGE_EVENTS_ENABLED` is unset
       // on the relay — measured 2026-08-15, boot line "per-event usage log
@@ -418,6 +467,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       refuseStart(e, { gate, userId: judged, delivery });
       return safeAck(ack, e);
     }
+
 
     // *** card PR-2 — the operation registry, AFTER admission and BEFORE any
     // vendor cost is incurred ***
@@ -509,10 +559,22 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         state = local;
       }
       const slot: AudioSessionState = state;
+      // card S2-02 — push point 2 of 4. AFTER the slot carries this utterance's
+      // `fannedOut` and BEFORE the engine is built, and both halves are load
+      // bearing. After, because the target-end fan-out is gated on that flag and
+      // a push taken earlier would read the PREVIOUS utterance's answer (measured:
+      // the target end got no `started` frame at all). Before, because this frame
+      // says "the press was admitted and this is what is left" - whether the
+      // engine then fails to open is a different sentence with its own frame
+      // (`stt:error`) that does not change how many minutes the account has.
+      budgetPushes.started();
 
       if (!deps.sttFactory) throw new EngineNotWiredError('stt');
       slot.orchestrator = deps.sttFactory({
         userId: auth.userId,
+        // card MP-6 — the hard stop is the LOWER of the two (capped-remaining.ts).
+        ...(auth.capUserId !== undefined ? { capUserId: auth.capUserId } : {}),
+        ...(auth.integratorKeyId !== undefined ? { integratorKeyId: auth.integratorKeyId } : {}),
         mode: parsed.data.mode,
         delivery,
         sourceLang: parsed.data.source_lang,
@@ -541,6 +603,12 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           commitSttUsage(auth.userId, durationMs, isByok, chars, operationId),
         onPolishUsage: (tIn, tOut, isByok) =>
           commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId),
+        // card S2-02 — push point 4 of 4. Fired by the stt emitter at the exact
+        // instant it is about to send `audio:auto-stopped{quota_exhausted}`, so
+        // 「the meter reached zero」 and 「the recording was ended」 are one event
+        // in two frames rather than two independent judgements. See
+        // [[pushBudgetExhausted]].
+        onQuotaExhausted: budgetPushes.exhausted,
       });
       safeAck(ack, { ok: true });
     } catch (err) {
@@ -591,6 +659,14 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // its seq monotonic (08 §3) and audio:resume re-opens the feed.
     if (state.paused) return;
     state.orchestrator.pushChunk(parsed.data.seq, parsed.data.data_b64, parsed.data.ts_ms);
+    // card S2-02 — push point 3 of 4, CHUNK-DRIVEN rather than on a timer: a
+    // `setInterval` armed at audio:start would have to be disarmed on the six
+    // teardown paths stt-session.ts `settle()` enumerates, and the one that is
+    // missed leaks a timer holding a socket. Traffic already arrives for exactly
+    // as long as this frame is interesting. ⚠️ The honest consequence is that a
+    // stalled uplink produces no tick — the right silence, because the number
+    // has not changed for anything the user did.
+    budgetPushes.tick(state.orchestrator);
   });
 
   // 04 §3.3 M→S→PC. GA-04 fills in the server leg that was pure façade: the

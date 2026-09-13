@@ -199,6 +199,61 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="flowmic" android:host="login"/>
             </intent-filter>
+            <!-- Card APPLINK-1 - the https pairing QR. The desktop prints
+                 `https://flowmic.app/go/pair?endpoint=...&code=NNNN...`
+                 (apps/desktop/src/lib/pairing.ts `buildHttpsQrPayload`, host from
+                 `PAIR_HTTPS_HOST` in packages/protocol/src/constants.ts) and the
+                 phone already parses it (lib/src/ui/scan_payload.dart
+                 `kPairLinkPrefixHttps`). Parsing it is not the same as BEING
+                 OFFERED it: without this filter the OS has never heard that this
+                 app owns that URL, so the system camera hands the same QR to a
+                 browser on a phone that HAS FlowMic installed. That is the one
+                 line of the stage-one acceptance script this closes.
+
+                 THIS IS INERT UNTIL THE DOMAIN PUBLISHES ITS SIDE. `autoVerify`
+                 makes Android fetch
+                 `https://flowmic.app/.well-known/assetlinks.json` at install
+                 time and take the link ONLY if that file names this package and a
+                 signing certificate it can match. That file does not exist yet -
+                 publishing the hostname is the owner's call - so today this
+                 declaration changes nothing a user can see: verification fails and
+                 the link keeps going to the browser. It fails CLOSED, which is why
+                 landing it early costs nothing.
+
+                 AND THE FINGERPRINT IN THAT FILE IS NOT OURS TO ASSUME. A Play
+                 install is re-signed by Google's key (Play App Signing), so the
+                 published file must carry PLAY's certificate fingerprint for store
+                 users and our release key's for the direct channel - assetlinks.json
+                 takes a list and both belong in it. Nothing in this repo pins a
+                 fingerprint today and this card added none.
+
+                 WHY `main` AND NOT A FLAVOUR MANIFEST - the same reasoning the
+                 browser-login block above spells out: the flavour split exists for
+                 ONE permission (REQUEST_INSTALL_PACKAGES, which Play forbids). A
+                 pairing QR is not channel-specific; putting this in `direct` would
+                 ship a store build that hands its own pairing link to a browser.
+
+                 `android:path` is EXACT, not a prefix: `/pair` is the only path
+                 this app can act on, and a prefix would also claim `/pairing-help`
+                 or whatever else the site later serves under it. Android does not
+                 match the query string at all - it rides along to the app.
+
+                 The `flowmic://login` filter above is untouched and stays: it is a
+                 custom scheme, needs no domain, and answers a different question
+                 (the sign-in hand-back). Two filters, two questions.
+
+                 Pinned by verify/lint/applink-declarations.mjs, which reads the
+                 host out of the protocol package rather than trusting this
+                 literal. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="flowmic.app"
+                    android:path="/go/pair"/>
+            </intent-filter>
         </activity>
         <!-- owner 2026-07-27 image copy: ClipData.newUri needs a content:// URI, so
              the single clipboard preview file in the private cache is exposed

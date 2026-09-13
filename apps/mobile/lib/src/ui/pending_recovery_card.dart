@@ -36,10 +36,20 @@ class PendingRecoveryCard extends StatelessWidget {
     required this.strings,
     required this.onRetry,
     required this.onDelete,
+    this.retrying = false,
   });
 
   final PendingRecoveryItem item;
   final AppStrings strings;
+
+  /// Card WB-6 — an attempt on THIS recording is running right now.
+  ///
+  /// 🔴 THE BUTTONS GOING AWAY WAS NOT A FACE. For the two to three seconds an
+  /// attempt takes, this card used to show its ordinary sentence with an empty
+  /// space where the two buttons had been — 「it did nothing」 is the only thing
+  /// a person can conclude from that, and on 2026-09-12 that is exactly what
+  /// owner concluded. The row below says what is happening instead.
+  final bool retrying;
 
   /// Null ⇒ the retry button is not drawn. The page passes null while a
   /// recording is running or while an action is in flight — and
@@ -68,6 +78,8 @@ class PendingRecoveryCard extends StatelessWidget {
           s.pendingRecoveryStateServerKeepsAudio,
         PendingRecoveryState.emptyResult =>
           s.pendingRecoveryStateEmptyResult,
+        PendingRecoveryState.emptyConfirmed =>
+          s.pendingRecoveryStateEmptyConfirmed,
         PendingRecoveryState.serverUnsupported =>
           s.pendingRecoveryStateServerUnsupported,
         PendingRecoveryState.cancelled => s.pendingRecoveryStateCancelled,
@@ -122,32 +134,70 @@ class PendingRecoveryCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 9),
-          Row(
-            children: <Widget>[
-              if (mayRetry) ...<Widget>[
-                _button(
-                  key: ValueKey<String>('pendingRecovery.retry.${item.id}'),
-                  label: strings.pendingRecoveryRetryNow,
-                  ink: FlowMicColors.brand,
-                  background: FlowMicColors.brandSoft,
-                  onTap: onRetry!,
-                ),
-                const SizedBox(width: 8),
+          if (retrying)
+            _retryingRow()
+          else
+            Row(
+              children: <Widget>[
+                if (mayRetry) ...<Widget>[
+                  _button(
+                    key: ValueKey<String>('pendingRecovery.retry.${item.id}'),
+                    label: strings.pendingRecoveryRetryNow,
+                    ink: FlowMicColors.brand,
+                    background: FlowMicColors.brandSoft,
+                    onTap: onRetry!,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (onDelete != null)
+                  _button(
+                    key: ValueKey<String>('pendingRecovery.delete.${item.id}'),
+                    label: strings.confirmDelete,
+                    ink: FlowMicColors.red,
+                    background: FlowMicColors.redSoft,
+                    onTap: onDelete!,
+                  ),
               ],
-              if (onDelete != null)
-                _button(
-                  key: ValueKey<String>('pendingRecovery.delete.${item.id}'),
-                  label: strings.confirmDelete,
-                  ink: FlowMicColors.red,
-                  background: FlowMicColors.redSoft,
-                  onTap: onDelete!,
-                ),
-            ],
-          ),
+            ),
         ],
       ),
     );
   }
+
+  /// Card WB-6 — the face of an attempt that is running.
+  ///
+  /// A SPINNER AND A SENTENCE, IN THE SPACE THE BUTTONS LEFT. Both halves are
+  /// needed: the spinner says 「still going」 to somebody watching, the sentence
+  /// says WHAT is still going to somebody who looked away and back. It sits
+  /// where the buttons were so the card does not resize under a finger.
+  ///
+  /// ⚠️ NO PERCENTAGE AND NO ESTIMATE. Nothing on this device knows how fast
+  /// the engine is — the same prohibition `pendingRecoveryStateWaiting` and
+  /// `articleBackfillPending` carry.
+  Widget _retryingRow() => Row(
+        key: ValueKey<String>('pendingRecovery.retrying.${item.id}'),
+        children: <Widget>[
+          SizedBox(
+            width: 13,
+            height: 13,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: FlowMicColors.brand,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              strings.pendingRecoveryRetrying,
+              style: TextStyle(
+                color: FlowMicColors.t2,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      );
 
   /// When it was recorded and how much of it there is.
   ///

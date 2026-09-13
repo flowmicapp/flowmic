@@ -125,11 +125,17 @@ if (archiver) {
     mkdirSync(join(bundle, 'resources'), { recursive: true });
     writeFileSync(join(bundle, 'FlowMic.exe'), Buffer.from('fixture exe bytes, not a real binary'));
     writeFileSync(join(bundle, 'resources', 'server.js'), Buffer.from('fixture sidecar server'));
-    // The one non-ASCII name the real bundle carries. It is in the fixture on
-    // purpose: without --options zip:hdrcharset=UTF-8 this entry is stored as
-    // GBK bytes with the UTF-8 flag clear and extracts as mojibake anywhere
-    // else. That is measured on this machine, so it gets a test.
-    writeFileSync(join(bundle, '使用说明.txt'), Buffer.from('fixture readme'));
+    writeFileSync(join(bundle, 'README.txt'), Buffer.from('fixture readme'));
+    // The real bundle's README is English-only ASCII since the owner's
+    // 2026-09-09 ruling (docs/decisions/2026-09-09-owner-portable-release-english-only.md),
+    // so it no longer exercises the non-ASCII path on its own. This second,
+    // synthetic entry keeps that coverage alive on purpose: without
+    // --options zip:hdrcharset=UTF-8 a non-ASCII name is stored as GBK bytes
+    // with the UTF-8 flag clear and extracts as mojibake anywhere else. That
+    // is measured on this machine (see pack-portable.mjs header), so it still
+    // gets a test even though nothing this shape ships in the real bundle
+    // today.
+    writeFileSync(join(bundle, '测试条目.txt'), Buffer.from('synthetic non-ASCII coverage fixture'));
 
     // --check must touch nothing.
     const before = readdirSync(outDir).sort();
@@ -174,13 +180,14 @@ if (archiver) {
     assertTrue(
       JSON.stringify(files) === JSON.stringify([
         'FlowMic-portable/FlowMic.exe',
+        'FlowMic-portable/README.txt',
         'FlowMic-portable/resources/server.js',
-        'FlowMic-portable/使用说明.txt',
+        'FlowMic-portable/测试条目.txt',
       ]),
-      `all 3 source files present under the prefix, none extra — got ${JSON.stringify(files)}`,
+      `all 4 source files present under the prefix, none extra — got ${JSON.stringify(files)}`,
     );
 
-    const cjk = entries.find((e) => e.name.endsWith('使用说明.txt'));
+    const cjk = entries.find((e) => e.name.endsWith('测试条目.txt'));
     assertTrue(!!cjk, 'the non-ASCII entry name round-tripped as UTF-8 (not mojibake)');
     assertTrue(cjk?.utf8Flag === true, 'the non-ASCII entry carries the zip UTF-8 flag (bit 11) — otherwise it extracts garbled off this machine');
 

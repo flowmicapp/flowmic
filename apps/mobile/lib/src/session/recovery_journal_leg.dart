@@ -269,6 +269,10 @@ class RecoveryJournalLeg {
     return switch (step) {
       _StepOutcome.completed => PendingRetryOutcome.done,
       _StepOutcome.refusedByGate => PendingRetryOutcome.refusedBusy,
+      // Card WB-6 — the other half of `refusedBusy`. The screen withholds the
+      // button when there is no link, so this arm is the race (the link went
+      // down between the draw and the press), not the ordinary road.
+      _StepOutcome.refusedNoLink => PendingRetryOutcome.refusedNoLink,
       _StepOutcome.linkLost => PendingRetryOutcome.failed,
       // Deleted underneath the press. The screen re-reads its list either way
       // and the card is gone; `unavailable` is the arm that says 「nothing to
@@ -328,8 +332,14 @@ class RecoveryJournalLeg {
   Future<List<_Candidate>> _scanCandidates() async {
     final String dir = _spill.store.dirPath;
     final String? live = _spill.currentRecordingId;
-    final List<RecordingScan> scans =
-        await RetainedAudioJournalScan.scan(dirPath: dir, fs: _fs);
+    final List<RecordingScan> scans = await RetainedAudioJournalScan.scan(
+      dirPath: dir,
+      fs: _fs,
+      // Card RF-2 - this scan runs BEFORE the leg dials, so a delete pressed
+      // while a retry is starting lands here far more often than in the
+      // writes further down. Same registry the journal handle consults.
+      deleted: _spill.deletedRecordings,
+    );
     final List<_Candidate> out = <_Candidate>[];
     for (final RecordingScan s in scans) {
       final RecordingManifest? m = s.manifest;
@@ -455,7 +465,11 @@ class RecoveryJournalLeg {
       _spill.replayOwnership.claim(identity.recordingId);
       final _AttemptResult r =
           await _runOnWire(c, identity, variant.sourceLang);
-      if (r.refusedByGate) return _StepOutcome.refusedByGate;
+      if (r.refusedByGate) {
+        return r.refusedNoLink
+            ? _StepOutcome.refusedNoLink
+            : _StepOutcome.refusedByGate;
+      }
       await _finish(c, j, identity, r, verdict);
       return r.linkLost ? _StepOutcome.linkLost : _StepOutcome.completed;
     } finally {

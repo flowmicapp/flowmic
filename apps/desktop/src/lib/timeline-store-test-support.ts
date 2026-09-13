@@ -123,3 +123,52 @@ export function verdict(rowId: string, over: Partial<InjectResult> = {}): Inject
 export function seed(store: TimelineStore, rows: WireHistoryItem[], channel: ChannelTag = 'lan'): void {
   for (const r of rows) store.onHistoryUpdated(r, channel);
 }
+
+/** A store that is ALREADY at its retention bound, built once and handed out fresh.
+ *
+ *  🔴 WHY THIS EXISTS (measured 2026-09-13, dev-pc-a). Seeding MAX_ROWS+50
+ *  rows costs ~2.3 s, and the cost is honest: every arrival re-persists the WHOLE
+ *  row set (timeline-store.ts symbol `persist` → one `JSON.stringify` of up to
+ *  MAX_ROWS=2000 rows, plus `planEviction`'s sort), so 2050 arrivals is quadratic
+ *  in a product constant. A real utterance really does pay one whole-set persist;
+ *  what is not real is paying 2050 of them once per test. Seven cases in
+ *  timeline-store.test.ts were 16.8 s of that file's 16.9 s, and 71 of its 78
+ *  tests together came to 43 ms — so it was never "test-count cost".
+ *
+ *  ⚠️ WHAT IS AND IS NOT SHARED. The corpus is fed through the REAL arrival door
+ *  exactly once, and what is replayed into each caller is the BYTES that pass
+ *  wrote — so each store here BOOTS on the payload the arrival path produced, via
+ *  the product's own hydrate (`hydrateTimeline`); `retention` is rebuilt from the
+ *  same two facts it always is (`rows.size` + the persisted cutoffs). Use it only
+ *  where a full store is the PRECONDITION. A test whose ASSERTION is about the
+ *  seeding itself — the bound being applied as rows arrive, or a picture being
+ *  dropped at the moment its row is evicted — must still seed row by row, or the
+ *  boot-time trim would stand in for the arrival-time trim and cover for its
+ *  absence.
+ *
+ *  🔴 REVERSE CONTROLS, MEASURED RED 2026-09-13 on the three cases moved onto this
+ *  corpus — a cheaper precondition is worth nothing if the cases stopped biting:
+ *    · marker REVERSE-CONTROL-A — the pre-0.2.26 "an edited row is un-evictable"
+ *      guard put back into `planEviction` ⇒ 'an EDITED row is evictable like any
+ *      other' FAILED;
+ *    · marker REVERSE-CONTROL-B — the pre-RV-76 door put back into
+ *      `onHistoryUpdated` (refuse an arriving row at or older than the cutoff) ⇒
+ *      'a row older than the cutoff is TAKEN IN' FAILED;
+ *    · marker REVERSE-CONTROL-C — `evictedOnArrival` hard-coded to `false` ⇒
+ *      '…reported as dropped-on-arrival, never silently swallowed' FAILED.
+ *  All three restored; `grep -rn "REVERSE-CONTROL-[ABC]" apps/desktop/src` = 0 and
+ *  all 78 cases green again. */
+export function boundedCorpus(rows: () => WireHistoryItem[]): () => { store: TimelineStore; t: RecordingTransport } {
+  let snapshot: Map<string, string> | null = null;
+  return () => {
+    if (snapshot === null) {
+      const seedKv = new MemStore();
+      seed(new TimelineStore(new RecordingTransport(), seedKv, () => 1_000), rows());
+      snapshot = new Map(seedKv.m);
+    }
+    const t = new RecordingTransport();
+    const kv = new MemStore();
+    kv.m = new Map(snapshot);
+    return { store: new TimelineStore(t, kv, () => 1_000), t };
+  };
+}

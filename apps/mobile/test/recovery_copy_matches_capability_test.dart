@@ -38,7 +38,11 @@ class FakePendingRecoverySource implements PendingRecoverySource {
   FakePendingRecoverySource(this.items);
 
   List<PendingRecoveryItem> items;
-  bool recording = false;
+
+  /// Card WB-6 — why a retry cannot start, or null. Replaces the old
+  /// `recording` bool: the page now has to tell 「you are speaking」 apart from
+  /// 「this phone is not connected」, which is the defect that card closed.
+  PendingRetryBlocker? blocker;
   PendingRetryOutcome retryAnswer = PendingRetryOutcome.done;
 
   final List<String> retried = <String>[];
@@ -55,7 +59,7 @@ class FakePendingRecoverySource implements PendingRecoverySource {
   Completer<void>? retryGate;
 
   @override
-  bool get recordingNow => recording;
+  PendingRetryBlocker? get retryBlocker => blocker;
 
   @override
   Future<List<PendingRecoveryItem>> list() async => items;
@@ -102,6 +106,7 @@ List<String> allSentences(AppStrings s) => <String>[
       s.pendingRecoveryStateUnverified,
       s.pendingRecoveryStateServerKeepsAudio,
       s.pendingRecoveryStateEmptyResult,
+      s.pendingRecoveryStateEmptyConfirmed,
       s.pendingRecoveryStateServerUnsupported,
       s.pendingRecoveryStateCancelled,
       s.pendingRecoveryStateUnreadable,
@@ -144,6 +149,8 @@ void main() {
             en.pendingRecoveryStateServerKeepsAudio,
           PendingRecoveryState.emptyResult =>
             en.pendingRecoveryStateEmptyResult,
+          PendingRecoveryState.emptyConfirmed =>
+            en.pendingRecoveryStateEmptyConfirmed,
           PendingRecoveryState.serverUnsupported =>
             en.pendingRecoveryStateServerUnsupported,
           PendingRecoveryState.cancelled =>
@@ -172,9 +179,20 @@ void main() {
         for (final String sentence in <String>[
           ...allSentences(s),
           s.pendingRecoveryTitle,
+          // Card WB-6's additions are in the sweep from the day they exist:
+          // the O-8 prohibition is about the product, and a sentence added
+          // later is exactly the one nobody re-checks.
+          s.pendingRecoveryTitleKept,
+          s.pendingRecoveryEntryWaiting(2),
+          s.pendingRecoveryEntryKept(2),
           s.pendingRecoveryEmpty,
           s.pendingRecoveryRetryNow,
           s.pendingRecoveryRetryBusy,
+          s.pendingRecoveryRetryNeedsLink,
+          s.pendingRecoveryRetrying,
+          s.pendingRecoveryRetryStillEmpty,
+          s.pendingRecoveryRetryKept,
+          s.pendingRecoveryRetryUnavailable,
           s.pendingRecoveryRetryFailed,
           s.pendingRecoveryDeleteTitle,
           s.pendingRecoveryDeleteBody,
@@ -274,7 +292,7 @@ void main() {
           FakePendingRecoverySource(<PendingRecoveryItem>[
         itemIn(PendingRecoveryState.needsManual),
       ])
-        ..recording = true;
+        ..blocker = PendingRetryBlocker.recording;
       await mountPage(tester, src, en);
       expect(find.text(en.pendingRecoveryRetryNow), findsNothing);
       expect(find.text(en.confirmDelete), findsOneWidget);

@@ -30,7 +30,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import QRCode from 'qrcode';
 import Icon from './Icon.vue';
-import { S } from '../../lib/strings';
+import { getLocale, S } from '../../lib/strings';
 import { PAIR_APP_URL } from '../../lib/strings/pairing';
 import { openExternalUrl } from '../../lib/bridge-os';
 
@@ -90,12 +90,37 @@ const emit = defineEmits<{
 
 const refreshing = ref(false);
 const refreshFailed = ref(false);
+/** W-12 (owner 2026-09-06, transitional window) — PRIMARY code, the https://
+ *  link a phone's system camera can open directly. This is what `qrDataUrl`
+ *  has always meant to the user; only the string it renders (`qrPayloadHttps`
+ *  instead of the legacy `qrPayload`) is new. */
 const qrDataUrl = ref<string | null>(null);
 /** owner 2026-07-26 ⑦: a QR that failed to RENDER used to just… not appear —
  *  the catch below nulled the image and said nothing, which is a silent failure
  *  wearing empty space. Now the modal says so and offers the code + endpoint as
  *  the manual path. */
 const qrRenderFailed = ref(false);
+/** W-12 — SECONDARY/small code, the legacy `flowmic://` payload, rendered
+ *  alongside the primary https one only so an unmigrated app build (which does
+ *  not yet recognize the `https://flowmic.app/go/pair` prefix) still has a code
+ *  it understands. Deliberately no `qrRenderFailedSmall` flag mirroring
+ *  `qrRenderFailed` above: the PRIMARY code covers pairing on its own, so if
+ *  the small one fails to rasterize it simply does not appear — there is
+ *  nothing for the user to act on that the main "QR failed" message (which the
+ *  primary path already owns) would not already say better. */
+const qrDataUrlSmall = ref<string | null>(null);
+
+/** owner 2026-09-12 item 2 — the legacy code is FOLDED by default and opens on
+ *  a text button. It is for app builds that predate the https pairing link, so
+ *  for almost everyone it is a second QR competing with the one they should be
+ *  scanning; two codes side by side is the same reading cost the REQ-13-21
+ *  density pass removed above. Collapsed is not hidden: the button says what is
+ *  behind it, and GA-31's 「a QR on both tabs」 is carried by the PRIMARY code,
+ *  which this toggle never touches. */
+const legacyQrOpen = ref(false);
+function toggleLegacyQr(): void {
+  legacyQrOpen.value = !legacyQrOpen.value;
+}
 
 // The tested decision core: what the modal shows (code / QR / suppress + why).
 //
@@ -106,7 +131,13 @@ const qrRenderFailed = ref(false);
 // phone keyboard, and an un-joined phone gets the server's loud ack either way.
 // `buildQrPayload` has accepted the `saas` channel since WP-R23-1; until now
 // nothing ever passed it.
-const view = computed(() => derivePairingModal(props.info, pairChannelOf(props.channel)));
+// M-2 — `getLocale()` INSIDE the computed, not read once at setup: it is a
+// module ref, so this makes the https code re-render when the user switches the
+// desktop's language (the same shape PrefsAppearance.vue uses). The value is the
+// DESKTOP's UI language and it steers only the web page a phone WITHOUT the app
+// lands on (design 2026-09-08-web-client-mic-ui-design.md §5); the installed app
+// keeps its own.
+const view = computed(() => derivePairingModal(props.info, pairChannelOf(props.channel), getLocale()));
 
 /** 0.2.66 — the PCID as the eye reads it, `XXX XXX XXX`.
  *
@@ -294,9 +325,12 @@ watch(
   },
 );
 
-// Render the QR image (data URL) locally whenever the payload changes.
+// Render the PRIMARY QR image (data URL) locally whenever the https payload
+// changes. W-12: this used to watch `view.value.qrPayload` (the legacy
+// `flowmic://` string); it now watches `qrPayloadHttps` because the https code
+// is the one a phone's system camera should scan during the transition.
 watch(
-  () => view.value.qrPayload,
+  () => view.value.qrPayloadHttps,
   async (payload) => {
     qrRenderFailed.value = false;
     if (!payload) {
@@ -310,6 +344,33 @@ watch(
       // the manual path (code + endpoint are both on this modal already).
       qrDataUrl.value = null;
       qrRenderFailed.value = true;
+    }
+  },
+  { immediate: true },
+);
+
+// W-12 — render the SECONDARY/small `flowmic://` code beside the primary one,
+// for an app build that does not yet recognize the https prefix. Both watchers
+// key off the SAME `view` (one `derivePairingModal` call, §"Shared by BOTH
+// builders" in lib/pairing.ts), so the two codes can never describe two
+// different pairing opportunities.
+watch(
+  () => view.value.qrPayload,
+  async (payload) => {
+    if (!payload) {
+      qrDataUrlSmall.value = null;
+      return;
+    }
+    try {
+      qrDataUrlSmall.value = await QRCode.toDataURL(payload, {
+        margin: 1,
+        width: 96,
+        errorCorrectionLevel: 'M',
+      });
+    } catch {
+      // See qrDataUrlSmall's declaration: the primary code already carries the
+      // "QR failed" story, so this one just quietly does not appear.
+      qrDataUrlSmall.value = null;
     }
   },
   { immediate: true },
@@ -391,12 +452,19 @@ onUnmounted(() => {
       </div>
       <template v-else>
       <!-- U8: a first-time user landed here with no idea WHERE the thing that
-           reads this code comes from. Shown for both channels (LAN also needs
-           the phone app), always — not just on a blocked/pending tab. The
-           download link only appears once `pair_app_url` is non-empty (S1);
-           until then this is plain instructional text, never a dead <a>. -->
+           reads this code comes from. Shown for both channels, always — not
+           just on a blocked/pending tab. The download link only appears once
+           `pair_app_url` is non-empty (S1); until then this is plain
+           instructional text, never a dead <a>.
+           Card RL-1 (owner 2026-09-13): the SENTENCE is now per-tab, because
+           the two tabs no longer have the same answer. Over the LAN the phone
+           app is required (`pair_lan_no_web` under the QR says why the browser
+           client cannot be used there). Over the relay the https QR opens
+           FlowMic-web in the browser that scanned it, so the cloud tab names
+           both ways in. The 「Get the app」 link stays on both tabs: it is the
+           answer to 「where does the app come from」 in either case. -->
       <div class="pair-note">
-        {{ S.pair_need_app }}
+        {{ channel === 'cloud' ? S.pair_cloud_app_or_browser : S.pair_need_app }}
         <a
           v-if="PAIR_APP_URL"
           :href="PAIR_APP_URL"
@@ -469,6 +537,33 @@ onUnmounted(() => {
              joining the account is still a real prerequisite. -->
         <template v-if="!view.qrSuppressed && qrDataUrl">
           <img class="qr" :src="qrDataUrl" alt="pairing QR" />
+          <!-- owner 2026-09-12 item 2 — WHO this code is for. The browser
+               client (FlowMic-web) reaches a PC through the relay only, so a
+               person who scans the LOCAL-NETWORK code with it gets a page that
+               can never connect, with nothing on either screen saying why.
+               Information tone, not `.pair-warn`: nothing has failed, and the
+               code beside it is perfectly good for the phone app.
+               LAN only — the cloud tab's code is exactly the one the browser
+               client can use. -->
+          <div v-if="channel === 'lan'" class="pair-note">{{ S.pair_lan_no_web }}</div>
+          <!-- W-12 (owner 2026-09-06, transitional window) — the SMALL legacy
+               `flowmic://` code, for an app build that predates the https
+               prefix (`wire_payloads.dart`, card S1-02). Gated on its OWN data
+               URL rather than on the primary one succeeding: the two payloads
+               come from one `view` and are null/non-null together, but their
+               RENDERS are two independent async calls.
+               owner 2026-09-12 item 2 — folded behind a text button (see
+               `legacyQrOpen`): the toggle still renders whenever the payload
+               exists, so nobody has to know the old code is there. -->
+          <div v-if="qrDataUrlSmall" class="pair-legacy-qr">
+            <button type="button" class="pair-legacy-qr-toggle" @click="toggleLegacyQr">
+              {{ legacyQrOpen ? S.pair_legacy_qr_hide : S.pair_legacy_qr_label }}
+            </button>
+            <!-- `.qr` supplies the white plate (its color literal is the
+                 pre-existing allowlisted one — reused rather than a second
+                 occurrence); `.qr-small` only overrides the size. -->
+            <img v-if="legacyQrOpen" class="qr qr-small" :src="qrDataUrlSmall" alt="legacy pairing QR" />
+          </div>
         </template>
         <template v-else-if="view.reason === 'loopback'">
           <div class="pair-note">{{ S.pair_loopback }}</div>
@@ -593,6 +688,20 @@ onUnmounted(() => {
 .code-line { text-align: center; font-size: 12.5px; color: var(--t2); margin: 6px 0 2px; }
 .code-inline { font-size: 20px; font-weight: 700; letter-spacing: 4px; color: var(--brand); margin-left: 6px; }
 .qr { display: block; width: 216px; height: 216px; margin: 6px auto 4px; border-radius: 10px; background: #fff; }
+/* W-12 transitional secondary code: small on purpose (an unmigrated app is
+   the ONLY consumer), inline with its label rather than stacked, so it reads
+   as a footnote to the primary QR above it, not a second equally-weighted
+   choice. */
+.pair-legacy-qr { display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: center; margin: 2px 0 4px; }
+/* Combined with `.qr` in the template (`class="qr qr-small"`): `.qr` already
+   owns the white plate + border-radius as an allowlisted literal, so this
+   rule only overrides size/margin rather than repeating the literal. */
+.qr-small { width: 56px; height: 56px; margin: 0; flex: none; }
+/* The disclosure itself: a text button, not a QR-sized control. It reads as a
+   footnote under the primary code — the old behaviour's label, promoted to the
+   thing you press. */
+.pair-legacy-qr-toggle { font-size: 11px; color: var(--t3); line-height: 1.4; text-align: center; background: none; padding: 2px 4px; border-radius: 6px; }
+.pair-legacy-qr-toggle:hover { color: var(--t1); background: var(--line-soft); }
 /* 0.2.66 PCID block (cloud tab only). Recessed like the address pills below, so it
    reads as "a value you can copy down" rather than as another status line. */
 .pcid-box { margin: 8px 0 2px; padding: 8px 10px; background: var(--surface-inset); border-radius: 10px; }

@@ -5,8 +5,10 @@
 // SPEC-REF: docs/rebuild/08-MOBILE-SPEC.md §3-4;
 //           docs/strategy/2026-07-23-relaunch-master-plan.md §4.0 B.
 
+import 'package:flowmic/src/link/incoming_link.dart';
 import 'package:flowmic/src/signaling/inbound_payloads.dart';
 import 'package:flowmic/src/signaling/wire_payloads.dart';
+import 'package:flowmic/src/ui/scan_payload.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -62,6 +64,167 @@ void main() {
 
     test('unrecognized input is rejected', () {
       expect(() => PairEntry.parse('not-a-code'), throwsFormatException);
+    });
+
+    // S1-02 — the web-client stage 1 https form of the same link
+    // (2026-09-05-web-client-protocol-and-api-addendum.md §3): same query,
+    // only scheme+host differ. Old flowmic:// form must not regress.
+    group('S1-02: https://flowmic.app/go/pair form', () {
+      test('a QR URI → qr_payload with the endpoint extracted for dialling '
+          '(mirrors the flowmic:// case)', () {
+        const qr =
+            'https://flowmic.app/go/pair?endpoint=ws://192.0.2.5:41879&code=1234&channel=standalone';
+        final e = PairEntry.parse(qr);
+        expect(e.payload.toJson(), <String, Object?>{'qr_payload': qr});
+        expect(e.endpoint, 'ws://192.0.2.5:41879');
+      });
+
+      test('the https query and the flowmic:// query parse to an IDENTICAL '
+          'object once the scheme+host prefix is stripped', () {
+        // Desktop: `buildHttpsQrPayload` percent-encodes `endpoint`
+        // (`encodeURIComponent`); `buildQrPayload` emits it raw. Feeding both
+        // sides the same unencoded query cannot tell "the parser decoded"
+        // from "the parser never had to decode". The https fixture is the
+        // literal shape the desktop emits.
+        const String decodedEndpoint = 'ws://192.168.1.5:41879';
+        const String encodedEndpoint = 'ws%3A%2F%2F192.168.1.5%3A41879';
+        const String rest = 'code=4831&channel=saas&pcid=930582147';
+        const String legacy = 'flowmic://pair?endpoint=$decodedEndpoint&$rest';
+        const String https =
+            'https://flowmic.app/go/pair?endpoint=$encodedEndpoint&$rest&v=1';
+        expect(https, contains(encodedEndpoint),
+            reason: 'the https fixture must carry a real percent-encoded endpoint');
+        expect(https, isNot(contains(decodedEndpoint)),
+            reason: 'an unencoded endpoint in the https fixture is the old hole');
+        final PairEntry viaLegacy = PairEntry.parse(legacy);
+        final PairEntry viaHttps = PairEntry.parse(https);
+        expect(viaHttps.endpoint, decodedEndpoint);
+        expect(viaLegacy.endpoint, decodedEndpoint);
+        expect(viaHttps.endpoint, viaLegacy.endpoint);
+        expect(viaHttps.fingerprint, viaLegacy.fingerprint);
+        // The two payloads carry different `qr_payload` strings (each is the
+        // verbatim link it was given — that is the point, not a bug), so the
+        // object-identity claim is about everything a caller actually acts on:
+        // the dial endpoint and the pin. Asserted separately from the raw
+        // strings below.
+        expect(viaLegacy.payload.qrPayload, legacy);
+        expect(viaHttps.payload.qrPayload, https);
+      });
+
+      test('a QR without a 4-digit code is rejected (fail-loud), same as the '
+          'old prefix', () {
+        expect(
+          () => PairEntry.parse('https://flowmic.app/go/pair?endpoint=ws://x&code=abc'),
+          throwsFormatException,
+        );
+      });
+
+      test('a malformed fp= is a refusal, same as the old prefix', () {
+        expect(
+          () => PairEntry.parse(
+            'https://flowmic.app/go/pair?endpoint=ws://x&code=1234&fp=not-well-formed',
+          ),
+          throwsFormatException,
+        );
+      });
+
+      // M-2 (desktop, 2026-09-08-web-client-mic-ui-design.md 5) — the desktop's
+      // https link now carries `&lang=<ui locale>` so a phone WITHOUT this app
+      // lands on the web mic client in the desktop's language. This app has its
+      // own UI language and must ignore that key entirely.
+      //
+      // 🔴 THIS IS THE HALF THE DESKTOP CANNOT TEST. `pairing.test.ts` proves
+      // what gets emitted; nothing in the TypeScript tree can prove what this
+      // parser does with it, and a key that made the phone refuse a QR would
+      // look, from the desktop side, exactly like a working link.
+      test('M-2: an unknown extra query key (lang=) changes NOTHING on the '
+          'phone — the link still classifies, still parses, still pairs', () {
+        // The literal shape `buildHttpsQrPayload` emits: lang behind every
+        // other key, still ahead of the trailing v=1.
+        const String withLang =
+            'https://flowmic.app/go/pair?endpoint=ws%3A%2F%2F192.168.1.5%3A41879'
+            '&code=4831&channel=standalone&lang=zh-cn&v=1';
+        const String withoutLang =
+            'https://flowmic.app/go/pair?endpoint=ws%3A%2F%2F192.168.1.5%3A41879'
+            '&code=4831&channel=standalone&v=1';
+
+        // 1. the camera path: prefix-only, so an unknown key cannot make our
+        //    own code look foreign.
+        final ScanResult scan = classifyScan(withLang);
+        expect(scan.verdict, ScanVerdict.pairLink);
+        expect(scan.payload, withLang);
+        expect(scan.isTerminal, isTrue);
+
+        // 2. the App-Link path (a QR opened by the system camera lands here,
+        //    which is the ONLY way the web fallback page is skipped).
+        expect(classifyIncomingLink(Uri.parse(withLang)), IncomingLinkKind.pairing);
+
+        // 3. the parser: `queryParameters` is a MAP, so a key it has never
+        //    heard of is simply never read.
+        final PairEntry e = PairEntry.parse(withLang);
+        expect(e.endpoint, 'ws://192.168.1.5:41879');
+        expect(e.fingerprint, isNull);
+        // 🔴 THE PAYLOAD IS FORWARDED VERBATIM, `lang=` included: this app does
+        // not rewrite the link, and the relay reads the code out of it with the
+        // FIRST `code=(\d{4})` match. A locale tag carries no digits, and it
+        // sits behind `code=` regardless.
+        expect(e.payload.toJson(), <String, Object?>{'qr_payload': withLang});
+        expect(RegExp(r'code=(\d{4})').firstMatch(withLang)?.group(1), '4831');
+        expect(withLang.indexOf('&lang='), greaterThan(withLang.indexOf('&code=')));
+
+        // 4. everything a caller acts on is IDENTICAL to the same link without
+        //    the key — the point of tolerance is that the extra key is inert,
+        //    not merely survivable.
+        final PairEntry bare = PairEntry.parse(withoutLang);
+        expect(e.endpoint, bare.endpoint);
+        expect(e.fingerprint, bare.fingerprint);
+      });
+
+      test('M-2: tolerance is for UNKNOWN keys only — a known-but-malformed '
+          'fp= is still refused when lang= rides along', () {
+        // Otherwise this group would be pinning 「ignores what it does not
+        // understand」 as 「ignores what it does not like」, and the pin the QR
+        // publishes could be dropped by adding one query key.
+        expect(
+          () => PairEntry.parse(
+            'https://flowmic.app/go/pair?endpoint=ws://x&code=1234'
+            '&fp=not-well-formed&lang=en&v=1',
+          ),
+          throwsFormatException,
+        );
+      });
+
+      test('an ARBITRARY https URL is NOT accepted as a pairing payload — only '
+          'the flowmic.app host at the /go/pair path is', () {
+        for (final String raw in <String>[
+          'https://example.com/pair?endpoint=ws://x&code=1234',
+          'https://evil.flowmic.app/pair?endpoint=ws://x&code=1234',
+          'https://flowmic.app.evil.com/go/pair?endpoint=ws://x&code=1234',
+          // A look-alike of flowmic.app is still a foreign host: the origin
+          // that would receive the browser's Universal Link is not us.
+          'https://not-flowmic.app/go/pair?endpoint=ws://x&code=1234',
+          // 🔴 DOM-1 — `www.` IS A FOREIGN HOST HERE, and refusing it is the
+          // product decision, not an oversight. iOS Universal Links do not
+          // follow redirects, so only the apex is declared in
+          // Runner.entitlements and in the Android intent-filter; a `www.` link
+          // opens Safari on a phone that HAS the app. Accepting it in the parser
+          // would make the phone's behaviour depend on which of the two ways it
+          // was handed the link, which is worse than refusing both ways
+          // consistently. The apex 301 at the edge is for humans.
+          'https://www.flowmic.app/go/pair?endpoint=ws://x&code=1234',
+          // 🔴 DOM-1 — THE HOST THIS PRODUCT USED TO PLAN ON. `go.flowmic.app`
+          // has no DNS record and, per the owner's 2026-09-08 ruling, never
+          // will. A desktop build from before that ruling prints this link; the
+          // right answer is to refuse it so the user is told to update, not to
+          // keep a second accepted origin alive forever.
+          'https://go.flowmic.app/pair?endpoint=ws://x&code=1234',
+          // Right host, the path as it was BEFORE the client moved under /go/.
+          // Same argument: an old desktop's QR is refused, not silently taken.
+          'https://flowmic.app/pair?endpoint=ws://x&code=1234',
+        ]) {
+          expect(() => PairEntry.parse(raw), throwsFormatException, reason: raw);
+        }
+      });
     });
 
     test('cloud instance → cloud_instance:true, no code', () {

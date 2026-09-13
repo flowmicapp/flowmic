@@ -37,7 +37,9 @@ import type { AuthContext } from '../src/auth/middleware';
 
 type Db = ReturnType<typeof createDbConnection>;
 
-/** ClientInstanceId is `min(16)` — a short 'inst-a' is a payload rejection. */
+/** ClientInstanceId is `min(16)`, so this is long enough to LAND. Since FIX-D5
+ *  a short 'inst-a' is no longer a payload rejection — it degrades to absent
+ *  (protocol-primitives.ts) and the row simply keeps a NULL instance id. */
 const PC_INSTANCE = 'desktop-instance-aaaa';
 
 interface Emitted {

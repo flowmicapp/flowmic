@@ -94,6 +94,12 @@ const List<String> _autoHideBannerKeys = <String>[
   // entries above (and unlike [BannerIds.pcBusy]/[BannerIds.link]) it
   // describes something already over, not a live condition.
   BannerIds.retainedAudioNotice,
+  // Card MP-14 — a press that is already over by the time the receipt arrives.
+  // It belongs here for the same reason every entry above does, and it is the
+  // clearest case of the rule: the FACT is 「that key did nothing」, which is
+  // finished news the moment it is read. A standing bar would make the next
+  // successful press look refused.
+  BannerIds.controlKeyRefused,
   // Card PAIR-SUCCESS: a past event (a pairing was just established). Since
   // 2026-08-26 the RENDERER is the centred panel (ui/pairing_success_toast.dart,
   // ~2 s), which clears the ticket itself — this entry is the BACKSTOP for the
@@ -145,6 +151,14 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.retainedAudioNotice => (
     value: c.retainedAudioNotice,
     dismiss: c.dismissRetainedAudioNotice,
+  ),
+  // The TICKET is the face value, not the kind or the reason: two refusals of
+  // the same key for the same cause are two pieces of news, and comparing the
+  // rendered facts would let the second one inherit what was left of the first
+  // one's window. Same shape as [BannerIds.pairingSuccess] below.
+  BannerIds.controlKeyRefused => (
+    value: c.controlKeyRefusal?.ticket,
+    dismiss: c.dismissControlKeyRefusal,
   ),
   // The ticket is the face value: a NEW raise is a new number ⇒ a fresh window.
   BannerIds.pairingSuccess => (
@@ -222,6 +236,7 @@ Future<void> disposeRouted(ChatController c) async {
   // draining a queue on behalf of a screen that is gone.
   c.deliveryLink.dispose();
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7
+  c.session.latestBudget.removeListener(c.notifyUi); // Card G-2c
   c.session.captureStopped.removeListener(c._onCaptureStopped); // D-1c
   // AUD-D F6 / P1-6 (card B2-O) — mirrors the constructor's addListener; a
   // torn-down controller must not go on writing into a field nobody reads.
@@ -254,6 +269,7 @@ Future<void> disposeRouted(ChatController c) async {
   await c._finalSub?.cancel();
   await c._interimSub?.cancel();
   await c._injectSub?.cancel();
+  await c._controlKeyResultSub?.cancel();
   await c._focusSub?.cancel();
   await c._autoStoppedSub?.cancel();
   await c._sttStalledSub?.cancel();

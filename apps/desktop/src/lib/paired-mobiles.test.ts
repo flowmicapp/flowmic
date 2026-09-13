@@ -27,13 +27,39 @@ const ROW: PairedMobile = {
   last_seen_at: '2026-07-25T09:30:00.000Z',
   online: true, channel: 'lan' as const,
   device_uid: null,
+  client: 'app' as const,
 };
 
 describe('asPairedMobiles — narrowing the IPC payload', () => {
-  it('keeps the public five and nothing else', () => {
+  it('keeps the public seven and nothing else', () => {
     const rows = asPairedMobiles([{ ...ROW, mobile_token: 'S3CRET', user_id: 'default' }]);
     expect(rows).toEqual([ROW]);
     expect(JSON.stringify(rows)).not.toContain('S3CRET');
+  });
+
+  // ── card ID-2: WHICH KIND OF END made the pairing ──────────────────────────
+  //
+  // The field the two whitelists in front of this one nearly swallowed a second
+  // time (the Rust bridge dropped it; see wire.rs's projection). What is asserted
+  // here is not「the value survives」but「the DEFAULT has one author」: every
+  // shape that is not the literal 'web' has to come out 'app', because that is
+  // what the renderer above draws nothing for.
+  it('reads a web pairing as web — the ONE positive statement this field makes', () => {
+    expect(asPairedMobiles([{ ...ROW, client: 'web' }])?.[0]?.client).toBe('web');
+  });
+
+  it("everything that is not 'web' reads 'app', including a row older than the field", () => {
+    // Positive control first: the case above proves the probe can see a 'web',
+    // so a table full of 'app' below is the implementation and not a blind read.
+    expect(asPairedMobiles([{ ...ROW, client: 'web' }])?.[0]?.client).toBe('web');
+    for (const client of ['app', null, undefined, '', 'App', 'WEB', 'sdk', 7, {}]) {
+      const row: Record<string, unknown> = { ...ROW };
+      if (client === undefined) delete row.client;
+      else row.client = client;
+      // A legacy row (no key at all) and a kind we have never heard of land on the
+      // same answer on purpose: neither is a claim, and both must render nothing.
+      expect(asPairedMobiles([row])?.[0]?.client).toBe('app');
+    }
   });
 
   it('preserves the FAILED state — null in, null out (never an empty list)', () => {

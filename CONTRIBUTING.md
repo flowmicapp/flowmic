@@ -66,16 +66,24 @@ PASS or FAIL, and names the command that would produce it.
 ## The gate
 
 ```bash
-pnpm verify:delivery      # every gate segment; takes minutes, not seconds.
-                          # The authoritative segment list is the script in the
-                          # root package.json — any list copied here would rot.
+pnpm verify:lane          # scoped to your diff; prints which stages it skipped and why
+pnpm verify:delivery:fast # every segment, six concurrent lanes — before merging to main
+pnpm verify:delivery      # every segment, sequential — the only gate a release may cite
 ```
 
+The authoritative segment list is the `verify:delivery` script in the root
+`package.json` — any list copied here would rot.
+
 The `scripts` segment runs the release-tooling tests that live beside the
-scripts they test (`scripts/*.test.mjs`).
+scripts they test (`scripts/*.test.mjs`). The lane gate always runs it, together
+with the static lint set; those two are cheap and one of those release-script
+tests loads real server code, so trimming them buys nothing. Every other segment
+is picked from the paths you changed, and each segment that is left out prints
+its own line saying so and why. An unrecognised path fails closed and runs
+everything.
 
 Everything must pass before you open a pull request. The pre-commit hook runs
-the fast half (lint + types); **the golden suite is not hooked** — it starts a
+lint (+ incremental types when in budget); **the golden suite is not hooked** — it starts a
 real server and real sockets, so you have to run it yourself. Please actually
 run it. A gate nobody invokes is indistinguishable from a gate that does not
 exist, and we have the scar tissue to prove it.

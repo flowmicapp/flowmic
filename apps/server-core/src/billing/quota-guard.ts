@@ -46,6 +46,7 @@
 import type { ServerMode } from '@flowmic/protocol';
 import { ServerError } from '../errors';
 import type { PlanLimits } from './plans';
+import { continuousCapMsFrom } from './session-cap';
 import type { UsageRepo } from '../db/repos/usage.repo';
 
 export type QuotaKind = 'stt' | 'llm';
@@ -65,6 +66,27 @@ export interface PlanLookup {
 export interface QuotaGuard {
   ensureQuota(user_id: string, kind: QuotaKind): void;
   remainingSttMs(user_id: string): number;
+  /**
+   * Card G-8 — how long ONE SITTING may run for this account, in ms, or
+   * `Infinity` for 「no length ceiling here」.
+   *
+   * 🔴 IT LIVES ON THIS INTERFACE AND NOT BESIDE IT, for one reason: this is
+   * the object that already holds {@link PlanLookup.effectiveLimits}, the
+   * SINGLE solver (see this file's header — a guard that re-derived limits from
+   * a tier name would enforce free's numbers on the one account the
+   * `permanent_free` exemption exists to leave alone). A second reader of
+   * `continuous_minutes` on the recording path would be a second answer to
+   * 「what is this account's ceiling」, and the phone is already reading the
+   * first one off `/api/cloud/summary` (`http/console-routes.ts`, same solver).
+   * One number, two enforcers.
+   *
+   * ⚠️ IT IS NOT A QUOTA and it is not metered: nothing spends it, it does not
+   * shrink, and the next press gets the whole thing back. It sits on this
+   * interface because of WHO CAN ANSWER IT, not because of what it is — see
+   * `billing/session-cap.ts` for why it must never enter
+   * `cappedRemainingSttMs`.
+   */
+  continuousCapMs(user_id: string): number;
 }
 
 export function makeQuotaGuard(
@@ -108,6 +130,31 @@ export function makeQuotaGuard(
         throw new ServerError('QUOTA_EXCEEDED', `${kind} quota exceeded (used ${used}/${limit})`);
       }
     },
+    /**
+     * Card G-8 — the per-tier sitting length, resolved through the single
+     * solver.
+     *
+     * 🔴 STANDALONE HAS NO LENGTH CEILING FROM THIS LAYER, and that is the same
+     * line `remainingSttMs` above draws for the same reason: standalone is a
+     * user's own machine with no commercial boundary at all, so a wall-clock
+     * stop imposed by the relay would be a new way for somebody's own recording
+     * to die with nothing bought or sold by it. `http/router.ts`'s
+     * `/api/limits` still answers a NUMBER there (max's, today 30) so the
+     * phone's own clock has something to arm — that route's own comment names
+     * card A8 as the OPEN ruling: owner has not said what a standalone
+     * instance's ceiling should be. Enforcing one here would be this window
+     * answering that question by accident.
+     *
+     * ⚠️ So the threat model this closes is the SAAS one, which is the only one
+     * that exists: 「far end pays」 (card MP-10) is a cloud-relay arrangement,
+     * and a modified client burning somebody else's minutes needs a cloud relay
+     * to burn them through.
+     */
+    continuousCapMs(user_id): number {
+      if (config.mode !== 'saas') return Number.POSITIVE_INFINITY;
+      return continuousCapMsFrom(planLookup.effectiveLimits(user_id));
+    },
+
     remainingSttMs(user_id): number {
       if (config.mode !== 'saas') return Number.POSITIVE_INFINITY;
       const { limit, used } = budget(user_id, 'stt');

@@ -122,11 +122,12 @@ void main() {
       // outright while `fsm.session == SessionState.processing`, which is
       // exactly the state a missing terminal `is_segment:false` above would
       // leave it in — see that line's comment).
-      final bool opened = r.session.beginBackfill(
+      final BackfillStart opened = r.session.beginBackfill(
         mode: FlowMode.realtime,
         sourceLang: 'zh',
       );
-      expect(opened, isTrue, reason: 'setup error: beginBackfill refused');
+      expect(opened, BackfillStart.started,
+          reason: 'setup error: beginBackfill refused');
       r.transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
         'text': '断网时补回来的一句',
         'confidence': 0.95,

@@ -78,6 +78,11 @@ export const USER_CASCADING_TABLES = [
   // credential for a person that no longer exists (db/schema.ts carries the
   // DDL argument). First in the list only because the census is sorted.
   'email_verifications',
+  // Card MP-1 (2026-09-11): an integrator's publishable keys. They cascade —
+  // a key outliving its account would go on minting rooms billed to somebody
+  // who no longer exists, and revocation (a stamp, not a delete) answers a
+  // different question from erasure. Sorted position, like every entry here.
+  'integrator_keys',
   'mobile_pairings',
   'paddle_subscriptions',
   'pc_devices',
@@ -105,6 +110,14 @@ export const USER_CASCADING_TABLES = [
   // list forgets, and the ciphertexts it unlocked die in `timeline_blobs` on
   // the same cascade.
   'timeline_keymeta',
+  // Card M4-01 (2026-09-09): the site-demo grant record. It cascades, and for a
+  // demo identity it is the ONLY row this census would otherwise leave behind —
+  // a hashed network and a grant belonging to a person who no longer exists.
+  // ⚠️ It is on this list even though a REAL account never has a row in it: the
+  // census is derived from the live schema, so a table that could be entered
+  // here by any account has to be answered for. It is also what the anonymous
+  // sweep (db/anon-cleanup.ts) relies on rather than deleting by hand.
+  'trial_ledger',
   // A2-5 / REQ-12-08 (2026-08-12): the per-event usage log. Deleting the account
   // deletes it — a per-utterance record of a person who asked to be erased is the
   // single worst leftover this census could miss, and it is exactly the kind a
@@ -120,6 +133,35 @@ export const USER_CASCADING_TABLES = [
   'usage_events',
   'usage_records',
   'user_settings',
+] as const;
+
+/**
+ * The foreign keys to `users` that are deliberately NOT `ON DELETE CASCADE`,
+ * named as `table.column`.
+ *
+ * 🔴 A THIRD STATE, ADDED BY CARD R-1, AND IT NEEDED ITS OWN ARGUMENT RATHER
+ * THAN A LOOSER LOOP. The census above rejects a non-cascading FK on a stated
+ * ground: 「deletion would throw a constraint error at runtime, i.e. the account
+ * could not be deleted at all」. That is true of RESTRICT and NO ACTION and it is
+ * NOT true of `SET NULL`, which deletes the account and empties the column. So
+ * the loop that enforced 「CASCADE or the census fails」 was enforcing the right
+ * rule for the wrong reason, and widening it silently would have let a genuine
+ * RESTRICT in beside this one.
+ *
+ * · `mobile_pairings.trial_user_id` — the anonymous trial identity an unsigned
+ *   web instance spends (card R-1, auth/web-trial-identity.ts). CASCADE here
+ *   would mean the 48-hour anonymous sweep deletes the PAIRING ROW, i.e. the
+ *   desktop's never-duplicated web instance would silently expire two days
+ *   after every visit (card ID-1). The identity is temporary; the instance is
+ *   not, and `SET NULL` is the only delete rule that says both.
+ *
+ * ⚠️ IT DOES NOT WEAKEN ERASURE. The column can only ever hold an ANONYMOUS
+ * identity's id, so no real account is ever named by it — and when an anonymous
+ * identity IS deleted, what is left behind is a NULL, which asserts nothing
+ * about anybody.
+ */
+export const USER_SET_NULL_COLUMNS = [
+  'mobile_pairings.trial_user_id',
 ] as const;
 
 /**
@@ -159,6 +201,13 @@ export const USER_CASCADING_TABLES = [
  */
 export const USER_RETAINED_TABLES = [
   'billing_events',
+  // Card MP-1 (2026-09-11) — the room→key edge. RETAINED HERE ONLY IN THE
+  // CENSUS'S SENSE («it has no FK to `users`»), and it is emphatically not kept
+  // after a deletion: both of its parents cascade (`pc_devices` and
+  // `integrator_keys`), so the row is destroyed twice over. It has no `user_id`
+  // of its own precisely so it cannot outlive them — a third path to the same
+  // account would be a third thing to remember.
+  'integrator_rooms',
   // 2026-08-29 — paid one-time services (the $200 Guided Setup).
   //
   // 🔴 RETAINED BECAUSE MONEY CHANGED HANDS, which is a different reason from

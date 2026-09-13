@@ -329,6 +329,12 @@ export function makeAuthService(deps: AuthServiceDeps): AuthService {
         // (db/utc-stamp.ts) — bare Date.parse read it as local time.
         createdAtMs: parseUtcStamp(user.created_at),
         hasEmail: user.email !== null,
+        // REVIEW-GRACE — the per-account override travels with the other three
+        // inputs for the same reason they do: the banner this number feeds and
+        // the wall audio.handler/compose.handler raise must read one function
+        // with one set of facts. Omitting it here would make the projection say
+        // 「expired」 about an account the gate is letting through.
+        graceUntilMs: user.verify_grace_until,
         nowMs: now(),
       }).daysLeft,
       // A2-3 — same rule, same reason: the conversion lives in

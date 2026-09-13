@@ -1,3 +1,14 @@
+// COST BUDGET: 13 s because five retention cases must feed MAX_ROWS+3…+50 rows through the real arrival door, and every arrival re-persists the whole row set (timeline-retention.ts symbol MAX_ROWS = 2000) — the arrival-time trim is the thing under test in each of them, so a cheaper door would test the boot-time trim instead.
+//
+// 🔴 IT IS NOT TEST-COUNT COST, which is what the 2026-09-13 retirement sweep said.
+// Measured on dev-pc-a: seven cases were 16,849 ms of this file's 16,892 ms
+// and the OTHER 71 tests came to 43 ms — 0.6 ms each. Three of the seven wanted a
+// full store only as a PRECONDITION and now boot on the bytes one shared seeding
+// wrote (timeline-store-test-support.ts symbol `boundedCorpus`), taking the file
+// from 19.2 s to 13.3 s (median of 3 in-suite runs; 11.3 s run alone) with the
+// same 78 assertions. The rest is irreducible — 'keeps at most MAX_ROWS' and the
+// two picture-eviction cases assert on what happens AS rows arrive, and 'the
+// cutoff survives a restart' must seed, persist and boot for real.
 import { describe, expect, it } from 'vitest';
 import { TimelineStore } from './timeline-store';
 import { MAX_ROWS } from './timeline-retention';
@@ -8,7 +19,7 @@ import type { ChannelTag, InjectResult, ReportingKvStore, TimelineTransport, Wir
 // split at this file's pinned file-size debt, so the cause suite
 // (timeline-store-cause.test.ts) could share ONE definition of the fixtures
 // instead of copying them. See the support file header.
-import { MemStore, RecordingTransport, fresh, item, seed, verdict } from './timeline-store-test-support';
+import { MemStore, RecordingTransport, boundedCorpus, fresh, item, seed, verdict } from './timeline-store-test-support';
 
 // ── 0.2.27: deferred delivery is LOCAL — no server, no round trip ─────────────────────────────
 //
@@ -536,6 +547,10 @@ function series(n: number, prefix = 'r'): WireHistoryItem[] {
   const base = Date.UTC(2026, 0, 1);
   return Array.from({ length: n }, (_, i) => dated(`${prefix}${i}`, new Date(base + i * 60_000).toISOString()));
 }
+/** A store already sitting at the bound, with the cutoff that put it there. Built
+ *  ONCE through the real arrival door; see boundedCorpus for what that does and does
+ *  not license — the cases whose assertion IS the arrival-time trim still seed. */
+const atTheBound = boundedCorpus(() => series(MAX_ROWS + 50));
 
 describe('TimelineStore — no other writer may overwrite a row this PC owns', () => {
   it('the delivery status THIS machine established is the one that stands', () => {
@@ -941,8 +956,7 @@ describe('TimelineStore — the bound is stated, not silent (owner ②)', () => 
     // 0.2.26 protected `pending` rows because their op was still in the uplink queue.
     // There is no queue and no uplink, so an edited row is just a row: it participates
     // in the bound like the rest, and the STATED cutoff is what keeps that honest.
-    const { store } = fresh();
-    seed(store, series(MAX_ROWS + 50));
+    const { store } = atTheBound();
     store.edit('r50', 'edited, and still subject to the bound', 'lan');
     seed(store, series(100, 'later').map((r) => ({
       ...r,
@@ -964,9 +978,8 @@ describe('TimelineStore — the bound is stated, not silent (owner ②)', () => 
   // passed, everything must be delivered"). So the guard
   // was throwing away rows whose text had JUST been typed into the user's window.
   it('a row older than the cutoff is TAKEN IN — the words were just typed here', () => {
-    const { store } = fresh();
-    // Make the store evict, so a real cutoff exists…
-    seed(store, series(MAX_ROWS + 50));
+    // A store that already evicted, so a real cutoff exists…
+    const { store } = atTheBound();
     const cutoff = store.retention.cutoff;
     expect(cutoff).not.toBeNull();
     // …then delete enough rows that there is plenty of room, and deliver something the
@@ -988,8 +1001,7 @@ describe('TimelineStore — the bound is stated, not silent (owner ②)', () => 
     // The residual case, made LOUD instead of made to disappear: the store really is
     // full, the row really is older than everything in it, so the stated policy drops it
     // in the same write. The caller writes the forensic line (main-window/store.ts).
-    const { store } = fresh();
-    seed(store, series(MAX_ROWS + 50));
+    const { store } = atTheBound();
     const report = store.onHistoryUpdated(dated('queued-for-days', '2020-01-01T00:00:00.000Z'), 'lan');
     expect(report).not.toBeNull();
     expect(report!.evictedOnArrival).toBe(true);

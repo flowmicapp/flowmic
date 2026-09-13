@@ -75,8 +75,10 @@ fn every_chord_exit_has_a_line_that_names_the_failed_precondition() {
 /// while the only production caller did not call it at all: `run_control_key`
 /// went straight from `set_foreground_window` to `send_chords`, so on a macOS
 /// box without Accessibility every discarded keystroke was logged as
-/// "chord … sent". `control:key` has no result frame, so that line is its
-/// ONLY evidence surface.
+/// "chord … sent". At the time `control:key` had no result frame at all, so that
+/// line was its ONLY evidence surface; since card MP-14 there is also a receipt,
+/// and it would have carried the same lie (`ok:true`) — the gate, not the frame,
+/// is what makes either of them true.
 ///
 /// A grep anchor alone would not have caught the original defect (the comment
 /// named a real function that really existed — it just was not on this path),
@@ -517,4 +519,34 @@ fn no_wire_path_can_ask_for_the_before_the_click_intent() {
         include_str!("local_inject.rs").contains("TargetIntent::BeforeTheClick"),
         "control: the local re-inject really is the producer",
     );
+}
+
+// ── MP-14: the press that used to end in silence ─────────────────────────────
+
+/// 🔴 THE ARM THIS CARD EXISTS FOR. A kind this machine does not have never
+/// reached Win32 at all, so it is the one production path `cargo test` can drive
+/// end to end — and it is also the one that left the person who pressed the key
+/// with nothing. Before MP-14 the entire trace was two `record` calls on THIS
+/// machine while the phone went on saying the key was sent.
+#[test]
+fn a_kind_this_machine_does_not_have_answers_unsupported_here_and_mints_no_row() {
+    let fsm = Mutex::new(FocusStateMachine::new(1_000));
+    let run = run_control_key("escape", &None, &fsm);
+    // No row: an unknown kind did nothing, and a row saying so is a receipt for a
+    // non-event (REQ-12-13 scope, unchanged by this card).
+    assert!(run.row.is_none());
+    // 🔴 `unsupported_here`, NOT `failed`. Nothing was attempted and nothing could
+    // be, so 「try again」 is the wrong move to put in front of someone; 「this
+    // destination does not have that key」 is the true one.
+    assert_eq!(run.receipt, KeyReceipt::Refused(REASON_UNSUPPORTED_HERE));
+}
+
+/// The receipt's coverage is WIDER than the row's, and that asymmetry is the
+/// whole point of returning both from one call. A test that only ever looked at
+/// `run.row` would be green for a build that answered nothing.
+#[test]
+fn the_receipt_exists_on_a_path_that_mints_no_row() {
+    let fsm = Mutex::new(FocusStateMachine::new(1_000));
+    let run = run_control_key("escape", &None, &fsm);
+    assert!(run.row.is_none() && run.receipt != KeyReceipt::Ok);
 }

@@ -328,10 +328,32 @@ impl Pairing {
     /// Test seam: pretend the close began `ago` earlier. The decision itself is
     /// the pure [`closing_gate`]; this only lets the funnel-level tests reach the
     /// stale-close arm without sleeping through the real grace window.
+    ///
+    /// Uses `checked_sub` rather than plain `-` on purpose: on Windows an
+    /// `Instant` is anchored to QPC "time since boot", so `Instant::now() -
+    /// Duration::from_secs(3600)` panics ("overflow when subtracting duration
+    /// from instant") for the first hour of uptime after any reboot, even
+    /// though no test here waits an hour of real wall time — the whole point
+    /// of backdating is to fake that wait. `Instant::now()` itself is always
+    /// representable, so halving the request until it fits finds the largest
+    /// backdate this boot's clock can produce; that is still far past
+    /// `CLOSING_RELEASE_AFTER` (ten seconds, see `session_gen.rs`) on any
+    /// machine that has been up longer than ten seconds, which is all these
+    /// fixtures actually depend on. A machine younger than that falls through
+    /// to `now` (no backdating at all) rather than panicking — the caller's
+    /// own assertion then fails loudly instead of the harness crashing.
     #[cfg(test)]
     pub(super) fn backdate_closing(&self, ago: Duration) {
-        *self.closing_since.lock().unwrap_or_else(|p| p.into_inner()) =
-            Some(Instant::now() - ago);
+        let now = Instant::now();
+        let mut remaining = ago;
+        let backdated = loop {
+            match now.checked_sub(remaining) {
+                Some(t) => break t,
+                None if remaining > Duration::from_millis(1) => remaining /= 2,
+                None => break now,
+            }
+        };
+        *self.closing_since.lock().unwrap_or_else(|p| p.into_inner()) = Some(backdated);
     }
 
     /// RV-34 — "did the server recognize me on this connection".

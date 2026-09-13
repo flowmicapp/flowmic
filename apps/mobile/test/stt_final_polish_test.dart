@@ -58,7 +58,7 @@ void main() {
   test('AppStrings polishSkipped is bilingual (explicit locale)', () {
     expect(
       AppStrings.of(AppLocale.zh).polishSkipped,
-      '润色未生效·已用原文',
+      'AI 润色未完成 · 已保留识别原文',
     );
     expect(
       AppStrings.of(AppLocale.en).polishSkipped,

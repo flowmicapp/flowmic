@@ -496,6 +496,8 @@ class PttSession {
   // Presentation-facing inbound streams (WP-R3-2). Routed off the one dispatch
   // loop so the chat-flow layer never re-subscribes to the raw transport.
   final _injectResultCtl = StreamController<InjectResult>.broadcast();
+  /// Card MP-14 — the receipt `control:key` never had.
+  final _controlKeyResultCtl = StreamController<ControlKeyResult>.broadcast();
   final _focusStateCtl = StreamController<FocusState>.broadcast();
   final _autoStoppedCtl = StreamController<String>.broadcast();
   final _aiComposeCtl = StreamController<AiComposeEvent>.broadcast();
@@ -504,9 +506,45 @@ class PttSession {
   /// it through the final path would hand a finished utterance a second terminal
   /// (the wedging class GA-03 fixed).
   final _refinedCtl = StreamController<SttRefined>.broadcast();
+  /// Card S2-02 billing:budget - the account allowance reading. Its own stream
+  /// for the same reason stt:refined has one: it carries no FSM meaning, and
+  /// routing it through anything that does would give a progress number a say in
+  /// whether an utterance is finished.
+  final _billingBudgetCtl = StreamController<BillingBudget>.broadcast();
+
+  /// billing:budget - how much of the account allowance is left, and when it
+  /// starts over. One production subscriber: the cloud summary controller, which
+  /// keeps the settings quota gauge in step with what the relay just said.
+  Stream<BillingBudget> get billingBudget => _billingBudgetCtl.stream;
+
+  /// Card G-2c - THE LATEST budget frame, held rather than only broadcast.
+  ///
+  /// 🔴 A STREAM COULD NOT ANSWER THE QUESTION THIS FIELD EXISTS FOR. The chat
+  /// page's banner set is rebuilt from scratch on every notify, so it needs the
+  /// CURRENT state of 「whose allowance is this recording spending」, not an
+  /// event that happened once before the screen was built. Same shape, same
+  /// reason, as `pcBusyListenable` next to it: a fact anyone may read at any
+  /// moment, and a stream nobody joined late enough to miss.
+  ///
+  /// ⚠️ IT IS THE WHOLE FRAME, not just `payer`. Two readers want two different
+  /// fields off the same reading (`payer` for the meter line, `mode` for which
+  /// exhaustion sentence a refusal gets), and splitting it into two notifiers
+  /// would let them disagree about which frame they are quoting.
+  ///
+  /// `null` until the relay has said anything - never 「self」, which is the same
+  /// distinction `BillingBudget.payer` draws one layer down.
+  final ValueNotifier<BillingBudget?> latestBudget =
+      ValueNotifier<BillingBudget?>(null);
 
   /// inject:result truth for the chat-flow badges (five-state write-back).
   Stream<InjectResult> get injectResults => _injectResultCtl.stream;
+
+  /// control:key-result — what the far end did with one remote keypress
+  /// (card MP-14). Its OWN stream, for the same reason `stt:refined` has one:
+  /// it carries no FSM meaning and settles no row, and routing it through
+  /// anything that does would give a keypress a say in whether an utterance is
+  /// finished.
+  Stream<ControlKeyResult> get controlKeyResults => _controlKeyResultCtl.stream;
 
   /// GA-14 / D7 ③: the second-pass transcript, NAMED by its utterance id (frames without one never reach here).
   Stream<SttRefined> get refinedTexts => _refinedCtl.stream;

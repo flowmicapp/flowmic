@@ -50,6 +50,25 @@
 // gets its three days from then. The boot log prints the resolved value in both
 // cases, so「which epoch is this machine using」is answerable from the log alone.
 
+//
+// ── 🔴 ADDED 2026-09-09 (REVIEW-GRACE): A PER-ACCOUNT OVERRIDE ───────────────
+// owner authorised extending the five store-review accounts to 2026-11-30
+// (「延长时间到11月」). That is a DIFFERENT question from the grandfathering above
+// — not「when may this gate start biting at all」but「this named account is not
+// being asked to verify before date X」— so it is a different mechanism:
+// `users.verify_grace_until`, a nullable INTEGER read here as `graceUntilMs`.
+//
+// The option NOT taken, stated because it was the cheap one: shifting
+// `FLOWMIC_VERIFY_GRACE_EPOCH` forward. One env var, no schema, no deploy of
+// new code — and it would have lifted the gate off EVERY unverified account on
+// the platform until that date, silently, by way of a variable whose documented
+// meaning is an operational safety valve. A targeted grant that expires by
+// itself is the honest shape; the constant/env pair above is untouched and
+// still means exactly what its paragraphs say.
+//
+// The other option not taken: stamping `email_verified_at` on those five rows.
+// db/schema.ts's DDL comment for this column owns that argument.
+
 import { parseUtcStamp } from '../db/utc-stamp';
 import type { ServerMode } from '@flowmic/protocol';
 import type { UserRepo } from '../db/repos/user.repo';
@@ -139,6 +158,18 @@ export interface VerificationGraceInput {
   nowMs: number;
   /** Resolved feature epoch; defaults to the constant/env pair below. */
   epochMs?: number;
+  /**
+   * `users.verify_grace_until`, raw: a per-account deadline that WIDENS the
+   * computed one. null/undefined = no override, the ordinary policy.
+   *
+   * 🔴 IT CAN ONLY EVER EXTEND. The body takes a max, so a value in the past —
+   * a stale extension, or a typo — changes nothing at all rather than cutting
+   * somebody's grace short. There is deliberately no way to express「refuse this
+   * account sooner」through this field: that question already has a column
+   * (`users.restricted_at`, auth/account-restriction.ts) and answering it here
+   * as well would be one value answering two questions.
+   */
+  graceUntilMs?: number | null;
 }
 
 /**
@@ -159,7 +190,15 @@ export function verificationGrace(input: VerificationGraceInput): VerificationGr
   // 🔴 max(created_at, epoch) — the whole grandfathering mechanism, in one
   // expression. See the file header for why it is here and not in a column.
   const startMs = Math.max(input.createdAtMs, epochMs);
-  const deadlineMs = startMs + VERIFICATION_GRACE_MS;
+  // 🔴 max(computed, per-account override) — the second and last max in this
+  // function, and the only way `verify_grace_until` can act. An override that
+  // is null, absent or already past leaves this expression exactly equal to the
+  // computed deadline, which is what makes「no override」and「an override that
+  // has run out」the same code path rather than two.
+  const overrideMs = typeof input.graceUntilMs === 'number' && Number.isFinite(input.graceUntilMs)
+    ? input.graceUntilMs
+    : Number.NEGATIVE_INFINITY;
+  const deadlineMs = Math.max(startMs + VERIFICATION_GRACE_MS, overrideMs);
   if (input.nowMs >= deadlineMs) return { state: 'expired', daysLeft: 0 };
   // Rounded UP so the last partial day reads 「1 day left」 and not 「0」: 0 is
   // reserved for expired, above, and a countdown that shows 0 while the product
@@ -188,7 +227,9 @@ export function verificationGraceEpochMs(env: NodeJS.ProcessEnv = process.env): 
 /** The two facts a gate needs about an account, from whatever holds them
  *  (bootstrap wires this to `UserRepo.findById`). `null` = no such account. */
 export interface VerificationGraceReader {
-  graceInputs(userId: string): { emailVerifiedAt: number | null; createdAtMs: number; hasEmail: boolean } | null;
+  graceInputs(
+    userId: string,
+  ): { emailVerifiedAt: number | null; createdAtMs: number; hasEmail: boolean; graceUntilMs: number | null } | null;
 }
 
 /** The named refusal, shaped like every other ack payload in this repo. */
@@ -238,6 +279,7 @@ export function makeVerificationGraceGuard(
       emailVerifiedAt: row.emailVerifiedAt,
       createdAtMs: row.createdAtMs,
       hasEmail: row.hasEmail,
+      graceUntilMs: row.graceUntilMs,
       nowMs: clock(),
       ...(config.epochMs !== undefined ? { epochMs: config.epochMs } : {}),
     });
@@ -322,6 +364,10 @@ export function wireVerificationGrace(deps: {
           // grace error on the Tokyo replica, measured 2026-09-05.
           createdAtMs: parseUtcStamp(u.created_at),
           hasEmail: u.email !== null,
+          // REVIEW-GRACE — the per-account override, raw. INTEGER ms-epoch, so
+          // unlike `created_at` above there is nothing to parse and no zone to
+          // get wrong.
+          graceUntilMs: u.verify_grace_until,
         };
       },
     },

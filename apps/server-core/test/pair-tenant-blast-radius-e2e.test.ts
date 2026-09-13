@@ -67,8 +67,10 @@ async function registerPc(name: string): Promise<{ code: string; socket: ClientS
   const socket = await connect();
   const reg = await ack<{ short_code?: string; error?: string }>(socket, 'pc:register', {
     device_name: name,
-    // ClientInstanceId is z.string().min(16); pad so a short device name cannot
-    // trip the schema (which would answer PAIR_INVALID_PAYLOAD, not register).
+    // ClientInstanceId is `min(16)`, padded here so the id actually LANDS on the
+    // row. Since FIX-D5 a short one no longer refuses the frame — it degrades to
+    // absent (protocol-primitives.ts) — which would silently mint a second row
+    // instead of reusing this machine's, and that is what this case is about.
     client_instance_id: `inst-${name}-0123456789abcdef`,
   });
   expect(reg.error).toBeUndefined();

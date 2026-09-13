@@ -173,6 +173,25 @@ describe('node-routes: /api/node/locate — the authoritative-read rule', () => 
       .authoritative).toBe(false);
   });
 
+  it('🔴 LOC-1: an unknown pcid on the writer answers known:false', () => {
+    const r = call({ ...WRITER, locatePc: unknown }, '/api/node/locate?pcid=123456789');
+    expect(r.body.known).toBe(false);
+  });
+
+  it('🔴 LOC-1: a known pcid with a home answers known:true and names it', () => {
+    const r = call({ ...WRITER, locatePc: known('srvny') }, '/api/node/locate?pcid=123456789');
+    expect(r.body.known).toBe(true);
+    expect(r.body.node).toBe('srvny');
+  });
+
+  it('🔴 LOC-1: a known pcid with NO home yet answers known:true, node:null — ' +
+    'the same node:null the unknown-pcid case above also returns, so `known` is ' +
+    'the only field telling the two apart', () => {
+    const r = call({ ...WRITER, locatePc: known(null) }, '/api/node/locate?pcid=123456789');
+    expect(r.body.known).toBe(true);
+    expect(r.body.node).toBeNull();
+  });
+
   it('refuses an empty pcid rather than looking one up', () => {
     expect(call({ ...WRITER, locatePc: known('srvny') }, '/api/node/locate?pcid=').status).toBe(400);
   });

@@ -138,6 +138,38 @@ export const EVENT_NAMES = [
   // whitelist 54 → 55.
   'focus:state',
   'control:key',
+  // §3.5 MP-14 (card MP-14, 2026-09-11). 56 -> 57, owner approved it in ruling
+  // 3 of docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish
+  // .md, §11 追认三 item 8: 「电脑键拒收回执：协议变更获批」 -- new event,
+  // whitelist 56->57, relay first then the clients.
+  //
+  // WHY A FIELD WOULD NOT DO, which is the argument every note above has to
+  // make: there was no frame to put a field on. `control:key` is a ONE-WAY
+  // event by construction and nothing answers it, so when the far end cannot
+  // honour a key -- a web target page asked for Tab or Undo, a desktop handed a
+  // kind outside its six-key map, no focused target at all -- the only refusal
+  // available was silence. The phone that pressed it and the web mic both keep saying
+  // the key was sent, which it was; nobody ever says it did nothing. That is
+  // the forbidden direction of 「没有静默失败」 stated plainly.
+  //
+  // Nor could it ride `inject:result`: that is a DELIVERY verdict for an
+  // utterance and carries a required `mode` plus the ids that settle a timeline
+  // ROW. A keypress has none of the three (see `mint_control_row` on the
+  // desktop and `buildControlRowOf` on the phone, which each say so from their
+  // own end), so reusing it would mean filling three fields with placeholders
+  // -- and a placeholder read downstream as a judgement is 0.2.49 F2b.
+  //
+  // FAILURE DIRECTION -- and this one IS a hard deploy order, unlike
+  // `billing:budget` above. A relay older than this line does not know the name
+  // at all, so the unknown-event gate refuses it and the receipt reaches nobody.
+  // A client that has not been updated ignores an unhandled event. Both ends
+  // therefore degrade to exactly the product that exists today (no receipt, same silence),
+  // which is why nothing REGRESSES -- but a client shipped ahead of the relay
+  // would be advertising a receipt that cannot arrive, so: RELAY FIRST, THEN
+  // THE CLIENTS. Pinned by verify/golden/g33-control-key-receipt.mjs.
+  // (No apostrophes above: the whitelist parser pairs single quotes -- see the
+  // note on pc:list-mobiles.)
+  'control:key-result',
 
   // §3.6 History sync
   'history:list',
@@ -163,6 +195,30 @@ export const EVENT_NAMES = [
   'timeline:tombstone',
   'timeline:grant-request',
   'timeline:grant',
+
+  // §3.9 Billing. 55 -> 56, owner approved 2026-09-06 (ruling 2 of
+  // docs/decisions/2026-09-06-owner-web-client-rulings-repo-protocol-domains.md)
+  // AND approved on the condition that it land WITH its first producer rather
+  // than be registered ahead of one -- the 2026-08-07 lesson, where deferring a
+  // code out of the registry silently switched off the compile-time
+  // exhaustiveness check that would have caught the defect.
+  //
+  // WHY A FIELD WOULD NOT DO, and why it is not a second stt:error: the full
+  // argument is in protocol-schemas-billing.ts and in the count guard
+  // (test/events-count.test.ts). Short form -- the number must be readable at
+  // three moments and only one of them has a frame to ride; and the refusal
+  // already has two owners (QUOTA_EXCEEDED on a turned-away press,
+  // audio:auto-stopped on a recording that hits the ceiling), so this name
+  // answers a DIFFERENT question, which is how "why did this end" keeps
+  // exactly one answer.
+  //
+  // FAILURE DIRECTION: benign in both. A client that does not listen ignores an
+  // unhandled event; a listening client against an old relay never hears one.
+  // Neither ends up with a worse product than today, so relay-first is the
+  // preference, not the requirement it was for error code 60.
+  // (No apostrophes above: the whitelist parser pairs single quotes -- see the
+  // note on pc:list-mobiles.)
+  'billing:budget',
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

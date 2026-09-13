@@ -39,11 +39,25 @@ import 'pc_presence.dart';
 
 /// How many consecutive inconclusive rounds the last answer survives.
 ///
-/// 🔴 CALCULATED, NOT CHOSEN. The poll ticks every 10 s
-/// (`kIdlePcPresencePollInterval`), so three rounds is ≈30 s — comfortably
-/// inside [kLivenessHoldMaxAge], which means that on the normal path it is
-/// ALWAYS this counter that expires first and the age bound never fires. The
-/// age bound is not a second opinion about the same thing; see its doc.
+/// 🔴 THE THIRD ONE BURNS IT, NOT THE FOURTH. The determinism design says so in
+/// as many words (§2-1 「连续 3 轮没结论」, and case H-2 「连续 3 轮问不到 → 屏幕
+/// 改写「问不到」」). The comparison below read `>` until 2026-09-07, so the hold
+/// outlived its own specification by one round.
+///
+/// ⚠️ THE CADENCE UNDER THIS NUMBER IS 15 s, NOT 10 s — this doc used to say
+/// 10 s and drew a conclusion from it that was false. The only production caller
+/// is the instance-list row (`connections_row_faces.dart`), and that page
+/// re-probes on [kInstanceListPresencePollInterval] (15 s). The 10 s constant
+/// (`kIdlePcPresencePollInterval`) belongs to `PttSession`'s own poll, which
+/// feeds `PcPresenceTracker` and never reaches this class.
+///
+/// 🔴 WHAT THAT ERROR HID: at 15 s, three rounds is ≈45 s — which is
+/// [kLivenessHoldMaxAge] EXACTLY, not 「comfortably inside」 it. The two bounds
+/// land on the same round. With `>` they raced: whether the row burnt on round
+/// three (age) or round four (count) was decided by a few hundred milliseconds
+/// of probe latency, so the behaviour was a coin flip rather than a count. `>=`
+/// makes the count decisive and returns the age bound to the job its own doc
+/// describes — covering rounds that stop happening at all.
 const int kLivenessHoldMisses = 3;
 
 /// How long the last answer survives when rounds stop happening at all.
@@ -103,6 +117,19 @@ class LivenessHold {
   ///
   /// [nowMs] is passed in rather than read here so the bound is testable
   /// without a real clock — the same DI rule the rest of this package follows.
+  ///
+  /// 🔴 KNOWN AND NOT FIXED HERE — [kLivenessHoldMisses] counts CALLS, and the
+  /// caller is a widget build, so a miss is 「a build that projected no answer」
+  /// rather than 「a round that got no answer」. The two are not the same number:
+  /// MEASURED 2026-09-07 (widget test on the real page) — two `load()`
+  /// notifications, a genuine production trigger (returning to this page), with
+  /// ZERO poll rounds elapsed, drove the count from 1 to 4 and burnt a hold that
+  /// by the specification still had two rounds to live. Counting rounds instead
+  /// needs a round identity threaded from `ConnectionsController`, which is a
+  /// design change and not this card's; it is reported rather than invented
+  /// here. ⚠️ Do not read the numbers in the tests as device behaviour: a widget
+  /// test coalesces a round's notifications into one frame, so there a miss and
+  /// a round happen to coincide.
   HeldLiveness observe(InstanceLivenessFace face, {required int nowMs}) {
     if (isConclusiveLiveness(face)) {
       _last = face;
@@ -118,7 +145,9 @@ class LivenessHold {
       // honest word for that is this round's own — 「checking」 / 「never asked」.
       return HeldLiveness(face: face, rechecking: false);
     }
-    final bool burnt = _misses > kLivenessHoldMisses
+    // `>=`, not `>`: [kLivenessHoldMisses] is the miss that burns it, not the
+    // last one it survives. See that constant's doc for what `>` cost.
+    final bool burnt = _misses >= kLivenessHoldMisses
         || nowMs - at >= kLivenessHoldMaxAge.inMilliseconds;
     if (burnt) {
       // 🔴 The last answer is DROPPED, not merely stopped being shown. Keeping

@@ -22,6 +22,7 @@ import { createDbConnection, type DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 import { startRetentionSweeper, RETENTION_SWEEP_INTERVAL_MS, USAGE_EVENTS_RETENTION_DAYS } from '../src/db/retention';
 import { REAPER_SWEEP_INTERVAL_MS } from '../src/db/reaper';
+import { ANON_CLEANUP_INTERVAL_MS } from '../src/db/anon-cleanup';
 import { RECOVERY_PRUNE_INTERVAL_MS } from '../src/db/schema-recovery';
 import { startServer, STANDALONE_USER_ID, type BootstrapHandle } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -503,13 +504,19 @@ describe('GA-06 bootstrap wiring', () => {
     });
     server = boot;
 
-    // The intervals are the three daily sweeps' (retention, P2-6's growth reaper,
-    // and card PR-2's recovery sweep — bootstrap-sweeps.ts arms all three through
-    // this same override), and boot did NOT sweep any of them.
-    expect(sched.timers).toHaveLength(3);
+    // The intervals are the FOUR daily sweeps' (retention, P2-6's growth reaper,
+    // card PR-2's recovery sweep, and card M4-01's anonymous-row cleanup —
+    // bootstrap-sweeps.ts arms all four through this same override), and boot did
+    // NOT sweep any of them.
+    //
+    // ⚠️ EACH INTERVAL IS ASSERTED BY NAME, not just the count: 「there are four
+    // timers」 stays true if one of them armed twice and another not at all, which
+    // is precisely the failure a count-only assertion cannot see.
+    expect(sched.timers).toHaveLength(4);
     expect(sched.timers[0]?.ms).toBe(RETENTION_SWEEP_INTERVAL_MS);
     expect(sched.timers[1]?.ms).toBe(REAPER_SWEEP_INTERVAL_MS);
     expect(sched.timers[2]?.ms).toBe(RECOVERY_PRUNE_INTERVAL_MS);
+    expect(sched.timers[3]?.ms).toBe(ANON_CLEANUP_INTERVAL_MS);
 
     boot.db.pcs.insert({
       id: `pc-${STANDALONE_USER_ID}`,

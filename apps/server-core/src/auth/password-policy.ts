@@ -12,19 +12,34 @@
 // The ONE declaration of what makes an account password acceptable. Four
 // enforcement points read it — `register` and `setPassword` (auth-service.ts),
 // `POST /api/password/reset` (http/password-reset-routes.ts), and
-// `POST /api/account/password` (http/account-password-routes.ts) — and
-// verify/lint/password-policy-mirror.mjs pins the two numbers against the
-// hand-written copy in `@flowmic/web`, which is a separate git repo and cannot
-// import this file.
+// `POST /api/account/password` (http/account-password-routes.ts).
+//
+// 🔴 CARD PW-1 (2026-09-08): `MIN_PASSWORD_LENGTH` / `MAX_PASSWORD_LENGTH`
+// USED TO BE DECLARED HERE AS LITERALS. A third hand-copy of the same two
+// numbers showed up in the (separate-repo) web CLIENT, on top of the existing
+// hand-copy in `@flowmic/web` — three text-typed copies of two integers is the
+// shape `packages/protocol` exists to retire. The two numbers now live ONCE, in
+// `@flowmic/protocol`'s `constants.ts`, and this file imports and re-exports
+// them so every existing import of `./password-policy` (auth-service.ts,
+// the two HTTP routes, test/password-policy.test.ts,
+// test/registration-email-code.test.ts) keeps working unchanged.
+// `verify/lint/password-policy-mirror.mjs` now asserts (a) THIS file carries
+// no local literal for either name — it must be an import — and (b) the
+// hand-written copy in `@flowmic/web` (a separate git repo that cannot import
+// `@flowmic/protocol` either) still equals the protocol value. The FLOWMIC-WEB
+// third repo is on the same protocol package and needs no mirror lint at all.
 //
 // ── WHY A LEAF MODULE RATHER THAN TWO MORE EXPORTS ON auth-service.ts ───────
 // `http/password-reset-routes.ts` imports auth-service TYPE-ONLY today
 // (`import type { AuthService }`), which erases at compile time. Reading the
 // policy off auth-service would convert that into a real runtime import edge
 // from the HTTP layer into the audited credential service, in exchange for two
-// integers and a pure function. This file imports nothing, so a reader of the
-// policy gets the policy and nothing else and can audit it in isolation — the
-// same property auth-service.ts's own file header claims for itself.
+// integers and a pure function. 🔴 As of PW-1 this file DOES import one thing
+// — the two-integer pair from `@flowmic/protocol` — but that package is a leaf
+// dependency-free constants module with no runtime edge back into any audited
+// service, so a reader of the policy still gets the policy plus two named
+// integers and nothing else, and can still audit it in isolation — the same
+// property auth-service.ts's own file header claims for itself.
 //
 // ── 🔴 THE MEASURE IS CODE POINTS, AND IT IS NOT A DETAIL ──────────────────
 // `[...pw].length`, never `pw.length`. The two disagree on every astral
@@ -50,17 +65,14 @@
 // feature; test/password-policy.test.ts pins it as an executable fact rather
 // than leaving it as a sentence in a comment.
 
-/** Minimum account password length, in CODE POINTS (see the header note: §1
- *  ruled 10, this is 8).
- *  Mirrored by hand in `@flowmic/web`; verify/lint/password-policy-mirror.mjs
- *  locates this declaration BY NAME and requires a plain integer literal, so it
- *  must stay a one-line literal — never a computed value or an object field. */
-export const MIN_PASSWORD_LENGTH = 8;
-
-/** Maximum account password length, in CODE POINTS.
- *  Human-scale ceiling (password-manager 32-char secrets still fit).
- *  Same mirror and same literal-shape requirement as the minimum. */
-export const MAX_PASSWORD_LENGTH = 32;
+// Re-exported, not re-declared: the SSOT is `@flowmic/protocol`'s
+// `constants.ts` (see that file's header for why only these two moved and not
+// `MIN_PASSWORD_CLASSES`). `verify/lint/password-policy-mirror.mjs` reads THIS
+// import line — by name, requiring the plain `{ MIN_PASSWORD_LENGTH,
+// MAX_PASSWORD_LENGTH }` shape below — as proof that server-core is not
+// carrying a second, driftable literal of its own.
+import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '@flowmic/protocol';
+export { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH };
 
 /** How many of the three character classes a password must use (ruling §1).
  *  Not currently mirrored in @flowmic/web — per the C9 doctrine a mirror is

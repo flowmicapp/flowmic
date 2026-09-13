@@ -56,6 +56,7 @@ import {
   ACCOUNT_EXPORT_SCHEMA,
   EXPORT_EXCLUDED_SETTING_KEYS,
   USER_CASCADING_TABLES,
+  USER_SET_NULL_COLUMNS,
   USER_RETAINED_TABLES,
   buildAccountExport,
   checkDeleteConfirmation,
@@ -218,6 +219,22 @@ async function seedAccount(email: string): Promise<Seeded> {
   // cascade destroys is a row the product actually writes (hash at rest, never
   // the code).
   db.emailVerification.putCode(user.id, 'a'.repeat(64), NOW + 900_000, NOW);
+  // Card MP-1: a publishable key and one room it minted — through the repos, so
+  // the cascade is measured on rows the product really writes. Both matter to
+  // this census and for different reasons: the KEY is a live credential that
+  // would go on minting billable rooms for a person who no longer exists, and
+  // the ROOM EDGE is the one row here with no `user_id` of its own, so it can
+  // only be reached through its two parents.
+  db.integratorKeys.insert({
+    id: `ik-${user.id}`,
+    user_id: user.id,
+    publishable_key: `fmpk_${'0'.repeat(32)}`.slice(0, 5) + user.id.replace(/-/g, '').padEnd(32, '0').slice(0, 32),
+    origins: ['https://host.example'],
+    quota_minutes: null,
+    label: 'seed',
+    created_at: NOW,
+  });
+  db.integratorKeys.bindRoom(pcId, `ik-${user.id}`, NOW);
   db.billing.upsertSubscription({
     subscription_id: `sub_${user.id}`,
     user_id: user.id,
@@ -339,6 +356,20 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     // below; both are listed so the contrast stays visible to a reader.
     refund_requests: rowsFor('refund_requests', 'user_id', userId),
     email_verifications: rowsFor('email_verifications', 'user_id', userId),
+    // Card MP-1 — the publishable keys, per account like their neighbours.
+    integrator_keys: rowsFor('integrator_keys', 'user_id', userId),
+    // …and the room→key edge, counted by the ROOM it belongs to because it has
+    // no account column at all. That absence is the design (schema-integrator.ts):
+    // it dies through `pc_devices` AND through `integrator_keys`, so a third path
+    // would be a third thing to remember. Which is also why it is 「retained」 in
+    // this census's vocabulary («no FK to users») while being emphatically gone
+    // after a delete — hence the exemption in the retained-survives loop below.
+    integrator_rooms: rowsFor('integrator_rooms', 'pc_device_id', pcId),
+    // Card M4-01 — the site-demo grant record. Counted per-account like its
+    // neighbours, and it is the ONE cascading table this fixture cannot seed:
+    // only an ANONYMOUS identity ever has a row here, and this fixture's account
+    // is a real one. See the exemption in the census case below.
+    trial_ledger: rowsFor('trial_ledger', 'anon_user_id', userId),
     billing_events: rowsFor('billing_events', 'user_id', userId),
     // Named per-account on purpose, not table-wide: this row CAN be attributed
     // to the deleted user, and the assertion that matters is that it survives
@@ -388,13 +419,17 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // paddle_subscription_tombstones (0.3.25 B1, card D-2). The number is pinned
     // rather than derived on purpose — it is what makes ADDING a table a
     // decision that passes through this census instead of past it.
-    expect(tables.length).toBe(19);
+    // TWENTY since card M4-01 (2026-09-09: trial_ledger, CASCADING).
+    // TWENTY-TWO since card MP-1 (2026-09-11: integrator_keys, CASCADING;
+    // integrator_rooms, no `users` FK — it dies through BOTH of its parents).
+    expect(tables.length).toBe(22);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];
+    const setNull: string[] = [];
     for (const t of tables) {
       if (t === 'users') continue;
-      const fks = db.raw.prepare(`PRAGMA foreign_key_list(${t})`).all() as { table: string; on_delete: string }[];
+      const fks = db.raw.prepare(`PRAGMA foreign_key_list(${t})`).all() as { table: string; from: string; on_delete: string }[];
       const toUsers = fks.filter((f) => f.table === 'users');
       if (toUsers.length === 0) {
         noUserFk.push(t);
@@ -403,13 +438,30 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
       // 🔴 An FK that is NOT `ON DELETE CASCADE` would be the worst of the three
       // states: deletion would throw a constraint error at runtime, i.e. the
       // account could not be deleted at all.
+      //
+      // 🔴 card R-1 — `SET NULL` IS A FOURTH STATE AND IT IS NAMED, NOT WAVED
+      // THROUGH. It does not throw and does not block a deletion; it empties a
+      // column. Exactly the columns listed in `USER_SET_NULL_COLUMNS` may do
+      // that, and the equality below is what makes a SECOND one a decision that
+      // passes through this census rather than past it. RESTRICT and NO ACTION
+      // still fail on the line above, which is the state the census was built
+      // for.
       for (const f of toUsers) {
-        expect(f.on_delete, `${t}.user_id references users with ON DELETE ${f.on_delete}`).toBe('CASCADE');
+        const column = `${t}.${f.from}`;
+        if (f.on_delete === 'SET NULL' && (USER_SET_NULL_COLUMNS as readonly string[]).includes(column)) {
+          setNull.push(column);
+          continue;
+        }
+        expect(f.on_delete, `${column} references users with ON DELETE ${f.on_delete}`).toBe('CASCADE');
+        cascading.push(t);
       }
-      cascading.push(t);
     }
-    expect(cascading.sort()).toEqual([...USER_CASCADING_TABLES]);
+    // A table can now reach `users` twice (mobile_pairings does), so the
+    // cascading census is de-duplicated before it is compared — it has always
+    // been a set of TABLES, and the loop above now visits COLUMNS.
+    expect([...new Set(cascading)].sort()).toEqual([...USER_CASCADING_TABLES]);
     expect(noUserFk.sort()).toEqual([...USER_RETAINED_TABLES]);
+    expect(setNull.sort()).toEqual([...USER_SET_NULL_COLUMNS]);
   });
 
   it('foreign keys are actually ENFORCED on this connection (cascade is not decoration)', () => {
@@ -624,6 +676,18 @@ describe('POST /api/account/delete — the cascade, per table', () => {
         expect(n, 'a tombstone existed BEFORE the delete that creates it').toBe(0);
         continue;
       }
+      // Card M4-01 — `trial_ledger` is named here rather than seeded, and the
+      // distinction is the honest one: only an ANONYMOUS identity can ever hold
+      // a row in it, so seeding one against this real account would be a value
+      // the product never produces (律 L-②). Its cascade IS proven, on a row
+      // minted the way production mints it, by
+      // test/anon-cleanup.test.ts 「takes the ledger row with it, through the
+      // foreign key and not by hand」. The zero below is therefore true but
+      // vacuous, and this comment is what stops it being read as evidence.
+      if (table === 'trial_ledger') {
+        expect(n, 'a real account somehow held a site-demo grant row').toBe(0);
+        continue;
+      }
       expect(n, `${table} was already empty BEFORE the delete — this assertion would prove nothing`).toBeGreaterThan(0);
     }
     expect(before.mobile_pairings).toBe(2); // incl. the NULL-user_id one
@@ -649,6 +713,17 @@ describe('POST /api/account/delete — the cascade, per table', () => {
     // it still finds rows. So a zero above means 「gone」 and not 「the probe never
     // looked at anything」.
     for (const table of USER_RETAINED_TABLES) {
+      // 🔴 Card MP-1 — `integrator_rooms` IS IN THIS LIST AND MUST BE ZERO, and
+      // that is not a contradiction: this census's two lists are about the FK
+      // GRAPH («does this table reach `users` directly»), not about survival.
+      // This row reaches the account through BOTH of its parents and is
+      // destroyed twice over. Named rather than quietly excluded, because a
+      // reader arriving at a zero in the 「retained」 loop would otherwise
+      // conclude the cascade had over-reached.
+      if (table === 'integrator_rooms') {
+        expect(after[table], 'integrator_rooms outlived the room and the key it hangs off').toBe(0);
+        continue;
+      }
       expect(after[table], `${table} was swept — it is supposed to survive an account deletion`).toBeGreaterThan(0);
     }
   });

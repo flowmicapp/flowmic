@@ -58,7 +58,7 @@ const List<AppLocale> kLocales = <AppLocale>[
 /// rather than 「contains the English word」 because a half-translated catalogue
 /// is precisely what nine-language copy exists to prevent.
 const Map<AppLocale, List<String>> kStageMarkers = <AppLocale, List<String>>{
-  AppLocale.zh: <String>['采集音频', '语音识别', '语言模型处理', '打进当前输入框', '留下什么'],
+  AppLocale.zh: <String>['采集音频', '语音识别', '语言模型处理', '注入当前焦点窗口', '留下什么'],
   AppLocale.en: <String>[
     'records audio',
     'Speech recognition',
@@ -190,7 +190,7 @@ const Map<AppLocale, List<String>> kPlanHedges = <AppLocale, List<String>>{
 /// asserting a value it cannot know (`FLOWMIC_LAN_TLS=0` still exists;
 /// apps/server-core/src/config.ts `resolveLanTls` branch ②).
 const Map<AppLocale, List<String>> kLanEncryptedNow = <AppLocale, List<String>>{
-  AppLocale.zh: <String>['这条连接是加密的', '中继一律走 TLS'],
+  AppLocale.zh: <String>['局域网加密通道', 'TLS 云端安全中继'],
   AppLocale.en: <String>['is encrypted', 'relay runs over TLS'],
   AppLocale.ja: <String>['暗号化され', '中継は TLS'],
   AppLocale.ko: <String>['암호화되고', '중계는 TLS'],

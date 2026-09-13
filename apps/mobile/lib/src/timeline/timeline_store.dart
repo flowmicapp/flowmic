@@ -429,11 +429,20 @@ class TimelineStore extends ChangeNotifier {
 
   /// The `mode` an inject:result carries when the verdict is 「没有投递，留着可以
   /// 补投」("not delivered, kept so it can be backfilled")
-  /// (InjectResultSchema: 'sendinput' | 'clipboard' | 'cached').
+  /// (InjectResultSchema: 'sendinput' | 'clipboard' | 'cached' | 'dom').
   ///
   /// A literal, not an enum: this is the wire's own word, matched here and
   /// nowhere else, and the protocol package owns its definition (RV-43: this
   /// card makes zero protocol changes).
+  ///
+  /// 🔴 S2-03 (2026-09-07) — `'dom'` joined the enum (a web target wrote into the
+  /// element it is bound to) and is DELIBERATELY NOT part of this criterion.
+  /// `dom` says the injection segment SUCCEEDED; `cached` says the delivery did
+  /// not happen and can be backfilled. Adding it here would repaint a row the
+  /// target already typed as 「待投递」("pending delivery") — red line R11's
+  /// forbidden direction, reporting something that succeeded as if it had not.
+  /// A reverse control for exactly that edit is in
+  /// test/inject_result_dom_mode_test.dart.
   static const String kWireModeCached = 'cached';
 
   // ── inject:result write-back ───────────────────────────────────────────────

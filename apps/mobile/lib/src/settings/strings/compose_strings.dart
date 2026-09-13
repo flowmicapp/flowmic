@@ -222,6 +222,39 @@ mixin ComposeStrings on AppStringsLeaves {
   /// TimelineEntry.lastResentAt).
   String resentAtLabel(String time) => _lfResentAtLabel(time);
 
+  // ── card MP-14: the far end could not apply a control key ──────────────
+  //
+  // 🔴 THREE SENTENCES, NOT ONE. The wire carries three reasons because each
+  // leads to a DIFFERENT move — another destination / click into a box / press
+  // again — and a single 「按键没有生效」("the key did nothing") would throw away
+  // the only thing that enum was built to carry. Same argument
+  // [composeSendError] makes one screen away: a generic failure hides which
+  // wall was hit.
+  //
+  // [key] is the key's own name, composed by `controlKeyLabel` from the SAME
+  // four getters the toolbar and the history row use — never a second
+  // vocabulary, and never a raw wire kind when a name exists.
+  //
+  // ⚠️ NO IMPERATIVE IN ANY OF THE THREE, and that is the `INJECT_PC_MISMATCH`
+  // precedent rather than a style choice: two of them describe something the
+  // user cannot change from this phone at all, and the third (「click into a
+  // box」) is an act on the COMPUTER, which is not where they are looking. A
+  // sentence that tells someone to do a thing they cannot do from here turns a
+  // clear message into a dead end.
+
+  /// This end does not have that key at all (`unsupported_here`).
+  String controlKeyRefusedUnsupported(String key) =>
+      _lfControlKeyRefusedUnsupported(key);
+
+  /// Nothing was focused on the far end to press it into (`no_target`).
+  String controlKeyRefusedNoTarget(String key) =>
+      _lfControlKeyRefusedNoTarget(key);
+
+  /// It tried and the attempt did not go through (`failed`) — and ALSO the
+  /// landing place for a reason this build does not recognise, because that is
+  /// the only branch that is true of every refusal there is.
+  String controlKeyRefusedFailed(String key) => _lfControlKeyRefusedFailed(key);
+
   /// Fail-loud copy for a ComposeBand send that did not happen. Each reason
   /// reads differently — a generic 「发送失败」 ("send failed") would hide which
   /// wall was hit.

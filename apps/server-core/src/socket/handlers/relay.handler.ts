@@ -16,7 +16,7 @@
 //   *** HUMAN-AUDIT SENSITIVE (injection path) — reviewable in isolation ***
 //
 // PC↔mobile mirror relay within a room. inject:request + control:key go
-// mobile→PC; inject:result + focus:state go PC→mobiles.
+// mobile→PC; inject:result + control:key-result + focus:state go PC→mobiles.
 //
 // 0.2.27 — WHAT CHANGED AND WHAT DID NOT. The server used to also write the true
 // delivery status onto `transcript_history` (injected / cached / failed) as each
@@ -216,7 +216,7 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     // THE EVIDENCE IS THIS CONNECTION'S TOKEN BINDING, NEVER "who is in the room right now".
     // On a mobile socket `auth.deviceId` IS `pc_devices.id` of the PC this phone
     // is paired to, resolved from its token and from nothing else
-    // (auth/middleware.ts:189-191 → `mobileRow.pc_device_id`; mobile.handler.ts
+    // (auth/middleware.ts:239-241 → `mobileRow.pc_device_id`; mobile.handler.ts
     // :134/:180/:235 → `deviceId: pc.id`). `target_pc_id` is written in that exact
     // convention: it is the `pc_id` the phone was handed in its pairing ack — the SAME
     // `pc.id`, from the same three admission sites (mobile.handler.ts :143/:186/
@@ -402,9 +402,22 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     const auth = getAuth(socket);
     const roomUuid = getRoomUuid(socket);
     if (!auth || auth.kind !== 'mobile' || !roomUuid) {
-      // Same reachable window as inject:request above. control:key has no
-      // result event to answer with (a key has no delivery row), so the
-      // breadcrumb is the honest maximum here — never a bare `return`.
+      // Same reachable window as inject:request above.
+      //
+      // ⚠️ 「control:key has no result event to answer with」 stood here until
+      // card MP-14 and is now FALSE — `control:key-result` exists, and it is
+      // handled a few lines below. The breadcrumb STAYS anyway, and the reason
+      // changed rather than expired: that receipt says what THE FAR END did with
+      // the key, and this exit is the relay finding no far end to ask. A
+      // relay-authored refusal would be indistinguishable from the PC's own —
+      // the receipt carries no authorship field, deliberately (it has no error
+      // code, see the schema) — so the phone would be told 「the computer could
+      // not apply it」 about a computer that was never consulted. That is the
+      // 「one value, two authors」 shape `inject-verdict-authorship.ts` exists to
+      // stop. `inject:request` may answer here only because its verdict frame
+      // CAN name its author (`error: 'INJECT_NOT_IN_ROOM'`).
+      //
+      // ⇒ the breadcrumb is still the honest maximum here — never a bare `return`.
       log.warn('relay: control:key on a socket with no auth/room', {
         socket: socket.id,
         authed: auth !== null,
@@ -415,6 +428,52 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     const parsed = safeParseEvent('control:key', payload);
     if (!parsed.success) return logDrop('control:key', socket, parsed.error);
     store.getPc(roomUuid)?.emit('control:key', parsed.data);
+  });
+
+  // far end → the speaker: the receipt a control key never had (card MP-14).
+  //
+  // 🔴 THE ROUTING RULE IS `inject:result`'s, DELIBERATELY AND VERBATIM: scoped
+  // by ROOM, fanned out to every mobile in it, never addressed by id. The reason
+  // is the one that file's own comment gives for the verdict mirror — a result
+  // can only reach the mobiles of the room the reporting end is actually in, so
+  // there is no id to get wrong and no cross-tenant reach to guard.
+  //
+  // ⚠️ "far end" is a DESKTOP PC **or a web target page**, and on the wire they
+  // are the same thing: both register as the room's `pc` role. That is why this
+  // guard reads `auth.kind !== 'pc'` and not something web-specific — a second
+  // predicate here would be a second answer to 「who may answer a keypress」.
+  //
+  // 🔴 NOT `getMobiles(...)[0]`, even though today exactly one phone is in a
+  // room (owner's 2026-08-11 one-phone iron rule). The invariant lives in the
+  // admission path; encoding it a second time HERE would mean a future second
+  // listener silently gets nothing. Fan-out costs nothing when the set has one
+  // member.
+  //
+  // The receipt is matched on `request_id` when the press carried one; when it
+  // did not (an older phone, or an older relay upstream that stripped it) the
+  // client falls back to `kind` + recency. Nothing in this file has to know
+  // that — it forwards `parsed.data` and never invents a correlation id, which
+  // is what keeps「no receipt」 and「a receipt we could not match」 distinguishable
+  // on the far side.
+  socket.on('control:key-result', (payload: unknown) => {
+    const auth = getAuth(socket);
+    const roomUuid = getRoomUuid(socket);
+    if (!auth || auth.kind !== 'pc' || !roomUuid) {
+      // Same reachable window as inject:result above (buffered frames flushing
+      // on reconnect before re-registration). This frame is the ONLY thing that
+      // can say 「the key you pressed did nothing」, so dropping it silently puts
+      // the product back exactly where this card found it — the breadcrumb is
+      // the honest maximum here. Never a bare `return`.
+      log.warn('relay: control:key-result on a socket with no auth/room — the keypress refusal is lost', {
+        socket: socket.id,
+        authed: auth !== null,
+        kind: auth?.kind ?? null,
+      });
+      return;
+    }
+    const parsed = safeParseEvent('control:key-result', payload);
+    if (!parsed.success) return logDrop('control:key-result', socket, parsed.error);
+    for (const m of store.getMobiles(roomUuid)) m.emit('control:key-result', parsed.data);
   });
 
   // PC → mobiles: injection result + delivery-truth status writeback

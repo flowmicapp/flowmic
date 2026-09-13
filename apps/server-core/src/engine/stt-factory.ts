@@ -18,6 +18,7 @@ import type { Socket } from 'socket.io';
 import type { Delivery, ServerMode } from '@flowmic/protocol';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { QuotaGuard } from '../billing/quota-guard';
+import { cappedRemainingSttMs } from '../billing/capped-remaining';
 import type { RoomStore } from '../room/store';
 import { markFlushSent, markSttFinal } from '../obs/latency';
 import { getRoomUuid, getSessionPrefs } from '../socket/wire';
@@ -53,6 +54,10 @@ export interface SttFactoryDeps {
    *  "clamp" since fix-025: it is a ceiling of its own with its own action, not a
    *  smaller value written over the engine-session one. */
   quota: QuotaGuard;
+  /** card MP-1 — the per-key sub-quota reader (`billing/integrator-quota.ts`).
+   *  Absent on a deployment with no integrator arm, which makes every key read
+   *  answer 0 and therefore refuse — never Infinity (design §5). */
+  integratorKeys?: { remainingMs(keyId: string, at: number): number };
 }
 
 /**
@@ -94,6 +99,9 @@ export function makeSttEmitter(args: {
   store: Pick<RoomStore<Socket>, 'getPc'>;
   roomUuid: string | null;
   delivery: Delivery;
+  /** Card S2-02 — see the call below. Absent ⇒ no exhaustion budget frame; the
+   *  auto-stop frame itself is byte-identical either way. */
+  onQuotaExhausted?: () => void;
 }): SttEmitter {
   const fanOutToPc = args.delivery !== 'none' && args.roomUuid !== null;
   // 🔴 REQ-12-05 INSTRUMENT — see the two blocks below. Per-utterance state; the
@@ -178,6 +186,29 @@ export function makeSttEmitter(args: {
           fan_out_to_pc: fanOutToPc,
         });
       }
+      // 🔴 card S2-02 — THE ONE TRIGGER OF THE EXHAUSTION BUDGET FRAME.
+      //
+      // Hooked HERE, on the frame that already carries the verdict, rather than
+      // given a clock of its own. `audio:auto-stopped{reason:'quota_exhausted'}`
+      // is the shipped answer to 「why did this recording end」 (card W8-4, and
+      // engine/stt-session-autostop.ts spells out that origin and reason are two
+      // vocabularies on purpose). A second computation of 「the account is spent」
+      // anywhere else would be a second author for that question, which is this
+      // repo's #1 bug shape — and the two would disagree the first time CR-Q's
+      // mid-recording re-read moved the deadline.
+      //
+      // BEFORE the emit below, so the meter reaches zero and THEN the recording
+      // is reported over. The reverse order shows a user a recording that ended
+      // for no visible reason, then explains it a frame later.
+      //
+      // ⚠️ NOT fanned out to the PC, and that is not an oversight — the frame
+      // goes only to the socket the pusher was built for (the phone). A PC in
+      // this room may be a different account, and its remaining minutes are its
+      // own question (billing/budget-push.ts's header).
+      if (event === 'audio:auto-stopped'
+        && (payload as { reason?: unknown } | null)?.reason === 'quota_exhausted') {
+        args.onQuotaExhausted?.();
+      }
       args.resolveSocket()?.emit(event, payload);
       if (!fanOutToPc || args.roomUuid === null) return;
       args.store.getPc(args.roomUuid)?.emit(event, payload);
@@ -231,6 +262,9 @@ export function makeSttSessionFactory(
       store: deps.store,
       roomUuid,
       delivery: args.delivery,
+      // card S2-02 — supplied by the audio handler, which is the layer that
+      // holds the socket AND the account this session is metered under.
+      ...(args.onQuotaExhausted ? { onQuotaExhausted: args.onQuotaExhausted } : {}),
     });
     // 🔴 fix-025 (BILLING FACE). This line used to read
     //     const hardLimitMs = deps.quota.remainingSttMs(args.userId);
@@ -246,7 +280,24 @@ export function makeSttSessionFactory(
     // The remaining budget is now declared as itself (see withQuotaBudget), and
     // the engine-session ceiling is left to AUDIO_DEFAULTS where it belongs: this
     // layer knows about money, not about how long a vendor session may run.
-    const quotaBudgetMs = deps.quota.remainingSttMs(args.userId);
+    // 🔴 card MP-6 — AND THE CAP, WHEN THERE IS ONE. A site-demo visitor is
+    // metered to FlowMic's demo account, whose month is hours; what they may
+    // actually speak is their own per-browser grant. Taking only the payer's
+    // number here would leave the page counting down to a zero that ends
+    // nothing — the cap would be a picture of a ceiling. One author for both
+    // readings (billing/capped-remaining.ts), because `budget-push.view` renders
+    // this same quantity and a disagreement between them is invisible.
+    // 🔴 card MP-1 — AND THE INTEGRATOR KEY'S SUB-QUOTA, when this room has one.
+    // Read ONCE here and re-read by the refresher below, because a key spends
+    // its cycle while the recording runs (other visitors on the same page are
+    // speaking into the same ceiling). Read through the same `Math.min` as the
+    // other two ceilings so the wall, the meter and the admission gate cannot
+    // disagree.
+    const keyRemainingMs = (): number | undefined => (
+      args.integratorKeyId === undefined ? undefined
+        : deps.integratorKeys?.remainingMs(args.integratorKeyId, Date.now()) ?? 0
+    );
+    const quotaBudgetMs = cappedRemainingSttMs(deps.quota, args.userId, args.capUserId, keyRemainingMs());
     // FINAL pipeline (06 §5), snapshotted at audio:start: resolve THIS user's
     // preferred-terminology rules (scenario-card terms with their aliases ∪
     // dictionary packs) ONCE and build the pure alias→canonical replacer, then
@@ -332,7 +383,7 @@ export function makeSttSessionFactory(
         // comes from the same overlay as the replacer above — one card, both
         // destinations. Routings inside `build` stay on the database.
         const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings });
-        const built = withQuotaBudget(buildWithPrefs, quotaBudgetMs, deps.quota)(session, language, userId, vad);
+        const built = withQuotaBudget(buildWithPrefs, quotaBudgetMs, deps.quota, args.capUserId, keyRemainingMs)(session, language, userId, vad);
         // WP2-6a: one author of the flush-sent stamp is raceFlushFinal; this
         // is only the room wiring. Soft-segment flushes before audio:stop
         // no-op inside markFlushSent (no pending leg yet).
@@ -424,10 +475,49 @@ export function makeSttSessionFactory(
 function withQuotaBudget(
   build: SttSessionDeps['build'],
   quotaBudgetMs: number,
-  quota: { remainingSttMs(userId: string): number },
+  /** Card G-8 widened this from `{ remainingSttMs }` to the two reads this
+   *  function makes. Still structural rather than `QuotaGuard` itself: the
+   *  narrow shape is what lets the unit tests drive it with a two-method
+   *  object instead of a database. */
+  quota: { remainingSttMs(userId: string): number; continuousCapMs(userId: string): number },
+  /** card MP-6 — the site demo's per-browser ceiling, or null. Carried into the
+   *  REFRESHER as well as the opening declaration: a refresher that asked only
+   *  the payer would raise the wall back up on the next floor window and undo
+   *  the cap mid-recording. */
+  capUserId?: string | null,
+  /** card MP-1 — the integrator key's remaining sub-quota, as a THUNK. A number
+   *  would have been a snapshot, and this ceiling moves while the recording runs
+   *  (the same key is serving every other visitor on that page). `undefined`
+   *  from the thunk means 「this session spends no key」; 0 means 「we could not
+   *  read it」, which stops the recording — the direction design §5 asks for. */
+  keyRemainingMs?: () => number | undefined,
 ): SttSessionDeps['build'] {
   return (session, language, userId, vad) => {
     session.setQuotaBudgetMs(quotaBudgetMs);
+    // 🔴 Card G-8 — AND HOW LONG THIS SITTING MAY RUN, declared in the same act
+    // and from the same `userId` (the build argument — the id this session was
+    // actually built for, which since card MP-10 is the PAYER and not
+    // necessarily the speaker). A separate ceiling on the same timer, never a
+    // smaller budget: `stt/audio/session.ts` `setSessionCapMs` carries the three
+    // reasons folding it into `quotaBudgetMs` would be wrong, and
+    // `billing/session-cap.ts` carries the one reason it must not enter
+    // `cappedRemainingSttMs`.
+    //
+    // ⚠️ READ HERE, NOT PASSED IN, because this is the layer that already holds
+    // the guard and asks it the neighbouring question one line up. A caller-
+    // supplied number would be a second place `continuous_minutes` is resolved,
+    // and the phone is already reading the first one (`/api/cloud/summary`).
+    //
+    // 🔴 IT IS ARMED ON EVERY audio:start, NOT ONLY ON A 「CONTINUOUS」 ONE, and
+    // that is forced rather than chosen: `audio:start` carries no flag saying
+    // which kind of press this is (mode / delivery / language / sample rate, and
+    // nothing else), so THIS SIDE CANNOT TELL a continuous sitting from somebody
+    // holding the button. It is also the right answer if it ever became a
+    // choice: a modified client that simply never releases is the same threat as
+    // one that ignores its own countdown, and an ordinary utterance is seconds
+    // long — the nearest tier ceiling is ten minutes away, so the wall is
+    // unreachable on the path it does not mean to govern.
+    session.setSessionCapMs(quota.continuousCapMs(userId));
     // 🔴 card CR-Q (owner 2026-08-29) — installed in the SAME act that declares
     // the opening budget, so a session can never end up with a snapshot and no
     // way to refresh it. The reader is the same call the declaration above used;
@@ -438,7 +528,7 @@ function withQuotaBudget(
     // the id this session was actually built for, and using anything else would
     // re-check somebody else's budget — a mistake nothing downstream could see,
     // because the number would still look like a plausible number of minutes.
-    session.setQuotaRefresher(() => quota.remainingSttMs(userId));
+    session.setQuotaRefresher(() => cappedRemainingSttMs(quota, userId, capUserId, keyRemainingMs?.()));
     return build(session, language, userId, vad);
   };
 }

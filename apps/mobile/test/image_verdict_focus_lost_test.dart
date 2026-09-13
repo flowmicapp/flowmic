@@ -281,7 +281,7 @@ void main() {
       // (prepositional, 「Оно в ленте」) — Russian noun case; substring match
       // does not decline, so the two probes differ and are deliberately not shared.
       String reachedThePc(AppLocale locale) => switch (locale) {
-        AppLocale.zh => '已经送到电脑',
+        AppLocale.zh => '已投递至电脑端',
         AppLocale.zhTw => '已經送到電腦',
         AppLocale.en => 'reached the PC',
         AppLocale.fr => 'a atteint la chronologie du PC',

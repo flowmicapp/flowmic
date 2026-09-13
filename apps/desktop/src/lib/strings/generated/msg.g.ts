@@ -347,9 +347,8 @@ const TL_RETENTION_MSG_EN: TlRetentionMsg = {
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const TL_RETENTION_MSG_ZH_CN: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
-  keptNote: (kept, when) => `这台电脑只保留最近的记录：现在存着 ${kept} 条，${when} 之前的已从本机清除。`,
-  searchNoneTrimmed: (kept, when) =>
-    `没有匹配的条目。搜索范围只有本机保留的 ${kept} 条，${when} 之前的记录已从本机清除。`,
+  keptNote: (kept, when) => `这台电脑只保留最近的记录：目前存有 ${kept} 条，${when} 之前的记录已从本机清除。`,
+  searchNoneTrimmed: (kept, when) => `没有匹配的条目。搜索范围只有本机保留的 ${kept} 条，${when} 之前的记录已从本机清除。`,
 };
 
 // zh-TW (繁體中文) — 2/2 translated;

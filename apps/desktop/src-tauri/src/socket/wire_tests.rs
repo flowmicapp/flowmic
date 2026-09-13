@@ -431,7 +431,7 @@ fn settings_list_builds_empty_payload_and_parses_items_array() {
 }
 
 #[test]
-fn list_mobiles_builds_empty_payload_and_narrows_to_the_public_six() {
+fn list_mobiles_builds_empty_payload_and_narrows_to_the_public_seven() {
     assert_eq!(build_pc_list_mobiles(), json!({}));
     // A hostile / over-sharing ack: the token must NOT survive the narrowing.
     let ack = json!({ "mobiles": [{
@@ -450,7 +450,7 @@ fn list_mobiles_builds_empty_payload_and_narrows_to_the_public_six() {
     assert_eq!(arr[0]["device_uid"], json!("mb-0a0b0c0d0e0f0102"));
     assert!(arr[0].get("mobile_token").is_none(), "token must not survive the narrowing");
     assert!(arr[0].get("user_id").is_none());
-    assert_eq!(arr[0].as_object().unwrap().len(), 6, "exactly the public six");
+    assert_eq!(arr[0].as_object().unwrap().len(), 7, "exactly the public seven");
     assert!(!rows.to_string().contains("S3CRET"));
 }
 
@@ -482,6 +482,53 @@ fn list_mobiles_carries_the_handset_id_through_the_whitelist() {
         let rows = parse_list_mobiles_ack(&json!({ "mobiles": [row] })).unwrap();
         assert_eq!(rows[0]["device_uid"], Value::Null);
     }
+}
+
+/// card ID-2 — the SECOND field this projection nearly swallowed, for the same
+/// reason and with the same symptom as `device_uid` above.
+///
+/// The column, the zod schema and the relay's projection all shipped with card
+/// S2-01; the desktop still drew a browser tab as one more indistinguishable
+/// phone, because THIS whitelist did not name `client`. Nothing failed anywhere:
+/// the mark simply would not exist.
+///
+/// What is asserted is that the value travels RAW. The 「absent means app」
+/// reading has exactly one author — protocol `clientOriginOf`, applied a layer up
+/// in `asPairedMobiles` — so a legacy row must arrive here as JSON null and NOT
+/// as a helpfully fabricated "app"; otherwise「paired by the app」and「paired
+/// before the field existed」stop being tellable apart at the only point where
+/// the difference still exists.
+#[test]
+fn list_mobiles_carries_the_client_origin_through_the_whitelist() {
+    let web = json!({ "mobiles": [{
+        "pairing_id": "p1", "mobile_name": "Web-1a2b", "paired_at": "t",
+        "client": "web", "client_version": "0.3.79"
+    }] });
+    let rows = parse_list_mobiles_ack(&web).unwrap();
+    assert_eq!(rows[0]["client"], json!("web"));
+    // `client_version` is deliberately NOT whitelisted: the relay projects it, and
+    // nothing on this side renders or branches on it. A field carried into the UI
+    // layer with no consumer is the anti-facade rule's own example, so its absence
+    // here is the assertion, not an oversight.
+    assert!(rows[0].get("client_version").is_none());
+
+    // A pairing older than the field, an older server, and a malformed value all
+    // land on NULL — never on a fabricated "app".
+    for row in [
+        json!({ "pairing_id": "p1", "mobile_name": "X", "paired_at": "t", "client": null }),
+        json!({ "pairing_id": "p1", "mobile_name": "X", "paired_at": "t" }),
+        json!({ "pairing_id": "p1", "mobile_name": "X", "paired_at": "t", "client": 7 }),
+    ] {
+        let rows = parse_list_mobiles_ack(&json!({ "mobiles": [row] })).unwrap();
+        assert_eq!(rows[0]["client"], Value::Null);
+    }
+
+    // An end that names a kind this build has never heard of survives the wire
+    // unchanged; deciding what it MEANS is the reader's job, not this projection's.
+    let unknown = json!({ "mobiles": [{
+        "pairing_id": "p1", "mobile_name": "X", "paired_at": "t", "client": "sdk"
+    }] });
+    assert_eq!(parse_list_mobiles_ack(&unknown).unwrap()[0]["client"], json!("sdk"));
 }
 
 #[test]

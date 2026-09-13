@@ -260,9 +260,26 @@ section('§6 markers cannot drift away from the evidence for them');
   // them — which of the old claims survived, which lost its premise — is at
   // APK_DISCLOSURE_NEW_MARKERS. This assertion going red is the point: nobody
   // repoints the gate without saying so out loud.
+  // 🔴 REPOINTED 2026-09-11 — third time, same rule, and this one also fixes
+  // the ruler. WHAT CHANGED THE COPY: the zh-CN rewrite accepted by the owner
+  // (commits 0cd113bb / 8420cf7a) rewrote `discStep4Body` wholesale, taking all
+  // three 2026-09-07 canaries to 0 in i18n/mobile/zh-CN.json. WHAT SURVIVED:
+  // all three claims, in one new sentence of that same key — the own-network
+  // leg is encrypted (「本地局域网加密通道」), the relay is TLS
+  // (「TLS 云端安全中继」), and where to read the current state
+  // (「当前连接安全状态可在」…「连接加密」). Each is 1× in the catalogue, so
+  // none of them can be satisfied by an unrelated string. THE CONTROL MOVED
+  // TOO, and for a different reason: 「这一页说清」 was itself disclosure copy,
+  // so a disclosure rewrite made the ruler report 'scanner-blind' for what was
+  // really 'the copy changed'. Controls are now ordinary product vocabulary
+  // (「配对」 59×, 「断开」 13×), neither of which is a substring of any marker
+  // — see the note at APK_DISCLOSURE_CONTROL_UTF16LE for why 「局域网」 was
+  // rejected despite being long-lived. NO USER-VISIBLE COPY WAS CHANGED BY THE
+  // COMMIT THAT REPOINTED THESE PINS: it edits this drill, the scanner, and the
+  // spoken-language fixture in scripts/i18n-interpolation.test.mjs only.
   assertTrue(
     APK_DISCLOSURE_NEW_MARKERS.join('|') ===
-      '这条连接是加密的|中继一律走 TLS|当前状态见这台手机上的',
+      '本地局域网加密通道|TLS 云端安全中继|当前连接安全状态可在',
     'new markers are still the three measured phrases'
   );
   assertTrue(
@@ -270,7 +287,7 @@ section('§6 markers cannot drift away from the evidence for them');
     'old markers are still the three measured phrases'
   );
   assertTrue(
-    APK_DISCLOSURE_CONTROL_UTF16LE.join('|') === '这一页说清|局域网',
+    APK_DISCLOSURE_CONTROL_UTF16LE.join('|') === '配对|断开',
     'utf16le controls are still the ones measured on both APKs'
   );
   assertTrue(APK_DISCLOSURE_CONTROL_UTF8[0] === 'mobile:reconnect', 'utf8 control is still mobile:reconnect');
@@ -296,7 +313,9 @@ section('§6 markers cannot drift away from the evidence for them');
   for (const s of APK_DISCLOSURE_OLD_MARKERS) {
     assertTrue(!disclosure.includes(s), `old marker must NOT remain in the zh-CN catalogue: ${s}`);
   }
-  assertTrue(disclosure.includes('这一页说清'), 'utf16le control still in the zh-CN catalogue');
+  for (const s of APK_DISCLOSURE_CONTROL_UTF16LE) {
+    assertTrue(disclosure.includes(s), `utf16le control still in the zh-CN catalogue: ${s}`);
+  }
 
   const events = readFileSync(join(ROOT, 'packages', 'protocol', 'src', 'events.ts'), 'utf8');
   assertTrue(events.includes('mobile:reconnect'), 'utf8 control still a protocol event name');

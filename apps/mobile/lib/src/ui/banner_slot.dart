@@ -29,24 +29,32 @@ class _BannerFace {
     // owner 2026-07-29: 「the pale red text popping up at the top: the
     // computer isn't responding… this color is hard to read」.
     // A failure notice that is hard to read is a failure half-reported. The hue
-    // stays red (§4.1 keeps one colour per role) but the FILL, BORDER and INK
-    // are all pushed up: a near-white ink on a solid red-tinted fill reads at a
-    // glance on both themes, where #FCA5A5 at 12 px on a 14%-alpha fill did not.
-    BannerSeverity.blocking => const _BannerFace(
-      Color(0x59F87171), // was 0x24 — a fill you can actually see
-      Color(0xB3F87171), // was 0x4D — a border, not a hint
-      Color(0xFFFFF1F2), // was 0xFFFCA5A5 — near-white on red reads
+    // stays red (§4.1 keeps one colour per role) and the FILL, BORDER and INK
+    // are all pushed up from what the demo froze.
+    //
+    // 🔴 owner 2026-09-09 REPORTED THE SAME SENTENCE AGAIN, and the 2026-07-29
+    // retune is why: it was written as three `const Color(…)` literals right
+    // here, so it had exactly one value for two themes. Over the light canvas
+    // the near-white ink landed on #F5C7CA at 1.37:1 —「完全看不清楚」. The three
+    // faces now all read theme-resolved tokens, which is the property the other
+    // two severities had all along. Dark is unchanged to the byte; the light
+    // ink is red-900. Measured, both themes, by
+    // `test/banner_slot_contrast_test.dart`.
+    BannerSeverity.blocking => _BannerFace(
+      FlowMicColors.bannerBlockingFill,
+      FlowMicColors.bannerBlockingBorder,
+      FlowMicColors.bannerBlockingInk,
       Icons.error_outline,
     ),
     BannerSeverity.degraded => _BannerFace(
       FlowMicColors.amberSoft,
-      const Color(0x4DFBBF24),
+      FlowMicColors.bannerDegradedBorder,
       FlowMicColors.amber,
       Icons.warning_amber_rounded,
     ),
     BannerSeverity.info => _BannerFace(
       FlowMicColors.brandSoft,
-      const Color(0x4D818CF8),
+      FlowMicColors.bannerInfoBorder,
       FlowMicColors.brand,
       Icons.info_outline,
     ),

@@ -1035,8 +1035,23 @@ describe('migration idempotency', () => {
       .map((c) => c.name)
       .sort();
     expect(cols).toEqual([
-      'channel', 'delivered_chars', 'id', 'is_byok', 'kind', 'occurred_at', 'outcome',
-      'refused_user_id', 'stt_ms', 'tokens_in', 'tokens_out', 'transcript_chars', 'user_id',
+      // 🔴 CARD MP-6 ADDED TWO NAMES HERE ON PURPOSE, and this census is exactly
+      // the review it is meant to force. `payer_reason` is an enum of four
+      // words; `speaker_ref` holds an id that ALREADY exists in this schema (a
+      // users id, or the `wb-…` browser uid on `mobile_pairings.device_uid`) and
+      // never an email, a name, an address or anything content-derived. Neither
+      // widens what this table knows about a person — see the DDL, which argues
+      // both.
+      // 🔴 CARD MP-1 ADDS A THIRD, `integrator_key_id`, and it passes the same
+      // review: it holds an id this schema already mints (`integrator_keys.id`),
+      // it names a PAGE rather than a person, and it is NULL on every row that
+      // did not spend a third party's sub-quota. It is also the one column in
+      // this card that forces a two-node deploy window — `replica-puller.ts`
+      // copies this table by column POSITION, so a writer with fifteen and a
+      // replica with fourteen fails the whole pull.
+      'channel', 'delivered_chars', 'id', 'integrator_key_id', 'is_byok', 'kind', 'occurred_at',
+      'outcome', 'payer_reason', 'refused_user_id', 'speaker_ref', 'stt_ms', 'tokens_in',
+      'tokens_out', 'transcript_chars', 'user_id',
     ]);
 
     // ④ FK CASCADE to users, and it really fires (FKs are ON — openDatabase).

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Card APPLINK-1 — the https pairing QR, iOS half.
+
+	     The desktop prints `https://flowmic.app/go/pair?…` (the host is
+	     PAIR_HTTPS_HOST in packages/protocol/src/constants.ts) and the phone
+	     already parses it (lib/src/ui/scan_payload.dart kPairLinkPrefixHttps).
+	     Until this entitlement existed, iOS had never been told this app owns
+	     that domain, so scanning that QR with the system camera opened Safari
+	     on a phone that HAS FlowMic. This file is the declaration; the Android
+	     twin is the autoVerify intent-filter in
+	     android/app/src/main/AndroidManifest.xml.
+
+	     THERE WAS NO ENTITLEMENTS FILE IN THIS PROJECT AT ALL before this card,
+	     and no CODE_SIGN_ENTITLEMENTS build setting either — so creating the
+	     file is only half the work. Runner.xcodeproj/project.pbxproj now points
+	     all three Runner configurations (Debug / Release / Profile) at it; a
+	     .entitlements nobody signs with is a file, not a capability, and that
+	     façade is exactly what verify/lint/applink-declarations.mjs refuses.
+
+	     INERT UNTIL THE DOMAIN PUBLISHES ITS SIDE. iOS fetches
+	     https://flowmic.app/.well-known/apple-app-site-association (through
+	     Apple's CDN) and takes the link only if that file names this app's
+	     Team ID + bundle id (app.flowmic.ios). That file does not exist yet —
+	     publishing the hostname is the owner's decision — so today the link
+	     still opens Safari. It fails closed.
+
+	     ALSO NOT DONE, and it is not a declaration problem: nothing in the Dart
+	     tree listens for an incoming pairing URL. app_links is constructed only
+	     inside the login sheet (lib/src/ui/login_sheet.dart), for the
+	     `flowmic://login` hand-back. So once the association file is published,
+	     the OS will open FlowMic and FlowMic will do nothing with the link.
+	     Routing it is a behaviour change and belongs to its own card.
+
+	     `applinks:` only. Deliberately NOT `webcredentials:` (no password
+	     autofill — this app signs in through the browser, card NR-2b) and NOT
+	     `activitycontinuation:` (superseded, and there is no Handoff here). One
+	     service, one reason. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:flowmic.app</string>
+	</array>
+</dict>
+</plist>

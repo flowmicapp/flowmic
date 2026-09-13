@@ -80,7 +80,7 @@ void main() {
     expect(find.text('Copy'), findsOneWidget);
     expect(find.text('Add to Favorites'), findsOneWidget);
     expect(find.text('Delete'), findsOneWidget);
-    expect(find.text('注入到 PC'), findsNothing);
+    expect(find.text('注入到电脑'), findsNothing);
     expect(find.text('删除'), findsNothing);
   });
 

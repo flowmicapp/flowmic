@@ -42,6 +42,14 @@ export interface UserRecord {
    *  "is it exempted" (permanent_free) or "has the email been verified" (email_verified_at). db/schema.ts
    *  owns the argument for each of those three refusals. */
   restricted_at: number | null;
+  /** REVIEW-GRACE — ms-since-epoch until which this account's unverified grace
+   *  runs regardless of the computed deadline; null = no override. Carried RAW
+   *  for the reason its two siblings above are: the one place it becomes a
+   *  verdict is auth/verification-grace.ts `verificationGrace`.
+   *  ⚠️ It does NOT mean the address was verified — see db/schema.ts, which owns
+   *  the argument for why this is a separate column and not a stamp on
+   *  `email_verified_at`. */
+  verify_grace_until: number | null;
   /** Q2 — WHICH publishable reason this account was restricted for: a key from
    *  `RESTRICTION_REASONS` (@flowmic/protocol), or null.
    *
@@ -84,6 +92,14 @@ export interface UserRecord {
    *  own: there is no verdict to derive. "Has this account got Google sign-in"
    *  is `!== null` at exactly one place — the route — and no gate reads it. */
   google_sub: string | null;
+  /** card M4-01 — true when this row is an ANONYMOUS site-demo identity minted
+   *  by `POST /api/web/anon`, false for every account a person signed up for.
+   *
+   *  🔴 It is the ONE predicate the anonymous-row sweep may delete on, and the
+   *  one `effectiveLimits` branches on to read the trial ledger instead of a
+   *  plan. Nothing else may read it to decide a tier, an exemption or a gate —
+   *  those three have their own columns and their own single readers. */
+  anonymous: boolean;
   created_at: string;
 }
 
@@ -100,6 +116,10 @@ export interface UserInsertInput {
    *  it and gets NULL, which is the honest value for an account that has never
    *  been near Google. */
   google_sub?: string | null;
+  /** card M4-01 — set ONLY by the site-demo identity route
+   *  (`http/web-anon-routes.ts`). Every other caller omits it and gets `false`,
+   *  which is the truth for a row somebody signed up for. */
+  anonymous?: boolean;
 }
 
 export class UserConstraintError extends Error {
@@ -435,6 +455,12 @@ function toRecord(r: Record<string, unknown>): UserRecord {
     // fail-OPEN direction here is the correct one, because the alternative is
     // restricting an account nobody restricted.
     restricted_at: typeof r.restricted_at === 'number' ? r.restricted_at : null,
+    // REVIEW-GRACE — raw column, same discipline as its neighbours. The
+    // `typeof === 'number'` test (rather than `?? null`) makes a row from a
+    // database that predates the column read as "no override", which is the
+    // fail-CLOSED direction here and the correct one: the alternative is
+    // coercing something into a date that silently extends a gate.
+    verify_grace_until: typeof r.verify_grace_until === 'number' ? r.verify_grace_until : null,
     // Q2 — raw column, same discipline as the two above: no verdict here, and no
     // narrowing to the enum (see the field's own doc). `typeof === 'string'`
     // rather than `?? null` so a legacy row, or a row whose column predates this
@@ -454,6 +480,13 @@ function toRecord(r: Record<string, unknown>): UserRecord {
     // neighbours: this value is what a later sign-in is MATCHED against, so a
     // coerced non-string could only ever match wrongly or not at all.
     google_sub: typeof r.google_sub === 'string' ? r.google_sub : null,
+    // card M4-01 — the ONE INTEGER→boolean conversion for this column, in the
+    // one function every UserRecord comes out of, for the reason its sibling
+    // `permanent_free` states two fields up: `=== 1` and never a truthiness
+    // test, because on a forward-ported database a TEXT '0' would be truthy and
+    // every real account would read as an anonymous one — i.e. every account on
+    // the platform would become eligible for an automatic DELETE.
+    anonymous: Number(r.anonymous ?? 0) === 1,
     created_at: r.created_at as string,
   };
 }
@@ -475,16 +508,17 @@ function likeContains(q: string): string {
 
 export function makeUserRepo(db: DatabaseSync): UserRepo {
   const ins = db.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name, plan, locale, is_admin, google_sub)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO users (id, email, password_hash, display_name, plan, locale, is_admin, google_sub, anonymous)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
   );
   // See `UserRepo.upsertReplicated` for why this one is DO NOTHING while its two
   // siblings are DO UPDATE, and why the conflict target is spelled out.
   const upsertReplicatedStmt = db.prepare(
     `INSERT INTO users
        (id, email, password_hash, display_name, plan, locale, is_admin, permanent_free,
-        email_verified_at, restricted_at, restriction_reason, last_login_at, google_sub, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        email_verified_at, restricted_at, restriction_reason, last_login_at, google_sub,
+        anonymous, verify_grace_until, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO NOTHING`,
   );
   const byEmail = db.prepare('SELECT * FROM users WHERE email=? COLLATE NOCASE');
@@ -566,6 +600,7 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
           input.locale ?? 'zh-CN',
           input.is_admin ? 1 : 0,
           input.google_sub ?? null,
+          input.anonymous === true ? 1 : 0,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -646,6 +681,18 @@ export function makeUserRepo(db: DatabaseSync): UserRepo {
         row.restriction_reason,
         row.last_login_at,
         row.google_sub,
+        // card M4-01 — carried across replication rather than left to the
+        // column default, for the reason `permanent_free` is: a replica that
+        // read a demo identity as a real account would answer `budget.mode:
+        // 'plan'` about it, i.e. tell a page on the site it is metered against a
+        // subscription nobody bought.
+        row.anonymous ? 1 : 0,
+        // REVIEW-GRACE — carried like every other nullable column here rather
+        // than dropped: omitting it would land NULL on the replica (the exact
+        // argument this method's contract makes about `password_hash`), and a
+        // NULL here reads as「no extension」, i.e. a refusal on the replica for
+        // an account the writer is admitting.
+        row.verify_grace_until,
         row.created_at,
       );
     },

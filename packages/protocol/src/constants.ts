@@ -7,7 +7,8 @@
 // from the client UI when the client runs in 'saas' mode.
 //
 // Consumers: desktop lib/channel.ts (DEFAULT_CLOUD_ENDPOINT) and, as a
-// documented hand-mirror, mobile auth/saas_endpoint.dart.
+// documented hand-mirror, mobile auth/saas_endpoint.dart. PAIR_HTTPS_HOST
+// (below) is consumed by desktop lib/pairing.ts `buildHttpsQrPayload`.
 //
 // The three siblings that shipped alongside it — DEFAULT_SAAS_WS_ENDPOINT,
 // DEFAULT_STANDALONE_ENDPOINT, DEFAULT_STANDALONE_WS_ENDPOINT — were removed on
@@ -20,6 +21,79 @@
 // code cannot reach the PC's `localhost`. Re-adding any of the three means
 // re-deciding that, which is the point of removing them.
 export const DEFAULT_SAAS_ENDPOINT = 'https://flowmic.app';
+
+// W-12 / S1-01 / DOM-1 — host of the https pairing link the desktop QR emits
+// (`https://<host><PAIR_HTTPS_PATH>?...`). Same key set/order as the legacy
+// `flowmic://pair` form; only scheme+host+path change.
+//
+// WHY IT LIVES HERE rather than beside the desktop builder: the phone's Dart
+// prefix (`kPairLinkPrefixHttps`) cannot import this file, and a third copy
+// inside pairing.ts was a silent-drift hole (XC-1-FIX). The host is the
+// contract both sides must agree on; the Dart side GETS the full prefix
+// `https://` + this + PAIR_HTTPS_PATH by codegen —
+// `apps/mobile/tool/gen_protocol.mjs` reads this declaration and emits
+// `FlowMicPairLink.httpsPrefix`, so the two cannot disagree. It used to be a
+// second hand-written literal pinned equal by a lint; what the lint still does
+// (`verify/lint/pair-link-single-source.mjs`) is refuse a THIRD copy.
+//
+// 🔴 THE APEX ONLY, NEVER `www.`. iOS Universal Links DO NOT FOLLOW REDIRECTS:
+// the host in the scanned URL must be one of the hosts declared in
+// `applinks:` (Runner.entitlements) and in the Android intent-filter, so a
+// `www.` link would open Safari on a phone that has the app. Only `flowmic.app`
+// is declared. A `www.flowmic.app/go/*` -> apex 301 exists at the edge for
+// links a HUMAN typed or forwarded; it is not, and cannot be, a path an app
+// link travels (owner ruling 2026-09-08, card DOM-1 §1).
+//
+// CONSUMER (anti-façade): apps/desktop/src/lib/pairing.ts
+// `buildHttpsQrPayload` — imported, not re-typed.
+export const PAIR_HTTPS_HOST = 'flowmic.app';
+
+// DOM-1 — the path half of that link. Owner ruling 2026-09-08: the web client
+// is NOT a new hostname; it is served from the existing site the way `/console`
+// already is, so the pairing link is `https://flowmic.app/go/pair?...`.
+//
+// WHY IT IS A CONSTANT AND NOT FIVE STRING LITERALS. Before this card the path
+// was the literal `/pair`, typed independently in the desktop builder, the Dart
+// prefix, the Android `android:path`, and BOTH lints that check those against
+// each other — five copies of a value that had never had to change, so nothing
+// proved they agreed. Moving the path is precisely the edit that turns a
+// forgotten copy into a pairing QR the phone will not open, and the failure is
+// silent on every side (the parser is right, its tests are green, and the
+// product does not work). Naming it here gives the two mirror lints one thing
+// to read.
+//
+// ⚠️ IT IS THE PATH, NOT THE PREFIX — no host, no query, leading slash, no
+// trailing one. `apps/mobile/tool/gen_protocol.mjs` composes
+// `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}` for the phone and THROWS on a
+// value shaped any other way, so a bad shape fails every mobile build rather
+// than half-migrating the product.
+//
+// CONSUMERS (anti-façade): apps/desktop/src/lib/pairing.ts
+// `buildHttpsQrPayload`; apps/mobile/tool/gen_protocol.mjs, which generates the
+// phone's prefix from it; verify/lint/applink-declarations.mjs and
+// verify/lint/pair-link-single-source.mjs, which read it out of this file
+// rather than re-typing it.
+export const PAIR_HTTPS_PATH = '/go/pair';
+
+// M4-01b — the sibling path used ONLY for the anonymous site-demo room's
+// pair_url (apps/server-core/src/http/web-room-routes.ts `webRoomPairUrl`'s
+// `path` argument, passed by `handleAnonymous`). Owner ruling 6
+// (docs/decisions/2026-09-09-owner-stage4-site-demo-twelve-rulings.md) requires
+// a phone that already HAS FlowMic and scans the site's demo QR to still land
+// on the web demo, not be pulled into the installed app.
+//
+// 🔴 THIS PATH MUST NEVER BE ADDED to the Android intent-filter or the iOS
+// `applinks:` entitlement that `PAIR_HTTPS_PATH` is declared to
+// (verify/lint/applink-declarations.mjs). Declaring it would defeat the whole
+// point: the OS decides which app owns a path by exact match, so as long as
+// this one is undeclared every phone — with or without FlowMic installed —
+// gets handed to a browser, which is the behaviour ruling 6 asks for. Design
+// SSOT: docs/strategy/2026-09-09-web-client-stage4-site-demo-design.md §5.2
+// ("码用另一条路径，不用改 App 的任何声明").
+//
+// Regular (account) rooms are UNAFFECTED — `webRoomPairUrl`'s `path` parameter
+// defaults to `PAIR_HTTPS_PATH`, so this constant has exactly one caller.
+export const DEMO_PAIR_HTTPS_PATH = '/go/demo';
 
 // Relay addresses this product HAS served from and has since RETIRED as the
 // address it hands out. Not a decommission notice: per card C7's own measurement
@@ -297,3 +371,38 @@ export const AUDIO_DEFAULTS = {
   engine_reconnect_backoff_ms: [1000, 2000, 4000] as const,
   engine_reconnect_max_retries: 3,
 } as const;
+
+// ─── Password policy (card PW-1, 2026-09-08) ────────────────────────────────
+// These two numbers used to be declared once in `apps/server-core/src/auth/
+// password-policy.ts` and hand-copied a second time in `@flowmic/web` (a
+// separate git repo, cannot import server-core), pinned equal only by
+// verify/lint/password-policy-mirror.mjs comparing two integers it found by
+// text search. A THIRD hand-copy has now shown up in the web CLIENT repo
+// (yet another separate checkout) — three copies of two integers is the shape
+// this package exists to retire: one declaration, N importers.
+//
+// SPEC-REF: docs/decisions/2026-08-12-password-policy-medium-complexity.md §1/§3/§4-1
+//           docs/strategy/2026-09-07-web-client-crosscheck-after-audio-durability.md §4.2
+//
+// 🔴 ONLY THESE TWO MOVED HERE, NOT `MIN_PASSWORD_CLASSES`. The mirror lint
+// treats the two below as `required` (a repo declaring the anchor MUST also
+// carry the other one, or the lint fails) — those are the pair every
+// hand-copy is obligated to match. `MIN_PASSWORD_CLASSES` is `required: false`
+// there by the C9 doctrine ("a mirror is registered because someone WROTE a
+// copy, never because one should exist") and today NOTHING outside
+// server-core declares it. Moving an unmirrored constant here would not fix
+// any drift — it would just relocate a number nobody is copying.
+//
+// 🔴 THIS FILE DOES NOT AND CANNOT CARRY THE FULL POLICY. The measure
+// (CODE POINTS — `[...pw].length`, never `pw.length`) and the character-class
+// regexes live only in `apps/server-core/src/auth/password-policy.ts` and are
+// pinned by the shared vector table (`apps/server-core/test/password-policy.
+// test.ts`) — a consumer of these two integers still needs its own vector
+// table if it re-implements the check locally rather than calling the server.
+/** Minimum account password length, in CODE POINTS. Historical ruling named
+ *  10; the live value has been 8 since before this repo's decision log started
+ *  tracking it (see the disagreement noted in password-policy.ts's header). */
+export const MIN_PASSWORD_LENGTH = 8;
+/** Maximum account password length, in CODE POINTS. Human-scale ceiling
+ *  (password-manager 32-character secrets still fit). */
+export const MAX_PASSWORD_LENGTH = 32;

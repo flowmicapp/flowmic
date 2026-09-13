@@ -17,6 +17,11 @@ pub mod blocking;
 pub mod bridge;
 pub mod channel;
 pub mod client;
+/// The `control:key` subscription — one remote keypress in, one local act, one
+/// row, and (card MP-14) one `control:key-result` back to the phone that pressed
+/// it. Split out of client.rs at the 800-line cap; its header carries the
+/// row-vs-receipt coverage rule.
+pub(in crate::socket) mod control_key;
 /// C7 — the one-time migration of a RETIRED relay address off a stored
 /// `CloudConfig.endpoint`. Separate from channel.rs because that file is the
 /// at-rest STATE and this is a decision about one field's history; and separate

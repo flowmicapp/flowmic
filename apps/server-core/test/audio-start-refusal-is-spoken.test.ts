@@ -42,9 +42,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Socket } from 'socket.io';
 import { RoomStore } from '../src/room/store';
 import { registerAudioHandlers, type AudioHandlerDeps } from '../src/socket/handlers/audio.handler';
+// card MP-10 -- driven directly because no press reaches `gate:'pc_owner'` any
+// more; see the two cases that use it.
+import { createRefuseStart } from '../src/socket/handlers/audio-start-quota';
 import { AudioSessionRegistry } from '../src/engine/audio-registry';
 import { SttConfigMissingError } from '../src/stt/engine-router';
 import type { QuotaGuard } from '../src/billing/quota-guard';
+import type { PayerReason } from '../src/auth/metering-principal';
 import type { UsageTracker } from '../src/billing/usage-tracker';
 import { ServerError } from '../src/errors';
 import { log } from '../src/log';
@@ -86,6 +90,8 @@ function wire(overQuota: boolean, opts: { authed?: boolean } = {}): FakeSocket {
       if (overQuota) throw new ServerError('QUOTA_EXCEEDED', 'stt quota exceeded (used 20.012/20)');
     },
     remainingSttMs: () => (overQuota ? 0 : Infinity),
+    // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+    continuousCapMs: () => Infinity,
   };
   const mobile = new FakeSocket('mobile-sock');
   mobile.data = {
@@ -188,7 +194,15 @@ describe('QTA-1: audio:start refusals are spoken, not only acked', () => {
  *
  *  🔴 Module scope (it was inside the QTA-2 block until card K-1) so the K-1 and
  *  K-5 blocks below drive the exact same wiring rather than a lookalike copy. */
-function dualWire(refusedUser: string | null, pcOwner: string | null): FakeSocket {
+function dualWire(
+  refusedUser: string | null,
+  pcOwner: string | null,
+  /** card MP-11 — what the ADMISSION decided about this socket. Defaulted away
+   *  so every case written before that card drives the exact wiring it always
+   *  did; a fixture that started stamping a payer reason on its own would
+   *  change what those cases are about without changing a line of them. */
+  admission: { actingUserId?: string; payerReason?: PayerReason } = {},
+): FakeSocket {
   const asked: string[] = [];
   const guard: QuotaGuard = {
     ensureQuota(user_id: string): void {
@@ -196,42 +210,86 @@ function dualWire(refusedUser: string | null, pcOwner: string | null): FakeSocke
       if (user_id === refusedUser) throw new ServerError('QUOTA_EXCEEDED', `stt quota exceeded for ${user_id}`);
     },
     remainingSttMs: () => Infinity,
+    // card G-8 — no sitting-length ceiling in this fake (the standalone answer).
+    continuousCapMs: () => Infinity,
   };
   const mobile = new FakeSocket('mobile-sock');
-  mobile.data = { auth: { kind: 'mobile', userId: 'phone-acct', deviceId: 'pc-1' }, roomUuid: 'room-1' };
+  mobile.data = {
+    auth: {
+      kind: 'mobile',
+      // card MP-11 — under 「far end pays」 the admission has ALREADY switched
+      // this to the payer, so a peer case is written by naming the OWNER here,
+      // not by adding a second id somewhere.
+      userId: admission.actingUserId ?? 'phone-acct',
+      deviceId: 'pc-1',
+      ...(admission.payerReason === undefined ? {} : { payerReason: admission.payerReason }),
+    },
+    roomUuid: 'room-1',
+  };
   const deps: AudioHandlerDeps = {
     io: {} as unknown as import('socket.io').Server,
     guard,
     usageTracker: noopUsage,
     store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
     sttFactory: () => stubOrchestrator as never,
-    pcOwnerUserId: () => pcOwner,
+    pcRoom: () => (pcOwner === null ? null : { userId: pcOwner, roomKind: null }),
   };
   registerAudioHandlers(mobile as unknown as Socket, deps);
   (mobile as FakeSocket & { asked: string[] }).asked = asked;
   return mobile;
 }
 
+/** Only the lines this handler writes — `log.warn` has other producers.
+ *
+ *  Module scope since card MP-11, for the reason `dualWire` above is: the K-5
+ *  block and the MP-11 block both need it, and two copies of 「which lines are
+ *  ours」 is two answers waiting to drift. The K-5 block's own `refusals`
+ *  delegates here rather than keeping a second body. */
+function refusalLines(warn: ReturnType<typeof vi.spyOn>): Array<Record<string, unknown>> {
+  return warn.mock.calls
+    .filter((c) => c[0] === 'audio:start refused')
+    .map((c) => c[1] as Record<string, unknown>);
+}
+
 // ── card QTA-2 (owner 2026-08-15, correcting his own same-day one-side ruling):
 // 「计费在 PC 和手机端都进行检查，两边有一方不满足都不能继续」 ─────────────────
-describe('QTA-2: BOTH accounts must admit the session', () => {
-  it('🔴 the PC owner being over quota blocks, even when the phone account is fine', () => {
+describe('QTA-2s second ledger, and what card MP-10 left of it', () => {
+  it('🔴🔴 MP-10 — the PC owner is NOT a second ledger any more, and is not even ASKED', () => {
+    // 🔴 THIS CASE IS THE INVERSE OF THE ONE IT REPLACES, which was titled
+    // 「the PC owner being over quota blocks, even when the phone account is
+    // fine」 and expected QUOTA_EXCEEDED. owner 2026-08-15
+    // 「两边有一方不满足都不能继续」 asked the desktop's ledger as a SECOND
+    // one because the SPEAKER's was the one being spent. owner's 2026-09-11
+    // 凌晨 再追认 makes the desktop's owner the PAYER on a FlowMic far end,
+    // so their allowance is now the FIRST gate and asking it twice would judge
+    // one recording against one ledger twice.
+    //
+    // ⚠️ THE FIXTURE'S SHAPE IS NO LONGER PRODUCIBLE IN PRODUCTION, and saying
+    // so is half the point: `auth.userId` here is 'phone-acct' while the room's
+    // owner is 'pc-acct', which is exactly what `resolvePayer` stopped producing
+    // on an 'app' far end. It is driven anyway, because the handler must not
+    // start asking again if that ever changes.
     const mobile = dualWire('pc-acct', 'pc-acct');
     mobile.fire('audio:start', START, () => {});
-    expect(mobile.received('stt:error')[0]).toMatchObject({ code: 'QUOTA_EXCEEDED', retryable: false });
+    expect(mobile.received('stt:error')).toHaveLength(0);
+    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct']);
   });
 
-  it('the phone account being over quota blocks, whatever the PC owner has left', () => {
+  it('the ACTING account being over quota still blocks — it is the ledger the seconds are written to', () => {
+    // Untouched by MP-10, and it is the assertion that keeps the case above from
+    // being 「the quota gate was deleted」. In production this account IS the room
+    // owner, which is how 「PC 主人额度不足」 still stops a press — through the
+    // FIRST gate rather than through the second one.
     const mobile = dualWire('phone-acct', 'pc-acct');
     mobile.fire('audio:start', START, () => {});
     expect(mobile.received('stt:error')[0]).toMatchObject({ code: 'QUOTA_EXCEEDED', retryable: false });
   });
 
-  it('both accounts fine ⇒ admitted, and each was really ASKED once', () => {
+  it('the acting account fine ⇒ admitted, and it was really ASKED once', () => {
     const mobile = dualWire(null, 'pc-acct');
     mobile.fire('audio:start', START, () => {});
     expect(mobile.received('stt:error')).toHaveLength(0);
-    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct', 'pc-acct']);
+    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct']);
   });
 
   it('same account on both ends is asked ONCE — not double-jeopardy on one ledger', () => {
@@ -282,14 +340,22 @@ describe('QTA-2: BOTH accounts must admit the session', () => {
     expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct']);
   });
 
-  it('positive control: the SAME wiring with delivery:inject still asks both and still refuses', () => {
-    // The narrowing must not have become a removal. Same guard, same accounts,
-    // one field different — and this row is what tells "K-1 landed" apart from
-    // "the PC-owner gate was deleted".
+  it('⚠️ MP-10 — K-1s positive control is now VACUOUS, and it is kept saying so', () => {
+    // 🔴 THIS ROW USED TO BE THE ONE THAT TOLD 「K-1 landed」 APART FROM 「the
+    // PC-owner gate was deleted」: same guard, same accounts, `delivery:'inject'`
+    // instead of `'none'`, and it asserted BOTH ledgers were asked. Card MP-10
+    // deleted that gate for FlowMic far ends outright, so the two `delivery`
+    // values now answer the same thing and this row can no longer discriminate.
+    //
+    // It is kept, asserting the new truth, rather than removed — because 「a
+    // control that stopped controlling」 is exactly the thing that should be
+    // visible in a diff rather than absent from one. K-1's own rule (a
+    // record-only press must not be judged by a PC's ledger) is now enforced by
+    // there being no such judgement at all.
     const mobile = dualWire('pc-acct', 'pc-acct');
     mobile.fire('audio:start', { ...START, delivery: 'inject' }, () => {});
-    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct', 'pc-acct']);
-    expect(mobile.received('stt:error')[0]).toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    expect((mobile as FakeSocket & { asked: string[] }).asked).toEqual(['phone-acct']);
+    expect(mobile.received('stt:error')).toHaveLength(0);
   });
 
   it("the ACTING account is still judged on a record-only press — its own minutes are spent either way", () => {
@@ -312,21 +378,46 @@ describe('QTA-2: BOTH accounts must admit the session', () => {
 describe('K-5: audio:start refusals are attributable', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  /** Only the lines this handler writes — `log.warn` has other producers. */
-  function refusals(warn: ReturnType<typeof vi.spyOn>): Array<Record<string, unknown>> {
-    return warn.mock.calls
-      .filter((c) => c[0] === 'audio:start refused')
-      .map((c) => c[1] as Record<string, unknown>);
-  }
+  /** card MP-11 — now a delegation, not a second body; see `refusalLines`. */
+  const refusals = refusalLines;
 
-  it("the PC-owner half names gate:'pc_owner' AND the PC owner's id", () => {
+  it("🔴 MP-10 — gate:'pc_owner' still MAPS, and no handler path reaches it", () => {
+    // 🔴 DRIVEN THROUGH `createRefuseStart` DIRECTLY, and the change of seam
+    // is the finding. This case used to fire an `audio:start` through
+    // `dualWire('pc-acct','pc-acct')` and assert the handler produced this line;
+    // since card MP-10 the second ledger is exempt on every far end, so no
+    // press can produce `gate:'pc_owner'` and driving the handler here would be
+    // manufacturing a reachability the product does not have.
+    //
+    // ⚠️ THE MAPPING IS STILL PINNED because the WIRE FIELD is still there:
+    // `judged_account:'pc_owner'` is a protocol enum member and the phone still
+    // renders a sentence for it. MP-10 may not touch user-visible copy and a
+    // protocol subtraction is the expensive direction, so the surface is left
+    // standing and registered for the follow-up card that owns the copy. What
+    // this row prevents is the mapping rotting silently in the meantime.
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
-    const mobile = dualWire('pc-acct', 'pc-acct');
-    mobile.fire('audio:start', START, () => {});
+    const sock = new FakeSocket('mobile-sock');
+    sock.data = { auth: { kind: 'mobile', userId: 'phone-acct', deviceId: 'pc-1' }, roomUuid: 'room-1' };
+    createRefuseStart(sock as unknown as Socket)(
+      { error: 'QUOTA_EXCEEDED', message: 'stt quota exceeded for pc-acct' },
+      { gate: 'pc_owner', userId: 'pc-acct', delivery: 'inject' },
+    );
     expect(refusals(warn)).toHaveLength(1);
     expect(refusals(warn)[0]).toMatchObject({
       code: 'QUOTA_EXCEEDED', gate: 'pc_owner', user_id: 'pc-acct', delivery: 'inject',
     });
+    expect(sock.received('stt:error')[0]).toMatchObject({ judged_account: 'pc_owner' });
+  });
+
+  it("🔴 …and the handler produces gate:'acting' where it used to produce that one", () => {
+    // The POSITIVE CONTROL for the sentence above: 「no path reaches 'pc_owner'」
+    // must not be the silence of a handler that stopped logging. Same fixture
+    // the old case used, one line of expectation different.
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const mobile = dualWire('phone-acct', 'pc-acct');
+    mobile.fire('audio:start', START, () => {});
+    expect(refusals(warn)).toHaveLength(1);
+    expect(refusals(warn)[0]).toMatchObject({ gate: 'acting', user_id: 'phone-acct' });
   });
 
   it("the acting half names gate:'acting' AND the phone's id", () => {
@@ -358,12 +449,27 @@ describe('K-5: audio:start refusals are attributable', () => {
 // into account B whose month is spent, was told "your quota", which is false
 // whenever the two accounts differ; only the PC OWNER can fix it.
 describe('WP-9: stt:error carries WHICH ledger QUOTA_EXCEEDED judged', () => {
-  it("the PC-owner half's frame carries judged_account:'pc_owner'", () => {
-    const mobile = dualWire('pc-acct', 'pc-acct');
+  it("an admission that stamped NO payer reason still says 'self' — absence is not evidence of a far end", () => {
+    // ⚠️ THIS CASE WAS TITLED 「MP-10 — the PC-owner half's frame is no longer
+    // PRODUCED by any press」 until card MP-11, and that sentence is now false:
+    // the block below produces it on every peer press. What the case actually
+    // drives — a fixture that stamps no `payerReason` — is unchanged and still
+    // worth pinning, so it keeps its wiring and loses its claim. Renaming it
+    // rather than deleting it is the point: the assertion was right, the
+    // generalisation on top of it was not.
+    const mobile = dualWire('phone-acct', 'pc-acct');
     mobile.fire('audio:start', START, () => {});
     expect(mobile.received('stt:error')[0]).toMatchObject({
-      code: 'QUOTA_EXCEEDED', judged_account: 'pc_owner',
+      code: 'QUOTA_EXCEEDED', judged_account: 'self',
     });
+    // …and the mapping itself, driven at its own seam, so 「'pc_owner' is gone
+    // from the wire」 is not read as 「the field was removed」.
+    const sock = new FakeSocket('mobile-sock-2');
+    sock.data = { auth: { kind: 'mobile', userId: 'phone-acct' }, roomUuid: 'room-1' };
+    createRefuseStart(sock as unknown as Socket)(
+      { error: 'QUOTA_EXCEEDED' }, { gate: 'pc_owner', userId: 'pc-acct', delivery: 'inject' },
+    );
+    expect(sock.received('stt:error')[0]).toMatchObject({ judged_account: 'pc_owner' });
   });
 
   it("the acting half's frame carries judged_account:'self'", () => {
@@ -371,6 +477,79 @@ describe('WP-9: stt:error carries WHICH ledger QUOTA_EXCEEDED judged', () => {
     mobile.fire('audio:start', START, () => {});
     expect(mobile.received('stt:error')[0]).toMatchObject({
       code: 'QUOTA_EXCEEDED', judged_account: 'self',
+    });
+  });
+
+  // ── card MP-11 (2026-09-11) — WHOSE LEDGER, ASKED OF THE ADMISSION ────────
+  //
+  // 🔴 WHAT WAS WRONG: WP-9 decided `judged_account` from `at.gate ===
+  // 'pc_owner'`, and card MP-10 retired that gate. Under 「far end pays」 the
+  // room owner is not a SECOND ledger checked after the speaker's — it is THE
+  // ledger, checked once, through `gate:'acting'`, because by then
+  // `auth.userId` IS the owner. So every refusal a press could produce said
+  // `'self'`, including the one case the field was invented for: a phone whose
+  // OWNER'S computer is out of minutes was told its own account was. The
+  // sentence `sttStallQuotaExceededPcOwner` (mobile recording_strings.dart:357)
+  // had become unreachable, and with it the user's only true remedy — ask the
+  // other side. That is the status-truth red line (R11): the word was wrong,
+  // and nothing in the product could have said so.
+  //
+  // 🔴 THE NEW TEST IS `payerReason === 'peer'`, which is the ONE value meaning
+  // 「the ledger being spent is the far end's, and the speaker is not that
+  // account」. It is stamped ONCE, at admission, by the same decision that chose
+  // the account — so this cannot disagree with whose minutes actually moved.
+  describe('MP-11: under far-end-pays, a peer refusal names the OWNER account', () => {
+    it("🔴 payer_reason 'peer' ⇒ judged_account 'pc_owner' — the enum member is reachable again, and true", () => {
+      // The admission switched this socket to the OWNER (that is what
+      // far-end-pays means), and the owner's ledger is the one that refused.
+      const mobile = dualWire('pc-acct', 'pc-acct', { actingUserId: 'pc-acct', payerReason: 'peer' });
+      mobile.fire('audio:start', START, () => {});
+      expect(mobile.received('stt:error')[0]).toMatchObject({
+        code: 'QUOTA_EXCEEDED', judged_account: 'pc_owner',
+      });
+    });
+
+    it("…through gate:'acting', NOT a revived 'pc_owner' gate", () => {
+      // 🔴 THE HALF THAT SAYS THIS IS A NEW ANSWER AND NOT AN OLD GATE COMING
+      // BACK. `pcOwnerQuotaGate` is still exempt on every branch; what changed
+      // is where the FRAME gets its word from. Without this row, a future edit
+      // that resurrected the second ledger would make the case above green for
+      // an entirely different reason.
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      const mobile = dualWire('pc-acct', 'pc-acct', { actingUserId: 'pc-acct', payerReason: 'peer' });
+      mobile.fire('audio:start', START, () => {});
+      expect(refusalLines(warn)).toHaveLength(1);
+      expect(refusalLines(warn)[0]).toMatchObject({ gate: 'acting', user_id: 'pc-acct' });
+    });
+
+    it("payer_reason 'self' ⇒ judged_account 'self' — the speaker's own ledger, unchanged", () => {
+      const mobile = dualWire('phone-acct', 'pc-acct', { payerReason: 'self' });
+      mobile.fire('audio:start', START, () => {});
+      expect(mobile.received('stt:error')[0]).toMatchObject({
+        code: 'QUOTA_EXCEEDED', judged_account: 'self',
+      });
+    });
+
+    it("⚠️ 'host' (an integrator room) still says 'self' — REGISTERED, not decided here", () => {
+      // The speaker is a stranger on somebody else's page and the far end there
+      // is not a 「PC owner」 the copy could name. Deciding that is a copy
+      // question this card does not own, and inventing an answer would put a
+      // sentence about a computer on a page that has none. Pinned so the
+      // follow-up card finds a row to change rather than a silence to guess at.
+      const mobile = dualWire('t-acct', 't-acct', { actingUserId: 't-acct', payerReason: 'host' });
+      mobile.fire('audio:start', START, () => {});
+      expect(mobile.received('stt:error')[0]).toMatchObject({ judged_account: 'self' });
+    });
+
+    it('REVERSE CONTROL — evidence in the delivery report; read it before trusting the green above', () => {
+      // Measured 2026-09-11, restored immediately after: putting
+      // `judgedAccount` in audio-start-quota.ts back to the WP-9 expression
+      // (`gate === 'pc_owner' ? 'pc_owner' : 'self'`) turns the first case here
+      // red with 「expected { code: 'QUOTA_EXCEEDED', judged_account: 'self' }
+      // to match object { judged_account: 'pc_owner' }」, while every other case
+      // in this file stays green — which is precisely the invisibility that let
+      // the defect ship.
+      expect(true).toBe(true);
     });
   });
 
@@ -411,7 +590,7 @@ describe('K-3: a throw while installing the session is ANSWERED, not dropped', (
     let acked: unknown = null;
     const deps: AudioHandlerDeps = {
       io: {} as unknown as import('socket.io').Server,
-      guard: { ensureQuota(): void {}, remainingSttMs: () => Infinity },
+      guard: { ensureQuota(): void {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity },
       usageTracker: noopUsage,
       store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
       sessions,
@@ -454,7 +633,7 @@ describe('K-4: an engine-build failure is spoken to the journal as well', () => 
     mobile.data = { auth: { kind: 'mobile', userId: 'u1' }, roomUuid: 'room-1' };
     registerAudioHandlers(mobile as unknown as Socket, {
       io: {} as unknown as import('socket.io').Server,
-      guard: { ensureQuota(): void {}, remainingSttMs: () => Infinity },
+      guard: { ensureQuota(): void {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity },
       usageTracker: noopUsage,
       store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
       // The router's own failure, which is what this arm exists for.

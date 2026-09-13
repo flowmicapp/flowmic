@@ -32,7 +32,9 @@ import type { AuthContext } from '../src/auth/middleware';
 
 type Db = ReturnType<typeof createDbConnection>;
 
-/** ClientInstanceId is `min(16)` — a short id would be a payload rejection. */
+/** ClientInstanceId is `min(16)`, so this is long enough to LAND. Since FIX-D5
+ *  a shorter one is no longer a payload rejection — it degrades to absent
+ *  (protocol-primitives.ts), which here would just skip the backfill. */
 const PC_INSTANCE = 'desktop-instance-aaaa';
 
 interface SocketData {

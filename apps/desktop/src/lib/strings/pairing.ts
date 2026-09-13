@@ -29,6 +29,18 @@ export const PAIRING_KEYS = [
   'pair_switching',
   // owner ⑦: a QR that fails to render must say so, not leave a blank.
   'pair_qr_render_failed',
+  // owner 2026-09-12 item 2: the local-network tab's code cannot be used by the
+  // browser client at all (it only reaches a PC through the relay), so the tab
+  // says which reader this code is for instead of letting someone scan it with
+  // the web page and watch nothing happen.
+  'pair_lan_no_web',
+  // W-12 (owner 2026-09-06, transitional window): the small `flowmic://` code
+  // beside the primary https one, for an app build that predates the https
+  // pairing link. Only shown alongside the big code, never alone.
+  // owner 2026-09-12 item 2: it is folded behind these two captions now — the
+  // label opens it, the second one closes it again.
+  'pair_legacy_qr_label',
+  'pair_legacy_qr_hide',
   'pair_refresh',
   'pair_refresh_failed',
   'pair_close',
@@ -69,9 +81,20 @@ export const PAIRING_KEYS = [
   'pair_addr_dropped',
   // U8 2026-08-04 — a first-time user hit a dead end here: a 4-digit code with
   // no word about WHERE the thing that reads it comes from, and (cloud tab) a
-  // Cloud Key prompt with no pointer to where one is minted. This is shown
-  // regardless of channel — both tabs need the phone app installed first.
+  // Cloud Key prompt with no pointer to where one is minted. LOCAL-NETWORK tab
+  // only since card RL-1: over the LAN the phone app really is required (the
+  // browser client cannot reach a PC except through the relay, which is what
+  // `pair_lan_no_web` says under the QR), so this sentence is true there and
+  // only there.
   'pair_need_app',
+  // Card RL-1 (owner 2026-09-13) — the CLOUD tab's answer to the same question,
+  // and the reason it is a second key rather than a reworded `pair_need_app`:
+  // over the relay the app is one of two ways in. The https QR (`qrPayloadHttps`)
+  // opens FlowMic-web in whatever browser scanned it, so 「you will need the app
+  // before pairing」 is simply false on this tab. Written as a capability
+  // statement, not 「scan the code below」: this line sits above the tabs and so
+  // also renders in the blocked/pending states, where there is no code below it.
+  'pair_cloud_app_or_browser',
   // Link LABEL only — the href comes from `PAIR_APP_URL` below (a plain
   // constant, NOT a locale key: see its comment for why).
   'pair_get_app',

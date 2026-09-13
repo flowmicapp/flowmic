@@ -245,9 +245,9 @@ describe('forwarding UsageTracker — the fact is on disk before the call return
       const tracker = makeForwardingUsageTracker({
         outbox, nodeId: 'srvjp', newId: () => `id${++n}`,
       });
-      tracker.recordSttUsage('u1', { is_byok: false }, 1000, { transcript: 1, delivered: 1 });
-      tracker.recordLlmUsage('u1', { is_byok: false }, 5, 6);
-      tracker.recordQuotaRefusal('u1', 'stt', 'u2');
+      tracker.recordSttUsage('u1', { is_byok: false }, 1000, { transcript: 1, delivered: 1 }, {});
+      tracker.recordLlmUsage('u1', { is_byok: false }, 5, 6, {});
+      tracker.recordQuotaRefusal('u1', 'stt', 'u2', {});
       // 🔴 Read the FILE, not the object: a queue that only remembers in memory
       // passes every other assertion here and loses everything on a restart.
       const kinds = outbox.pending().map((r) => (r.body as { kind: string }).kind);
@@ -266,7 +266,7 @@ describe('forwarding UsageTracker — the fact is on disk before the call return
     try {
       const outbox = new ReplicaOutbox(join(dir, 'o.jsonl'));
       const tracker = makeForwardingUsageTracker({ outbox, nodeId: 'srvjp', newId: () => 'z' });
-      tracker.recordSttUsage('u1', { is_byok: true }, 0, { transcript: 0, delivered: 0 });
+      tracker.recordSttUsage('u1', { is_byok: true }, 0, { transcript: 0, delivered: 0 }, {});
       expect(outbox.pending()).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });

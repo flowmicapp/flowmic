@@ -122,6 +122,7 @@ BannerQueue _liveSources({
   utteranceFailure: controller.utteranceFailure,
   // T-3a ③: a send that did not happen is loud, never eaten.
   sendFailure: controller.sendFailure,
+  controlKeyRefusal: controller.controlKeyRefusal,
   // T-3b ④: an LLM failure is never dressed up as success.
   aiFailure: controller.aiFailure,
   // T-4: a picture that did not reach the PC says why —
@@ -169,6 +170,7 @@ BannerQueue _liveSources({
   onDismissRetainedAudioNotice: controller.dismissRetainedAudioNotice,
   onDismissAutoStop: controller.dismissAutoStopped,
   onDismissSttStalled: controller.dismissSttStalled,
+  onDismissControlKeyRefusal: controller.dismissControlKeyRefusal,
   onDismissUtteranceFailure: controller.dismissUtteranceFailure,
   onDismissSendFailure: controller.dismissSendFailure,
   onDismissAiFailure: controller.dismissAiFailure,

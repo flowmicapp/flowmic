@@ -36,7 +36,8 @@
 import path from 'node:path';
 import {
   ROOT, SERVER_DIST,
-  connect, ack, once, recordAll, startSaasServer, saasJwt, PASS, FAIL,
+  connect, ack, once, onceMatching, recordAll, startSaasServer, saasJwt, PASS, FAIL,
+  settleAfter, LIVENESS_CEILING_MS,
 } from './harness.mjs';
 
 /** How long a frame gets to arrive at the WRONG destination before the silence
@@ -45,6 +46,67 @@ import {
 const SETTLE_MS = 300;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** How long the relay gets to answer ANYTHING on a socket before we call it
+ *  dead. Not a race window: nothing below concludes anything from reaching it
+ *  except 「this socket never woke」, which is printed as its own sentence. */
+/** An ORDERED BARRIER on one phone's verdict channel.
+ *
+ *  🔴 WHY A BARRIER AND NOT A TIMEOUT. The assertion it serves is a NEGATIVE
+ *  one — 「that frame was dropped WITHOUT a verdict」 — and a negative drawn
+ *  from a stopwatch says nothing on a loaded machine: it cannot tell 「the relay
+ *  refuses silently」 from 「the box was busy」. The two call for opposite
+ *  actions, and on 2026-09-12 the second one was printed as the first during a
+ *  cold cargo build.
+ *
+ *  Socket.IO delivers ONE socket's frames in order. So: send a frame the relay
+ *  is obliged to answer AFTER the frame under test, and wait for that answer.
+ *  When it lands, anything the relay emitted to this socket earlier is already
+ *  recorded — a verdict still missing at that point will never arrive, whatever
+ *  the machine is doing. That answer is also the POSITIVE CONTROL: it proves
+ *  this probe was awake and this channel was flowing at the instant the silence
+ *  was called real.
+ *
+ *  ⚠️ EACH SECTION'S BARRIER USES THE OTHER SECTION'S REFUSAL. The tamper
+ *  section barriers on an UNADDRESSED frame and the unaddressed section
+ *  barriers on a MIS-ADDRESSED one, so a section can never be blinded by the
+ *  very mechanism it is testing: if the refusal under test is broken, the
+ *  barrier still answers and the negative still means what it says.
+ *
+ *  ⚠️ A barrier frame reaches no PC — both shapes are REFUSED by the relay —
+ *  so it cannot pollute the零帧 leak assertions, and its marker is unique
+ *  anyway. */
+function barrierVerdict(socket, rec, id, targetPcId) {
+  const requestId = `req-barrier-${id}`;
+  const landed = onceMatching(
+    socket, 'inject:result', (v) => v?.request_id === requestId,
+    LIVENESS_CEILING_MS, `any answer at all on this socket (barrier ${id})`,
+  );
+  socket.emit('inject:request', {
+    text: `G13-BARRIER-${id}-${Date.now()}`,
+    source: 'stt',
+    request_id: requestId,
+    entry_id: `row-barrier-${id}`,
+    // `undefined` here is the UNADDRESSED shape (INJECT_PC_UNSPECIFIED); a real
+    // pc_id that is not this phone's is the MIS-ADDRESSED one
+    // (INJECT_PC_MISMATCH). Both are answered, neither is forwarded.
+    ...(targetPcId ? { target_pc_id: targetPcId } : {}),
+  });
+  return landed;
+}
+
+// `waitUntil` / `settleAfter` / LIVENESS_CEILING_MS come from harness.mjs — G26
+// needs the same pair, and its block explains why a ceiling is not a race
+// window and which waits this file therefore converted:
+//   · a NEGATIVE assertion ("PC-B got nothing") is never made false by waiting
+//     longer, so SETTLE_MS is still exactly right for every one of them;
+//   · a POSITIVE one — including the probe-is-not-blind controls that stop
+//     those negatives from being vacuous — is. Those are the ones that moved.
+
+/** The verdict for `requestId` as the recorder saw it, or undefined. Read AFTER
+ *  a barrier has landed, never raced against one. */
+const verdictIn = (rec, requestId) => rec.frames
+  .find((f) => f.event === 'inject:result' && f.args[0]?.request_id === requestId)?.args[0];
 
 /** A base64 blob that is canonical per InjectImageBase64Schema (len % 4 === 0). */
 const TINY_PNG_B64 = 'QUJDRA==';
@@ -85,7 +147,7 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     const pcA = track(await connect(url, handshake));
     const regA = await ack(pcA, 'pc:register', { device_name: `G13 PC A (${tag})`, client_instance_id: `inst-g13-${tag}-a-0123456789` });
     const mobA = track(await connect(url));
-    const joinedA = once(pcA, 'pc:mobile-joined');
+    const joinedA = once(pcA, 'pc:mobile-joined', LIVENESS_CEILING_MS);
     // 0.2.66 — the pairing NAMES its PC. Required on a saas leg (owner 2026-08-14:
     // a bare code is refused with PAIR_PCID_REQUIRED) and inert on a standalone one
     // (`reg.pcid` is undefined, JSON drops the key, the LAN resolve never reads it).
@@ -97,7 +159,7 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     const pcB = track(await connect(url, handshake));
     const regB = await ack(pcB, 'pc:register', { device_name: `G13 PC B (${tag})`, client_instance_id: `inst-g13-${tag}-b-0123456789` });
     const mobB = track(await connect(url));
-    const joinedB = once(pcB, 'pc:mobile-joined');
+    const joinedB = once(pcB, 'pc:mobile-joined', LIVENESS_CEILING_MS);
     const pairB = await ack(mobB, 'mobile:pair', { short_code: regB.short_code, pcid: regB.pcid });
     await joinedB;
 
@@ -123,8 +185,10 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     // ── positive: both phones drain at the same time, each into its own PC ────────
     const textAA = `G13-${tag}-AA-${Date.now()}`;
     const textBB = `G13-${tag}-BB-${Date.now()}`;
-    const atA = once(pcA, 'inject:request', 3000);
-    const atB = once(pcB, 'inject:request', 3000);
+    // LIVENESS CEILING, not a 3 s race: the only thing a timeout here can mean
+    // is that the relay never delivered at all, and that is what the catch says.
+    const atA = once(pcA, 'inject:request', LIVENESS_CEILING_MS);
+    const atB = once(pcB, 'inject:request', LIVENESS_CEILING_MS);
     mobA.emit('inject:request', injectFrame(textAA, tag, 'aa', pairA.pc_id));
     mobB.emit('inject:request', injectFrame(textBB, tag, 'bb', pairB.pc_id));
     let gotA;
@@ -163,18 +227,34 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     // stale/tampered while the connection it drains on belongs to someone else.
     const crossAB = `G13-${tag}-A2B-TAMPERED-${Date.now()}`;
     const crossBA = `G13-${tag}-B2A-TAMPERED-${Date.now()}`;
-    const verdictAP = once(mobA, 'inject:result', 3000);
-    const verdictBP = once(mobB, 'inject:result', 3000);
     mobA.emit('inject:request', injectFrame(crossAB, tag, 'a2b', pairB.pc_id));
     mobB.emit('inject:request', injectFrame(crossBA, tag, 'b2a', pairA.pc_id));
-    let vA;
-    let vB;
+    // ORDERED BARRIER — see `barrierVerdict`. Unaddressed shape, so the refusal
+    // under test here (MISMATCH) cannot be the thing that blinds the probe.
     try {
-      [vA, vB] = await Promise.all([verdictAP, verdictBP]);
+      await Promise.all([
+        barrierVerdict(mobA, recMobA, `${tag}-a`, null),
+        barrierVerdict(mobB, recMobB, `${tag}-b`, null),
+      ]);
     } catch (e) {
+      // A DIFFERENT SENTENCE ON PURPOSE. This is not 「the relay refused
+      // silently」 — it is 「the relay answered nothing at all on this socket」,
+      // and the two lead to opposite actions (read the handler vs. look at the
+      // machine). Printing the first when the second happened is what put this
+      // barrier here.
+      return bad(`the probe never woke: ${e.message} — nothing can be concluded below about whether the mis-addressed frames drew a verdict`);
+    }
+    // The barriers landed, so every earlier frame to these sockets is recorded.
+    const vA = verdictIn(recMobA, `req-${tag}-a2b`);
+    const vB = verdictIn(recMobB, `req-${tag}-b2a`);
+    if (!vA || !vB) {
       // no silent failure: a refusal that never reaches the sender leaves the row on ⏳
       // forever, which is indistinguishable from "it worked" to the user.
-      return bad(`a mis-addressed frame was dropped WITHOUT a verdict: ${e.message}`);
+      //
+      // POSITIVE CONTROL, stated in the failure itself: the barrier frame sent
+      // AFTER this one, on this same socket, WAS answered. So the probe was
+      // awake, the channel was flowing, and the missing verdict is missing.
+      return bad(`a mis-addressed frame was dropped WITHOUT a verdict (A→B answered: ${!!vA}, B→A answered: ${!!vB}) — the barrier frame emitted AFTER it on the SAME socket was answered, so this is the relay's silence, not the machine's`);
     }
     for (const [who, v, kind] of [['A→B', vA, 'a2b'], ['B→A', vB, 'b2a']]) {
       if (v.ok !== false) return bad(`the ${who} tamper was answered ok=${v.ok}`);
@@ -203,7 +283,6 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     // this round an unaddressed frame was FORWARDED — a knowing compat gap for
     // 0.2.28 handsets, i.e. a branch where the red line simply did not apply.
     const noAddr = `G13-${tag}-NOADDR-${Date.now()}`;
-    const verdictNA = once(mobA, 'inject:result', 3000);
     mobA.emit('inject:request', {
       text: noAddr,
       source: 'stt',
@@ -211,11 +290,18 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
       entry_id: `row-${tag}-noaddr`,
       // …and deliberately no `target_pc_id`.
     });
-    let vNA;
+    // ORDERED BARRIER again, and this time it is MIS-ADDRESSED: the refusal
+    // under test here is UNSPECIFIED, so the barrier must not be an unaddressed
+    // frame or a relay that answers neither would report 「the probe never
+    // woke」 and hide a real silent drop.
     try {
-      vNA = await verdictNA;
+      await barrierVerdict(mobA, recMobA, `${tag}-na`, pairB.pc_id);
     } catch (e) {
-      return bad(`an unaddressed frame was dropped WITHOUT a verdict: ${e.message}`);
+      return bad(`the probe never woke: ${e.message} — nothing can be concluded below about whether the unaddressed frame drew a verdict`);
+    }
+    const vNA = verdictIn(recMobA, `req-${tag}-noaddr`);
+    if (!vNA) {
+      return bad(`an unaddressed frame was dropped WITHOUT a verdict — the mis-addressed barrier emitted AFTER it on the SAME socket was answered, so this is the relay's silence, not the machine's`);
     }
     if (vNA.ok !== false) return bad(`the unaddressed frame was answered ok=${vNA.ok}`);
     // BY NAME, and by the RIGHT name: reusing INJECT_PC_MISMATCH here would tell
@@ -310,7 +396,14 @@ async function crosstalkLeg(url, { tag, handshake, http }) {
     if (delivered.status !== 200) return bad(`HTTP ingress: a correctly addressed image got HTTP ${delivered.status}`);
     const deliveredBody = await delivered.json();
     if (deliveredBody.ok !== true) return bad(`HTTP ingress: correctly addressed image not delivered: ${JSON.stringify(deliveredBody)}`);
-    await sleep(SETTLE_MS);
+    // 🔴 THE POSITIVE CONTROL IS WAITED FOR, THE SILENCE IS NOT. A 200 from the
+    // ingress means the relay accepted it, not that the socket frame has landed
+    // on PC-A; the 300 ms that stood here was a race for that arrival and it
+    // lost one on a loaded box, reporting 「the refusal assertions above are
+    // vacuous」 — a sentence about this test's own validity — when the truth was
+    // that the box was busy. PC-B's silence still gets its full SETTLE_MS after.
+    await settleAfter(() => recPcA.carrying(okEntry).length > 0,
+      'the addressed PC never saw the correctly addressed image', SETTLE_MS);
     if (recPcA.carrying(okEntry).length === 0) return bad('HTTP ingress: the addressed PC never saw the image frame — the refusal assertions above are vacuous');
     if (recPcB.carrying(okEntry).length > 0) return bad('HTTP ingress: the OTHER PC saw an image addressed to PC-A');
     // RV-68: the row's WORDS crossed. Compared against the literal, so a stripped

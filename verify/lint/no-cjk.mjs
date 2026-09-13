@@ -125,6 +125,14 @@ export const PERMANENT = [
       + 'CATALOGUE.zh_CN is a real, shipped, product-required value.',
   },
   {
+    path: 'packages/i18n-web/src/generated/',
+    why: 'GENERATED nine-locale catalogue for the browser clients (messages/zh-CN.ts, '
+      + 'messages/ja.ts, …) compiled from i18n/web/subset.json x i18n/mobile/*.json by '
+      + 'scripts/i18n/gen-i18n-web.mjs. Same shape and same reason as the desktop and '
+      + 'mobile generated catalogues: the zh-CN arm of every string is a real, shipped, '
+      + 'product-required value, and removing it removes the language.',
+  },
+  {
     path: 'apps/desktop/src-tauri/src/ui_i18n_table.g.rs',
     why: 'The Rust-side twin of the generated catalogue above (scripts/i18n/gen-desktop-rust.mjs), '
       + 'same reason: it carries the zh-CN arm of every string the Tauri shell renders.',
@@ -336,12 +344,17 @@ export const PROSE_ALLOW = [
   'scripts/opensource-manifest.mjs',
   'scripts/opensource-manifest-strips.mjs',
   'scripts/publish-download-center.mjs',
-  // (d) 🔴 PRODUCT COPY, NOT A COMMENT — and an open question, not a resolution:
-  //     publish.mjs writes 使用说明.txt / README.txt INTO the shipped archives,
-  //     in Chinese. The public repo would hand an international audience a
-  //     Chinese read-me. That is a product decision (the app itself is
-  //     multilingual), registered in the cutover plan rather than fixed by a
-  //     translation batch, because changing it changes what users receive.
+  // (d) Internal build-operator surface, not product copy. Owner ruling
+  //     2026-09-09 (docs/decisions/2026-09-09-owner-portable-release-english-only.md)
+  //     made the README.txt this script writes INTO the shipped portable
+  //     bundle/publish folder English-only — that text is no longer here.
+  //     What remains is code comments and `console.log`/`console.error`
+  //     lines the local build operator reads while running `node
+  //     scripts/publish.mjs` — internal tooling output, covered by the
+  //     project's language discipline (CLAUDE.md 语言纪律) the same way any
+  //     other internal doc or dev comment is, not by the English-only
+  //     ruling above (that ruling's scope is the Release zip contents and
+  //     the Release page description, not this script's own console output).
   'scripts/publish.mjs',
 ];
 

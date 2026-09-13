@@ -68,6 +68,8 @@
 import type { PcRecord, PcRepo } from './repos/pc.repo';
 import type { BillingRepo, PaddleSubRow } from './repos/billing.repo';
 import { CLOUD_INSTANCE_ID } from '../room/registry';
+import { INTEGRATOR_ROOM_KIND } from '../room/registry-shared';
+import { parseUtcStamp } from './utc-stamp';
 import { log } from '../log';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -109,15 +111,19 @@ export const DEFAULT_REAPER_POLICY: GrowthReaperPolicy = {
 export interface GrowthReaperCounts {
   pcDevices: number;
   paddleSubscriptions: number;
+  /** card MP-11 / gap G-5 — expired `room_kind:'integrator'` rows. */
+  integratorRooms: number;
 }
 
 export interface GrowthReaperPeek {
   pcDevices: PcRecord[];
   paddleSubscriptions: PaddleSubRow[];
+  /** card MP-11 / gap G-5 — expired `room_kind:'integrator'` rows. */
+  integratorRooms: PcRecord[];
 }
 
 export interface GrowthReaperDeps {
-  pcs: Pick<PcRepo, 'listStaleOffline' | 'remove'>;
+  pcs: Pick<PcRepo, 'listStaleOffline' | 'listByRoomKind' | 'remove'>;
   billing: Pick<BillingRepo, 'listSupersededSubscriptions' | 'removeSubscription'>;
   /** Overrides merged onto {@link DEFAULT_REAPER_POLICY}; absent fields keep
    *  the default. */
@@ -142,7 +148,7 @@ export interface GrowthReaper {
 }
 
 function zero(): GrowthReaperCounts {
-  return { pcDevices: 0, paddleSubscriptions: 0 };
+  return { pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 };
 }
 
 /**
@@ -166,22 +172,64 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
     };
   }
 
+  /**
+   * card MP-11 / gap G-5 — the integrator rooms whose OWN clock has run out.
+   *
+   * 🔴 NO AGE POLICY OF ITS OWN, and that is the difference from the two sweeps
+   * beside it. `pcStaleDays` and `subSupersededDays` are judgements this file
+   * makes about when a row stops being useful; an integrator room already
+   * carries the answer — the minter wrote `room_expires_at` and the room is
+   * unusable the instant it passes (`room/integrator-room.ts`). Adding a grace
+   * period here would be a SECOND opinion about a lifetime that already has an
+   * owner, and the two would be free to disagree.
+   *
+   * ⚠️ `room_expires_at === null` IS NOT EXPIRED. A null there means「no clock」
+   * and the honest reading is「not mine to delete」 — the same direction
+   * `web-room.ts` `expired()` fails in. Nothing writes a null on this kind
+   * today, which is exactly why the guard is cheap and why leaving it out would
+   * be a one-line change away from deleting live rooms.
+   *
+   * ⚠️ INTEGRATOR ROOMS ONLY. `room_kind:'web'` is deliberately NOT swept here:
+   * an account has ONE web room, `ensureWebRoom` releases and replaces it the
+   * next time that account asks, and the row is the account's own. An
+   * integrator room is minted FRESH PER VISITOR (that file says why), so it is
+   * the one kind whose count is bounded by traffic rather than by accounts —
+   * which is what made it the gap.
+   */
+  function expiredIntegratorRooms(): PcRecord[] {
+    const nowMs = now();
+    return deps.pcs.listByRoomKind(INTEGRATOR_ROOM_KIND).filter((row) => {
+      const stamp = row.room_expires_at;
+      if (stamp === null) return false;
+      return parseUtcStamp(stamp) <= nowMs;
+    });
+  }
+
   function peek(): GrowthReaperPeek {
     const { pc, sub } = cutoffs();
     return {
       pcDevices: deps.pcs.listStaleOffline(pc, CLOUD_INSTANCE_ID),
       paddleSubscriptions: deps.billing.listSupersededSubscriptions(sub),
+      integratorRooms: expiredIntegratorRooms(),
     };
   }
 
-  function sweepPcDevices(rows: PcRecord[], dryRun: boolean): number {
+  /** `what` names WHICH sweep a failure came from: both delete `pc_devices`
+   *  rows, and an operator reading 「failed to remove」 must not have to guess
+   *  whether an abandoned computer or an expired integrator room was meant. */
+  function sweepPcDevices(rows: PcRecord[], dryRun: boolean, sweepName: 'stale_offline' | 'expired_integrator_room'): number {
     let n = 0;
     for (const row of rows) {
       try {
         if (!dryRun) deps.pcs.remove(row.id);
         n += 1;
       } catch (err) {
-        log.error('reaper: failed to remove a stale pc_devices row', {
+        log.error('reaper: failed to remove a pc_devices row', {
+          // A FIELD, not a sentence: both sweeps delete out of the same table,
+          // and an operator reading 「failed to remove」 must not have to guess
+          // whether an abandoned computer or an expired integrator room was
+          // meant — two different investigations.
+          sweep: sweepName,
           id: row.id,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -209,8 +257,17 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
   function sweep(dryRun: boolean): GrowthReaperCounts {
     const candidates = peek();
     return {
-      pcDevices: sweepPcDevices(candidates.pcDevices, dryRun),
+      pcDevices: sweepPcDevices(candidates.pcDevices, dryRun, 'stale_offline'),
       paddleSubscriptions: sweepSubscriptions(candidates.paddleSubscriptions, dryRun),
+      // 🔴 THROUGH `pcs.remove`, WHICH IS WHAT RELEASES THE PAIRING CODE.
+      // `mobile_pairings.pc_device_id … ON DELETE CASCADE` (schema.ts) takes
+      // the room's pairings with the row, and the row is where `short_code`
+      // lived — so after this the code resolves to nothing and the governor is
+      // free to hand it out again. This is the SAME delete `ensureWebRoom` does
+      // to an expired room, called from a clock instead of from a repeat
+      // request; a second deletion path would be a second set of rules about
+      // what a released room takes with it.
+      integratorRooms: sweepPcDevices(candidates.integratorRooms, dryRun, 'expired_integrator_room'),
     };
   }
 
@@ -219,7 +276,7 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
     const dryRun = opts.dryRun ?? false;
     try {
       const counts = sweep(dryRun);
-      if (counts.pcDevices > 0 || counts.paddleSubscriptions > 0) {
+      if (counts.pcDevices > 0 || counts.paddleSubscriptions > 0 || counts.integratorRooms > 0) {
         log.info(dryRun ? 'reaper: dry-run would sweep' : 'reaper: swept', { ...counts, dryRun });
       }
       return counts;

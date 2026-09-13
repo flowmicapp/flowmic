@@ -186,9 +186,9 @@ describe('the switch — FLOWMIC_USAGE_EVENTS_ENABLED', () => {
 
   it('🔴 OFF (the default) ⇒ ZERO rows, while the month bucket is metered exactly as before', () => {
     const t = tracker(db, false);
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordLlmUsage(USER, { is_byok: false }, 10, 20);
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+    t.recordLlmUsage(USER, { is_byok: false }, 10, 20, {});
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
 
     expect(allEvents(db)).toEqual([]);
     // The positive control for that zero: metering DID happen, so the empty
@@ -198,8 +198,8 @@ describe('the switch — FLOWMIC_USAGE_EVENTS_ENABLED', () => {
 
   it('🔴 ON ⇒ rows are written, and the month bucket is IDENTICAL to the OFF run', () => {
     const t = tracker(db, true);
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordLlmUsage(USER, { is_byok: false }, 10, 20);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+    t.recordLlmUsage(USER, { is_byok: false }, 10, 20, {});
 
     expect(allEvents(db).map((r) => ({ kind: r.kind, stt_ms: r.stt_ms, tokens_in: r.tokens_in, outcome: r.outcome }))).toEqual([
       { kind: 'stt', stt_ms: 60_000, tokens_in: 0, outcome: 'ok' },
@@ -274,8 +274,8 @@ describe('BYOK — the one behaviour this card CHANGES', () => {
 
   it('🔴 an own-key session gets a ROW (is_byok=1) and is billed NOTHING', () => {
     const t = tracker(db, true);
-    t.recordSttUsage(USER, { is_byok: true }, 90_000, CHARS);
-    t.recordLlmUsage(USER, { is_byok: true }, 11, 22);
+    t.recordSttUsage(USER, { is_byok: true }, 90_000, CHARS, {});
+    t.recordLlmUsage(USER, { is_byok: true }, 11, 22, {});
 
     const rows = allEvents(db);
     expect(rows.map((r) => ({ kind: r.kind, is_byok: r.is_byok }))).toEqual([
@@ -320,10 +320,10 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
 
   it('🔴 a refusal records stt_ms=0 AND outcome!=ok, and the two are DISTINGUISHABLE from a real zero', () => {
     const t = tracker(db, true);
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
     // The thing a refusal must not be confusable with: an `llm` event, whose
     // stt_ms is also 0 — and which succeeded.
-    t.recordLlmUsage(USER, { is_byok: false }, 5, 5);
+    t.recordLlmUsage(USER, { is_byok: false }, 5, 5, {});
 
     const rows = allEvents(db);
     expect(rows.map((r) => ({ kind: r.kind, stt_ms: r.stt_ms, outcome: r.outcome }))).toEqual([
@@ -337,19 +337,48 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
     expect(rows[0]?.outcome).not.toBe(rows[1]?.outcome);
   });
 
+  it('🔴 card MP-6 — the row says WHY this account and WHO SPOKE, and NULL still means nobody recorded it', () => {
+    const t = tracker(db, true);
+    // ① the ordinary case: a signed-in speaker on their own account. The two
+    //    values agree, and the agreement is a MEASUREMENT — on this branch the
+    //    speaker IS the payer, which is not true of any branch below.
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, { payer_reason: 'self', speaker_ref: USER });
+    // ② an unsigned guest spending somebody's allowance. `user_id` is the
+    //    account that PAID and `speaker_ref` is a browser, not an account —
+    //    exactly the pair that makes 「is somebody else using my minutes」
+    //    answerable, and exactly the pair one column could not carry.
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, { payer_reason: 'peer', speaker_ref: 'wb-a1b2c3d4' });
+    // ③ a refusal carries them too: 「who was turned away」 is as much a billing
+    //    question as 「who was charged」.
+    t.recordQuotaRefusal(USER, 'stt', OTHER, { payer_reason: 'peer', speaker_ref: 'wb-a1b2c3d4' });
+    // ④ 🔴 THE NEGATIVE CONTROL, AND IT IS THE ONE THAT MATTERS. A caller that
+    //    recorded neither stores NULL twice. `null` is 「this admission did not
+    //    say」 — it is NOT 'self', and it is not the acting account. That
+    //    inference is precisely the defect `refused_user_id` was added to stop
+    //    the previous time this table grew a column.
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+
+    expect(db.raw.prepare('SELECT payer_reason, speaker_ref FROM usage_events ORDER BY id').all()).toEqual([
+      { payer_reason: 'self', speaker_ref: USER },
+      { payer_reason: 'peer', speaker_ref: 'wb-a1b2c3d4' },
+      { payer_reason: 'peer', speaker_ref: 'wb-a1b2c3d4' },
+      { payer_reason: null, speaker_ref: null },
+    ]);
+  });
+
   it('🔴 2026-08-17 — the row says WHOSE QUOTA refused, which is not always whose attempt it was', () => {
     const t = tracker(db, true);
     // ① the acting account's own ceiling. The two ids AGREE, and the agreement
     //    is a measurement — the caller looked and found they were the same.
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
     // ② the QTA-2 shape: the phone acts, the paired PC OWNER's ledger says no.
     //    The row stays the ACTING account's (those are the minutes that would
     //    have been metered) and must stop asserting that THAT account is out.
-    t.recordQuotaRefusal(USER, 'stt', OTHER);
+    t.recordQuotaRefusal(USER, 'stt', OTHER, {});
     // ③ a successful row names nobody — nothing refused anything, and NULL is
     //    the only value that says so. Filling it with `user_id` here would put
     //    "not recorded" and "the acting account" back into one sentence.
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
 
     expect(db.raw.prepare('SELECT user_id, outcome, refused_user_id FROM usage_events ORDER BY id').all()).toEqual([
       { user_id: USER, outcome: 'quota_refused', refused_user_id: USER },
@@ -369,9 +398,9 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
     // HAS (`config.mode`), which is why 'cloud' is a measurement here and was a
     // guess before the ruling.
     const t = tracker(db, true);
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordLlmUsage(USER, { is_byok: false }, 5, 7);
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+    t.recordLlmUsage(USER, { is_byok: false }, 5, 7, {});
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
     const channels = allEvents(db).map((r) => r.channel);
     expect(channels).toEqual(['cloud', 'cloud', 'cloud']);
     // 🔴 The negative half, stated as its own assertion because owner's ② is
@@ -383,7 +412,7 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
 
   it('a refusal moves NO counter — it is not a metering call wearing a different name', () => {
     const t = tracker(db, true);
-    t.recordQuotaRefusal(USER, 'llm', USER);
+    t.recordQuotaRefusal(USER, 'llm', USER, {});
     expect(db.usage.get(USER, MONTH)).toBeNull();
   });
 
@@ -391,8 +420,8 @@ describe('quota refusals — 「zero minutes」 and 「was blocked」 are two st
     const t = makeUsageTracker(db.usage, {
       mode: 'standalone', usageEventsEnabled: true, events: db.usageEvents, now: () => NOW,
     });
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
     expect(allEvents(db)).toEqual([]);
   });
 });
@@ -414,9 +443,9 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
       // 🔴 It MUST NOT throw. `recordSttUsage` is reached from a bare setTimeout
       // and from the shutdown loop (engine/stt-session.ts `dispose`), where an
       // uncaught throw kills the relay process.
-      expect(() => t.recordSttUsage(USER, { is_byok: false }, 120_000, CHARS)).not.toThrow();
-      expect(() => t.recordLlmUsage(USER, { is_byok: false }, 4, 6)).not.toThrow();
-      expect(() => t.recordQuotaRefusal(USER, 'stt', USER)).not.toThrow();
+      expect(() => t.recordSttUsage(USER, { is_byok: false }, 120_000, CHARS, {})).not.toThrow();
+      expect(() => t.recordLlmUsage(USER, { is_byok: false }, 4, 6, {})).not.toThrow();
+      expect(() => t.recordQuotaRefusal(USER, 'stt', USER, {})).not.toThrow();
       // The meter is untouched: this is the 「degrade to the month bucket staying accurate, the detail log missing one row」
       // direction the design chose (§5.6).
       expect(db.usage.get(USER, MONTH)).toMatchObject({ stt_minutes: 2, llm_tokens_in: 4, llm_tokens_out: 6 });
@@ -435,7 +464,7 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
     const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     try {
       const t = tracker(db, true);
-      t.recordSttUsage(USER, { is_byok: false }, 120_000, CHARS);
+      t.recordSttUsage(USER, { is_byok: false }, 120_000, CHARS, {});
       expect(errors.mock.calls.filter((c) => String(c[0]).startsWith('usage_events:'))).toEqual([]);
     } finally {
       errors.mockRestore();
@@ -465,7 +494,7 @@ describe('🔴 the failure direction — a broken event log may NEVER cost the m
     const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
     try {
       makeUsageTracker(db.usage, { mode: 'saas', usageEventsEnabled: true, events: brokenSink, now: () => NOW, periodKeyFor: () => MONTH })
-        .recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
+        .recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
       expect(db.usage.get(USER, MONTH)?.stt_minutes).toBe(1);
     } finally {
       errors.mockRestore();
@@ -480,8 +509,8 @@ describe('the reconciliation relationship is <=, never =', () => {
 
   it('🔴 after retention sweeps, SUM(usage_events) is LESS than usage_records — and that is correct', () => {
     const t = tracker(db, true);
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
-    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS);
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
+    t.recordSttUsage(USER, { is_byok: false }, 60_000, CHARS, {});
     expect(db.usage.get(USER, MONTH)?.stt_minutes).toBe(2);
 
     // One of the two events ages out. (The sweep itself is tested in
@@ -586,33 +615,48 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
       guard,
       usageTracker,
       store: new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>,
-      pcOwnerUserId: () => pcOwner,
+      pcRoom: () => ({ userId: pcOwner, roomKind: null }),
     });
     let ack: Record<string, unknown> | undefined;
     mobile.fire('audio:start', AUDIO_START, (r) => { ack = r as Record<string, unknown>; });
     return ack;
   }
 
-  it('🔴 a PC-owner-quota refusal names the PC OWNER as the refuser, on the PHONE account\'s row', () => {
-    // The DESKTOP account is out of minutes; the phone's own budget is intact.
-    // Before this card the row read "user_id=USER, quota_refused" and nothing
-    // else — a sentence that was FALSE about USER.
+  it('🔴🔴 MP-10 — a spent DESKTOP account no longer refuses a press it does not pay for', () => {
+    // 🔴 THIS CASE IS THE INVERSE OF THE ONE IT REPLACES, and both were about
+    // the same row. It was titled 「a PC-owner-quota refusal names the PC OWNER as
+    // the refuser, on the PHONE account's row」 and expected
+    // `{user_id: USER, outcome: 'quota_refused', refused_user_id: OTHER}` — the
+    // repair card K-5/WP-9 made to a ledger row that used to say
+    // 「USER was refused for quota」 when USER's minutes were untouched.
+    //
+    // Card MP-10 removes the SITUATION rather than the sentence: under owner's
+    // 2026-09-11 再追认 the desktop's owner is the PAYER on a FlowMic far end, so
+    // there is no second ledger to be refused BY. This fixture's shape (acting
+    // account ≠ room owner on an 'app' room) is one `resolvePayer` no longer
+    // produces; driven anyway, so that a second gate cannot come back silently.
+    //
+    // ⚠️ `refused_user_id` IS NOT DEAD and is not touched here: the ACTING
+    // account's own refusal still writes it (the positive control below), which
+    // is the shape production now takes — the payer is the room's owner, and the
+    // row names them as both the metered account and the refuser.
     db.usage.increment(OTHER, MONTH, { stt_minutes: 999 });
-    expect(fireAudioStart(db, OTHER)?.error).toBe('QUOTA_EXCEEDED');
-    // 🔴 Taken at the HANDLER and not at the tracker: "the tracker has a third
-    // parameter" and "audio.handler.ts forwards the JUDGED account" are two
-    // different sentences, and only the second one repairs the row.
-    expect(db.raw.prepare('SELECT user_id, outcome, refused_user_id FROM usage_events').all())
-      .toEqual([{ user_id: USER, outcome: 'quota_refused', refused_user_id: OTHER }]);
-    // The gate account is ASKED, never metered and never logged: QTA-2's rule
-    // that one recording may not decrement two ledgers.
+    // ⚠️ IT GETS PAST THE MONEY AND DIES ON THE ENGINE, which is what 「the
+    // quota gate did not refuse this」 looks like on a fixture with no STT pool
+    // wired. Asserted by NAME rather than as 「no error」, because 「some other
+    // refusal」 would otherwise pass this case as happily as the right one.
+    expect(fireAudioStart(db, OTHER)?.error).toBe('STT_CONFIG_MISSING');
+    // …and no ledger row of either kind: the refusal above is not a money one,
+    // so nothing is written for it, on either account.
+    expect(allEvents(db)).toEqual([]);
     expect(allEvents(db, OTHER)).toEqual([]);
   });
 
   it('positive control: the acting account\'s own refusal names ITSELF — equal, never absent', () => {
-    // Without this row, an implementation that always wrote the PC owner's id —
-    // or that wrote whatever the second gate last touched — passes the test
-    // above perfectly. The PC owner here has budget and is never the refuser.
+    // 🔴 SINCE MP-10 THIS IS ALSO THE ONLY SHAPE PRODUCTION CAN REACH, and it
+    // carries the whole weight of the case above: without it, 「the press was
+    // admitted」 would be indistinguishable from 「the quota gate stopped
+    // running at all」.
     db.usage.increment(USER, MONTH, { stt_minutes: 999 });
     expect(fireAudioStart(db, OTHER)?.error).toBe('QUOTA_EXCEEDED');
     expect(db.raw.prepare('SELECT user_id, refused_user_id FROM usage_events').all())
@@ -701,8 +745,8 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     // zeros this card was told not to build — and a user's usage page would show
     // 「0 characters」 beside every AI turn as though we had counted.
     const t = tracker(db, true);
-    t.recordLlmUsage(USER, { is_byok: false }, 12, 34);
-    t.recordQuotaRefusal(USER, 'stt', USER);
+    t.recordLlmUsage(USER, { is_byok: false }, 12, 34, {});
+    t.recordQuotaRefusal(USER, 'stt', USER, {});
     const rows = allEvents(db);
     expect(rows.map((r) => ({ k: r.kind, o: r.outcome, tc: r.transcript_chars, dc: r.delivered_chars }))).toEqual([
       { k: 'llm', o: 'ok', tc: null, dc: null },
@@ -720,7 +764,7 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     // and produced no text is a REAL zero, and it must not be flattened to null.
     // Without this, 「always null」 would pass the previous test perfectly.
     const t = tracker(db, true);
-    t.recordSttUsage(USER, { is_byok: false }, 30_000, { transcript: 0, delivered: 0 });
+    t.recordSttUsage(USER, { is_byok: false }, 30_000, { transcript: 0, delivered: 0 }, {});
     expect(allEvents(db)[0]).toMatchObject({ transcript_chars: 0, delivered_chars: 0 });
     expect(db.raw.prepare('SELECT typeof(transcript_chars) AS t FROM usage_events').get()).toEqual({ t: 'integer' });
   });
@@ -733,7 +777,7 @@ describe('the production call sites really reach recordQuotaRefusal', () => {
     const mobile = new FakeSocket('m');
     registerAudioHandlers(mobile as unknown as Socket, {
       io: {} as unknown as import('socket.io').Server,
-      guard: { ensureQuota(): void { throw new Error('limits lookup exploded'); }, remainingSttMs: () => Infinity },
+      guard: { ensureQuota(): void { throw new Error('limits lookup exploded'); }, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity },
       usageTracker: tracker(db, true),
       store: store as unknown as RoomStore<Socket>,
     });

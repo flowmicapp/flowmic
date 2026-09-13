@@ -88,6 +88,11 @@ part 'delivery_outbox_degraded.dart';
 // terminally. Same library, same reason as the three parts above, and the same
 // rule: nothing moved changed behaviour, and no caller had to be edited.
 part 'delivery_outbox_attempt.dart';
+// 2026-09-09, 800-line cap (this file was back at 800/800): the ENQUEUE half —
+// build the item, refuse one born with no redeemable destination, persist it,
+// and enforce the overflow cap. Same library, same rule as the four parts
+// above: nothing moved changed behaviour, and no caller had to be edited.
+part 'delivery_outbox_enqueue.dart';
 
 class DeliveryOutbox {
   DeliveryOutbox({
@@ -358,20 +363,18 @@ class DeliveryOutbox {
   }
 
   // ── enqueue ────────────────────────────────────────────────────────────────
+  //
+  // 800-line cap: the BODIES moved VERBATIM to delivery_outbox_enqueue.dart (a
+  // `part` of this library — see that file's header for the cut and why the
+  // receiver became explicit, same shape as `settle` / the disk-degradation
+  // trio below). The METHODS stay here, so every one of the four external
+  // callers (chat_utterance.dart / manual_delivery.dart /
+  // manual_delivery_reinject.dart / image_send_controller.dart) is
+  // byte-for-byte unchanged.
 
-  /// Put ONE text delivery on disk. Returns the durable item.
-  ///
-  /// [requestId] is minted by the CALLER and passed in, because the caller also
-  /// needs it as the row's client id — but it is minted ONCE, at enqueue, and
-  /// this item will re-send under it for the rest of its life (Gate 1).
   Future<OutboxItem?> enqueueText({
     required String requestId,
     required String entryId,
-    /// 🔴 Whether this frame stamps `entry_id`. REQUIRED and explicitly nullable
-    /// — never defaulted to [entryId]: passing the settle anchor is precisely the
-    /// 窗口B3-2a regression (one id on a frame covering N rows ⇒ the PC writes
-    /// that row's truth over all N). Answer 「did this delivery itself create
-    /// that row」.
     required String? wireEntryId,
     List<String>? coveredEntryIds,
     required String source,
@@ -380,63 +383,22 @@ class DeliveryOutbox {
     required DateTime createdAt,
     String? sourceText,
     String? deviceLabel, int? durationMs,
-  }) async {
-    final OutboxItem item = OutboxItem(
-      requestId: requestId,
-      entryId: entryId,
-      wireEntryId: wireEntryId,
-      // Defaults to just the representative — a delivery always settles at
-      // least its own row. Never an empty list: a drained item that settles
-      // NOTHING leaves the user's row at ⏳ with nobody left to move it.
-      coveredEntryIds: coveredEntryIds == null || coveredEntryIds.isEmpty
-          ? <String>[entryId]
-          : List<String>.unmodifiable(coveredEntryIds),
-      kind: OutboxPayloadKind.text,
-      source: source,
-      text: text,
-      mode: mode,
-      // 🔴 Gate 3 — the SPEAKING instant, handed in by the caller off the row.
-      createdAt: createdAt,
-      enqueuedAt: DateTime.now().toUtc(),
-      sourceText: sourceText,
-      deviceLabel: deviceLabel, durationMs: durationMs,
-      // 🔴 Gate 2 — freeze the destination from the CURRENT connection, once.
-      destinationMachineUid: _host.liveConnection.machineUid,
-      destinationPairingIdentity: _host.liveConnection.pairingIdentity,
-      enqueuedPcId: _host.liveConnection.pcId,
-    );
-    return _admit(item);
-  }
+  }) =>
+      outboxEnqueueText(
+        this,
+        requestId: requestId,
+        entryId: entryId,
+        wireEntryId: wireEntryId,
+        coveredEntryIds: coveredEntryIds,
+        source: source,
+        text: text,
+        mode: mode,
+        createdAt: createdAt,
+        sourceText: sourceText,
+        deviceLabel: deviceLabel,
+        durationMs: durationMs,
+      );
 
-  /// 🔴 A queued delivery MUST be born with a destination it can be redeemed at.
-  ///
-  /// WHY THIS GUARD EXISTS AND WHEN IT CAN FIRE. The queue's whole reason to
-  /// exist is the offline window, so the first question asked of it is: when the
-  /// link is down, is the frozen destination empty? It is NOT — and that safety
-  /// rests on a property nobody had written down: `PttSession
-  /// .clearConnectedInstance()` (which nulls all three identities) has exactly
-  /// ONE caller in the repo, `connections_controller.dart:307 leaveRoom()`, i.e.
-  /// the user deliberately leaving the session. A dropped socket, a
-  /// backgrounded app and an EMUI-severed TCP do NOT call it, so the identities
-  /// survive the outage and an enqueue during it freezes a complete address.
-  ///
-  /// This guard covers the one case where they are genuinely gone (after
-  /// `leaveRoom`). Freezing an empty destination there would mint a ticket that
-  /// can never be redeemed: `resolveOutboxTarget` would refuse it forever and it
-  /// would sit in the queue being counted as 「not delivered」 for the life of the
-  /// install. Refusing loudly at the door is the honest disposition.
-  bool _hasRedeemableDestination(OutboxItem item) =>
-      (item.destinationMachineUid != null &&
-          item.destinationMachineUid!.isNotEmpty) ||
-      (item.destinationPairingIdentity != null &&
-          item.destinationPairingIdentity!.isNotEmpty);
-
-  /// Put ONE picture delivery on disk — BYTES FIRST.
-  ///
-  /// Returns null when the bytes could not be written. That is reported, never
-  /// swallowed: an item enqueued without its payload would be a promise with
-  /// nothing behind it, and the drain would later refuse it for a reason the
-  /// user could not act on.
   Future<OutboxItem?> enqueueImage({
     required String requestId,
     required String entryId,
@@ -448,122 +410,20 @@ class DeliveryOutbox {
     required DateTime createdAt,
     String? thumbB64,
     String? deviceLabel,
-  }) async {
-    final String? path = await _blobs.put(
-      requestId: requestId,
-      bytes: bytes,
-      extension: extension,
-    );
-    if (path == null) {
-      diag('outbox.enqueue_refused', <String, Object?>{
-        'request_id': requestId,
-        'reason': 'BLOB_WRITE_FAILED',
-        'bytes': bytes.length,
-      });
-      return null;
-    }
-    final OutboxItem item = OutboxItem(
-      requestId: requestId,
-      entryId: entryId,
-      // A picture send ALWAYS builds its own row, so the frame names it.
-      wireEntryId: entryId,
-      // A picture is always exactly one row.
-      coveredEntryIds: <String>[entryId],
-      kind: OutboxPayloadKind.image,
-      source: 'image',
-      // The protocol requires `text`; a picture carries none. The DESCRIPTOR is
-      // kept separately so nothing can accidentally type 「🖼 PNG · 214 KB」 into
-      // the user's document and call it a delivery.
-      text: '',
-      mode: mode,
-      createdAt: createdAt,
-      enqueuedAt: DateTime.now().toUtc(),
-      sourceText: null,
-      entryType: 'image',
-      thumbB64: thumbB64,
-      imagePath: path,
-      imageMime: imageMime,
-      deviceLabel: deviceLabel,
-      destinationMachineUid: _host.liveConnection.machineUid,
-      destinationPairingIdentity: _host.liveConnection.pairingIdentity,
-      enqueuedPcId: _host.liveConnection.pcId,
-    );
-    // `label` rides the local row, not the frame — kept out of the item so there
-    // is exactly one producer of that string (owner RV-68 ruling).
-    assert(label.isNotEmpty, 'an image row always has a descriptor');
-    return _admit(item);
-  }
-
-  /// Persist a new item, enforce the cap, refresh the count. Null ⇒ refused at
-  /// the door (see [_hasRedeemableDestination]).
-  Future<OutboxItem?> _admit(OutboxItem item) async {
-    if (!_hasRedeemableDestination(item)) {
-      diag('outbox.enqueue_refused', <String, Object?>{
-        'request_id': item.requestId,
-        'reason': 'NO_DESTINATION',
-      });
-      return null;
-    }
-    // D9 ②: a failed write parks the item in [_unpersisted] and the enqueue
-    // KEEPS GOING — the four call sites' contract is 「degrade durability, never
-    // delivery」, and before this card a throw here aborted the whole send.
-    await _persistItem(item, op: 'enqueue');
-    // ⚠️ SELF-EXPOSING LINE — 「which parts of this item's addressing are
-    // empty」. Ids and booleans
-    // only: never the text, never the picture. A queued delivery whose
-    // destination fields are all null is deliverable ONLY on its own pairing,
-    // and this is the one place that fact is visible before it becomes a
-    // mystery three days later.
-    diag('outbox.enqueued', <String, Object?>{
-      'request_id': item.requestId,
-      'entry_id': item.entryId,
-      'kind': item.kind.name,
-      'source': item.source,
-      'has_machine_uid': item.destinationMachineUid != null,
-      'has_pairing_identity': item.destinationPairingIdentity != null,
-      'has_enqueued_pc_id': item.enqueuedPcId != null,
-      // D9 ②: false ⇒ this delivery will not survive a process death — the one
-      // honest bit that separates 「queued」 from 「persisted to disk」.
-      'persisted': !_unpersisted.containsKey(item.requestId),
-      'created_at_age_ms':
-          DateTime.now().toUtc().difference(item.createdAt).inMilliseconds,
-    });
-    await _enforceCapacity();
-    await _refreshDerived();
-    _host.onOutboxChanged();
-    return item;
-  }
-
-  /// 🔴 Overflow MUST speak, and must not degrade into 「there was never
-  /// anything there」.
-  ///
-  /// The oldest pending item is settled `refused('OUTBOX_OVERFLOW')` — a named
-  /// terminal state, KEPT IN THE TABLE. It is not deleted, because a row that is
-  /// gone cannot tell the user (or the next session) that it was ever dropped;
-  /// that is precisely the degradation the PC timeline's trimming rule already
-  /// banned. Oldest-first because the newest is what the user just said and is
-  /// watching for.
-  Future<void> _enforceCapacity() async {
-    final List<OutboxItem> pending = await _loadPendingMerged();
-    while (pending.length > _capacity) {
-      final OutboxItem victim = pending.removeAt(0); // oldest
-      final OutboxItem dropped = victim.copyWith(
-        state: OutboxDeliveryState.refused,
-        refusedCode: kOutboxOverflow,
+  }) =>
+      outboxEnqueueImage(
+        this,
+        requestId: requestId,
+        entryId: entryId,
+        bytes: bytes,
+        imageMime: imageMime,
+        extension: extension,
+        label: label,
+        mode: mode,
+        createdAt: createdAt,
+        thumbB64: thumbB64,
+        deviceLabel: deviceLabel,
       );
-      await _persistItem(dropped, op: 'overflow');
-      // 🔴 RV-93 — the picture is NOT deleted here. Overflow drops the DELIVERY,
-      // and the row it belongs to is still on the user's timeline showing that
-      // picture; deleting the bytes would empty the tap-to-enlarge view for a row nobody removed.
-      _overflowed++;
-      _noteTerminal(kOutboxOverflow);
-      diag('outbox.overflow', <String, Object?>{
-        'dropped_request_id': victim.requestId,
-        'cap': _capacity,
-        'overflowed_total': _overflowed,
-      });
-    }
-  }
 
   // ── drain ──────────────────────────────────────────────────────────────────
 

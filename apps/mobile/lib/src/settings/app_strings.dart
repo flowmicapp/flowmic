@@ -110,6 +110,7 @@ part 'strings/pairing_strings.dart';
 part 'strings/recording_strings.dart';
 part 'strings/recording_retention_strings.dart'; // F6: split out of RecordingStrings (file-size cap)
 part 'strings/stt_stall_strings.dart'; // EMPTY-1: split out of RecordingStrings (file-size cap)
+part 'strings/metering_strings.dart'; // G-2c: whose transcription allowance a paired recording spends
 part 'strings/compose_strings.dart';
 part 'strings/continuous_recording_strings.dart'; // S5: split out of ComposeStrings (file-size cap)
 part 'strings/chat_strings.dart';
@@ -167,6 +168,9 @@ abstract class AppStrings extends AppStringsLeaves
         // arrangement, and the same reason, as InjectNoteStrings below.
         RecordingRetentionStrings,
         SttStallStrings,
+        // G-2c, placed beside the two stall shards because one of its two
+        // members is chosen by the same `sttStallBannerMessage` switch they are.
+        MeteringStrings,
         ComposeStrings,
         // Split out of ComposeStrings (file-size cap), placed immediately
         // after it so the `with` order still reads as one family — the same

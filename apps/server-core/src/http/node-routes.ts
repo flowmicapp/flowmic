@@ -56,9 +56,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { nodeIdForHost, requestHost, type NodeHostMap } from '../node/node-identity';
-import { isValidTokenShape } from '../auth/token';
 import type { TokenResolution } from '../node/token-rows';
 import { handleForwardSyncRoute } from './node-routes-forward-sync';
+import { handleResolveTokenRoute } from './node-routes-resolve-token';
+import { applyWebCors, handleWebCorsPreflight } from './web-cors';
 
 /** What a node calls itself. Matches the subdomain: `srvny`, `srvjp`. */
 export type NodeId = string;
@@ -406,6 +407,17 @@ export function makeNodeRoutes(
     // below. Under noUncheckedIndexedAccess it would otherwise be `string |
     // undefined`, which a Set.has() cannot take.
     const path = url.split('?')[0] ?? url;
+
+    // CORS-1 (2026-09-08) — /list and /locate are read by a BROWSER: the web
+    // mic page follows a paired PC to its `home_node` and asks THAT node's own
+    // origin, cross-origin from wherever the page itself is served. /ping and
+    // the node-to-node routes below (shared-secret, machine credential, never
+    // a browser caller) are deliberately left out of this allow-list — see
+    // web-cors.ts's header for why it names flowmic.app and nothing wider.
+    const isWebCorsPath = path === '/api/node/list' || path === '/api/node/locate';
+    if (isWebCorsPath && handleWebCorsPreflight(req, res, { methods: 'GET, OPTIONS' })) return true;
+    if (isWebCorsPath) applyWebCors(req, res);
+
     // The writes in this file are the POSTs, and they are the only routes that
     // require the shared secret. Everything else stays read-only, which is what
     // lets the rest of the module be unauthenticated without further argument.
@@ -486,11 +498,13 @@ export function makeNodeRoutes(
       }
       const hit = deps.locatePc(pcid);
       if (hit.known) {
-        sendJson(res, 200, { ok: true, pcid, node: hit.node, authoritative: !deps.writerUrl });
+        // LOC-1: `known` distinguishes a row with no home yet from "no such pcid" below.
+        sendJson(res, 200, { ok: true, pcid, node: hit.node, authoritative: !deps.writerUrl, known: true });
         return true;
       }
       // Not known here.
       if (deps.writerUrl) {
+        // No `known` here — replication lag means only the writer can say "no such pcid".
         sendJson(res, 200, {
           ok: true,
           pcid,
@@ -502,8 +516,7 @@ export function makeNodeRoutes(
         });
         return true;
       }
-      // We ARE the writer and we do not have it. That is a real answer.
-      sendJson(res, 200, { ok: true, pcid, node: null, authoritative: true });
+      sendJson(res, 200, { ok: true, pcid, node: null, authoritative: true, known: false }); // LOC-1
       return true;
     }
 
@@ -717,70 +730,11 @@ export function makeNodeRoutes(
     }
 
     // ── POST /api/node/resolve-token ────────────────────────────────────────
-    //
-    // 「I have a token my copy of the database has never seen. Do you know it?」
-    // The reads a replica may not answer for itself are now two, and they are
-    // two for the SAME reason stated in writer-client.ts: a read whose purpose is
-    // to detect someone else's RECENT write must not be served from a replica.
-    // `/quota` asks 「did somebody just spend these minutes」; this asks 「did
-    // somebody just create this pairing」. A stale answer to either is a
-    // confident, wrong 「no」.
-    //
-    // 🔴 THE MISS IS A 404 AND THE OUTAGE IS A 5xx/throw, and the caller acts
-    // oppositely on them — this is `/mint-code`'s 404 argument applied to a
-    // credential. 「I do not know this token」 is the writer being authoritative,
-    // and the replica turns it into today's honest AUTH_TOKEN_INVALID. 「I could
-    // not ask」 is nothing being known, and it degrades to the SAME refusal — but
-    // it must never take the 404's shape, because a body that says 「unknown」
-    // when the truth is 「unreachable」 would be a permanent negative cached from
-    // a transient failure the moment anyone adds caching here.
+    // Extracted to node-routes-resolve-token.ts (this file hit the 800-line cap
+    // — verify/lint/file-size.mjs — from CORS-1's grant wiring for /list and
+    // /locate above); see that file's header for the full argument, unchanged.
     if (path === '/api/node/resolve-token') {
-      if (!deps.resolveToken || !deps.sharedSecret) {
-        sendJson(res, 501, { ok: false, error: 'resolve_token_not_configured' });
-        return true;
-      }
-      const offered = req.headers['x-flowmic-node-secret'];
-      if (!secretMatches(deps.sharedSecret, typeof offered === 'string' ? offered : '')) {
-        sendJson(res, 403, { ok: false, error: 'forbidden' });
-        return true;
-      }
-      void (async (): Promise<void> => {
-        try {
-          const body = await readJsonBody(req);
-          // Shape-checked HERE as well as on the replica, and the duplication is
-          // deliberate: this route is reachable by anything holding the secret,
-          // so 「the caller already checked」 is an assumption about someone
-          // else's code. A malformed token never reaches a prepared statement.
-          if (!isValidTokenShape(body.token)) {
-            sendJson(res, 400, { ok: false, error: 'token_malformed' });
-            return;
-          }
-          const resolved = deps.resolveToken!(body.token);
-          if (!resolved) {
-            sendJson(res, 404, { ok: false, error: 'token_unknown', node: deps.nodeId });
-            return;
-          }
-          sendJson(res, 200, {
-            ok: true,
-            node: deps.nodeId,
-            kind: resolved.kind,
-            // The owning account row(s), because `pc_devices.user_id` and
-            // `mobile_pairings.user_id` both REFERENCE `users(id)` and `users`
-            // is replicated by the same 30-second pull. Without them the
-            // onboarding case — sign up, pair, hop, all inside that window —
-            // cannot land and is refused on a credential that is perfectly good.
-            users: resolved.users,
-            pc: resolved.pc,
-            ...(resolved.kind === 'mobile' ? { mobile: resolved.mobile } : {}),
-          });
-        } catch (err) {
-          sendJson(res, 500, {
-            ok: false,
-            error: 'resolve_token_failed',
-            detail: err instanceof Error ? err.message : String(err),
-          });
-        }
-      })();
+      handleResolveTokenRoute(req, res, deps, { readJsonBody, secretMatches, sendJson });
       return true;
     }
 

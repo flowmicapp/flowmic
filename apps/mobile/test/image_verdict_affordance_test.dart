@@ -247,7 +247,7 @@ void main() {
       // force a shorter common substring, which would weaken the probe down to
       // 「ПК」, a word that appears everywhere.
       String reachedThePc(AppLocale locale) => switch (locale) {
-        AppLocale.zh => '已经送到电脑',
+        AppLocale.zh => '已投递至电脑端',
         AppLocale.zhTw => '已經送到電腦',
         AppLocale.en => 'reached the PC',
         AppLocale.fr => 'a atteint la chronologie du PC',

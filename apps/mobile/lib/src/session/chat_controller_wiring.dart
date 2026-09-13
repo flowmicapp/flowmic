@@ -60,9 +60,16 @@ extension ChatControllerWiring on ChatController {
     _finalSub = session.stt.finals.listen(_onFinal);
     _interimSub = session.stt.interims.listen(_onInterim);
     _injectSub = session.injectResults.listen(_onInjectResult);
+    _controlKeyResultSub =
+        session.controlKeyResults.listen(_onControlKeyResult);
     _focusSub = session.focusStates.listen(_onFocusState);
     session.pcPresence.addListener(_onPcPresenceChanged); // RV-92, chat_notices.dart
     session.pcBusyListenable.addListener(notifyUi); // Card L7, BannerIds.pcBusy
+    // Card G-2c — the banner set is rebuilt on every notify, so the far-end
+    // payer line only appears if a new budget frame ASKS for a repaint. Same
+    // shape as the line above it; the matching removeListener rides the same
+    // teardown (chat_transient_banner_timers.dart).
+    session.latestBudget.addListener(notifyUi);
     // 🔴 F-1 — never the socket edge. Since 2026-09-04 「joined the room」 is one
     // of TWO edges of one fact and the drain subscribes to the FACT
     // ([deliveryLink]); this listener keeps only the pairing confirmation.

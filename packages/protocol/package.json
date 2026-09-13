@@ -1,9 +1,18 @@
 {
   "name": "@flowmic/protocol",
-  "version": "0.2.0",
+  "version": "0.3.85",
   "description": "FlowMic wire protocol — socket.io event whitelist, zod payload schemas, error codes, and shared types.",
   "license": "Apache-2.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flowmicapp/<private-dev-repo>.git",
+    "directory": "packages/protocol"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

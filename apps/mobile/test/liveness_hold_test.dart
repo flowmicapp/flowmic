@@ -8,6 +8,27 @@
 // the user is looking at is `liveness_hold_wire_test.dart`'s job — the 0.3.47
 // lesson, one week old: a correct rule with nothing calling it is green for as
 // long as nobody looks.
+//
+// ── CARD Q-5 (2026-09-07): H-2 USED TO ASSERT THE OFF-BY-ONE ────────────────
+// `observe` burnt the hold on `_misses > kLivenessHoldMisses` — the FOURTH miss
+// — while §2-1 and case H-2 both say the third. H-2's title said 「after three」
+// and its body pinned the fourth, so the defect was not merely untested: it was
+// written down as the specification, and this file was the thing saying so.
+//
+// REVERSE CONTROL (executed, not reasoned — restore `>` in liveness_hold.dart):
+//   H-2: the hold BURNS OUT ON the third consecutive miss [E]
+//     Expected: InstanceLivenessFace:<InstanceLivenessFace.reachUnanswered>
+//       Actual: InstanceLivenessFace:<InstanceLivenessFace.pcOnline>
+//   🔴 H-2b: it is the COUNT that burns it, not the clock racing it [E]
+//     Expected: InstanceLivenessFace:<InstanceLivenessFace.reachUnanswered>
+//       Actual: InstanceLivenessFace:<InstanceLivenessFace.pcOnline>
+//     three misses, and 44 s < 45 s — only the count can have burnt it
+// i.e. the row still saying 「Online」 on the round the design says it must stop.
+// Restored, re-run: 12/12 green.
+//
+// ⚠️ 'a burnt hold does not come back when the counter resets' stayed GREEN
+// under that break. Recorded so nobody counts it as evidence: it burns by AGE at
+// its last line, so it cannot see this bound at all.
 
 import 'package:flowmic/src/session/liveness_hold.dart';
 import 'package:flowmic/src/session/pc_presence.dart';
@@ -30,18 +51,44 @@ void main() {
         reason: 'and the screen says so, beside the answer — not instead of it');
   });
 
-  test('H-2: the hold BURNS OUT after three consecutive misses', () {
+  test('H-2: the hold BURNS OUT ON the third consecutive miss', () {
+    // 🔴 THIS CASE USED TO ASSERT THE DEFECT. Its title said 「after three」 and
+    // its body pinned the FOURTH: two misses held, a third held, and only a
+    // fourth burnt — one round past §2-1's 「连续 3 轮没结论」. It was green for
+    // the whole of that time, because what it measured was the code rather than
+    // the specification. The number below is the design's, not the code's.
     final LivenessHold h = LivenessHold();
     h.observe(on, nowMs: 0);
-    expect(h.observe(miss, nowMs: 10_000).face, on);
-    expect(h.observe(miss, nowMs: 20_000).face, on);
+    expect(h.observe(miss, nowMs: 15_000).face, on);
     expect(h.observe(relayOnly, nowMs: 30_000).face, on,
         reason: 'a mixture of inconclusive outcomes is still just misses');
-    // 🔴 The fourth. Without this the fix is the stale-「online」 bug moved one
-    // layer up, which is worse than the flicker because it looks calm.
-    final HeldLiveness burnt = h.observe(miss, nowMs: 40_000);
+    // 🔴 The third one burns it. Without this the fix is the stale-「online」 bug
+    // moved one layer up, which is worse than the flicker because it looks calm.
+    final HeldLiveness burnt = h.observe(miss, nowMs: 44_000);
     expect(burnt.face, miss);
     expect(burnt.rechecking, isFalse);
+  });
+
+  test('🔴 H-2b: it is the COUNT that burns it, not the clock racing it', () {
+    // The two bounds land on the same round in production and this case is what
+    // keeps them apart. The instance list re-probes every 15 s
+    // ([kInstanceListPresencePollInterval] — NOT the 10 s session poll), so a
+    // third miss arrives at ≈45 s, which is [kLivenessHoldMaxAge] exactly.
+    // Every `nowMs` below is deliberately just INSIDE the age bound, so the age
+    // check cannot be what fires: if this case is green, the counter did it.
+    //
+    // With the pre-2026-09-07 `>` this went red at the last line with
+    // `Expected: <InstanceLivenessFace.reachUnanswered> Actual:
+    // <InstanceLivenessFace.pcOnline>` — the row still claiming 「Online」 on the
+    // round the design says it must stop.
+    expect(kLivenessHoldMaxAge.inMilliseconds, 45_000,
+        reason: 'the 44 s below is only just inside; keep them in step');
+    final LivenessHold h = LivenessHold();
+    h.observe(on, nowMs: 0);
+    expect(h.observe(miss, nowMs: 14_000).face, on);
+    expect(h.observe(miss, nowMs: 29_000).face, on);
+    expect(h.observe(miss, nowMs: 44_000).face, miss,
+        reason: 'three misses, and 44 s < 45 s — only the count can have burnt it');
   });
 
   test('H-3: a CONCLUSIVE answer lands immediately — the hold never delays it',
@@ -88,7 +135,7 @@ void main() {
   test('a burnt hold does not come back when the counter resets', () {
     final LivenessHold h = LivenessHold();
     h.observe(on, nowMs: 0);
-    for (int i = 1; i <= 4; i++) {
+    for (int i = 1; i <= kLivenessHoldMisses; i++) {
       h.observe(miss, nowMs: i * 10_000);
     }
     // Still burnt, and the old answer is gone rather than merely unshown: a

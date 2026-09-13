@@ -28,6 +28,8 @@ const { DatabaseSync: DatabaseSyncCtor } = nodeRequire(SQLITE_SPECIFIER) as {
   DatabaseSync: new (path: string, opts?: { enableForeignKeyConstraints?: boolean }) => DatabaseSync;
 };
 import { makeUserRepo, type UserRepo } from './repos/user.repo';
+import { makeTrialLedgerRepo, type TrialLedgerRepo } from './repos/trial-ledger.repo';
+import { makeIntegratorKeyRepo, type IntegratorKeyRepo } from './repos/integrator-key.repo';
 import { makePcRepo, type PcRepo } from './repos/pc.repo';
 import { makeMobileRepo, type MobileRepo } from './repos/mobile.repo';
 import { makeSettingsRepo, type SettingsRepo } from './repos/settings.repo';
@@ -66,6 +68,16 @@ export interface DbConnection {
    *  sweep (db/retention.ts, the only deleter) and the read route
    *  (http/usage-events-routes.ts) — each sliced to the methods it needs. */
   usageEvents: UsageEventsRepo;
+  /** Card M4-01 (2026-09-09) — the site-demo grant record (`trial_ledger`).
+   *
+   *  🔴 A SEPARATE repo from `usage` for the same reason `usageEvents` is: they
+   *  answer different questions and only one of them is the METER. This one
+   *  records what was GRANTED to an anonymous visitor and when their token dies;
+   *  what they actually SPENT is `usage_records` and nothing else, which is why
+   *  the site-wide daily read in this repo is a JOIN rather than a column. */
+  trials: TrialLedgerRepo;
+  /** card MP-1 — publishable keys and the room→key edge. */
+  integratorKeys: IntegratorKeyRepo;
   /** Card PR-2 (2026-09-06) — the operation registry (`recovery_operations`).
    *
    *  Written and read by ONE consumer, the `audio:start` admission step
@@ -356,6 +368,78 @@ export function reconcileSchema(db: DatabaseSync): void {
     }
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
   }
+  // ── REVIEW-GRACE (2026-09-09): users.verify_grace_until, NO BACKFILL ───────
+  //
+  // The FIFTH hand-written `users` column step, hand-written for the reason the
+  // first three are: `ADDITIVE_INT_COLUMNS` emits `INTEGER NOT NULL DEFAULT 0`,
+  // and 0 is a legal ms-epoch, so every account would forward-port carrying
+  // 「grace extended until 1970-01-01」. The arithmetic would survive that
+  // (auth/verification-grace.ts takes a max, and 1970 never wins it) — the row
+  // would not: it would be a stored assertion about every person on the
+  // platform that nobody made.
+  //
+  // 🔴 THERE IS NO `UPDATE` LINE HERE, AND ITS ABSENCE IS THE WHOLE STEP — the
+  // FIFTH time this file says that, and the FIFTH different reason:
+  //   · `email_verified_at` HAD to backfill (else the gate locks everyone out);
+  //   · `restricted_at` MUST NOT (any non-NULL value restricts the platform);
+  //   · `last_login_at` MUST NOT (the answer is not knowable);
+  //   · `google_sub` MUST NOT (any value binds a stranger's Google identity);
+  //   · this one must not because AN EXTENSION IS GRANTED, ONE ACCOUNT AT A
+  //     TIME, BY A DECISION. A migration that wrote a date here would grant it
+  //     to every account at once, which is the same shape as the sibling above:
+  //     a policy change disguised as a schema change. The rows that need it are
+  //     named in docs/strategy/2026-08-12-sensitive-surface-audit-queue.md and
+  //     are written by an operator, never by this file.
+  // Five adjacent steps that look alike and must never be made uniform.
+  //
+  // Idempotent by the same guard as its neighbours: on a fresh DB the CREATE
+  // already made the column, so no ALTER runs; on a re-run the column is
+  // present and this is a no-op. test/migration-idempotency.test.ts drives both
+  // shapes and asserts they converge.
+  {
+    const usersGraceCols = tableColumns(db, 'users');
+    if (!usersGraceCols.has('verify_grace_until')) {
+      db.exec('ALTER TABLE users ADD COLUMN verify_grace_until INTEGER');
+    }
+  }
+  // ── R-1 (2026-09-10): mobile_pairings.trial_user_id, NO BACKFILL ──────────
+  //
+  // The anonymous trial identity an UNSIGNED WEB pairing spends
+  // (auth/web-trial-identity.ts). Hand-written for the same reason as its
+  // neighbours: `ADDITIVE_INT_COLUMNS` emits integers, and this is a nullable
+  // TEXT foreign key.
+  //
+  // 🔴 THE `REFERENCES … ON DELETE SET NULL` IS THE STEP, not decoration.
+  // SQLite permits a REFERENCES clause on ADD COLUMN precisely because the
+  // default is NULL, and this column's whole existence is an argument about
+  // WHICH delete rule applies to a temporary identity: `user_id`'s CASCADE
+  // would let the 48-hour anonymous sweep delete the PAIRING, i.e. the
+  // desktop's never-duplicated web instance, two days after every visit. Both
+  // directions are pinned by test/web-trial-identity-fk.test.ts, which drives
+  // the sweep against a real database and asserts the row survives — and the
+  // reverse control there writes the identity into `user_id` instead and
+  // watches the pairing disappear.
+  //
+  // 🔴 NO BACKFILL, and the SIXTH different reason on this screen: there is
+  // nothing true to write. A pairing that predates this column was metered to
+  // the PC owner, and inventing an identity for it retroactively would create a
+  // users row for a session that is over. Rows that need one get it at their
+  // next admission, which is where the daily per-network sequence can still see
+  // them.
+  //
+  // ⚠️ DEPLOY ORDER (NR-22): adding a column stalls replica replication until
+  // BOTH nodes run this build. Writer first is wrong here for the same reason it
+  // is wrong everywhere else in this file — deploy the REPLICA first, then the
+  // writer.
+  //
+  // Idempotent by the same guard as its neighbours; test/migration-idempotency
+  // .test.ts drives the fresh and the upgraded shape and asserts they converge.
+  {
+    const pairingTrialCols = tableColumns(db, 'mobile_pairings');
+    if (!pairingTrialCols.has('trial_user_id')) {
+      db.exec('ALTER TABLE mobile_pairings ADD COLUMN trial_user_id TEXT REFERENCES users(id) ON DELETE SET NULL');
+    }
+  }
   // ── A2-5 (2026-08-12): usage_events.{transcript_chars,delivered_chars} ─────
   //
   // The THIRD hand-written step, and it is here rather than in
@@ -412,6 +496,55 @@ export function reconcileSchema(db: DatabaseSync): void {
     // at the DDL). The cascade census pins the FK count at one.
     if (!usageEventCols.has('refused_user_id')) {
       db.exec('ALTER TABLE usage_events ADD COLUMN refused_user_id TEXT');
+    }
+    // ── 2026-09-11 (card MP-6): payer_reason + speaker_ref, SAME BLOCK ───────
+    //
+    // 🔴 IN THIS BLOCK AND IN THIS ORDER for the reason stated two paragraphs
+    // up: `ADDITIVE_TEXT_COLUMNS` runs ~100 lines earlier, so on a database that
+    // predates several rounds it would append these BEFORE `refused_user_id`
+    // while a fresh `CREATE` appends them after — two shapes differing in column
+    // ORDER, which is exactly what 「the forward-ported usage_events is
+    // INDISTINGUISHABLE from a fresh one」 compares element by element.
+    //
+    // ⚠️ AND COLUMN ORDER IS LOAD-BEARING BEYOND THAT TEST ON A MULTI-NODE
+    // DEPLOYMENT: `node/replica-puller.ts` applies the writer's snapshot with
+    // `INSERT INTO main.t SELECT * FROM snap.t`, which maps BY POSITION (NR-22,
+    // still open). Two shapes that differ in order would land values in the
+    // wrong columns with no error at all.
+    //
+    // 🔴 NO BACKFILL, and here the reason is that the answer is not knowable:
+    // only the admission knows which branch of the payer rule chose an account,
+    // and stamping legacy rows 'self' would manufacture the exact claim these
+    // columns exist to make checkable. NULL says 「nobody recorded it」.
+    if (!usageEventCols.has('payer_reason')) {
+      db.exec('ALTER TABLE usage_events ADD COLUMN payer_reason TEXT');
+    }
+    // No `REFERENCES users(id)`: it can hold another account's id OR a device
+    // uid, and a second cascade into this table would let one account's deletion
+    // erase another's usage rows. Same argument as `refused_user_id` above.
+    if (!usageEventCols.has('speaker_ref')) {
+      db.exec('ALTER TABLE usage_events ADD COLUMN speaker_ref TEXT');
+    }
+    // ── 2026-09-11 (card MP-1): usage_events.integrator_key_id, SAME BLOCK ────
+    //
+    // 🔴 LAST IN THIS BLOCK, AND THE POSITION IS THE WHOLE REASON THE BLOCK
+    // EXISTS. A fresh CREATE (db/schema.ts) appends it after `speaker_ref`, so
+    // the forward-ported table only matches a fresh one if the ALTER order is
+    // the DDL order — and on a MULTI-NODE deployment column ORDER is not
+    // cosmetic: node/replica-puller.ts applies the writer's snapshot with
+    // `INSERT INTO main.t SELECT * FROM snap.t`, which maps BY POSITION.
+    //
+    // 🔴 AND THIS COLUMN NEEDS THE TWO NODES DEPLOYED IN ONE WINDOW (NR-22).
+    // That same positional copy compares column COUNT: a writer with 15 columns
+    // and a replica with 14 makes the statement throw, and because the pull is
+    // one transaction it rolls back EVERY table. Card MP-1's two NEW tables are
+    // free of that (an unknown table is skipped with a warning); this one
+    // column is not, and it is the only reason MP-1 has a deploy order at all.
+    //
+    // NO BACKFILL, for `payer_reason`'s reason: only the admission knows which
+    // key was presented, and NULL says 「nobody recorded it」.
+    if (!usageEventCols.has('integrator_key_id')) {
+      db.exec('ALTER TABLE usage_events ADD COLUMN integrator_key_id TEXT');
     }
   }
   // ── 2026-08-30 (gs-5): one_time_purchases.started_at, guarded ADD COLUMN ────
@@ -478,6 +611,42 @@ export function reconcileSchema(db: DatabaseSync): void {
   //     predicate out states the intent and keeps the index off those rows, so
   //     the migration cannot fail on a populated legacy database.
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pc_devices_pcid ON pc_devices(pcid) WHERE pcid IS NOT NULL');
+  // owner §10 (2026-09-11) — 「which trial identity is this browser」. Created
+  // here rather than beside the table's own DDL for the reason every index in
+  // this block is: on a database that predates the column the ALTER loop above
+  // has to have run first, and an index on a missing column is a hard error.
+  // UNIQUE + PARTIAL for the two reasons `idx_pc_devices_pcid` states just
+  // above — the guard must be the database's (the alternative, SELECT then
+  // INSERT, is a check-then-act) and every legacy row is NULL, so a populated
+  // database cannot fail this migration.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_trial_ledger_device ON trial_ledger(device_uid) WHERE device_uid IS NOT NULL');
+  // card S2-04b — the DB backstop behind `room/web-room.ts` `ensureWebRoom`'s
+  // one-room-per-account rule. Created here for the same reason as the two
+  // indexes above it: on a pre-S2-04 DB `room_kind` does not exist until the
+  // ALTER loop has run.
+  //
+  // 🔴 UNIQUE, and PARTIAL on `room_kind='web'`, and both halves are load-bearing
+  // for the SAME pair of reasons `idx_pc_devices_pcid` states just above:
+  //   · unique, because `ensureWebRoom`'s own header documents the account key
+  //     as THE identity this endpoint has to work with (the addendum's request
+  //     body carries nothing else) — two rows for one account would mean the
+  //     idempotent path has two candidates and no rule for which one is real.
+  //     `ensureWebRoom` already does a find-then-insert (its own header: "pure
+  //     over the deps ... no policy about who may call it"), and a find-then-
+  //     insert with nothing enforcing the invariant underneath it is a
+  //     check-then-act race with no lock behind it — the same sentence the
+  //     `pcid` index above justifies itself with. The in-process per-account
+  //     promise chain in `Registry.ensureWebRoom` (registry.ts) is the FAST
+  //     PATH that makes two such inserts unreachable within one writer process
+  //     (`admitCloudInstance`, two tables up, states the identical division of
+  //     labour for the cloud-instance row: "the partial unique index ... is
+  //     the DB backstop; the find-first-then-insert here is the fast path");
+  //   · partial, on `room_kind='web'` rather than covering every row, because
+  //     an ordinary desktop PC row's `user_id` is NOT unique — one account can
+  //     and does own several real computers, and a plain unique index on
+  //     `user_id` would make registering a second PC impossible for every
+  //     account that predates this change.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pc_devices_web_room_owner ON pc_devices(user_id) WHERE room_kind='web'");
 }
 
 export function openDatabase(dbPath: string): DatabaseSync {
@@ -511,6 +680,8 @@ export function createDbConnection(
     // three layers down that no test could ever see or control.
     usage: makeUsageRepo(db, opts.now),
     usageEvents: makeUsageEventsRepo(db),
+    trials: makeTrialLedgerRepo(db),
+    integratorKeys: makeIntegratorKeyRepo(db),
     recoveryOps: makeRecoveryOperationsRepo(db),
     usageEffects: makeUsageEffectLedger(db),
     siteCounts: makeSiteCountsRepo(db),

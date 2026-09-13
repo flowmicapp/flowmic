@@ -28,7 +28,7 @@
 // seconds later. Not a failure — a success that was not true, which is the exact
 // shape this repo keeps paying for.
 
-import type { UsageTracker, EngineUsageMeta } from '../billing/usage-tracker';
+import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 import type { ReplicaOutbox } from '../db/replica-outbox';
@@ -110,7 +110,7 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
     // records that will be dropped are cheap; a divergence is not.
     recordSttUsage(
       user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
-      operation_id?: string,
+      principal: MeteredPrincipalRef, operation_id?: string,
     ): void {
       // PR-2 — a deterministic id ONLY when there is an operation to derive it
       // from. No operation ⇒ `newId()`, i.e. today's behaviour byte for byte:
@@ -119,6 +119,14 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
       owe(
         {
           kind: 'usage.stt', user_id, engine, duration_ms, chars,
+          // card MP-6 — WHY this account and WHO spoke travel with the call, for
+          // the reason nothing else on this record is re-derived on the writer:
+          // both facts belong to the SOCKET this replica admitted, and the
+          // writer never saw it. Spread-or-nothing so an admission that recorded
+          // neither sends no field rather than an empty object the writer would
+          // have to interpret.
+          ...(principal.payer_reason === undefined && principal.speaker_ref === undefined
+            && principal.cap_user_id === undefined && principal.integrator_key_id === undefined ? {} : { principal }),
           // Audit F1 — the operation travels in the BODY too, not only in the
           // record id. The id dedupes this LEG (one replica, one queue); the
           // body is what lets the writer take the `usage_effects` claim that
@@ -132,19 +140,30 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
     },
     recordLlmUsage(
       user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
-      operation_id?: string,
+      principal: MeteredPrincipalRef, operation_id?: string,
     ): void {
       owe(
         {
           kind: 'usage.llm', user_id, engine, tokens_in, tokens_out,
+          // card MP-9 — WHY this account and WHO spoke travel with the call, for
+          // the same reason the STT leg above states: both facts belong to the
+          // SOCKET this replica admitted, and the writer never saw it.
+          ...(principal.payer_reason === undefined && principal.speaker_ref === undefined
+            && principal.cap_user_id === undefined && principal.integrator_key_id === undefined ? {} : { principal }),
           ...(operation_id === undefined ? {} : { operation_id }),
         },
         operation_id === undefined ? undefined
           : operationRecordId(user_id, operation_id, 'llm', engine.is_byok),
       );
     },
-    recordQuotaRefusal(user_id: string, kind: UsageEventKind, refused_user_id: string): void {
-      owe({ kind: 'usage.quota_refused', user_id, event_kind: kind, refused_user_id });
+    recordQuotaRefusal(
+      user_id: string, kind: UsageEventKind, refused_user_id: string, principal: MeteredPrincipalRef,
+    ): void {
+      owe({
+        kind: 'usage.quota_refused', user_id, event_kind: kind, refused_user_id,
+        ...(principal.payer_reason === undefined && principal.speaker_ref === undefined
+          ? {} : { principal }),
+      });
     },
   };
 }

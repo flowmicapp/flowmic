@@ -101,26 +101,139 @@ export function terminalFrameWindowMs(relFile, name) {
 }
 
 // ── real-server client helpers ──
+// ⚠️ `opts.headers` STOOD HERE (card R-1 / G29) AND IS GONE (card MP-6). It sent
+// `x-forwarded-for` so a golden could dial from two apparent networks, and its
+// only caller was G29 — retired when owner §11 removed the behaviour it proved.
+// The per-network daily sequence it existed for had already been replaced by
+// owner §10's per-browser lifetime grant; what still reads the IP bucket is the
+// site demo's ABUSE caps, and no golden drives those. Kept as this note rather
+// than as a parameter nothing passes: an option with no caller is the shape this
+// repo hunts for, and a future golden that needs it can read the argument here
+// (the relay honours `x-forwarded-for` only when the peer is in
+// `FLOWMIC_TRUSTED_PROXIES`, so the header exercises the production derivation
+// rather than a stub of it).
+// 🔴 THE THREE WINDOWS BELOW WERE 3 000 ms AND ARE NOW THE LIVENESS CEILING
+// (2026-09-12). None of them is a race: a REFUSED connection rejects on
+// `connect_error` immediately and a refused emit answers its ack, so the only
+// thing a timeout here can ever mean is 「the relay never answered at all」.
+// That was a 3 s bet on how loaded the box is, and under `verify:delivery:fast`
+// it lost — G12 failed the whole GOLDEN lane with 「threw: connect timeout」
+// while five other lanes were compiling. Raising a window that decides a
+// LIVENESS question is not the same move as raising one that decides a RACE;
+// the block above LIVENESS_CEILING_MS is the rule for telling them apart, and
+// every genuinely racy wait in this suite was converted to a fact instead.
 export function connect(url, auth = {}) {
-  const socket = ioClient(url, { transports: ['websocket'], auth, forceNew: true, reconnection: false });
+  const socket = ioClient(url, {
+    transports: ['websocket'], auth, forceNew: true, reconnection: false,
+  });
   return new Promise((resolve, reject) => {
     socket.on('connect', () => resolve(socket));
     socket.on('connect_error', reject);
-    setTimeout(() => reject(new Error('connect timeout')), 3000);
+    setTimeout(() => reject(new Error(`connect timeout (${LIVENESS_CEILING_MS}ms liveness ceiling)`)), LIVENESS_CEILING_MS);
   });
 }
 export function ack(socket, event, payload) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${event} ack timeout`)), 3000);
+    const t = setTimeout(() => reject(new Error(`${event} ack timeout (${LIVENESS_CEILING_MS}ms liveness ceiling)`)), LIVENESS_CEILING_MS);
     socket.emit(event, payload, (r) => { clearTimeout(t); resolve(r); });
   });
 }
-export function once(socket, event, ms = 3000) {
+export function once(socket, event, ms = LIVENESS_CEILING_MS) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`${event} timeout`)), ms);
     socket.once(event, (d) => { clearTimeout(t); resolve(d); });
   });
 }
+/** How long any golden may wait for the relay to do a thing AT ALL.
+ *
+ *  🔴 A CEILING IS NOT A RACE WINDOW, and keeping the two apart is the whole
+ *  point of this block. Before 2026-09-12 the goldens said `await sleep(250)`
+ *  (or 600, or 700, or `once(…, 3000)`) in front of an assertion, and that ONE
+ *  constant was doing TWO jobs: giving the thing time to HAPPEN, and — for the
+ *  `!== 1` assertions — giving a DUPLICATE of it time to show up. Under
+ *  `verify:delivery:fast` six lanes share the box, the first job grew, and it
+ *  ate the second: G26 and G13 went red on a correct relay. That is CLAUDE.md's
+ *  CE-6b shape verbatim — two hardcoded time constants racing — and the fix is
+ *  never a bigger constant.
+ *
+ *  So the two jobs get two budgets, and only one of them is a clock the machine
+ *  can spend:
+ *    · [waitUntil] settles THE INSTANT the fact is true and gives up only here.
+ *      Reaching this means one thing and the callers print it as one thing:
+ *      the relay never did it at all.
+ *    · the settle window in [settleAfter] is counted FROM THE MOMENT THE FACT
+ *      ARRIVED, so a loaded machine cannot spend it on waiting. It covers only
+ *      a second frame emitted in a LATER turn than the one we saw. (A duplicate
+ *      queued in the SAME turn is already delivered before the next poll, so it
+ *      is caught either way.)
+ *
+ *  ⚠️ THE ASYMMETRY THAT DECIDES WHERE EACH ONE GOES. A NEGATIVE assertion
+ *  ("PC-B got nothing") is never made false by waiting longer, so a fixed
+ *  window is safe for it. A POSITIVE one — including every probe-is-not-blind
+ *  control — IS made false by waiting too little. Only the positives were ever
+ *  fragile, and only they were converted. */
+export const LIVENESS_CEILING_MS = 30_000;
+
+/** Resolve the moment `pred()` holds; throw naming `what` at `ceilingMs`. */
+export async function waitUntil(pred, what, ceilingMs = LIVENESS_CEILING_MS) {
+  const deadline = Date.now() + ceilingMs;
+  for (;;) {
+    if (pred()) return;
+    if (Date.now() > deadline) {
+      throw new Error(`${what} never happened within ${ceilingMs}ms (liveness ceiling, not a race window)`);
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+/** Replaces the `sleep(n)` that used to stand in front of an assertion: wait
+ *  for the fact, then give a duplicate (or a silence) its own untouched window.
+ *
+ *  🔴 IT SWALLOWS THE CEILING ON PURPOSE. The assertion underneath is the judge
+ *  and its wording is the diagnosis the golden was written to print; throwing
+ *  here would replace a sentence naming the product defect with one naming a
+ *  timer. */
+export async function settleAfter(pred, what, settleMs, ceilingMs = LIVENESS_CEILING_MS) {
+  try {
+    await waitUntil(pred, what, ceilingMs);
+  } catch {
+    // The assertion below reports this in the product's own words.
+  }
+  await new Promise((r) => setTimeout(r, settleMs));
+}
+
+/** Like [once], but waits for the frame that MATCHES — and its `ms` is a
+ *  LIVENESS CEILING, not a race window.
+ *
+ *  🔴 WHY THIS EXISTS (2026-09-12). `once(socket, 'inject:result', 3000)` was
+ *  standing in for two different questions at once: 「has the answer arrived
+ *  yet」 and 「is this the answer to MY frame」. With two frames in flight the
+ *  first answer satisfied the first waiter whatever it was about, and a 3 s
+ *  window had to cover a cold machine as well — under the parallel lane gate it
+ *  did not, and G13 reported a red line breach (「a mis-addressed frame was
+ *  dropped WITHOUT a verdict」) on a correct relay. Same CE-6b shape CLAUDE.md
+ *  records: a fixed timeout racing a fixed wait, fixed by asking the right
+ *  question, never by a bigger number.
+ *
+ *  Matching on a correlation id makes the answer identifiable; the ceiling is
+ *  then only reached when the relay answered NOTHING, which is a different
+ *  sentence and the callers print it as one. */
+export function onceMatching(socket, event, match, ms, what = event) {
+  return new Promise((resolve, reject) => {
+    const h = (d) => {
+      if (!match(d)) return;
+      clearTimeout(t);
+      socket.off(event, h);
+      resolve(d);
+    };
+    const t = setTimeout(() => {
+      socket.off(event, h);
+      reject(new Error(`no ${what} within ${ms}ms (liveness ceiling, not a race window)`));
+    }, ms);
+    socket.on(event, h);
+  });
+}
+
 export function neverWithin(socket, event, ms) {
   return new Promise((resolve) => {
     let fired = false;

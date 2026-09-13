@@ -37,7 +37,7 @@ class FakeSocket {
   }
 }
 
-const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
 const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 // A trivial STT orchestrator so audio:start acks ok:true (the fan-out itself is
 // independent of this — it fires BEFORE the sttFactory, after the quota gate).

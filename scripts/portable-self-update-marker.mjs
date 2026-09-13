@@ -65,7 +65,7 @@
 //
 //   [measured]  Rust `&'static str` constants of exactly this kind DO survive
 //               into the release exe. `inject:request` is declared
-//               `pub const INJECT_REQUEST: &str` (src/events.rs:86) and scores 7
+//               `pub const INJECT_REQUEST: &str` (src/events.rs:105) and scores 7
 //               hits in the real 0.2.59 exe above. So the class of string this
 //               gate looks for is demonstrably reachable by a UTF-8 byte scan.
 //   [inferred]  APPLY_UPDATE_ARG (src/update/apply_arg.rs:47) is reachable from

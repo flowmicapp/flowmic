@@ -13,15 +13,33 @@
 //   2. Copies the produced flowmic_events.g.dart into apps/mobile/lib/generated/
 //      (both are gitignored `*.g.dart`; the SCRIPT is committed, the PRODUCT is
 //      not — same policy as the protocol package).
-//   3. Derives PROTOCOL_SCHEMA_VERSION and LEGACY_SAAS_ENDPOINTS from
+//   3. Derives PROTOCOL_SCHEMA_VERSION, LEGACY_SAAS_ENDPOINTS and the https
+//      pairing prefix (PAIR_HTTPS_HOST + PAIR_HTTPS_PATH) from
 //      packages/protocol/src/constants.ts into flowmic_protocol.g.dart, so the
-//      handshake schema_ver and the retired-relay list are ALSO generated (no
-//      hand-mirrored integer — the legacy kProtocolSchemaVersion was a manual
-//      mirror; this closes that seam too).
+//      handshake schema_ver, the retired-relay list and the one URL prefix the
+//      camera accepts are ALSO generated (no hand-mirrored integer — the legacy
+//      kProtocolSchemaVersion was a manual mirror; this closes that seam too).
 //
 // Usage (from anywhere): node apps/mobile/tool/gen_protocol.mjs
 // Convenience wrappers: apps/mobile/Makefile (`make gen`), and the pnpm script
 // `@flowmic/protocol codegen:dart` covers step 1 alone.
+//
+// ── 🔴 WHAT GUARANTEES FRESHNESS, AND WHAT DOES NOT ────────────────────────
+// The output is `*.g.dart` and therefore GITIGNORED, so nothing in the repo can
+// hold a stale COMMITTED copy. Freshness comes from `make gen` being a
+// prerequisite of every target that compiles Dart (apps/mobile/Makefile: `gen`
+// is a dependency of analyze / test / gate-test / build / release /
+// release-store / release-ios), and `pnpm verify:mobile-tests` is
+// `make -C apps/mobile gate-test`.
+//
+// It does NOT come from a lint. `verify/lint/i18n-generated-fresh.mjs` runs the
+// i18n generators' own `--check` modes and this script is deliberately NOT in
+// its GENERATORS table — it has no `--check` mode, and adding one that nothing
+// calls is the façade that file's header warns about. Consequence, stated
+// plainly: editing packages/protocol/src/constants.ts and NOT re-running this
+// generator is invisible to `pnpm verify:lint`. It becomes visible the moment
+// anything compiles or tests the mobile app, which is the only moment the stale
+// value could reach a user.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
@@ -89,10 +107,79 @@ function readLegacySaasEndpoints() {
   return [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).filter((v) => v.length > 0);
 }
 
-function writeProtocolConsts(schemaVersion, retiredEndpoints) {
+/**
+ * Compose the ONE https pairing prefix from `PAIR_HTTPS_HOST` +
+ * `PAIR_HTTPS_PATH` — the same two constants the desktop QR builder imports
+ * (apps/desktop/src/lib/pairing.ts `buildHttpsQrPayload`) and the same two the
+ * OS declarations are checked against (verify/lint/applink-declarations.mjs).
+ *
+ * 🔴 WHY THIS RIDES THE GENERATOR. Dart cannot import TypeScript, so the phone
+ * used to spell the whole prefix by hand in lib/src/ui/scan_payload.dart and a
+ * lint compared the two literals. Two hand-written copies plus a comparison is
+ * one copy more than the product needs: a phone whose prefix still says `/pair`
+ * while the desktop prints `/go/pair` refuses every QR it is handed — on the
+ * right host, with both sides' own tests green. Generating the Dart side makes
+ * disagreement unrepresentable rather than detectable.
+ *
+ * 🔴 IT THROWS WHEN EITHER DECLARATION IS GONE. A rename would otherwise emit
+ * a prefix built from nothing, and the mobile tree would compile against a URL
+ * no operating system was ever told about. Same direction as
+ * `readLegacySaasEndpoints`: missing declaration = hard failure of every mobile
+ * build, not a quiet default.
+ *
+ * ⚠️ THE SHAPE CHECK IS PART OF THE CONTRACT, not defensive noise. This
+ * function CONCATENATES, and so do `buildHttpsQrPayload`
+ * (apps/desktop/src/lib/pairing.ts) and `webRoomPairUrl`
+ * (apps/server-core/src/http/web-room-routes.ts). A path without a leading
+ * slash, or with a trailing one, builds a URL nobody declared to either
+ * operating system. This check used to live in the lint that compared the two
+ * literals (now verify/lint/pair-link-single-source.mjs); it moved here with
+ * the composition.
+ */
+function readPairHttpsPrefix() {
+  const src = readFileSync(CONSTANTS_TS, 'utf8');
+
+  const hostM = src.match(/export\s+const\s+PAIR_HTTPS_HOST\s*=\s*'([^']+)'\s*;/);
+  if (!hostM) {
+    throw new Error(
+      'PAIR_HTTPS_HOST is not declared as a plain string literal in '
+        + 'packages/protocol/src/constants.ts — renamed, moved or computed. '
+        + 'The mobile pairing prefix is generated from it; update this parser.',
+    );
+  }
+  const pathM = src.match(/export\s+const\s+PAIR_HTTPS_PATH\s*=\s*'([^']+)'\s*;/);
+  if (!pathM) {
+    throw new Error(
+      'PAIR_HTTPS_PATH is not declared as a plain string literal in '
+        + 'packages/protocol/src/constants.ts — renamed, moved or computed. '
+        + 'The mobile pairing prefix is generated from it; update this parser.',
+    );
+  }
+
+  const host = hostM[1];
+  const linkPath = pathM[1];
+  if (/[\s/:]/.test(host)) {
+    throw new Error(
+      `PAIR_HTTPS_HOST='${host}' is not a bare host — no scheme, no slash, no colon, `
+        + 'no whitespace. This generator prepends `https://` to it.',
+    );
+  }
+  if (!linkPath.startsWith('/') || linkPath.endsWith('/')) {
+    throw new Error(
+      `PAIR_HTTPS_PATH='${linkPath}' is not a bare path — it needs a leading slash and no `
+        + 'trailing one, because this generator (and the desktop builder, and the relay\'s '
+        + 'web-room pair_url) all CONCATENATE it after the host.',
+    );
+  }
+
+  return { host, path: linkPath };
+}
+
+function writeProtocolConsts(schemaVersion, retiredEndpoints, pairLink) {
   const dart = `// GENERATED — DO NOT EDIT BY HAND.
 // Source: packages/protocol/src/constants.ts
-//   (PROTOCOL_SCHEMA_VERSION, LEGACY_SAAS_ENDPOINTS)
+//   (PROTOCOL_SCHEMA_VERSION, LEGACY_SAAS_ENDPOINTS,
+//    PAIR_HTTPS_HOST + PAIR_HTTPS_PATH)
 // Regenerate: node apps/mobile/tool/gen_protocol.mjs
 //
 // ignore_for_file: constant_identifier_names
@@ -126,6 +213,35 @@ class FlowMicRelayEndpoints {
   static const List<String> retired = <String>[
 ${retiredEndpoints.map((e) => `    '${dartStr(e)}',`).join('\n')}
   ];
+}
+
+/// The https form of the pairing link, generated from \`PAIR_HTTPS_HOST\` +
+/// \`PAIR_HTTPS_PATH\`.
+///
+/// 🔴 THE ONE Dart spelling. \`kPairLinkPrefixHttps\` (src/ui/scan_payload.dart)
+/// is this value; \`PairEntry.parse\` (src/signaling/wire_payloads.dart) and the
+/// paste gate (src/ui/add_pairing_sheet.dart) go through that constant. Nothing
+/// in \`apps/mobile/lib\` may re-type the prefix —
+/// \`verify:lint pair-link-single-source\` scans for exactly that.
+///
+/// 🔴 THE APEX, NOT \`www.\` (card DOM-1, owner ruling 2026-09-08). iOS Universal
+/// Links do not follow redirects, so the host in a scanned link has to be one
+/// the app declared (\`applinks:flowmic.app\`); \`www.\` is a different host and
+/// opens Safari. The \`www\` -> apex 301 at the edge serves links a person typed;
+/// it is deliberately not a second prefix here.
+class FlowMicPairLink {
+  FlowMicPairLink._();
+
+  /// Host half (\`PAIR_HTTPS_HOST\`) — the one host declared to both operating
+  /// systems (android/app/src/main/AndroidManifest.xml, ios/Runner/
+  /// Runner.entitlements; pinned by verify/lint/applink-declarations.mjs).
+  static const String host = '${dartStr(pairLink.host)}';
+
+  /// Path half (\`PAIR_HTTPS_PATH\`). Bare path: leading slash, no trailing one.
+  static const String path = '${dartStr(pairLink.path)}';
+
+  /// What a scanned link must start with to be ours.
+  static const String httpsPrefix = 'https://\$host\$path';
 }
 `;
   writeFileSync(join(OUT_DIR, 'flowmic_protocol.g.dart'), dart, 'utf8');
@@ -301,10 +417,12 @@ function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   copyFileSync(EVENTS_G, join(OUT_DIR, 'flowmic_events.g.dart'));
   const retired = readLegacySaasEndpoints();
-  writeProtocolConsts(readSchemaVersion(), retired);
+  const pairLink = readPairHttpsPrefix();
+  writeProtocolConsts(readSchemaVersion(), retired, pairLink);
   const s = writeSettingsConsts();
   console.log(
     `gen_protocol: events + schema + retired-relays(${retired.length})`
+      + ` + pair-link(https://${pairLink.host}${pairLink.path})`
       + ` + settings(${s.keys} keys, ${s.packs} packs) -> ${OUT_DIR}`,
   );
 }

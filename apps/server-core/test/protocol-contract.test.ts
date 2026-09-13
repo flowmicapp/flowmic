@@ -10,7 +10,7 @@ describe('event whitelist', () => {
   // 55 → 56 (R6 T-8): `pc:list-mobiles`. 56 → 57 (GA-14, owner-approved
   // 2026-07-26): `stt:refined` — the late second-pass transcript, which could
   // not be an additive field (see events.ts for why).
-  it('locks the canonical 55-event whitelist', () => {
+  it('locks the canonical 57-event whitelist', () => {
     // 57 → 58: `mobile:unpair` (owner approved 2026-07-29). 58 → 54: the
     // 2026-07-31 stage-5 deletion of four names with no sender AND no receiver.
     // Rationale in packages/protocol/test/events-count.test.ts, the primary guard.
@@ -28,7 +28,18 @@ describe('event whitelist', () => {
     // this repo keeps relearning: a constant copied into a place that does not own
     // it goes red for reasons that have nothing to do with its subject, and the
     // person who bumps it learns nothing.
-    expect(EVENT_NAMES.length).toBe(55);
+    //
+    // 55 → 56 (card S2-02, owner approved 2026-09-06): `billing:budget` — how
+    // much of the account's transcription budget is left, and when it comes
+    // back. Rationale, as the note above says, lives in the primary guard
+    // (packages/protocol/test/events-count.test.ts), not here.
+    //
+    // 56 → 57 (card MP-14, owner approved 2026-09-11): `control:key-result`.
+    // Rationale, as the note above says, lives in the primary guard
+    // (packages/protocol/test/events-count.test.ts), not here.
+    expect(EVENT_NAMES.length).toBe(57);
+    expect(isKnownEvent('billing:budget')).toBe(true);
+    expect(isKnownEvent('control:key-result')).toBe(true);
     expect(isKnownEvent('audio:start')).toBe(true);
     expect(isKnownEvent('pc:list-mobiles')).toBe(true);
     expect(isKnownEvent('stt:refined')).toBe(true);

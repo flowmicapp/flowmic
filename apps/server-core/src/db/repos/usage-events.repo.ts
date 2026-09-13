@@ -42,6 +42,7 @@
 // operator has to be able to see from the one file that announces it.
 
 import type { DatabaseSync } from 'node:sqlite';
+import type { PayerReason } from '../../auth/metering-principal';
 
 /** Which metered resource this event is about. The SAME two values as
  *  `QuotaKind` (billing/quota-guard.ts) — a third word for the same idea is how
@@ -136,6 +137,47 @@ export interface UsageEventInput {
    * is NOT "the acting account" — that inference is the defect.
    */
   refused_user_id?: string | null;
+  /**
+   * card MP-6 — WHY these seconds landed on `user_id`: which branch of
+   * `auth/metering-principal.ts` `resolvePayer` chose it.
+   *
+   * 🔴 A DIFFERENT QUESTION FROM `user_id`, exactly as `refused_user_id` is:
+   * that column says whose ledger MOVED, this says WHY it was that ledger. The
+   * same account appears with two different reasons for two different situations
+   * — its owner recording ('self') and an unsigned guest spending the owner's
+   * allowance ('peer') — and 「is somebody else using my minutes」 is unanswerable
+   * without it.
+   *
+   * Omit (or `null`) for 「this admission did not record it」: an `AuthContext`
+   * stamped before this card, or one stamped by a path that is not the payer
+   * rule. `null` is NOT 'self' — that inference is the defect.
+   */
+  payer_reason?: PayerReason | null;
+  /**
+   * card MP-6 — WHO SPOKE. The speaker's `users.id` when signed in, otherwise
+   * the browser/device identity (`mobile_pairings.device_uid`).
+   *
+   * 🔴 NEVER AN EMAIL AND NEVER A NAME. This table's column list is the privacy
+   * whitelist (db/schema.ts), and the value stored here is an opaque id the
+   * schema already holds elsewhere; it adds no new fact about a person. It is
+   * what makes 「one browser cannot drink the site demo's month」 auditable after
+   * the fact.
+   */
+  speaker_ref?: string | null;
+  /**
+   * card MP-1 — WHICH publishable key's sub-quota these seconds spent, on a row
+   * whose `payer_reason` is `'host'`.
+   *
+   * 🔴 IT IS NOT A SECOND SPELLING OF `user_id`. That column names the
+   * integrator T, who may hold several keys on several pages; this one names the
+   * page. Without it 「which of my integrations burned the month」 is a question
+   * the ledger cannot answer, and the sub-quota an operator sets per key would
+   * be enforceable but not auditable.
+   *
+   * Omit (or `null`) for every other row: 「this recording spent no key's
+   * sub-quota」, which is a statement and not a gap.
+   */
+  integrator_key_id?: string | null;
 }
 
 /** One row, as it is read back. `channel` is `string | null` rather than the
@@ -159,6 +201,17 @@ export interface UsageEventRow {
    *  AS `null` — a surface that renders it as 0 has invented a measurement. */
   transcript_chars: number | null;
   delivered_chars: number | null;
+  // 🔴 `payer_reason` AND `speaker_ref` ARE STORED AND DELIBERATELY NOT READ
+  // BACK HERE EITHER (card MP-6), and for the two halves of the reason below.
+  // `speaker_ref` can be ANOTHER end's identity — a guest's browser uid on a
+  // desktop owner's row — so returning it verbatim from
+  // `GET /api/cloud/usage/events` would hand one party an identifier for
+  // another. `payer_reason` is not a disclosure, but what a user needs told is a
+  // rendered sentence in nine locales (「a guest used your allowance」), not a
+  // raw enum, and that is a product decision this storage card does not get to
+  // make by side effect. Registered as the follow-up rather than smuggled onto
+  // the wire.
+  //
   // 🔴 `refused_user_id` IS STORED AND IS DELIBERATELY NOT READ BACK HERE
   // (2026-08-17). This interface is the wire shape of BOTH read surfaces —
   // `GET /api/cloud/usage/events` returns these rows verbatim to the account
@@ -222,6 +275,30 @@ export interface UsageEventsRepo {
   /** Delete this account's events older than `cutoffMs` (exclusive). Returns
    *  how many rows went. The retention leg — see db/retention.ts. */
   purgeOlderThan(user_id: string, cutoffMs: number): number;
+  /**
+   * card MP-12 — 「how many presses did each of this account's site keys turn
+   * away inside this window」, keyed by `integrator_key_id`.
+   *
+   * 🔴 A COUNT AND NOT A PAGE, deliberately. `listForUser` above already returns
+   * these rows, and the console could tally them itself — over up to
+   * `USAGE_EVENTS_PAGE_MAX` rows per page, paging until it ran out, to render
+   * one integer per key. The aggregate is the question the console actually
+   * asks, and answering it in SQL is what keeps a key list from becoming a
+   * ledger walk.
+   *
+   * 🔴 IT RETURNS NO ROW CONTENT, and that is the reason it can exist at all:
+   * `UsageEventRow`'s header records why `speaker_ref` may not be read back to
+   * an account (it can be ANOTHER end's identity — a visitor's browser uid).
+   * A count of refusals per key discloses nothing about who was refused.
+   *
+   * Keys with no refusals are ABSENT from the map rather than present with 0 —
+   * the caller knows which keys it asked about and 0 is its own default; a
+   * zero-filled map here would need this layer to be told the key list, which
+   * it has no reason to hold.
+   *
+   * Half-open `[fromMs, toMs)`, the same convention as `UsageEventQuery`.
+   */
+  countRefusalsByKey(user_id: string, fromMs: number, toMs: number): Map<string, number>;
 }
 
 function toRow(r: Record<string, unknown>): UsageEventRow {
@@ -279,8 +356,9 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO usage_events
        (user_id, occurred_at, kind, stt_ms, tokens_in, tokens_out, is_byok, channel, outcome,
-        transcript_chars, delivered_chars, refused_user_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        transcript_chars, delivered_chars, refused_user_id, payer_reason, speaker_ref,
+        integrator_key_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   // Two statements rather than one with an `id > 0` sentinel: 0 happens to sort
   // below every AUTOINCREMENT rowid, but that is an assumption about the key
@@ -303,6 +381,23 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
   const purgeStmt = db.prepare('DELETE FROM usage_events WHERE user_id=? AND occurred_at<?');
   const countStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM usage_events WHERE user_id=? AND occurred_at<?',
+  );
+  // card MP-12. `outcome='quota_refused'` is the literal `recordQuotaRefusal`
+  // writes (billing/usage-tracker.ts) and `UsageEventOutcome` types — asked as a
+  // value rather than 「every row that is not ok」, so a third outcome added later
+  // does not silently join this tally.
+  //
+  // ⚠️ `integrator_key_id IS NOT NULL` is what keeps this about SITE keys: the
+  // same account's own refusals (its phone, its desktop) carry no key and are
+  // not this question's subject.
+  //
+  // Rides the existing `idx_usage_events_user_seq` (user_id, id) exactly as
+  // `listForUser` does — same account, same kind of window, same cost.
+  const refusalsByKeyStmt = db.prepare(
+    `SELECT integrator_key_id AS key_id, COUNT(*) AS n FROM usage_events
+      WHERE user_id=? AND occurred_at>=? AND occurred_at<?
+        AND outcome='quota_refused' AND integrator_key_id IS NOT NULL
+      GROUP BY integrator_key_id`,
   );
   return {
     append(input): number {
@@ -332,6 +427,16 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
         // `input.user_id`. An absent value means the caller did not know whose
         // quota refused, and the one thing this column must never do is guess.
         input.refused_user_id ?? null,
+        // 🔴 `?? null` and nothing else, the same discipline as the line above:
+        // no coercion, no substitution of a default. An absent reason means the
+        // admission did not record one, and the one thing these columns must
+        // never do is guess which branch was taken or who was holding the
+        // microphone.
+        input.payer_reason ?? null,
+        input.speaker_ref ?? null,
+        // Same discipline again (card MP-1): `?? null`, no coercion. An absent
+        // key means this recording spent nobody's sub-quota.
+        input.integrator_key_id ?? null,
       );
       return Number(info.lastInsertRowid);
     },
@@ -353,6 +458,13 @@ export function makeUsageEventsRepo(db: DatabaseSync): UsageEventsRepo {
       const rows = raw.slice(0, limit);
       const last = rows[rows.length - 1];
       return { rows, next_after_id: last ? last.id : null };
+    },
+    countRefusalsByKey(user_id, fromMs, toMs): Map<string, number> {
+      const out = new Map<string, number>();
+      for (const r of refusalsByKeyStmt.all(user_id, Math.round(fromMs), Math.round(toMs)) as Record<string, unknown>[]) {
+        out.set(r.key_id as string, toNum(r.n));
+      }
+      return out;
     },
     purgeOlderThan(user_id, cutoffMs): number {
       // COUNT first: node:sqlite's `changes` is reliable here, but the sweep

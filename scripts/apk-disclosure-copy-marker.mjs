@@ -60,7 +60,12 @@
 // answering two questions, the headline bug shape. It stays in the report
 // object so an operator still sees the count; the blind verdict rests only
 // on markers present in EVERY FlowMic mobile build:
-//   UTF-16LE: 这一页说清, 局域网
+//   UTF-16LE: 配对, 断开   (was 这一页说清, 局域网 until 2026-09-11 — see the
+//                          note at APK_DISCLOSURE_CONTROL_UTF16LE for why a
+//                          control may not be disclosure copy, nor a substring
+//                          of a marker. The measurement table above is left as
+//                          it was taken; it is a dated reading, not a claim
+//                          about today's control list.)
 //   UTF-8:    mobile:reconnect
 //
 // Three outcomes, three diagnoses, three actions:
@@ -126,10 +131,26 @@ refuseDirectRun(
 // the relay IS TLS, and the current reading is on the phone's 「连接加密」 screen
 // — that last clause being the one that keeps the sentence from asserting a
 // value `FLOWMIC_LAN_TLS=0` could still change underneath it.
+// 🔴 REPOINTED AGAIN 2026-09-11, AND THE SAME QUESTION WAS ASKED FIRST:
+// 「did the CLAIM survive」, not 「which sentences exist now」. The zh-CN copy
+// rewrite (0cd113bb / 8420cf7a, accepted by the owner) rewrote `discStep4Body`
+// wholesale, so all three 2026-09-07 canaries went to 0 in
+// i18n/mobile/zh-CN.json. Measured before repointing: every claim they stood
+// for is still made, in one new sentence of that same key —
+//   「经本地局域网加密通道或 TLS 云端安全中继传输，文本直接注入已配对电脑的
+//     前台焦点输入框。中继转发即焚，不保留任何内容；当前连接安全状态可在
+//     「连接加密」中查看。」
+//   · the own-network leg IS encrypted   → 「本地局域网加密通道」
+//   · the relay IS TLS                   → 「TLS 云端安全中继」
+//   · the current reading is on the phone→ 「当前连接安全状态可在」
+// Each of the three is 1× in the catalogue (measured 2026-09-11), i.e. it
+// occurs nowhere else by accident. That last clause is still the one that keeps
+// the sentence from asserting a value `FLOWMIC_LAN_TLS=0` could change
+// underneath it, so it stays a canary. This commit changed NO copy.
 export const APK_DISCLOSURE_NEW_MARKERS = Object.freeze([
-  '这条连接是加密的',
-  '中继一律走 TLS',
-  '当前状态见这台手机上的',
+  '本地局域网加密通道',
+  'TLS 云端安全中继',
+  '当前连接安全状态可在',
 ]);
 
 /** Pre-rewrite phrases that must ALL be absent (UTF-16LE in libapp.so). */
@@ -140,9 +161,28 @@ export const APK_DISCLOSURE_OLD_MARKERS = Object.freeze([
 ]);
 
 /** UTF-16LE controls — prove the Chinese-string scan can see Dart constants. */
+// 🔴 CONTROLS REPOINTED 2026-09-11, and this one is a correction, not a move.
+// 「这一页说清」 was a phrase of the disclosure page ITSELF, i.e. of the very
+// copy this gate watches. When the 2026-09-11 rewrite landed it went to 0 —
+// and a control at 0 makes the scanner answer 'scanner-blind' ("my ruler is
+// broken") for what is really "the copy changed". One value answering two
+// questions, the headline bug shape, sitting inside the ruler. The replacement
+// controls are ordinary product vocabulary that no disclosure rewrite touches:
+// 「配对」 (59× in i18n/mobile/zh-CN.json, measured 2026-09-11) and 「断开」
+// (13×). Neither is a SUBSTRING of any marker above — that is a hard
+// requirement, not taste: 「局域网」 (16×, long-lived, the obvious candidate)
+// lives inside the marker 「本地局域网加密通道」, so its count would rise and
+// fall with the thing it is supposed to be independent of, which is exactly
+// the coupling a control exists to avoid.
+// Measured on real bytes, not only in the catalogue — dev-pc-a,
+// 2026-09-11, publish/FlowMic-0.3.81-release.apk (which predates the copy
+// rewrite): 「配对」×159, 「断开」×39, mobile:reconnect×3, all three new markers
+// ×0 ⇒ verdict 'copy-stale'. That is the correct verdict for that APK, and it
+// is only reachable because the controls survived a copy they have nothing to
+// do with.
 export const APK_DISCLOSURE_CONTROL_UTF16LE = Object.freeze([
-  '这一页说清',
-  '局域网',
+  '配对',
+  '断开',
 ]);
 
 /** UTF-8 control — prove the ASCII scan can see Dart constants at all. */

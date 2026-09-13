@@ -39,7 +39,7 @@ class FakeSocket {
   received(event: string): unknown[] { return this.emitted.filter((e) => e.event === event).map((e) => e.payload); }
 }
 
-const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
 const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 const stubOrchestrator = { pushChunk() {}, finish: async () => {}, dispose() {} };
 const emptyCompose: ComposeOrchestrator = { async *run() { /* no deltas */ } };

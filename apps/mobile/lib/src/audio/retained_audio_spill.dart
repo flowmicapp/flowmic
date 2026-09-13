@@ -255,7 +255,15 @@ class RetainedAudioSpill {
   /// [endRecording]) because the case that produced it - drill D-5b, the disk
   /// filled mid-press - freed its space only AFTER the press was over, when
   /// the journal that held the facts had already closed its handle.
-  final ManifestRepublishQueue _republishQueue = ManifestRepublishQueue();
+  ///
+  /// 🔴 `late final` SO IT CAN BE HANDED [deletedRecordings] (card RF-2). A
+  /// plain field initialiser cannot reach another field of the same object, and
+  /// the alternative - passing the registry in at each `republish()` call -
+  /// would make 「which registry does this queue consult」 a property of the
+  /// caller rather than of the queue, i.e. something a future caller could get
+  /// wrong silently.
+  late final ManifestRepublishQueue _republishQueue =
+      ManifestRepublishQueue(deleted: deletedRecordings);
 
   /// Card RF-2 — recordings the user deleted, shared with every writer that
   /// can still be mid-flight over one of them.

@@ -74,6 +74,26 @@ export interface ServerConfig {
    * machine is in. A switch whose position cannot be observed is worse than no
    * switch.
    */
+  /**
+   * card MP-6 — WHICH ACCOUNT PAYS FOR THE PUBLIC SITE DEMO
+   * (`FLOWMIC_DEMO_PAYER_USER_ID`, a `users.id`).
+   *
+   * 🔴 NULL WHEN UNSET, AND NULL CLOSES THE DEMO. owner 2026-09-11 §11 asks that
+   * every second of recognition name an account somebody can look up
+   * (「向额度的消耗有迹可寻」), so a deployment that has not said who pays for its
+   * demo does not get to run one: `auth/metering-principal.ts` `resolvePayer`
+   * refuses the admission rather than falling back to the visitor's anonymous
+   * grant (a cost nobody can look up) or to the room's own anonymous owner (the
+   * same thing wearing the room's hat).
+   *
+   * ⚠️ NOT VALIDATED AGAINST `users` HERE, on purpose. This module is read once
+   * at boot, before any database exists, and a config layer that opened the
+   * database to check an id would be a second author of 「is this a real
+   * account」 — the quota read is the first and it is the one that decides. A
+   * misconfigured id therefore fails at the first demo recording, loudly, rather
+   * than at boot silently.
+   */
+  demoPayerUserId: string | null;
   usageEventsEnabled: boolean;
   /**
    * First-party public-site aggregate counts (2026-08-15).
@@ -155,8 +175,10 @@ export interface ServerConfig {
    */
   loginRecordEnabled: boolean;
   /** GA-15: saas CORS allow-list (FLOWMIC_CORS_ORIGIN, comma separated).
-   *  Defaults to the current production origin, so an unset env keeps today's
-   *  behaviour exactly; standalone ignores it and stays '*'. */
+   *  Unset env ⇒ DEFAULT_SAAS_CORS_ORIGINS (marketing site + the three
+   *  web-client hosts). An explicit FLOWMIC_CORS_ORIGIN still fully
+   *  overrides that list — it does not merge. standalone ignores the list
+   *  and stays '*'. */
   corsOrigins: string[];
   /** D1: Paddle (merchant-of-record) webhook intake. See PaddleConfig. */
   paddle: PaddleConfig;
@@ -223,14 +245,44 @@ function resolveLanTls(mode: ServerMode): LanTlsConfig | null {
 
 export const DEFAULT_PADDLE_TOLERANCE_SEC = 5;
 
-/** The origin the production stack serves today — the default, not a hardcode:
- *  FLOWMIC_CORS_ORIGIN overrides it (that is the flowmic.app reverse-proxy
- *  prerequisite, owner's suspended item ④). */
+/** The marketing-site origin the production stack already serves.
+ *  Symbol name and value stay put: desktop/mobile comments and the
+ *  store-listing draft anchor on `DEFAULT_CORS_ORIGIN = 'https://flowmic.app'`
+ *  (IT-50 — a line-numbered reference from those files would turn a
+ *  normal edit here into everyone else's failing gate).
+ *  FLOWMIC_CORS_ORIGIN still fully overrides the allow-list (that is the
+ *  flowmic.app reverse-proxy prerequisite, owner's suspended item ④). */
 export const DEFAULT_CORS_ORIGIN = 'https://flowmic.app';
+
+/** Built-in saas CORS allow-list when FLOWMIC_CORS_ORIGIN is unset.
+ *  S1-03 / design §5 item 7: web / cdn.flowmic.app join the
+ *  existing marketing origin so the web client can call the relay
+ *  without a deploy-time env change. Third-party sites stay out —
+ *  the SDK iframe is on cdn. (An explicit FLOWMIC_CORS_ORIGIN
+ *  replaces this list entirely; it does not merge.)
+ *
+ *  🔴 `https://go.flowmic.app` WAS THE FOURTH ENTRY AND IS REMOVED (card DOM-1,
+ *  2026-09-08). It was here because the mic client was going to be its own
+ *  hostname; the owner ruled instead that it is served from the existing site
+ *  at `/go/`, so its browser origin IS `DEFAULT_CORS_ORIGIN` — already the
+ *  first entry, and covering it twice under two names is the "one value, two
+ *  questions" shape.
+ *
+ *  ⚠️ REMOVING IT IS NOT COSMETIC AND NOT MERELY TIDY. `go.flowmic.app` has no
+ *  DNS record and, per the ruling, never will — so the entry cannot help any
+ *  browser. What it can do is outlive the reason it was written: an allow-list
+ *  entry reads as evidence that somebody meant to serve something there, and
+ *  the next person to wonder "which origins may call the relay" would be told
+ *  yes about a name this product decided not to own. */
+export const DEFAULT_SAAS_CORS_ORIGINS: readonly string[] = [
+  DEFAULT_CORS_ORIGIN,
+  'https://web.flowmic.app',
+  'https://cdn.flowmic.app',
+];
 
 function envCorsOrigins(): string[] {
   const raw = process.env.FLOWMIC_CORS_ORIGIN;
-  if (raw === undefined) return [DEFAULT_CORS_ORIGIN];
+  if (raw === undefined) return [...DEFAULT_SAAS_CORS_ORIGINS];
   const list = raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
   // An env that is set but empty/blank is a misconfiguration, not a request to
   // allow nothing (which would silently break every browser call).
@@ -238,6 +290,25 @@ function envCorsOrigins(): string[] {
     throw new Error('config: FLOWMIC_CORS_ORIGIN is set but lists no origin');
   }
   return list;
+}
+
+/** Socket.io `cors.origin`: saas uses the allow-list; standalone is a
+ *  LAN server for one owner and stays '*'. Extracted so the mode
+ *  branch is the same function the tests pin — bootstrap.ts used to
+ *  inline this ternary. */
+export function socketCorsOrigin(
+  mode: ServerMode,
+  corsOrigins: string[],
+): string | string[] {
+  return mode === 'saas' ? corsOrigins : '*';
+}
+
+/** A trimmed environment string, or null when unset / blank. Beside `envFlag`
+ *  so 「what does an empty value mean」 has one answer for text options the way
+ *  it already has one for boolean ones. */
+function envText(name: string): string | null {
+  const raw = (process.env[name] ?? '').trim();
+  return raw === '' ? null : raw;
 }
 
 function envFlag(name: string): boolean {
@@ -541,6 +612,7 @@ export interface LoadConfigOverrides {
    *  WINS over the env var — which is how a test turns the collection ON without
    *  touching process.env, and how the OFF case is asserted without depending on
    *  an env var simply not being set. */
+  demoPayerUserId?: string | null;
   usageEventsEnabled?: boolean;
   /** First-party site analytics collection (tests). Same override-wins shape. */
   siteAnalyticsEnabled?: boolean;
@@ -687,6 +759,11 @@ export function loadConfig(overrides: LoadConfigOverrides = {}): ServerConfig {
     // accepts only '1'/'true', so a typo'd value fails CLOSED (no collection),
     // which is the safe direction for a switch guarding a data-collection
     // promise.
+    // card MP-6 — trimmed, and an empty string is the SAME as unset: a
+    // deployment that exported the variable with nothing in it has not named
+    // an account, and 「set to ''」 must not be a third state that behaves
+    // differently from 「not set」.
+    demoPayerUserId: overrides.demoPayerUserId ?? envText('FLOWMIC_DEMO_PAYER_USER_ID'),
     usageEventsEnabled: overrides.usageEventsEnabled ?? envFlag('FLOWMIC_USAGE_EVENTS_ENABLED'),
     siteAnalyticsEnabled: overrides.siteAnalyticsEnabled ?? envFlag('FLOWMIC_SITE_ANALYTICS'),
     // LOGIN-1 — unset ⇒ false ⇒ not one `users.last_login_at` is written.

@@ -48,6 +48,7 @@ import { verifyDiskHeadroom } from './publish-disk-space-gate.mjs';
 import { removeAllExcept, verifyAdoptedArtifactsSurvive } from './publish-adopted-artifact-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
 import { readValidReceipt, reuseBanner } from './gate-receipt.mjs';
+import { portableReadmeText, releaseFolderReadmeText } from './publish-portable-readme.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = join(ROOT, 'apps', 'desktop');
@@ -485,164 +486,25 @@ if (stagePortableSherpaAddon({ tauriResources: join(TAURI, 'resources'), portabl
   else ok('portable tree loads sherpa with its own runtime');
 }
 
-writeFileSync(join(PORTABLE, '使用说明.txt'), `FlowMic ${VERSION} — 一键运行版（免安装）
+writeFileSync(join(PORTABLE, 'README.txt'), portableReadmeText(VERSION));
+ok('README.txt (portable)');
 
-用法：把本目录整个复制到你要长期使用的位置，然后双击 FlowMic.exe。没有别的步骤。
-
-  ⚠️ 别在发布目录（publish/）里直接双击运行。那里是「待分发产物区」，
-     下一次发布会往同一批文件上覆盖写；而 Windows 不允许覆盖正在运行的程序，
-     于是发布会失败在半路。复制出来再跑，两件事就互不打架。
-
-  · 不需要装 Node：本目录里的 node.exe 就是它要用的运行时。
-  · 不会弹黑窗口：FlowMic.exe 是窗口子系统程序，内置的服务端以
-    CREATE_NO_WINDOW 启动，整条链路都不占用控制台。
-  · 服务端已经和客户端绑在一起：resources/server.js 就是那份服务端，
-    由 FlowMic.exe 自己拉起、自己收尾（退出时一并结束，不留孤儿进程）。
-  · 只会有一份在跑：重复双击不会开出第二个 FlowMic，也不会起第二个服务端。
-
-目录里都是什么
-  FlowMic.exe            主程序（双击这个）
-  node.exe               私带的 Node 运行时
-  resources/server.js    本地服务端
-  resources/node_modules 本地识别引擎（sherpa-onnx）的原生模块
-                         —— ⚠ 本地离线识别还需要模型文件（约 228 MB），不随包附带、
-                            默认也不自动下载。开通方式：设环境变量
-                            FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 后启动一次（下载完做
-                            完整性校验，不通过不会启用）。没有模型时本地识别不可用；
-                            云端识别与自配引擎不受影响。
-
-数据放在哪
-  %APPDATA%\\FlowMic\\      数据库 flowmic.sqlite、standalone.secret、instance.lock
-                          —— 你的实际消息/转写记录在这里
-  %LOCALAPPDATA%\\FlowMic\\ 配对凭证与状态：credentials.bin、credentials-cloud.bin、
-                          cloud.bin、typed-ledger.json；诊断日志：
-                          window-forensics.log、server.log
-                          —— ⚠ 凭证在这，不在 %APPDATA%，卸载时容易漏删
-  —— 与 MSI 安装版共用同一份数据。所以两者不要同时运行（也确实运行不了：
-     单实例锁会挡住后启动的那个）。
-
-前提
-  Windows 10/11 自带的 WebView2 运行时。Win11 默认就有；万一没有，
-  装一次 Microsoft Edge WebView2 Runtime 即可。
-
-卸载
-  删掉本目录，程序就没了 —— 但下面两样东西不在本目录下，删本目录不会带走它们：
-
-  1. 配对凭证 / 云会话 / 诊断日志（都在 %LOCALAPPDATA%\\FlowMic\\，见上）
-     有 FlowMic 源码树的话，一条命令连自启项一起清（不碰数据库，见该脚本 --help）：
-       node scripts/uninstall-cleanup.mjs --yes
-     没有源码树就手动删这几个文件（文件不存在会报错但无害，忽略即可）：
-       del "%LOCALAPPDATA%\\FlowMic\\credentials.bin"
-       del "%LOCALAPPDATA%\\FlowMic\\credentials-cloud.bin"
-       del "%LOCALAPPDATA%\\FlowMic\\cloud.bin"
-       del "%LOCALAPPDATA%\\FlowMic\\typed-ledger.json"
-       del "%LOCALAPPDATA%\\FlowMic\\typed-ledger-cloud.json"
-       del "%LOCALAPPDATA%\\FlowMic\\window-forensics.log"
-       del "%LOCALAPPDATA%\\FlowMic\\server.log"
-
-  2. 如果开过「开机自启」：任务管理器「启动应用」页（或设置 > 应用 > 启动）里
-     还会留一条 FlowMic —— 卸载/删目录不会自动去掉它，在那里手动关闭/移除即可。
-
-  要连数据库（你的历史消息）一起清掉，再手动删 %APPDATA%\\FlowMic\\ ——
-  这一步本脚本和上面那条命令都不会替你做。
-`);
-ok('使用说明.txt');
-
-// ── the manifest owner-facing README ────────────────────────────────────────
-const lines = staged.map((s) => `#   ${s.name}\n#     SHA256 ${s.hash}`).join('\n');
+// ── the manifest owner-facing README ──────────────────────────────────────
+const filesBlock = staged.map((s) => `#   ${s.name}\n#     SHA256 ${s.hash}`).join('\n');
 let head = '';
 try {
   head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
 } catch { /* not fatal — the hashes below are the real identity */ }
 
-writeFileSync(join(OUT, 'README.txt'), `# FlowMic ${VERSION} 发布目录（publish/）
-#
-# 版本号每轮递增（owner 2026-07-27 铁律），所以它现在**是**身份：这里的 ${VERSION}
-# 就是装上去会显示的那个号。SHA256 仍然列在下面 —— 版本号回答「哪一版」，
-# SHA256 回答「有没有被换过」，两个问题不一样。
-#
-#   构建自 : ${head || '(git 不可用)'}
-#   前端资产: ${mainAsset}
-#   Node   : ${nodeVersion}（一键运行版内置）
-#
-# ── 本目录四样东西 ──────────────────────────────────────────────────────
-#
-#   FlowMic-portable/      ★ 一键运行版（展开形态）：免安装、不装 Node、无黑窗口、
-#                            服务端已绑入。详见其中的「使用说明.txt」。
-#   *-portable-*.zip         同一份一键运行版的分发形态（解压出来就是上面那个目录）。
-#                            内网下载中心与在线升级清单发的是它 —— 目录传不上去，压缩包可以。
-#   *.msi                  安装版（en-US / zh-CN 各一份）。
-#   *.apk                  Android 手机端（若本轮未重出则可能不在）。
-#
-# ── ⚠ 本目录是产物区，不是运行区（RV-73，owner 2026-07-31 裁定） ─────────
-#
-#   不要从 publish/ 里直接启动 FlowMic。这里的文件每一轮发布都会被覆盖写，
-#   而 Windows 不允许覆盖正在运行的程序 —— 以前正是因为运行区和产物区是同一个
-#   目录，只要 FlowMic 开着，发布就必然 EBUSY 失败。裁定是把两者分开。
-#
-#   更新本机运行副本（把上面那份便携包装到你的运行目录）：
-#
-#       node scripts/install-local.mjs          # 缺省 %LOCALAPPDATA%\\Programs\\FlowMic\\
-#       node scripts/install-local.mjs --help   # 换目录 / 先看它要做什么
-#
-#   它撞上「FlowMic 正在运行」会整体停手并告诉你退出什么，绝不写一半。
-#
-${lines}
-#
-# ⚠ MSI 装机陷阱（实测）：同版本号覆盖安装不会替换二进制，msiexec /i 乃至
-#   REINSTALLMODE=vamus 都保留旧 exe。换包请【先卸载再安装】，或用上面的 SHA256
-#   核对你装的到底是哪一版。一键运行版没有这个问题（解压即用、删除即卸）。
-#
-# ── 本轮修了什么（owner 2026-07-27 反馈） ───────────────────────────────
-#
-#  · PC 端时间线整页空白（网页版正常，PC 版连标题和筛选条都没有）
-#    根因：PC 的本地缓存 flowmic.history.cache 里存着旧构建写下的「服务端原始行」
-#    形状——带 status:'injected' 却完全没有 target 字段。而 target 的判空写的是
-#    「=== null」，undefined 没被挡住，于是渲染时抛 TypeError；Vue 里一处抛错会让
-#    整个组件子树空掉，所以连标题和筛选条一起消失。网页版是全新 profile、没有这份
-#    缓存，所以看起来「只有 PC 端坏」。
-#    修法：判空改「== null」并逐字段防御；更重要的是在缓存/入线两个边界统一做
-#    normalize（timeline-store normalizeCachedRow），坏形状进不来，而不是让每个
-#    调用点各自小心。
-#
-#  · 同类隐患一并收口（owner:「其它是否有类似问题你也应检查」）
-#    设置页六个 localStorage 缓存原本是 \`JSON.parse(raw) as T\` 裸转换（解析成功
-#    但形状不对——包括字面量 null——会原样交给模板），已全部改为逐键收窄；
-#    配对快照 pairing_code 的裸转换同样收窄（endpoint 缺字段会让设备页整页空白）；
-#    设备页一处 watch 在 lanUp/cloudUp 声明之前就 immediate 求值，实际每次挂载都抛
-#    ReferenceError（生产被 Vue 吞掉），后果是 LAN/云通道变化不再触发重查——已挪到
-#    依赖之后。
-#
-#  · 没有静默失败（红线）：主窗口与胶囊都装上了错误边界。此前渲染抛错既不写日志
-#    也不提示，白屏和「真的没数据」长得一模一样；现在会写进诊断日志并在界面顶部
-#    亮出横幅。
-#
-#  · 设置页 TAB 组切换效果与网页版不一致
-#    根因：那不是面板切换而是滚动锚点 + scroll-spy，点击设了高亮之后，平滑滚动的
-#    每一帧又触发 spy 把高亮改回沿途经过的分节；且最后一节（关于）太短，永远够不到
-#    判定线，点了会弹回「偏好」。两者都与窗口高度有关，所以宽窗口的网页版和窄窗口的
-#    PC 版表现不同。修法：点击期间抑制 spy、滚到底部时判定为最后一节、并在设置页
-#    处于 display:none 时直接跳过（三页共用一个滚动容器，此前滚别的页也会改它的高亮）。
-#
-#  · 三页共用滚动容器导致滚动位置串页（在设置页滚到底再切到时间线，时间线是从中间
-#    打开的）——切页归零。
-#
-#  · 单实例（owner 要求「SERVER 端与 PC 端只存在一份运行实例」）
-#    启动即抢占 %APPDATA%\\FlowMic\\instance.lock（独占打开的文件锁，进程消失由系统
-#    释放，崩溃也不会把自己锁在门外）。抢不到就记一行诊断日志后直接退出——不会出现
-#    第二个托盘图标、第二个胶囊，更不会有第二个 UI 去 adopt 第一个的服务端。
-#
-# owner 装机一律取本目录，勿翻 build/ 或 target/ 输出（13 册 §4 教训在案）。
-# 但「取自本目录」不等于「跑在本目录」—— 见上面 RV-73 那一节。
-`);
-ok('README.txt');
+writeFileSync(join(OUT, 'README.txt'), releaseFolderReadmeText({ version: VERSION, head, mainAsset, nodeVersion, filesBlock }));
+ok('README.txt (release folder)');
 // The two text files above are the only user-facing prose this script emits, and
 // they carried a hard-coded `0.1.0` for four minor versions — shipped in every
 // bundle, telling the owner 「版本号恒为 0.1.0」 long after the per-round bump had
 // made that false. Filenames were templated; prose was not, and nothing checked.
 // 13 册 D5 is 「看版本号分不出新旧」; this is the same lesson leaking through the
 // one surface no lint was watching.
-for (const [label, file] of [['使用说明.txt', join(PORTABLE, '使用说明.txt')], ['README.txt', join(OUT, 'README.txt')]]) {
+for (const [label, file] of [['README.txt (portable)', join(PORTABLE, 'README.txt')], ['README.txt (release folder)', join(OUT, 'README.txt')]]) {
   const text = readFileSync(file, 'utf8');
   if (!text.includes(VERSION)) fail(`${label} does not mention ${VERSION} — a shipped file that lies about its own version`);
   const stale = [...text.matchAll(/\d+\.\d+\.\d+/g)].map((m) => m[0]).filter((v) => v !== VERSION && v !== nodeVersion.replace(/^v/, ''));

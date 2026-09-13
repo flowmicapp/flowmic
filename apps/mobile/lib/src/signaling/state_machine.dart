@@ -136,8 +136,25 @@ class SttStall {
   /// speech was heard」 sentence, never as a third, unlabelled state.
   final String? emptyReason;
 
+  /// Card G-2c (2026-09-11) — the ceiling that refused is the SITE DEMO's
+  /// per-device grant rather than a monthly plan. Only meaningful for
+  /// `code == 'QUOTA_EXCEEDED'`.
+  ///
+  /// 🔴 IT IS A PHONE-SIDE INFERENCE AND THE NAME OF THE FIELD MUST NOT HIDE
+  /// THAT. Every other field on this class is a wire value quoted verbatim;
+  /// this one is read off the LAST `billing:budget` frame (`mode == 'trial'`,
+  /// which the relay emits only in the demo room) by `ptt_inbound.dart`,
+  /// because the refusal frame physically cannot carry it: `judged_account` is
+  /// a closed `'self' | 'pc_owner'` enum and widening it is a protocol change.
+  ///
+  /// `false` is 「not a demo grant, as far as this phone can tell」 — which is
+  /// every ordinary pairing and every relay that never sent a budget frame —
+  /// and it selects the pre-existing monthly sentence unchanged.
+  final bool trialCeiling;
+
   const SttStall(this.reason,
-      {this.code, this.message, this.judgedAccount, this.emptyReason});
+      {this.code, this.message, this.judgedAccount, this.emptyReason,
+      this.trialCeiling = false});
 
   @override
   bool operator ==(Object other) =>
@@ -146,11 +163,13 @@ class SttStall {
       other.code == code &&
       other.message == message &&
       other.judgedAccount == judgedAccount &&
-      other.emptyReason == emptyReason;
+      other.emptyReason == emptyReason &&
+      other.trialCeiling == trialCeiling;
 
   @override
   int get hashCode =>
-      Object.hash(reason, code, message, judgedAccount, emptyReason);
+      Object.hash(reason, code, message, judgedAccount, emptyReason,
+          trialCeiling);
 
   @override
   String toString() =>
@@ -550,12 +569,20 @@ class FlowmicStateMachine {
   /// consumes the latch and stalls PROCESSING immediately with the named code.
   /// Every other exit from RECORDING (cancel / reset / a fresh press) clears
   /// the latch, so it can never leak across utterances.
-  void onSttTerminalError({String? code, String? message, String? judgedAccount}) {
+  void onSttTerminalError({
+    String? code,
+    String? message,
+    String? judgedAccount,
+    /// Card G-2c — see [SttStall.trialCeiling]. Defaulted so every existing
+    /// caller and test keeps the sentence it had.
+    bool trialCeiling = false,
+  }) {
     final SttStall stall = SttStall(
       SttStallReason.engineError,
       code: code,
       message: message,
       judgedAccount: judgedAccount,
+      trialCeiling: trialCeiling,
     );
     // AW-1b: immediate, unconditional — fires even on the branches below that
     // latch or refuse. Those branches decide what the FSM does; this is only

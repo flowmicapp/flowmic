@@ -13,7 +13,7 @@
 //     install directory)
 //
 // ── WHY THIS SCRIPT EXISTS ───────────────────────────────────────────────────
-// Neither the MSI uninstaller nor the portable bundle's own 使用说明.txt removes
+// Neither the MSI uninstaller nor the portable bundle's own README.txt removes
 // what actually constitutes "this machine's FlowMic identity": two DPAPI
 // credential files, the cloud config, the dedup ledger, both diagnostic logs,
 // and a Windows Run-key autostart entry that (once the exe is gone) points at a
@@ -42,7 +42,7 @@
 // blobs and an HKCU Run key). Safe to run whether the app was installed via
 // MSI or unpacked as the portable bundle — both share the exact same
 // `%LOCALAPPDATA%\FlowMic\` state directory and the same Run-key value name
-// (publish.mjs 使用说明.txt: "与 MSI 安装版共用同一份数据").
+// (publish.mjs README.txt: "shares the same data as the MSI-installed version").
 //
 // 🔴 Run this AFTER you are done with FlowMic on this machine, not while any
 // copy (MSI-installed or portable) is still in use: it deletes the pairing

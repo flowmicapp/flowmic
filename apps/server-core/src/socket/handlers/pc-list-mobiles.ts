@@ -22,7 +22,8 @@ import { getAuth, safeAck } from '../wire';
 //   Rows are then read by pc_device_id, so a mobile paired to ANOTHER PC — of
 //   this user or any other — is not reachable from this query at all.
 //
-// PROJECTION: five public fields, spelled out one by one. `mobile_token` is a
+// PROJECTION: seven public fields (five until card S2-01 added the two
+// client-origin ones), spelled out one by one. `mobile_token` is a
 // bearer secret (05 §7) and NEVER crosses this wire — the raw record is read
 // into `m` and only named fields leave it (same rule as the REST
 // /api/cloud/devices projection).
@@ -69,6 +70,16 @@ export function registerPcListMobilesHandler(
       // say "these two rows are the same phone" across the LAN and relay lists instead of
       // showing two identical rows. Null (pre-0.2.4 pairing) groups with NOTHING.
       device_uid: m.device_uid,
+      // card S2-01 — WHICH KIND OF END this row was paired from, so the desktop
+      // can mark a browser instead of rendering it as an indistinguishable
+      // phone. Passed through RAW, including NULL: the 「absent means app」
+      // reading has exactly one author (protocol `clientOriginOf`) and it lives
+      // at the renderer. A projection that helpfully wrote 'app' here would be a
+      // second author of that default, and「this row was paired by the app」and
+      // 「this row predates the field」 are not the same statement even though
+      // they render the same today.
+      client: m.client,
+      client_version: m.client_version,
       // the lead's ruling (GA-04 ↔ GA-07 crossover): the ROSTER answers "is this phone's
       // socket up right now」, which a slot in mobile-drop grace is NOT. The
       // grace exists to keep the audio SESSION alive and to debounce the

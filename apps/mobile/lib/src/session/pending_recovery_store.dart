@@ -35,6 +35,7 @@ import 'backfill_runner.dart';
 import 'pending_recovery.dart';
 import 'recovery_backoff.dart';
 import 'recovery_gate.dart';
+import 'recovery_identity.dart' show RecoveryAttemptKind;
 import 'recovery_settle.dart';
 
 /// Reads both storage faces and drives the two sanctioned actions.
@@ -48,8 +49,15 @@ class PendingRecoveryStore implements PendingRecoverySource {
   final BackfillRunner _runner;
   final String Function() _sourceLang;
 
+  /// Card WB-6 — the microphone first, the link second, and the order is the
+  /// user's: while they are speaking, 「you are recording」 is the fact they can
+  /// act on, and the link being down as well changes nothing they would do.
   @override
-  bool get recordingNow => _runner.recordingNow;
+  PendingRetryBlocker? get retryBlocker {
+    if (_runner.recordingNow) return PendingRetryBlocker.recording;
+    if (!_runner.linkConnected) return PendingRetryBlocker.noLink;
+    return null;
+  }
 
   @override
   Future<List<PendingRecoveryItem>> list() async {
@@ -78,6 +86,11 @@ class PendingRecoveryStore implements PendingRecoverySource {
     final List<RecordingScan> scans = await RetainedAudioJournalScan.scan(
       dirPath: spill.store.dirPath,
       fs: spill.journalFs,
+      // Card RF-2 - the scan publishes a marker onto a claim-ahead manifest,
+      // and this list is what the user presses Delete from. Without this the
+      // scan is a writer nobody guarded: a delete landing inside it puts the
+      // manifest back and the card returns with no audio behind it.
+      deleted: spill.deletedRecordings,
     );
     for (final RecordingScan s in scans) {
       final RecordingManifest? m = s.manifest;
@@ -227,7 +240,12 @@ class PendingRecoveryStore implements PendingRecoverySource {
       // is "there is nothing to confirm", and it is the only one of the three
       // that a retry can still fix.
       if (_lastRefusalIsOnly(manifest, RecoverySettleRefusal.emptyResult)) {
-        return PendingRecoveryState.emptyResult;
+        // Card WB-6 - and once the USER's own attempt has come back empty too,
+        // that is the end of the road rather than the same offer again. See
+        // `PendingRecoveryState.emptyConfirmed`.
+        return _userRetryCameBackEmpty(manifest)
+            ? PendingRecoveryState.emptyConfirmed
+            : PendingRecoveryState.emptyResult;
       }
       return _onlyTierBKeptBytes(manifest)
           ? PendingRecoveryState.settledServerKeepsAudio
@@ -322,6 +340,29 @@ class PendingRecoveryStore implements PendingRecoverySource {
   /// have to keep the format stable with this one.
   static bool _onlyTierBKeptBytes(RecordingManifest m) =>
       _lastRefusalIsOnly(m, RecoverySettleRefusal.serverTierKeepsBytes);
+
+  /// Card WB-6 — has the USER already pressed 「try again」 on this recording and
+  /// got nothing back?
+  ///
+  /// 🔴 READ OFF THE ATTEMPT HISTORY, WHICH IS WHY IT SURVIVES A RESTART. The
+  /// two facts it needs are both already persisted by
+  /// `recovery_leg_settle.dart`: `kind` is `user_retranscribe` (stamped when
+  /// the attempt is opened, `recovery_journal_leg.dart`) and `failureCode` is
+  /// the settle's refusal set — exactly `emptyResult` when the engine answered
+  /// and answered with nothing. A boolean kept in memory would have forgotten
+  /// by the next launch and offered the same futile button again.
+  ///
+  /// ⚠️ ONE user attempt is enough. A second press feeds the same bytes to the
+  /// same pipeline; 「it might work the third time」 is not something this phone
+  /// has any reason to believe, and the audio and its delete are still here.
+  static bool _userRetryCameBackEmpty(RecordingManifest m) {
+    for (final JournalAttempt a in m.attempts) {
+      if (a.kind != RecoveryAttemptKind.userRetranscribe.wire) continue;
+      if (a.outcome != JournalAttempt.outcomeSettledUnverified) continue;
+      if (a.failureCode == RecoverySettleRefusal.emptyResult.name) return true;
+    }
+    return false;
+  }
 
   /// Was [only] the WHOLE refusal set of the last `settled_unverified` attempt?
   ///

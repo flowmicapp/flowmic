@@ -16,6 +16,99 @@
 import { z } from 'zod';
 import { ClientInstanceId, DeviceUid, NonEmpty, Token } from './protocol-primitives';
 
+// ── card S2-01 · WHICH KIND OF CLIENT IS AT THE OTHER END ────────────────
+// (design docs/strategy/2026-09-05-web-client-protocol-and-api-addendum.md §1.1/§1.2;
+//  owner ruling docs/decisions/2026-09-06-owner-web-client-rulings-repo-protocol-domains.md 2)
+//
+// FLOWMIC-WEB is a THIRD end — a browser page that pairs over the same
+// `mobile:pair` and can hold a room over the same `pc:register`. Nothing on the
+// wire could tell it apart from the app, and 「it is a web page」 is not cosmetic:
+// it decides what the desktop's paired-devices table may honestly show, and (via
+// `target_caps` below) whether an image may be sent at all.
+//
+// 🔴 ABSENCE MEANS `'app'`, AND THAT DEFAULT HAS EXACTLY ONE AUTHOR — the
+// {@link clientOriginOf} function below. Every build that has ever sent one of
+// these frames was the app, so 「no field」 is not 「unknown」 here: it is a fact
+// about a world in which the web client did not exist. That is the ONE place
+// this repo lets a missing value be read as a value, and it is why the reading
+// is a function rather than a `?? 'app'` sprinkled over four call sites (a
+// default with several authors is a value that answers two questions).
+//
+// ⚠️ THE PROJECTION DOES NOT FABRICATE IT. `PcPairedMobileSchema.client` stays
+// nullable so a legacy row travels as `null` — the READER applies the default,
+// the writer never invents one. Same rule the `device_uid` projection follows.
+export const ClientOriginSchema = z.enum(['app', 'web']);
+export type ClientOrigin = z.infer<typeof ClientOriginSchema>;
+/** The value an ABSENT `client` field carries (design §5 「`client` 字段缺省 'app'」). */
+export const CLIENT_ORIGIN_DEFAULT: ClientOrigin = 'app';
+/**
+ * Read a wire `client` value, including the absent case. The ONE author of the
+ * default — see the red note above for why it is not spelled at the call sites.
+ *
+ * Anything that is not a known member reads as the default too: an old reader
+ * must never crash on a kind a newer end names, and the honest fallback for
+ * 「a client I have not heard of」 is the same one as for 「a client that predates
+ * the field」 — neither is a claim, and both render nothing special.
+ *
+ * PRODUCTION CALLER (card ID-2, and it is the one this function was written
+ * for): `apps/desktop/src/lib/paired-mobiles.ts`'s `asPairedMobiles`, which
+ * resolves the wire value once, at the narrowing, so the paired-phones table can
+ * draw a 「Web」 mark. The mark's own user-visible string lives with that
+ * renderer, not here. `grep -rn clientOriginOf apps` lists the callers; the rule
+ * is that they all go through this function rather than spelling the default.
+ *
+ * The default had to have a single author BEFORE two renderers existed, not
+ * after — the alternative shape, two surfaces each writing `?? 'app'`, is this
+ * repo's headline defect, and it is cheaper to prevent than to find. The relay
+ * still stores and projects the RAW value (null included) and never fabricates
+ * one; only readers apply the default.
+ */
+export function clientOriginOf(value: unknown): ClientOrigin {
+  return value === 'web' ? 'web' : CLIENT_ORIGIN_DEFAULT;
+}
+/**
+ * `client_version` — the sending build's own version string, free-form and
+ * capped. It is DIAGNOSTIC, never a gate: nothing may branch on it, because a
+ * version string is a claim the sender makes about itself, and a permission
+ * decision taken on one is a permission decision taken on user-supplied text.
+ * Capped because it lands in a DB column and in a device list.
+ */
+export const CLIENT_VERSION_MAX_LENGTH = 32;
+const ClientOriginFields = {
+  client: ClientOriginSchema.optional(),
+  client_version: NonEmpty.max(CLIENT_VERSION_MAX_LENGTH).optional(),
+};
+
+// ── card S2-01 · CAN THE TARGET RECEIVE AN IMAGE? ───────────────────────
+// (design docs/strategy/2026-09-06-web-client-parity-privacy-image-and-ux-addendum.md §3)
+//
+// The microphone end has never had to ask: the only target was FLOWMIC-PC and it
+// has a clipboard-paste path. A WEB-SDK target is a third party's input box and
+// 「缺省只收文字」("text only by default"), so sending it an image would be a
+// delivery that succeeds on the wire and lands nowhere — the exact shape of
+// F-4, where a picture ended up in neither the target nor the clipboard while
+// both ends wrote 「success」.
+//
+// 🔴 THREE STATES, NOT TWO, AND THE THIRD IS THE COMMON ONE.
+//   · field ABSENT       → 「undeclared」: the target has not said. Every PC built
+//                          before this card is here, and the reader must ALLOW —
+//                          refusing would break image delivery for every install
+//                          on the day this ships.
+//   · `{ image: true }`  → declared yes.
+//   · `{ image: false }` → declared no. The mic tells the user BEFORE sending and
+//                          does not queue it (design §3: 「不入队、不计配额」).
+// Collapsing absent into false is the tempting simplification and it is a
+// regression; collapsing absent into true loses the ability to ever say no.
+//
+// `image_note` is the target's own words for WHY not (a third-party site's
+// setting), rendered beside our sentence. Optional: a target that says nothing
+// gets our generic sentence, never an invented reason.
+export const TargetCapsSchema = z.object({
+  image: z.boolean(),
+  image_note: NonEmpty.max(200).optional(),
+});
+export type TargetCaps = z.infer<typeof TargetCapsSchema>;
+
 export const PC_DEVICE_NAME_MAX_LENGTH = 80;
 export const PcDeviceNameSchema = z.string().trim().min(1).max(PC_DEVICE_NAME_MAX_LENGTH);
 export const PcNameValueSchema = z.object({ pc_name: PcDeviceNameSchema });
@@ -26,16 +119,35 @@ export const PcNameValueSchema = z.object({ pc_name: PcDeviceNameSchema });
 // pairings on it), the machine uid says 「which physical machine is this」 (the
 // same value on every channel). See protocol-primitives.ts DeviceUid for why
 // collapsing them would break token_storage.
+//
+// card S2-01 — `client` / `client_version` / `target_caps` ride BOTH admission
+// legs, and the second one is not symmetry for its own sake.
+//
+// 🔴 REGISTER-ONLY STAMPING IS UNREACHABLE FOR AN INSTALLED DESKTOP, and this
+// repo has already paid for learning that once: `pcid` was backfilled on
+// `pc:register` alone and the branch 「proved unreachable for established
+// desktops」, so 0.3.1 had to add the reconnect leg (see ADDITIVE_TEXT_COLUMNS
+// in apps/server-core/src/db/schema.ts). A desktop registers when it FIRST pairs
+// and reconnects by token forever after; a capability declared only at register
+// would therefore be declared by almost nobody, and the field would look alive
+// while being dead in production.
+//
+// The design addendum §1.2 names `pc:register` only. This adds the reconnect
+// leg and the addendum was amended in the same commit (「任何接口变化先改本文档」).
 export const PcRegisterSchema       = z.object({
   device_name: PcDeviceNameSchema,
   setup_key: NonEmpty.optional(),
-  client_instance_id: ClientInstanceId.optional(),
+  client_instance_id: ClientInstanceId,
   machine_uid: DeviceUid,
+  ...ClientOriginFields,
+  target_caps: TargetCapsSchema.optional(),
 });
 export const PcReconnectSchema      = z.object({
   token: Token,
-  client_instance_id: ClientInstanceId.optional(),
+  client_instance_id: ClientInstanceId,
   machine_uid: DeviceUid,
+  ...ClientOriginFields,
+  target_caps: TargetCapsSchema.optional(),
 });
 export const PcRefreshCodeSchema    = z.object({});
 // GA-08: the PC-initiated end of a phone's access, in TWO distinct meanings that
@@ -87,6 +199,17 @@ export const PcListMobilesSchema    = z.object({});
 // pre-0.2.4 phone has no uid, and rendering those as 「同一台」("the same
 // device") because they both read `null` would be a fabrication, so the
 // desktop groups only on a PRESENT value.
+// card S2-01 `client` / `client_version`: WHICH KIND OF END this row was paired
+// from, so the desktop's table can mark a browser 「Web」 instead of showing it as
+// an indistinguishable phone. NULLABLE and OPTIONAL for the same reason
+// `device_uid` above is: a row paired before the field existed has no value, and
+// the projection states that rather than inventing one. The 「absent means app」
+// reading belongs to the RENDERER and has one author ({@link clientOriginOf}).
+//
+// ⚠️ `platform` (android / ios / …) is deliberately NOT here even though the
+// design addendum §1.2 wrote 「platform/client」: no end sends it, and a field
+// with no producer is a column that renders 「unknown」 forever while looking like
+// a feature. It can be added the day something declares it.
 export const PcPairedMobileSchema   = z.object({
   pairing_id: NonEmpty,
   mobile_name: NonEmpty,
@@ -94,6 +217,8 @@ export const PcPairedMobileSchema   = z.object({
   last_seen_at: z.string().nullable(),
   online: z.boolean(),
   device_uid: z.string().nullable().optional(),
+  client: ClientOriginSchema.nullable().optional(),
+  client_version: z.string().nullable().optional(),
 });
 export const PcListMobilesAckSchema = z.object({ mobiles: z.array(PcPairedMobileSchema) });
 export type PcPairedMobile = z.infer<typeof PcPairedMobileSchema>;
@@ -161,10 +286,20 @@ const MobileNameField = {
 // 是同一逻辑」("scanning the code and typing it by hand are the same logic")
 // means in code. The cloud_instance arm addresses no PC at all.
 const PcidField = { pcid: z.string().regex(/^\d{9}$/).optional() };
+// card S2-01 — `client` / `client_version` on ALL THREE arms, because the union
+// members are three ways to present the same thing and a field that exists on
+// only some of them makes the reader ask which arm it came in on.
+//
+// ⚠️ NOT ON `mobile:reconnect`, and that asymmetry with the PC legs above is
+// deliberate rather than an omission: a reconnect resumes a row that was WRITTEN
+// by one of these pairs, so the value is already stored. The PC legs need both
+// because an installed desktop reaches the relay through `pc:reconnect` and
+// would otherwise never declare anything; a browser that pairs has no such
+// history — the field lands on the row the first time it is used.
 export const MobilePairSchema       = z.union([
-  z.object({ short_code: z.string().regex(/^\d{4}$/), ...PcidField, ...MobileNameField }),
-  z.object({ qr_payload: NonEmpty, ...MobileNameField }),
-  z.object({ cloud_instance: z.literal(true), ...MobileNameField }),
+  z.object({ short_code: z.string().regex(/^\d{4}$/), ...PcidField, ...MobileNameField, ...ClientOriginFields }),
+  z.object({ qr_payload: NonEmpty, ...MobileNameField, ...ClientOriginFields }),
+  z.object({ cloud_instance: z.literal(true), ...MobileNameField, ...ClientOriginFields }),
 ]);
 // The uid on RECONNECT is how a pairing made by an older build gets stamped:
 // the row already exists and is found by token, so this only ever fills a NULL.
@@ -252,6 +387,30 @@ export const MobileReconnectAckNodeFieldsSchema = z.object({
   node: z.string().min(1).optional(),
 });
 export type MobileReconnectAckNodeFields = z.infer<typeof MobileReconnectAckNodeFieldsSchema>;
+
+// ── card S2-01 · the TARGET-CAPABILITY half of the pair / reconnect ACK ──
+// (design docs/strategy/2026-09-06-…-ux-addendum.md §3)
+//
+// A PARTIAL fields-schema, the same construction and for the same reason as
+// `MobileReconnectAckAudioFieldsSchema` and `ServerCapabilityAckFieldsSchema`
+// above: the acks are emitted as literals in mobile.handler.ts, and a parallel
+// full-ack declaration nothing verifies is the RV-36 drift trap. The emitter
+// types its spread as {@link TargetCapsAckFields}, so the compiler holds the
+// handler to THIS declaration.
+//
+// 🔴 WHOSE CAPABILITY IT IS. The `capabilities[]` array beside it says what the
+// SERVER can do; this says what the TARGET at the other end of the room can
+// receive. Two questions, two fields — one array carrying both would be this
+// repo's headline bug shape, and the two even fail in opposite directions (an
+// unknown server capability is ignored; an unknown target capability must be
+// treated as「undeclared, allowed」).
+//
+// OMITTED, NEVER `{image:false}`, when the target has not declared: see
+// TargetCapsSchema for why the third state is the common one.
+export const TargetCapsAckFieldsSchema = z.object({
+  target_caps: TargetCapsSchema.optional(),
+});
+export type TargetCapsAckFields = z.infer<typeof TargetCapsAckFieldsSchema>;
 /** v0.2.3 — the phone RETIRES its own pairing (owner 2026-07-29).
  *
  *  Deleting an entry on the phone used to drop the local token and nothing else,

@@ -48,9 +48,10 @@
 //               invisible-explanation shape this convention exists to avoid.
 
 import { readdirSync } from 'node:fs';
+import { availableParallelism, cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -84,16 +85,83 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// ── HOW THESE FILES ARE RUN: a pool, not a queue ────────────────────────────
+//
+// Each file was already its own child process (it must be — these are scripts
+// that call `process.exit()`), so the only thing the old `for … spawnSync`
+// loop added was the waiting. Measured 2026-09-12
+// (docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2): the 65
+// children's own reported times summed to 153.9 s and the stage's wall clock
+// was 158.6 s — the two numbers agreeing IS the proof it was strictly serial.
+// Three files account for 66 s of that; everything else waits behind them for
+// no reason.
+//
+// Concurrency defaults to half the logical cores (min 2) and is overridable
+// with FLOWMIC_SCRIPT_TEST_CONCURRENCY — verify/run-delivery-fast.mjs turns it
+// down, because there this stage shares the machine with five other lanes.
+//
+// ⚠️ WHAT MAKES THIS SAFE IS NOT THE POOL, it is that every child already
+// isolates its own state: the three slowest (c10-shift-left-gates,
+// gate-covers-workspaces, c11-ops4-exit-code-contract) each `mkdtempSync` a
+// private directory rather than reusing a fixed path. That property is a
+// precondition of this pool, not a consequence of it — a test added later that
+// writes to a FIXED temp path will start failing intermittently here and the
+// fix is to isolate that test, not to re-serialise this runner.
+//
+// Results are printed in file order, not completion order: a gate whose output
+// reshuffles between runs cannot be diffed against the last one. Same reason
+// verify/lint/run-all.mjs replays its table in declaration order.
+const CORES = (typeof availableParallelism === 'function' ? availableParallelism() : cpus().length) || 4;
+const CONCURRENCY = Math.max(
+  2,
+  Number.parseInt(process.env.FLOWMIC_SCRIPT_TEST_CONCURRENCY ?? '', 10) || Math.floor(CORES / 2),
+);
+
+function runOne(f) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const child = spawn(process.execPath, [join(HERE, f)], {
+      cwd: ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', (e) => {
+      // spawn itself failed — not a verdict about the test, and definitely not
+      // a pass. Exit 1 is the same bucket spawnSync put a crash in.
+      resolve({ f, status: 1, ms: Date.now() - started, stdout, stderr: `${stderr}spawn failed: ${e.message}\n` });
+    });
+    child.on('close', (code) => {
+      resolve({ f, status: code, ms: Date.now() - started, stdout, stderr });
+    });
+  });
+}
+
+async function runAll(list, limit) {
+  const done = new Map();
+  let cursor = 0;
+  const lanes = Array.from({ length: Math.min(limit, list.length) }, async () => {
+    for (;;) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= list.length) return;
+      const r = await runOne(list[i]);
+      done.set(list[i], r);
+    }
+  });
+  await Promise.all(lanes);
+  return list.map((f) => done.get(f));
+}
+
 let failed = 0;
 let skipped = 0;
-for (const f of files) {
-  const started = Date.now();
-  const r = spawnSync(process.execPath, [join(HERE, f)], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const ms = Date.now() - started;
+const results = await runAll(files, CONCURRENCY);
+for (const r of results) {
+  const { f, ms } = r;
   if (r.status === 0) {
     // IT-58: a child may print one `ACCOUNTING: sections run X/Y…` line —
     // its per-section tally. Ordinary stdout stays suppressed on success

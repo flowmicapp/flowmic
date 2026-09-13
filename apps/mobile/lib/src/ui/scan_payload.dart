@@ -6,6 +6,11 @@
 //     session/endpoint_candidates.dart, NOT here: this file still answers only
 //     「这是不是我们的码」("is this our code") and the extra key changes nothing
 //     about that.)
+//   docs/strategy/2026-09-05-web-client-protocol-and-api-addendum.md §3 (the
+//     same query also arrives as `https://flowmic.app/go/pair?...` once S1-01
+//     ships — S1-02 recognises that prefix here too, otherwise the camera path
+//     would show 「foreign QR」 for the new code before `PairEntry.parse` ever
+//     saw it)
 //   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30
 //   CLAUDE.md red line: no silent failures
 //
@@ -26,9 +31,37 @@
 //     since WP-R23-1 (the 「paste the whole link」 path). Scanning is therefore a
 //     new INPUT for an existing, tested route — not a second pairing code path.
 
+import '../../generated/flowmic_protocol.g.dart' show FlowMicPairLink;
+
 /// The FlowMic pairing-link scheme + host (04 §3.1). A payload must start with
 /// this to be ours; anything else is somebody else's QR.
 const String kPairLinkPrefix = 'flowmic://pair';
+
+/// S1-02 — the https form of the same link (design addendum §3: only the
+/// scheme+host change, the query is identical). The host is part of the fixed
+/// prefix on purpose: `https://` alone would accept ANY web URL as「ours」,
+/// which is precisely the foreign-QR hole this file exists to close.
+///
+/// 🔴 THE ONE Dart spelling. `PairEntry.parse` (wire_payloads.dart) and the
+/// paste gate (add_pairing_sheet.dart) import this rather than re-type it.
+///
+/// 🔴 GENERATED, NOT HAND-TYPED. [FlowMicPairLink.httpsPrefix] is emitted from
+/// `PAIR_HTTPS_HOST` + `PAIR_HTTPS_PATH` in packages/protocol/src/constants.ts
+/// by apps/mobile/tool/gen_protocol.mjs, which every mobile target runs through
+/// `make gen`. Dart cannot import TypeScript, so this used to be a second
+/// hand-written copy compared against the first by a lint; equality is now by
+/// construction. What is still guarded is that nobody adds a THIRD copy:
+/// `verify:lint pair-link-single-source` fails on any hand-typed
+/// `'https://<host><path>'` literal under `apps/mobile/lib`.
+///
+/// 🔴 THE APEX, NOT `www.` (card DOM-1, owner ruling 2026-09-08). iOS Universal
+/// Links do not follow redirects, so the host in a scanned link has to be one
+/// the app declared (`applinks:flowmic.app`); `www.flowmic.app` is a different
+/// host and opens Safari. There is a `www` -> apex 301 at the edge for links a
+/// person typed or forwarded, and it is deliberately NOT a second prefix here:
+/// a parser that accepted more than the OS routes would behave differently
+/// depending on how the same link arrived.
+const String kPairLinkPrefixHttps = FlowMicPairLink.httpsPrefix;
 
 /// The account-login link the web console renders (GA-31). Recognised here so a
 /// user who scans it inside the PAIRING sheet is told to use the login screen,
@@ -74,7 +107,9 @@ ScanResult classifyScan(String? raw) {
   final String value = (raw ?? '').trim();
   if (value.isEmpty) return const ScanResult(ScanVerdict.nothing);
   final String lower = value.toLowerCase();
-  if (lower.startsWith(kPairLinkPrefix)) return ScanResult(ScanVerdict.pairLink, value);
+  if (lower.startsWith(kPairLinkPrefix) || lower.startsWith(kPairLinkPrefixHttps)) {
+    return ScanResult(ScanVerdict.pairLink, value);
+  }
   if (lower.startsWith(kLoginLinkPrefix)) return const ScanResult(ScanVerdict.loginLink);
   return const ScanResult(ScanVerdict.foreign);
 }

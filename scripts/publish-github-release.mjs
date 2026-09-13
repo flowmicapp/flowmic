@@ -46,15 +46,35 @@
 //   node scripts/publish-github-release.mjs                  # creates a DRAFT release + uploads assets
 //   node scripts/publish-github-release.mjs --publish         # creates a PUBLISHED release (public, if repo is public)
 //   node scripts/publish-github-release.mjs --repo=owner/name # override repo autodetection (equals form only — see flag())
+//   node scripts/publish-github-release.mjs --check-latest-apk # ONLY re-run the fixed-URL gate (card M-3), no writes
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, openAsBlob } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The ONE place the fixed asset name and the fixed URL are written down (card
+// M-3). This file's header says every scripts/publish-*.mjs is independently
+// runnable with no cross-script import graph; that stands -- update-manifest-lib
+// is a LIBRARY, pure at import with zero side effects (it refuses to be run
+// directly), not another publisher. Copying the name here instead would make
+// two hand-kept copies of one string, and the web repo's QR code a third.
+import { LATEST_APK_ASSET_NAME, latestApkDownloadUrl } from './update-manifest-lib.mjs';
+import { scanZipForCjk, zipCjkRefusalMessage, zipUnreadableRefusalMessage } from './release-portable-cjk-scan.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'publish');
+// Override for the ./publish root: scripts/it07-publish-github-release-flags.test.mjs
+// used to run its "bare --dry-run is NOT rejected" positive control against this
+// repo's REAL ./publish -- so on 2026-09-09, the day the CJK portable-zip gate
+// (release-portable-cjk-scan.mjs) landed, that control started measuring whatever
+// artefact happened to be sitting on disk (a pre-ruling zip with a Chinese
+// README.txt) instead of flag parsing. The gate was correct to refuse it; the
+// drill was coupled to state it did not create. FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR
+// lets that drill point OUT at a throwaway directory it builds itself, with no
+// portable zip in it, so the control only ever measures argument parsing.
+const OUT = process.env.FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR
+  ? join(process.env.FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR)
+  : join(ROOT, 'publish');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 const TAG = `v${VERSION}`;
 const API_VERSION = '2022-11-28';
@@ -111,7 +131,24 @@ const PUBLISH = boolFlag('publish'); // default: draft
 // (2026-08-23, iron rule §1-19) and machine-written punctuation (2026-09-01) —
 // so the flag that permits the length pays for it with those two checks.
 const CATCH_UP = boolFlag('catch-up-release');
+// Card M-3: run ONLY the fixed-URL gate against whatever is published right
+// now. No release is created, no asset uploaded, no token read. It exists
+// because the gate cannot be meaningful on the default (draft) path -- see
+// assertLatestApkUrlServesThisBuild -- so the operator who publishes the draft
+// in the GitHub UI needs a way to run the check afterwards that is a command,
+// not a memory.
+const CHECK_LATEST_APK = boolFlag('check-latest-apk');
 const REPO_OVERRIDE = typeof flag('repo') === 'string' ? flag('repo') : undefined;
+
+if (CHECK_LATEST_APK && DRY) {
+  // Refuse rather than pick one. --dry-run's contract is ZERO network requests
+  // (that is the sentence it prints, and s8-release-script-defects.test.mjs is
+  // there because that sentence was once false next door); --check-latest-apk
+  // is nothing but a network request. Silently honouring one would make the
+  // other a lie.
+  console.error('✗ --check-latest-apk and --dry-run are mutually exclusive: the check IS a network request, and --dry-run promises none. Pick one.');
+  process.exit(1);
+}
 
 const ok = (m) => console.log(`✓ ${m}`);
 const sha256 = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -349,6 +386,177 @@ function assertCatchUpBodyClean(body) {
   process.exit(1);
 }
 
+// ---- card M-3: the version-less APK copy, and the URL that never changes ----
+//
+// OWNER RULING 2026-09-08 (docs/decisions/2026-09-08-owner-web-client-signed-in-
+// controls-and-stable-apk-url.md): every public release carries the Android
+// build a SECOND time under a version-less name, so the /go download popup can
+// bake ONE address into a QR code and never re-mint it.
+//
+// WHY THE URL NEVER CHANGES: GitHub itself resolves
+//   https://github.com/<owner>/<repo>/releases/latest/download/<asset name>
+// server-side, to the asset of that name on whatever release is currently
+// "latest". Nothing about it carries a version, so nothing about it expires --
+// which is the entire point, and also why the bytes behind it have to be
+// checked rather than assumed: the address is guaranteed to resolve to
+// SOMETHING, never to the right thing.
+//
+// WHAT A MISMATCH MEANS -- two causes, and they are not the same repair:
+//   (a) the release we just made is not the one GitHub calls "latest". A DRAFT
+//       or a prerelease is excluded from `releases/latest`, so the URL keeps
+//       serving the PREVIOUS release's APK: a plausible file, of the wrong
+//       version, with a 200 on it. This is the default path of this script
+//       (draft unless --publish), which is why the gate refuses to pretend it
+//       ran there; see the draft branch in main().
+//   (b) the upload of the fixed-name asset did not land (or landed truncated).
+// A 404 says a third thing: the latest release has no asset by that name at
+// all -- typically the first release published after this feature, or a
+// hand-edited release.
+
+// The single APK of this round. Exactly one, or refuse: one value answers one
+// question -- if ./publish somehow held two APKs there would be no honest
+// answer to "which bytes does the fixed URL promise", and picking the first
+// one would make that ambiguity invisible.
+function pickReleaseApk(artifacts) {
+  const apks = artifacts.filter((a) => /\.apk$/i.test(a.name));
+  if (apks.length === 1) return apks[0];
+  if (apks.length === 0) {
+    console.error(`\u2717 no .apk among the ${VERSION} artifacts in ./publish -- a public release must carry the Android build`);
+    console.error('  (iron rule S1-18: a release ships every platform), and the fixed-name copy the /go QR code points at');
+    console.error('  is made from it (owner ruling 2026-09-08). Build and stage the APK, then re-run.');
+    process.exit(1);
+  }
+  console.error(`\u2717 ${apks.length} .apk files in ./publish for ${VERSION}: ${apks.map((a) => a.name).join(', ')}`);
+  console.error('  The fixed-name copy has to be made from one of them and there is no way to choose. Remove the stale one and re-run.');
+  process.exit(1);
+  return undefined;
+}
+
+// Overwrite semantics, stated out loud. GitHub does NOT replace an asset on a
+// name collision -- it answers 422 already_exists -- so "just upload it again"
+// is not a thing that exists. The fixed name is the one asset name that
+// repeats across every release, so it is also the one that can plausibly
+// already be sitting on a release someone attached by hand, and the only way
+// to make this script idempotent for it is delete-then-upload. Each delete
+// happens immediately before its own upload, and nothing else is ever deleted
+// (card UP-6's ordering argument, same reason: a delete whose upload never
+// arrives leaves the fixed URL pointing at nothing).
+async function deleteAssetsNamed(repo, token, release, name) {
+  const res = await api(repo, token, 'GET', `/releases/${release.id}/assets?per_page=100`);
+  if (!res.ok) {
+    console.error(`\u2717 could not list the assets already on ${TAG}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
+    console.error(`  Refusing to upload "${name}" blind: if one of that name is already there the upload fails with 422 and`);
+    console.error('  the fixed URL keeps serving whatever is on it.');
+    process.exit(1);
+  }
+  const hits = (await res.json()).filter((a) => a.name === name);
+  for (const a of hits) {
+    const del = await api(repo, token, 'DELETE', `/releases/assets/${a.id}`);
+    if (!del.ok && del.status !== 404) {
+      console.error(`\u2717 could not delete the existing "${name}" asset (id ${a.id}): HTTP ${del.status}`);
+      process.exit(1);
+    }
+    ok(`removed the existing "${name}" from ${TAG} before re-uploading (delete-then-upload, never a silent duplicate)`);
+  }
+}
+
+const contentTypeFor = (name) => (name.toLowerCase().endsWith('.apk')
+  ? 'application/vnd.android.package-archive'
+  : 'application/x-msi');
+
+async function uploadAsset(repo, token, release, uploadBase, { assetName, path, size }) {
+  const blob = await openAsBlob(path, { type: contentTypeFor(assetName) });
+  const res = await api(repo, token, 'POST', `${uploadBase}?name=${encodeURIComponent(assetName)}`, blob, {
+    'Content-Type': contentTypeFor(assetName),
+  });
+  if (!res.ok) {
+    console.error(`\u2717 upload of ${assetName} failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
+    console.error(`  the release itself was already created (${release.html_url}) -- fix and re-upload manually, or delete the draft and re-run.`);
+    process.exit(1);
+  }
+  const asset = await res.json();
+  if (asset.size !== size) {
+    console.error(`\u2717 ${assetName} uploaded but GitHub reports size ${asset.size}, local is ${size} -- re-upload, do not trust this asset.`);
+    process.exit(1);
+  }
+  ok(`uploaded ${assetName} (${asset.size} bytes, matches local)`);
+}
+
+// THE GATE. Not a log line: every path out of this function either prints a
+// receipt or exits non-zero. A HEAD with redirects followed lands on the CDN
+// object, and its Content-Length is the number of bytes an actual user would
+// receive from the address printed on the QR code.
+//
+// 🔴 Card M-3b (gap found cross-checking M-3, 2026-09-08): the address that
+// matters is the PUBLIC one -- `latestApkDownloadUrl()` with no argument,
+// PUBLIC_RELEASE_BASE -- because that is the literal string the /go QR code
+// bakes in and the update manifest ships. This function used to rebuild the
+// URL from `repo` (= detectRepo()'s answer, or --repo=), so a release made
+// against this machine's private-repo origin got HEADed on the PRIVATE repo's
+// releases/latest/download path and printed "verified" -- a real HEAD, a real
+// 200, and it answered a question nobody was asking. The drill always passed
+// `--repo=flowmicapp/flowmic` so this never went red there.
+//
+// When `repo` is not the public repo, this gate cannot say anything about the
+// public URL (that address is served by a release on a DIFFERENT repo, one
+// this run did not touch) -- so it says that out loud and skips the HEAD,
+// rather than HEADing the wrong address and calling it a pass.
+async function assertLatestApkUrlServesThisBuild(repo, apk) {
+  const url = latestApkDownloadUrl();
+  const targetedUrl = latestApkDownloadUrl(`https://github.com/${repo}/releases`);
+  if (targetedUrl !== url) {
+    console.log(`⚠ this release targets ${repo}, not the public repo the fixed URL lives on.`);
+    console.log(`  The public URL (${url}) is what the /go QR code and the update manifest actually use, and it is`);
+    console.log(`  NOT verified by this run -- HEADing ${targetedUrl} would answer a question nobody is asking.`);
+    console.log('  Skipping the check. Re-run --check-latest-apk from a checkout whose origin is the public repo');
+    console.log('  (or with --repo=flowmicapp/flowmic) once this build is actually the one published there.');
+    return;
+  }
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      headers: { 'User-Agent': 'flowmic-publish-github-release' },
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    console.error(`\u2717 could not reach ${url}: ${e.message}`);
+    console.error('  This gate has to answer yes or no. It answered neither, so the release is NOT verified.');
+    process.exit(1);
+  }
+  if (res.status === 404) {
+    console.error(`\u2717 ${url} -> 404.`);
+    console.error(`  The release GitHub currently calls "latest" carries no asset named "${LATEST_APK_ASSET_NAME}".`);
+    console.error('  Either this release is still a draft/prerelease (so "latest" is an older one), or the fixed-name upload did not land.');
+    process.exit(1);
+  }
+  if (!res.ok) {
+    console.error(`\u2717 ${url} -> HTTP ${res.status}. The fixed download URL is not serving the APK.`);
+    process.exit(1);
+  }
+  const raw = res.headers.get('content-length');
+  if (raw === null) {
+    // Never pass on an absent measurement. A HEAD with no Content-Length is a
+    // ruler that did not answer, and calling that green would make this gate
+    // report success for a run in which it measured nothing at all.
+    console.error(`\u2717 ${url} answered ${res.status} with no Content-Length header, so the byte size could not be compared.`);
+    console.error('  Not treated as a pass: an unverified gate and a green gate must not look the same.');
+    process.exit(1);
+  }
+  const served = Number(raw);
+  if (served !== apk.size) {
+    console.error(`\u2717 ${url}`);
+    console.error(`  serves ${served} bytes; this round's ${apk.name} is ${apk.size} bytes.`);
+    console.error('  Two causes, two different repairs:');
+    console.error('   (a) the release just made is not the one GitHub calls "latest" -- a DRAFT or prerelease is excluded,');
+    console.error('       so this URL is still serving the PREVIOUS release. Publish the release, then re-run with --check-latest-apk.');
+    console.error(`   (b) the "${LATEST_APK_ASSET_NAME}" upload did not land (or landed truncated) -- re-upload it.`);
+    process.exit(1);
+  }
+  ok(`${url} serves ${served} bytes = this round's ${apk.name} (fixed URL verified, card M-3)`);
+}
+
 function loadToken() {
   const t = process.env.FLOWMIC_GITHUB_RELEASE_TOKEN || process.env.GITHUB_TOKEN;
   if (!t) {
@@ -380,6 +588,16 @@ async function api(repo, token, method, path, body, extraHeaders = {}) {
 
 async function main() {
   const repo = detectRepo();
+
+  // Card M-3, standalone gate. Deliberately BEFORE the body gates and before
+  // anything that writes: this mode makes no release, uploads nothing and
+  // reads no token -- its only job is to measure what the fixed URL is serving
+  // right now against the APK this tree staged.
+  if (CHECK_LATEST_APK) {
+    const apkOnly = pickReleaseApk(collectArtifacts());
+    await assertLatestApkUrlServesThisBuild(repo, apkOnly);
+    return;
+  }
   // Body BEFORE artifacts, deliberately. The body gates need no filesystem and
   // no network; collectArtifacts() hashes hundreds of megabytes. Refusing a
   // release page after paying for that is backwards, and it also made the
@@ -418,12 +636,37 @@ async function main() {
 
   const artifacts = collectArtifacts();
 
+  // 🔴 Same 2026-09-09 owner ruling as the body gate above, extended from
+  // "the Release page" to "the archive a user actually unpacks": every text
+  // file INSIDE a portable zip must be English-only too, checked on the
+  // bytes about to be uploaded — not on whoever wrote publish.mjs remembering
+  // the rule. Runs before any network call, including under --dry-run, so a
+  // bad archive is caught before it is even staged for publishing.
+  for (const a of artifacts) {
+    if (!/-portable-.*\.zip$/i.test(a.name)) continue;
+    const zipBuf = readFileSync(a.path);
+    const { findings, reason } = scanZipForCjk(zipBuf);
+    if (reason) {
+      console.error(zipUnreadableRefusalMessage(a.name, reason));
+      process.exit(1);
+    }
+    if (findings.length > 0) {
+      console.error(zipCjkRefusalMessage(a.name, findings));
+      process.exit(1);
+    }
+  }
+
+  // Card M-3: the same bytes, attached a second time under a fixed name.
+  const apk = pickReleaseApk(artifacts);
+
   console.log(`\n── GitHub Release preview ──`);
   console.log(`repo   : ${repo}`);
   console.log(`tag    : ${TAG}`);
   console.log(`draft  : ${!PUBLISH}`);
   console.log('assets :');
   for (const a of artifacts) console.log(`  ${a.name}  ${(a.size / 1024 / 1024).toFixed(1)} MB  sha256=${a.hash.slice(0, 16)}…`);
+  console.log(`  ${LATEST_APK_ASSET_NAME}  ${(apk.size / 1024 / 1024).toFixed(1)} MB  sha256=${apk.hash.slice(0, 16)}…  (second copy of ${apk.name}, card M-3)`);
+  console.log(`fixed  : ${latestApkDownloadUrl(`https://github.com/${repo}/releases`)}`);
   console.log(`body   :\n${body}\n`);
 
   if (DRY) {
@@ -461,27 +704,40 @@ async function main() {
   ok(`created ${PUBLISH ? 'published' : 'draft'} release ${TAG} → ${release.html_url}`);
 
   const uploadBase = release.upload_url.replace(/\{.*\}$/, ''); // strip the "{?name,label}" URI template
-  const contentType = (name) => (name.endsWith('.apk') ? 'application/vnd.android.package-archive' : 'application/x-msi');
   for (const a of artifacts) {
-    const blob = await openAsBlob(a.path, { type: contentType(a.name) });
-    const res = await api(repo, token, 'POST', `${uploadBase}?name=${encodeURIComponent(a.name)}`, blob, {
-      'Content-Type': contentType(a.name),
-    });
-    if (!res.ok) {
-      console.error(`✗ upload of ${a.name} failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-      console.error(`  the release itself was already created (${release.html_url}) — fix and re-upload manually, or delete the draft and re-run.`);
-      process.exit(1);
-    }
-    const asset = await res.json();
-    if (asset.size !== a.size) {
-      console.error(`✗ ${a.name} uploaded but GitHub reports size ${asset.size}, local is ${a.size} — re-upload, do not trust this asset.`);
-      process.exit(1);
-    }
-    ok(`uploaded ${a.name} (${asset.size} bytes, matches local)`);
+    await uploadAsset(repo, token, release, uploadBase, { assetName: a.name, path: a.path, size: a.size });
   }
 
+  // Card M-3: the SAME file, a second time, under the version-less name. Not a
+  // copy on disk and not a rebuild -- the identical bytes that were just
+  // verified against their .sha256 sidecar, so "the fixed URL serves this
+  // release's APK" is true by construction and then measured below anyway.
+  await deleteAssetsNamed(repo, token, release, LATEST_APK_ASSET_NAME);
+  await uploadAsset(repo, token, release, uploadBase, {
+    assetName: LATEST_APK_ASSET_NAME, path: apk.path, size: apk.size,
+  });
+
   console.log(`\nRelease ready: ${release.html_url}`);
-  if (!PUBLISH) console.log('It is a DRAFT — review it in the GitHub UI, then publish it there (or re-run with --publish next time).');
+
+  if (PUBLISH) {
+    // The release is public as of this moment, so `releases/latest` should
+    // already resolve to it. Gate, not a log line: a failure here exits 1.
+    await assertLatestApkUrlServesThisBuild(repo, apk);
+  } else {
+    // Refuse to run the check rather than run it and fail: on the draft path a
+    // mismatch is GUARANTEED and means nothing, and a gate that is red in
+    // normal operation is a gate people learn to ignore. Say what is not yet
+    // verified, and give the exact command that verifies it -- the check then
+    // lives in a command instead of in someone's memory.
+    console.log('It is a DRAFT — review it in the GitHub UI, then publish it there (or re-run with --publish next time).');
+    console.log('');
+    console.log('⚠ The fixed download URL is NOT verified yet, and cannot be while this release is a draft:');
+    console.log(`  ${latestApkDownloadUrl()}`);
+    console.log('  GitHub excludes drafts and prereleases from "latest", so that address is still serving the PREVIOUS');
+    console.log("  release's APK right now. After you publish the draft, run:");
+    console.log('      node scripts/publish-github-release.mjs --check-latest-apk');
+    console.log("  It compares the bytes that URL serves against this round's APK and exits non-zero on any mismatch.");
+  }
 }
 
 main().catch((e) => {

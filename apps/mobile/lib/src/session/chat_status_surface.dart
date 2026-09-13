@@ -86,6 +86,21 @@ extension ChatStatusSurface on ChatController {
 
   void dismissUtteranceFailure() => dismissUtteranceFailureRouted(this);
 
+  /// Card MP-14 — non-null while the 「the computer could not use that key」
+  /// notice should show. Null on success: `ok:true` draws nothing at all, and
+  /// that is deliberate rather than an omission (a receipt the user sees only
+  /// when it fails teaches them that silence means success, which is exactly the
+  /// belief this card removes from the product).
+  ///
+  /// 🔴 G-20 — scoped like [sttStalled]; hidden, not dropped, while parked on
+  /// another instance's screen.
+  ControlKeyRefusal? get controlKeyRefusal =>
+      _noticeOnScreen(_controlKeyRefusalInstanceId) ? _controlKeyRefusal : null;
+
+  /// Dismiss it (the ✕, or the auto-hide reconciler firing the same callback).
+  /// Body: chat_notices.dart.
+  void dismissControlKeyRefusal() => dismissControlKeyRefusalRouted(this);
+
   /// AUD-D F6 / P1-6 (2026-09-02) — the stable [RetainedAudioNotice.code] of
   /// the most recent retention event nobody has dismissed yet, or null for
   /// none. Deliberately NOT gated on [_noticeOnScreen] like the three above:

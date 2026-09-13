@@ -44,6 +44,78 @@ test: gen
 # cosmetic: a hung widget test makes a bare `flutter test` run for twenty
 # minutes printing nothing (flowmic-realdevice-playbook). One target, both
 # requirements, one place to change either.
+# ── WHY THERE IS NO -j HERE, AND NO SHARDING (measured 2026-09-13, lane L2) ──
+#
+# Machine dev-pc-a (Ryzen 9 7945HX, 16C/32T), tree at 0c445861.
+# Method: three runs per row, `flutter test --reporter compact --timeout 90s`,
+# nothing else on the box (a machine lock kept the concurrent golden lane off
+# it), medians in ms. EVERY row finished with the same total, 4071
+# (+4070 ~1), so these compare like with like. "pre" is 0c445861 as it stood;
+# "post" also carries the three injected-seam fixes in
+# test/connections_controller_test.dart (that one file: 42121 ms -> 2177 ms).
+#
+#   variant                        runs (ms)                    median
+#   default -j (16 here)   pre     115810 / 118549 / 114157 /   117429 (n=5)
+#                                  117819 / 117429
+#   default -j (16 here)   post    117690 / 111487 / 111316     111487
+#   -j 8                   pre     135788 / 126653 / 119614     126653
+#   -j 16                  pre     113096 / 120597 / 114480     114480
+#   -j 32                  pre     117609 / 106081 / 100486     106081
+#   -j 32                  post    114357 / 117656 / 112214     114357  1 RED
+#   --experimental-faster-testing   DOES NOT RUN — see below
+#
+# (A sixth default run, 160792 ms, is excluded from every median: it was the
+# first ever build in a fresh worktree and measured the cold kernel cache.)
+#
+# 🔴 -j 32 IS NOT LANDED, AND THE REASON IS A RED, NOT A NUMBER. Its medians
+# straddle the default's (100.5 s to 117.7 s across six runs), and the sixth
+# run FAILED: at 32 concurrent Dart VMs the ephemeral-port churn crossed two
+# suites — `blind_store_payload_test.dart` could not load at all ("Unable to
+# connect to flutter_tester process: WebSocketException: Invalid WebSocket
+# upgrade request") and `blind_store_keymeta_client_test.dart`'s "nobody
+# listening ⇒ UNREACHABLE" case got `HTTP_400` from whatever had taken the
+# port it had just released. That test's whole point is that an unanswered
+# request is not a server verdict, and oversubscription turns it into one.
+# This is hazard 5 in verify/run-delivery-fast.mjs ("lanes that assert on time
+# can lose to a lane that eats the CPU") reproduced from inside one lane.
+# A knob is deliberately NOT added either: a control nothing sets is the shape
+# CLAUDE.md bans. If a future card wants the concurrency raised, it owes a
+# measurement of the six-lane interaction, not just a solo wall clock.
+#
+# 🔴 --experimental-faster-testing (the hidden flag that would actually remove
+# the per-file cost) CANNOT RUN FROM THIS REPO'S PATH. flutter_tools builds
+# `build/isolate_spawning_tester/child_test_isolate_spawner.dart` by turning
+# each test file's absolute path into a Dart import prefix, and its sanitizer
+# replaces only `.` `:` `/` `\` — NOT `-`
+# (packages/flutter_tools/lib/src/test/runner.dart, `String pathToImport`).
+# Every path here contains hyphens (`nerss-corp`, `flowmic-app`), so the
+# generated file does not parse and all 393 suites fail to load in ~11 s.
+# Measured both ways: entering through a hyphen-free junction does not help,
+# because the tool canonicalises to the real path first. This is an upstream
+# bug, not a test-isolation problem in this suite — nothing of ours ran.
+#
+# 🔴 SHARDING WOULD NOT HAVE HELPED ANYWAY, and the reason is measured. The
+# 2026-09-13 cost ledger attributes 78 % of the summed per-file time to
+# per-file VM loading (avg 3.15 s x 393). Probed here with throwaway one-test
+# files: a file importing nothing but `flutter_test` loads in 2217 ms (median
+# of 3); one importing `test/support/di.dart` — the 261-line helper 184 files
+# pull, with its 21 `package:flowmic/...` imports — loads in 2032 ms. Also
+# measured: fakes.dart 2113, ptt_session.dart 2164, material.dart 2092,
+# app_strings.dart 1939, timeline_store.dart 1871. The delta is noise, and
+# some of it is negative. **The tax is Dart VM + engine start, not our import
+# graph**, so N shard processes pay it N times over; only running many suites
+# in one process removes it, which is the flag above.
+#
+# ── fixed temp paths / fixed ports (grepped 2026-09-13, whole apps/mobile) ──
+# `grep -rn systemTemp test lib` — 47 hits, 46 of them `createTemp`/
+# `createTempSync` with a prefix. The one fixed name
+# (`update_card_widget_test.dart`, `flowmic-up2b-fake.apk`) is now a
+# `createTempSync` directory + `removeTempDir` teardown. Three files hold
+# `/tmp/...` string literals (`outbox_stations_test.dart`,
+# `outbox_test_sqlite.dart`, `update_download_test.dart`) and nothing opens
+# them: they are record fields and an argument to a fake platform port.
+# `grep -rnE "(HttpServer|ServerSocket|SecureServerSocket)\.bind"` — 20 hits,
+# every one binds port 0. So: zero fixed ports, zero remaining fixed paths.
 .PHONY: gate-test
 gate-test: gen
 	flutter test --timeout 90s --reporter compact

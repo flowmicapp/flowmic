@@ -1,3 +1,5 @@
+// COST BUDGET: 5.0 s because the stuck connection never drains, so close() waits out the product's own SHUTDOWN_GRACE_MS (5 s, src/shutdown.ts symbol SHUTDOWN_GRACE_MS) before forcing it — measured 2026-09-13 dev-pc-a: startServer 22 ms, the graced close 5,008 ms.
+//
 // RV-65 — "the server said it was shutting down, and then it did not".
 //
 // Node's http.Server.close() (v18.2+, confirmed present in both the v22.11.0
@@ -68,9 +70,26 @@ describe('RV-65: close() must not wait forever on a connection with a request in
   it('resolves close() within a bound well under systemd TimeoutStopSec=20s, with one stuck in-flight connection open', async () => {
     const config = loadConfig({ port: 0, dbPath: ':memory:', secret: 'shutdown-drain-test-secret-32-bytes-long' });
     server = await startServer(config);
+    // WAIT FOR THE BYTES, DO NOT SLEEP FOR THEM (2026-09-13). This used to be
+    // `setTimeout(r, 100)`, and the direction that sleep can fail in is the one
+    // this file's header warns about: too early and the server-side connection
+    // is still IDLE, Node's own idle-sweep closes it, close() returns at once —
+    // and the test passes ON UNFIXED CODE. A sleep that is only ever a little
+    // too short produces a green, not a red, so nothing would report it.
+    // The server socket's first 'data' is the fact the sleep was estimating
+    // (measured on this box: bytesRead=67 by then), so wait for that instead.
+    // Armed BEFORE connecting — the event cannot be caught after it fires.
+    // 🔴 REVERSE CONTROL for the swap, measured red 2026-09-13 (marker
+    // REVERSE-CONTROL-F): shutdown.ts reduced to the pre-RV-65 stock close()
+    // (no closeIdleConnections, no grace timer, no closeAllConnections) ⇒ this
+    // case FAILED with `expected false to be true` at 18 s, the production
+    // shape. Restored; `grep -rn "REVERSE-CONTROL-F" apps/server-core/src` = 0.
+    const handle = server;
+    const bytesLanded = new Promise<void>((resolve) => {
+      handle.httpServer.once('connection', (sock) => sock.once('data', () => resolve()));
+    });
     stuckSocket = await openStuckConnection(server.port);
-    // Let the bytes actually land server-side before racing close() against it.
-    await new Promise((r) => setTimeout(r, 100));
+    await bytesLanded;
 
     // The number a passing test has to beat, not a tuning knob — chosen well
     // under deploy/flowmic-app.service's TimeoutStopSec=20s so a pass here

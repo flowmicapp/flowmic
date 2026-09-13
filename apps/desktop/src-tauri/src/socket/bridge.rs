@@ -86,6 +86,17 @@ pub mod channel {
     /// takes its channel label from it (previously a hardcoded「本地局域网」("local LAN")).
     /// A Tauri IPC channel, not a wire event.
     pub const CLOUD_STATE: &str = "flowmic://cloud-state";
+    /// Card MP-3 — the server's account-allowance frame (`billing:budget`),
+    /// forwarded verbatim to the main window.
+    ///
+    /// 🔴 THE MAIN WINDOW READS ONE FIELD OFF IT: `payer`. The numbers on the
+    /// account card come from the HTTP read and keep coming from there; what
+    /// this channel adds is the answer to 「why is my meter standing still while
+    /// a recording runs」 — since card MP-0 the phone's own account can be the
+    /// one being spent (owner 2026-09-11 「谁说扣谁」), and `payer:'far_end'` is
+    /// the only place on the wire that says so. No amount from the other end
+    /// ever crosses: that ledger is not this end's business (design §4).
+    pub const BILLING_BUDGET: &str = "flowmic://billing-budget";
     /// Foreground focus changed (GA-25). The pump pushes `{window_title,
     /// process_name}` here on the SAME change-only sample that feeds the wire
     /// `focus:state` mirror — one foreground tracking path, two sinks. The

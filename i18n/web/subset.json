@@ -1,0 +1,838 @@
+{
+  "source": "i18n/mobile/<locale>.json",
+  "generator": "scripts/i18n/gen-i18n-web.mjs",
+  "package": "@flowmic/i18n-web",
+  "note": [
+    "This file is a SELECTION, never a copy. It names which of the mobile",
+    "catalogue's keys the web client is allowed to render; the SENTENCES stay in",
+    "i18n/mobile/<locale>.json and are read from there at generation time. Adding",
+    "a key here does not create a string — if the key is not already in all nine",
+    "locales, the generator refuses rather than inventing one.",
+    "",
+    "WHY A SELECTION AND NOT THE WHOLE CATALOGUE: 853 keys x 9 locales is ~100 KB",
+    "of JavaScript a phone browser would download to render about fifty of them.",
+    "The subset is also the reviewable answer to 'which product wording does the",
+    "web client promise to keep identical to the app' — design 2026-09-05 §6:",
+    "「i18n 共用同一批 key（从 i18n/mobile/*.json 派生，L7 术语不漂移）」.",
+    "",
+    "GROWING IT: add the key to the right group, run `pnpm i18n:gen`, commit the",
+    "regenerated packages/i18n-web/src/generated/. Card S1-13 is the one that",
+    "extends this for the stage-1 mic UI; this file starts at the wording the",
+    "design names explicitly (status verdicts, refusal reasons, PTT, link state).",
+    "",
+    "AUTHORED KEYS. Four authored clusters below (go-shell, go-settings, go-download, web-target) name",
+    "sentences that exist for the browser clients and for nothing else — a mic-page",
+    "top bar, a connect screen, a get-the-app dialog, and the target page that plays",
+    "the computer. They are still",
+    "not written here: card M-1 wrote them into i18n/mobile/<locale>.json like every",
+    "other product sentence, so that one catalogue answers 「what does the product say」",
+    "and this file keeps answering only 「which of it does the browser download」.",
+    "Design: docs/strategy/2026-09-08-web-client-mic-ui-design.md §6.2."
+  ],
+  "groups": [
+    {
+      "id": "status",
+      "why": "L7 delivery/injection status words. 15-DELIVERY-CHANNELS §2.0 forbids reusing a word across the two segments, so the web client must render THESE strings and not translate the concept again.",
+      "keys": [
+        "statusInjected",
+        "statusDelivering",
+        "statusQueued",
+        "statusUndelivered",
+        "statusDeliveredNotInjected",
+        "statusDeferredNotInjected",
+        "statusNoFocus",
+        "statusFailed",
+        "statusRefused",
+        "recordOnly"
+      ]
+    },
+    {
+      "id": "inject-verdict-notes",
+      "why": "The 「凭什么这么说」 sentence under an injection verdict (0.2.53). A code the web client cannot name in words repeats the INJ… truncation defect on a second surface.",
+      "keys": [
+        "injectVerdictNote_INJECT_CLIPBOARD_FAIL",
+        "injectVerdictNote_INJECT_FOCUS_LOST",
+        "injectVerdictNote_INJECT_IMAGE_UNSUPPORTED",
+        "injectVerdictNote_INJECT_NO_ACCESSIBILITY",
+        "injectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
+        "injectVerdictNote_INJECT_SELF_WINDOW_NO_INPUT",
+        "injectVerdictNote_INJECT_SENDINPUT_FAIL",
+        "injectVerdictNote_INJECT_TARGET_INVALID"
+      ]
+    },
+    {
+      "id": "delivery-refusal-notes",
+      "why": "Relay-side refusals. These answer 「没送到，为什么」 and each one implies a different user action, which is why they are separate codes rather than one sentence.",
+      "keys": [
+        "deliveryRefusalNote_INJECT_FRAME_INVALID",
+        "deliveryRefusalNote_INJECT_FRAME_TOO_LARGE",
+        "deliveryRefusalNote_INJECT_PC_MISMATCH",
+        "deliveryRefusalNote_INJECT_PC_OFFLINE",
+        "deliveryRefusalNote_INJECT_PC_UNSPECIFIED",
+        "deliveryRefusalNote_INJECT_SERVER_BUSY"
+      ]
+    },
+    {
+      "id": "push-to-talk",
+      "why": "Hold-to-talk affordance and its sub-line. Design §6 pins the web PTT gesture to the app's, so the wording travels with it. AUTHORED, two keys, for the browser's two ways of ending a press with no audio at all. sttStallNoAudioCaptured is the verdict when the press completed and the capture carried no sound; sttStallMessage__4 was NOT reused for it because it names causes a tab cannot act on (「the mic permission, or whether another app is holding it」) — in a browser the permission prompt has already been answered by the time a press can start, and the cause a visitor can actually fix is a muted input, so that sentence would send them to a setting that is already right. pttMicPipelineFailed is the other end: the capture never started in this browser at all. pttStartingMic names only the state 「starting」 and has no failed form, and pttDisabled says 「Not connected」, which is false here — the link is fine and the microphone is not. Both were written into i18n/mobile/<locale>.json like every other product sentence and are only selected here.",
+      "keys": [
+        "pttHold",
+        "pttRecording",
+        "pttCancelArmed",
+        "pttCancelSemanticAction",
+        "pttProcessing",
+        "pttStartingMic",
+        "pttJustDone",
+        "pttDisabled",
+        "pttSubDirect",
+        "pttInstallHint",
+        "pttInstallHintLink",
+        "pttSubManual",
+        "pttSubDisabled",
+        "pttSubProcessingDirect",
+        "sttStallNoAudioCaptured",
+        "pttMicPipelineFailed"
+      ]
+    },
+    {
+      "id": "link-state",
+      "why": "Connection state and the buffering banners. The web client's reconnect path is the same promise as the app's, so a divergent word here would be a second answer to 「现在通不通」.",
+      "keys": [
+        "cloudRelay",
+        "connConnected",
+        "connError",
+        "connecting",
+        "connectedLan",
+        "notConnected",
+        "offline",
+        "online",
+        "bannerLinkDown",
+        "bannerReconnecting",
+        "bannerContinuousOffline",
+        "reconnectNowAction",
+        "capsuleTakenNotice"
+      ]
+    },
+    {
+      "id": "outbox",
+      "why": "The 「还有 N 条待投递」 banner. CLAUDE.md's red line allows 「待投递」 only where a queue really redelivers, so the web client may use these two only once its IndexedDB outbox exists (card S1-11).",
+      "keys": [
+        "outboxPendingNotice",
+        "outboxPendingNoticeLinkUp",
+        "outboxTerminalMessage__1",
+        "outboxTerminalMessage__2",
+        "pendingRecoveryBannerAction"
+      ]
+    },
+    {
+      "id": "microphone-permission",
+      "why": "Permission prompts and their recovery actions. Browser error names differ from Android's, but the sentence the user reads must not.",
+      "keys": [
+        "micRationale",
+        "micDenied",
+        "micPermanentlyDenied",
+        "micAllowAction",
+        "micOpenSettingsAction",
+        "micCaptureStartFailed"
+      ]
+    },
+    {
+      "id": "microphone-recovery",
+      "why": "What to do after the BROWSER refuses the microphone (card S1-12). Kept apart from the group above because a browser refusal is a PER-SITE setting, while `micPermanentlyDenied` above is the phone App's sentence about an operating-system app permission — borrowing it would send a web visitor to the wrong screen, which is why `packages/core/src/platform/guidance.ts` left these slots empty rather than reuse it. Six steps sentences and not one, because an iPhone, an Android phone, a desktop and an in-app web view each have a different place to go; `micOpenInBrowser` is the in-app case, where there is usually no setting to reach at all. `micNoDevice` says a device has no microphone and deliberately does NOT say 「try again」 — the existing `micCaptureStartFailed` does, and that is advice which cannot work when the hardware is absent.",
+      "keys": [
+        "micRecoveryStepsIosSafari",
+        "micRecoveryStepsIosOtherBrowser",
+        "micRecoveryStepsAndroidChrome",
+        "micRecoveryStepsAndroidOtherBrowser",
+        "micRecoveryStepsDesktop",
+        "micRecoveryStepsUnknown",
+        "micOpenInBrowser",
+        "micNoDevice"
+      ]
+    },
+    {
+      "id": "ptt-lock",
+      "why": "The 「keep the microphone on」 lock (card S1-10). `pttLockContinuous` is the lock's own label; `continuousStop` is what the button says while the lock holds the microphone open, where `pttRecording` (「Release to end」) would be a lie — there is nothing to release. `continuousStop` already existed in all nine locales and is only SELECTED here. The lock's caption stays blank on purpose: `pttSubDirect` ends with 「slide up to cancel」, which is false while the lock holds the mic.",
+      "keys": [
+        "pttLockContinuous",
+        "continuousStop"
+      ]
+    },
+    {
+      "id": "admission-faces",
+      "why": "Three faces of the session state machine (2026-09-07 §2.2/§2.5, ADJ-② and ADJ-⑥). `admissionUnverifiableNotice` is `heldOutUnverifiable`: the relay says it cannot decide about this token right now, so the client keeps the pairing and backs off — the protocol's own sentence ends 「please try again shortly」, which would be false when the retry is ours. `admissionRefusedUnknownCode` is the `revoked` fallback for a refusal code we do not recognise; it prints the code in full (0.2.53) and names the one action that always works. `guideStatusPcOtherAccount` and `pcOtherAccountChip` are SELECTED, not authored: the design pins the web face to the App's 同键同文, and the App's sentence already says the computer is powered on and working — which is exactly what the adjudication demanded nobody get wrong.",
+      "keys": [
+        "admissionUnverifiableNotice",
+        "admissionRefusedUnknownCode",
+        "guideStatusPcOtherAccount",
+        "pcOtherAccountChip"
+      ]
+    },
+    {
+      "id": "session-privacy",
+      "why": "The always-on line saying this session's transcript is not saved (addendum 2026-09-06 §2.1 not-signed-in row, §5.1). Stage one has no login and no history, so the sentence is unconditional and literally true of what the page does. Only the web client renders it; it is authored in i18n/mobile/*.json anyway, because a second home for product copy in the web repository is the drift this selection exists to prevent.",
+      "keys": [
+        "sessionNotSavedNotice"
+      ]
+    },
+    {
+      "id": "pairing-refusals",
+      "why": "What the pairing screen says when it will not act on a link (card S1-09, packages/core/src/pairing/copy.ts in the web client). `pairScanForeign` and `pairError__1` are SELECTED, not written: four parser reasons -- a URL that is not ours, our host but not the pairing path, a string that is not a URL, and a link with no endpoint -- share `pairScanForeign` because they share ONE next action, and the reason survives in `data-reason` for whoever reads a snapshot. `pairLinkOutdated` is AUTHORED and is deliberately not `pairError__2`: an expired code is refreshed on the PC, an outdated one needs FlowMic on the PC updated first, and one sentence for both would send half the visitors the wrong way. `pairLanOnlyUseApp` is AUTHORED as the headline above `webLimitsNoLocalNetwork` in the web-limits group below: that sentence states the platform limit and names no next action, and here the next action is the whole point. The two are one thought -- what to do, then why this page cannot do it -- so neither repeats the other.",
+      "keys": [
+        "pairScanForeign",
+        "pairError__1",
+        "pairLinkOutdated",
+        "pairLanOnlyUseApp"
+      ]
+    },
+    {
+      "id": "pairing-manual-form",
+      "why": "The type-it-in path, for a visitor whose camera cannot be used (card S1-09). All eight ALREADY EXISTED in nine locales and are only SELECTED here; until now the web client rendered these fields and its submit button with no words on them. They are the App's own labels on purpose: PCID is untranslated in all nine languages (17-UI-LOCALE-GLOSSARY sec 3) and someone reading nine digits off a PC screen must not meet two different names for them. `pairNeedPcid` and `pairNeedCode` are the form's own refusals and stay separate from the group above, which answers a scanned link rather than a typed field.",
+      "keys": [
+        "pairTabManual",
+        "pcidLabel",
+        "pcidInputHint",
+        "pairCodeLabel",
+        "pairCodeInputHint",
+        "pairConnect",
+        "pairNeedPcid",
+        "pairNeedCode"
+      ]
+    },
+    {
+      "id": "web-limits",
+      "why": "The web-version card (design 2026-09-05 §6) plus the picture-sending sentences (owner batch 2026-09-12 item 1). Two of the rows still state something the browser cannot do; the picture row now states the size limit, the shrinking and the one-at-a-time rule instead, so the card title is no longer 「what it cannot do」. The five image* sentences are the ones the picker and the send path show while a picture is on its way. Web-only, and authored in the mobile catalogue for the same reason as session-privacy above. 🔴 The relay's own two refusals (INJECT_CLOUD_IMAGE_TOO_LARGE / _QUOTA_EXCEEDED) ARE selected now — this sentence used to say they were not, and it is rewritten rather than appended to, because leaving the old clause standing next to the new keys would make it a false statement about the list directly beneath it. They are SELECTED, NOT AUTHORED: the phone has owned a sentence for each of the two since card B4-12, under the `cloudImageRelayErrorNote_*` family (`AppStrings.cloudImageRelayErrorNote`, image_strings.dart), in all nine locales — and a second, web-only sentence for a code that already has one is the exact thing this generator's own header forbids. What they fell back to before was not nine locales: `ERROR_CODES` (packages/protocol/src/error-codes.ts) carries `zh_CN` and `en` and nothing else, so seven of the nine languages had no sentence of their own for either code. 🔴 ONE THING THIS SELECTION DOES NOT SETTLE: all nine, on both codes, end by naming the local network as the way out (「Connect over the same LAN to send it」), and this page is the one surface that can never take that advice — `webLimitsNoLocalNetwork`, listed two rows above in this same group, is the sentence that says so. That clause is NOT introduced by selecting these (the protocol sentence a browser falls back to today carries it too, in English), and it is deliberately NOT edited away here either: on a phone it is true and it is the useful half, and a web selection may not change what the phone says. It wants a ruling of its own — either the sentence splits by surface, or the refusal stops naming an exit the caller may not have.",
+      "keys": [
+        "webLimitsCardTitle",
+        "webLimitsNoBackgroundRecording",
+        "webLimitsNoLocalNetwork",
+        "webLimitsImages",
+        "imagePickLabel",
+        "imagePickTooLarge",
+        "imageShrinking",
+        "imageOneAtATime",
+        "imageSendFailed",
+        "cloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_TOO_LARGE",
+        "cloudImageRelayErrorNote_INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED"
+      ]
+    },
+    {
+      "id": "common-actions",
+      "why": "Buttons the mic page shares with the app.",
+      "keys": [
+        "cancel",
+        "disconnect",
+        "entryCopy",
+        "confirmDelete",
+        "resendAction"
+      ]
+    },
+    {
+      "id": "spoken-language",
+      "why": "The spoken-language picker's title and helper (audio:start.source_lang; the app's kSpokenLangs row). SELECTED, not authored: the app derives each option's own on-screen label (endonym + wire tag, e.g. 「中文 (zh)」) from AppLocale.endonym, a hardcoded per-language data field that is never translated — not from an i18n string — so the option labels need no key at all here, only the row's title and the sentence under it. This is CLAUDE.md's INTERFACE-language/SPOKEN-language split made literal in the selection: `uiLanguage` (a different row, not selected here) answers 「what script renders the UI」, `spokenLangTitle` answers 「what language am I speaking」, and nothing in this group may be reused to answer the other question. `pttNoSpokenLang` IS THE ONLY AUTHORED KEY IN THIS GROUP (named, not counted: it was 「the third key」 until spokenLangNote left). `pttNoSpokenLang` (card FINAL-1) is the press button’s label for the state where nothing has been picked yet. The web page starts with no spoken language and deliberately keeps it that way: the phone’s stored `zh` is a backward-compatibility value for installs that predate the picker and this page has none; English as an acoustic fallback is forbidden by the 2026-08-29 auxiliary-language ruling; and seeding from the browser’s language would re-merge the interface question with the spoken one through the back door. So the un-picked state is permanent, and it needed a sentence — it was rendering an EMPTY STRING, which is a placeholder wearing different clothes. It was AUTHORED rather than selected because the catalogue had none: the near neighbours each answer a different question and would be false here — `pttDisabled` says 「Not connected」 while the link is fine, and `sttStallLanguageUnsupported` blames an engine for a language nobody has chosen yet. It states an action and names no state, so it cannot be read as broken, disconnected, or still loading. 🔴 `spokenLangNote` LEFT THIS SELECTION with card M-1 (design 2026-09-08 §1.4, §9 F-8) and the sentence above is edited to match. It promises 「when you are connected to your own computer it uses that computer’s local model for this language」, and this client only ever reaches a PC through the cloud relay, where recognition runs on the relay — so on every connection a browser can make, that sentence is false. It stays in i18n/mobile/<locale>.json, where it is true, and is simply not downloaded here.",
+      "keys": [
+        "spokenLangTitle",
+        "pttNoSpokenLang"
+      ]
+    },
+    {
+      "id": "session-status",
+      "why": [
+        "The one status area of the temporary-session page: the sentence for the face",
+        "packages/core derives (state-machine design 2026-09-07 §2.7(c)). Before card",
+        "FINAL-2 the core computed that face and nothing rendered it, so a visitor",
+        "holding the button was never told the computer had gone away.",
+        "",
+        "SELECTED, not written: relayUpPcUnknown / pcOfflineChip / pcSignedOutChip /",
+        "pairError__8 / pairError__10 / pairError__11 / pairError__14 are the app's own",
+        "sentences for the same refusal codes and the same presence answers, and the app",
+        "is where that wording was argued (connections_row_faces.dart names which pairs",
+        "must stay different sentences, and why).",
+        "",
+        "WRITTEN, because nothing in the catalogue answers the question:",
+        "· admissionJoiningRoom — the window where the socket is up and the room is not",
+        "  joined. connConnected would claim the room; connecting is machine L's word",
+        "  for the socket; the whole point of this face is that those are two facts.",
+        "· pcOnlineNamed — 'Connected' with no name cannot tell two computers apart,",
+        "  and no existing key names one.",
+        "· presenceRechecking — the app paints this modifier as an unlabelled spinner,",
+        "  so it has no sentence at all. checkingReach may not stand in for it: that one",
+        "  means 'no verdict yet', this one means 'go by the last verdict, we are",
+        "  confirming it' — the exact pair LivenessHold exists to keep apart."
+      ],
+      "keys": [
+        "admissionJoiningRoom",
+        "pcOnlineNamed",
+        "presenceRechecking",
+        "relayUpPcUnknown",
+        "pcOfflineChip",
+        "pcSignedOutChip",
+        "pairError__8",
+        "pairError__10",
+        "pairError__11",
+        "pairError__14"
+      ]
+    },
+    {
+      "id": "sign-in-form",
+      "why": [
+        "The panel that signs a visitor in against the relay this page already dials",
+        "(card S2-05). The two doors were measured off apps/server-core by the web",
+        "client's packages/core/src/account/auth.ts, not assumed.",
+        "",
+        "`tabLogin` is SELECTED, not written: it is the phone’s own label for the",
+        "control that signs you in, and it is the plain verb phrase in all nine",
+        "languages (Sign in / 登录 / Anmelden / ログイン). `signInTitle` is AUTHORED and",
+        "says something the button does not — a heading holding the same word twice",
+        "would be one sentence with two homes, which is the drift this selection",
+        "exists to stop.",
+        "",
+        "The three field sentences are AUTHORED because the phone has none to lend:",
+        "its sign-in sheet has no email/password form at all (it offers a browser",
+        "round trip and a QR scan), so `loginError__1` / `__2` are the only trace of",
+        "a form left in that catalogue and they are refusals, not labels. They mirror",
+        "the console's own wording — common.email, common.password, auth.pwRuleMin —",
+        "so the two surfaces name the same fields the same way.",
+        "",
+        "🔴 `signInPasswordTooShort` TAKES THE NUMBER AS A PARAMETER and never a typed",
+        "digit: the minimum lives in packages/protocol/src/password-policy.ts and the",
+        "web client re-declares it in account/passwordPolicy.ts. A digit written into",
+        "nine sentences would be a further copy that nothing updates.",
+        "",
+        "`signInCreateAccount` and `signInForgotPassword` are LINKS TO THE CONSOLE and",
+        "promise nothing this page implements — creating an account and resetting a",
+        "password happen there (auth.createCta / auth.forgot). This page only knows",
+        "the way.",
+        "",
+        "Card M-1c authored `signInSubmit` (password-form submit) and",
+        "`signInWithGoogle` (the page draws its own Google button). `tabLogin`",
+        "stays the phone tab's verb and is not reused for either control.",
+        "",
+        "⚠️ The earlier decision to author no Google label is spent: it assumed",
+        "GIS's renderButton (console SignInView.vue) would draw the button. The",
+        "surface draws its own, so the slot is now a real key."
+      ],
+      "keys": [
+        "signInTitle",
+        "signInEmailLabel",
+        "signInPasswordLabel",
+        "signInPasswordTooShort",
+        "tabLogin",
+        "signInCreateAccount",
+        "signInForgotPassword",
+        "signInSubmit",
+        "signInWithGoogle"
+      ]
+    },
+    {
+      "id": "sign-in-refusals",
+      "why": [
+        "What the panel says when a sign-in does not end in a session.",
+        "",
+        "FOUR of the five are SELECTED under the phone's own ordinal names, and the",
+        "names look odd on purpose: `loginError__N` is what the catalogue calls them,",
+        "the generator carries keys BY NAME and cannot alias, and this file already",
+        "selects `pairError__1` / `__8` / `__10` / `__11` / `__14` the same way. The",
+        "web client maps a refusal code to a key in its own code — pairing/copy.ts and",
+        "session/faceCopy.ts already do exactly that.",
+        "",
+        "⚠️ signInCopy.ts's `signInErrorKey()` DERIVES a key from the code instead",
+        "(`signInError_<CODE>`). Nothing here can serve that: a derived name is not a",
+        "catalogue name, and authoring nine duplicates under derived names would put a",
+        "second copy of four sentences in one catalogue. The surface card replaces the",
+        "derivation with this table:",
+        "  AUTH_LOGIN_FAILED      -> loginError__5  (the phone answers the same code",
+        "                            with this sentence — cloud_strings.dart's switch)",
+        "  REGISTER_RATE_LIMITED  -> loginError__6  (same code, same switch)",
+        "  CLIENT_NETWORK         -> loginError__3  (Could not reach the cloud service",
+        "                            — 「we did not find out」, not 「wrong password」)",
+        "  anything else          -> loginError__9  (Sign-in failed)",
+        "",
+        "🔴 THE LAST ROW IS THE ONE THAT MATTERS. The relay adds refusal names without",
+        "asking any client, and a surface that matched only a known list would render",
+        "NOTHING for a new one — a page that says a sign-in failed by saying nothing at",
+        "all.",
+        "",
+        "`signInErrorUnreadableReply` is AUTHORED because nothing in the catalogue says",
+        "it. It is CLIENT_MALFORMED_RESPONSE: a 2xx whose body is not a session, the",
+        "one outcome where success and failure are genuinely ambiguous. `loginError__4`",
+        "(The cloud service did not respond) was the near miss and is FALSE here — it",
+        "did respond. So the sentence says we cannot tell, which is the only thing we",
+        "know.",
+        "",
+        "⚠️ THE GOOGLE REFUSALS ARE NOT HERE EITHER, BUT THEY NOW EXIST — see the",
+        "sign-in-google group below. They stay a separate group because they refuse a",
+        "DIFFERENT DOOR: the four codes here come out of the password exchange and three",
+        "of them are the phone's own sentences, while the Google ones are authored and",
+        "collapse five codes onto four sentences. Merging the two lists would bury that",
+        "collapse inside a run of ordinals.",
+        "",
+        "⚠️ The cost this group named when it was written is now PAID: an account with",
+        "no password (the console has a sentence for exactly that state) had no way in",
+        "at all, and typing its address answered AUTH_LOGIN_FAILED — true and unhelpful.",
+        "The Google door is that account's way in."
+      ],
+      "keys": [
+        "loginError__3",
+        "loginError__5",
+        "loginError__6",
+        "loginError__9",
+        "signInErrorUnreadableReply"
+      ]
+    },
+    {
+      "id": "sign-in-google",
+      "why": [
+        "The Google entrance (design 2026-09-07 §4.2: 「Google 登录入口照官网提供」 — the way",
+        "the console provides it), and what it says when a sign-in does not end in a",
+        "session. FIVE server codes, FOUR sentences.",
+        "",
+        "🔴 THE COLLAPSE IS COPIED FROM THE CONSOLE, NOT INVENTED HERE",
+        "(the console's src/lib/error-copy.ts). Copy is grouped by WHAT THE PERSON",
+        "SHOULD DO, not by what the server distinguished: GOOGLE_TOKEN_INVALID (a bad",
+        "credential) and GOOGLE_LOGIN_FAILED (our own key fetch failing) differ enormously",
+        "to us and not at all to the reader — both mean 「that did not work, try again or",
+        "use your password」. EXPIRED is NOT folded in with them, because it is the one",
+        "case where the action is different and knowable: the token went stale, signing in",
+        "again really will work. The two surfaces sit on ONE origin (flowmic.app), so a",
+        "fifth or sixth wording here would be a second answer to a question the console",
+        "has already answered on the same domain.",
+        "",
+        "⇒ THE CODE → KEY TABLE THE SURFACE CARD MUST IMPLEMENT:",
+        "    GOOGLE_TOKEN_INVALID         -> signInErrorGoogleFailed",
+        "    GOOGLE_LOGIN_FAILED          -> signInErrorGoogleFailed",
+        "    GOOGLE_TOKEN_EXPIRED         -> signInErrorGoogleExpired",
+        "    GOOGLE_EMAIL_UNVERIFIED      -> signInErrorGoogleEmailUnverified",
+        "    GOOGLE_LOGIN_NOT_CONFIGURED  -> signInErrorGoogleUnavailable",
+        "    anything else                -> loginError__9   (sign-in-refusals' fallback)",
+        "A TABLE, not a derived `signInError_<CODE>` name: this generator carries keys by",
+        "name and cannot alias, and signInCopy.ts's signInErrorKey() is the derivation the",
+        "surface card replaces. The last row is not decoration — /api/auth/google also",
+        "answers REGISTER_RATE_LIMITED (already covered by loginError__6) and whatever the",
+        "registration surge gate returns, and the relay adds refusal names without asking",
+        "any client.",
+        "",
+        "🔴 THERE IS NO BUTTON LABEL IN THIS GROUP, AND THAT IS WHAT 「照官网提供」 MEANS.",
+        "GIS draws the button and localises it itself from the locale tag we hand it",
+        "(SignInView.vue: renderButton, text: 'continue_with', locale: locale.value), so",
+        "the console authors no label and neither do we. `signInGoogleDivider` is the only",
+        "word the console owns in that block. It is AUTHORED here because the phone has no",
+        "divider to lend: the phone's sign-in sheet sends people to a browser instead of",
+        "standing two doors side by side.",
+        "⚠️ zh-CN's divider is the console's own longer form (「或使用邮箱」) while the other",
+        "eight are the bare conjunction. That unevenness is the console's, and it is",
+        "MIRRORED rather than 「fixed」 — one origin saying two things is worse than one",
+        "origin being uneven.",
+        "",
+        "⚠️ ALL FIVE ARE AUTHORED. The phone catalogue has no Google sign-in at all",
+        "(measured 2026-09-08: `google` appears in i18n/mobile/en.json exactly twice, in",
+        "browserLoginHint and browserLoginBrowserRefused, and both are about a ROUND TRIP",
+        "THROUGH A BROWSER, not about a button on the page). The wording mirrors the",
+        "console's four sentences moved into each catalogue's own register: ja says",
+        "ログイン where the console says サインイン, ru says почта where the console says",
+        "электронная почта, de keeps the phone's impersonal 「Bitte erneut versuchen」, and",
+        "en drops the console's 「Please」 the way signInErrorUnreadableReply already does.",
+        "",
+        "⚠️ GOOGLE_LOGIN_NOT_CONFIGURED CAN REALLY REACH A VISITOR, which is why it keeps a",
+        "sentence instead of falling through: the client id is a BUILD-TIME variable of the",
+        "page (the console reads import.meta.env.VITE_GOOGLE_CLIENT_ID) and the relay's is",
+        "a SEPARATE server env var (FLOWMIC_GOOGLE_CLIENT_ID, apps/server-core",
+        "auth/google-id-token.ts, answered 503). A page built with one and a relay deployed",
+        "without the other is exactly this sentence's state, and deploying the two in the",
+        "wrong order reaches it."
+      ],
+      "keys": [
+        "signInGoogleDivider",
+        "signInErrorGoogleFailed",
+        "signInErrorGoogleExpired",
+        "signInErrorGoogleEmailUnverified",
+        "signInErrorGoogleUnavailable"
+      ]
+    },
+    {
+      "id": "account-header",
+      "why": [
+        "The signed-in header: which plan, what is left, when it resets, and the way",
+        "out.",
+        "",
+        "`planLabel_free` / `_pro` / `_max` are SELECTED. Plan names are product nouns",
+        "and the phone already prints them in nine languages; minting a second set here",
+        "would put two names on one tier. ⚠️ 17-UI-LOCALE-GLOSSARY §2.5/§3 says free /",
+        "pro / max are never translated, and four of the phone’s nine locales translate",
+        "them anyway (免费 / 專業 / 無料 / 맥스), as does the console. That contradiction",
+        "is recorded in the glossary rather than settled here: selecting keeps the two",
+        "surfaces identical, which is this file’s job, while renaming a tier is a",
+        "billing-copy decision.",
+        "",
+        "`logout` is SELECTED for the sign-out control — the plain verb in all nine",
+        "(Log out / 登出 / Abmelden / ログアウト). NOT `logoutConfirmAction`, which reads",
+        "「确认退出」 / 「ログアウトする」: that one is the button INSIDE a confirmation,",
+        "and W-15's telling half means this surface has one of those too.",
+        "",
+        "`accountMinutesRemaining` and `accountPeriodResets` are AUTHORED and BOTH TAKE",
+        "THEIR VALUE AS A PARAMETER. The near miss was `continuousSheetLeft`",
+        "(「$minutes minutes left this month」) and it is now wrong on the phone too:",
+        "since 2026-09-05 the period is anchored to the account's own start day, not a",
+        "calendar month (apps/server-core/src/billing/usage-period.ts). So these say",
+        "「cycle」, the word the console moved to, and the reset sentence renders the",
+        "server's own date rather than deriving one — a client that re-derived it is",
+        "exactly the client that would have disagreed silently on 2026-09-05."
+      ],
+      "keys": [
+        "planLabel_free",
+        "planLabel_pro",
+        "planLabel_max",
+        "accountMinutesRemaining",
+        "accountPeriodResets",
+        "logout",
+        "accountSignedInAs"
+      ]
+    },
+    {
+      "id": "browser-history-switch",
+      "why": [
+        "The switch that keeps a signed-in visitor's transcripts, and the sentence that",
+        "has to be said before they are erased (owner ruling W-15, addendum 2026-09-06",
+        "§2.1). All three AUTHORED: the phone’s history lives on the phone and its own",
+        "words say so (「All history is kept on this phone」), which is the opposite",
+        "claim.",
+        "",
+        "🔴 `signOutClearsHistoryNotice` IS NOT A LABEL, IT IS THE RULING’S FIRST HALF.",
+        "W-15 is 「退出明示后清空」 — tell, THEN erase — and the web client’s",
+        "AccountHost.signOut takes an explicit acknowledgement argument so the",
+        "destructive half cannot run on its own. Without this sentence there is nothing",
+        "to acknowledge.",
+        "",
+        "`saveHistoryNote` takes BOTH limits as parameters because they are per plan",
+        "(account/plans.ts: 30 days on free, 365 on pro and max, 2,000 rows",
+        "throughout). It states where the rows live and that they are never uploaded,",
+        "and it promises no sync, no export and no second copy — the 2026-07-31 ruling",
+        "that the cloud does not store transcripts is not softened by this switch.",
+        "",
+        "⚠️ `sessionNotSavedNotice` (the session-privacy group) is the OTHER half of",
+        "this fact and becomes false while this switch is on. Which of the two a page",
+        "renders is the surface’s decision; both sentences exist so that it never has",
+        "to invent one."
+      ],
+      "keys": [
+        "saveHistoryTitle",
+        "saveHistoryNote",
+        "signOutClearsHistoryNotice",
+        "switchOn",
+        "switchOff"
+      ]
+    },
+    {
+      "id": "mode-and-compose",
+      "why": "The three modes are pickable on the transcript screen itself (ruling 3), and the bottom bar matches the phone: a `+`, a text box and hold-to-talk. Mode names are product vocabulary that a second surface must not re-invent — a web client that said 「Live」 where the app says 「Realtime」 would be describing a different feature to the same user.",
+      "keys": [
+        "modeLabel__1",
+        "modeLabel__2",
+        "modeLabel__3",
+        "translateTargetSheetTitle",
+        "composeHint",
+        "plusSelectionSend",
+        "sendPolicyDirect",
+        "sendPolicyDirectHint",
+        "sendPolicyManual",
+        "sendPolicyManualHint",
+        "appendHold",
+        "appendRelease",
+        "appendUnavailableBusy",
+        "appendCancelArmed",
+        "appendCancelSemanticAction"
+      ]
+    },
+    {
+      "id": "compose-controls",
+      "why": "The PC-key row on the compose bar (Backspace / Clear / Enter / Undo), the label that says those keys have nowhere to land, and (card MP-14) the three sentences for a key the far end could not apply. The web client's message page draws the same keys the phone does; a second wording here would be a second answer to 「what does this key do on the computer」 — and the refusal sentences are the same argument one step later: the browser and the app must not disagree about what happened when the computer would not run a key.",
+      "keys": [
+        "pcKeysGroupLabel",
+        "pcKeysUnavailableNoted",
+        "keyBackspace",
+        "keyBackspaceHint",
+        "keyClear",
+        "keyClearHint",
+        "keyEnter",
+        "keyEnterHint",
+        "keyUndo",
+        "keyUndoHint",
+        "controlKeyRefusedUnsupported",
+        "controlKeyRefusedNoTarget",
+        "controlKeyRefusedFailed"
+      ]
+    },
+    {
+      "id": "compose-errors",
+      "why": "Fail-loud copy for an AI run that produced no result. Two families, and they are NOT interchangeable: utteranceComposeError__* is the sentence for a SPOKEN utterance (nothing was delivered, and the original was deliberately not sent in its place), while aiErrorCode__* names WHY the relay refused — the phone's own table for the codes on compose:error. The web client renders both because the alternative is what 0.2.53 already cost one round: a bare COMPOSE_OUTPUT_REJECTED on the user's screen. Mirror of apps/mobile/lib/src/settings/strings/compose_strings.dart (aiErrorCode / utteranceComposeError); the code-to-key mapping lives with the renderer, not here.",
+      "keys": [
+        "aiErrorCode__1",
+        "aiErrorCode__2",
+        "aiErrorCode__3",
+        "aiErrorCode__4",
+        "aiErrorCode__5",
+        "aiErrorCode__6",
+        "aiErrorCode__7",
+        "aiErrorCode__8",
+        "aiErrorCode__9",
+        "aiErrorCode__10",
+        "aiErrorCode__11",
+        "utteranceComposeError__1",
+        "utteranceComposeError__2",
+        "utteranceComposeError__3",
+        "utteranceComposeError__4",
+        "utteranceComposeError__5",
+        "utteranceComposeError__6",
+        "utteranceComposeError__7",
+        "composeSendError__1",
+        "composeSendError__2",
+        "composeSendError__3",
+        "composeSendError__4",
+        "composeSendError__5",
+        "composeSendError__6",
+        "composeSendError__7"
+      ]
+    },
+    {
+      "id": "settings-shell",
+      "why": "Titles of the settings screen and its sections (design 2026-09-08 §1.3). They are the labels a user navigates by, so they have to read the same in the browser as in the app; the screen behind them is smaller here, the words are not different words.",
+      "keys": [
+        "settingsTitle",
+        "secPreferences",
+        "secRecognition",
+        "secScenario",
+        "secCustomTerms",
+        "secAccount",
+        "secAbout",
+        "uiLanguage",
+        "save"
+      ]
+    },
+    {
+      "id": "polish",
+      "why": "AI polish and how much it may change. Signed out, the web client offers these at their lowest setting (ruling 5), so the sentence that explains what strict and smooth actually do is the only thing standing between a temporary user and a surprise rewrite of their own words.",
+      "keys": [
+        "polishTitle",
+        "polishSub",
+        "polishStrengthTitle",
+        "polishStrict",
+        "polishSmooth",
+        "polishStrengthNote"
+      ]
+    },
+    {
+      "id": "scenario",
+      "why": "The scenario card: profession and domain, plus the hint that says these are background reference and not instructions. The option labels come from `scenario_taxonomy.dart` and are selected one by one rather than by prefix, because a wildcard would silently pull in whatever that table grows next.",
+      "keys": [
+        "profession",
+        "domain",
+        "scenarioHint",
+        "professionLabel_devops___SRE",
+        "professionLabel_finance",
+        "professionLabel_law",
+        "professionLabel_medicine",
+        "professionLabel_product_design",
+        "professionLabel_research",
+        "professionLabel_software_development",
+        "professionLabel_teaching",
+        "professionLabel_writing___editing",
+        "domainLabel_backend",
+        "domainLabel_cloud_native",
+        "domainLabel_data___ML",
+        "domainLabel_e_commerce",
+        "domainLabel_education",
+        "domainLabel_frontend",
+        "domainLabel_healthcare",
+        "domainLabel_legal"
+      ]
+    },
+    {
+      "id": "custom-terms",
+      "why": "Adding a term, and the six reasons one is refused. Terms need an account (ruling 5), but the refusals are still selected: a signed-in user on the web hits exactly the same limits as on the phone, and an unnamed refusal is the defect 0.2.53 was spent on.",
+      "keys": [
+        "termInputHint",
+        "termMaxHint",
+        "termAliasesHint",
+        "termAliasesLabel",
+        "termAddError__1",
+        "termAddError__2",
+        "termAddError__3",
+        "termAddError__4",
+        "termAddError__5",
+        "termAddError__6"
+      ]
+    },
+    {
+      "id": "go-shell",
+      "why": "AUTHORED for this client (design 2026-09-08 §6.2). The mic page is not the app: it answers 「where to where」 in a top bar, it reaches its connect screen through an arrow button, and signed out it has no key that touches the computer. None of those sentences exists in the phone catalogue because no phone screen ever needed them.",
+      "keys": [
+        "goHeaderFrom",
+        "goHeaderToUnnamedPc",
+        "goBack",
+        "goClose",
+        "goPlusNeedsSignIn"
+      ]
+    },
+    {
+      "id": "go-leave-prompt",
+      "why": "AUTHORED for this client (WB-10). Back in a phone browser leaves the page, ending the live session, so these three render the sheet that asks first: title, the sentence under it, the leave button. Staying reuses `cancel`. It must not promise a re-scan; coming back resumes from the stored ticket.",
+      "keys": [
+        "goLeaveConfirmTitle",
+        "goLeaveConfirmBody",
+        "goLeaveConfirmLeave"
+      ]
+    },
+    {
+      "id": "go-settings",
+      "why": "AUTHORED. Two facts only this client has to state: settings made while signed out live no longer than the page, and changing the interface language changes the address (ruling 6). Plus the two links out of the About section.",
+      "keys": [
+        "goPrefsSessionOnly",
+        "goTermsNeedSignIn",
+        "goInterfaceLangNote",
+        "goOfficialSite"
+      ]
+    },
+    {
+      "id": "go-download",
+      "why": "AUTHORED. The get-the-app dialog (ruling 8). The QR codes and the two addresses are not copy; these four lines are what sits beside them, including the reminder that a code on this screen is for a second phone to scan.",
+      "keys": [
+        "goDownloadApp",
+        "goDownloadScanHint",
+        "goDownloadAndroid",
+        "goDownloadIos"
+      ]
+    },
+    {
+      "id": "web-target",
+      "why": "AUTHORED for the browser page that plays the computer (card M-1d). A person sits in this tab and receives text from a phone. None of these sentences exists on a phone screen. injectVerdictNote_INJECT_NO_TEXT_TARGET lives here and not in inject-verdict-notes: the desktop sentence tells someone to click a text box, which is false on this page.",
+      "keys": [
+        "targetHeaderIdle",
+        "targetHeaderBuilding",
+        "targetHeaderOpening",
+        "targetHeaderOpen",
+        "targetHeaderPhoneSpeaking",
+        "targetPairTitle",
+        "targetPairScanHint",
+        "targetPairCodeLabel",
+        "targetPairPcidLabel",
+        "targetPairCodeUnavailable",
+        "targetTranscriptTitle",
+        "targetTranscriptEmpty",
+        "targetSessionStats",
+        "targetCopyAll",
+        "targetClear",
+        "targetDownload",
+        "targetRoomExpired",
+        "targetRoomRestart",
+        "targetRoomRateLimited",
+        "targetRoomBuildFailed",
+        "targetRoomOriginRefused",
+        "targetLinkReconnecting",
+        "targetLinkGaveUp",
+        "targetBudgetOtherSpeaker",
+        "targetBudgetExhausted",
+        "injectVerdictNote_INJECT_NO_TEXT_TARGET"
+      ]
+    },
+    {
+      "id": "go-demo",
+      "why": "AUTHORED for card W4-01 (design 2026-09-09-web-client-stage4-site-demo-design.md §5.1-R / §5.3-R). Six sentences the demo entry needs and nothing else in the product does: the trial clock and its end (the phone shows what the SERVER's budget frame says, so the wording must not mention a cycle -- a trial has no `resets_at`), the one line that may follow a `mode:'dom'` receipt, and the WeChat overlay. The overlay's BODY is not here: it reuses `micOpenInBrowser` from the mic-permission group, because the action is the same one; these three add the title and the two per-platform gestures. Ruling 18 of 2026-09-09-owner-stage4-site-demo-six-more-rulings.md: the overlay states the ACTION only and never says WeChat is unsupported. 2026-09-10, card C-1, added five more (design 2026-09-10-web-room-release-and-unsigned-limit-design.md, owner decision 2026-09-10-owner-web-client-identity-qr-demo-and-polish.md §6-4): an unsigned web mic session paired to a PC carries the same trial mechanics as the demo, so the header badge and the expiry prompt reuse this group rather than becoming a seventh. The body interpolates `$minutes` and never hardcodes the free-tier figure (plan-limit-copy lint's mobile-side rule); the CTA reuses the existing `signInOpen` sheet under a new reason key, so it does not repeat `signInTitle`/`signInSubmit`.",
+      "keys": [
+        "goDemoTrialLeft",
+        "goDemoTrialOver",
+        "goDemoLanded",
+        "goUnsignedLimitedBadge",
+        "goUnsignedExpiredTitle",
+        "goUnsignedExpiredBody",
+        "goUnsignedSignInCta",
+        "goUnsignedLaterCta",
+        "goWeChatOverlayTitle",
+        "goWeChatOpenInBrowserStepIos",
+        "goWeChatOpenInBrowserStepAndroid"
+      ]
+    },
+    {
+      "id": "behaviour-parity",
+      "why": "Keys the 2026-09-10 behaviour-parity audit listed as blocked because they were not in this selection. SELECTED, with one exception named below: every other sentence already exists in all nine mobile locales. Recording-panel, STT-stall, and row-menu families have no existing group that answers the same question. AUTHORED by card MP-7 and RENAMED by card G-2a: goFarEndPays, the standing notice a web microphone shows when the room's FAR END is the payer (owner 2026-09-11 rule, docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 2 and section 7.3, sentence flags 1 and 6). It was written into i18n/mobile/<locale>.json like every other product sentence, and it sits here rather than in go-shell because the notice it names is the phone's status-banner behaviour arriving on the web page. THE OLD NAME AND THE OLD SENTENCE BOTH LIED, AND THE NAME IS WHY THE RENAME IS PART OF THAT CARD. goUnsignedFarEndPays ended 'Sign in to use your own', and signing in does not change the payer -- whenever a far end exists, it pays. A key called goUnsigned* also invites the next reader to gate the notice on being signed out, which is precisely the defect card G-2a removed from the web mic page. The sentence now states the fact and nothing else, and no call to action about signing in may sit beside it: there is nothing a visitor can sign in to do about this bill. The action key goUnsignedSignInCta stays in this group for the end-of-trial prompt, which is a different sentence answering a different question. ADDED by card WB-5a (2026-09-12, owner ruling item 5): the nine quotaRules* keys. They are the phone's quota-rules guide -- the card under the connections list and the short page behind it -- and the web client shows the SAME sentences after connecting, which is the only reason they are here. One wording for one rule on both screens, as sttStallIntegratorQuotaExceeded already is. THEY REPLACE A BANNER, NOT A PAGE: bannerFarEndPaysQuota was a standing line over the phone's transcript, keyed on one billing frame saying the far end pays, and owner removed it in the same ruling. That key is deleted from all nine mobile locales because it now has no producer. goFarEndPays STAYS and is a different sentence answering a different question: it is the web microphone's live status while the far end is in fact the payer, whereas the guide states every case and claims none of them is happening now. quotaRulesLine3 carries the only figure, 120 seconds per browser, because that number IS the demo rule (docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 0.2); no line here may print a far end's remainder, which is somebody else's commercial fact.",
+      "keys": [
+        "recInterruptedPartial",
+        "recSwipeCancel",
+        "recNoSound",
+        "recLinkDegraded",
+        "recLinkDown",
+        "recLinkOk",
+        "recSegments",
+        "liveNow",
+        "liveTranscribing",
+        "sttStallMessage__1",
+        "sttStallMessage__2",
+        "sttStallMessage__3",
+        "sttStallMessage__4",
+        "sttStallConfigMissing",
+        "sttStallEngineErrorCoded",
+        "sttStallLanguageUnsupported",
+        "sttStallHeardNoWords",
+        "sttStallEmptyReasonUnknown",
+        "sttStallNetworkDrop",
+        "sttStallEngineAuthFail",
+        "sttStallEngineRateLimited",
+        "sttStallEngineTimeout",
+        "sttStallNoEngineReached",
+        "sttStallOpBindingConflict",
+        "sttStallNotSignedIn",
+        "sttStallPoolNoRoute",
+        "sttStallQuotaExceeded",
+        "sttStallQuotaExceededPcOwner",
+        "sttStallServerFault",
+        "sttStallSettingsInvalid",
+        "sttStallVerifyEmail",
+        "entryCopyPreview",
+        "entryCopyOriginal",
+        "entryCopyOriginalSub",
+        "entryEdit",
+        "entryReInject",
+        "entryReInjectSub",
+        "entryReprocess",
+        "entryReprocessSub",
+        "favoriteAdd",
+        "favoriteAddResult__1",
+        "favoriteAddResult__2",
+        "favoriteAddResult__3",
+        "deleteEntryConfirmTitle",
+        "deleteEntryConfirmBody",
+        "selectionEnter",
+        "selectionEnterSub",
+        "imageCopyResult__1",
+        "imageCopyResult__2",
+        "imageCopyResult__3",
+        "reprocessBusy",
+        "reprocessUnavailable",
+        "controlRowLabel",
+        "controlRowSent",
+        "controlRowClearNote",
+        "pttSubProcessingManual",
+        "backToBottom",
+        "bannerMore",
+        "bannerAllTitle",
+        "goFarEndPays",
+        "quotaRulesTitle",
+        "quotaRulesSub",
+        "quotaRulesLine1",
+        "quotaRulesLine2",
+        "quotaRulesLine3",
+        "quotaRulesLine4",
+        "quotaRulesLine5",
+        "quotaRulesClosing",
+        "quotaRulesConsoleLink"
+      ]
+    },
+    {
+      "id": "integrator-host",
+      "why": "Card MP-2 -- the third-party host SDK (packages/sdk in flowmic-web), a FlowMic microphone embedded in somebody else's page with a publishable key. Two keys, and they are not the same kind. SELECTED: sttStallIntegratorQuotaExceeded, which already existed in all nine mobile locales for the phone's own stall face (card MP-1 registered the code) and is the sentence the host page shows when the key's allowance is spent -- one wording for one fact, on both screens. AUTHORED, card MP-2: integratorVoiceUnavailable, the ONE quiet face for all three of the relay's room refusals (AUTH_TOKEN_INVALID / WEB_ROOM_ORIGIN_NOT_ALLOWED / WEB_DEMO_UNAVAILABLE). targetRoomOriginRefused was deliberately NOT reused for it: that sentence answers exactly one of the three and names the cause, and a visitor on somebody else's page can act on none of them -- which door refused is information for whoever holds the key, and the SDK hands that to the host developer on its `error` event instead.",
+      "keys": [
+        "sttStallIntegratorQuotaExceeded",
+        "integratorVoiceUnavailable"
+      ]
+    }
+  ]
+}

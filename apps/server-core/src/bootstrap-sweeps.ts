@@ -42,6 +42,7 @@ import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refun
 import { startGrowthReaper, type GrowthReaper } from './db/reaper';
 import { FORWARD_LEDGER_PRUNE_INTERVAL_MS, type ForwardLedger } from './node/forward-ledger';
 import { RECOVERY_PRUNE_INTERVAL_MS } from './db/schema-recovery';
+import { startAnonCleanupSweeper, anonCleanupApplyFromEnv, type AnonCleanupSweeper } from './db/anon-cleanup';
 
 
 export interface SweepWiring {
@@ -90,6 +91,10 @@ export interface BackgroundSweeps {
    *  tables exist on every deployment (they are in INIT_SQL unconditionally), so
    *  there is no state in which there is nothing to sweep. */
   recoveryPrune: { stop(): void };
+  /** Card M4-01 — the anonymous site-demo rows. Not optional, for the same
+   *  reason `recoveryPrune` is not: the table exists on every deployment. Its
+   *  DELETE, unlike its existence, IS conditional — see db/anon-cleanup.ts. */
+  anonCleanup: AnonCleanupSweeper;
 }
 
 export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
@@ -182,8 +187,23 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
   }, RECOVERY_PRUNE_INTERVAL_MS);
   const recoveryPrune = { stop: () => clearI(recoveryHandle) };
 
+  // Card M4-01 — the anonymous-row sweep. Armed UNCONDITIONALLY, in both modes
+  // and whether or not the demo is switched on, and only its DELETE is gated:
+  // the `apply` flag comes from the env and defaults to a dry run. A sweep that
+  // only existed when the feature was on would mean the day the feature is
+  // turned OFF is the day its rows stop being cleaned up — which is exactly the
+  // day nobody is watching them.
+  const anonCleanup = startAnonCleanupSweeper({
+    trials: db.trials,
+    users: db.users,
+    apply: anonCleanupApplyFromEnv(),
+    ...(now ? { nowMs: now } : {}),
+    ...(setIntervalFn ? { setIntervalFn } : {}),
+    ...(clearIntervalFn ? { clearIntervalFn } : {}),
+  });
+
   return {
-    retention, growthReaper, recoveryPrune,
+    retention, growthReaper, recoveryPrune, anonCleanup,
     ...(serviceRefunds === undefined ? {} : { serviceRefunds }),
     ...(forwardLedgerPrune === undefined ? {} : { forwardLedgerPrune }),
   };

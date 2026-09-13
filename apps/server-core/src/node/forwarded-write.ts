@@ -40,7 +40,7 @@
 // one write is how a forwarding layer ends up silently dropping two thirds of a
 // billing surface.
 
-import type { UsageTracker, EngineUsageMeta } from '../billing/usage-tracker';
+import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 
@@ -64,6 +64,23 @@ export interface ForwardedStt {
    * ledger's own deterministic id already guards.
    */
   operation_id?: string;
+  /**
+   * card MP-6 — WHY these seconds land on `user_id`, and WHO SPOKE, as the
+   * REPLICA's admission recorded it.
+   *
+   * 🔴 IT MUST CROSS THE WIRE RATHER THAN BE RE-DERIVED ON THE WRITER, and this
+   * is the seam where that would be tempting: the writer has every row the rule
+   * reads. It does not have the SOCKET — the handshake account and the room the
+   * visitor was admitted to live on the replica that admitted them — so a writer
+   * that re-derived would be answering a different question with the same words.
+   *
+   * ⚠️ OPTIONAL, and it must stay optional: a replica running a build that
+   * predates this field is the expected case during a rolling deploy, and the
+   * writer then stores NULL, which is exactly what 「nobody recorded it」 means on
+   * those columns. An old replica must not have its metering REJECTED over a
+   * provenance field.
+   */
+  principal?: MeteredPrincipalRef;
 }
 
 export interface ForwardedLlm {
@@ -86,6 +103,18 @@ export interface ForwardedLlm {
    * ledger's own deterministic id already guards.
    */
   operation_id?: string;
+  /**
+   * card MP-9 — WHY these tokens land on `user_id`, and WHO SPOKE, as the
+   * REPLICA's admission recorded it. Same field, same argument and same failure
+   * directions as {@link ForwardedStt.principal}: the writer has every row the
+   * payer rule reads and not the SOCKET, so re-deriving here would answer a
+   * different question with the same words.
+   *
+   * ⚠️ OPTIONAL, and it must stay optional — a replica on a build that predates
+   * this field is the expected case during a rolling deploy, and the writer then
+   * stores NULL, which is what 「nobody recorded it」 means on those columns.
+   */
+  principal?: MeteredPrincipalRef;
 }
 
 export interface ForwardedQuotaRefusal {
@@ -93,6 +122,23 @@ export interface ForwardedQuotaRefusal {
   user_id: string;
   event_kind: UsageEventKind;
   refused_user_id: string;
+  /**
+   * card MP-6 — WHY these seconds land on `user_id`, and WHO SPOKE, as the
+   * REPLICA's admission recorded it.
+   *
+   * 🔴 IT MUST CROSS THE WIRE RATHER THAN BE RE-DERIVED ON THE WRITER, and this
+   * is the seam where that would be tempting: the writer has every row the rule
+   * reads. It does not have the SOCKET — the handshake account and the room the
+   * visitor was admitted to live on the replica that admitted them — so a writer
+   * that re-derived would be answering a different question with the same words.
+   *
+   * ⚠️ OPTIONAL, and it must stay optional: a replica running a build that
+   * predates this field is the expected case during a rolling deploy, and the
+   * writer then stores NULL, which is exactly what 「nobody recorded it」 means on
+   * those columns. An old replica must not have its metering REJECTED over a
+   * provenance field.
+   */
+  principal?: MeteredPrincipalRef;
 }
 
 /** Which relay node a PC is registered on — the whole of the cross-node
@@ -147,6 +193,41 @@ const isNonEmpty = (v: unknown): v is string => typeof v === 'string' && v.lengt
  * being a node of ours that is working correctly. A replica running an older
  * build is the expected case during a rolling deploy, not an exotic one.
  */
+/**
+ * card MP-6 — `{ principal }` or `{}`, from an untrusted body.
+ *
+ * 🔴 IT VALIDATES THE REASON AGAINST THE UNION rather than casting it, because
+ * this value is written straight into a column an operator will later aggregate
+ * on: a replica sending 'Self' or 'peers' would put a bucket in that report that
+ * no reader could account for. An unrecognised reason is DROPPED (stored NULL,
+ * 「nobody recorded it」) rather than rejecting the whole record — the metering
+ * itself must not be lost over a provenance field.
+ */
+function principalFieldOf(b: Record<string, unknown>): { principal?: MeteredPrincipalRef } {
+  const raw = b.principal as Record<string, unknown> | undefined;
+  if (!raw || typeof raw !== 'object') return {};
+  const reason = raw.payer_reason;
+  const principal: MeteredPrincipalRef = {
+    ...(typeof reason === 'string' && (PAYER_REASONS as readonly string[]).includes(reason)
+      ? { payer_reason: reason as MeteredPrincipalRef['payer_reason'] }
+      : {}),
+    ...(isNonEmpty(raw.speaker_ref) ? { speaker_ref: raw.speaker_ref } : {}),
+    // card MP-6 — the cap identity must cross, or a replica-served demo session
+    // spends its browser's grant on the writer without ever debiting it.
+    ...(isNonEmpty(raw.cap_user_id) ? { cap_user_id: raw.cap_user_id } : {}),
+    // card MP-1 — the key must cross too, or a replica-served integrator session
+    // spends the sub-quota on the writer without ever decrementing it, and the
+    // ceiling becomes a number in a console with nothing behind it.
+    ...(isNonEmpty(raw.integrator_key_id) ? { integrator_key_id: raw.integrator_key_id } : {}),
+  };
+  return Object.keys(principal).length === 0 ? {} : { principal };
+}
+
+/** The four stored values of `usage_events.payer_reason`. Spelled here rather
+ *  than imported as a value because `PayerReason` is a type-only export and this
+ *  is the only place on this side of the wire that needs the runtime set. */
+const PAYER_REASONS = ['self', 'peer', 'host', 'demo'] as const;
+
 export function parseForwardedWrite(body: unknown): ForwardedWrite {
   const b = body as Record<string, unknown> | null;
   if (!b || typeof b !== 'object') throw new UnknownForwardedWrite(body);
@@ -162,6 +243,10 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         // without it, so 「an older replica sent none」 and 「it sent an empty
         // string」 cannot become the same thing one layer down.
         ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
+        // card MP-6 — same spread-or-nothing, and the same reason: an older
+        // replica sends nothing and the writer must store NULL rather than a
+        // manufactured 'self'.
+        ...principalFieldOf(b),
       };
     }
     case 'usage.llm': {
@@ -174,6 +259,9 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         kind: 'usage.llm', user_id: b.user_id, engine,
         tokens_in: b.tokens_in, tokens_out: b.tokens_out,
         ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
+        // card MP-9 — same spread-or-nothing, same validation of the reason
+        // against the union, as the STT arm above.
+        ...principalFieldOf(b),
       };
     }
     case 'usage.quota_refused': {
@@ -183,6 +271,7 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
       return {
         kind: 'usage.quota_refused', user_id: b.user_id,
         event_kind: b.event_kind as UsageEventKind, refused_user_id: b.refused_user_id,
+        ...principalFieldOf(b),
       };
     }
     case 'pc.home_node': {
@@ -207,13 +296,13 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
 export function applyForwardedWrite(w: ForwardedWrite, t: ForwardTargets): void {
   switch (w.kind) {
     case 'usage.stt':
-      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.operation_id);
+      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.principal ?? {}, w.operation_id);
       return;
     case 'usage.llm':
-      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.operation_id);
+      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.principal ?? {}, w.operation_id);
       return;
     case 'usage.quota_refused':
-      t.usage.recordQuotaRefusal(w.user_id, w.event_kind, w.refused_user_id);
+      t.usage.recordQuotaRefusal(w.user_id, w.event_kind, w.refused_user_id, w.principal ?? {});
       return;
     case 'pc.home_node':
       t.setHomeNode(w.pc_id, w.home_node);

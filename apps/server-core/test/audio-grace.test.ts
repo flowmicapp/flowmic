@@ -108,7 +108,7 @@ function harness(opts: { delivery?: 'inject' | 'none'; pcInRoom?: boolean } = {}
   if (opts.pcInRoom !== false) store.joinPc(ROOM, pc);
   const built: FakeOrchestrator[] = [];
 
-  const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+  const noopGuard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
   const noopUsage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 
   const sttFactory = (args: SttStartArgs): FakeOrchestrator => {

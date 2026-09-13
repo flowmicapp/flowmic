@@ -14,6 +14,10 @@
 // The ONE shape check for a fingerprint (D2LAN-B3). Imported rather than
 // re-spelled: a second regex here would drift from FP_BYTES the day it moves.
 import 'lan_tls_fingerprint.dart' show isWellFormedLanTlsFingerprint;
+// S1-02 https prefix — the single Dart spelling lives next to classifyScan.
+// Re-typing it here was a silent-drift hole (XC-1-FIX). No cycle: scan_payload
+// does not import this file.
+import '../ui/scan_payload.dart' show kPairLinkPrefixHttps;
 
 /// The three locked processing modes (04/08: realtime | translate | organize —
 /// never a fourth). Wire value is the enum name.
@@ -599,10 +603,28 @@ class MobilePairPayload {
   /// v0.2.4 [deviceUid] rides in the same slot and is what the server actually
   /// keys 「this phone is back」 on. Both stay optional: a phone that can supply
   /// neither is exactly the pre-0.2.4 client, and that path still works.
-  Map<String, Object?> toJson({String? mobileName, String? deviceUid}) {
+  ///
+  /// card S2-01 [client]/[clientVersion] ride the same slot on ALL THREE arms.
+  /// `client` says WHICH KIND of end this is ('app' here; a browser page sends
+  /// 'web'), so the desktop's paired-devices table can stop showing a browser as
+  /// an indistinguishable phone. `clientVersion` is diagnostic only — nothing on
+  /// either side may branch on it.
+  ///
+  /// 🔴 THE VERSION IS OMITTED WHEN NULL, not sent as '' or 'unknown'. 「we could
+  /// not read our own version」 and 「our version is unknown」 are different facts,
+  /// and a placeholder would land in a DB column and a device list as if it were
+  /// the second one.
+  Map<String, Object?> toJson({
+    String? mobileName,
+    String? deviceUid,
+    String? client,
+    String? clientVersion,
+  }) {
     final Map<String, Object?> named = <String, Object?>{
       if (mobileName != null && mobileName.isNotEmpty) 'mobile_name': mobileName,
       if (deviceUid != null && deviceUid.isNotEmpty) 'device_uid': deviceUid,
+      if (client != null && client.isNotEmpty) 'client': client,
+      if (clientVersion != null && clientVersion.isNotEmpty) 'client_version': clientVersion,
     };
     if (cloudInstance) return <String, Object?>{'cloud_instance': true, ...named};
     if (shortCode != null) {
@@ -643,10 +665,23 @@ class PairEntry {
 
   const PairEntry({required this.payload, this.endpoint, this.fingerprint});
 
+  /// S1-02 (2026-09, web-client stage 1) — the https form the desktop's
+  /// `buildQrPayload` also emits, once S1-01 lands: SAME query
+  /// (`endpoint`/`code`/`channel`/`alt`/`fp`/`pcid`), only the scheme+host
+  /// change (`2026-09-05-web-client-subproject-design.md` §4: "同一套
+  /// query，只换 scheme+host"). The host is checked LITERALLY as part of the
+  /// prefix — accepting any `https://` URL here would let a foreign link (a
+  /// phishing QR, a copy-pasted webpage URL) forward itself to the relay as a
+  /// supposed pairing frame, which is exactly the `classifyScan` foreign-QR
+  /// refusal one level down would have prevented for the old scheme.
+  /// Prefix spelling: [kPairLinkPrefixHttps] — one Dart constant, one place.
+
   /// Parse raw user/scan input into a PairEntry.
   ///   - `1234`                                → short_code (endpoint = null)
   ///   - `flowmic://pair?endpoint=ws://..&code=1234[&channel=..]` → qr_payload
   ///     (endpoint extracted from the QR)
+  ///   - `https://flowmic.app/go/pair?endpoint=..&code=1234[&channel=..]` →
+  ///     qr_payload, parsed identically to the line above (S1-02)
   /// Throws [FormatException] on anything else so the caller surfaces a
   /// fail-loud pairing error (08 §4 four-way error classification is a UI card).
   ///
@@ -659,7 +694,7 @@ class PairEntry {
     if (RegExp(r'^\d{4}$').hasMatch(input)) {
       return PairEntry(payload: MobilePairPayload.shortCode(input, pcid: pcid));
     }
-    if (input.startsWith('flowmic://pair')) {
+    if (input.startsWith('flowmic://pair') || input.startsWith(kPairLinkPrefixHttps)) {
       final Uri uri = Uri.parse(input);
       final String? endpoint = uri.queryParameters['endpoint'];
       final String? code = uri.queryParameters['code'];

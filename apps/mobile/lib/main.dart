@@ -111,7 +111,7 @@ Future<void> main() async {
   // pairing path can read it synchronously. Awaited because it is one cheap
   // platform read and the alternative — resolving it inside pairing — would put
   // a round-trip in front of the user's pairing tap for a purely cosmetic string.
-  await deviceLabel();
+  await Future.wait(<Future<Object?>>[deviceLabel(), warmClientVersion()]); // S2-01
   // V2-06a-2: open the timeline store (and run the one-time shared_prefs import)
   // BEFORE the first frame. Awaited here rather than inside initState because
   // the result decides which store the app is on, and a page that renders the
@@ -339,10 +339,10 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // is assigned further down in this same method before any real logout.
       onSignedOut: () => _blindStore?.detachForAccountChange(),
     );
-    // No `fetcher:` ⇒ the REAL http read (`httpCloudSummaryFetch`). The
-    // production default is deliberately not a friendly empty implementation
-    // (13 册 §7 F1 ②); tests hand it `newTestCloudSummary()`'s double.
-    _cloudSummary = CloudSummaryController(login: _login);
+    // No `fetcher:` ⇒ the REAL http read (`httpCloudSummaryFetch`); the production
+    // default is deliberately not a friendly empty implementation (13 册 §7 F1 ②).
+    // budgetFeed: card S2-02 (the param carries the argument for owning the sub here).
+    _cloudSummary = CloudSummaryController(login: _login, budgetFeed: _session.billingBudget);
     _controller = ChatController(
       session: _session,
       store: _store,

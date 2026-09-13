@@ -184,7 +184,7 @@ void main() {
       final Finder f = find.byKey(
         const ValueKey<String>('selection.organize.sub'),
       );
-      expect(tester.widget<Text>(f).data, contains('不注入'));
+      expect(tester.widget<Text>(f).data, contains('不直接注入'));
       expect(_clipped(tester, f), isFalse);
     });
   });

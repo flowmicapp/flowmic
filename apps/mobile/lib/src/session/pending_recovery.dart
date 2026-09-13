@@ -76,6 +76,30 @@ enum PendingRecoveryState {
   /// was deleted - 2.8 s, then 40 s, then 18.4 MiB.
   emptyResult,
 
+  /// Card WB-6 — [emptyResult] AFTER THE USER'S OWN ATTEMPT CAME BACK EMPTY
+  /// TOO, which is the end of that road.
+  ///
+  /// 🔴 IT EXISTS SO THE LIST HAS AN EXIT. `emptyResult` never takes the
+  /// automatic route again (`RecoveryJobStatus.mayAutoAttemptAt` is false for
+  /// every settled state), so the button was the only thing that could change
+  /// it — and when the person pressed it and the engine answered with nothing a
+  /// second time, the card offered the same button again, unchanged, for ever.
+  /// MEASURED 2026-09-12 on TB335ZC: a six-second recording of silence had been
+  /// sitting in 「recordings waiting to be transcribed」 since 2026-09-10, and
+  /// three presses left it byte-for-byte identical
+  /// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-2).
+  ///
+  /// ⚠️ NOT A TTL AND NOT A DELETE. The bytes stay exactly where owner ruling
+  /// O-2 requires them to stay; what ends is the PROMISE that something is
+  /// still going to be done about them. Delete is the only action, and it is
+  /// the user's (O-5).
+  ///
+  /// 🔴 IT IS DECIDED FROM THE MANIFEST, NOT FROM A FLAG THIS SESSION SET. The
+  /// attempt history already records `kind: user_retranscribe` with
+  /// `failureCode: emptyResult`, so the answer survives a restart and cannot
+  /// drift from what actually happened.
+  emptyConfirmed,
+
   /// A7-3 tier C. Not one `audio:start` may be sent to this server, so there is
   /// no retry to offer - a button here would be refused by
   /// `recovery_gate.dart` every time it was pressed.
@@ -185,8 +209,13 @@ class PendingRecoveryItem {
   Set<PendingRecoveryAction> get actions => switch (state) {
         // O-5 / A5-3: the words are either unwanted or already in hand. Delete
         // is the whole offer.
+        // Card WB-6 joins them: `emptyConfirmed` is a recording the user has
+        // already tried by hand, with the same answer. Offering the button a
+        // third time would be offering a mechanism we have twice measured to
+        // change nothing.
         PendingRecoveryState.cancelled ||
         PendingRecoveryState.settledUnverified ||
+        PendingRecoveryState.emptyConfirmed ||
         PendingRecoveryState.settledServerKeepsAudio =>
           const <PendingRecoveryAction>{PendingRecoveryAction.delete},
         // A7-3 tier C: `evaluateRecoveryGate` would refuse every press, so the
@@ -218,6 +247,35 @@ class PendingRecoveryItem {
                 },
       };
 
+  /// Card WB-6 — is this recording still owed a transcription, or is it only
+  /// bytes we are keeping?
+  ///
+  /// 🔴 THE LIST HOLDS BOTH, AND THE DOOR INTO IT HAD ONE NAME. 「Recordings
+  /// waiting to be transcribed」 is a promise, and Book 15 §2.0-b only allows
+  /// the word 「waiting」 where a mechanism redeems it. For a cancelled, settled
+  /// or already-tried-and-empty recording nothing is going to happen, so the
+  /// row that leads to them may not say one is.
+  ///
+  /// 🔴 EXHAUSTIVE WITH NO DEFAULT, for the same reason
+  /// [PendingRecoveryCard.sentenceFor] is: a state added later must be
+  /// classified by whoever adds it, not inherited into a promise.
+  bool get awaitingTranscription => switch (state) {
+        PendingRecoveryState.waitingAuto ||
+        PendingRecoveryState.needsManual ||
+        PendingRecoveryState.emptyResult =>
+          true,
+        // Nothing is scheduled and nothing can be pressed. Tier C is here too:
+        // not one `audio:start` may be sent to this server, so calling it
+        // 「waiting」 would promise something only a different server could do.
+        PendingRecoveryState.cancelled ||
+        PendingRecoveryState.settledUnverified ||
+        PendingRecoveryState.settledServerKeepsAudio ||
+        PendingRecoveryState.emptyConfirmed ||
+        PendingRecoveryState.serverUnsupported ||
+        PendingRecoveryState.unreadable =>
+          false,
+      };
+
   @override
   String toString() =>
       'PendingRecoveryItem($id ${state.name} ${durationMs}ms legacy=$legacy)';
@@ -235,14 +293,27 @@ enum PendingRetryOutcome {
   /// this arm rules out is the two refusals and the throw.
   done,
 
-  /// The FSM refused: a press holds the session, or the link is down. Nothing
-  /// was sent.
+  /// The FSM refused because a press holds the session. Nothing was sent.
   ///
   /// 🔴 THIS COMES FROM THE REAL GATE (`PttSession.beginBackfill`), not from a
   /// check this layer made first. The screen also hides the button while a
   /// recording is running, but that is a courtesy - the gate is the authority,
   /// because it is the thing that would be wrong to disagree with.
+  ///
+  /// ⚠️ CARD WB-6 NARROWED IT. It used to carry the no-link refusal as well,
+  /// and its sentence — 「a recording is running, try again once it ends」 — was
+  /// then said to people whose microphone was closed and whose network was off
+  /// (MEASURED 2026-09-12, TB335ZC). That half is [refusedNoLink] now.
   refusedBusy,
+
+  /// Card WB-6 — there is no connected link, so nothing could be started.
+  /// Nothing was sent.
+  ///
+  /// 🔴 A DIFFERENT NEXT MOVE, WHICH IS THE WHOLE REASON IT IS ITS OWN VALUE.
+  /// [refusedBusy] asks the person to wait; this one asks them to reconnect,
+  /// and waiting for it would be waiting for something that is never going to
+  /// happen on its own.
+  refusedNoLink,
 
   /// A7-3 tier C: the server may not be asked. Nothing was sent.
   refusedServer,
@@ -296,10 +367,31 @@ abstract class PendingRecoverySource {
   /// it was, so the next press tries the same file again.
   Future<PendingDeleteOutcome> delete(PendingRecoveryItem item);
 
-  /// Whether a recording is running right now.
+  /// Card WB-6 — why a retry cannot be started at this moment, or null when
+  /// one can.
   ///
-  /// ⚠️ A COURTESY, NOT A GATE - see [PendingRetryOutcome.refusedBusy].
-  bool get recordingNow;
+  /// ⚠️ STILL A COURTESY, NOT A GATE. `PttSession.beginBackfill` is the
+  /// authority and refuses on its own ([PendingRetryOutcome.refusedBusy] /
+  /// [PendingRetryOutcome.refusedNoLink]); this exists so the screen can be
+  /// honest BEFORE the press instead of only after it — R8: an affordance that
+  /// is going to be refused should not be drawn, and the reason it is not
+  /// drawn has to be on screen (which was the defect: with the network off the
+  /// button was drawn, pressed, and answered with somebody else's sentence).
+  ///
+  /// 🔴 IT DOES NOT ANSWER 「may THIS recording be retried」. That is
+  /// [PendingRecoveryItem.actions], decided per recording one layer down, and
+  /// the server-tier half of it (A7-3 C) is a per-recording sentence there —
+  /// not a page-wide condition.
+  PendingRetryBlocker? get retryBlocker;
+}
+
+/// Card WB-6 — the two page-wide reasons a retry cannot start right now.
+enum PendingRetryBlocker {
+  /// The microphone is open. Waiting is all that is needed.
+  recording,
+
+  /// There is no connected link. Nothing on this screen can change it.
+  noLink,
 }
 
 /// The recording time carried by the identifier itself, or null.

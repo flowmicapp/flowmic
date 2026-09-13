@@ -11,7 +11,7 @@
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { Server as TcpServer } from 'node:net';
 import type { Server as IoServer, Socket } from 'socket.io';
-import type { ServerConfig } from './config';
+import { socketCorsOrigin, type ServerConfig } from './config';
 import { deriveKey } from './auth/crypto';
 import { createDbConnection, type DbConnection } from './db/connection';
 import { checkSettingsSecretAtBoot } from './startup-secret-check';
@@ -30,32 +30,29 @@ import { VerificationSendLimiter } from './auth/email-verification';
 import { wireVerificationGrace } from './auth/verification-grace';
 import { createSocketServer } from './socket/server';
 import { wireNodeRuntime } from './node/node-runtime';
-import { nodeIdForHost, parseNodeHostMap, requestHost } from './node/node-identity';
+import { parseNodeHostMap } from './node/node-identity';
 import { makeQuotaGuard } from './billing/quota-guard';
+import { makeIntegratorKeyGuard } from './billing/integrator-quota';
+import { makeBudgetPusher, budgetReaderFrom, resolveBudgetHeartbeatMs } from './billing/budget-push';
 import { BillingService } from './billing/billing-service';
+import { makeTrialLedger } from './billing/trial-ledger';
+import { makeWebTrialIdentities } from './auth/web-trial-identity';
+import { ANON_TOKEN_TTL_MS } from './http/web-anon-routes';
+import { randomUUID } from 'node:crypto';
+import { newToken } from './auth/token';
+import { webRoomWiring } from './bootstrap-web-room-deps';
 import { makeHttpHandler } from './http/router';
 import { composeHttpDeps } from './bootstrap-http-deps';
-import { getAccount, getAccountAuthError, getSessionPrefs, type ActingIdentity } from './socket/wire';
-import { registerPcHandlers } from './socket/handlers/pc.handler';
-import { registerMobileHandlers } from './socket/handlers/mobile.handler';
-import { makeDisconnectHandler } from './socket/handlers/disconnect.handler';
-import { registerHeartbeatHandler } from './socket/handlers/heartbeat.handler';
-import { registerAuthHandlers } from './socket/handlers/auth.handler';
-import { armAuthExpiry, type AuthExpiryClock } from './socket/handlers/auth-expiry';
-import { broadcastUpdated, registerSettingsHandlers } from './socket/handlers/settings.handler';
-import { registerHistoryHandlers } from './socket/handlers/history.handler';
-import { registerTimelineHandlers } from './socket/handlers/timeline.handler';
-import { GrantPendingStore, GrantRequestRateLimiter, registerGrantHandlers } from './socket/handlers/grant.handler';
-import { installWebAllowlist } from './socket/web-allowlist';
-import { registerAudioHandlers } from './socket/handlers/audio.handler';
-import { registerComposeHandlers } from './socket/handlers/compose.handler';
-import { registerRelayHandlers } from './socket/handlers/relay.handler';
+import { getAccount, getAccountAuthError, type ActingIdentity } from './socket/wire';
+import type { AuthExpiryClock } from './socket/handlers/auth-expiry';
+import { broadcastUpdated } from './socket/handlers/settings.handler';
+import { GrantPendingStore, GrantRequestRateLimiter } from './socket/handlers/grant.handler';
 import { InjectPendingRegistry } from './socket/inject-pending';
 import { makeCloudImagePolicy } from './socket/cloud-image-policy';
 import { makeSttSessionFactory } from './engine/stt-factory';
 import { AudioSessionRegistry } from './engine/audio-registry';
 import { createComposeFactory } from './compose';
-import { wrapSocketHandlers } from './error-handling';
+import { registerConnectionHandlers } from './bootstrap-connection-handlers';
 import { makeShutdownSequence } from './shutdown';
 import { makeStatusProbes } from './status/status-probes';
 import { loadOrMintLanTlsIdentity } from './lan-tls/cert-store';
@@ -77,7 +74,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.77';
+export const SERVER_VERSION = '0.3.85';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -227,6 +224,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   const registry = new Registry({
     pcs: db.pcs,
     mobiles: db.mobiles,
+    // Card MP-1 — the room→key edge writer, so `mintIntegratorRoom` can record
+    // WHICH key minted a room in the same act that creates it.
+    integratorKeys: db.integratorKeys,
     // GA-16: PLAN_LIMITS.pcs/.mobiles enforcement. `mode` is the standalone NOOP
     // gate; `limitsOf` is billing.effectiveLimits — the SAME single solver the
     // QuotaGuard uses, so subscription expiry, FLOWMIC_MOCK_UNLOCK_ALL and the
@@ -273,12 +273,12 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     loginRecordEnabled: config.loginRecordEnabled,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
-  // NR-2a — the five per-IP budgets of the account layer, built together and kept
-  // apart; each separation's own argument lives with the counter it separates
-  // (auth/register-rate-limit.ts `makeAuthRateLimiters`).
+  // NR-2a — the account layer's separate budgets, built together and kept apart;
+  // each separation's own argument lives with the counter it separates — including
+  // the one that is NOT per-IP (S2-04's `webRoom`) — in `makeAuthRateLimiters`.
   const {
     register: registerLimiter, siteAnalytics: siteAnalyticsLimiter, password: passwordLimiter,
-    accountMint: accountMintLimiter, verificationLink: verificationLinkLimiter,
+    accountMint: accountMintLimiter, verificationLink: verificationLinkLimiter, webRoom: webRoomLimiter,
   } = makeAuthRateLimiters(overrides.now);
   // GA-31 QR-code login — one-time, 60 s account grants the console draws as a QR.
   // In-memory by design (a restart invalidating every pending QR is the correct
@@ -326,10 +326,14 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     ...(overrides.clearTimeoutFn ? { clearTimeoutFn: overrides.clearTimeoutFn } : {}),
   };
 
+  // Card M4-01 — built ONCE: one object answers 「how long may this visitor
+  // speak」 for effectiveLimits, for the mint route and for the sweep.
+  const trials = makeTrialLedger({ rows: db.trials, users: db.users });
   const billing = new BillingService({
     settings: db.settings,
     users: db.users,
     usage: db.usage,
+    trials,
     // D1 §6.1 step 2 — the Paddle subscription ledger, so `source:'paddle'` can
     // actually be reached. The SAME BillingRepo instance the webhook ingress
     // writes through (wired below): the webhook is the only writer and this is
@@ -377,6 +381,62 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     },
     { mode: config.mode, ...(overrides.now ? { now: overrides.now } : {}) },
   ));
+
+  // card S2-02 - the ONE `billing:budget` producer, and deliberately not a third
+  // reader of the ledger: `remainingSttMs` is the same guard `audio:start` is
+  // gated on and `usagePeriod` is the same cycle the meter writes into (owner
+  // 2026-09-05), so the number a client watches and the number that refuses a
+  // press cannot come from two arithmetics. Heartbeat env is a TEST SEAM (see
+  // DEFAULT_BUDGET_HEARTBEAT_MS); a malformed value falls back to the default
+  // rather than to NaN, which would make every chunk push a frame.
+  // Card MP-1 — the ONE integrator-key guard in this process, built before the
+  // budget pusher because the pusher reads through it. One instance for the same
+  // reason there is one `Registry`: 「how much has this key left」 is asked by the
+  // frame, by the recording's hard stop and by the admission gate, and three
+  // instances would be three reads of a counter that moves.
+  const integratorKeys = makeIntegratorKeyGuard({
+    keys: db.integratorKeys,
+    // THE SAME cycle key the meter writes with and the quota guard reads — never
+    // a second derivation, or the key's counter would roll over on a different
+    // day from the plan it is compared against.
+    usagePeriodKey: (userId, atMs) => billing.usagePeriodKey(userId, atMs),
+  });
+  const budgetPusher = makeBudgetPusher(budgetReaderFrom({ quota: quotaGuard, billing, users: db.users, integratorKeys }));
+  // Cards S2-04 / M4-01 — built HERE rather than inline at the http deps literal
+  // because card R-1's socket arm needs the same two things out of it (the
+  // ledger and the process-wide IP salt). Building a second one would call
+  // `resolveIpBucketSalt` twice and print the missing-secret warning twice,
+  // which is the exact trap bootstrap-web-room-deps.ts's header names for the
+  // captcha verifier: two warnings train the one reader of that log to ignore
+  // it.
+  const webRoom = webRoomWiring({
+    limiter: webRoomLimiter, budget: budgetPusher, trials,
+    // Card MP-1 — the guard built above (one per process) plus the registry's
+    // mint. `mint` is a lambda rather than a bound method for the reason the
+    // registry's other seams are: this file hands over one CAPABILITY, so a
+    // reader of `web-room-routes.ts` can see the complete list of things that
+    // route can do to the database.
+    integrator: { keys: integratorKeys, mint: (u, k, o) => registry.mintIntegratorRoom(u, k, o) },
+  });
+  // Card R-1 — the unsigned-web trial identity, on the SOCKET side. Same ledger
+  // instance, same salt, same allowance as the marketing site: owner §10 asks for
+  // ONE two minutes per browser across both entry paths, so 「how much of this
+  // browser's trial is gone」 has one book, and a second one here would drift
+  // from it the first time either moved.
+  const webTrial = makeWebTrialIdentities({
+    trials,
+    mobiles: db.mobiles,
+    ipSalt: webRoom.ipSalt,
+    // The HTTP arm's TTL, imported rather than re-chosen: the ledger row is the
+    // same row and its `token_expires_at` must mean the same thing on both arms
+    // — even though nothing on this arm is ever handed the token (see
+    // web-trial-identity.ts).
+    tokenTtlMs: ANON_TOKEN_TTL_MS,
+    newId: randomUUID,
+    newToken,
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+  const budgetHeartbeatMs = resolveBudgetHeartbeatMs();
 
   // NR-2a — the 3-day unverified grace, on the SAME two session-start sites the
   // quota guard sits on. Reader + guard + boot line are ONE call (see there).
@@ -481,6 +541,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     serviceMail,
     paddleClient,
     verificationSendLimiter, verificationLinkLimiter, accountMintLimiter,
+    webRoom, // cards S2-04 / M4-01 (see bootstrap-web-room-deps.ts)
     googleVerifier,
     // D2LAN-B2b — the same late-binding thunk as before the split: the http
     // handler is built before the TLS front exists, so the route reads the
@@ -530,11 +591,11 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
       nodeRuntime.resolveTokenOnWriter ?? undefined,
       nodeRuntime.nodeConfig.nodeId ?? 'unknown',
     ),
-    // GA-15: the saas allow-list is env-driven (FLOWMIC_CORS_ORIGIN, comma
-    // separated) with the current production value as the default, so putting
-    // flowmic.app in front of .online is a deploy-time change rather than a
-    // code change. standalone stays '*' — it is a LAN server for one owner.
-    cors: { origin: config.mode === 'saas' ? config.corsOrigins : '*' },
+    // GA-15 / S1-03: the saas allow-list is env-driven (FLOWMIC_CORS_ORIGIN,
+    // comma separated) with DEFAULT_SAAS_CORS_ORIGINS as the unset default
+    // (marketing site + go/web/cdn.flowmic.app). An explicit env still fully
+    // overrides. standalone stays '*' — it is a LAN server for one owner.
+    cors: { origin: socketCorsOrigin(config.mode, config.corsOrigins) },
   });
   ioRef = io; // WP-W1b: arm the console REST settings fan-out hook
 
@@ -557,6 +618,11 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     mode: config.mode,
     store,
     quota: quotaGuard,
+    // Card MP-1 — the SAME guard the budget pusher and the admission gate read
+    // through. Three instances would be three reads of a counter that moves
+    // while a recording runs, and the hard stop would stop disagreeing with the
+    // meter only by luck.
+    integratorKeys,
   });
 
   // GA-04: audio sessions belong to the (room, pairing), not to the socket. One
@@ -573,118 +639,21 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // inference LLM call records into the single llm bucket (owner ruling ⑨).
   const composeFactory = createComposeFactory({ settings: db.settings, usage: usageTracker });
 
-  io.on('connection', (socket: Socket) => {
-    // D4 layer 2 — MUST stay the FIRST line of this callback: it patches
-    // socket.on, so only handlers registered AFTER it are contained. Every
-    // register* call below (and room/liveness.ts's probe listeners, which
-    // attach to these same store-held sockets later) goes through the patched
-    // seam. socket.io dispatches handlers in a bare process.nextTick with no
-    // try/catch (see error-handling.ts header), so without this one throwing
-    // handler — e.g. a disk-full SQLite write — is a whole-process crash.
-    wrapSocketHandlers(socket);
-    // GRANT-1 §3.3 — default-deny for kind:'web' sockets. A different seam
-    // from wrapSocketHandlers (socket.use vs a patched socket.on) so handlers
-    // below stay wrapped; installed before them so none can hear a refused
-    // frame. Self-gating: pc/mobile frames pass through untouched.
-    installWebAllowlist(socket);
-    registerAuthHandlers(socket, {
-      mode: config.mode,
-      clock: expiryClock,
-      // saas: share the REST per-IP login throttle so the socket credential
-      // channel cannot bypass it (human-audit finding, WP-R4-1).
-      ...(config.mode === 'saas'
-        ? { auth: authService, loginLimiter: registerLimiter, qrGrants }
-        : {}),
-    });
-    // saas: arm the auth:expired watchdog for a socket whose identity rests on a
-    // verified handshake JWT (F-2093). Sockets that authenticate by pairing token
-    // (mobile:pair / reconnect) or standalone sockets never set `account` and are
-    // exempt. An in-session mobile:login arms its own watchdog in the handler.
-    if (config.mode === 'saas') {
-      const acct = getAccount(socket);
-      if (acct) armAuthExpiry(socket, acct.exp, expiryClock);
-    }
-    // GA-07: the application-layer liveness consumer — `heartbeat` moves
-    // last_seen_at so "recent activity" stops being frozen at pairing time.
-    registerHeartbeatHandler(socket, { pcs: db.pcs, mobiles: db.mobiles, ...(nodeRuntime.stampPresence ? { stampPresence: nodeRuntime.stampPresence } : {}) });
-    // 2026-08-31 multi-door — which node this process answers AS for THIS socket.
-    // A process reached under a regional front door (`srvasia02`) must say so on
-    // the ack and must stamp THAT into pc_devices.home_node, or the phone that
-    // follows its PC would be sent to the slow door the PC deliberately left.
-    // Falls back to the process's own id whenever the host is unmapped, which is
-    // every deployment that has not configured a second name.
-    const socketNodeId = nodeRuntime.nodeConfig.nodeId === null
-      ? null
-      : nodeIdForHost(
-        requestHost(socket.handshake.headers as unknown as Record<string, unknown>),
-        nodeHostMap,
-        nodeRuntime.nodeConfig.nodeId,
-      );
-    const stampHomeNodeHere = nodeRuntime.stampHomeNode === null
-      ? null
-      : (pcId: string): void => nodeRuntime.stampHomeNode?.(pcId, socketNodeId ?? undefined);
-    registerPcHandlers(socket, { io, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
-    // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
-    // the SAME instance `console-routes.refuseRestricted` reads through and the
-    // same one Bearers are verified with, so the HTTP gate and the two socket
-    // admissions cannot disagree; one real `users` read per pair/reconnect is
-    // what makes a lifted restriction take effect on the very next attempt
-    // instead of at some token's exp (auth/account-restriction.ts explains why
-    // the JWT could not carry this). Passed in BOTH modes — standalone's single
-    // 'default' row is never restricted, so the gate is inert by fact rather
-    // than by being unwired.
-    // 2026-09-01 — `rowsFromReplicationPull` travels with `nodeId` because the two
-    // are one question: which node is answering, and did its copy of the row come
-    // from a pull. `pcPresence` needs both to answer `pc_online` for a PC on a
-    // different node from the phone asking (room/pc-presence.ts). Z4's
-    // `resolveTokenOnWriter` is the SAME instance `authMiddleware` got above (one
-    // budget, one single-flight table) and is null on the writer and on every
-    // single-node deployment, so that spread is empty there.
-    registerMobileHandlers(socket, { io, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}), ...(nodeRuntime.forwardUnpairMobileOnWriter /* B4, WP-6: the generic handoff's unpair_mobile verb */ ? { forwardUnpairMobile: nodeRuntime.forwardUnpairMobileOnWriter } : {}) });
-    registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.forwardSettingsUpdateOnWriter /* B6, WP-6: the generic handoff's settings_update verb */ ? { forwardSettingsUpdate: nodeRuntime.forwardSettingsUpdateOnWriter } : {}) });
-    // (0.2.27) still registered, and now ONLY to refuse out loud: the five
-    // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is
-    // silently discarded by socket.io, and a 0.2.26 client is still in the field —
-    // see history.handler's header for the full reason it is kept.
-    registerHistoryHandlers(socket);
-    // VERIFY-1 D3 — `verifiedEmail` on both timeline-family handlers is the
-    // SAME repo instance the confirm route writes through, so the socket gates
-    // and the HTTP gates cannot disagree about whose gate is open.
-    registerTimelineHandlers(socket, { repo: db.timeline, grants: db.timelineGrants, verifiedEmail: db.emailVerification, ...(overrides.now ? { now: overrides.now } : {}) });
-    // GRANT-1 — web requests / phone grants / blind wrap forward.
-    registerGrantHandlers(socket, { io, grants: db.timelineGrants, pending: grantPending, limiter: grantLimiter, verifiedEmail: db.emailVerification, ...(overrides.now ? { now: overrides.now } : {}) });
-    registerAudioHandlers(socket, {
-      io, guard: quotaGuard, usageTracker, store,
-      sessions: audioRegistry,
-      sttFactory: (args) => sttSessionFactory(socket, args),
-      // card QTA-2 — the PC owner's account, so the quota gate can ask BOTH
-      // sides when the phone and the desktop are signed into different ones.
-      pcOwnerUserId: (pcId) => registry.findPc(pcId)?.user_id ?? null,
-      verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
-      recoveryOps: db.recoveryOps, // card PR-2 — the operation registry (unconditional; see its type doc)
-      ...(overrides.now ? { now: overrides.now } : {}),
-    });
-    // 2026-09-03 (design D2) — socket-closing, like `sttFactory` above: the
-    // compose turn reads the phone-owned scenario card / consent from THIS
-    // socket's bundle (settings/session-overlay.ts), never from the database.
-    registerComposeHandlers(socket, {
-      io, guard: quotaGuard, usageTracker, store, verificationGrace: verificationGraceGuard,
-      composeFactory: (args) => composeFactory({ ...args, sessionPrefs: getSessionPrefs(socket) }),
-    });
-    registerRelayHandlers(socket, {
-      store, pending: injectPending, cloudImages,
-      // B3, WP-6: same `socketNodeId`/`registry` the mobile handler above uses
-      // for `nodeId`/home_node — one instance, one answer, never a second
-      // reading of "which node is this" or "where does the PC live".
-      ...(socketNodeId ? { nodeId: socketNodeId } : {}),
-      pcHomeNode: (pcId: string): string | null => registry.findPc(pcId)?.home_node ?? null,
-    });
-    // 2026-09-02 — moved verbatim to socket/handlers/disconnect.handler.ts
-    // (800-line cap). Same behaviour, same comments, one call site.
-    socket.on('disconnect', makeDisconnectHandler(socket, {
-      store, pcs: db.pcs, audioRegistry, stampPresence: nodeRuntime.stampPresence,
-    }));
-  });
+  // 2026-09-09 — moved VERBATIM to bootstrap-connection-handlers.ts
+  // (800-line cap). Same behaviour, same comments, one call site.
+  io.on('connection', (socket: Socket) => registerConnectionHandlers(socket, {
+    // Card MP-1 — the ONE guard (built above) and the ONE room→key read. Both
+    // are handed over as capabilities rather than as the repo, so a reader of
+    // the handler file can see the complete list of what it can do here.
+    integratorKeys,
+    integratorKeyIdForRoom: (pcDeviceId) => integratorKeys.keyIdForRoom(pcDeviceId),
+    io, config, expiryClock, authService, registerLimiter, qrGrants, db, nodeRuntime, nodeHostMap,
+    budgetPusher, registry, store, resolveActingUser, releaseSuppression, pairLimiter, quotaGuard,
+    webTrial, // card R-1
+    usageTracker, audioRegistry, budgetHeartbeatMs, sttSessionFactory, verificationGraceGuard,
+    composeFactory, injectPending, cloudImages, grantPending, grantLimiter,
+    ...(overrides.now ? { now: overrides.now } : {}),
+  }));
 
   // D2-LAN (design 2026-08-08 §4-2) — the LAN leg's TLS front.
   //
@@ -752,7 +721,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   const stop = makeShutdownSequence({
     retention, statusProbes, latencyReader, closeSocket, audioRegistry, httpServer, db,
     growthReaper: sweeps.growthReaper,
-    recoveryPrune: sweeps.recoveryPrune, // card PR-2
+    recoveryPrune: sweeps.recoveryPrune, anonCleanup: sweeps.anonCleanup, // cards PR-2 / M4-01
     ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
     ...(sweeps.forwardLedgerPrune ? { forwardLedgerPrune: sweeps.forwardLedgerPrune } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),

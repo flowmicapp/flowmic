@@ -86,6 +86,26 @@ mixin _ChatControllerState on ChangeNotifier {
   /// the ONE writer (`onSttStalledRouted`); see [_autoStoppedInstanceId].
   String? _sttStalledInstanceId;
 
+  // Card MP-14 — the most recent `control:key-result` that said `ok:false`, or
+  // null. A TICKET-carrying value rather than a flag: see [ControlKeyRefusal].
+  //
+  // 🔴 NOT ON THE ROW, and that is the whole shape of this card. The keypress
+  // row says 「the frame left this device」 (`buildControlRowOf`) and stays true;
+  // what the far end then did with the key is a different fact with a different
+  // lifetime, and writing it onto the row would give one value two questions to
+  // answer.
+  ControlKeyRefusal? _controlKeyRefusal;
+
+  /// 🔴 G-20 — WHICH INSTANCE'S SCREEN [_controlKeyRefusal] is news for, stamped
+  /// at the moment the fact is produced (§2.5.1 fourth rule). The press was made
+  /// on one instance's screen and the refusal is about that instance's computer;
+  /// unscoped, it would surface on a screen showing a different PC entirely.
+  String? _controlKeyRefusalInstanceId;
+
+  /// The ticket generator for [_controlKeyRefusal]. Monotonic per controller —
+  /// two refusals of the same key for the same cause are two pieces of news.
+  int _controlKeyRefusalTicket = 0;
+
   // AUD-D F6 / P1-6 (2026-09-02) — `RetainedAudioStore` gave up or aged out
   // unclaimed capture audio. Deliberately NOT instance-scoped like the three
   // notices above: it describes a FILE on this phone's disk, produced by the

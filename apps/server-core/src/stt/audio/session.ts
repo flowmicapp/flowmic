@@ -46,6 +46,18 @@ export type SessionState =
  *    rollover to a new engine session in card N1-B4, with the user unaware.
  *  · `quota_budget` — `quota.remainingSttMs` at audio:start (stt-factory). The
  *    user is out of minutes; this one MUST still stop the recording.
+ *  · `session_cap` — card G-8, the PAYER's `PLAN_LIMITS.continuous_minutes`
+ *    (owner 2026-08-29: free 10 minutes per sitting, pro/max 30). Also ends the
+ *    recording, and for a different reason than the one above: the month is not
+ *    gone, this SITTING is over, and the next press gets a fresh one.
+ *
+ * 🔴 THREE, NOT TWO, AND THE THIRD IS NOT THE SECOND WEARING A HAT. Until card
+ * G-8 this ceiling existed only in the phone (`continuous_cap_timer.dart`), on
+ * the threat model written into the long-recording task unit §4.B②: 「a modified
+ * client can ignore the ceiling, and what it burns is its own monthly quota,
+ * which the server does enforce」. Card MP-10 made that sentence false — under
+ * 「far end pays」 what an unbounded session burns is the ROOM OWNER's month —
+ * so the ceiling had to become a fact on this side of the wire too.
  *
  * 🔴 fix-025 — THE TWO ARE NO LONGER ONE NUMBER, and this type is now the label
  * of a real branch rather than a label attached to whichever number won a `min`.
@@ -55,7 +67,7 @@ export type SessionState =
  * itself, so a quota ceiling that lost the `min` was not merely mislabelled — it
  * was unreachable, because every rollover re-anchored the only clock there was.
  */
-export type HardLimitOrigin = 'engine_session' | 'quota_budget';
+export type HardLimitOrigin = 'engine_session' | 'quota_budget' | 'session_cap';
 
 /** Card CR-Q — the minimum spacing between mid-recording budget re-reads.
  *  60 s is chosen against the thing that varies: engine legs are born on speech
@@ -113,6 +125,10 @@ export class AudioSession extends EventEmitter {
    *  quota ceiling」 (standalone / unmetered). 🔴 `0` is NOT `null` — see
    *  {@link AudioSession.setQuotaBudgetMs}. */
   private quotaBudgetMs: number | null = null;
+  /** Card G-8 — ms this SITTING may run, measured from `start()`, or `null` for
+   *  「no length ceiling」. Never re-read and never re-anchored; see
+   *  {@link AudioSession.setSessionCapMs}. */
+  private sessionCapMs: number | null = null;
   private _limitOrigin: HardLimitOrigin = 'engine_session';
   /** Card CR-Q — supplies the fresh monthly remainder, or null when nobody
    *  installed one (tests, standalone). */
@@ -195,6 +211,58 @@ export class AudioSession extends EventEmitter {
     }
     if (!Number.isFinite(ms)) return; // no quota ceiling — standalone / unmetered
     this.quotaBudgetMs = Math.max(0, ms);
+  }
+
+  /**
+   * Card G-8 — declare how long THIS SITTING may run, in the one moment it can
+   * be declared (same seam and same `idle`-only rule as
+   * {@link AudioSession.setQuotaBudgetMs}, called from the same act in
+   * `engine/stt-factory.ts`).
+   *
+   * 🔴 IT IS A SEPARATE CEILING, NOT A SMALLER BUDGET, and folding it into
+   * `quotaBudgetMs` would have been one line shorter and wrong in three places
+   * at once:
+   *   ① `limitOrigin` would say `quota_budget`, so the phone would be told
+   *      `reason:'quota_exhausted'` — 「this month's minutes are gone」 — about a
+   *      month with hours left in it. The user's next action after that
+   *      sentence is to wait or to pay; the correct next action is to press the
+   *      button again. `engine/stt-session-autostop.ts` was built so that a new
+   *      origin CANNOT silently borrow a neighbour's sentence, and this is the
+   *      first origin it has had to refuse;
+   *   ② `quotaDeadlineAt` — which the live `billing:budget` meter counts down
+   *      (`socket/handlers/budget-frames.ts`) — would stop being the money
+   *      deadline, so a free account with 20 minutes of month left would watch
+   *      its MONTHLY gauge hit zero after 10 (see `billing/session-cap.ts`);
+   *   ③ the mid-recording refresher (card CR-Q) re-reads the monthly remainder
+   *      and OVERWRITES `quotaBudgetMs` with it. A cap folded in there would be
+   *      erased by the first refresh, one floor window into the recording —
+   *      i.e. the wall would be there for sixty seconds and then quietly not.
+   *      This is the same shape as the `hold_out_retry` defect (0.2.52): one
+   *      value answering two questions, and the second answer disappearing when
+   *      the first one was updated.
+   *
+   * ⚠️ NO REFRESHER, DELIBERATELY. The cap is a property of the payer's plan,
+   * not a quantity being spent, so there is nothing to re-read — and re-reading
+   * it would let a plan change move the wall out from under a recording in
+   * progress. The phone pins it for exactly the same reason and says so:
+   * `continuous_cap_timer.dart`'s `armedCap` 「is pinned here rather than
+   * re-read from the account each frame … one value, one question」.
+   *
+   * 🔴 `0` MEANS A CEILING OF ZERO here as it does for the budget, and
+   * `Infinity` / an absent call means 「no length ceiling」 (standalone, and every
+   * call site that does not know about this card). `NaN` throws, for the reason
+   * spelled out on the budget setter: a broken reader that silently reads as
+   * 「no ceiling」 is the failure this kind of wall exists to remove.
+   */
+  setSessionCapMs(ms: number): void {
+    if (this._state !== 'idle') {
+      throw new Error(`AudioSession.setSessionCapMs: illegal call from ${this._state} (call before start)`);
+    }
+    if (Number.isNaN(ms)) {
+      throw new TypeError('AudioSession.setSessionCapMs: NaN is not a session cap (a broken reader must not read as "no ceiling")');
+    }
+    if (!Number.isFinite(ms)) return; // no length ceiling — standalone / unconfigured
+    this.sessionCapMs = Math.max(0, ms);
   }
 
   /**
@@ -353,14 +421,69 @@ export class AudioSession extends EventEmitter {
    * A non-finite engine ceiling is read as 「no engine ceiling」 rather than handed
    * to `setTimeout`, which silently treats an out-of-range delay as 1 ms.
    */
+  /**
+   * Card S2-02 — the instant this recording runs out of MONEY, or `null` when
+   * no quota ceiling governs it. Deliberately the SAME expression
+   * {@link nextCeiling} builds `quotaAt` from, not a second one: the
+   * `billing:budget` meter is `this - now`, so what a user watches approach zero
+   * and the timer that actually ends the recording are one fact with one author
+   * (recomputing it from `remainingSttMs` + elapsed would diverge the first time
+   * CR-Q's mid-recording re-read moved the deadline in).
+   * ⚠️ NOT the engine-session ceiling — that one re-anchors at every rollover
+   * (N1-B4) and the user never sees it.
+   */
+  get quotaDeadlineAt(): number | null {
+    return this.sessionStartedAt !== null && this.quotaBudgetMs !== null
+      ? this.sessionStartedAt + this.quotaBudgetMs
+      : null;
+  }
+
+  /**
+   * Card G-8 — the SITTING-LENGTH deadline, or `null` when no length ceiling
+   * governs this recording. Anchored on `sessionStartedAt` for the same reason
+   * the quota one is: a ceiling that re-anchored at every engine rollover would
+   * never be reached on the only recordings long enough to reach it.
+   *
+   * ⚠️ Deliberately NOT exposed the way {@link AudioSession.quotaDeadlineAt} is.
+   * That getter exists because one consumer renders a countdown from it; this
+   * one has no renderer and must not acquire one by accident — the number the
+   * user watches for this ceiling is the phone's own clock, armed from the same
+   * `continuous_minutes` (`continuous_cap_timer.dart`). A second countdown
+   * derived here would be a second author for 「when does this sitting end」.
+   */
+  private get sessionCapDeadlineAt(): number | null {
+    return this.sessionStartedAt !== null && this.sessionCapMs !== null
+      ? this.sessionStartedAt + this.sessionCapMs
+      : null;
+  }
+
   private nextCeiling(): { at: number; origin: HardLimitOrigin } | null {
     const engineAt = this.legStartedAt !== null && Number.isFinite(this.engineSessionLimitMs)
       ? this.legStartedAt + this.engineSessionLimitMs
       : null;
-    const quotaAt = this.sessionStartedAt !== null && this.quotaBudgetMs !== null
-      ? this.sessionStartedAt + this.quotaBudgetMs
-      : null;
-    if (quotaAt !== null && (engineAt === null || quotaAt <= engineAt)) return { at: quotaAt, origin: 'quota_budget' };
+    const quotaAt = this.quotaDeadlineAt;
+    // Card G-8 — the third deadline. Same anchor as the quota one, different
+    // fact: `quotaAt` is 「the money runs out here」, this is 「this sitting is
+    // over here」.
+    const capAt = this.sessionCapDeadlineAt;
+    // 🔴 THE ORDER OF THESE THREE `if`s IS THE TIE POLICY, and each tie is
+    // decided by which mistake is affordable, not by symmetry:
+    //   · quota BEFORE cap. They can only tie when a user is simultaneously out
+    //     of minutes and at their sitting length; 「your month is gone」 is then
+    //     the fact that changes what the user should do next, and 「press again」
+    //     would be advice that produces an immediate refusal at the admission
+    //     gate. The more consequential truth wins a tie.
+    //   · cap BEFORE engine — and this one is not a preference, it is the
+    //     mechanism. `engine_session` does not END anything since card N1-B4; it
+    //     ROLLS OVER and re-anchors itself. A tie handed to it would re-arm the
+    //     only clock there is and push the cap past this moment forever, which
+    //     is exactly the failure `fix-025` recorded for the quota ceiling: 「a
+    //     ceiling that lost the `min` was not merely mislabelled — it was
+    //     unreachable」.
+    if (quotaAt !== null && (engineAt === null || quotaAt <= engineAt) && (capAt === null || quotaAt <= capAt)) {
+      return { at: quotaAt, origin: 'quota_budget' };
+    }
+    if (capAt !== null && (engineAt === null || capAt <= engineAt)) return { at: capAt, origin: 'session_cap' };
     if (engineAt !== null) return { at: engineAt, origin: 'engine_session' };
     return null;
   }
@@ -572,7 +695,13 @@ export class AudioSession extends EventEmitter {
     // is positive by construction, so this cannot spin.
     if (next === null || t < next.at) { this.armHardLimit(t); return; }
     this._limitOrigin = next.origin;
-    if (next.origin === 'quota_budget') { this.autoStop('hard_limit'); return; }
+    // Card G-8 — BOTH ending ceilings leave through the same door. `autoStop`'s
+    // argument is the ENGINE-layer event name (`stt-session.ts` reads
+    // `limitOrigin` off the session to decide what the user is told), so adding
+    // an origin here does not add a second exit path: it adds a second reason
+    // for the existing one, and `engine/stt-session-autostop.ts` is where that
+    // reason is named.
+    if (next.origin === 'quota_budget' || next.origin === 'session_cap') { this.autoStop('hard_limit'); return; }
     this.legStartedAt = t;
     this.armHardLimit(t);
     this.emit('engine_session_expired');

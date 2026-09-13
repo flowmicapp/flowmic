@@ -249,6 +249,21 @@ function lastSeenTitle(stamp: string | null): string {
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" v-html="CHANNEL_VISUAL[m.channel].iconPath"></svg>
               {{ CHANNEL_LABEL[m.channel] }}
             </span>
+            <!-- card ID-2: WHICH KIND OF END made this pairing. The badge to its
+                 left answers「哪条通道」("which channel"); this answers「哪种端」
+                 ("which kind of end") — a browser tab, not a handset. Two
+                 questions, two marks: a web client only ever reaches us over the
+                 cloud relay, so the channel badge alone can never say it, and
+                 without this the row is drawn as one more indistinguishable
+                 phone under a name the user has no way to place.
+                 Rendered ONLY for a positive 'web' (see paired-mobiles.ts's
+                 `client`): 「the app made it」 and 「this pairing predates the
+                 field」 are not tellable apart, and both correctly draw nothing.
+                 Neutral, like the group's count chip — it is a statement ABOUT
+                 the row, not a third channel, and it must not read as one. -->
+            <span v-if="m.client === 'web'" class="chip client-web">
+              {{ S.dev_client_web }}
+            </span>
             <!-- owner 2026-08-02 UI batch 1 ②: the chip answers "is there a
                  session right now" and the meta line's "last active" answers
                  "when was the last contact" — see lastSeenTitle() for the full
@@ -405,6 +420,10 @@ function lastSeenTitle(stamp: string | null): string {
 /* the group count chip is deliberately NEUTRAL: a statement ABOUT the rows,
    not a third channel. */
 .chip.pg-count { background: var(--surface-2); color: var(--t2); }
+/* card ID-2: same neutral treatment, same reason — the「网页」("Web") mark says
+   what KIND of end this pairing is, and giving it a colour of its own would put
+   a third identity language next to the channel badge it sits beside. */
+.chip.client-web { background: var(--surface-2); color: var(--t2); }
 
 .btn.pri:disabled, .btn.ghost:disabled { opacity: .5; cursor: default; }
 </style>

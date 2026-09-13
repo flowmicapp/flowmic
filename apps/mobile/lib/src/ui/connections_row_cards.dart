@@ -168,13 +168,13 @@ Widget _pairingCardRouted(_ConnectionsPageState page, AppStrings s, MobileSessio
       confirmLabel: s.confirmDelete,
       cancelLabel: s.cancel,
     ),
-    onDismissed: (_) => page._remove(p),
+    onDismissed: (_) => _removeRouted(page, p),
     child: _identityCardRouted(
       page,
       kind: kind,
       machineUid: cloud ? null : p.pcMachineUid,
       onTap: page.widget.connections.busy ? null : () => page._connect(p),
-      onLongPress: page.widget.connections.busy ? null : () => page._renameAlias(p),
+      onLongPress: page.widget.connections.busy ? null : () => _renameAliasRouted(page, p),
       child: Row(
         children: <Widget>[
           // GA-33: a cloud instance rendered with a computer icon and a PC name

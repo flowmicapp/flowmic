@@ -51,7 +51,11 @@ function code(rel: string): string {
 
 describe('the presence facts reach the handlers that need them', () => {
   it('🔴 bootstrap tells the mobile handlers whether this node reads a replicated copy', () => {
-    const boot = source('bootstrap.ts');
+    // 2026-09-09 — this call site moved VERBATIM from bootstrap.ts's
+    // `io.on('connection', ...)` callback to bootstrap-connection-handlers.ts
+    // (800-line cap split; same precedent this file's own header names for
+    // bootstrap-http-deps.ts, two cases below).
+    const boot = source('bootstrap-connection-handlers.ts');
     const call = boot.slice(boot.indexOf('registerMobileHandlers(socket, {'));
     const line = call.slice(0, call.indexOf('\n'));
     expect(line).toContain('rowsFromReplicationPull:');

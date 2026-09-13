@@ -771,7 +771,10 @@ void main() {
         onDismissAutoStop: () => dismissed = true,
       );
       await tester.pumpWidget(_wrap(BannerSlot(queue: q, strings: zh)));
-      expect(find.text('录音已达 5 分钟上限，已自动停止'), findsOneWidget);
+      // Card G-2c — read off the catalogue rather than quoted. The literal
+      // that stood here outlived the sentence it copied, which is what a
+      // second unversioned catalogue always does.
+      expect(find.text(zh.recordingAutoStopped), findsOneWidget);
       expect(find.text('还有 1 条'), findsNothing);
       await tester.tap(find.byIcon(Icons.close));
       expect(dismissed, isTrue);

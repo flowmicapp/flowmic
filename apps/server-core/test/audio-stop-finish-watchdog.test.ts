@@ -62,7 +62,7 @@ function harness(disposedFlag: { called: boolean }) {
   const pc = new FakeSocket('pc');
   store.joinPc(ROOM, pc);
 
-  const guard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity };
+  const guard: QuotaGuard = { ensureQuota() {}, remainingSttMs: () => Infinity, continuousCapMs: () => Infinity };
   const usage: UsageTracker = { recordSttUsage() {}, recordLlmUsage() {}, recordQuotaRefusal() {} };
 
   const sttFactory = () => makeHangingOrchestrator(disposedFlag);

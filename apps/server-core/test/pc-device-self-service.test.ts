@@ -451,10 +451,17 @@ describe('console device management — presence, removal, eviction', () => {
   it('the virtual cloud-relay row is refused by name, not silently removed', async () => {
     // It takes no plan slot and admission re-creates it on the next connect, so a
     // button that appeared to work would change nothing at all.
+    //
+    // SECURITY crosscheck (S2-04, 2026-09): this used to mint the fixture via
+    // `registry.registerPc({ client_instance_id: 'flowmic-cloud-instance' })`
+    // — i.e. through the very CLIENT-FACING entry point a real desktop calls,
+    // typing the reserved literal by hand. That is exactly the bypass
+    // `sanitizeClientInstanceId` (registry-shared.ts) now closes: registerPc
+    // treats a wire-supplied CLOUD_INSTANCE_ID as absent, so this fixture must
+    // use the ONE legitimate writer, `admitCloudInstance`, same as production
+    // cloud admission does — not the wire-facing registration path.
     const a = await account('virtual@d11.co');
-    const pc = registry.registerPc({
-      device_name: 'Cloud', user_id: a.id, client_instance_id: 'flowmic-cloud-instance',
-    }).pc;
+    const pc = registry.admitCloudInstance(a.id).pc;
 
     const r = await post('/api/cloud/devices/remove-pc', { pc_id: pc.id }, a.bearer);
     expect(r.json).toEqual({ ok: true, removed: false, reason: 'cloud_instance' });

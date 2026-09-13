@@ -50,6 +50,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+// Card RF-2 - the registry every manifest writer consults. Kept a direct
+// import (the journal re-exports it, but the journal imports THIS file, so
+// reaching for it that way would close the cycle).
+import 'retained_audio_deleted.dart';
 import 'retained_audio_journal_fs.dart';
 import 'retained_audio_manifest.dart';
 
@@ -86,6 +90,18 @@ class PendingManifestPublish {
 /// can leak an entry into the next one. A `static` here would be a second
 /// answer to 「which manifests are outstanding」 that nothing could reset.
 class ManifestRepublishQueue {
+  /// Card RF-2 - the recordings the user threw away, from the spill that owns
+  /// both this queue and that registry.
+  ///
+  /// 🔴 HELD BY THE QUEUE, NOT CARRIED ON THE ENTRY. An entry is a snapshot of
+  /// a manifest taken when its publish failed; whether the user has since
+  /// deleted that recording is a fact about NOW, asked at the moment of the
+  /// write. Copying the answer into the entry would freeze it at the worst
+  /// possible instant - the one before the delete.
+  final DeletedRecordings? _deleted;
+
+  ManifestRepublishQueue({DeletedRecordings? deleted}) : _deleted = deleted;
+
   final List<PendingManifestPublish> _q = <PendingManifestPublish>[];
 
   /// Recording ids still waiting, in retry order.
@@ -135,8 +151,26 @@ class ManifestRepublishQueue {
     int landed = 0;
     for (final PendingManifestPublish e in todo) {
       try {
-        await publishManifest(fs: e.fs, base: e.base, manifest: e.manifest);
+        final bool published = await publishManifest(
+          fs: e.fs,
+          base: e.base,
+          manifest: e.manifest,
+          deleted: _deleted,
+        );
+        // Dropped either way: a publish that was DECLINED (the recording is
+        // gone) can never become possible again, so leaving it queued would
+        // retry it at both ends of every future recording, forever.
         _q.remove(e);
+        if (!published) {
+          // 🔴 NOT COUNTED AS LANDED, AND THAT IS NOT BOOKKEEPING PEDANTRY.
+          // The return value is what `retained_audio_dispose_drains_test` and
+          // the D-5b regression read as 「the facts reached the disk」; saying
+          // 1 here would report a manifest carrying holes as published when
+          // nothing was written.
+          debugPrint('[flowmic.audio] dropped a queued manifest whose '
+              'recording is gone: $e');
+          continue;
+        }
         landed += 1;
         debugPrint('[flowmic.audio] republished a manifest that ENOSPC had '
             'blocked: $e');
@@ -159,24 +193,74 @@ class ManifestRepublishQueue {
 /// open handle; a caller with no handle (this queue, after the journal closed)
 /// has nothing to flush and nothing to re-measure. It publishes the claim it
 /// was given, which is the claim the last successful `length()` produced.
-Future<void> publishManifest({
+///
+/// Returns whether a manifest now stands on disk because of this call. `false`
+/// is a DECISION, not a failure: the recording is gone, so there is nothing to
+/// say about it and nothing for a caller to retry. A real write failure still
+/// throws.
+///
+/// 🔴 CARD RF-2 — THE FIFTH DOOR, AND THE LAST WRITER OF A MANIFEST PATH UNDER
+/// `lib/src/audio`. The other two (`RetainedAudioJournal._commitLocked`,
+/// `RetainedAudioJournalScan._publishManifest`) carry the registry and the
+/// post-write undo; this one carried a lone `fs.exists(<pcm>)`, which is a
+/// check-then-write of exactly the shape `retained_audio_deleted.dart` was
+/// written to replace. It is also the writer with the WIDEST gap between
+/// deciding and writing: its entry can sit in memory across whole recordings
+/// (drill D-5b freed its space only after the press ended), and it fires
+/// UNAWAITED at both ends of every recording — so a delete pressed while a
+/// press is starting or stopping lands squarely inside it.
+Future<bool> publishManifest({
   required JournalFileSystem fs,
   required String base,
   required RecordingManifest manifest,
+  DeletedRecordings? deleted,
 }) async {
+  final String recordingId = manifest.recordingId;
   // The recording may have been DELETED while this manifest waited (owner
   // ruling O-5's delete, or the TTL sweep). Publishing then would recreate the
   // manifest of audio that is gone, the scan would list it again and the user's
   // delete would look as if it had silently failed - the same trap
   // `RetainedAudioJournal.abandon()` exists for. No PCM, nothing to say.
-  if (!await fs.exists('$base${RetainedAudioJournalPaths.pcmSuffix}')) return;
+  if (deleted?.contains(recordingId) ?? false) return false;
+  // ⚠️ THE PCM CHECK STAYS, AND IT IS NOT THE SAME QUESTION. The registry
+  // knows about deletes THIS PROCESS performed; the bytes can also be gone
+  // because the TTL sweep took them, or because the file was removed while the
+  // app was not running. Either answer means the same thing here, and neither
+  // one implies the other.
+  if (!await fs.exists('$base${RetainedAudioJournalPaths.pcmSuffix}')) {
+    return false;
+  }
   final String tmp = '$base${RetainedAudioJournalPaths.manifestTempSuffix}';
   await fs.writeBytes(
     tmp,
     Uint8List.fromList(manifest.encode().codeUnits),
     flush: true,
   );
-  await fs.rename(tmp, '$base${RetainedAudioJournalPaths.manifestSuffix}');
+  final String manifestPath = '$base${RetainedAudioJournalPaths.manifestSuffix}';
+  await fs.rename(tmp, manifestPath);
+  // 🔴 ASKED AGAIN, AFTER THE RENAME, AND THIS HALF IS THE FIX. Both checks
+  // above are check-then-write: a delete arriving between either of them and
+  // the rename publishes anyway, and this writer's window is milliseconds wide
+  // (a temp write and a rename), not microseconds. The only thing a writer can
+  // do about a fact that became true underneath it is take back what it wrote.
+  //
+  // ⚠️ IT REMOVES ONLY THE MANIFEST THIS CALL PUT THERE, and never any PCM:
+  // §A3-8, nothing in the journal layer deletes audio. A swallowed failure
+  // leaves a few hundred bytes of JSON that the next scan reads as
+  // claim-ahead-of-an-absent-file — the same leftover `PendingRecoveryStore
+  // ._deleteJournal`'s own PCM-first order accepts.
+  if (deleted?.contains(recordingId) ?? false) {
+    try {
+      await fs.deleteFile(manifestPath);
+    } on Object {
+      // Swallowed for the same reason the journal swallows its own undo: the
+      // audio is exactly where the user put it (gone), and this queue may not
+      // fail a recording's start or stop because of a write it performs on the
+      // side.
+    }
+    return false;
+  }
+  return true;
 }
 
 /// The two suffixes [publishManifest] needs, kept here so this file does not

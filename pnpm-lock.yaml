@@ -87,6 +87,18 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)
 
+  packages/i18n-web:
+    devDependencies:
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(postcss@8.5.22)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)
+
   packages/protocol:
     dependencies:
       zod:
@@ -1158,6 +1170,11 @@ packages:
   sherpa-onnx-darwin-arm64@1.13.4:
     resolution: {integrity: sha512-QcYKzyrTzGSx6aKCD6hUODgRS1LetqfG57Z/+i5LCyfMlrgCvDc1lRcl9cdB+TozBsLha9QwLTlI0vmDcf5JKg==}
     cpu: [arm64]
+    os: [darwin]
+
+  sherpa-onnx-darwin-x64@1.13.6:
+    resolution: {integrity: sha512-3X5FQ9PpwlBmxLqtb2/uvl7/W2HXXzXHT0MLmB9c0TRMANLujzvIF7YbT6VW3k92ClL/1q9sbIOul0rHgxCTmw==}
+    cpu: [x64]
     os: [darwin]
 
   sherpa-onnx-linux-arm64@1.13.4:
@@ -2267,6 +2284,9 @@ snapshots:
   sherpa-onnx-darwin-arm64@1.13.4:
     optional: true
 
+  sherpa-onnx-darwin-x64@1.13.6:
+    optional: true
+
   sherpa-onnx-linux-arm64@1.13.4:
     optional: true
 
@@ -2276,6 +2296,7 @@ snapshots:
   sherpa-onnx-node@1.13.4:
     optionalDependencies:
       sherpa-onnx-darwin-arm64: 1.13.4
+      sherpa-onnx-darwin-x64: 1.13.6
       sherpa-onnx-linux-arm64: 1.13.4
       sherpa-onnx-linux-x64: 1.13.4
       sherpa-onnx-win-ia32: 1.13.4

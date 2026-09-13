@@ -41,6 +41,12 @@ import type { DatabaseSync } from 'node:sqlite';
 // should' below compares it against `sqlite_master`, so a table added to
 // INIT_SQL without being appended here turns that test RED — which is the point:
 // a new table nobody registered is a new table nobody proves converges.
+// TWENTY-TWO since card MP-1 (2026-09-11): `integrator_keys` (publishable keys
+// and each key's per-cycle sub-quota counter) and `integrator_rooms` (which key
+// minted which room). Both purely additive — two CREATEs and two indexes in
+// db/schema-integrator.ts, no ALTER on either. The third change that card makes
+// to this file's world is a COLUMN (`usage_events.integrator_key_id`) with its
+// own guarded step in reconcileSchema, which is why it is not a table here.
 export const TABLES = [
   'users',
   'pc_devices',
@@ -48,6 +54,12 @@ export const TABLES = [
   'user_settings',
   'usage_records',
   'usage_events',
+  // Card MP-1 (2026-09-11) — the third-party integration domain. `integrator_keys`
+  // cascades from `users`; `integrator_rooms` reaches `users` through neither of
+  // its parents directly, so it is a RETAINED table in the delete census (it dies
+  // with the room row and with the key row, both of which cascade).
+  'integrator_keys',
+  'integrator_rooms',
   'timeline_blobs',
   'timeline_keymeta',
   'timeline_grants',
@@ -81,6 +93,13 @@ export const TABLES = [
   // (audit F4).
   'recovery_operations',
   'usage_effects',
+  // 2026-09-09 card M4-01: the site-demo grant record (db/schema-trial.ts).
+  // SEVENTEEN. Purely additive — one CREATE plus two indexes, no ALTER. It
+  // carries `REFERENCES users(id) ON DELETE CASCADE`, like the recovery pair
+  // above and unlike the billing tombstone: a swept anonymous identity must
+  // take its grant record with it, or the sweep would leave a ledger row
+  // pointing at an account that no longer exists.
+  'trial_ledger',
 ];
 
 /** The `users` DDL exactly as it stood BEFORE Window D1 (0.2.36) — no

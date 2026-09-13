@@ -19,16 +19,8 @@ import type { SttEngineOrchestrator } from '../stt/orchestrator-core';
 import { SttConfigMissingError } from '../stt/engine-router';
 import type { StartInput } from '../stt/orchestrator-types';
 
-/** Loudest |sample| in a PCM16-LE buffer (0..32767). The one number that tells
- *  "the microphone is recording but the room is quiet" apart from "it was never recording at all". */
-function peakSample16(buf: Buffer): number {
-  let peak = 0;
-  for (let i = 0; i + 1 < buf.length; i += 2) {
-    const v = Math.abs(buf.readInt16LE(i));
-    if (v > peak) peak = v;
-  }
-  return peak;
-}
+// Moved VERBATIM to ./stt-session-pcm.ts (800-line cap — see that file's header).
+import { peakSample16 } from './stt-session-pcm';
 import { polishFinalText, polishWireSignal, type PolishSkipReason, type PolishWireSignal } from '../stt/stt-polish';
 import { resolveByokLlm, type SelectedLlmConfig } from '../compose/llm-config';
 import { log } from '../log';
@@ -614,6 +606,11 @@ export class SttSessionBridge implements SttOrchestrator {
   get lastContiguousSeq(): number {
     return this.session.seq.lastContiguousSeq;
   }
+
+  /** Card S2-02 — a plain read of {@link AudioSession.quotaDeadlineAt}, the same
+   *  field `nextCeiling` arms the hard-limit timer from. One production reader:
+   *  the while-streaming `billing:budget` tick (socket/handlers/budget-frames). */
+  get quotaDeadlineAt(): number | null { return this.session.quotaDeadlineAt; }
 
   pushChunk(seq: number, dataB64: string, tsMs: number): void {
     if (this.disposed) { this.intake.noteBridgeDrop(); return; } // card CV-1: taken off the wire, went nowhere

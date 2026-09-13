@@ -59,6 +59,44 @@ const AUTO_STOP_REASON_BY_ORIGIN = {
   // enum grew a value (owner 2026-08-10, ruling group #5-a) instead of one
   // sentence being softened to fit two situations.
   quota_budget: 'quota_exhausted',
+  // 🔴 Card G-8 — the PER-SITTING length ceiling
+  // (`PLAN_LIMITS.continuous_minutes`), and this row is the `satisfies` above
+  // doing the job it was written for: a third origin arrived and had to be
+  // ARGUED rather than allowed to inherit a neighbour's sentence.
+  //
+  // It takes `hard_limit`, the row above it, and the reason is that
+  // `hard_limit` has never meant 「five minutes」 — it means 「a real time
+  // ceiling, and pressing the button again works」. That second clause is the
+  // whole decision. The cap resets with the next sitting, so 「press once and
+  // keep talking」 (the sentence `recordingAutoStopped` implies, quoted in
+  // `apps/mobile/lib/src/settings/strings/recording_strings.dart`) is the
+  // correct next step; `quota_exhausted` would send a user with hours of month
+  // left away to wait or to pay, which `local_stop_reasons.dart` already
+  // identifies BY NAME as the more expensive direction of exactly this mistake.
+  //
+  // ⚠️ AND THE THING THIS BORROW DOES GET WRONG, said out loud rather than left
+  // for somebody to find on a device: the phone's rendered sentence for
+  // `hard_limit` still carries the literal 「5-minute」 in nine languages
+  // (`recordingAutoStopped`), so a 10- or 30-minute sitting ended here is
+  // described with the wrong NUMBER while the KIND and the next step are right.
+  // Two things bound that cost and neither of them makes it disappear:
+  //   ① an honest client never reaches this wall. It arms its own clock from
+  //      the SAME `continuous_minutes` before it sends `audio:start`, so its
+  //      deadline is strictly EARLIER than this one (the server's sitting
+  //      starts when the frame arrives), and it ends the recording itself with
+  //      its own numberless sentence (`local:continuous-cap`). This origin
+  //      fires for a client that ignored its own ceiling — which is the entire
+  //      threat model card G-8 was opened for;
+  //   ② the alternative — a new `reason` value on `AudioAutoStoppedSchema` —
+  //      is a closed `z.enum` on a protocol every shipped phone validates
+  //      against, so every phone older than that change would fall into
+  //      `recordingAutoStoppedUnknown(reason)` and print a raw identifier at a
+  //      user (the 0.2.53 defect, verbatim).
+  // The clean fix is to take the digit out of `recordingAutoStopped` — nine
+  // strings in the MOBILE app, a user-visible copy change with its own audit
+  // gate, and not this card's surface. Registered as an open bill rather than
+  // done quietly here.
+  session_cap: 'hard_limit',
 } as const satisfies Record<HardLimitOrigin, AutoStopReason>;
 
 /** The origins this layer can name, for the fail-loud log below. Exported

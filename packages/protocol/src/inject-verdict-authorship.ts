@@ -619,6 +619,28 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   // codes could sit in the tree as bare identifiers for a whole window. Minting
   // the code first made the omission a build error within seconds.
   NODE_IS_REPLICA: 'none',
+  // WEB_ROOM_RATE_LIMITED · card S2-04. `'none'` for the same reason as the two
+  // above it: this code is an HTTP 429 on `POST /api/web/rooms`, refused BEFORE
+  // any room exists and therefore before any utterance could exist. It never
+  // rides an `inject:result`, so there is no verdict for it to author.
+  WEB_ROOM_RATE_LIMITED: 'none',
+  // The site demo's three codes · card M4-01. `'none'` for the same reason as
+  // the one above: all three are HTTP answers to a browser asking for a demo
+  // identity or a demo room, refused BEFORE any room exists and therefore before
+  // any utterance could exist. None of them ever rides an `inject:result`, so
+  // there is no verdict for them to author.
+  WEB_ROOM_ORIGIN_NOT_ALLOWED: 'none',
+  WEB_ROOM_TURNSTILE_FAILED: 'none',
+  WEB_DEMO_UNAVAILABLE: 'none',
+  // INTEGRATOR_QUOTA_EXCEEDED · card MP-1. `'none'`, and it is worth saying why
+  // out loud because this one is NOT an HTTP answer like the three above it: it
+  // rides `stt:error` / the `audio:start` ack, i.e. the same rail QUOTA_EXCEEDED
+  // uses, and it is refused at ADMISSION — before any utterance exists, so there
+  // is no delivery for it to be a verdict about. Declaring `'pc-injection'` here
+  // would make the phone's outbox read a refusal-to-record as a statement about
+  // whether a message reached a computer, which is the two-questions-one-value
+  // shape this table exists to keep apart.
+  INTEGRATOR_QUOTA_EXCEEDED: 'none',
 } as const satisfies Record<ErrorCode, InjectVerdictAuthor>;
 
 /** Authorship lookup. An unknown code (a new code this end doesn't recognise / a

@@ -18,7 +18,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Plan } from '@flowmic/protocol';
-import { Registry } from '../src/room/registry';
+import { CLOUD_INSTANCE_ID, Registry } from '../src/room/registry';
+import { isRealPc } from '../src/room/registry-shared';
 import {
   PLAN_LIMITS,
   installPlanLimits,
@@ -87,6 +88,11 @@ function pairAddr(pc: { short_code: string; pcid: string | null }) {
 
 beforeEach(() => {
   db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('test-secret-32-bytes-or-more-xx') });
+  // card NR-29 — a trial identity is a REAL `users` row (mobile_pairings
+  // .trial_user_id is a foreign key with ON DELETE SET NULL, which is exactly
+  // what makes a non-null value mean 「this row is living on a live anonymous
+  // identity」). Faking the column with a bare string would pass a unit test and
+  // could never happen in production.
   db.users.insert({ id: 'u1', display_name: 'U1', plan: 'free' });
   db.users.insert({ id: 'u2', display_name: 'U2', plan: 'free' });
 });
@@ -96,6 +102,13 @@ afterEach(() => {
   // later test in this file (and, via the shared module, into the next one).
   resetPlanLimits();
 });
+
+/** Mint an anonymous trial identity row, the way billing/trial-ledger.ts does.
+ *  Returns the id so the caller can stamp it onto a pairing. */
+function anon(id: string): string {
+  db.users.insert({ id, display_name: id, plan: 'free', anonymous: true });
+  return id;
+}
 
 describe('GA-16 — the numbers live in exactly one place', () => {
   it('PLAN_LIMITS carries the Free 2/2 boundary and an Infinity-encoded phone count', () => {
@@ -398,6 +411,101 @@ describe('GA-16 — mobile pairing ceiling', () => {
     expect((thrown as ServerError).code).toBe('MOBILES_LIMIT_EXCEEDED');
   });
 
+  // ── card NR-29 (待 owner 追认) · an unsigned web visitor is not a device ──
+  //
+  // 🔴 WHAT WAS MEASURED FIRST (originally golden g29-web-unsigned-trial.mjs,
+  // RETIRED 2026-09-11 by card MP-6; the end-to-end assertion moved to
+  // `verify/golden/g26-site-demo.mjs`): EVERY web instance — signed in or not —
+  // consumed one of the PC OWNER's mobile slots, so the THIRD unsigned stranger
+  // to scan a free account's QR code was answered MOBILES_LIMIT_EXCEEDED, from
+  // the owner's plan, about a browser that was never going to spend one of the
+  // owner's minutes (card R-1).
+  //
+  // ⚠️ THE DECISION IS THE MAIN AGENT'S AND IS PENDING OWNER RATIFICATION
+  // (待 owner 追认) — registered in
+  // docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md §16.
+  //
+  // 🔴 CARD MP-6 CHANGED THE COLUMN THE RULE READS, NOT THE RULE. The predicate
+  // was 「a web row that carries a trial identity」; MP-6 stopped minting
+  // identities outside site-demo rooms, so on the next deploy that predicate
+  // would have answered 「counts」 for every unsigned guest and quietly restored
+  // the defect above. It reads `client` now. The visible consequence is that a
+  // SIGNED-IN web client stops counting too — which the paragraph this file
+  // used to carry admits was already true in practice for any browser that
+  // paired unsigned, because the anchor was never cleared.
+
+  it('NR-29: web pairings take NO mobile slot, and the rule reads `client`', () => {
+    const registry = makeRegistry('saas', 'free');
+    const pc = newPc(registry, 'u1', 1).pc;
+    // Two unsigned browsers, exactly as `mobile:pair` + auth/web-trial-identity.ts
+    // leave them: the row is minted by the pair leg, the anchor is stamped by the
+    // admission a moment later.
+    // 🔴 NO `trial_visitor` AND NO `setTrialUser` — card MP-6. Those two lines
+    // were the whole of the old shape: the caller declared the exemption because
+    // the column that expressed it was written a moment later. The exemption is
+    // now the row's own `client`, so this fixture is what `mobile:pair` really
+    // writes, rather than a reconstruction of it.
+    for (const uid of ['web-1', 'web-2']) {
+      registry.pairMobile({ ...pairAddr(pc), mobile_name: uid, user_id: 'u1', device_uid: uid, client: 'web' });
+    }
+    // The THIRD unsigned visitor is admitted — this is the whole card.
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'web-3', user_id: 'u1', device_uid: 'web-3', client: 'web' });
+    expect(db.mobiles.listByPc(pc.id)).toHaveLength(3);
+    // ...and so is a REAL handset: three strangers' browsers did not eat the two
+    // slots the owner paid for. This is the assertion that would still be green if
+    // the exemption were written as "web rows never count", so the next one exists.
+    expect(() => registry.pairMobile({ ...pairAddr(pc), mobile_name: 'phone-A', user_id: 'u1', device_uid: 'handset-1' })).not.toThrow();
+  });
+
+  it('🔴🔴 MP-6 — a SIGNED-IN web client takes NO slot either, and that asymmetry is gone on purpose', () => {
+    // 🔴 THIS ASSERTION FLIPPED, AND THE OLD ONE WAS ONLY EVER HALF TRUE. It read
+    // 「a SIGNED-IN web client counts like a phone (no trial anchor ⇒ it holds a
+    // slot)」, and `registry-shared.ts` recorded in the same breath that a browser
+    // which paired UNSIGNED and later signed in kept its anchor for life and went
+    // on not counting. So the outcome depended on whether the visitor happened to
+    // sign in before or after they first scanned — one rule with two answers.
+    //
+    // MP-6 had to move the predicate off `trial_user_id` (it is no longer minted
+    // outside site-demo rooms, so the old one would have started counting every
+    // unsigned guest again), and reading `client` makes the rule say one thing: a
+    // browser tab is not a device on the account. A REAL handset still counts,
+    // which is the control below and is what the ceiling is for.
+    const registry = makeRegistry('saas', 'free');
+    const pc = newPc(registry, 'u1', 1).pc;
+    for (const uid of ['web-s1', 'web-s2', 'web-s3']) {
+      registry.pairMobile({ ...pairAddr(pc), mobile_name: uid, user_id: 'u1', device_uid: uid, client: 'web' });
+    }
+    expect(db.mobiles.listByPc(pc.id)).toHaveLength(3);
+    // The POSITIVE CONTROL: the ceiling is still there, and two real handsets
+    // still fill it. Without this, "three browsers were admitted" would be
+    // equally true of a build whose mobile ceiling had simply stopped working.
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'phone-1', user_id: 'u1', device_uid: 'ph-1', client: 'app' });
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'phone-2', user_id: 'u1', device_uid: 'ph-2', client: 'app' });
+    let thrown: unknown;
+    try {
+      registry.pairMobile({ ...pairAddr(pc), mobile_name: 'phone-3', user_id: 'u1', device_uid: 'ph-3', client: 'app' });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ServerError);
+    expect((thrown as ServerError).code).toBe('MOBILES_LIMIT_EXCEEDED');
+  });
+
+  it('NR-29 control: an APP pairing is untouched by the exemption even if a trial anchor were ever set on it', () => {
+    // The predicate is a CONJUNCTION and this pins the half that keeps the phone
+    // honest: `client` NULL / 'app' reads as an App row through the protocol's own
+    // `clientOriginOf`, so no anchor can exempt a handset.
+    const registry = makeRegistry('saas', 'free');
+    const pc = newPc(registry, 'u1', 1).pc;
+    const a = registry.pairMobile({ ...pairAddr(pc), mobile_name: 'A', user_id: 'u1', device_uid: 'handset-1' });
+    anon('anon-should-not-matter');
+    db.mobiles.setTrialUser(a.mobile.id, 'anon-should-not-matter');
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'B', user_id: 'u1', device_uid: 'handset-2' });
+    expect(() => registry.pairMobile({ ...pairAddr(pc), mobile_name: 'C', user_id: 'u1', device_uid: 'handset-3' })).toThrow(
+      ServerError,
+    );
+  });
+
   it('pro / standalone are unlimited', () => {
     const pro = makeRegistry('saas', 'pro');
     const pcPro = newPc(pro, 'u1', 1).pc;
@@ -460,4 +568,86 @@ describe('GA-16 — the virtual cloud instance is not a user device', () => {
     expect(named.mobile.mobile_name).toBe('书房平板');
   });
 
+});
+
+// SECURITY (S2-04 crosscheck) — `isRealPc` decides "does not eat a plan slot"
+// off `client_instance_id`, and that column arrives INSIDE a client frame on
+// both admission legs (pc:register AND pc:reconnect pass
+// `parsed.data.client_instance_id` straight through — pc.handler.ts). The
+// only LEGITIMATE writer of the reserved literal is `admitCloudInstance`,
+// which never reads it off the wire. Before the fix, ANY desktop could type
+// `CLOUD_INSTANCE_ID` into its own `client_instance_id` and walk straight out
+// of the ceiling above — the same one-line-opt-out shape `isWebRoom`'s own
+// doc warns a client-reachable marker would be for the sibling exemption.
+describe('SECURITY — a client frame cannot claim CLOUD_INSTANCE_ID to dodge the PC ceiling', () => {
+  it('registerPc sanitizes a client-supplied CLOUD_INSTANCE_ID: the row is real and still eats a slot', () => {
+    const registry = makeRegistry('saas', 'free'); // ceiling = 2
+    const { pc } = registry.registerPc({
+      device_name: 'attacker-pc',
+      user_id: 'u1',
+      client_instance_id: CLOUD_INSTANCE_ID, // a desktop typing the reserved literal
+    });
+    // Sanitized to "as if absent" — never stamped onto the row.
+    expect(pc.client_instance_id).not.toBe(CLOUD_INSTANCE_ID);
+    expect(isRealPc(pc)).toBe(true);
+    // It occupies one of the two free-plan slots: one more registration is
+    // fine, the THIRD is refused — the ceiling this predicate guards.
+    expect(() => newPc(registry, 'u1', 2)).not.toThrow();
+    expect(() => newPc(registry, 'u1', 3)).toThrow(ServerError);
+  });
+
+  it('registerPc refuses a NEW PC claiming CLOUD_INSTANCE_ID once the real ceiling is already reached', () => {
+    const registry = makeRegistry('saas', 'free'); // ceiling = 2
+    newPc(registry, 'u1', 1);
+    newPc(registry, 'u1', 2);
+    let thrown: unknown;
+    try {
+      registry.registerPc({
+        device_name: 'attacker-pc-3',
+        user_id: 'u1',
+        client_instance_id: CLOUD_INSTANCE_ID,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ServerError);
+    expect((thrown as ServerError).code).toBe('PCS_LIMIT_EXCEEDED');
+  });
+
+  it('reconnectPc cannot backfill CLOUD_INSTANCE_ID onto an already-counted row', () => {
+    const registry = makeRegistry('saas', 'free'); // ceiling = 2
+    // Registered with NO client_instance_id (the pre-0.2.4 shape), so the
+    // column starts NULL — exactly the state claimClientInstance backfills.
+    const { pc, token } = registry.registerPc({ device_name: 'PC-1', user_id: 'u1' });
+    expect(pc.client_instance_id).toBeNull();
+    const result = registry.reconnectPc(token, CLOUD_INSTANCE_ID);
+    expect(result?.pc.client_instance_id).not.toBe(CLOUD_INSTANCE_ID);
+    expect(isRealPc(result!.pc)).toBe(true);
+    // Still one of the two slots: a second registration is fine, a third is not.
+    expect(() => newPc(registry, 'u1', 2)).not.toThrow();
+    expect(() => newPc(registry, 'u1', 3)).toThrow(ServerError);
+  });
+
+  it('positive control: admitCloudInstance (the LEGITIMATE writer) still gets the real exemption', () => {
+    const registry = makeRegistry('saas', 'free');
+    const { pc } = registry.admitCloudInstance('u1');
+    expect(pc.client_instance_id).toBe(CLOUD_INSTANCE_ID);
+    expect(isRealPc(pc)).toBe(false);
+    // Both real slots are untouched by it.
+    newPc(registry, 'u1', 1);
+    expect(() => newPc(registry, 'u1', 2)).not.toThrow();
+  });
+
+  // 🔴 REVERSE CONTROL — restore the pre-fix predicate (trust the wire value
+  // verbatim) and the FIRST test above must go red. Verified by hand:
+  // replacing sanitizeClientInstanceId's body with `return id;` turns
+  // 'registerPc sanitizes a client-supplied CLOUD_INSTANCE_ID…' red with
+  // `expect(pc.client_instance_id).not.toBe(CLOUD_INSTANCE_ID)` failing
+  // (received 'flowmic-cloud-instance') and the ceiling assertion failing
+  // right behind it (the 3rd registration no longer throws), while every
+  // other case in this file — including the two `admitCloudInstance`
+  // exemption tests above — stays green, because the reverse-controlled
+  // change belongs only to the CLIENT-FACING param and never touches the
+  // registry's own `admitCloudInstance` call sites. Not left in the tree as
+  // a toggle: that would be a bug shipped on purpose.
 });

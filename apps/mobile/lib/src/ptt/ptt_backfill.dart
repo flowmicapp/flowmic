@@ -58,13 +58,39 @@ part of 'ptt_session.dart';
 /// speech.
 const int kBackfillChunkBytes = 6400;
 
+/// What [PttSessionBackfill.beginBackfill] answered.
+///
+/// 🔴 CARD WB-6 — IT USED TO BE A `bool`, AND THE TWO REFUSALS WERE ONE VALUE.
+/// They are two facts with two opposite next moves — 「wait until you have
+/// finished speaking」 and 「this phone is not connected」 — and the screen that
+/// renders them had exactly one sentence, which said the first one. MEASURED
+/// 2026-09-12 on TB335ZC with the network off: the card answered 「a recording
+/// is running」 while the microphone was closed
+/// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-3).
+/// A caller that only wants 「did it open」 asks [ok]; a caller that has to say
+/// WHY not reads the value.
+enum BackfillStart {
+  /// The session is open and the `audio:start` has left.
+  started,
+
+  /// `fsm.connection != connected`. Nothing was sent, and nothing the user does
+  /// on this screen changes it — they have to be connected again first.
+  noLink,
+
+  /// A press holds the session (or it is not at rest). Nothing was sent, and
+  /// waiting is all that is required.
+  sessionBusy;
+
+  bool get ok => this == BackfillStart.started;
+}
+
 extension PttSessionBackfill on PttSession {
-  /// Open a recovery session on the wire. Returns false if now is not the time.
+  /// Open a recovery session on the wire. See [BackfillStart] for the answers.
   ///
   /// Refuses rather than queues, and the caller retries later: the conditions
   /// that make it refuse (no link, a recording in progress) are exactly the
   /// conditions under which waiting is the right thing to do anyway.
-  bool beginBackfill({
+  BackfillStart beginBackfill({
     required FlowMode mode,
     required String sourceLang,
     // 🔴 The SAME bundle a live press carries. Recovered speech is transcribed
@@ -82,8 +108,10 @@ extension PttSessionBackfill on PttSession {
     // Whole or absent, never half - see AudioStartPayload.recovery.
     RecoveryIdentity? identity,
   }) {
-    if (fsm.connection != ConnectionState.connected) return false;
-    if (!sessionAcceptsPttDown(fsm.session)) return false;
+    if (fsm.connection != ConnectionState.connected) {
+      return BackfillStart.noLink;
+    }
+    if (!sessionAcceptsPttDown(fsm.session)) return BackfillStart.sessionBusy;
     segments.clear();
     fsm.onPttDown();
     // Card FX-2 — recovered audio owns the wire now, and it is `none` for the
@@ -130,7 +158,7 @@ extension PttSessionBackfill on PttSession {
       if (identity != null) 'range': identity.range.toString(),
       'leg': identity == null ? 'legacy_segment' : 'journal',
     });
-    return true;
+    return BackfillStart.started;
   }
 
   /// Feed one stretch's PCM through as 200 ms frames.

@@ -28,6 +28,8 @@
 //     a phone to online on its own (e.g. from a recent last_seen_at); a missing
 //     flag reads offline.
 
+import { clientOriginOf, type ClientOrigin } from '@flowmic/protocol';
+
 import { S } from './strings';
 
 /** One row of the pc:list-mobiles ack — the PUBLIC projection, five fields.
@@ -77,6 +79,21 @@ export interface PairedMobile {
    *  `null` for a pairing made by a pre-0.2.4 phone. Two nulls are NOT a match —
    *  see [derivePairedList]. */
   device_uid: string | null;
+  /** card ID-2 — WHICH KIND OF END made this pairing: the FlowMic app on a
+   *  handset, or a browser tab running the web client.
+   *
+   *  Already RESOLVED here, never raw: the wire value is `'web'`, `'app'`,
+   *  `null` (a pairing older than the field) or absent, and all four are read by
+   *  the protocol's `clientOriginOf` — the ONE author of the 「absent means
+   *  app」 default (its own doc says why it is a function and not a `?? 'app'`
+   *  sprinkled over call sites). An unknown kind some future end might name
+   *  reads `'app'` too: 「a client I have not heard of」 is not a claim, and the
+   *  honest rendering for it is the same as for a legacy row — nothing special.
+   *
+   *  ⚠️ So `'app'` on this field is NOT evidence the app made the pairing; it is
+   *  「nothing here says otherwise」. Only `'web'` is a positive statement, and
+   *  only `'web'` may draw a mark. */
+  client: ClientOrigin;
 }
 
 /** Which channel a pairing belongs to. Mirrors the Rust `Channel::tag()`. */
@@ -131,6 +148,7 @@ export function asPairedMobiles(raw: unknown): PairedMobile[] | null {
       online: o.online === true,
       channel: o.channel === 'cloud' ? 'cloud' : 'lan',
       device_uid: typeof o.device_uid === 'string' && o.device_uid.trim() !== '' ? o.device_uid.trim() : null,
+      client: clientOriginOf(o.client),
     });
   }
   return rows;

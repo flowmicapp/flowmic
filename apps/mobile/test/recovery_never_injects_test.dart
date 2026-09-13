@@ -294,7 +294,7 @@ void main() {
     expect(r.session.openSessionDelivery, Delivery.inject);
     expect(
       r.session.beginBackfill(mode: FlowMode.realtime, sourceLang: 'zh'),
-      isTrue,
+      BackfillStart.started,
     );
     expect(r.session.openSessionDelivery, Delivery.none,
         reason: 'recovered audio owns the wire and it is none for all of it');

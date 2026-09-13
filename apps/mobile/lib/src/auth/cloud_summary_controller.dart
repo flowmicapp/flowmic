@@ -41,6 +41,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../signaling/inbound_payloads.dart' show BillingBudget;
 import 'cloud_summary.dart';
 import 'login_controller.dart';
 import 'saas_endpoint.dart';
@@ -55,12 +56,29 @@ class CloudSummaryController extends ChangeNotifier {
     // answers 「unreachable」 — the truth about a controller with no network.
     CloudSummaryFetcher? fetcher,
     String? saasEndpoint,
+    /// Card S2-02 — the relay's live `billing:budget` readings
+    /// (`PttSession.billingBudget`). Present ⇒ this controller keeps itself in
+    /// step with what the relay just said, instead of being a snapshot of the
+    /// last time the settings page was opened.
+    ///
+    /// 🔴 THE SUBSCRIPTION IS OWNED HERE, not at the composition root, and that
+    /// is the point of taking a stream rather than being fed from outside: the
+    /// cancel then travels with [dispose] and cannot be forgotten by a caller.
+    /// This controller has already paid for the other shape once — its own
+    /// dispose comment records that a notifier torn down while something is
+    /// still subscribed is the `_pcBusy` leak (0.2.51).
+    ///
+    /// Absent ⇒ no live updates, exactly the pre-card behaviour. Not a friendly
+    /// default that pretends to work: an absent feed is a wiring fact a test can
+    /// drive (13 册 §7 F1 ②).
+    Stream<BillingBudget>? budgetFeed,
     this.timeout = kCloudSummaryTimeout,
   }) : _login = login,
        _fetch = fetcher ?? httpCloudSummaryFetch,
        _endpoint = saasEndpoint ?? resolveSaasEndpoint() {
     _wasSignedIn = _login.isLoggedIn;
     _login.addListener(_onLoginChanged);
+    _budgetSub = budgetFeed?.listen(applyBudget);
   }
 
   final LoginController _login;
@@ -102,6 +120,9 @@ class CloudSummaryController extends ChangeNotifier {
 
   late bool _wasSignedIn;
   bool _disposed = false;
+  /// Card S2-02 - the live feed subscription, cancelled in [dispose]. Null when
+  /// no feed was supplied.
+  StreamSubscription<BillingBudget>? _budgetSub;
 
   /// Ask, unless we are already asking. The single in-flight guard is the whole
   /// concurrency story: a second call while one is outstanding is DROPPED, not
@@ -149,6 +170,86 @@ class CloudSummaryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Card S2-02 — fold a live `billing:budget` frame into the numbers already
+  /// on screen. The relay pushes one at pairing, at every press, while audio is
+  /// streaming and the moment the allowance runs out, so the settings gauge
+  /// stops being a snapshot taken the last time this page was opened.
+  ///
+  /// 🔴 IT ONLY EVER MOVES `used`, AND ONLY WHEN THERE IS ALREADY A CEILING TO
+  /// MOVE IT AGAINST. The frame carries what is LEFT; the gauge is drawn from
+  /// `used / limit` — so with no prior summary there is no `limit`, and
+  /// inventing one to make the arithmetic work would draw a bar against a
+  /// number nobody read. Absent stays absent, which is `quota_gauge.dart`'s own
+  /// rule for an end it could not read.
+  ///
+  /// 🔴 `remainingMs == null` IS NOT ZERO AND NOT A MISS. It means the relay
+  /// does not meter (standalone / self-hosted), and this card is only ever shown
+  /// to a signed-in cloud account — so the honest response is to change nothing
+  /// rather than to blank a gauge that is about a different deployment.
+  ///
+  /// ⚠️ THE TOKEN METER IS UNTOUCHED, deliberately. This frame says nothing
+  /// about LLM tokens, and carrying the old value forward is exactly right:
+  /// re-stating a number is not the same as re-measuring it, and the two halves
+  /// of this gauge have always been independently nullable for that reason.
+  void applyBudget(BillingBudget budget) {
+    if (_disposed) return;
+    final CloudSummary? had = _summary;
+    final CloudMeter? meter = had?.minutes;
+    // No ceiling on screen ⇒ nothing to place this reading against. Not a
+    // failure and not worth a diagnostic: the very next `refresh()` brings both
+    // numbers at once.
+    if (had == null || meter == null) return;
+    final int? remaining = budget.remainingMs;
+    if (remaining == null) return; // "this relay does not meter" — see above
+    // 🔴 CARD G-2c — A READING ABOUT SOMEBODY ELSE'S LEDGER MAY NOT MOVE THIS
+    // CARD. Owner 2026-09-11 (「只要有对端，就扣对端」) made the far end the payer
+    // whenever one exists, so a phone paired to another account's computer is
+    // sent that account's remainder — and folding it in here drew a plausible
+    // number against the wrong ledger: the reader's own minutes appeared to
+    // drain while their plan was untouched, and stopped the moment they
+    // unpaired. That is R11 in its purest form, on the one screen whose whole
+    // job is to answer 「how much have I got left」.
+    //
+    // 🔴 `'trial'` IS REFUSED FOR THE SAME SENTENCE, NOT AS A BONUS. A
+    // `mode:'trial'` view is the site demo's per-device grant (two minutes),
+    // and arithmetic against a monthly ceiling would report this account as
+    // hundreds of minutes over. Same defect, different far end.
+    //
+    // ⚠️ `null` STILL MEANS 「the relay did not say」 AND STILL APPLIES. A build
+    // that read absence as 「somebody else is paying」 would blank the meter for
+    // every relay that predates the field — refusing to answer a question we
+    // can answer. `'self'` is byte-for-byte the pre-card path.
+    //
+    // ⚠️ THE REFUSAL IS SILENT ON THIS CARD BY DESIGN, because it is not this
+    // card's sentence to say. It was said by a standing chat-page banner until
+    // owner removed that on 2026-09-12 (the 09-12 batch ruling, item 5); it is
+    // now said by the quota-rules guide under the connections list
+    // (`ui/quota_rules_page.dart`, copy in
+    // `settings/strings/metering_strings.dart`), which states every case rather
+    // than the one a live frame happens to name. What must never happen is this
+    // meter moving on somebody else's remainder — that half is right here, and
+    // it does not depend on any sentence existing anywhere.
+    if (budget.payer == 'far_end' || budget.payer == 'trial') return;
+    final double usedMin = meter.limit - remaining / 60000.0;
+    // Clamped for the same reason `CloudMeter.used` is NOT clamped in the
+    // parser: this value is DERIVED here rather than reported, so a negative
+    // would be our arithmetic showing through rather than a server saying
+    // something strange, and a gauge is the wrong place to display it.
+    final double clamped = usedMin < 0 ? 0 : usedMin;
+    // `resets_at` rides the same frame, so a cycle that rolled over between two
+    // openings of this page is picked up with the number it explains — never
+    // one without the other.
+    final DateTime? resets = budget.resetsAt ?? had.resetsAt;
+    if (clamped == meter.used && resets == had.resetsAt) return; // no repaint for no change
+    _summary = CloudSummary(
+      minutes: CloudMeter(used: clamped, limit: meter.limit),
+      tokens: had.tokens,
+      continuousMinutes: had.continuousMinutes,
+      resetsAt: resets,
+    );
+    notifyListeners();
+  }
+
   void _onLoginChanged() {
     final bool now = _login.isLoggedIn;
     if (now == _wasSignedIn) return;
@@ -169,6 +270,7 @@ class CloudSummaryController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    unawaited(_budgetSub?.cancel());
     _login.removeListener(_onLoginChanged);
     super.dispose();
   }

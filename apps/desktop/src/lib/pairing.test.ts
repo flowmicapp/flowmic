@@ -2,7 +2,9 @@
 // (04 §3.1 L64) and the F-2346 loopback suppression that the modal branches on.
 
 import { describe, expect, it } from 'vitest';
+import { UI_LOCALES } from './strings/generated/locales.g';
 import {
+  buildHttpsQrPayload,
   buildQrPayload,
   cloudPairBlock,
   derivePairAddresses,
@@ -11,7 +13,10 @@ import {
   initialPairTab,
   isLoopbackEndpoint,
   isLoopbackHost,
+  PAIR_HTTPS_HOST,
+  PAIR_HTTPS_PATH,
   pairChannelOf,
+  pairLinkLang,
   qrAltHosts,
   QR_ALT_MAX,
   toWsUrl,
@@ -65,6 +70,237 @@ describe('buildQrPayload (04 §3.1 L64)', () => {
     expect(buildQrPayload({ endpoint: 'https://flowmic.app', code: '0007', channel: 'saas' })).toBe(
       'flowmic://pair?endpoint=wss://flowmic.app&code=0007&channel=saas',
     );
+  });
+});
+
+// ── S1-01 (W-12, owner 2026-09-06) — the transitional PRIMARY code: a real
+// https:// URL a phone's system camera can open (installed app → App Link;
+// no app → the web fallback page). SAME key set/order as buildQrPayload plus
+// a trailing v=1 — spec: docs/strategy/2026-09-05-web-client-protocol-and-api-
+// addendum.md §3/§5. `buildQrPayload`'s own output is asserted UNCHANGED above
+// and in qr-roundtrip.test.ts / pairing-pcid.test.ts / pairing-fingerprint*
+// .test.ts — this describe block only ever reads the NEW function. ──────────
+describe('buildHttpsQrPayload (W-12 transitional primary code)', () => {
+  it('emits https://flowmic.app/go/pair with a percent-encoded endpoint and v=1', () => {
+    // 🔴 THE LITERAL PREFIX IS ASSERTED FIRST, AND THAT IS THE POINT OF THESE
+    // TWO LINES (card DOM-1). Until this card the expectations below
+    // interpolated `PAIR_HTTPS_HOST` and then hand-typed `/pair` — half pinned
+    // to the constant, half a copy. Interpolating BOTH halves would make the
+    // rest of this test self-referential (it would pass for any URL the builder
+    // and the constants happened to agree on), so the URL this product actually
+    // prints is stated once, by hand, here.
+    expect(buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234' })).toContain(
+      'https://flowmic.app/go/pair?',
+    );
+    expect(`https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}`).toBe('https://flowmic.app/go/pair');
+
+    expect(buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234' })).toBe(
+      `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=ws%3A%2F%2F192.168.1.5%3A41879&code=1234&channel=standalone&v=1`,
+    );
+    expect(buildHttpsQrPayload({ endpoint: 'https://flowmic.app', code: '0007', channel: 'saas' })).toBe(
+      `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=wss%3A%2F%2Fflowmic.app&code=0007&channel=saas&v=1`,
+    );
+  });
+
+  it('carries the EXACT key set and order: endpoint, code, channel, alt, fp, pcid, v', () => {
+    const payload = buildHttpsQrPayload({
+      endpoint: 'http://10.0.0.78:41879',
+      code: '4821',
+      channel: 'standalone',
+      candidates: ['10.0.0.78', '100.64.7.78'],
+      fingerprint: 'abcDEF012345678901234567', // 24-char SPKI-sha256 shape, isQrSafeValue-clean
+      pcid: '302914775',
+    });
+    const url = new URL(payload);
+    expect(Array.from(url.searchParams.keys())).toEqual([
+      'endpoint',
+      'code',
+      'channel',
+      'alt',
+      'fp',
+      'pcid',
+      'v',
+    ]);
+    expect(url.searchParams.get('v')).toBe('1');
+  });
+
+  it('omitting fingerprint/pcid omits those keys entirely (not empty-valued)', () => {
+    const payload = buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234' });
+    const url = new URL(payload);
+    expect(Array.from(url.searchParams.keys())).toEqual(['endpoint', 'code', 'channel', 'v']);
+    expect(url.searchParams.has('fp')).toBe(false);
+    expect(url.searchParams.has('pcid')).toBe(false);
+  });
+
+  it('REVERSE CONTROL: `code=` must still be the FIRST /code=(\\d{4})/ match ahead of `pcid=`', () => {
+    // Structural, not statistical (same reasoning as pairing-pcid.test.ts): the
+    // server pulls the pairing code out of a scanned link with the FIRST
+    // `/code=(\d{4})/` match, so nothing shaped like a 4-digit run may sit
+    // ahead of `code=`, and `pcid=` (nine digits) must stay behind it.
+    const PCID = '412300009'; // contains a 4-digit run ('4123') on purpose
+    const payload = buildHttpsQrPayload({
+      endpoint: 'https://flowmic.app',
+      code: '9007',
+      channel: 'saas',
+      pcid: PCID,
+    });
+    expect(/code=(\d{4})/.exec(payload)?.[1]).toBe('9007');
+    expect(payload.indexOf('&pcid=')).toBeGreaterThan(payload.indexOf('&code='));
+    expect(payload.includes('&v=1')).toBe(true);
+  });
+});
+
+// -- M-2 (web client stage 1, design 2026-09-08-web-client-mic-ui-design.md 5)
+// -- the https link carries the DESKTOP's UI language, so a phone with no app
+// installed lands on the web mic client already in that language. The page's
+// parse order is: path segment > `?lang=` > browser language, so this key only
+// ever decides a FIRST arrival at `/go/pair`; once the page rewrites itself to
+// `/go/<seg>/...` the segment wins and this value is out of the picture. ------
+
+describe('pairLinkLang (M-2)', () => {
+  it('spells a registry tag the way the web client spells it in a URL', () => {
+    expect(pairLinkLang('zh-CN')).toBe('zh-cn');
+    expect(pairLinkLang('zh-TW')).toBe('zh-tw');
+    expect(pairLinkLang('ja')).toBe('ja');
+    // English is `en`, NOT the empty string: its URL PATH form is no segment at
+    // all (`/go/`), but a `lang=` with nothing in it cannot be told apart from a
+    // desktop too old to send one.
+    expect(pairLinkLang('en')).toBe('en');
+  });
+
+  it('every shipped locale is carried, and the whole registry is covered', () => {
+    // Reads the SAME list every language menu iterates, so a tenth locale is
+    // carried the day it is added -- and this assertion is what makes that claim
+    // checkable instead of remembered.
+    for (const tag of UI_LOCALES) {
+      expect(pairLinkLang(tag), tag).toBe(tag.toLowerCase());
+    }
+    expect(UI_LOCALES.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it('an unknown / blank / already-lowercased tag emits NOTHING rather than a guess', () => {
+    // The negative half of the same fact: the page's third fallback (browser
+    // language) is a real answer for a first arrival, and a `lang=` it cannot
+    // resolve is not. `zh-cn` is refused HERE (it is not a registry tag) even
+    // though it is exactly what gets EMITTED -- the translation has one
+    // direction and one author.
+    expect(pairLinkLang('zh-cn')).toBeNull();
+    expect(pairLinkLang('en-US')).toBeNull();
+    expect(pairLinkLang('pt')).toBeNull();
+    expect(pairLinkLang('')).toBeNull();
+    expect(pairLinkLang('   ')).toBeNull();
+    expect(pairLinkLang(null)).toBeNull();
+    expect(pairLinkLang(undefined)).toBeNull();
+  });
+});
+
+describe('buildHttpsQrPayload + lang= (M-2)', () => {
+  it('appends &lang=<lowercase tag> for two different desktop languages', () => {
+    expect(
+      buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234', lang: 'zh-CN' }),
+    ).toBe(
+      `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=ws%3A%2F%2F192.168.1.5%3A41879` +
+        `&code=1234&channel=standalone&lang=zh-cn&v=1`,
+    );
+    expect(
+      buildHttpsQrPayload({ endpoint: 'https://flowmic.app', code: '0007', channel: 'saas', lang: 'en' }),
+    ).toBe(
+      `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=wss%3A%2F%2Fflowmic.app` +
+        `&code=0007&channel=saas&lang=en&v=1`,
+    );
+  });
+
+  it('sits behind every other key and still AHEAD of v=1', () => {
+    const payload = buildHttpsQrPayload({
+      endpoint: 'http://10.0.0.78:41879',
+      code: '4821',
+      channel: 'standalone',
+      candidates: ['10.0.0.78', '100.64.7.78'],
+      fingerprint: 'abcDEF012345678901234567',
+      lang: 'de',
+    });
+    const url = new URL(payload);
+    expect(Array.from(url.searchParams.keys())).toEqual([
+      'endpoint',
+      'code',
+      'channel',
+      'alt',
+      'fp',
+      'lang',
+      'v',
+    ]);
+    // `v` says which shape the keys before it are in; a marker that new keys are
+    // appended after would describe a payload that ends before it.
+    expect(payload.endsWith('&v=1')).toBe(true);
+  });
+
+  it('no lang / unknown lang leaves the payload BYTE-IDENTICAL to the pre-M-2 one', () => {
+    const base = buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234' });
+    expect(base).toBe(
+      `https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}?endpoint=ws%3A%2F%2F192.168.1.5%3A41879&code=1234&channel=standalone&v=1`,
+    );
+    expect(buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234', lang: 'pt-BR' })).toBe(base);
+    expect(buildHttpsQrPayload({ endpoint: 'http://192.168.1.5:41879', code: '1234', lang: null })).toBe(base);
+  });
+
+  it('the legacy flowmic:// payload does NOT grow a lang= (different reader)', () => {
+    // The `flowmic://` code can only ever reach the INSTALLED app, which owns
+    // its own UI language. Only the https link can land on the web page that
+    // takes its language from the URL.
+    const info: PairingInfo = {
+      short_code: '1234',
+      endpoint: 'http://192.168.1.5:41879',
+      pc_name: 'PC',
+      connected: true,
+      mobiles: 0,
+    };
+    const v = derivePairingModal(info, 'standalone', 'zh-CN');
+    expect(v.qrPayload).toBe('flowmic://pair?endpoint=ws://192.168.1.5:41879&code=1234&channel=standalone');
+    expect(v.qrPayloadHttps).toContain('&lang=zh-cn');
+  });
+
+  it('derivePairingModal without a locale emits no lang= (the core stays test-callable)', () => {
+    const info: PairingInfo = {
+      short_code: '1234',
+      endpoint: 'http://192.168.1.5:41879',
+      pc_name: 'PC',
+      connected: true,
+      mobiles: 0,
+    };
+    expect(derivePairingModal(info, 'standalone').qrPayloadHttps).not.toContain('lang=');
+  });
+
+  it('MOBILE EXPECTATIONS: a link carrying lang= still parses the way PairEntry.parse reads it', () => {
+    // What the phone does with this link is spelled out in
+    // apps/mobile/lib/src/signaling/wire_payloads.dart (`PairEntry.parse`) and
+    // pinned there by apps/mobile/test/incoming_pair_link_test.dart. Restated
+    // here on the PRODUCING side because the two halves ship in different
+    // languages and neither compiler can see the other:
+    //   1. prefix match  - `input.startsWith(kPairLinkPrefixHttps)`
+    //   2. `Uri.parse` + `queryParameters['endpoint' | 'code' | 'fp']`
+    //      (a MAP -- an extra key it has never heard of is simply not read)
+    //   3. a 4-digit test on `code`
+    // and the RELAY pulls the code out of the forwarded payload with the FIRST
+    // `/code=(\d{4})/` match (`Registry.resolvePcForPair`).
+    const payload = buildHttpsQrPayload({
+      endpoint: 'http://10.0.0.78:41879',
+      code: '4821',
+      channel: 'standalone',
+      pcid: null,
+      lang: 'ru',
+    });
+    expect(payload.startsWith(`https://${PAIR_HTTPS_HOST}${PAIR_HTTPS_PATH}`)).toBe(true);
+    const url = new URL(payload);
+    expect(url.searchParams.get('endpoint')).toBe('ws://10.0.0.78:41879');
+    expect(url.searchParams.get('code')).toBe('4821');
+    expect(/^\d{4}$/.test(url.searchParams.get('code') ?? '')).toBe(true);
+    expect(url.searchParams.has('fp')).toBe(false);
+    expect(/code=(\d{4})/.exec(payload)?.[1]).toBe('4821');
+    // No registry tag contains a digit, so `lang=` could not be mistaken for a
+    // code even in front of it -- it sits behind `code=` anyway, because that
+    // rule is structural and not statistical.
+    expect(payload.indexOf('&lang=')).toBeGreaterThan(payload.indexOf('&code='));
+    expect(/\d/.test(url.searchParams.get('lang') ?? '')).toBe(false);
   });
 });
 

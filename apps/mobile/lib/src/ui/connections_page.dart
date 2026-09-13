@@ -28,6 +28,13 @@ import 'package:flutter/material.dart';
 import '../auth/login_controller.dart';
 import '../auth/token_storage.dart';
 import '../destination/destination_controller.dart';
+import '../link/incoming_link.dart';
+import '../link/pair_link_router.dart';
+// `continuousStillCapturing` is an extension declared in a PART of this
+// library (ptt_continuous.dart), and an extension is in scope only where its
+// defining library is imported — the type arriving through another import is
+// not enough.
+import '../ptt/ptt_session.dart';
 import '../session/cloud_readmit.dart' show kCloudChannel;
 import '../session/connections_controller.dart';
 // W8-1 — read the candidate report through the decoder that lives next to its
@@ -42,6 +49,7 @@ import '../session/liveness_hold.dart';
 import '../session/pc_presence.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
+import '../signaling/state_machine.dart' show SessionState;
 import 'add_pairing_sheet.dart';
 import 'cloud_signout_row.dart';
 import 'confirm_dialog.dart';
@@ -49,6 +57,7 @@ import 'connection_card_identity.dart';
 import 'data_flow_disclosure_entry.dart';
 import 'guide/instance_guide_sheet.dart';
 import 'login_sheet.dart';
+import 'quota_rules_entry.dart';
 import 'rename_alias_dialog.dart';
 import 'tokens.dart';
 
@@ -62,6 +71,11 @@ part 'connections_row_faces.dart';
 // REQ-12-10 — pairing / cloud-entry card chrome + identity lane (same split
 // shape as row_faces; triggered by the same 800-line gate before adding chrome).
 part 'connections_row_cards.dart';
+// Same gate, same shape: delete-a-row / rename-its-alias moved out whole so
+// card APPLINK-2's wiring below would fit.
+part 'connections_row_maintenance.dart';
+// Card APPLINK-2 — what happens when the OS hands this app a pairing URL.
+part 'connections_pair_link.dart';
 
 class ConnectionsPage extends StatefulWidget {
   const ConnectionsPage({
@@ -76,7 +90,15 @@ class ConnectionsPage extends StatefulWidget {
     required this.updateListenable,
     required this.hasUpdate,
     this.onDeliberateEntry,
+    this.incomingLinks,
   });
+
+  /// Card APPLINK-2 — the incoming-OS-link seam. Null (production) builds the
+  /// REAL app_links source, never a granted-by-default double; tests inject a
+  /// fake so they can deliver a link both ways (already running / launched by
+  /// it). Same idiom, and the same reason, as `cameraPermission` on the
+  /// add-pairing sheet.
+  final IncomingLinks? incomingLinks;
 
   final ConnectionsController connections;
   /// Card PAIR-SUCCESS (owner 2026-08-25; narrowed 2026-08-26): fired from
@@ -162,9 +184,15 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   /// exactly one line should change.
   Timer? _presencePoll;
 
+  /// Card APPLINK-2 — the listener for an incoming pairing URL, and the slot
+  /// that holds one back when this is not a moment to pair. Built here because
+  /// this page owns the pairing funnel; see connections_pair_link.dart.
+  PairLinkRouter? _pairLinks;
+
   @override
   void initState() {
     super.initState();
+    _pairLinks = _attachPairLinkRouterRouted(this);
     unawaited(_refresh());
     _presencePoll = Timer.periodic(
       kInstanceListPresencePollInterval,
@@ -191,6 +219,10 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     // tick); a leaked timer here would be the third instance of one shape.
     _presencePoll?.cancel();
     _presencePoll = null;
+    // Same reason as the timer above: a live subscription behind a page nobody
+    // is watching would keep answering links this page can no longer act on.
+    _pairLinks?.dispose();
+    _pairLinks = null;
     super.dispose();
   }
 
@@ -245,6 +277,11 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     // Returned from chat (user back / disconnect): refresh the list resting state
     // AND re-probe — the PC we just left is the one whose state matters most.
     if (mounted) await _refresh();
+    // Card APPLINK-2 — the instance list is the current route again, and any
+    // capture that was open is over. A pairing link held while the chat page
+    // was up is acted on HERE, after leaveRoom() and the reload, so it never
+    // dials into a teardown that is still running.
+    if (mounted) _retryHeldPairLinkRouted(this);
   }
 
   /// 🔴 P0 (owner, 2026-09-02, iPhone on 0.3.55) — TAPPING 轻记录 SAID 「登录失效，
@@ -448,37 +485,6 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// Swipe-to-delete a remembered PC.
-  ///
-  /// v0.2.4 — the controller has told us since v0.2.3 whether the server was
-  /// actually reached (`mobile:unpair`), and NOTHING rendered it. The local
-  /// entry always goes (the user asked for it, and an unreachable PC has to be
-  /// cleanable), but when the server could not be told, that PC's device page
-  /// still lists this phone — and 「没做成的事不许说成做成了」("a thing that
-  /// wasn't done must not be said as done") applies to a
-  /// deletion exactly as it does to a delivery. So say it.
-  Future<void> _remove(MobileSession p) async {
-    await widget.connections.remove(p);
-    if (!mounted || widget.connections.lastRemoveReachedServer) return;
-    _toast(AppStrings.of(widget.appSettings.locale).removeDidNotReachServer);
-  }
-
-  /// Long-press a remembered PC → rename its local display alias. Blank input
-  /// (or 「恢复默认」("restore default")) clears the alias — storage already
-  /// treats null/blank as clear.
-  Future<void> _renameAlias(MobileSession pairing) async {
-    final AppStrings s = AppStrings.of(widget.appSettings.locale);
-    final String prefill = pairing.displayAlias?.isNotEmpty == true
-        ? pairing.displayAlias!
-        : pairingDisplayName(pairing, fallback: 'PC');
-    final String? result = await showDialog<String>(
-      context: context,
-      builder: (BuildContext ctx) => RenameAliasDialog(strings: s, initial: prefill),
-    );
-    if (result == null || !mounted) return;
-    await widget.connections.setAlias(pairing, result);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -533,9 +539,12 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         // right corner today IS the ⚙, and the ruling placed the entry here.
         InkWell(
           key: const ValueKey<String>('connections.history'),
+          // Card APPLINK-2 — the same return edge `_enterChat`'s tail carries,
+          // on the two pushes that have no tail of their own: a pairing link
+          // held while this route was on top is acted on when it closes.
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute<void>(builder: (_) => widget.historyPageBuilder()),
-          ),
+          ).whenComplete(() => _retryHeldPairLinkRouted(this)),
           borderRadius: BorderRadius.circular(10),
           child: Tooltip(
             message: s.historyTitle,
@@ -553,7 +562,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           key: const ValueKey<String>('connections.settings'),
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute<void>(builder: (_) => widget.settingsPageBuilder()),
-          ),
+          ).whenComplete(() => _retryHeldPairLinkRouted(this)),
           borderRadius: BorderRadius.circular(10),
           // The update dot — same 7×7, same color, same zero-width overlay as
           // the chat header's (chat_header.dart), keyed apart so a test can
@@ -644,10 +653,11 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
               style: TextStyle(color: FlowMicColors.t3, fontSize: 11.5),
             ),
           ),
-          // 0.3.0 P1 — 「where do my words go」, reachable from the FIRST screen a
-          // new install shows: before any pairing exists, and therefore before
-          // the user has said a word. Row + rationale: data_flow_disclosure_entry.dart.
+          // The two standing answers this screen owes a reader, on the FIRST
+          // screen a new install shows — before any pairing exists, and so
+          // before a word is said. Rows + rationale in each row's own file.
           const SizedBox(height: 18),
+          QuotaRulesEntry(appSettings: widget.appSettings),
           DataFlowDisclosureEntry(appSettings: widget.appSettings),
         ],
       ),
