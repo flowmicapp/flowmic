@@ -77,12 +77,33 @@ const matchesOf = (patterns) => {
 
 for (const rule of RULES) {
   const hits = matchesOf(rule.patterns);
+  if (hits.length === 0 && rule.patterns.every((pattern) => {
+    const top = pattern.split('/')[0];
+    return top !== '**' && !tracked.some((p) => p.split('/')[0] === top);
+  })) {
+    console.log(`  SKIP rule \`${rule.id}\`: every directory it names is absent from this checkout`);
+    continue;
+  }
   check(hits.length > 0, `rule \`${rule.id}\` (${rule.patterns.join(' ')}) matches a tracked path`);
 }
 // Each PATTERN, not just each rule: a rule with five patterns can go on passing
 // on the strength of one while the other four point at renamed directories.
+// A pattern can also point at a whole directory this CHECKOUT does not carry.
+// The exported public tree has no `docs/`, so `docs/**` matches nothing there
+// and the assertion above fails for a reason that has nothing to do with the
+// table (measured on the public runner at 0.3.85 — RELEASE-IRONRULES 1-13: a
+// test that assumes something only the private tree has). "The directory is
+// absent here" and "the pattern rotted" are different answers, so the absent
+// case says so by name instead of borrowing the other one's red.
+const topLevelOf = (pattern) => pattern.split('/')[0];
+const presentTops = new Set(tracked.map((p) => p.split('/')[0]));
 for (const rule of RULES) {
   for (const pattern of rule.patterns) {
+    const top = topLevelOf(pattern);
+    if (top !== '**' && !presentTops.has(top)) {
+      console.log(`  SKIP pattern \`${pattern}\` (rule ${rule.id}): this checkout tracks nothing under \`${top}/\``);
+      continue;
+    }
     check(matchesOf([pattern]).length > 0, `pattern \`${pattern}\` (rule ${rule.id}) matches a tracked path`);
   }
 }

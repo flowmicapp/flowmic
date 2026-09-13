@@ -50,11 +50,37 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { PUBLIC_RELEASE_BASE } from './update-manifest-lib.mjs';
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SUBJECT = 'publish-github-release.mjs';
-const REPO = 'flowmicapp/flowmic';
+// Derived, never spelled: the exported public tree rewrites
+// PUBLIC_RELEASE_BASE to a placeholder host, so a hard-coded
+// `flowmicapp/flowmic` here makes `--repo` disagree with the fixed URL and
+// every HEAD assertion below lands on the skip branch instead — which is
+// what the public runner measured at 0.3.85. The drill's subject is the
+// agreement between the two, so it must read the same source the product
+// reads (RELEASE-IRONRULES 1-13).
+const REPO = new URL(PUBLIC_RELEASE_BASE).pathname.replace(/^\/+/, '').replace(/\/releases$/, '');
 const FIXED_NAME = 'flowmic-release-latest.apk';
-const FIXED_URL = `https://github.com/${REPO}/releases/latest/download/${FIXED_NAME}`;
+const FIXED_URL = `${PUBLIC_RELEASE_BASE}/latest/download/${FIXED_NAME}`;
+
+// The whole subject of this drill is one agreement: that the address the
+// product promises (`latestApkDownloadUrl()`, built on PUBLIC_RELEASE_BASE) is
+// the same address `--repo` composes (`https://github.com/<repo>/releases`).
+// The exported public tree rewrites PUBLIC_RELEASE_BASE to a placeholder host
+// that is not on github.com at all, so on that tree the two can never agree and
+// every case below lands on the publisher's skip branch. Measured on the public
+// runner at 0.3.85: 27 failures, none of them about the code under test.
+// «这棵树上量不到» and «它坏了» are different answers -- this says the first one
+// by name, and says which tree (RELEASE-IRONRULES 1-13).
+const GITHUB_REPO_BASE = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases$/;
+if (!GITHUB_REPO_BASE.test(PUBLIC_RELEASE_BASE)) {
+  console.log(`SKIP ${SUBJECT} latest-APK drill: this checkout's PUBLIC_RELEASE_BASE is`);
+  console.log(`  ${PUBLIC_RELEASE_BASE}, not a https://github.com/<owner>/<repo>/releases URL.`);
+  console.log('  The agreement this drill measures (fixed URL vs. --repo) cannot exist here.');
+  process.exit(0);
+}
 
 let failures = 0;
 const section = (t) => console.log(`\n=== ${t} ===`);

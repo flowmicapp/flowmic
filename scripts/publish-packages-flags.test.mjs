@@ -109,6 +109,11 @@ section('§5 version agreement');
   // A minimal tree: the script only reads package.json manifests before the
   // plan is printed, so this is enough to drive the refusal without copying a
   // build or a git history.
+  // `.local/` is gitignored, so a fresh checkout (the public tree's CI runner,
+  // for one) does not have it and mkdtemp dies with ENOENT before a single
+  // assertion runs. It stays under ROOT on purpose — the owner's 2026-08-18
+  // ruling keeps working trees off the system volume.
+  mkdirSync(join(ROOT, '.local'), { recursive: true });
   const tmp = mkdtempSync(join(ROOT, '.local', 'publish-drill-'));
   try {
     mkdirSync(join(tmp, 'scripts'), { recursive: true });

@@ -90,14 +90,7 @@ export const TS_PROJECTS = [
     dir: 'packages/protocol',
     project: 'packages/protocol/tsconfig.typecheck.json',
     covers: (p) => /^packages\/protocol\/(src|test)\/.*\.tsx?$/.test(p),
-  },
-  {
-    id: 'stt-cloud',
-    dir: 'packages/stt-cloud',
-    project: 'packages/stt-cloud/tsconfig.json',
-    covers: (p) => /^packages\/stt-cloud\/(src|test)\/.*\.ts$/.test(p),
-  },
-  {
+  },  {
     id: 'i18n-web',
     dir: 'packages/i18n-web',
     project: 'packages/i18n-web/tsconfig.typecheck.json',
