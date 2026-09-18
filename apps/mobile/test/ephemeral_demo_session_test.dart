@@ -21,7 +21,6 @@
 //     and the flag is down.
 
 import 'package:flowmic/src/auth/token_storage.dart';
-import 'package:flowmic/src/ptt/pair_result.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/instance_probe.dart' show HealthReading;
 import 'package:flowmic/src/signaling/socket_core.dart' show SocketStatus;

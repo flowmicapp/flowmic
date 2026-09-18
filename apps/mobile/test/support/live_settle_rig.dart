@@ -185,7 +185,7 @@ class EchoTransport extends FakeSocketTransport {
   /// `live_settle_pending_recovery_test.dart` went red 19 times in 20 runs,
   /// every one of them
   ///     Expected: not null
-  ///       Actual: <null>
+  ///       Actual: `<null>`
   /// at 「the press really is inside the settle window」 — i.e. the final had
   /// already landed and the settle had already cleared the stamp the case was
   /// about to assert. 0 red in 20 runs on a quiet machine. Two hardcoded time
