@@ -175,10 +175,12 @@ section('§4 publish.mjs actually calls it, before staging, with no bypass');
   // fourth gate arriving is meant to land here as a visible edit rather than
   // slipping past a loose match. Conjuncts so far, each its own card:
   // version (UP-7's neighbour) + feature (UP-7) + disclosure copy (W8-6) +
-  // target API level (the 2026-08-19 store card, scripts/apk-target-sdk-gate.test.mjs).
+  // target API level (the 2026-08-19 store card, scripts/apk-target-sdk-gate.test.mjs)
+  // + build sha (SC-5, GATE 0f — scripts/build-stamp-artifact-sha-gate.test.mjs;
+  // it arrived as this visible edit, which is what the pin is for).
   assertTrue(
-    /if \(versionOk && featureOk && disclosureOk && targetOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
-    'staging is gated on version + feature + disclosure-copy + target-SDK'
+    /if \(versionOk && featureOk && disclosureOk && targetOk && shaOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
+    'staging is gated on version + feature + disclosure-copy + target-SDK + build sha'
   );
   // Not short-circuited: both questions get answered in one run.
   const callIdx = PUBLISH_SRC.indexOf('const featureOk = verifyApkCarriesSelfUpdate(apk, fail, ok)');

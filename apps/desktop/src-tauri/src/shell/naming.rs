@@ -10,7 +10,7 @@ use std::path::Path;
 use tauri::State;
 use crate::socket::blocking::run_blocking;
 
-use super::SocketState;
+use super::{with_socket_handle, SocketState};
 use crate::socket::Credentials;
 
 /// Persist the machine name into a channel's credentials file even when that
@@ -83,15 +83,11 @@ pub fn pc_rename(state: State<'_, SocketState>, name: String) -> bool {
         let mut succeeded = 0usize;
         for channel in channels {
             let path = crate::socket::channel::credentials_path(channel);
-            let outcome = {
-                let guard = match state.lock() {
-                    Ok(g) => g,
-                    Err(p) => p.into_inner(),
-                };
-                guard
-                    .slot(channel)
-                    .map(|s| s.rename_pc(&clean, &path, std::time::Duration::from_secs(5)))
-            };
+            // NR-48 — clone the send handle out of the lock, then wait OUTSIDE it
+            // (`with_socket_handle` drops the guard before the ack wait).
+            let outcome = with_socket_handle(&state, Some(channel), |handles| {
+                handles.map(|h| h.rename_pc(&clean, &path, std::time::Duration::from_secs(5)))
+            });
             match outcome {
                 Some(ok) => {
                     attempted += 1;

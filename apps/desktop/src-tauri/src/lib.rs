@@ -10,6 +10,10 @@
 /// owner of that question; before it, three call sites each answered it privately
 /// and macOS got `$TMPDIR` from all three (which the OS prunes).
 pub mod app_dirs;
+/// SC-5 — the commit this exe was built from, compiled in by build.rs. Read by
+/// the startup forensic line and, without running the exe, by
+/// scripts/publish.mjs GATE 0f scanning these bytes.
+pub mod build_stamp;
 pub mod caret;
 /// Browser sign-in with a loopback callback (owner 2026-08-27, the UAT
 /// correction block). DELIBERATELY OUTSIDE `shell` and therefore outside the
@@ -302,6 +306,14 @@ pub fn run() {
     // worker-thread panic can never again vanish (the frontend has full error
     // boundaries; until this line the Rust side had nothing). The ONE call site.
     forensic::install_panic_hook();
+    // SC-5 — the FIRST line of every log this process writes says which build it
+    // is: the version AND the commit it was built from. The version alone could
+    // never separate two builds of the SAME version made from different commits,
+    // which is the case a support round actually has to tell apart (「装的是哪
+    // 一版」 has a version answer; 「这份字节是哪个提交出的」 did not have one at
+    // all until this line). Recorded after the sink and the panic hook are up so
+    // a crash in the next microsecond still lands under an identified build.
+    forensic::record("startup", &build_stamp::startup_line());
     // U6 — adopt the persisted UI locale before any UI surface (tray menu, a
     // pre-WebView exit dialog) is built. Reads the file `ui_locale_set` mirrors
     // the frontend's choice into; missing/garbage → the zh-CN product default.

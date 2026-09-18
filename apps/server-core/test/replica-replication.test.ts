@@ -127,13 +127,20 @@ describe('replication: the writer snapshot lands in the live replica', () => {
       replica.prepare('INSERT INTO users (id, name) VALUES (?, ?)').run('keep', 'Existing');
       const puller = makeReplicaPuller({
         db: replica,
-        // A snapshot whose shape this build cannot accept: an extra column makes
-        // `INSERT INTO main.users SELECT * FROM snap.users` fail mid-transaction,
-        // which is exactly the rolling-deploy case (writer ahead of replica).
+        // 🔴 IN-PLACE CORRECTION (NR-22, 2026-09-14). This fixture used to be a
+        // writer with one EXTRA column, described here as 「exactly the
+        // rolling-deploy case」. That sentence was true and the test was wrong
+        // to want it: the rolling-deploy case is the one that must now SURVIVE
+        // (see test/replica-column-projection.test.ts), so pinning it as the
+        // canonical failure was pinning the defect as the acceptance criteria.
+        // What this test is actually for — a rejected pull leaves the replica
+        // EXACTLY as it was — needs a shape that genuinely cannot be applied, so
+        // it now uses a writer with no `id` column at all: the projection cannot
+        // fill this build's primary key, and NR-22-REFUSAL-RULE 2(b) refuses.
         fetchSnapshot: async () => {
-          const other = new DatabaseSync(join(dir, 'ahead.db'));
-          other.exec('CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, email TEXT)');
-          other.prepare('INSERT INTO users VALUES (?, ?, ?)').run('u9', 'New', 'a@b.c');
+          const other = new DatabaseSync(join(dir, 'headless.db'));
+          other.exec('CREATE TABLE users (name TEXT, email TEXT)');
+          other.prepare('INSERT INTO users VALUES (?, ?)').run('New', 'a@b.c');
           const produce = makeSnapshotProducer(other);
           const bytes = await produce();
           other.close();
@@ -143,7 +150,7 @@ describe('replication: the writer snapshot lands in the live replica', () => {
         stagePath: join(dir, 'stage.db'),
         setIntervalFn: () => null,
       });
-      await expect(puller.pull()).rejects.toThrow();
+      await expect(puller.pull()).rejects.toThrow(/REFUSED \(NR-22\)/);
       expect(replica.prepare('SELECT id FROM users').all()).toEqual([{ id: 'keep' }]);
       expect(puller.lastAppliedAt()).toBeNull();
       // And the next pull must still work — a failed import that left the

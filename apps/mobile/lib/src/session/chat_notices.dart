@@ -238,6 +238,22 @@ void discardBufferedRowsRouted(ChatController c) {
 void onPcPresenceChangedRouted(ChatController c) {
   if (c.session.pcPresence.value == PcPresence.online) return;
   c.destination.clearFocus();
+  // owner 2026-09-17 — an EPHEMERAL (site-demo) session has no 「wait for the
+  // PC to come back」: the far end is a browser tab, and the tab closing is
+  // the session ending (design §3-②). `offline` is the ONLY trigger — it is
+  // the one reading that says the target itself is gone (presence poll or an
+  // `inject:result` from the relay), whereas `unknown` is 「could not ask」
+  // and would eject on a network blip. Handled by the SAME give-up the
+  // socket-loss path uses, so the page has one exit latch and one sentence
+  // (chat_flow_exits.dart swaps the sentence when `ephemeralSession` is set).
+  // No ladder to stop: pair() never started one for this session.
+  if (c.session.ephemeralSession.value &&
+      c.session.pcPresence.value == PcPresence.offline &&
+      !c.sessionLost) {
+    diag('link.giveup.ephemeral_peer_gone', const <String, Object?>{});
+    _giveUpOnLink(c);
+    return;
+  }
   c.notifyUi();
 }
 

@@ -50,6 +50,54 @@
 // (pc.handler.ts states the no-oracle rule), so deleting on the strength of it
 // would be inferring a deletion from an absence. With the confirmed half applied
 // the second press no longer happens, and the stale row still dies at the pull.
+//
+// ── 🔴 THE PARAGRAPH ABOVE IS KEPT VERBATIM AND ITS LAST SENTENCE IS FALSE
+//    (card RL-4, owner report 2026-09-13, measured on the same journal) ──────
+//
+// 「the second press no longer happens」 was a PREDICTION, and srvjp answered it
+// three days later, with the 09-10 fix deployed (relay 0.3.83, both nodes):
+//
+//   11:08:09.121 pc:release-mobile (forwarded) {revoke:true, targets:1, revoked:1}
+//   11:08:11.144 pc:release-mobile (forwarded) {revoke:true, targets:1, revoked:1}
+//   11:08:15.610 pc:release-mobile (forwarded) {revoke:true, targets:0, revoked:0}  ← 🔴
+//   11:09:07.372 pc:release-mobile (forwarded) {revoke:true, targets:1, revoked:1}
+//
+// owner:「有时候可以，有时候不行」("sometimes it works, sometimes it doesn't"),
+// desktop banner 「操作未生效（未连接或服务端拒绝），请重试」— which is
+// `dev_release_failed`, i.e. `parse_release_mobile_ack` reading `revoked: 0`.
+//
+// The 09-10 fix closed exactly one route to `targets: 0` — THIS desktop's own
+// previous press — and there are others, because the deletion does not have to
+// come from this node at all:
+//   · a web client calls `mobile:unpair` ON THE WRITER. Measured: every
+//     `pair.node_hint {pairing_id, home_node:"srvasia02", paired_on:"srvny"}`
+//     on srvny (16 of them, 2026-09-01…09-13T07:21) is a phone or browser whose
+//     PC lives on the replica. Web rows are BORN on the writer and reach this
+//     node only through the 30-second pull — and they DIE there the same way;
+//   · a revoke issued from another session that is attached to the writer;
+//   · reaper.ts.
+// In every one of those the user's FIRST press lands on a row this snapshot is
+// still serving and the writer no longer has. Snapshot divergence is not
+// hypothetical either: read read-only the same day, srvjp held 32
+// `mobile_pairings` rows and srvny 31.
+//
+// ── SO WHY IS IT NOW SAFE TO DROP ON `targets: 0` ──────────────────────────
+//
+// Because the sentence 「carries no existence claim」 is true of an arbitrary
+// node and false of THE WRITER. A replica's `mobile_pairings` is not a second
+// opinion; it is a COPY that the next pull replaces wholesale from that exact
+// table. 「the writer owns no such pairing for this PC」 is therefore not an
+// absence we are reasoning from — it is the verdict the pull will apply in at
+// most thirty seconds, applied early. That is the same argument
+// `applyTokenResolution` (node/token-rows.ts) makes in the opposite direction,
+// and the pull remains the authority in both.
+//
+// 🔴 AND IT IS SCOPED TO THE FORWARDED PATH ON PURPOSE. A single-node server
+// answering `targets: 0` IS the no-oracle case: there the list the user read and
+// the table being revoked are the same table, so `targets: 0` means「you are
+// asking the wrong server about a row it never had」— owner 2026-07-29
+//「提示成功，但仍然还在」, the defect v0.2.7's `channel` argument and the
+// desktop's `revoked >= 1` rule exist to catch. Nothing here changes that path.
 
 import type { Registry } from '../room/registry';
 
@@ -74,6 +122,29 @@ export function dropRevokedPairingsOnReplica(
     if (registry.revokeMobile(pcDeviceId, id)) dropped++;
   }
   return dropped;
+}
+
+/** RL-4 — the writer named NO targets for a revoke that DID name a pairing id:
+ *  the authoritative table has no such pairing for this PC, so the deletion the
+ *  user pressed for is already true there and this snapshot is the only thing
+ *  still saying otherwise. Drop that copy so the desktop's reload
+ *  (`pc:list-mobiles`, answered from THIS node) stops serving it back.
+ *
+ *  Ownership-scoped through `revokeMobile` for the same reason as
+ *  `dropRevokedPairingsOnReplica`: if this stale snapshot files the row under a
+ *  DIFFERENT PC, leave it to the pull rather than let one PC delete another's.
+ *
+ *  🔴 The return value is NOT the answer the ack needs, and conflating the two
+ *  would be this repo's #1 shape. It says「did I drop a local row」; the ack's
+ *  `absent` says「does the AUTHORITY still have it」. `false` here is routine —
+ *  the row may already be gone from this node too — and the pairing is absent on
+ *  the writer either way. */
+export function dropAbsentPairingOnReplica(
+  registry: Registry,
+  pcDeviceId: string,
+  pairingId: string,
+): boolean {
+  return registry.revokeMobile(pcDeviceId, pairingId);
 }
 
 /** v0.2.3 `mobile:unpair`, forwarded: the phone retired its OWN pairing on the

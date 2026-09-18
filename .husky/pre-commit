@@ -12,8 +12,7 @@
 # MAIN 2026-09-13). So a change to apps/server-core/src/compose/output-guard.ts
 # still meets its resident gate (scripts/w2-eval-corpus.test.mjs:147) at T1,
 # just not at T0.
-pnpm verify:lint
-
+#
 # Types: incremental, and only the packages this commit touches. Replaces
 # `pnpm verify:types` (all four packages from cold, measured 23.4 s in
 # docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2).
@@ -52,14 +51,47 @@ pnpm verify:lint
 # startup with coverage — the wrong side of the trade, and the one that is hard
 # to notice later, because the hook would still look fast and still say "ok".
 #
-# OPEN ITEM, NOT BUILT HERE: the honest lever on that 4.4 s is running the whole
-# hook as ONE node process instead of two pnpm launches plus a node. That is
-# worth more than any further slicing of checks, and it removes no coverage.
-# Logged deliberately rather than done, because it changes how every commit in
-# the repo is gated and that is not a side quest of this card.
+# 🔴 SC-10 (2026-09-17/18), BUILT: the honest lever on that 4.4 s WAS running
+# the whole hook as ONE node process instead of two pnpm launches plus a node —
+# the paragraph above used to end "OPEN ITEM, NOT BUILT HERE" and now does not,
+# because verify/precommit-single.mjs is that: it imports verify/lint/run-all.mjs's
+# main() and verify/precommit-types.mjs's main() and awaits them in this one
+# process, fail-fast (lint first; a nonzero result returns immediately without
+# running the type check, matching `sh -e`'s old two-line semantics exactly —
+# see verify/precommit-single.mjs's own header). SAME STAGE SET, SAME
+# skip/pass OUTPUT LINES — only the process count changes: 2 -> 1. It removes
+# no coverage.
+#
+# MEASURED (dev-pc-a, 2026-09-17/18), three real `git commit`s each (a
+# throwaway scratch file, reset away afterwards — not this diff), timed with
+# the shell's own `time` around `git commit`, end to end. This session's box
+# was NOT quiet — other verify runs were in flight on the same machine, so
+# read these against EACH OTHER, not against the 2026-09-13 quiet-box 7835 ms
+# reading above:
+#
+#   two-process (`pnpm verify:lint` then `node verify/precommit-types.mjs`), BEFORE:
+#     docs-only touch    6760ms / 7540ms / 6867ms   → median 6867ms
+#     server-core touch 18077ms / 17278ms / 23911ms → median 18077ms
+#   one process (verify/precommit-single.mjs), AFTER:
+#     docs-only touch    5133ms / 7931ms / 7288ms   → median 7288ms
+#     server-core touch  8930ms / 8996ms / 8488ms   → median 8930ms
+#
+# THE TS-TOUCH CASE IMPROVED CLEARLY: median 18077ms -> 8930ms, roughly halved
+# — this is where both stages' own work (lint AND tsc) previously paid for a
+# SECOND `pnpm`+`node` startup on top of the first, and now do not.
+#
+# 🔴 THE DOCS-ONLY CASE DID NOT MOVE (6867ms -> 7288ms is noise, not a
+# regression) — say so rather than round it into the win. Removing one process
+# launch should save something on this path too, and it may be masked by this
+# box being busier during the AFTER samples than the BEFORE ones (both sets
+# were taken back to back, not interleaved — a confound this reading does not
+# rule out). Neither AFTER median meets the design's ≤7s target for a
+# ts-touch, and this box was under load throughout — a quiet-box re-read,
+# INTERLEAVED before/after rather than blocked, is the next honest step
+# before trusting an absolute number over this session's directional one.
 #
 # desktop vue-tsc stays OUT of this gate: it is the slow one (vue-tsc over the
 # whole SFC graph). It runs in `pnpm verify:lane` (verify:types:desktop) and in
 # both full gates — stated here so the gap is visible rather than assumed
 # covered.
-node verify/precommit-types.mjs
+node verify/precommit-single.mjs

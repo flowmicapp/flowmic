@@ -48,7 +48,17 @@ import { verifyDiskHeadroom } from './publish-disk-space-gate.mjs';
 import { removeAllExcept, verifyAdoptedArtifactsSurvive } from './publish-adopted-artifact-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
 import { readValidReceipt, reuseBanner } from './gate-receipt.mjs';
+import {
+  APK_CONTROL_MARKER,
+  DESKTOP_BUILD_COMMAND,
+  EXE_CONTROL_MARKER,
+  MOBILE_BUILD_COMMAND,
+  resolveGatedSha,
+  verifyArtifactBuildSha,
+} from './build-stamp/artifact-sha-gate.mjs';
 import { portableReadmeText, releaseFolderReadmeText } from './publish-portable-readme.mjs';
+import { FREEZE_FLAG, freezeNotice, freezeRefusal } from './publish-freeze-round.mjs';
+import { DEFERRED_FLAG, deferralRefusal, deferredNotice } from './publish-manifest-deferred.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = join(ROOT, 'apps', 'desktop');
@@ -86,6 +96,30 @@ const mb = (p) => (statSync(p).size / 1024 / 1024).toFixed(1);
 // been built on this machine — it is a flag-combination fact, not a build-state
 // fact.
 const WITH_MANIFEST = process.argv.includes('--with-manifest');
+
+// ── freeze round (owner 2026-09-09) ────────────────────────────────────────
+// Checked HERE, beside the other flag-combination fact, for the same reason:
+// it is a fact about the arguments, not about the build, so the refusal is
+// reachable before a single byte is written. What the flag does — and the
+// three things it deliberately does NOT do — is in publish-freeze-round.mjs.
+const FREEZE_ROUND = process.argv.includes(FREEZE_FLAG);
+{
+  const refusal = freezeRefusal(process.argv.slice(2));
+  if (refusal) { console.error(refusal); process.exit(1); }
+}
+
+// ── manifest deferred (orchestrated round) ─────────────────────────────────
+// Same spot, same reason again: a fact about the arguments and the environment,
+// so the refusal is reachable before a byte is written. This flag does NOT skip
+// ruling ①'s gate — it moves the assertion to the step of the same `pnpm ship`
+// run that can answer it honestly, and it is refused outside such a run. All of
+// the reasoning is in publish-manifest-deferred.mjs.
+const MANIFEST_DEFERRED = process.argv.includes(DEFERRED_FLAG);
+{
+  const refusal = deferralRefusal(process.argv.slice(2));
+  if (refusal) { console.error(refusal); process.exit(1); }
+}
+
 if (WITH_MANIFEST && process.argv.includes('--skip-lan')) {
   console.error(
     '✗ --with-manifest with --skip-lan refused: the manifest would point at artifacts ' +
@@ -279,6 +313,36 @@ for (const marker of ['stt:refined', 'PC_BUSY']) {
 }
 if (failed) process.exit(1);
 
+// ── GATE 0f: the artifacts were built from the commit the gate proved (SC-5) ─
+//
+// The blocks above ask "are these the right bytes for THIS build?" — the right
+// frontend, the pinned runtime, a current sidecar. None of them can answer the
+// question the parallel ship chain creates: WHICH COMMIT are these bytes from?
+// Gate 0 proves a TREE and writes a receipt naming its sha; the builds now run
+// in parallel with that gate, on warm worktrees with a warm `target/`, so "the
+// exe is one commit behind the receipt" is a state that occurs and that looks
+// exactly like a correct round. Risk R1 of the 2026-09-17 ship-chain design.
+//
+// The reference sha and the three-way verdict (ok / unstamped / mismatch, with
+// BLIND decided first off a control marker) live in
+// scripts/build-stamp/artifact-sha-gate.mjs; the stamp itself is put into the
+// exe by apps/desktop/src-tauri/build.rs and into the APK by the
+// `--dart-define` in apps/mobile/Makefile, both fed by ONE rule
+// (scripts/build-stamp/require-clean-sha.mjs).
+//
+// No bypass flag, matching Gate 0's precedent verbatim.
+const gated = resolveGatedSha({ root: ROOT });
+console.log(`\n── build provenance (GATE 0f) — reference: ${gated.source} ──`);
+if (!verifyArtifactBuildSha({
+  label: 'desktop exe',
+  buf: exeBuf,
+  controlMarker: EXE_CONTROL_MARKER,
+  expectedSha: gated.sha,
+  buildCommand: DESKTOP_BUILD_COMMAND,
+  fail,
+  ok,
+})) process.exit(1);
+
 // ── GATE 0d: no UNDECLARED LAN address in the bytes about to ship (OSS-DEFAULTS)
 //
 // The block above asks "are these the RIGHT bytes?". This asks "what is IN
@@ -431,7 +495,20 @@ if (apk) {
   // Its own gate, not a clause in the version check: "right build?" and "did
   // the pin reach the bytes?" are two questions. (File is AT the 800 cap.)
   const targetOk = verifyApkTargetSdk(apk, fail, ok);
-  if (versionOk && featureOk && disclosureOk && targetOk) stage(apk, OUT, `FlowMic-${VERSION}-release.apk`);
+  // GATE 0f's mobile half (SC-5): the same provenance question the exe answered
+  // above. Asked here because this is where the APK bytes are in hand, and on
+  // the same terms — its own gate, its own verdict, no clause folded into
+  // another check.
+  const shaOk = verifyArtifactBuildSha({
+    label: `APK ${apk.split(/[\\/]/).pop()}`,
+    buf: readFileSync(apk),
+    controlMarker: APK_CONTROL_MARKER,
+    expectedSha: gated.sha,
+    buildCommand: MOBILE_BUILD_COMMAND,
+    fail,
+    ok,
+  });
+  if (versionOk && featureOk && disclosureOk && targetOk && shaOk) stage(apk, OUT, `FlowMic-${VERSION}-release.apk`);
 } else {
   console.log('· no APK found — skipped (mobile unchanged this round)');
 }
@@ -627,6 +704,16 @@ if (!process.argv.includes('--skip-lan')) {
     // device line — docs/FLEET.md), so "done" is simply not this script's to
     // declare until the public endpoint says so. The message below names what
     // remains; the gate re-runs standalone until green.
+    // 🔴 The freeze exit replaces the gate; it never makes the gate pass. Same
+    // stopping point, same sentence ("the live manifest was not updated, and
+    // here is what it still points at"), different exit code — because in a
+    // freeze round that state is where the round was always going to end. The
+    // flag is the only thing separating it from a round that forgot.
+    if (FREEZE_ROUND) {
+      console.log(await freezeNotice({ version: VERSION }));
+    } else if (MANIFEST_DEFERRED) {
+      console.log(await deferredNotice({ version: VERSION }));
+    } else {
     console.log('\n── live update-manifest check (ruling ① 2026-08-10 companion gate) ──');
     try {
       execFileSync(process.execPath, [join(ROOT, 'scripts', 'verify-live-update-manifest.mjs')], { stdio: 'inherit' });
@@ -639,9 +726,13 @@ if (!process.argv.includes('--skip-lan')) {
       console.error('    3. node scripts/verify-live-update-manifest.mjs   (re-run this gate until green)');
       process.exit(1);
     }
+    }
   }
 } else {
   console.log('\n· --skip-lan：跳过内网下载中心（本轮产物只在 ./publish，团队拿不到 —— 补发跑 node scripts/publish-download-center.mjs）');
+  if (FREEZE_ROUND) {
+    console.log(`  · ${FREEZE_FLAG} had nothing to do this round: the manifest gate only runs after a download-centre upload, and this run uploaded nothing.`);
+  }
 }
 
 // ./publish is a PRODUCT directory (RV-73). Nothing above launched anything and

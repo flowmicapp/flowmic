@@ -345,6 +345,32 @@ fn a_revoke_that_removed_no_row_is_a_failure_however_ok_the_ack_says() {
     assert!(!parse_release_mobile_ack(&json!({ "ok": false, "revoked": 1 }), true));
 }
 
+/// RL-4 (owner 2026-09-13) — the one frame where `revoked: 0` is NOT a failure.
+/// A replica forwards the revoke to the writer, which answers「this PC owns no
+/// such pairing」because it was deleted there already (a web client unpairing
+/// itself on the writer, another session, the reaper) while this node's
+/// ≤30 s-stale snapshot still listed it. `absent: true` says「the authoritative
+/// table does not have it」— the state the button was pressed to reach. Before
+/// it, the page said「操作未生效…请重试」forever about a pairing already gone,
+/// and retrying could not help, because nothing was failing.
+#[test]
+fn an_absent_pairing_is_a_success_and_only_the_replica_may_say_so() {
+    // The measured frame (srvjp 2026-09-13T11:08:15.610Z → this ack).
+    assert!(parse_release_mobile_ack(&json!({ "ok": true, "revoked": 0, "absent": true }), true));
+    // 🔴 REVERSE CONTROL — v0.2.7's rule is untouched for every server that does
+    // not send the key: a lone relay asked about a row it never had still
+    // answers `{ok:true, revoked:0}`, and that is still a failure. This goes red
+    // if anyone "simplifies" the check down to `ok`.
+    assert!(!parse_release_mobile_ack(&json!({ "ok": true, "released": 0, "revoked": 0 }), true));
+    // A boolean claim, not a truthy one — a string or a 1 proves nothing.
+    assert!(!parse_release_mobile_ack(&json!({ "ok": true, "revoked": 0, "absent": "true" }), true));
+    assert!(!parse_release_mobile_ack(&json!({ "ok": true, "revoked": 0, "absent": 1 }), true));
+    assert!(!parse_release_mobile_ack(&json!({ "ok": true, "revoked": 0, "absent": false }), true));
+    // …and it never rescues an ack that was refused outright.
+    assert!(!parse_release_mobile_ack(&json!({ "ok": false, "absent": true }), true));
+    assert!(!parse_release_mobile_ack(&json!({ "error": "NODE_IS_REPLICA", "absent": true }), true));
+}
+
 #[test]
 fn expires_in_ms_is_read_only_when_the_server_really_sent_a_number() {
     assert_eq!(parse_expires_in_ms(&json!({ "expires_in_ms": 300_000 })), Some(300_000));

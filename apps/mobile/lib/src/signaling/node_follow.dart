@@ -149,8 +149,25 @@ class RelayNode {
 /// inside the other.
 String? nodeToFollow(Object? ack) {
   if (ack is! Map) return null;
-  final Object? home = ack['home_node'];
-  final Object? here = ack['node'];
+  return nodeToFollowBetween(ack['home_node'], ack['node']);
+}
+
+/// The same decision, read off two values that did not arrive in an ack.
+///
+/// 🔴 NR-61 — EXTRACTED, NOT COPIED, and that is the whole reason it exists.
+/// `GET /api/pc/presence` now answers with the same two facts (presence-routes.ts),
+/// because a phone whose socket never dropped has no ack to learn them from
+/// while its PC re-picks a node. Re-deriving 「must I move」 beside the poll would
+/// be a second parser for one sentence, and the two would disagree about
+/// exactly the malformed inputs nobody tests by hand — the same argument
+/// [settledAtHomeNode] makes for not re-parsing them either.
+///
+/// [home] is where the PC is; [here] is where THIS phone's socket is. Both are
+/// `Object?` rather than `String?` so a value straight off a decoded JSON body
+/// cannot be narrowed by the caller instead of here: a wrong type is one of the
+/// cases that must answer 「stay」, and a caller that cast first would have had
+/// to get that right on its own.
+String? nodeToFollowBetween(Object? home, Object? here) {
   if (home is! String || here is! String) return null;
   if (home.isEmpty || here.isEmpty) return null;
   if (home == here) return null;
@@ -220,6 +237,29 @@ String? resolveNodeUrl(List<RelayNode> nodes, String nodeId) {
     if (n.id == nodeId) return n.url.isEmpty ? null : n.url;
   }
   return null;
+}
+
+/// 「these two addresses are the same relay」 — host only, case-insensitively.
+///
+/// 🔴 ONE AUTHOR, because there were three. `planNodeHop` (node_list_client.dart)
+/// and `presenceAnswerIsAboutAnotherNode` (session/presence_route.dart) each
+/// carried a private `_sameHost` with this body, and NR-61 was about to add a
+/// third. Three expressions are three answers to one question, and this repo's
+/// most expensive defects are that shape — they agree until one of them is
+/// edited.
+///
+/// ⚠️ HOST ONLY, deliberately: the stored endpoint of a pairing and the url in
+/// the node directory differ in scheme, port and trailing slash for reasons that
+/// have nothing to do with 「is this the same relay」 (`_stripTrailingSlashes`
+/// above exists for one of them). An unparseable value falls back to comparing
+/// the raw strings, which can only ever answer 「different」 too eagerly — and
+/// 「different」 here costs a dial that resolves to the place we already are,
+/// never a wrong destination.
+bool sameRelayHost(String a, String b) {
+  final Uri? ua = Uri.tryParse(a);
+  final Uri? ub = Uri.tryParse(b);
+  if (ua == null || ub == null) return a == b;
+  return ua.host.toLowerCase() == ub.host.toLowerCase();
 }
 
 // ── ⚠️ `writerNode()` LIVED HERE AND WAS DELETED THE SAME DAY IT WAS WRITTEN

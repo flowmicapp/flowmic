@@ -166,4 +166,54 @@ void main() {
       );
     });
   });
+  // owner 2026-09-17 — the site's demo QR is ours too (ephemeral session;
+  // docs/decisions/2026-09-17-owner-app-scans-demo-qr-as-ephemeral-session.md).
+  // The judgement is host + LAST path segment, never a prefix: the Chinese page
+  // mints `/go/zh-cn/demo`, and a prefix test would accept one language's code
+  // and refuse the rest — invisible on the developer's own locale. The literal
+  // links below stay hand-written for the same reason the group above gives.
+  group('the site demo link (host + last segment == demo)', () {
+    const String query =
+        'endpoint=wss://relay.flowmic.app&code=4831&channel=saas&pcid=930582147&v=1';
+
+    test('is passed through VERBATIM, with or without a locale prefix', () {
+      for (final String link in <String>[
+        'https://flowmic.app/go/demo?$query',
+        'https://flowmic.app/go/zh-cn/demo?$query',
+      ]) {
+        final ScanResult r = classifyScan('  $link  ');
+        expect(r.verdict, ScanVerdict.pairLink, reason: link);
+        expect(r.payload, link, reason: 'verbatim: PairEntry.parse owns the format');
+        expect(r.isTerminal, isTrue);
+        expect(isDemoPairLink(link), isTrue, reason: link);
+      }
+    });
+
+    test('/go/pair is unaffected, and a locale-prefixed /go/xx/pair is NOT a demo link', () {
+      expect(classifyScan('https://flowmic.app/go/pair?$query').verdict, ScanVerdict.pairLink);
+      expect(isDemoPairLink('https://flowmic.app/go/pair?$query'), isFalse);
+      // Neither form: not the declared pair prefix, last segment is not `demo`.
+      expect(classifyScan('https://flowmic.app/go/zh-cn/pair?$query').verdict, ScanVerdict.foreign);
+      expect(isDemoPairLink('https://flowmic.app/go/zh-cn/pair?$query'), isFalse);
+    });
+
+    test('a foreign host, a non-https scheme, or `demo` not in last place stays foreign', () {
+      for (final String link in <String>[
+        'https://example.com/go/demo?$query', // somebody else's site
+        'https://www.flowmic.app/go/demo?$query', // the apex is the declared host (DOM-1)
+        'http://flowmic.app/go/demo?$query',
+        'https://flowmic.app/go/demo/extra?$query',
+        'https://flowmic.app/go/demonstration?$query',
+        'https://flowmic.app/?$query',
+      ]) {
+        expect(classifyScan(link).verdict, ScanVerdict.foreign, reason: link);
+      }
+    });
+
+    test('the last segment is read off the generated constant, not typed here', () {
+      // Same reverse-control shape as the https-prefix group: this literal is
+      // the one place that would notice DEMO_PAIR_HTTPS_PATH moving.
+      expect(kDemoPairLinkLastSegment, 'demo');
+    });
+  });
 }

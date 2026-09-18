@@ -243,7 +243,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         setCloudSession(socket);
         // No desktop ever occupies a cloud-instance room, so the notify inside is
         // a no-op here; the displaced-socket handling is what this path wants.
-        joinAndNotify(store, pc.room_uuid, mobile, socket);
+        joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
         return safeAck(ack, {
           pairing_id: mobile.id,
           mobile_token: token,
@@ -363,7 +363,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         speakerSignedIn: principal.speakerSignedIn,
       });
       setRoomUuid(socket, pc.room_uuid);
-      joinAndNotify(store, pc.room_uuid, mobile, socket);
+      joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
       // 🔴 A HOP INSTRUCTION LEAVES A TRACE, because it is the one thing on this
       // path that later looks like nothing at all. If the phone does not act on
       // it, the symptom is 「the user speaks, the phone shows words, the PC gets

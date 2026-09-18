@@ -155,6 +155,13 @@ export const CAPSULE_KEYS = [
   'cap_stt_unknown',
   'cap_stt_ready',
   'cap_stt_reconnecting',
+  // NR-38 — the cold open of a LOCAL pack, which is neither a verdict nor a
+  // failure: the engine is here and is reading its model off disk. It gets its
+  // own sentence rather than borrowing `cap_stt_unknown` ("Not checked"), which
+  // would be a false statement about an engine that is demonstrably present.
+  // Rendered by CapsuleApp.vue's `engineLabel`; pinned by
+  // capsule/engine-status-loading.test.ts.
+  'cap_stt_loading',
   'cap_stt_failed',
   'cap_phone_present',
   'cap_online',

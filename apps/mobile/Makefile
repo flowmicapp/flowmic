@@ -24,6 +24,7 @@ analyze: gen
 	flutter analyze
 
 test: gen
+	@node ../../scripts/require-programfiles-x86.mjs
 	flutter test
 
 # 🔴 THE GATE'S ENTRY POINT (2026-08-25). `verify:mobile-tests` used to call
@@ -118,6 +119,7 @@ test: gen
 # every one binds port 0. So: zero fixed ports, zero remaining fixed paths.
 .PHONY: gate-test
 gate-test: gen
+	@node ../../scripts/require-programfiles-x86.mjs
 	flutter test --timeout 90s --reporter compact
 
 build: gen
@@ -140,8 +142,29 @@ build: gen
 # in its header). Those are different claims — "the build went through our
 # script" vs "the bytes contain the feature" — and only the second one is
 # enforced.
+#
+# ── SC-5: THE COMMIT GOES IN WITH THE BUILD ─────────────────────────────────
+#
+# The second define carries the commit this APK was built from, so
+# scripts/publish.mjs GATE 0f can read it back OUT OF THE BYTES and refuse an
+# APK that is not from the commit the gate receipt names. The ship chain builds
+# in parallel with the gate, on warm caches — "the artifact is from an earlier
+# commit" is a real state there, and it used to be invisible.
+#
+# 🔴 WHY IT GOES THROUGH A NODE RUNNER AND NOT `$(shell git rev-parse HEAD)`:
+# make does NOT stop when a `$(shell ...)` fails — a refusal would come back as
+# an empty string and the build would carry on stamping nothing, turning a
+# refusal into a silent pass. The runner resolves the value first and never
+# spawns flutter if the rule refuses (dirty tree, no git), so a refusal is a
+# non-zero exit before any byte is built. It also has to be a FILE rather than
+# an inline `node -e`, for the reason the ProgramFiles guard above was rewritten
+# on 2026-09-17: an inline script that is correct in Git Bash explodes when the
+# release gate reaches this line through pnpm/cmd.
+#
+# `{sha}` is substituted by the runner; it is not a make variable.
 release: gen
-	flutter build apk --release --flavor direct --dart-define=FLOWMIC_SELF_UPDATE=1
+	@node ../../scripts/require-programfiles-x86.mjs
+	node ../../scripts/build-stamp/with-build-sha.mjs -- flutter build apk --release --flavor direct --dart-define=FLOWMIC_SELF_UPDATE=1 --dart-define=FLOWMIC_BUILD_SHA={sha}
 
 # THE STORE ARTIFACT — Google Play (ST-1, 2026-08-19).
 #

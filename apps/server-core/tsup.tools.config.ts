@@ -13,7 +13,11 @@ import { defineConfig } from 'tsup';
 // (src/tools/provenance-dryrun.ts), because esbuild strips the `node:` prefix off
 // that newer builtin — the same trap db/connection.ts documents.
 export default defineConfig({
-  entry: { 'provenance-dryrun': 'src/tools/provenance-dryrun.ts' },
+  entry: {
+    'provenance-dryrun': 'src/tools/provenance-dryrun.ts',
+    // owner 2026-09-17 — the anonymous-trial snapshot/export (read-only).
+    'trial-ledger-export': 'src/tools/trial-ledger-export.ts',
+  },
   format: ['esm'],
   target: 'node22',
   platform: 'node',

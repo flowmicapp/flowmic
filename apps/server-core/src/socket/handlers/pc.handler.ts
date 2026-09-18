@@ -39,7 +39,7 @@ import type { TokenReadThroughSeam } from '../../auth/middleware';
 import { logAuthRefusal } from '../../auth/refusal-log';
 import { getAccount, getAccountAuthError, getAuth, safeAck, setAuth, setRoomUuid, type ActingIdentity } from '../wire';
 import { registerPcListMobilesHandler } from './pc-list-mobiles';
-import { dropRevokedPairingsOnReplica } from '../../node/replica-row-reconcile';
+import { dropAbsentPairingOnReplica, dropRevokedPairingsOnReplica } from '../../node/replica-row-reconcile';
 import { dropDisplacedPc } from './pc-slot-displacement';
 import { clientDeclarationOf } from './client-declaration'; // card S2-01
 import { budgetAckFields, pushJoinBudget, type BudgetHandlerDeps } from './budget-frames';
@@ -699,10 +699,32 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
           // deletes nothing anywhere. See node/replica-row-reconcile.ts for the
           // measured trace and why this is not a replica deciding a write.
           if (revoke) dropRevokedPairingsOnReplica(registry, pc.id, target_ids);
+          // 🔴 RL-4 (owner 2026-09-13) — THE OTHER WAY A ROW REACHES `targets: 0`.
+          // The line above only closes the route where THIS desktop's own previous
+          // press did the deleting. A web client unpairing itself on the writer, a
+          // revoke from another session attached to the writer, or the reaper all
+          // leave this snapshot serving a pairing the authority no longer has, and
+          // then the user's FIRST press gets `{ok:true, revoked:0}` — which the
+          // desktop reads as did-not-happen (socket/wire.rs) and paints as
+          //「操作未生效」. Measured on srvjp: 11:08:15.610 targets:0 with the
+          // 09-10 fix already deployed. See node/replica-row-reconcile.ts for why
+          // the writer's「no such pairing」IS an existence claim and a lone
+          // server's is not.
+          //
+          // `absent` answers「is it gone from the authoritative table」 and is the
+          // ONLY thing this branch may claim — `revoked` stays the literal count
+          // the writer returned, so the two questions keep two values.
+          const absent = revoke && parsed.data.mobile_id !== undefined && target_ids.length === 0;
+          if (absent) dropAbsentPairingOnReplica(registry, pc.id, parsed.data.mobile_id!);
           log.info('pc:release-mobile (forwarded)', {
-            pc_id: pc.id, revoke, targets: target_ids.length, released, revoked: revoked_count,
+            pc_id: pc.id, revoke, targets: target_ids.length, released, revoked: revoked_count, absent,
           });
-          safeAck(ack, { ok: true, released, revoked: revoked_count, suppressed_ms: suppressed_ms });
+          safeAck(ack, {
+            ok: true, released, revoked: revoked_count, suppressed_ms: suppressed_ms,
+            // Additive and emitted only when true: an older desktop ignores the
+            // key and keeps today's behaviour byte for byte.
+            ...(absent ? { absent: true } : {}),
+          });
         })
         // A writer that could not be reached is the SAME visible outcome as a
         // node that cannot forward — both mean "this release did not happen",

@@ -444,6 +444,79 @@ Future<void> _followNodeIfMisplaced(
     move = await planSelfNodeHop(ack: ack, currentEndpoint: here, fetch: httpNodeListFetch);
   }
   if (move == null) return;
+  await _applyNodeMove(s, token, move, reason: 'node-hop');
+}
+
+/// NR-61 — 「the PC moved and my socket never dropped」.
+///
+/// 🔴 A SECOND WAY TO LEARN THE FACT, NOT A SECOND WAY TO ACT ON IT. The decision
+/// is [nodeToFollowBetween] (the same sentence the ack leg reads) and the move is
+/// [_applyNodeMove] (the same five steps the ack leg takes). What is new here is
+/// only WHERE the two ids come from: the idle presence poll, which already asks
+/// about this PC every 10 s and now gets `home_node` back with the answer
+/// (`session/pc_presence_probe.dart`, `http/presence-routes.ts`).
+///
+/// ⚠️ WHY THE ACK LEG CANNOT COVER THIS. A PC re-picks its node on every start,
+/// on the offline switch returning, and on a heartbeat-death rebuild
+/// (desktop `socket/node_select.rs`). None of those makes THIS phone's socket
+/// drop, so no ack follows — the phone's room stays in the old process, the
+/// idle poll goes on being answered 「online」 by the old node off a forwarded
+/// heartbeat (which is true), and `mirrorToPc` drops every audio frame for a
+/// room with no PC in it (which is silent). Measured shape:
+/// docs/strategy/2026-09-16-node-selection-audit.md §5-C.
+///
+/// ⚠️ [here] IS `reconnect.node`, THE ANSWERING NODE OF THE LAST ACK — never the
+/// `node` on the presence response. The poll routes itself to the PC's node, so
+/// the door that answers it is very often not the one holding this socket;
+/// reading 「where am I」 off the response would be right only when the routing
+/// did nothing.
+///
+/// ⚠️ NO FETCH, unlike the ack leg. This runs every 10 s, so an unresolvable id
+/// must cost nothing at all — the directory is loaded once per endpoint on every
+/// ack (`noteAnsweringNode` → `NodeLabels.ensureLoaded`), and if that read failed
+/// it will not be retried, so a fetch here would be a network request every tick
+/// for as long as the app runs. Unresolvable ⇒ stay, which is today's behaviour.
+///
+/// ⚠️ IT IS IDEMPOTENT BY CONSTRUCTION, and that is load-bearing: after a move,
+/// `reconnect.node` still names the OLD node until the new ack lands, so the next
+/// tick asks the same question again — and [sameRelayHost] answers 「you are
+/// already there」 because `reconnect.url` has been rewritten. No latch, no
+/// 「already hopping」 flag to get stale.
+Future<void> _followMovedPcNode(
+  PttSession s, {
+  required String? home,
+  required String? here,
+}) async {
+  final String? want = nodeToFollowBetween(home, here);
+  if (want == null) return;
+  final String? at = s.reconnect.url;
+  final String? token = s.reconnect.token;
+  if (at == null || at.isEmpty) return;
+  if (token == null || token.isEmpty) return;
+  final String? url = resolveNodeUrl(s.reconnect.nodeLabels.nodes, want);
+  if (url == null) {
+    diag('node.follow.unresolved', <String, Object?>{'want': want, 'via': 'presence'});
+    return;
+  }
+  if (sameRelayHost(url, at)) return;
+  diag('node.follow.moving', <String, Object?>{'want': want, 'via': 'presence'});
+  await _applyNodeMove(s, token, url, reason: 'node-moved');
+}
+
+/// The five steps that MOVE this phone to [move], and the only ones.
+///
+/// Extracted from [_followNodeIfMisplaced] for NR-61 so that the second way of
+/// discovering 「I am in the wrong place」 cannot become a second way of acting
+/// on it. Every comment below travelled unchanged; [reason] is the one addition,
+/// and it reaches the forensic line only — never a criterion — so the trail can
+/// say WHICH leg moved us (`node-hop` = an ack said so, `node-moved` = the idle
+/// poll noticed the PC left).
+Future<void> _applyNodeMove(
+  PttSession s,
+  String token,
+  String move, {
+  required String reason,
+}) async {
   // Persist BEFORE dialling: a cold start must go straight to the right node,
   // and the persisted endpoint is the whole of 「remember the last known node」.
   await persistDialedEndpoint(
@@ -481,5 +554,5 @@ Future<void> _followNodeIfMisplaced(
   // author (a machine identity — never cross-wire ids). Its own guards refuse if
   // the ladder is stopped or a dial is already in flight, so the worst case is
   // that nothing happens and the 1 s rung serves, i.e. exactly today.
-  s.reconnect.kickNow(reason: 'node-hop');
+  s.reconnect.kickNow(reason: reason);
 }

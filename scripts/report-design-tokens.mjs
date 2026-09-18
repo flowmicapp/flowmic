@@ -18,6 +18,7 @@
 
 import path from 'node:path';
 import { ROOT, readText } from '../verify/lint/_util.mjs';
+import { readDartFamily } from '../verify/lint/mobile-web-tokens-mirror.mjs';
 
 const CSS_PATH = 'apps/desktop/src/styles/tokens.css';
 const DART_PATH = 'apps/mobile/lib/src/ui/tokens.dart';
@@ -202,7 +203,11 @@ function buildReport(css, dart) {
 }
 
 const cssText = await readText(path.join(ROOT, CSS_PATH));
-const dartText = await readText(path.join(ROOT, DART_PATH));
+// tokens.dart is `part`-split across three sibling files (800-line cap) — read
+// the same reassembled logical text verify/lint/mobile-web-tokens-mirror.mjs
+// parses, so this report keeps seeing FlowMicDarkColors / FlowMicLightColors
+// after the split instead of silently finding an empty tokens.dart.
+const dartText = await readDartFamily(path.join(ROOT, DART_PATH));
 if (cssText === null || dartText === null) {
   // A report that cannot read its subject must say so and fail — a silent
   // empty table would read as 「no drift」.

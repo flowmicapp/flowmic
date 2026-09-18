@@ -374,24 +374,39 @@ async function collectWeb({ webRoot, locales }) {
  * generated messages next to it) would audit the same sentence under a second
  * filename and hide the real hole: sentences written only over there.
  *
- * Today that hole is one file. `missingWebCopy.ts` holds English drafts for
- * keys the subset does not yet name; the stage-1 UI renders those drafts
- * (wrapped in an obvious scaffold). They are not in `i18n/mobile`. A new
- * authored catalogue over there gets a new row here -- a directory walk would
- * also pick up the derived package the moment someone extracts the tarball.
+ * A new authored catalogue over there gets a new row here -- a directory walk
+ * would also pick up the derived package the moment someone extracts the
+ * tarball.
  *
  * Absence is a named SKIP that says the corpus shrank, never a silent empty
  * set and never a throw. A green run that quietly lost this surface is the
  * failure this table exists to refuse.
+ *
+ * ── 2026-09-15: THE TABLE IS EMPTY, AND THAT IS A STATEMENT ─────────────────
+ * It held one row, `apps/mic/src/i18n/missingWebCopy.ts` -- English drafts for
+ * keys the nine-locale subset did not yet name, rendered as an obvious
+ * scaffold. THAT FILE WAS DELETED in the web client's `d9ed4ac`, when its five
+ * sentences moved into `@flowmic/i18n-web` -- where this corpus already
+ * collects them, as `app`. The row outlived the file, so EVERY `copy:audit`
+ * run printed
+ *     SKIP: web-client corpus reduced — not readable: ...missingWebCopy.ts
+ * A SKIP that fires on every run is a SKIP nobody reads: it announced a hole
+ * that did not exist, and trained the reader to scroll past the one line that
+ * would announce a hole that did.
+ *
+ * WHY THE MECHANISM BELOW STAYS ANYWAY. "Nothing is authored there" is a fact
+ * about today, not a property of that repository. Keeping the sweep armed (its
+ * drill passes a synthetic table of its own, for exactly this reason) makes one
+ * row here the whole fix on the day a sentence IS typed over there.
+ *
+ * AND WHAT MAKES THIS ZERO HONEST IS NOT THIS FILE. An empty table cannot
+ * notice a sentence typed straight into a `.vue` template; a declaration only
+ * ever finds what it was pointed at. The instrument that can is in the other
+ * repository -- `scripts/corpus-honesty.mjs` there sweeps its own tree
+ * (`sweepAuthoredCopy()`), asks THIS audit what it sees, and fails when the two
+ * answers disagree. Two instruments, two trees, one question.
  */
-export const WEB_CLIENT_COPY_FILES = [
-  {
-    file: 'apps/mic/src/i18n/missingWebCopy.ts',
-    shape: 'englishDrafts',
-    locale: 'en',
-    what: 'web-only sentences not in @flowmic/i18n-web (rendered today as scaffold)',
-  },
-];
+export const WEB_CLIENT_COPY_FILES = [];
 
 const WEB_CLIENT_SKIP =
   'SKIP: web-client corpus omitted — sibling checkout not found (pass --web-client-root or set FLOWMIC_COPY_AUDIT_WEB_CLIENT_ROOT). This run audited a reduced corpus; a green here is not a green on the web client.';
@@ -407,7 +422,14 @@ function sweepEnglishDrafts(src) {
   return out;
 }
 
-async function collectWebClient({ clientRoot, locales }) {
+async function collectWebClient({ clientRoot, locales, files = WEB_CLIENT_COPY_FILES }) {
+  // Nothing declared: a STATED zero, and the one state here that gets no note.
+  // It is asked before the checkout is even looked for, because with no
+  // declaration the sibling's presence answers nothing -- and because a note
+  // printed on every run is the defect this branch exists to remove, not a
+  // smaller version of it. What keeps the zero honest is the other repository's
+  // own gate; see WEB_CLIENT_COPY_FILES above.
+  if (files.length === 0) return { units: [], notes: [] };
   if (!clientRoot) return { units: [], notes: [WEB_CLIENT_SKIP] };
   try {
     const st = await stat(clientRoot);
@@ -420,7 +442,7 @@ async function collectWebClient({ clientRoot, locales }) {
   const units = [];
   const notes = [];
   let readAny = false;
-  for (const { file, shape, locale } of WEB_CLIENT_COPY_FILES) {
+  for (const { file, shape, locale } of files) {
     if (locales && !locales.includes(locale)) continue;
     const abs = path.join(clientRoot, ...file.split('/'));
     let src;
@@ -452,11 +474,135 @@ async function collectWebClient({ clientRoot, locales }) {
   return { units, notes };
 }
 
+// ── the protocol error codes ────────────────────────────────────────────────
+
+/**
+ * The zh-CN + en sentence every protocol error code carries.
+ *
+ * WHY THIS IS A SURFACE OF ITS OWN. These sentences are not in `i18n/`. They
+ * live beside the code that raises them, one object literal per code, in the
+ * file named below -- so until 2026-09-15 the corpus, which read `i18n/` and
+ * nothing else, could not see a single one of them. MEASURED then, on the
+ * invocation NR-36 was filed with: `copy:audit --key WEB_ROOM_ORIGIN_NOT_ALLOWED`
+ * selected 0 units and exited 2, which reads exactly like "nothing to audit"
+ * and was in fact "this surface does not exist here". Every one of these
+ * sentences is read at the least patient moment anybody ever has with this
+ * product, which is the worst possible place for copy nobody reviewed.
+ *
+ * THE KEY IS THE CODE NAME. `--key INJECT_FOCUS_LOST` is the selector whoever
+ * reaches for this already has in their hand: it is what the phone prints when
+ * it does not recognise a code, what the ledgers cite, and what a diff of this
+ * table shows. Nothing has to be translated into a catalogue path first.
+ *
+ * THE ID CARRIES NO FILE OFFSET, unlike the `site` and `webclient` ids. Those
+ * need one because a key can repeat across pages; a code name cannot repeat at
+ * all (it is an object key, and `satisfies Record<...>` would refuse). An
+ * offset would instead make every id below an inserted comment renumber
+ * itself, and `baseline.json` pins findings BY ID -- silently dropping every
+ * pin in the table each time somebody explains a code above it.
+ *
+ * SOURCE, NOT `dist`. This reads the `.ts` rather than importing the built
+ * package, for the reason written in CLAUDE.md: `packages/protocol/dist` is
+ * what the rest of the repo consumes and a stale one has produced both false
+ * greens and false reds here. Auditing copy is judging the bytes SOMEBODY
+ * EDITS; a dist that is one build behind would return a clean verdict on a
+ * sentence that no longer exists. It also keeps this module free of a build
+ * step, which is what lets the drill run on every machine.
+ */
+export const PROTOCOL_ERRORS_FILE = 'packages/protocol/src/error-codes.ts';
+
+const ERROR_CODES_OPEN = 'export const ERROR_CODES = {';
+const ERROR_CODES_CLOSE = '} as const satisfies';
+
+/**
+ * TS field name -> the locale vocabulary the REST of this corpus speaks.
+ *
+ * 🔴 These are not the same string and the difference is load-bearing. The
+ * field is `zh_CN` because a TypeScript identifier cannot hold a hyphen; every
+ * other surface here, and `--locale`, say `zh-CN` (the catalogue filenames).
+ * Reporting the field name verbatim would make `--locale zh-CN` match none of
+ * the Chinese error sentences while cheerfully reporting the English ones --
+ * a surface that says it is covered while half of it is invisible, which is
+ * the shape this whole file keeps being rewritten to refuse.
+ */
+const ERROR_MESSAGE_LOCALES = [
+  ['zh_CN', 'zh-CN'],
+  ['en', 'en'],
+];
+
+/**
+ * Every `CODE: { zh_CN: '...', en: '...' }` row of the table, as source.
+ *
+ * REFUSES rather than returning a short answer. Both failures it can have are
+ * silent by nature: the anchors moving (zero rows, reported as "nothing to
+ * audit") and an entry written in a shape this regex does not know -- a
+ * multi-line body, a template literal, a concatenation -- which drops THAT
+ * sentence and no other, invisibly. So the row count is checked against an
+ * independent count of `zh_CN:` occurrences in the same slice, and a
+ * disagreement throws with both numbers in it.
+ */
+export function sweepErrorCodes(source) {
+  const masked = maskTsComments(source);
+  const from = masked.indexOf(ERROR_CODES_OPEN);
+  const to = from < 0 ? -1 : masked.indexOf(ERROR_CODES_CLOSE, from);
+  if (from < 0 || to <= from) {
+    throw new Error(
+      `copy-scent: cannot find the error-code table in ${PROTOCOL_ERRORS_FILE} -- anchors ` +
+        `${JSON.stringify(ERROR_CODES_OPEN)} / ${JSON.stringify(ERROR_CODES_CLOSE)} not found in order. ` +
+        'The table moved or was renamed; fix this slice rather than letting the surface report zero units.',
+    );
+  }
+  const body = masked.slice(from + ERROR_CODES_OPEN.length, to);
+  const row = new RegExp(
+    String.raw`([A-Z][A-Z0-9_]*)\s*:\s*\{\s*zh_CN\s*:\s*(${TS_STRING})\s*,\s*en\s*:\s*(${TS_STRING})\s*,?\s*\}`,
+    'g',
+  );
+  const out = [];
+  let hit;
+  while ((hit = row.exec(body)) !== null) out.push({ code: hit[1], raw: { zh_CN: hit[2], en: hit[3] } });
+  const declared = (body.match(/\bzh_CN\s*:/g) ?? []).length;
+  if (out.length !== declared) {
+    throw new Error(
+      `copy-scent: parsed ${out.length} of ${declared} error-code entries in ${PROTOCOL_ERRORS_FILE}. ` +
+        'An entry whose shape this sweep does not recognise would be dropped silently, one sentence at a ' +
+        'time -- teach the sweep that shape rather than accepting the shorter number.',
+    );
+  }
+  return out;
+}
+
+const PROTOCOL_ERRORS_SKIP = (abs) =>
+  `SKIP: protocol-errors corpus omitted — not readable: ${abs}. This run audited a reduced corpus; ` +
+  'a green here says nothing about the sentences the error codes carry.';
+
+async function collectProtocolErrors({ root, locales }) {
+  const abs = path.join(root, ...PROTOCOL_ERRORS_FILE.split('/'));
+  let source;
+  try {
+    source = await readFile(abs, 'utf8');
+  } catch {
+    return { units: [], notes: [PROTOCOL_ERRORS_SKIP(abs)] };
+  }
+  const units = [];
+  for (const { code, raw } of sweepErrorCodes(source)) {
+    for (const [field, locale] of ERROR_MESSAGE_LOCALES) {
+      if (locales && !locales.includes(locale)) continue;
+      const text = decodeLiteral(raw[field]);
+      if (text === null || !isAuditableText(text)) continue;
+      // `file` is the repo-relative path git itself reports, so `--changed`
+      // selects these units on the commit that edits them. The site units had
+      // to learn that lesson the hard way (see changedFiles in the auditor).
+      units.push({ id: `protocol-errors/${locale}#${code}`, surface: 'protocol-errors', locale, file: PROTOCOL_ERRORS_FILE, key: code, text });
+    }
+  }
+  return { units, notes: [] };
+}
+
 /**
  * Collect every unit for the requested surfaces.
  * @returns {Promise<{units: Array, notes: string[]}>}
  */
-export async function collectUnits({ root = ROOT, surfaces = null, locales = null, webRoot = null, webClientRoot = null } = {}) {
+export async function collectUnits({ root = ROOT, surfaces = null, locales = null, webRoot = null, webClientRoot = null, webClientFiles = WEB_CLIENT_COPY_FILES } = {}) {
   const want = (s) => !surfaces || surfaces.includes(s);
   const notes = [];
   let units = [];
@@ -471,12 +617,20 @@ export async function collectUnits({ root = ROOT, surfaces = null, locales = nul
     units = units.concat(web.units);
   }
   if (want('webclient')) {
-    const client = await collectWebClient({ clientRoot: webClientRoot, locales });
+    const client = await collectWebClient({ clientRoot: webClientRoot, locales, files: webClientFiles });
     notes.push(...client.notes);
     units = units.concat(client.units);
+  }
+  // Appended LAST on purpose. `--limit` slices from the front of this order, so
+  // putting a new surface anywhere earlier would quietly change which units a
+  // bounded run has been reaching since 2026-09-04.
+  if (want('protocol-errors')) {
+    const errs = await collectProtocolErrors({ root, locales });
+    notes.push(...errs.notes);
+    units = units.concat(errs.units);
   }
   return { units, notes };
 }
 
-export const SURFACE_IDS = ['app', 'readme', 'contrib', 'site', 'console', 'webclient'];
+export const SURFACE_IDS = ['app', 'readme', 'contrib', 'site', 'console', 'webclient', 'protocol-errors'];
 export { WEB_CLIENT_SKIP };

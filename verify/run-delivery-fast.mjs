@@ -6,11 +6,21 @@
 //
 // THIS IS NOT THE RELEASE GATE, AND THE DIFFERENCE IS NOT COSMETIC.
 // ---------------------------------------------------------------------------
-// `pnpm verify:delivery` is untouched and stays the only gate a release may
-// cite: scripts/publish.mjs runs it (its GATE 0), and it is the only run that
-// can produce a gate receipt (`verify:receipt`, the chain's last link). This
-// runner writes NO receipt, and does not even call `verify:preflight` — see
-// the Stage 0 note below, where the reason is measured rather than stylistic.
+// `pnpm verify:delivery` is untouched, and this runner writes NO receipt and
+// does not even call `verify:preflight` — see the Stage 0 note below, where the
+// reason is measured rather than stylistic.
+//
+// 🔴 A RELEASE MAY NOW STAND ON A PARALLEL RUN — BUT NOT ON THIS ONE.
+// Since 2026-09-17 (SC-6) there is a second gate that a release may cite:
+// `pnpm verify:delivery:release` (verify/run-delivery-release.mjs). It imports
+// STAGE0 and LANES FROM THIS FILE — the same table, the same commands, and a
+// drill asserts the two plans are byte-identical — and adds the two things this
+// runner deliberately lacks: the `--begin`/`--end` receipt, and a refusal to
+// start on a dirty tree or beside leftover test processes. What separates them
+// is therefore not speed and not parallelism; it is that one of them can say
+// WHICH tree it proved and refuses to run where that answer would be unstable.
+// This runner keeps `--only`, keeps writing no receipt, and stays the gate of
+// the edit/verify loop.
 //
 // WHAT IT BUYS, MEASURED ON dev-pc-a (Ryzen 9 7945HX, 16C/32T):
 // seventeen sequential stages = 961 s
@@ -330,7 +340,10 @@ export async function runLanes(lanes, { logDir = LOG_DIR, onStart = null, onDone
   return { results, failed, exitCode: failed.length === 0 ? 0 : 1 };
 }
 
-const mmss = (ms) => {
+/** Exported for verify/run-delivery-release.mjs (SC-6), which prints the same
+ *  lane table. Two copies of a formatter is two tables that can stop looking
+ *  alike, and these two are read side by side. */
+export const mmss = (ms) => {
   const s = Math.round(ms / 1000);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
@@ -348,7 +361,8 @@ function banner() {
   );
 }
 
-function tailOf(file, lines = 40) {
+/** Exported for the same reason as `mmss`. */
+export function tailOf(file, lines = 40) {
   try {
     return readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n');
   } catch {

@@ -86,12 +86,7 @@ bool presenceAnswerIsAboutAnotherNode({
   if (want.isEmpty || nodes.isEmpty) return false; // nothing says otherwise
   final String? homeUrl = resolveNodeUrl(nodes, want);
   if (homeUrl == null) return false; // we cannot tell; do not invent doubt
-  return !_sameHost(homeUrl, askedEndpoint);
-}
-
-bool _sameHost(String a, String b) {
-  final Uri? ua = Uri.tryParse(a);
-  final Uri? ub = Uri.tryParse(b);
-  if (ua == null || ub == null) return a == b;
-  return ua.host.toLowerCase() == ub.host.toLowerCase();
+  // NR-61 — was a private `_sameHost` with this body, one of three copies. See
+  // [sameRelayHost].
+  return !sameRelayHost(homeUrl, askedEndpoint);
 }

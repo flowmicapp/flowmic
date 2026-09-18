@@ -837,7 +837,7 @@ describe('GET /api/cloud/usage/events', () => {
     expect(r.status).toBe(401);
     // An empty list is an ANSWER, and answering 「you have no usage」 to someone who
     // never proved who they are is both a lie and an oracle.
-    expect(JSON.parse(r.body).error).toBe('AUTH_TOKEN_INVALID');
+    expect(JSON.parse(r.body).error).toBe('AUTH_ACCOUNT_REQUIRED');
     expect(r.body).not.toContain('rows');
   });
 
@@ -1024,7 +1024,7 @@ describe('GET /api/cloud/usage/events', () => {
 
     const anon = await opsGet(url, q);
     expect(anon.status).toBe(401);
-    expect(JSON.parse(anon.body).error).toBe('AUTH_TOKEN_INVALID');
+    expect(JSON.parse(anon.body).error).toBe('AUTH_ACCOUNT_REQUIRED');
 
     const asNormal = await opsGet(url, q, normal.headers);
     expect(asNormal.status).toBe(403);

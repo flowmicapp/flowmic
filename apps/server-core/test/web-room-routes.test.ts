@@ -111,7 +111,11 @@ describe('identity is required, and the refusal names the right failure', () => 
   it('no Authorization header ⇒ 401 and no row', async () => {
     const r = await build();
     expect(r.status).toBe(401);
-    expect(r.json.error).toBe('AUTH_TOKEN_INVALID');
+    // 🔴 NR-55 — 「presented nothing」 is no longer answered with the code that
+    // says 「your credential is bad」 (AUTH_TOKEN_INVALID, asserted one test
+    // down). Nothing was refused; nothing was presented.
+    expect(r.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
+    expect(r.json.error).not.toBe('AUTH_TOKEN_INVALID');
     // The half a status code cannot prove: nothing was minted on the way to the
     // refusal. A route that built first and refused second would still be 401.
     expect(db.pcs.listByUser('anyone')).toHaveLength(0);

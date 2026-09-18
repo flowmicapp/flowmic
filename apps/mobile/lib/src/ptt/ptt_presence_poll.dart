@@ -248,14 +248,51 @@ extension PttSessionPresencePoll on PttSession {
     // downgraded to "didn't find out" rather than reported as 「电脑已离线」.
     // The hold (liveness_hold.dart) then keeps the last thing that WAS
     // established, instead of the screen acquiring a new and wrong certainty.
+    //
+    // 🔴 NR-61 — the answer's OWN `home_node` outranks the ack's when it is
+    // there. Both name the same thing, but this one was read at the instant the
+    // question was answered while `reconnect.pcHomeNode` is as old as this
+    // phone's last ack — and the case this whole card is about is precisely the
+    // one where no new ack has happened. Falling back to the ack keeps every
+    // deployment that sends no such field on exactly today's behaviour.
+    final String? pcHome = reading.homeNode ?? reconnect.pcHomeNode.value;
     final bool wrongNode = presenceAnswerIsAboutAnotherNode(
       askedEndpoint: askedEndpoint,
-      homeNode: reconnect.pcHomeNode.value,
+      homeNode: pcHome,
       nodes: reconnect.nodeLabels.nodes,
     );
     // ② Write unconditionally — even when it's unknown, that is not "skip".
     _pcPresence.notePresencePoll(
       (mismatched || wrongNode) ? PcPresence.unknown : reading.presence,
     );
+    // 🔴 NR-61 — AND THEN GO WHERE IT SAID, if that is not where we are.
+    //
+    // This is the only thing in the app that can notice a PC changed node while
+    // this phone's socket stayed up. The desktop re-picks its node on every
+    // start, on the offline switch returning and on a heartbeat-death rebuild
+    // (`socket/node_select.rs`); none of those drops this socket, so no ack ever
+    // corrects `reconnect.pcHomeNode`, the room stays in the old process, and
+    // `audio.handler.ts` `mirrorToPc` drops every frame for a room with no PC in
+    // it — no error, no refusal, no log, both ends green. Until this line the
+    // only cure was the user backgrounding the app.
+    //
+    // ⚠️ `reading.homeNode` and NOT `pcHome`: a move must be decided on a fact
+    // this answer actually carried, never on the ack value it falls back to.
+    // Acting on the fallback would re-dial on nothing but our own stale memory,
+    // every ten seconds, on deployments that have no nodes at all.
+    //
+    // ⚠️ `reconnect.node.value` is 「where THIS socket is」 — the answering node
+    // of the last ack. Deliberately not `reading.node`: the poll ROUTES itself
+    // to the PC's node above, so the door that answered is very often not the
+    // one holding this socket.
+    //
+    // ⚠️ NOT awaited: this tick's job (`notePresencePoll`, one line up) is done,
+    // and a reconnect must not be able to hold `_presencePollInFlight` — the
+    // same reason the ack legs call `_followNodeIfMisplaced` unawaited.
+    unawaited(_followMovedPcNode(
+      this,
+      home: reading.homeNode,
+      here: reconnect.node.value,
+    ));
   }
 }

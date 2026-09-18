@@ -67,6 +67,16 @@ export interface ModelSnapshot {
   /** Server-measured, 5-second sliding window; `null` while it has less than
    *  a window of data. See [stableRate] for what this module does with it. */
   rate_bytes_per_sec: number | null;
+  /** NR-7 — bytes a DELETE of this pack would free: the server's walk of the
+   *  whole install directory, not a sum over the manifest. A DIFFERENT question
+   *  from `bytes_done` (「how far along is the download」), which counts only the
+   *  files the manifest names — see the server field's note. This is the figure
+   *  the card shows before the delete control, because the owner's ruling
+   *  (2026-09-02 §5) is that the user sees the size before pressing it, and the
+   *  only honest size for that is the one the removal actually frees.
+   *  0 from a server that predates the field — the card renders no size rather
+   *  than a confident zero. */
+  disk_bytes: number;
   error: ModelError | null;
 }
 
@@ -144,6 +154,11 @@ export interface ModelsStatus {
   spoken_langs: string[];
   models_root: ModelsRootInfo;
   busy_model_id: string | null;
+  /** NR-7 — packs the server refuses to delete right now, computed by the SAME
+   *  function the delete route's guard runs (server `model-in-use.ts`). The
+   *  card disables its control from this list; it is not the enforcement.
+   *  Empty from a server that predates the field. */
+  in_use_model_ids: string[];
 }
 
 function asCatalogEntry(v: unknown): CatalogEntry | null {
@@ -219,7 +234,23 @@ export function asModelsStatus(v: unknown): ModelsStatus | null {
     spoken_langs: spoken,
     models_root: root,
     busy_model_id: nonEmpty(o.busy_model_id),
+    in_use_model_ids: Array.isArray(o.in_use_model_ids)
+      ? o.in_use_model_ids.filter((x): x is string => typeof x === 'string')
+      : [],
   };
+}
+
+/** NR-7 — may this pack be deleted from the card?
+ *
+ *  🔴 UNKNOWN COUNTS AS 「in use」. A null status, or a server that never sent
+ *  the field, means we have not been told — and the one direction a wrong
+ *  answer is cheap in is refusing a delete that would have been allowed. The
+ *  reverse would offer a live pack's Delete button on a stale render. The
+ *  server guard refuses it regardless (stt-model-routes.ts MODEL_DELETE_GUARD);
+ *  this only decides what the button looks like. */
+export function modelInUse(status: ModelsStatus | null, modelId: string): boolean {
+  if (status === null) return true;
+  return status.in_use_model_ids.includes(modelId);
 }
 
 /** The per-pack disk snapshot, or null when the server listed no row for it —
@@ -443,6 +474,7 @@ export function asModelSnapshot(v: unknown): ModelSnapshot | null {
     current_file: nonEmpty(o.current_file),
     source: nonEmpty(o.source),
     resumed_from_bytes: num(o.resumed_from_bytes, 0),
+    disk_bytes: num(o.disk_bytes, 0),
     rate_bytes_per_sec:
       typeof o.rate_bytes_per_sec === 'number' &&
       Number.isFinite(o.rate_bytes_per_sec) &&

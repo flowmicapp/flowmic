@@ -103,6 +103,35 @@ export const G10 = {
         //      sidecar start gets ~8 s of silence and the cap meant to bound it is
         //      inert. That is a product question about where the model load runs,
         //      and it is not this case's subject.
+        //      🔴 IN-PLACE CORRECTION (NR-38, 2026-09-13, dev-pc-a, node v22.22.3,
+        //      measured against the real 229 MB SenseVoice pack with a 20 ms tick
+        //      watch). The sentence above says BOTH costs are synchronous work that
+        //      blocks the loop. Only ONE of them ever was. The model SHA-256 is
+        //      already `createReadStream` piped into the hash and it yields between
+        //      chunks — 367–538 ms of wall time, 0 ms of max tick lag; the 4.1 s on
+        //      the 989 MB pack was DISK, not a stalled loop. `new OfflineRecognizer()`
+        //      was the one blocking: 1_505 ms wall, 1_455 ms max tick lag, zero ticks.
+        //      It now goes through `OfflineRecognizer.createAsync` (the pinned
+        //      sherpa-onnx-node 1.13.4 has it), so the whole cold open holds the loop
+        //      for 12 ms instead of 1_631 ms and the cap CAN fire. The open account
+        //      that remains is the one this case never claimed: the user is still not
+        //      TOLD during those seconds — `engine-status` has no `loading` value and
+        //      adding one is a protocol change nobody has ruled on.
+        //      🔴 CORRECTED IN PLACE 2026-09-14 (NR-38 second half, lane
+        //      lane/nr38-engine-status-loading). That last sentence is now FALSE and
+        //      the original is kept because it is the record of what was open:
+        //      `loading` IS a protocol value (`SttEngineStatusSchema`, commit
+        //      39bd85b1) and the sidecar emits it before the pack load
+        //      (orchestrator-core `spawnEngine(coldOpen)`). ⚠️ THIS CASE WENT RED ON
+        //      THAT FRAME, and the red is worth writing down because it is the one
+        //      consumer in the repo that did NOT degrade: every shipped reader has a
+        //      default arm that drops an unknown status, but the shape check below
+        //      is a CLOSED SET and answered `{"provider":"sherpa-local","status":
+        //      "loading"}` with 「in a shape it cannot act on」. Being told EARLIER is
+        //      not being told LESS, so `loading` joins the set rather than the frame
+        //      being filtered out — filtering would have made this case wait for a
+        //      frame it had already received and rebuilt the silence it exists to
+        //      forbid.
         //   ② WHAT ACTUALLY BOUNDS THIS FRAME IS NOT READABLE FROM THE PRODUCT: it
         //      is how long this machine takes to hash and load whatever model it
         //      happens to have downloaded. No model ⇒ milliseconds (a loud
@@ -152,7 +181,7 @@ export const G10 = {
         const toldFace = told.event === 'stt:error'
           ? (typeof st?.error === 'string' && st.error.length > 0 ? `stt:error{${st.error}}` : null)
           : (typeof st?.provider === 'string' && st.provider.length > 0
-              && ['ready', 'failed', 'reconnecting'].includes(st?.status)
+              && ['loading', 'ready', 'failed', 'reconnecting'].includes(st?.status)
             ? `stt:engine-status{${st.provider}:${st.status}}` : null);
         if (toldFace === null) {
           return FAIL(`the MOBILE received ${told.event} for its own session but in a shape it cannot act on: ${JSON.stringify(st)}`);

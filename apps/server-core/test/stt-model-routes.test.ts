@@ -233,9 +233,10 @@ describe('GET /api/stt/model/status', () => {
     // the contract; the desktop is written against them.
     expect(Object.keys(out.body).sort()).toEqual([
       'busy_model_id', 'bytes_done', 'bytes_total', 'catalog', 'current_file',
-      'dir', 'error', 'files_done', 'files_total', 'model_id', 'models',
-      'models_root', 'rate_bytes_per_sec', 'resumed_from_bytes',
-      'selected_by_lang', 'source', 'spoken_langs', 'state',
+      'dir', 'disk_bytes', 'error', 'files_done', 'files_total',
+      'in_use_model_ids', 'model_id', 'models', 'models_root',
+      'rate_bytes_per_sec', 'resumed_from_bytes', 'selected_by_lang', 'source',
+      'spoken_langs', 'state',
     ]);
     expect(out.body['state']).toBe('ready');
     expect(out.body['bytes_total']).toBe(MODEL_BODY.length);

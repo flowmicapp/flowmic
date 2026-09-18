@@ -152,6 +152,21 @@ pub enum Reason {
     /// Registration is due but no node claims `role: "writer"`. The endpoint is
     /// dialled unchanged, which is what every single-node deployment does.
     NoWriterPublished,
+    /// `GET /api/node/list` produced no answer at all (timeout / transport
+    /// error / unparseable), on every ask. The endpoint is dialled as given.
+    ///
+    /// 🔴 A DIFFERENT FACT FROM [`Reason::SingleNode`], and until 2026-09-16
+    /// the two shared one branch and one sentence. Measured on the owner's PC
+    /// (dev-pc-a, `window-forensics.log`, 2026-09-15T21:06:39Z, an
+    /// autostart at boot): the list fetch died at exactly [`PING_TIMEOUT`]
+    /// (2.51 s after the cloud leg started), the reason line said "fewer than
+    /// two selectable nodes published" — the directory had THREE — and the
+    /// socket to the very same host connected 1.4 s later. The PC then sat on
+    /// the far writer (New York, ~800 ms from that desk; nine earlier starts
+    /// had all chosen Hong Kong at ~170 ms) for the life of the process, and
+    /// the phone followed it there. "Unreadable" and "published fewer than
+    /// two" call for opposite actions (retry / nothing), so they get two names.
+    ListUnreadable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,8 +297,8 @@ fn fetch_published(
     current: Option<&str>,
     current_url: Option<&str>,
     probe: &impl Probe,
-) -> Vec<NodeEntry> {
-    let canonical = || probe.list(endpoint).unwrap_or_default();
+) -> Published {
+    let canonical = || fetch_canonical(endpoint, probe);
     let (Some(id), Some(url)) = (current, current_url) else {
         return canonical();
     };
@@ -292,10 +307,44 @@ fn fetch_published(
         return canonical();
     }
     match probe.list(url) {
-        Some(list) if replica_copy_usable(&list, id) => list,
-        // Unusable copy (error / empty / missing self) → today's fetch.
+        Some(list) if replica_copy_usable(&list, id) => Published { nodes: list, readable: true },
+        // Unusable copy (error / empty / missing self) → today's fetch. The
+        // canonical ask IS the retry for a replica copy that erred, so this
+        // path does not add a third ask.
         _ => canonical(),
     }
+}
+
+/// What a directory fetch produced. `readable: false` means NO node answered
+/// the ask at all — not an empty list, which is a published answer.
+///
+/// Two facts that used to be one `Vec`: `unwrap_or_default()` turned "the
+/// fetch failed" into "the operator published nothing", and the selector then
+/// said so in its forensic line. See [`Reason::ListUnreadable`].
+struct Published {
+    nodes: Vec<NodeEntry>,
+    readable: bool,
+}
+
+/// How many times the canonical endpoint is asked for the directory before
+/// the selector gives up on reading one. Two: the first ask on an autostart
+/// pays DNS + TLS + a cold origin fetch to the far writer while the machine's
+/// network stack may still be settling (the measured 2026-09-15 case), and a
+/// second ask a moment later is the cheapest possible cure for exactly that.
+/// It is NOT a retry loop: a directory that is genuinely unreachable costs
+/// startup at most 2 × [`LIST_TIMEOUT`] on the cloud leg's own thread, and the
+/// LAN leg never waits on it.
+pub const LIST_ASKS: usize = 2;
+
+/// Ask the canonical endpoint, once more on a miss. An ANSWER — even an empty
+/// one — is never retried: only a fetch that produced nothing is.
+fn fetch_canonical(endpoint: &str, probe: &impl Probe) -> Published {
+    for _ in 0..LIST_ASKS {
+        if let Some(list) = probe.list(endpoint) {
+            return Published { nodes: list, readable: true };
+        }
+    }
+    Published { nodes: Vec::new(), readable: false }
 }
 
 /// Which published node IS this url — asked when we are NOT choosing one.
@@ -367,7 +416,24 @@ pub fn choose(
     // Fetched ONCE, and used by both the writer search and the candidate filter.
     // It is also what lets every non-choosing return below still say WHICH node
     // it is dialing — see `identify`.
-    let published = fetch_published(ep, current, current_url, probe);
+    let Published { nodes: published, readable } = fetch_published(ep, current, current_url, probe);
+
+    // 🔴 NO ANSWER IS NOT AN ANSWER. Every branch below is a decision about a
+    // directory that was READ; when none was, the only honest decision is the
+    // one every client made before this module existed — dial the endpoint —
+    // and to say WHY in the log, because "fewer than two nodes published" sent
+    // a reader looking at the operator's file when the fault was on this
+    // machine's first seconds of network (see the variant's doc). Registration
+    // takes the same door: the endpoint is where a self-hosted or single-node
+    // deployment registers anyway, and the reason line stays true.
+    if !readable {
+        return Choice {
+            url: endpoint.to_string(),
+            node: None,
+            short: None,
+            reason: Reason::ListUnreadable,
+        };
+    }
 
     if must_register {
         return match published
@@ -511,6 +577,10 @@ impl Reason {
             ),
             Reason::NoWriterPublished =>
                 "registration is due and no node claims role:writer — dialing the endpoint as given (which is what a single-node deployment publishes)".into(),
+            Reason::ListUnreadable => format!(
+                "node selection made NO choice: /api/node/list produced no answer on {LIST_ASKS} asks ({}s each) — dialing the endpoint as given; this process stays there until its next redial, so if this is an autostart the network may simply not have been ready",
+                LIST_TIMEOUT.as_secs()
+            ),
         }
     }
 }
@@ -530,6 +600,25 @@ pub struct HttpProbe {
 /// dead node cannot hold startup.
 pub const PING_TIMEOUT: Duration = Duration::from_millis(2_500);
 
+/// The directory fetch's own budget — deliberately NOT [`PING_TIMEOUT`].
+///
+/// A ping's timeout is the measurement's unit: a node that cannot answer in
+/// 2.5 s is not a candidate, and that is the right rule for a ping. The list
+/// fetch is not a measurement. It is the one request whose failure decides
+/// EVERYTHING that follows, it runs once per process, and on an autostart it
+/// pays DNS + TLS + a cold origin fetch to the far writer on a network stack
+/// that may still be settling. Measured 2026-09-15T21:06 on dev-pc-a:
+/// the list died at exactly 2.5 s, the socket to the same host connected
+/// 1.4 s later, and the PC spent the day on New York instead of Hong Kong.
+/// Sharing the ping's unit here was measuring the wrong thing with a
+/// convincing number — the shape the header of this file exists to refuse.
+///
+/// Eight seconds is above any cold intercontinental fetch this repo has
+/// measured (Singapore → NY list: 728 ms hot; the 2026-09-15 cold case was
+/// somewhere past 2.5 s) and still bounded: worst case the cloud leg dials
+/// 2 × 8 s late on its own thread, and the LAN leg never waits on it.
+pub const LIST_TIMEOUT: Duration = Duration::from_secs(8);
+
 impl HttpProbe {
     pub fn new() -> Option<Self> {
         reqwest::blocking::Client::builder()
@@ -547,14 +636,27 @@ impl HttpProbe {
 
 impl Probe for HttpProbe {
     fn list(&self, base: &str) -> Option<Vec<NodeEntry>> {
-        let body: serde_json::Value = self
+        // `None` = NO ANSWER (timeout / transport error / a body that is not
+        // JSON) — the shape [`fetch_canonical`] asks again about.
+        // `Some(empty)` = ANSWERED, NO DIRECTORY — a self-hosted or single-node
+        // relay 404s this route, or serves a body with no `nodes` key. That is
+        // a published fact about the deployment, asked once and never retried;
+        // retrying it would make every self-hosted start wait 2 × LIST_TIMEOUT
+        // and then log "no answer" about a relay that answered promptly.
+        let res = self
             .client
             .get(format!("{base}/api/node/list"))
+            // Per-request override: the client's default is the ping's unit.
+            .timeout(LIST_TIMEOUT)
             .send()
-            .ok()?
-            .json()
             .ok()?;
-        let arr = body.get("nodes")?.as_array()?;
+        if !res.status().is_success() {
+            return Some(Vec::new());
+        }
+        let body: serde_json::Value = res.json().ok()?;
+        let Some(arr) = body.get("nodes").and_then(|v| v.as_array()) else {
+            return Some(Vec::new());
+        };
         // No freshness stamp on this body (`ok`/`node`/`nodes`/`writer?`).
         // `version` is on `/ping`; the file mtime never leaves the answering
         // process. Containment in `fetch_published` is the client-side guard.

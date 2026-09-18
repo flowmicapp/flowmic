@@ -56,6 +56,12 @@ apps/desktop/public/NOTICE
 # on whichever settings/provenance.ts it was built from instead of the one about
 # to ship.
 scripts/provenance-dryrun.mjs
+# Same artifact, same reason (owner 2026-09-17): a self-contained tsup bundle of
+# apps/server-core/src/tools/trial-ledger-export.ts, built on demand with
+# `pnpm --filter @flowmic/server-core build:tools` and carried to a VPS that has
+# no node_modules. A committed copy would be a copy of whichever schema it was
+# built from.
+scripts/trial-ledger-export.mjs
 
 # release artifacts
 release/

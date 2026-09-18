@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// Drill for verify/run-delivery-fast.mjs — the parallel LANE gate.
+// Drill for the two parallel gates: verify/run-delivery-fast.mjs (the LANE
+// gate, no receipt) and verify/run-delivery-release.mjs (the RELEASE gate,
+// SC-6 — same plan, with a receipt).
 //
-// Two questions, and they are the two ways this runner could lie:
+// Sections 1-4 are the lane gate's two questions, and they are the two ways
+// that runner could lie:
 //
 //   1. DOES A RED LANE MAKE THE RUN RED? Six lanes finish in whatever order
 //      they finish, and each one's failure is discovered inside a
@@ -22,11 +25,30 @@
 //      act, so a fast runner that called `pnpm verify:preflight` (which is
 //      preflight + `--begin`) would destroy a valid proof every time somebody
 //      ran the quick gate. Both directions are checked here.
+
+// Section 5 adds the release gate's three, which are the three properties the
+// design (2026-09-17 §2.3) argues a parallel run must have before a release may
+// stand on it:
+//
+//   3. IT WRITES A RECEIPT ONLY WHEN EVERY LANE IS GREEN — and a red run must
+//      also leave nothing behind that a later `--end` could close. `begin()`
+//      unlinks the standing receipt as its first act, so a run that starts and
+//      fails must INVALIDATE the previous proof rather than leave it lying
+//      around next to a tree that has since been re-proved into redness.
+//   4. IT REFUSES A DIRTY TREE (and leftover test processes, and a process
+//      table it could not read). Stricter than the sequential gate on purpose;
+//      the reasoning is in the runner's header.
+//   5. ITS STAGE SET IS THE SEQUENTIAL GATE'S STAGE SET. Asserted against
+//      `package.json`'s own `verify:delivery` string rather than against a
+//      list retyped here — a list retyped here is a third copy, and the defect
+//      being prevented is exactly that two of the copies stop agreeing. A stage
+//      added to one gate and not the other is then a red drill instead of a
+//      release proved by fifteen of sixteen stages.
 //
 // EXIT CODES (scripts/run-script-tests.mjs): 0 PASS, 1 FAIL, 2 SKIP.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -219,7 +241,292 @@ check(
 );
 
 // ---------------------------------------------------------------------------
+section('5 the RELEASE gate (verify:delivery:release) — receipt, refusals, same stages');
+
+const rel = await import(pathToFileURL(path.join(ROOT, 'verify', 'run-delivery-release.mjs')).href);
+const gr = await import(pathToFileURL(path.join(ROOT, 'scripts', 'gate-receipt.mjs')).href);
+
+// 5.1 THE TWO GATES RUN THE SAME COMMANDS — element for element, not "about
+// the same". This is the assertion that makes 5.2 meaningful: without it the
+// release gate could mint a receipt for a plan that had quietly shrunk.
+check(
+  JSON.stringify(rel.PLAN) === JSON.stringify(plan),
+  `the release gate's plan is the lane gate's plan, verbatim (${rel.PLAN.length} vs ${plan.length} commands)`,
+);
+
+// 5.2 ...AND THAT PLAN IS THE SEQUENTIAL GATE'S STAGE SET. Read out of
+// package.json, never retyped: the whole point is that the two cannot drift.
+const seqChain = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts['verify:delivery'];
+const seqStages = seqChain
+  .split('&&')
+  .map((c) => c.trim())
+  // The receipt wrapper is not a STAGE; it is the proof machinery this gate
+  // performs in-process instead (begin/end), so it is excluded from both sides.
+  .filter((c) => c !== 'pnpm verify:preflight' && c !== 'pnpm verify:receipt');
+const parallelStages = rel.PLAN.filter((c) => c.startsWith('pnpm '));
+const missing = seqStages.filter((c) => !parallelStages.includes(c));
+const extra = parallelStages.filter((c) => !seqStages.includes(c));
+check(seqStages.length >= 14, `the sequential chain still parses into stages (${seqStages.length})`);
+check(missing.length === 0, `every sequential stage is in the parallel plan (missing: ${missing.join(' | ')})`);
+check(extra.length === 0, `the parallel plan invents no stage of its own (extra: ${extra.join(' | ')})`);
+// The preflight half of `verify:preflight` is not dropped, only unwrapped: the
+// parallel gate runs the toolchain probe directly and does the `--begin` itself.
+check(
+  rel.PLAN.some((c) => c.includes('preflight-toolchain.mjs')),
+  'the toolchain preflight is still in the plan (the receipt half is done in-process)',
+);
+
+// 5.3 A FILTERED RELEASE RUN IS REFUSED, and refused by name rather than by the
+// flag merely not existing — "the flag is absent" is a fact one edit changes.
+const onlyRun = spawnSync(process.execPath, [path.join(ROOT, 'verify', 'run-delivery-release.mjs'), '--only=TSC'], {
+  cwd: ROOT,
+  encoding: 'utf8',
+});
+check(onlyRun.status === 1, `the release gate refuses --only (exit ${onlyRun.status})`);
+check(/not accepted by the release gate/.test(onlyRun.stdout ?? ''), '  ...and says so in words');
+
+const relPkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts['verify:delivery:release'];
+check(relPkg === 'node verify/run-delivery-release.mjs', `verify:delivery:release is registered (${relPkg})`);
+
+// -- the behavioural half: drive runRelease() against a throwaway repo -------
+//
+// 🔴 EVERY path below is a temporary one, and the receipt directory is OUTSIDE
+// the repo being fingerprinted. Both halves were learned the expensive way and
+// are recorded in scripts/gate-receipt.mjs: this drill runs INSIDE
+// `verify:scripts`, i.e. in the middle of a real gate run, so a receipt path
+// that reached the real `.local/` would delete a live run's pending marker; and
+// a receipt written inside the tree it certifies changes the fingerprint it is
+// compared against.
+const relBefore = snapshot();
+{
+  const repo = mkdtempSync(path.join(TMP, 'repo-'));
+  const git = (...a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'drill@example.test');
+  git('config', 'user.name', 'drill');
+  git('config', 'commit.gpgsign', 'false');
+  git('config', 'core.autocrlf', 'false');
+  writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  git('add', 'a.txt');
+  git('commit', '-q', '-m', 'first');
+
+  const sentinel = path.join(TMP, 'lane-ran.txt');
+  const TOUCH = script(
+    'touch.mjs',
+    `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(sentinel)}, 'ran');\n`,
+  );
+  const cleanProbe = { dirty: () => [], processes: () => ({ ok: true, procs: [] }) };
+  // `clock` is called exactly twice (the --begin and --end stamps). The gate's
+  // own floor refuses a receipt for anything that finished in under a minute, so
+  // a synthetic run has to be able to claim plausible elapsed time without
+  // actually spending it — that is the only reason this parameter exists.
+  const fakeClock = () => {
+    let n = 0;
+    return () => (n++ === 0 ? 1_000_000 : 1_000_000 + gr.MIN_GATE_MS + 1_000);
+  };
+  const run = async (lanes, probe = cleanProbe, dir = mkdtempSync(path.join(TMP, 'receipts-'))) => {
+    let out = '';
+    const code = await rel.runRelease({
+      root: repo,
+      receiptDir: dir,
+      stage0: [{ name: 'stage0', cmd: GREEN.cmd, args: GREEN.args }],
+      lanes,
+      logDir: mkdtempSync(path.join(TMP, 'logs-rel-')),
+      timingsPath: path.join(mkdtempSync(path.join(TMP, 'timings-')), 'last-run.json'),
+      probe,
+      clock: fakeClock(),
+      write: (t) => { out += t; },
+    });
+    const receiptPath = gr.receiptPathIn(dir);
+    const pendingPath = gr.pendingPathIn(dir);
+    let receipt = null;
+    try { receipt = JSON.parse(readFileSync(receiptPath, 'utf8')); } catch { receipt = null; }
+    return { code, out, dir, receipt, pendingExists: existsSync(pendingPath) };
+  };
+
+  // GREEN: the receipt is written, and it names this gate.
+  const greenRun = await run([
+    { name: 'A', steps: [GREEN] },
+    { name: 'B', steps: [GREEN, GREEN] },
+  ]);
+  check(greenRun.code === 0, `an all-green release run exits 0 (got ${greenRun.code})`);
+  check(greenRun.receipt != null, 'an all-green release run WRITES a gate receipt');
+  check(
+    greenRun.receipt?.gate === gr.RELEASE_GATE_NAME,
+    `the receipt names the gate that made it (${greenRun.receipt?.gate})`,
+  );
+  check(
+    greenRun.receipt?.sha === execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
+    'the receipt is about the tree that was tested',
+  );
+  check(greenRun.pendingExists === false, 'the pending marker is consumed by a green run');
+  check(/RELEASE GATE green/.test(greenRun.out), 'the summary names the gate (§1-22)');
+
+  // REVERSE CONTROL — the same table with one step red. Without this, every
+  // assertion above also passes against a runner that writes a receipt always.
+  const redRun = await run([
+    { name: 'A', steps: [GREEN] },
+    { name: 'B', steps: [RED, GREEN] },
+  ]);
+  check(redRun.code !== 0, `a red lane makes the release run non-zero (got ${redRun.code})`);
+  check(redRun.receipt === null, 'REVERSE CONTROL: a red lane writes NO receipt');
+  check(
+    redRun.pendingExists === false,
+    'REVERSE CONTROL: a red run also drops the pending marker, so no later --end can close it',
+  );
+  check(/NO RECEIPT WRITTEN/.test(redRun.out), '  ...and says so where the operator will read it');
+
+  // A STANDING RECEIPT IS INVALIDATED BY A RUN THAT THEN GOES RED. The hazard is
+  // not the red run; it is the proof from ten minutes ago still sitting on disk,
+  // valid by all four conditions, next to a tree somebody has just re-proved
+  // into redness.
+  const dir2 = mkdtempSync(path.join(TMP, 'receipts-standing-'));
+  const standing = {
+    version: gr.RECEIPT_VERSION,
+    gate: gr.SEQUENTIAL_GATE_NAME,
+    sha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
+    digest: gr.fingerprint(repo).digest,
+    dirtyCount: 0,
+    tools: gr.toolStamp(),
+    startedAt: 1, finishedAt: Date.now(),
+  };
+  mkdirSync(dir2, { recursive: true });
+  writeFileSync(gr.receiptPathIn(dir2), JSON.stringify(standing));
+  check(
+    gr.readValidReceipt({ root: repo, dir: dir2 }).ok === true,
+    'POSITIVE CONTROL: the planted receipt is valid before the run (otherwise the next check proves nothing)',
+  );
+  const afterRed = await run([{ name: 'A', steps: [RED] }], cleanProbe, dir2);
+  check(afterRed.receipt === null, 'a run that starts and goes red INVALIDATES the receipt that was there');
+
+  // REFUSALS. Each one must stop the gate before a single lane starts — asserted
+  // with a sentinel a lane writes, not by reading the summary text.
+  rmSync(sentinel, { force: true });
+  const dirtyRun = await run([{ name: 'A', steps: [TOUCH] }], {
+    dirty: () => ['apps/mobile/lib/x.dart'],
+    processes: () => ({ ok: true, procs: [] }),
+  });
+  check(dirtyRun.code === 1, 'a dirty tree is refused');
+  check(existsSync(sentinel) === false, '  ...before any lane runs');
+  check(/working tree is not clean/.test(dirtyRun.out), '  ...naming the tree, and the paths');
+  check(/apps\/mobile\/lib\/x\.dart/.test(dirtyRun.out), '  ...listing the actual paths');
+  check(dirtyRun.receipt === null, '  ...and no receipt is written');
+
+  // The sentinel is per-case: without this reset, one failing refusal would make
+  // every later "...before any lane runs" fail too, and a cascade reads like
+  // five defects when there is one.
+  rmSync(sentinel, { force: true });
+  const orphanRun = await run([{ name: 'A', steps: [TOUCH] }], {
+    dirty: () => [],
+    processes: () => ({ ok: true, procs: [{ pid: 4242, ppid: 1, name: 'flutter_tester.exe', cmd: 'flutter_tester.exe' }] }),
+  });
+  check(orphanRun.code === 1, 'a leftover test process is refused');
+  check(existsSync(sentinel) === false, '  ...before any lane runs');
+  check(/pid 4242/.test(orphanRun.out), '  ...naming the PID so it can be dealt with');
+
+  rmSync(sentinel, { force: true });
+  const blindRun = await run([{ name: 'A', steps: [TOUCH] }], {
+    dirty: () => [],
+    processes: () => ({ ok: false, procs: [], reason: 'powershell is not on PATH' }),
+  });
+  check(blindRun.code === 1, 'a process table that could not be READ is refused, not assumed empty');
+  check(/could not read the process table/.test(blindRun.out), '  ...and says which question went unanswered');
+
+  // POSITIVE CONTROL for the three refusals above: the same lane, same sentinel,
+  // with nothing to refuse — otherwise "the sentinel is absent" would also be
+  // true of a runner that never runs anything at all.
+  rmSync(sentinel, { force: true });
+  const okRun = await run([{ name: 'A', steps: [TOUCH] }]);
+  check(okRun.code === 0 && existsSync(sentinel), 'POSITIVE CONTROL: with clean preconditions the lane DOES run');
+
+  // -- 5.4 --dist-ready: the only stage this gate will not run ---------------
+  //
+  // The claim being checked is narrow and load-bearing: `--dist-ready` may drop
+  // the protocol-dist stage ONLY when the dist on disk is provably the build of
+  // the source on disk, and must refuse — before `begin()`, before any lane —
+  // when it is not. `scripts/protocol-dist-stamp.test.mjs` drives the judgment
+  // itself; these cases drive the WIRING, which is the half that can be right
+  // in a module and wrong in the gate.
+  const distStage = (name) => [{ name, cmd: GREEN.cmd, args: GREEN.args }];
+  const runDist = async (opts) => {
+    let out = '';
+    const dir = mkdtempSync(path.join(TMP, 'receipts-dist-'));
+    const code = await rel.runRelease({
+      root: repo,
+      receiptDir: dir,
+      stage0: [...distStage('preflight'), { name: 'protocol-dist', cmd: TOUCH.cmd, args: TOUCH.args }],
+      lanes: [{ name: 'A', steps: [GREEN] }],
+      logDir: mkdtempSync(path.join(TMP, 'logs-dist-')),
+      timingsPath: path.join(mkdtempSync(path.join(TMP, 'timings-dist-')), 'last-run.json'),
+      probe: cleanProbe,
+      clock: fakeClock(),
+      write: (t) => { out += t; },
+      ...opts,
+    });
+    let receipt = null;
+    try { receipt = JSON.parse(readFileSync(gr.receiptPathIn(dir), 'utf8')); } catch { receipt = null; }
+    return { code, out, receipt };
+  };
+
+  // Without the flag the stage runs — the sentinel IS the protocol-dist stage
+  // here, so "did it run" is a fact on disk rather than a line of text.
+  rmSync(sentinel, { force: true });
+  const noFlag = await runDist({});
+  check(noFlag.code === 0 && existsSync(sentinel), 'without --dist-ready the protocol-dist stage RUNS (default behaviour untouched)');
+
+  // With the flag and a good proof it does not run, and the run still ends in a
+  // receipt: the proof replaced the stage, it did not excuse it.
+  rmSync(sentinel, { force: true });
+  const ready = await runDist({ distReady: true, checkDist: () => ({ ok: true, reason: 'fingerprint deadbeefcafe… (drill)' }) });
+  check(ready.code === 0, 'with --dist-ready and a valid stamp the run is green');
+  check(existsSync(sentinel) === false, '  ...and the protocol-dist stage did NOT run (no sentinel)');
+  check(/protocol-dist NOT rebuilt/.test(ready.out), '  ...and the run says which stage it skipped');
+  check(/deadbeefcafe/.test(ready.out), '  ...and names the proof it stood on, not just that it had one');
+  check(ready.receipt != null, '  ...and a receipt is still written');
+
+  // REVERSE CONTROL — the same flag with a stamp that does not match. This is
+  // the red line the whole flag hangs on: a stale dist must stop the gate
+  // BEFORE the receipt exists, not produce one for a stale contract.
+  rmSync(sentinel, { force: true });
+  const stale = await runDist({ distReady: true, checkDist: () => ({ ok: false, reason: 'the dist on disk is the build of a DIFFERENT source (drill)' }) });
+  check(stale.code === 1, 'REVERSE CONTROL: --dist-ready with a stale stamp REFUSES (exit 1)');
+  check(stale.receipt === null, '  ...writes no receipt');
+  check(existsSync(sentinel) === false, '  ...and refuses before any stage runs');
+  check(/--dist-ready was passed, but/.test(stale.out), '  ...naming the flag and what it could not prove');
+  check(/DIFFERENT source/.test(stale.out), '  ...and quoting the judgment verbatim rather than summarising it');
+
+  // And the real judgment, against a real tree with no protocol package in it
+  // at all: the wiring reaches the actual checkStamp, not only an injected fake.
+  rmSync(sentinel, { force: true });
+  const realJudge = await runDist({ distReady: true });
+  check(realJudge.code === 1, 'the DEFAULT judgment is the real checkStamp (a sandbox with no stamp is refused)');
+  check(/no stamp at/.test(realJudge.out), '  ...with the real module own words (no stamp at all)');
+}
+check(snapshot() === relBefore, 'section 5 left the real gate receipt files exactly as it found them');
+
+// The gate names a release may cite is ONE list, and the deploy side (web repo,
+// SC-2) reads it rather than keeping a copy.
+check(
+  Array.isArray(gr.ACCEPTED_GATE_NAMES)
+    && gr.ACCEPTED_GATE_NAMES.includes('verify:delivery')
+    && gr.ACCEPTED_GATE_NAMES.includes('verify:delivery:release'),
+  `ACCEPTED_GATE_NAMES holds both gates (${(gr.ACCEPTED_GATE_NAMES ?? []).join(', ')})`,
+);
+const gatesOut = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'gate-receipt.mjs'), '--gates'], {
+  cwd: ROOT, encoding: 'utf8',
+});
+check(
+  gatesOut.status === 0
+    && gatesOut.stdout.trim().split(/\r?\n/).join('|') === gr.ACCEPTED_GATE_NAMES.join('|'),
+  '`gate-receipt.mjs --gates` prints exactly that list, one per line, for the deploy side to read',
+);
+check(
+  /readValidReceipt\(/.test(readFileSync(path.join(ROOT, 'scripts', 'publish.mjs'), 'utf8')),
+  'publish.mjs still delegates the accept decision to readValidReceipt (so both gates are accepted there by construction)',
+);
+
+// ---------------------------------------------------------------------------
 rmSync(TMP, { recursive: true, force: true });
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} gate-fast-runner: ${checks - failures}/${checks} checks`);
-console.log(`ACCOUNTING: sections run 4/4, checks ${checks - failures}/${checks}`);
+console.log(`ACCOUNTING: sections run 5/5, checks ${checks - failures}/${checks}`);
 process.exit(failures === 0 ? 0 : 1);

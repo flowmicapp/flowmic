@@ -162,7 +162,7 @@ describe('D1 §6.2 — GET /api/cloud/billing/events', () => {
     // who they are is both a lie and an oracle.
     const r = await get('/api/cloud/billing/events');
     expect(r.status).toBe(401);
-    expect(r.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(r.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
   });
 
   it('an account with no events gets an explicit empty list, not a 404', async () => {
@@ -244,7 +244,7 @@ describe('2026-09-02 F3/F9 — GET /api/cloud/billing/refunds', () => {
   it('no Bearer → 401, and the body names the reason (no silent empty list)', async () => {
     const r = await get('/api/cloud/billing/refunds');
     expect(r.status).toBe(401);
-    expect(r.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(r.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
   });
 
   it('an account with no refund requests gets an explicit empty list, not a 404', async () => {
@@ -314,7 +314,7 @@ describe('0.2.38 — GET /api/cloud/billing/orphans (ops surface)', () => {
   it('no Bearer → 401 by name (an ops read is not public)', async () => {
     const r = await get('/api/cloud/billing/orphans');
     expect(r.status).toBe(401);
-    expect(r.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(r.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
   });
 
   // ── 🔴 REVERSE CONTROL: 「you do not have permission」 must not be spelled 「there are no such rows」 ──────────

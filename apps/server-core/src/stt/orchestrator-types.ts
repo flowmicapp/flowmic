@@ -28,6 +28,60 @@ export const DEFAULT_ENGINE_SPAWN_TIMEOUT_MS = 5_000;
 export const DEFAULT_ENGINE_FLUSH_TIMEOUT_MS = 3_000;
 
 /**
+ * NR-38 — the cold-open cap for an engine whose `open()` is a MODEL LOAD rather
+ * than a dial.
+ *
+ * WHY IT HAD TO BE SAID OUT LOUD THE DAY THE LOOP WAS FREED. Until sherpa-local
+ * stopped building its ONNX session on the JS thread, the 5 s cap above could
+ * not fire against it at all: the native constructor blocked the loop straight
+ * past the due time and the settled work promise, a microtask, beat the timer
+ * every run (ledger §25 / G10). Freeing the loop makes that cap LIVE on this
+ * path for the first time — and 5 s is a number chosen for reaching a SERVER.
+ * The measurements say those are not the same question:
+ *
+ *   SenseVoice, 229 MB   cold open 1_852 ms            (dev-pc-a, measured 2026-09-13)
+ *   whisper-turbo, 1.03 GB  frame at 6_019‥7_976 ms    (ledger §25, 8 cold runs)
+ *
+ * ⇒ keeping 5 s here would have turned a whisper-turbo cold start that works
+ * today into a loud STT failure, which is not a defect anyone reported and not
+ * what NR-38 asked for. 60 s is NOT a new policy number: it is the ceiling G10
+ * already reasoned its way to for this exact path (`verify/golden/
+ * g10-record-only.mjs` MOBILE_TOLD_CEILING_MS), and for the reason written
+ * there — "a LIVENESS bound, not a performance claim", because what really
+ * bounds this open is how long this machine takes to read and load whichever
+ * pack the user downloaded, which is not a number the product can know.
+ *
+ * ⚠️ What it buys: a local open that is genuinely STUCK now ends, loudly, at
+ * 60 s. Before this it ended never.
+ */
+export const LOCAL_MODEL_ENGINE_SPAWN_TIMEOUT_MS = 60_000;
+
+/**
+ * The cold-open cap for one engine id, or `undefined` for "the default is
+ * right". Exported as a function of the id rather than inlined at the call
+ * site so the answer has ONE author and one test.
+ */
+export function spawnTimeoutForEngine(engineId: string): number | undefined {
+  return isLocalModelEngine(engineId) ? LOCAL_MODEL_ENGINE_SPAWN_TIMEOUT_MS : undefined;
+}
+
+/**
+ * NR-38 — "this engine LOADS A MODEL instead of dialling a server".
+ *
+ * `sherpa-local` is the only one (probe-routes.ts calls the same id
+ * 'local-model'). A second one belongs on this line, not in a second `if`
+ * somewhere else — which is why this was lifted out of
+ * {@link spawnTimeoutForEngine}: two facts now hang off it and they must not be
+ * able to disagree. It answers BOTH "how long may the cold open take"
+ * (60 s rather than the 5 s meant for reaching a server) and "does the user get
+ * told during that wait" (`engine-status{loading}`, emitted by
+ * `orchestrator-core.ts spawnEngine`). An engine that dials gets neither.
+ */
+export function isLocalModelEngine(engineId: string): boolean {
+  return engineId === 'sherpa-local';
+}
+
+/**
  * Card RT-2 — how long the voice may be absent before the ENGINE LEG is hung up.
  *
  * 3 s is the plan's number, not a tuned one:

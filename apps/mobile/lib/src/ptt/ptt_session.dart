@@ -50,7 +50,14 @@ import '../signaling/http_endpoint.dart';
 import '../signaling/lan_pinning.dart';
 import '../signaling/inbound_payloads.dart';
 import '../signaling/mobile_reconnect_flow.dart';
-import '../signaling/node_follow.dart' show answeringNode, pcHomeNodeOf, settledAtHomeNode;
+import '../signaling/node_follow.dart'
+    show
+        answeringNode,
+        nodeToFollowBetween,
+        pcHomeNodeOf,
+        resolveNodeUrl,
+        sameRelayHost,
+        settledAtHomeNode;
 import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop, planSelfNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
@@ -358,6 +365,13 @@ class PttSession {
   /// wrong, and what it cost, is at the sole-writer site of
   /// [PttSession.noteRoomJoined] in ptt_reconnect_ack.dart.
   final ValueNotifier<int> roomJoins = ValueNotifier<int>(0);
+  /// owner 2026-09-17 — 「this session is the site demo, and it is temporary」.
+  /// Written by ONE site (`pair()` on a `PairEntry.ephemeral` ack), cleared by
+  /// `clearConnectedInstance`. Read by the chat header (the standing note) and
+  /// the chat exits (peer gone ⇒ leave, no reconnect). A ValueNotifier rather
+  /// than a bool so a screen already mounted repaints on the edge.
+  /// Design: docs/strategy/2026-09-17-app-ephemeral-demo-session-design.md.
+  final ValueNotifier<bool> ephemeralSession = ValueNotifier<bool>(false);
   void noteRoomJoined({required bool atHomeNode}) { reconnect.noteJoinAtHomeNode(atHomeNode); roomJoins.value++; } // P0: the verdict BEFORE the edge — see ReconnectCoordinator.lastJoinAtHomeNode
 
   /// Seam so the channel reading is testable without a network.

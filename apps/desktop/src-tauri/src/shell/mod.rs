@@ -129,6 +129,7 @@ const MAIN: &str = "main";
 /// about which machine it configures. Pinned to the LAN slot: when the local
 /// service is down the edit holds pending (「stored locally」), exactly like any other
 /// wire failure — never silently rerouted to a different server.
+/// ⚠️ NR-48 — fast lock-inner closure only; slow sidecar-ack waits go through [`with_socket_handle`].
 fn with_lan_socket<R>(state: &State<'_, SocketState>, f: impl FnOnce(&DesktopSocket) -> R, fallback: R) -> R {
     match state.lock() {
         Ok(guard) => match guard.slot(crate::socket::Channel::Lan) {
@@ -139,6 +140,7 @@ fn with_lan_socket<R>(state: &State<'_, SocketState>, f: impl FnOnce(&DesktopSoc
     }
 }
 
+/// ⚠️ NR-48 — fast lock-inner closure only; slow sidecar-ack waits go through [`with_socket_handle`].
 pub(crate) fn with_socket<R>(state: &State<'_, SocketState>, f: impl FnOnce(&DesktopSocket) -> R, fallback: R) -> R {
     match state.lock() {
         Ok(guard) => match guard.primary() {
@@ -157,6 +159,7 @@ pub(crate) fn with_socket<R>(state: &State<'_, SocketState>, f: impl FnOnce(&Des
 /// that minted it, so borrowing the other channel's code is not a fallback — it is a
 /// wrong answer the phone will act on and fail with `PAIR_INVALID_CODE`. No session
 /// on that channel ⇒ no code, which the modal already renders as 「refresh」/loud failure.
+/// ⚠️ NR-48 — fast lock-inner closure only; slow sidecar-ack waits go through [`with_socket_handle`].
 pub(crate) fn with_channel_socket<R>(
     state: &State<'_, SocketState>,
     channel: crate::socket::Channel,
@@ -266,6 +269,9 @@ pub use tray::setup_tray;
 /// lesson generalises: this file is cited from several places, and the durable
 /// repair is to delete the number, not to be careful about where lines go in.
 mod channel_session;
+// NR-48 — `with_socket_handle`: lock discipline for the device-page verbs; see `socket_handle.rs`.
+mod socket_handle;
+pub(crate) use socket_handle::with_socket_handle;
 
 /// The phones PAIRED to this PC — the device page's 「paired phones」 table (R6 T-8).
 /// Returns the ack's `mobiles` array narrowed to the seven public fields
@@ -311,28 +317,20 @@ pub fn release_mobile(
         // `None` (an older frontend, or a row with no tag) falls back to the primary
         // socket — the exact pre-0.2.7 behaviour, never a silent no-op.
         let target = channel.as_deref().and_then(crate::socket::Channel::from_tag);
-        let Some(channel) = target else {
-            let ok = with_socket(&state, |s| s.release_mobile(&id, revoke, RELEASE_TIMEOUT), false);
-            if ok {
-                if let Ok(g) = state.lock() {
-                    free_capsule_after_release(&g.admission, &id, revoke);
-                }
-            }
-            return ok;
-        };
-        let guard = match state.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        let ok = match guard.slot(channel) {
-            Some(sock) => sock.release_mobile(&id, revoke, RELEASE_TIMEOUT),
-            // That channel is not resident, so nobody can carry the request. FALSE,
-            // never true — the page must say it failed rather than leave a row the
-            // user believes is gone.
-            None => false,
-        };
+        // NR-48 — clone the handle out of the lock, then wait OUTSIDE it. `target=None`
+        // → primary fallback; `Some(ch)` → that channel only (both pre-NR-48 branches).
+        let ok = with_socket_handle(&state, target, |handles| {
+            handles
+                .map(|h| h.release_mobile(&id, revoke, RELEASE_TIMEOUT))
+                // No resident handle → nobody can carry the request. FALSE, never true.
+                .unwrap_or(false)
+        });
         if ok {
-            free_capsule_after_release(&guard.admission, &id, revoke);
+            // Re-lock ONLY for the capsule hand-back — `Sessions.admission` is
+            // process-wide and stable, so it cannot cross to a swapped socket.
+            if let Ok(g) = state.lock() {
+                free_capsule_after_release(&g.admission, &id, revoke);
+            }
         }
         ok
     })
@@ -401,12 +399,10 @@ pub fn refresh_pairing_code(
     // worker, and the body blocks on an ack wait (up to 5.5 s). See `socket::blocking`.
     run_blocking(|| {
         let target = connection::resolve_pairing_channel(channel.as_deref(), current_channel(&state));
-        with_channel_socket(
-            &state,
-            target,
-            |s| s.refresh_pairing_code(std::time::Duration::from_secs(5)),
-            None,
-        )
+        // NR-48 — clone the send handle out of the lock, then wait OUTSIDE it.
+        with_socket_handle(&state, Some(target), |handles| {
+            handles.and_then(|h| h.refresh_pairing_code(std::time::Duration::from_secs(5)))
+        })
     })
 }
 

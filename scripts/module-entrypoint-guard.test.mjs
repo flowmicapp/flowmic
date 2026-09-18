@@ -63,7 +63,25 @@ console.log('\nreverse control: an UNGUARDED module still exits 0 in silence');
   // The exact shape the guard exists to catch, proven to still exist elsewhere.
   // If this ever flips, the guard became repo-wide and this drill's claim in
   // platform-cfg-count.mjs ("only this lint carries the guard") went stale.
-  const r = spawnSync(node, [path.join(ROOT, 'verify', 'lint', '_util.mjs')], { encoding: 'utf8' });
+  //
+  // Measured 2026-09-14: on a host with NODE_USE_ENV_PROXY=1 and/or
+  // HTTP_PROXY/HTTPS_PROXY set, Node 22.22 prints an experimental-feature
+  // warning to every child process's stderr, unrelated to this module:
+  //   (node:NNN) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental,
+  //   expect them to change at any time.
+  // That broke the "no output" half of this assertion on any proxied
+  // machine even though the guard itself never fired. Strip the proxy
+  // variables from the child's env so the warning cannot be emitted, rather
+  // than loosening the assertion — "no output" should keep meaning exactly
+  // that.
+  const childEnv = { ...process.env };
+  delete childEnv.NODE_USE_ENV_PROXY;
+  delete childEnv.HTTP_PROXY;
+  delete childEnv.HTTPS_PROXY;
+  delete childEnv.ALL_PROXY;
+  delete childEnv.http_proxy;
+  delete childEnv.https_proxy;
+  const r = spawnSync(node, [path.join(ROOT, 'verify', 'lint', '_util.mjs')], { encoding: 'utf8', env: childEnv });
   check(
     'verify/lint/_util.mjs exits 0 with no output (unguarded, as documented)',
     r.status === 0 && (r.stdout + r.stderr).trim() === '',

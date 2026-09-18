@@ -92,6 +92,16 @@ void clearConnectedInstanceRouted(PttSession s) {
   // too is a statement 「said by this connection」
   s._stopPresencePoll(); // G-15①: a deliberate departure doesn't wait for a
   // socket-disconnect event to turn it off.
+  // owner 2026-09-17 — an EPHEMERAL (site-demo) session leaves nothing behind
+  // (design §5). The token was never persisted (ptt_pair.dart skips
+  // `addOrUpdatePairing`), so the last copy of it is the ladder's — a ladder
+  // that was never started for this session and therefore can be emptied here
+  // rather than overwritten by whatever pairs next. Cleared AFTER the poll
+  // above, which is the last reader of `reconnect.url/.token`.
+  if (s.ephemeralSession.value) {
+    s.ephemeralSession.value = false;
+    s.reconnect.forgetCredentials();
+  }
 }
 
 extension PttSessionResume on PttSession {

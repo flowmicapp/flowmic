@@ -241,3 +241,91 @@ describe('mounting — the relay is the deployment that needs this', () => {
     expect(handlerFor('saas')(request('GET', PC_PRESENCE_PATH, 'fm_' + 'a'.repeat(64)), res)).toBe(false);
   });
 });
+
+// ── NR-61 (2026-09-17) — WHERE that computer is, beside WHETHER it is there ──
+//
+// The defect these pin is not on this route: it is that a phone whose socket
+// never dropped has nothing that hands it `home_node` a second time after its
+// PC re-picked a node (`socket/node_select.rs` re-chooses on every start, on the
+// offline switch returning, and on a heartbeat-death rebuild). Its room stays in
+// the old process and `audio.handler.ts` `mirrorToPc` drops every frame for a
+// room with no PC in it — no error, no log, both ends green
+// (docs/strategy/2026-09-16-node-selection-audit.md §5-C).
+//
+// So what is asserted here is narrow and exact: THE FACT REACHES THE WIRE, and
+// it reaches it ONLY where there is a fact to state. The phone half — noticing
+// that it disagrees with where its own socket is, and moving — is
+// apps/mobile/test/node_follow_after_presence_test.dart, and it is the half that
+// has the reverse control.
+describe('NR-61 — the presence answer says WHICH node, so a phone can notice its PC moved', () => {
+  /** A node-aware deployment: this process answers as `srvny`, and its rows are
+   *  its own (writer), so `pcPresence` takes the same branches it takes today. */
+  const AS_NODE = (id: string) => ({ nodeIdFor: (): string => id, rowsFromReplicationPull: false });
+
+  function askAs(
+    w: ReturnType<typeof world>,
+    token: string,
+    opts: { nodeIdFor: () => string | null; rowsFromReplicationPull: boolean },
+  ) {
+    const { res, read } = response();
+    tryHandlePresenceRoutes(request('GET', PC_PRESENCE_PATH, token), res, {
+      registry: w.registry,
+      store: w.store as unknown as RoomStore,
+      pcs: w.db.pcs,
+      ...opts,
+    });
+    return read();
+  }
+
+  it('🔴 carries the PC\'s home node and the answering node, and they can DISAGREE', () => {
+    const w = world();
+    // The shape the card is about: the PC moved to srvjp, this phone is still
+    // asking srvny. The row here is fresh (a forwarded heartbeat), so the one
+    // bit is TRUE — the computer really is running.
+    w.db.pcs.setHomeNode(w.a.pc.id, 'srvjp');
+    w.db.pcs.touchLastSeen(w.a.pc.id, new Date().toISOString());
+
+    const { body } = askAs(w, w.a.token, AS_NODE('srvny'));
+    expect(body).toMatchObject({ ok: true, home_node: 'srvjp', node: 'srvny' });
+    // 🔴 AND THE BIT IS NOT NARROWED BY THE DISAGREEMENT. `pcPresence` has four
+    // surfaces and the console is one of them; making a remote PC read absent
+    // here is the defect 2026-09-01 removed. This route answers "is it there",
+    // the two new keys answer "and where" — two questions, two answers.
+    expect(body.pc_online).toBe(true);
+  });
+
+  it('agreement is stated, not inferred from silence', () => {
+    const w = world();
+    w.db.pcs.setHomeNode(w.a.pc.id, 'srvny');
+    w.store.joinPc(w.a.pc.room_uuid, { id: 'sock-pc-a' });
+    w.db.pcs.touchLastSeen(w.a.pc.id, new Date().toISOString());
+    // Both keys present and EQUAL is a different message from both keys absent:
+    // the first says "I checked, you are in the right place", the second says
+    // "there are no nodes here to be in the wrong one". A phone that had to read
+    // agreement out of an omission could not tell those apart.
+    expect(askAs(w, w.a.token, AS_NODE('srvny')).body)
+      .toMatchObject({ home_node: 'srvny', node: 'srvny' });
+  });
+
+  it('REVERSE CONTROL — a single-node deployment sends NEITHER key', () => {
+    const w = world();
+    w.store.joinPc(w.a.pc.room_uuid, { id: 'sock-pc-a' });
+    // This is the degrade direction the whole additive change rests on, and it
+    // is the one every LAN sidecar and every self-hosted relay takes: no node
+    // id, no stamped home, so the body is byte-for-byte what this route has
+    // always sent (the 'no inventory' case above pins that key set literally).
+    const { body } = askAs(w, w.a.token, SINGLE_NODE);
+    expect(Object.keys(body).sort()).toEqual(['ok', 'pc_id', 'pc_online']);
+  });
+
+  it('a node-aware process still omits `home_node` for a PC that never registered on one', () => {
+    const w = world();
+    // `home_node` is NULL until a PC is admitted somewhere. Omitted rather than
+    // sent as '' or null: the phone's rule for absent, empty and wrong-typed is
+    // one rule (`node_follow.dart`), and a third spelling is a third way to get
+    // it wrong.
+    const { body } = askAs(w, w.a.token, AS_NODE('srvny'));
+    expect(body).toMatchObject({ node: 'srvny' });
+    expect('home_node' in body).toBe(false);
+  });
+});

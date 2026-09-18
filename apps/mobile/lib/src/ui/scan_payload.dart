@@ -35,7 +35,26 @@ import '../../generated/flowmic_protocol.g.dart' show FlowMicPairLink;
 
 /// The FlowMic pairing-link scheme + host (04 §3.1). A payload must start with
 /// this to be ours; anything else is somebody else's QR.
-const String kPairLinkPrefix = 'flowmic://pair';
+///
+/// 🔴 GENERATED, NOT HAND-TYPED (card H-14, 2026-09-15) — same treatment as
+/// [kPairLinkPrefixHttps] below, and for the same reason one card later.
+/// [FlowMicPairLink.customPrefix] is emitted from `PAIR_CUSTOM_SCHEME` +
+/// `PAIR_CUSTOM_HOST` in packages/protocol/src/constants.ts by
+/// apps/mobile/tool/gen_protocol.mjs, which every mobile target runs through
+/// `make gen`. Before that this literal was ONE of at least three: the desktop
+/// builder typed the prefix inline, this file declared it, and
+/// `PairEntry.parse` (signaling/wire_payloads.dart) typed a third copy rather
+/// than importing this one — while the lint that guards the https twin
+/// (`pair-link-single-source`) covered only the https spelling, so nothing in
+/// the repo could even count them.
+///
+/// 🔴 THE ONE Dart spelling. `PairEntry.parse` imports this; nothing under
+/// `apps/mobile/lib` may re-type it — `verify:lint pair-link-single-source`
+/// now fails on a hand-typed literal of this prefix exactly as it does on the
+/// https form. (That scan looks for the prefix immediately after a quote, so
+/// this very comment may not spell it in quotes — which is the guard working,
+/// not a wording preference.)
+const String kPairLinkPrefix = FlowMicPairLink.customPrefix;
 
 /// S1-02 — the https form of the same link (design addendum §3: only the
 /// scheme+host change, the query is identical). The host is part of the fixed
@@ -67,6 +86,46 @@ const String kPairLinkPrefixHttps = FlowMicPairLink.httpsPrefix;
 /// user who scans it inside the PAIRING sheet is told to use the login screen,
 /// instead of being told their pairing code is malformed.
 const String kLoginLinkPrefix = 'flowmic://login';
+
+/// The LAST path segment of the site-demo pair link (`DEMO_PAIR_HTTPS_PATH`,
+/// generated as [FlowMicPairLink.demoPath]). `demo` today — read off the
+/// generated constant rather than typed, for the same reason the two prefixes
+/// above are generated.
+///
+/// owner 2026-09-17 (docs/decisions/2026-09-17-owner-app-scans-demo-qr-as-
+/// ephemeral-session.md): the App may scan the site's demo QR and join as an
+/// EPHEMERAL session. Design: docs/strategy/2026-09-17-app-ephemeral-demo-
+/// session-design.md §0.
+final String kDemoPairLinkLastSegment =
+    FlowMicPairLink.demoPath.split('/').last;
+
+/// 「这是不是官网演示码」("is this the site's demo code") — host + LAST path
+/// segment, deliberately NOT a prefix test.
+///
+/// 🔴 WHY NOT `startsWith`. The site prefixes a locale in front of the path
+/// (`/go/zh-cn/demo` on the Simplified-Chinese page; the island only promises
+/// the last segment stays put), so a fixed prefix would accept the English
+/// page's code and refuse every other language's — a defect that is invisible
+/// on the developer's own locale. `/go/pair` and `/go/xx/pair` end in `pair`
+/// and are not this; `/go/demo/anything` does not end in `demo` and is not
+/// this either — a foreign QR must keep getting the loud, named refusal.
+///
+/// The host is compared LITERALLY, exactly as [kPairLinkPrefixHttps] does:
+/// `https://` alone would let any web page's URL through as 「ours」.
+///
+/// 🔴 THE ONE reader for both consumers: [classifyScan] (camera frame) and
+/// `PairEntry.parse` (signaling/wire_payloads.dart, which marks the entry
+/// `ephemeral`). Two hand-written copies of this judgement would drift the
+/// first time one of them was edited.
+bool isDemoPairLink(String raw) {
+  final Uri? uri = Uri.tryParse(raw.trim());
+  if (uri == null) return false;
+  if (uri.scheme.toLowerCase() != 'https') return false;
+  if (uri.host.toLowerCase() != FlowMicPairLink.host) return false;
+  final List<String> segments = uri.pathSegments;
+  if (segments.isEmpty) return false;
+  return segments.last == kDemoPairLinkLastSegment;
+}
 
 enum ScanVerdict {
   /// No barcode / empty value — keep scanning, say nothing.
@@ -110,6 +169,12 @@ ScanResult classifyScan(String? raw) {
   if (lower.startsWith(kPairLinkPrefix) || lower.startsWith(kPairLinkPrefixHttps)) {
     return ScanResult(ScanVerdict.pairLink, value);
   }
+  // owner 2026-09-17 — the site's demo QR is ours too, passed through verbatim
+  // like the two forms above; `PairEntry.parse` is what turns it into an
+  // ephemeral entry. Same verdict on purpose: the sheet's job is unchanged
+  // (stop the camera, hand the link to `addByCode`), and a third verdict would
+  // be a second place deciding what 「temporary」 means.
+  if (isDemoPairLink(value)) return ScanResult(ScanVerdict.pairLink, value);
   if (lower.startsWith(kLoginLinkPrefix)) return const ScanResult(ScanVerdict.loginLink);
   return const ScanResult(ScanVerdict.foreign);
 }

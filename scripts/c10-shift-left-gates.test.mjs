@@ -26,7 +26,7 @@
 // Run: `node scripts/c10-shift-left-gates.test.mjs`
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -227,6 +227,11 @@ console.log('\n§2 gate receipt (C10-4) — driven against a real temporary git 
     const tools = ['cargo@cargo 1.0.0', 'node@v22.0.0'];
     const good = {
       version: m.RECEIPT_VERSION,
+      // v2 (SC-6): a receipt says WHICH gate proved the tree, because there is
+      // now more than one gate that may (the sequential chain and the parallel
+      // `verify:delivery:release`). A receipt with no gate on it is refused
+      // rather than assumed — see the reverse control further down.
+      gate: m.SEQUENTIAL_GATE_NAME,
       sha: fp4.sha, digest: fp4.digest, dirtyCount: fp4.dirtyCount,
       tools, startedAt: 1000, finishedAt: 2000,
     };
@@ -288,6 +293,47 @@ console.log('\n§2 gate receipt (C10-4) — driven against a real temporary git 
     check('a receipt written by a different recipe version refuses reuse',
       m.readValidReceipt({ root: tmp, now: 2000 + 60_000, tools, dir: DIR }).ok === false);
 
+    // REVERSE CONTROL 4b — the gate NAME is a condition too (SC-6). A receipt is
+    // a claim that some named mechanism proved this tree; a receipt that does not
+    // say which, or names one no release may stand on, is refused rather than
+    // read as "the usual one". The positive half is right below it, because
+    // "everything is refused" would satisfy the first assertion on its own.
+    write({ ...good, gate: undefined });
+    const nameless = m.readValidReceipt({ root: tmp, now: 2000 + 60_000, tools, dir: DIR });
+    check('REVERSE CONTROL: a receipt that does not name its gate refuses reuse', nameless.ok === false);
+    check('  ...and names the gates a release MAY stand on',
+      /verify:delivery:release/.test(nameless.reason ?? ''), nameless.reason);
+    write({ ...good, gate: 'verify:lane' });
+    check('REVERSE CONTROL: a receipt naming a gate that is not a release gate refuses reuse',
+      m.readValidReceipt({ root: tmp, now: 2000 + 60_000, tools, dir: DIR }).ok === false);
+    write({ ...good, gate: m.RELEASE_GATE_NAME });
+    check('POSITIVE CONTROL: the parallel release gate IS accepted',
+      m.readValidReceipt({ root: tmp, now: 2000 + 60_000, tools, dir: DIR }).ok === true);
+    check('the accept-list has exactly the two gates, and is exported for the deploy side to read',
+      m.ACCEPTED_GATE_NAMES.join('|') === 'verify:delivery|verify:delivery:release',
+      m.ACCEPTED_GATE_NAMES.join('|'));
+
+    // A proof may only be CLOSED by the gate that opened it: otherwise the two
+    // could be spliced, and the receipt would name a run that never happened.
+    rmSync(RECEIPT, { force: true });
+    const tSplice = Date.now();
+    m.begin({ root: tmp, now: tSplice, dir: DIR, gate: m.SEQUENTIAL_GATE_NAME });
+    m.end({ root: tmp, now: tSplice + m.MIN_GATE_MS + 1, dir: DIR, gate: m.RELEASE_GATE_NAME });
+    check('REVERSE CONTROL: --end under a different gate name writes NO receipt',
+      existsSync(RECEIPT) === false);
+    // ...and the same pair under one name does write one, so this is a mismatch
+    // check and not a permanent refusal.
+    m.end({ root: tmp, now: tSplice + m.MIN_GATE_MS + 2, dir: DIR, gate: m.SEQUENTIAL_GATE_NAME });
+    check('the gate that opened it CAN close it', existsSync(RECEIPT) === true);
+
+    // `abandon()` is what a red parallel run calls: the pending marker must not
+    // survive a run that will never be allowed to close it.
+    m.begin({ root: tmp, now: tSplice, dir: DIR, gate: m.RELEASE_GATE_NAME });
+    check('a --begin leaves a pending marker', existsSync(m.pendingPathIn(DIR)) === true);
+    check('abandon() reports that it dropped one', m.abandon({ dir: DIR }) === true);
+    check('  ...and it is gone', existsSync(m.pendingPathIn(DIR)) === false);
+    check('  ...and abandoning nothing is not reported as success', m.abandon({ dir: DIR }) === false);
+
     // REVERSE CONTROL 5 — the two stages typed by hand, with no gate between
     // them, must not mint a proof. `&&` cannot prevent that; the elapsed floor
     // can, and it is the honest boundary of "unforgeable" claimed in the header.
@@ -305,6 +351,64 @@ console.log('\n§2 gate receipt (C10-4) — driven against a real temporary git 
     const real = (() => { try { return JSON.parse(readFileSync(RECEIPT, 'utf8')); } catch { return null; } })();
     check('a run that lasted longer than the floor DOES write a receipt', real != null);
     check('  ...recording the toolchain it was proved with', Array.isArray(real?.tools) && real.tools.length > 0);
+
+    // ── SC-2: the receipt names the gate that wrote it, and --status can be
+    // read by a script. Both exist for deploy/delivery_gate.py in the web repo:
+    // it must be able to refuse a proof made by a gate it does not accept, and
+    // it must be able to tell reuse from non-reuse by an EXIT CODE rather than
+    // by matching words in a human sentence.
+    //
+    // ⚠️ RECONCILED WITH SC-6 AT MERGE TIME. SC-2 wrote these against its own
+    // `DEFAULT_GATE`, a constant that made the gate field additive on a v1
+    // receipt; SC-6 made the field required (v2) and turned the accept-list into
+    // the single constant, so the assertions now read SEQUENTIAL_GATE_NAME. The
+    // second half also has to OPEN the marker under the release name: SC-6's
+    // `end()` refuses to close a marker that a different gate opened, which is a
+    // stricter rule than SC-2's lane knew about — and the assertion it is
+    // proving ("a second writer can name itself") is unchanged by it.
+    check('  ...and naming the gate that wrote it', real?.gate === m.SEQUENTIAL_GATE_NAME, String(real?.gate));
+    m.begin({ root: tmp, now: t0, dir: DIR, gate: m.RELEASE_GATE_NAME });
+    m.end({ root: tmp, now: t0 + m.MIN_GATE_MS + 1, dir: DIR, gate: m.RELEASE_GATE_NAME });
+    const named = JSON.parse(readFileSync(RECEIPT, 'utf8'));
+    check('a second writer can name ITSELF instead of borrowing the default',
+      named.gate === 'verify:delivery:release', String(named.gate));
+
+    const capture = (fn) => {
+      const lines = [];
+      const real_log = console.log;
+      console.log = (...a) => lines.push(a.join(' '));
+      try { return { code: fn(), out: lines.join(String.fromCharCode(10)) }; } finally { console.log = real_log; }
+    };
+    const okJson = capture(() => m.status({ root: tmp, now: named.finishedAt + 60_000, dir: DIR, json: true }));
+    const okParsed = (() => { try { return JSON.parse(okJson.out); } catch { return null; } })();
+    check('--status --json exits 0 on a usable proof', okJson.code === 0, JSON.stringify(okJson));
+    check('  ...and emits ONE parseable object naming sha, gate and age',
+      okParsed?.ok === true && okParsed.sha === named.sha && okParsed.gate === named.gate
+      && typeof okParsed.ageMs === 'number', okJson.out.slice(0, 200));
+    check('  ...carrying the SAME banner publish.mjs prints, so the caller cannot drift',
+      typeof okParsed?.banner === 'string' && okParsed.banner.includes('REUSING A GATE PROOF'));
+
+    writeFileSync(RECEIPT, JSON.stringify({ ...named, sha: '0'.repeat(40) }));
+    const badJson = capture(() => m.status({ root: tmp, now: named.finishedAt + 60_000, dir: DIR, json: true }));
+    const badParsed = (() => { try { return JSON.parse(badJson.out); } catch { return null; } })();
+    check('REVERSE CONTROL: --status --json exits 1 when the proof is unusable', badJson.code === 1, JSON.stringify(badJson));
+    check('  ...with the reason carried and NO banner to print',
+      badParsed?.ok === false && /HEAD moved/.test(badParsed.reason ?? '') && badParsed.banner === null,
+      badJson.out.slice(0, 200));
+
+    // ── The two lanes spelled the flag differently (`--gate <name>` in SC-2,
+    // `--gate=<name>` in SC-6) and both spellings now have call sites, so both
+    // parse. The third case is the one worth a test: `--gate` with nothing after
+    // it must be an ERROR, not a quiet fall back to the sequential name — the
+    // whole point of the flag is to say which gate is speaking, so a guess there
+    // would mint a receipt naming a run that did not happen.
+    check('--gate <name> parses', m.gateFromArgv(['--end', '--gate', m.RELEASE_GATE_NAME]) === m.RELEASE_GATE_NAME);
+    check('--gate=<name> parses the same way', m.gateFromArgv(['--end', `--gate=${m.RELEASE_GATE_NAME}`]) === m.RELEASE_GATE_NAME);
+    check('no --gate at all means the sequential chain', m.gateFromArgv(['--end']) === m.SEQUENTIAL_GATE_NAME);
+    check('REVERSE CONTROL: a --gate with no value is refused, not guessed',
+      m.gateFromArgv(['--end', '--gate']) === null && m.gateFromArgv(['--end', '--gate', '--json']) === null);
+    check('  ...and main() turns that refusal into a non-zero exit',
+      m.main(['--end', '--gate']) === 1);
 
   } finally {
     rmSync(tmp, { recursive: true, force: true });

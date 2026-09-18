@@ -2097,6 +2097,12 @@
       "name": "cap_stt_unknown"
     },
     {
+      "key": "cap_stt_loading",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_loading"
+    },
+    {
       "key": "cap_stt_ready",
       "shard": "capsule",
       "kind": "string",
@@ -3911,6 +3917,18 @@
       "shard": "model",
       "kind": "string",
       "name": "model_downloaded"
+    },
+    {
+      "key": "model_delete_in_use",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_delete_in_use"
+    },
+    {
+      "key": "model_cleared_langs",
+      "shard": "model",
+      "kind": "string",
+      "name": "model_cleared_langs"
     },
     {
       "key": "model_total_unknown",

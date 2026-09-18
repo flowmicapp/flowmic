@@ -67,10 +67,18 @@ void _maybeLeaveOnSessionLostRouted(_ChatFlowPageState s) {
     return;
   }
   s._sessionLostHandled = true;
+  // owner 2026-09-17 — an ephemeral (site-demo) session never attempted a
+  // reconnect, so 「repeated reconnect attempts failed」 would be a sentence
+  // about something that did not happen (R11). It reaches this exit through
+  // the same give-up (socket gone, or the demo page gone — chat_notices.dart
+  // `onPcPresenceChangedRouted`), and leaves with its own sentence.
+  final String sentence = s.controller.session.ephemeralSession.value
+      ? s._strings.ephemeralSessionEnded
+      : s._strings.sessionLostToast;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!s.mounted) return;
     ScaffoldMessenger.of(s.context).showSnackBar(
-      SnackBar(content: Text(s._strings.sessionLostToast)),
+      SnackBar(content: Text(sentence)),
     );
     Navigator.of(s.context).popUntil((Route<dynamic> r) => r.isFirst);
   });

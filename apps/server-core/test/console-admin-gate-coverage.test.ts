@@ -588,7 +588,7 @@ describe('admin gate — every declared gate is what the running server actually
       // list is an ANSWER, and answering 「you have no…」 to someone who never proved
       // who they are is both a lie and an oracle.
       expect(anon.status, `${route} did not refuse an anonymous caller`).toBe(401);
-      expect(JSON.parse(anon.body).error, `${route}'s 401 is not named`).toBe('AUTH_TOKEN_INVALID');
+      expect(JSON.parse(anon.body).error, `${route}'s 401 is not named`).toBe('AUTH_ACCOUNT_REQUIRED');
 
       const asNormal = await call(url, route, normal);
       if (gate === 'account') {

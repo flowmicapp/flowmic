@@ -25,12 +25,18 @@ import type { TokenReadThroughSeam } from '../../auth/middleware';
 import { restrictionRefusalBody, restrictionVerdict, type RestrictionReader } from '../../auth/account-restriction';
 import type { AnonymousRowReader } from '../../auth/metering-principal';
 import type { WebTrialIdentities } from '../../auth/web-trial-identity';
+import type { WebLivenessArmer } from '../web-liveness-watchdog';
 import type { BudgetHandlerDeps } from './budget-frames';
 import { safeAck, type ActingIdentity } from '../wire';
 import { logAuthRefusal } from '../../auth/refusal-log';
 
 export interface MobileHandlerDeps extends BudgetHandlerDeps {
   io: Server;
+  /** NR-69 - the 7-second web liveness watch, handed to `joinAndNotify`.
+   *  Omitted in production: `joinAndNotify` falls back to the REAL armer
+   *  (`socket/web-liveness-watchdog.ts`), never to a no-op. Present only in
+   *  tests, which inject a fake clock so no suite ever sleeps 7 seconds. */
+  armWebLiveness?: WebLivenessArmer;
   registry: Registry;
   store: RoomStore<Socket>;
   /** 4-digit-code brute-force guard (WP-R23-1). In-memory, shared across sockets. */
@@ -129,9 +135,12 @@ export interface MobileHandlerDeps extends BudgetHandlerDeps {
    *     connect first and get their credential mid-session, so nothing ran a
    *     read-through for them;
    *   · the REPLICATION PULL RACING US. `replica-puller.ts` applies
-   *     `DELETE FROM t; INSERT INTO t SELECT * FROM snap.t` for every table, so a
-   *     snapshot FETCHED before this pairing existed and APPLIED after we landed
-   *     it erases the row again — underneath a socket that is still open. The
+   *     `DELETE FROM t; INSERT INTO t (cols…) SELECT cols… FROM snap.t` for
+   *     every table, so a snapshot FETCHED before this pairing existed and
+   *     APPLIED after we landed it erases the row again — underneath a socket
+   *     that is still open. (The statement was `SELECT *` until 2026-09-14,
+   *     card D5/NR-22; the race this paragraph describes is unchanged by that —
+   *     it is the DELETE, not the projection.) The
    *     next `mobile:reconnect` (a rejoin, a presence self-heal re-probe) then
    *     misses locally, and THAT refusal is the one the phone deletes its local
    *     pairing on (`mobile_reconnect_flow.dart`, `removeByToken` — one of only

@@ -306,7 +306,13 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // which sent the user to check engines that are fine and told them to say it
 // again — the action that caused it. Full argument at the entry in
 // src/error-codes.ts.
-const EXPECTED_ERROR_CODE_COUNT = 79;
+// 79 → 80 (lane nr18-account-required, 2026-09-15): `AUTH_ACCOUNT_REQUIRED`,
+// owner-approved the same day (ledger §35, NR-18). The server could not say
+// 「this needs an account and this connection has none」: it borrowed
+// `AUTH_TOKEN_INVALID`, which tells a caller who never signed in that their
+// pairing died and sends them to pair again — and on `pc:register` pairing is
+// the verb that just failed. Full argument at the entry in src/error-codes.ts.
+const EXPECTED_ERROR_CODE_COUNT = 80;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {

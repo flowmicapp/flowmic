@@ -554,7 +554,7 @@ test('🔴 the call site is in publish.mjs, beside the gates it is decided with'
     + 'verifyApkCarriesSelfUpdate / verifyApkDisclosureCopy',
   );
   assert.ok(
-    /versionOk && featureOk && disclosureOk && targetOk/.test(publish),
+    /versionOk && featureOk && disclosureOk && targetOk && shaOk/.test(publish),
     'and its verdict must gate staging — a gate whose answer is computed and '
     + 'then ignored is worse than no gate, because the line reads like protection',
   );

@@ -280,6 +280,13 @@ class RetainedAudioJournal {
   /// What the last successful manifest publish CLAIMED. Not the file length.
   int get committedClaimBytes => _manifest.committedClaimBytes;
 
+  /// 🔴 TEST-ONLY AWAIT HANDLE (NR-52). Completes when the serial queue has
+  /// drained — every operation enqueued before this read has been applied.
+  /// It exists so a test can wait for the FACT of a commit landing instead of
+  /// guessing a delay (retained_audio_journal_test.dart's group-commit case);
+  /// production never reads it, and nothing here schedules or delays anything.
+  Future<void> get idle => _serial;
+
   /// What the platform last told us the PCM file contains.
   int get observedBytes => _observedBytes;
 

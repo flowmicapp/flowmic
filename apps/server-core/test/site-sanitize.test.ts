@@ -60,6 +60,10 @@ describe('site sanitize — other dims', () => {
     expect(sanitizeDownloadSrc('demo_phone')).toBe('demo_phone');
   });
 
+  it('download src whitelist: homepage hero try line after the demo ends', () => {
+    expect(sanitizeDownloadSrc('hero_try')).toBe('hero_try');
+  });
+
   it('collect kind: pageview and the five site-demo funnel kinds from the client', () => {
     expect(sanitizeCollectKind('pageview')).toBe('pageview');
     expect(sanitizeCollectKind('register_ok')).toBeNull();

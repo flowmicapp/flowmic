@@ -11,7 +11,10 @@
 //            hsla()). SSOT tokens.css is outside this globs (css), still
 //            path-excluded for defence in depth.
 //   mobile:  apps/mobile/lib/**/*.dart  (Color(0x…) / Colors.<name>).
-//            SSOT tokens.dart excluded. FlowMicColors.x is NOT a hit
+//            SSOT tokens.dart excluded, along with the `part` files it was
+//            split into at the 800-line cap (tokens_scale.dart /
+//            tokens_palette.dart / tokens_dock.dart — see MOBILE_SSOT_FILES).
+//            FlowMicColors.x is NOT a hit
 //            (negative lookbehind so the Material Colors. prefix is required).
 //
 // Tests are EXCLUDED and the count is printed every run (never silently
@@ -60,7 +63,19 @@ export const name = 'design-token-literals';
 const DESKTOP_ROOT = path.join(ROOT, 'apps', 'desktop', 'src');
 const MOBILE_ROOT = path.join(ROOT, 'apps', 'mobile', 'lib');
 const DESKTOP_SSOT = 'apps/desktop/src/styles/tokens.css';
-const MOBILE_SSOT = 'apps/mobile/lib/src/ui/tokens.dart';
+// tokens.dart crossed the 800-line file-size cap and was split VERBATIM into
+// three `part` files (verify/lint/mobile-web-tokens-mirror.mjs's header tells
+// the same story for that lint). Every literal that used to live in
+// tokens.dart now lives in one of these instead, and they are exactly as much
+// the SSOT as the file that `part`-declares them — excluding only the one
+// name would make this lint flag the other two as 46+ new "invented" colours
+// on the day of a pure structural move, not a redesign.
+export const MOBILE_SSOT_FILES = new Set([
+  'apps/mobile/lib/src/ui/tokens.dart',
+  'apps/mobile/lib/src/ui/tokens_scale.dart',
+  'apps/mobile/lib/src/ui/tokens_palette.dart',
+  'apps/mobile/lib/src/ui/tokens_dock.dart',
+]);
 
 // Full colour literals (desktop CSS/TS/Vue).
 export const DESKTOP_RE =
@@ -237,7 +252,7 @@ export default async function run() {
 
   for (const abs of await walk(MOBILE_ROOT, { skipDir })) {
     const r = rel(abs);
-    if (r === MOBILE_SSOT) continue;
+    if (MOBILE_SSOT_FILES.has(r)) continue;
     if (!r.endsWith('.dart')) continue;
     const text = await readText(abs);
     if (text == null) continue;

@@ -236,9 +236,16 @@ void main() {
       expect(j.committedClaimBytes, 0,
           reason: 'nothing is claimed until the group commit runs');
       pendingCallbacks.single();
-      // The commit rides the journal's serial queue, so give the event loop a
-      // turn rather than a single microtask.
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // 🔴 WAIT FOR THE COMMIT, NOT FOR A CADENCE (NR-52 — this line used to be
+      // `await Future<void>.delayed(const Duration(milliseconds: 20))`, a fixed
+      // wait racing the journal's serial queue; card D's lesson is that a
+      // bigger number only widens the window). `_arm` fires the commit
+      // `unawaited` ON PURPOSE — a commit must never keep the microphone open
+      // (P1-1 ③) — so nothing on the timer path returns the future. The handle
+      // to the fact is [RetainedAudioJournal.idle]: the serial queue tail,
+      // which completes when this commit has actually been applied. It cannot
+      // be satisfied early, and it names the fact ① below asserts.
+      await j.idle;
       expect(j.committedClaimBytes, 64);
       await j.close();
     });

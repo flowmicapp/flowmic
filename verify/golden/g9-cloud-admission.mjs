@@ -105,9 +105,9 @@ export const G9 = {
         const anonRes = await fetch(`${url}/api/cloud/summary`);
         if (anonRes.status !== 401) return FAIL(`anonymous /api/cloud/summary should be 401, got ${anonRes.status}`);
         const anonBody = await anonRes.text();
-        if (!anonBody.includes('AUTH_TOKEN_INVALID')) return FAIL(`anonymous refusal is not named: ${anonBody}`);
+        if (!anonBody.includes('AUTH_ACCOUNT_REQUIRED')) return FAIL(`anonymous refusal is not named: ${anonBody}`);
         if (anonBody.includes('default')) return FAIL(`anonymous refusal leaked a user id: ${anonBody}`);
-        return PASS(`REST register+login → JWT handshake cloud pair (FlowMic Cloud, pc_online:false, role:active); re-admission idempotent (same pc/pairing); quota finite as THIS account via the PRODUCTION route /api/cloud/summary (stt limit ${limit}min); 🔴 M5: the mock billing gateway is NOT served on saas (404 naming it, under a valid Bearer — GATE 3, not a false negative); anonymous summary 401 AUTH_TOKEN_INVALID naming no user`);
+        return PASS(`REST register+login → JWT handshake cloud pair (FlowMic Cloud, pc_online:false, role:active); re-admission idempotent (same pc/pairing); quota finite as THIS account via the PRODUCTION route /api/cloud/summary (stt limit ${limit}min); 🔴 M5: the mock billing gateway is NOT served on saas (404 naming it, under a valid Bearer — GATE 3, not a false negative); anonymous summary 401 AUTH_ACCOUNT_REQUIRED naming no user`);
       } catch (e) {
         return FAIL(`threw: ${e.message}`);
       } finally {

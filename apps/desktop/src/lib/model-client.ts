@@ -37,6 +37,7 @@ export const MODEL_STATUS_PATH = '/api/stt/model/status';
 export const MODEL_DOWNLOAD_PATH = '/api/stt/model/download';
 export const MODEL_CANCEL_PATH = '/api/stt/model/cancel';
 export const MODEL_ROOT_PATH = '/api/stt/model/root';
+export const MODEL_DELETE_PATH = '/api/stt/model/delete';
 
 /** Injectable so the store is testable with no Tauri and no server. Same shape
  *  and same reason as `ProbeTransport`. */
@@ -74,7 +75,7 @@ export interface ModelStore {
   reachReason: string | null;
   /** Which action is in flight, so the buttons can say so instead of looking
    *  ignored. Empty string = none. */
-  busy: '' | 'download' | 'cancel' | 'recheck' | 'root';
+  busy: '' | 'download' | 'cancel' | 'recheck' | 'root' | 'delete';
   /** Which pack the in-flight ACTION names (client-side; the machine-wide
    *  download truth is `status.busy_model_id`). */
   busyActionModelId: string | null;
@@ -85,6 +86,19 @@ export interface ModelStore {
   /** Successive server rate readings for the DOWNLOADING pack; [stableRate]
    *  decides whether they add up to a number we will turn into a time. */
   rateSamples: number[];
+  /** NR-49b — the languages whose local-model pairing the LAST delete emptied,
+   *  verbatim from that delete's `cleared_langs`. Empty at every other moment.
+   *
+   *  🔴 IT CANNOT BE DERIVED FROM `status`. What `status` holds after a delete
+   *  is the selection AFTER the clear; the emptied languages are the keys that
+   *  are no longer in it, and a difference needs both sides. Diffing against
+   *  the previous poll would make the sentence a function of whether a poll
+   *  happened to land — right on a fast machine, silent on a slow one.
+   *
+   *  Lifetime is the same as [actionError]'s and for the same reason: it is the
+   *  result of one press, so the next press clears it. A status POLL does not,
+   *  because a poll is not something the user did. */
+  clearedLangs: string[];
   /** §5-B: 「记住本次不提醒」. Module state, not storage — dies with the
    *  WebView, which is what "for this session" means. */
   noticeDismissed: boolean;
@@ -108,6 +122,7 @@ export const modelStore = reactive<ModelStore>({
   busyActionModelId: null,
   actionError: null,
   rateSamples: [],
+  clearedLangs: [],
   noticeDismissed: false,
   sidecarPhase: null,
 });
@@ -124,6 +139,7 @@ export function resetModelStoreForTest(next: Partial<ModelStore> = {}): void {
     busyActionModelId: null,
     actionError: null,
     rateSamples: [],
+    clearedLangs: [],
     noticeDismissed: false,
     sidecarPhase: null,
   }, next);
@@ -167,7 +183,14 @@ function adopt(status: ModelsStatus): void {
 
 /** The ways an ask can end, kept apart because the user's next move differs. */
 type CallOutcome =
-  | { ok: true; status: ModelsStatus }
+  /** `body` is the SAME answer `status` was narrowed out of, kept because a
+   *  POST may answer with fields that are about the ACTION rather than about
+   *  the models — `deleted_model_id`, `freed_bytes`, `cleared_langs`. The
+   *  narrowing drops every key it does not know (anti-façade ⑤: a hand-written
+   *  predicate makes invisible whatever its literal omits), and putting those
+   *  three into `ModelsStatus` would put action results into the type the POLL
+   *  also produces, where they would be stale from the moment they landed. */
+  | { ok: true; status: ModelsStatus; body: Record<string, unknown> }
   | { ok: false; kind: 'no-endpoint'; reason: string }
   | { ok: false; kind: 'no-answer'; reason: string }
   | { ok: false; kind: 'bad-answer'; reason: string }
@@ -215,7 +238,7 @@ async function call(
     return { ok: false, kind: 'bad-answer', reason: err instanceof Error ? err.message : String(err) };
   }
   const status = asModelsStatus(parsed);
-  if (status !== null) return { ok: true, status };
+  if (status !== null) return { ok: true, status, body: parsed as Record<string, unknown> };
   const o = parsed as Record<string, unknown> | null;
   if (o !== null && typeof o === 'object' && typeof o.error === 'string') {
     const msg = typeof o.message === 'string' ? o.message : '';
@@ -271,19 +294,43 @@ export async function recheckModel(
  *  the OLD cadence — poke it). */
 let pokePoller: (() => void) | null = null;
 
+/**
+ * The `cleared_langs` of a delete answer, or `[]`.
+ *
+ * Strings only, and no repair: the server sends bare catalog language codes
+ * (`zh`, `ja`), and anything else is a body we do not understand. An unknown
+ * code that DID come through would still be rendered — `endonymFor` answers
+ * with the code verbatim rather than blanking it — but that is the card's
+ * ruling, not this function's business.
+ */
+export function clearedLangsOf(body: Record<string, unknown>): string[] {
+  const raw = body.cleared_langs;
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+}
+
 async function act(
   path: string,
-  which: 'download' | 'cancel' | 'root',
+  which: 'download' | 'cancel' | 'root' | 'delete',
   body: Record<string, unknown>,
   t: ModelTransport,
 ): Promise<void> {
   modelStore.busy = which;
   modelStore.busyActionModelId = typeof body.model_id === 'string' ? body.model_id : null;
   modelStore.actionError = null;
+  // The report of the PREVIOUS press, gone before this one starts — the same
+  // moment `actionError` is dropped and for the same reason. Leaving it up
+  // would let a sentence about one delete sit under the result of the next.
+  modelStore.clearedLangs = [];
   try {
     const r = await call(path, 'POST', t, body);
     if (r.ok) {
       adopt(r.status);
+      // NR-49b — deliberately NOT inside [adopt]: `adopt` also runs on every
+      // poll, and a poll body carries no `cleared_langs`, so reading it there
+      // would mean either blanking this on the next tick (the sentence would
+      // last one second) or leaving the key absent-vs-empty question to a
+      // function that cannot tell a POST from a GET.
+      if (which === 'delete') modelStore.clearedLangs = clearedLangsOf(r.body);
       pokePoller?.();
     } else {
       modelStore.actionError = r.reason;
@@ -330,6 +377,30 @@ export async function applyModelsRoot(
 
 export async function resetModelsRoot(t: ModelTransport = defaultModelTransport): Promise<void> {
   await act(MODEL_ROOT_PATH, 'root', { reset: true }, t);
+}
+
+/**
+ * NR-7 (owner ruling 2026-09-02 §5): remove one pack's files and free its
+ * bytes.
+ *
+ * 🔴 THE REFUSAL IS THE SERVER'S, NOT THIS FUNCTION'S. There is deliberately
+ * no 「is it in use?」 check here. A check on this side would be a second answer
+ * to a question the server already answers from the same computation the card's
+ * disabled state renders (`status.in_use_model_ids`), and the day the two
+ * disagreed the user would face a control that does nothing and a log that says
+ * nothing. The button is disabled for an in-use pack as a courtesy; the guard
+ * that matters is `MODEL_DELETE_GUARD` in stt-model-routes.ts.
+ *
+ * 🔴 NO RESTART. [act] adopts the status body the delete answers with and pokes
+ * the poller, so the card re-reads the on-disk state from the SAME response
+ * that removed the files — the size chip drops and the row falls back to
+ * `absent` without the window being reloaded.
+ */
+export async function deleteModel(
+  modelId: string,
+  t: ModelTransport = defaultModelTransport,
+): Promise<void> {
+  await act(MODEL_DELETE_PATH, 'delete', { model_id: modelId }, t);
 }
 
 /** While bytes are moving (1 s: three overlapping views of the server's 5 s

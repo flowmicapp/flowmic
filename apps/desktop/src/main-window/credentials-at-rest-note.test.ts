@@ -44,8 +44,11 @@ async function renderOn(platform: string, loc: Loc = 'zh-CN'): Promise<string> {
 const MARKERS: Record<Loc, string> = {
   'zh-CN': '以未加密形式保存',
   en: 'stored unencrypted',
-  ja: '暗号化せずに',
-  ko: '암호화되지 않은 형태',
+  // 2026-09-17: the jargon sweep rewrote this note; ja/ko now say the same
+  // plaintext fact with a different inflection (…されずに / …상태). Only the
+  // quoted fragment moved — what it has to prove did not.
+  ja: '暗号化されずに',
+  ko: '암호화되지 않은 상태',
 };
 
 describe('CredentialsAtRestNote — platform gate (rendered)', () => {

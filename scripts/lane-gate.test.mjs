@@ -340,8 +340,22 @@ check(lanesFor([]).length === 0, 'an empty selection produces no lanes');
 section('7 T0: the commit hook and its incremental type check');
 
 const hook = readFileSync(path.join(ROOT, '.husky', 'pre-commit'), 'utf8');
-check(/^pnpm verify:lint$/m.test(hook), 'the hook still runs the whole verify:lint');
-check(/verify\/precommit-types\.mjs/.test(hook), 'the hook runs the scoped type check');
+// SC-10 (2026-09-17/18): the hook is now ONE node process, not
+// `pnpm verify:lint` followed by a second `node` launch for the type check —
+// so the two-process invocation lines must be GONE, and the one-process one
+// must be there.
+check(
+  !/^pnpm verify:lint$/m.test(hook),
+  'the hook no longer runs verify:lint as its own pnpm-launched line (SC-10 folded it in-process)',
+);
+check(
+  !/^node verify\/precommit-types\.mjs$/m.test(hook),
+  'the hook no longer launches the type check as its own second node process (SC-10 folded it in-process)',
+);
+check(
+  /^node verify\/precommit-single\.mjs$/m.test(hook),
+  'the hook runs the single-process wrapper',
+);
 check(
   !/^pnpm verify:types$/m.test(hook),
   'the hook no longer runs the cold four-package verify:types',
@@ -353,12 +367,57 @@ check(
 check(!/TIMING: pending/.test(hook), 'the pending-measurement marker is gone');
 check(
   /11086ms/.test(hook) && /3\.4s/.test(hook) && /7130ms/.test(hook),
-  'all three readings are written down where the decision is',
+  'the original two-process readings are still written down, not overwritten',
 );
 check(/PATH A, KEPT/.test(hook), 'and the decision is named rather than left to be inferred');
+// SC-10's own readings: the "open item, not built here" phrasing must be gone
+// (it is built here now), and the before/after medians it was built to chase
+// must be on record — both the win (ts-touch) and the non-win (docs-only),
+// so a future reader cannot mistake this for a clean sweep.
+// Anchored on the marker's ORIGINAL position (a paragraph opener right after
+// '# ') rather than the bare substring — the new comment quotes that old
+// opener once, in prose, to explain what changed, and a bare substring check
+// would flag that honest quote as if the stale marker were still active.
 check(
-  /ONE node process/.test(hook),
-  'the open item (one node process for the whole hook) is logged, not silently dropped',
+  !/^# OPEN ITEM, NOT BUILT HERE:/m.test(hook),
+  'the "not built here" marker is gone as an active paragraph opener, now that it is built',
+);
+check(/ONE node process/.test(hook), 'the one-process rationale is still stated');
+check(
+  /8930ms/.test(hook) && /18077ms/.test(hook),
+  'the ts-touch before/after medians (the case that actually improved) are on record',
+);
+check(
+  /DID NOT MOVE/.test(hook),
+  'the docs-only case is reported honestly (no improvement measured), not rounded into the win',
+);
+
+// ── SC-10 reverse control ────────────────────────────────────────────────────
+// The single process is only worth anything if it still runs BOTH stages —
+// a refactor that quietly dropped one would still print SOMETHING and still
+// exit, so "the hook ran" proves nothing on its own. Read the wrapper's own
+// source (not `.husky/pre-commit`'s prose) and require BOTH: the import that
+// wires each stage's main(), AND main() actually CALLING it — an unused
+// import would pass the first check and still be a dropped stage.
+const single = readFileSync(path.join(ROOT, 'verify', 'precommit-single.mjs'), 'utf8');
+check(
+  /from '\.\/lint\/run-all\.mjs'/.test(single),
+  'verify/precommit-single.mjs imports the lint stage',
+);
+check(
+  /from '\.\/precommit-types\.mjs'/.test(single),
+  'verify/precommit-single.mjs imports the types stage',
+);
+check(/runLint\s*\(/.test(single), 'verify/precommit-single.mjs actually calls the lint stage, not just imports it');
+check(/runTypes\s*\(/.test(single), 'verify/precommit-single.mjs actually calls the types stage, not just imports it');
+// And each stage module must actually EXPORT a callable main() — this is what
+// makes the import above meaningful rather than a name that happens to resolve
+// to `undefined` at runtime (which `single` alone cannot tell you).
+const runAllSrc = readFileSync(path.join(ROOT, 'verify', 'lint', 'run-all.mjs'), 'utf8');
+check(/export async function main\s*\(/.test(runAllSrc), 'verify/lint/run-all.mjs exports an async main()');
+check(
+  !/^main\(\);?$/m.test(runAllSrc),
+  'verify/lint/run-all.mjs no longer calls itself unconditionally on import (that would double-run under precommit-single.mjs)',
 );
 
 for (const proj of pre.TS_PROJECTS) {

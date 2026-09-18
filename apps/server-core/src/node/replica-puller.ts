@@ -35,6 +35,66 @@
 // replication. At two orders of magnitude larger this becomes the wrong design
 // and the honest fix is incremental change-tracking, not a longer interval.
 // ─────────────────────────────────────────────────────────────────────────────
+// 🔴 NR-22 — WHY THIS COPIES BY COLUMN NAME, AND WHEN IT REFUSES
+//
+//   grep anchors: NR-22-PROJECT-BY-NAME · NR-22-REFUSAL-RULE · NR-22-ORDER-CHECK
+//                 NR-22-WRITER-AHEAD
+//
+// This used to be `INSERT INTO main.t SELECT * FROM snap.t`, which maps BY
+// POSITION. That has two failure shapes and only the loud one was ever seen:
+//   · different column COUNT — production, NY→JP, 2026-09-09, verbatim:
+//     「replica pull FAILED … table main.users has 14 columns but 15 values were
+//     supplied」. The writer shipped `verify_grace_until` first and the replica
+//     could not pull anything at all until it was deployed too. Loud, and
+//     because one pull is one transaction it stalled EVERY table, not just
+//     `users`.
+//   · same count, different ORDER — never observed and far worse: a replica
+//     first built from `INIT_SQL` can order its columns differently from a
+//     writer that grew the same columns through ALTERs, and then every value
+//     lands in the WRONG column with no error anywhere.
+//
+// So the copy is now projected by name (NR-22-PROJECT-BY-NAME): both ends are
+// read with `PRAGMA table_info`, the shared column names are taken in the LOCAL
+// table's order, and the statement is
+// `INSERT INTO main.t (c1,…) SELECT c1,… FROM snap.t`. Order stops mattering on
+// both sides, and a column the two ends do not share is a decision rather than
+// an accident:
+//
+// NR-22-REFUSAL-RULE — per table, after the intersection is taken:
+//   1. WRITER-ONLY columns (the writer has them, this build does not) are
+//      DROPPED. The replica has nowhere to put them; that is the rolling-deploy
+//      transient the production failure above was, and it is now survivable
+//      instead of fatal. One named WARN (NR-22-WRITER-AHEAD), not silence.
+//   2. LOCAL-ONLY columns (this build has them, the writer does not) are left to
+//      their default — EXCEPT when the local schema says the projection could
+//      not produce a complete row, which is either
+//        (a) NOT NULL with no default, or
+//        (b) part of the local PRIMARY KEY.
+//      Then the PULL IS REFUSED. (b) is not redundant: sqlite leaves a
+//      `TEXT PRIMARY KEY` nullable, so without it a writer missing the identity
+//      column would quietly insert NULL identities instead of throwing.
+//   3. An EMPTY intersection is refused for the same reason — there is no
+//      statement to write that would mean anything.
+//   REFUSE = throw, which is the failure mode this file already had: the import
+//   is one transaction, so nothing is applied, the replica keeps serving the
+//   copy it had, and the interval's latched WARN says so. Skipping just the one
+//   table was rejected: a replica that silently stops replicating `users` while
+//   reporting healthy pulls is the 「quiet ≠ recovered」 shape this card exists
+//   to remove.
+//
+// NR-22-ORDER-CHECK — the shared columns are also compared for ORDER. A
+// mismatch is SAFE now (that is the whole point of projecting by name), so it
+// is never a refusal — but it is the exact shape that used to corrupt in
+// silence, so each distinct shape gets one forensic WARN and then stops
+// repeating. It is the only evidence anyone will ever get that the two ends were
+// built by different routes.
+//
+// ⚠️ THE LATCH IS UNCHANGED AND SO IS ITS MEANING: the failure WARN fires once
+// per outage, and recovery gets its own `replica pull: recovered` INFO line —
+// so quiet means 「still broken, already said so」 and only that INFO line means
+// recovered. The order notes latch separately, per shape, for the same reason:
+// a warning every 30 seconds is a warning nobody reads by the second hour.
+// ─────────────────────────────────────────────────────────────────────────────
 
 import { gunzipSync } from 'node:zlib';
 import { unlinkSync, writeFileSync } from 'node:fs';
@@ -84,10 +144,110 @@ function tablesIn(db: DatabaseSync, schema: string): string[] {
   return rows.map((r) => r.name).filter((n) => !NEVER_REPLICATED.has(n));
 }
 
+/** One row of `PRAGMA table_info`, narrowed to what the refusal rule reads. */
+interface ColumnInfo {
+  name: string;
+  notnull: number;
+  dflt_value: unknown;
+  pk: number;
+}
+
+function columnsOf(db: DatabaseSync, schema: string, table: string): ColumnInfo[] {
+  // The table name is quoted rather than bound: PRAGMA arguments cannot be
+  // parameters in sqlite, and every name reaching here came out of that same
+  // database's own sqlite_master.
+  return db
+    .prepare(`PRAGMA ${schema}.table_info("${table.replace(/"/g, '""')}")`)
+    .all() as unknown as ColumnInfo[];
+}
+
+/** What a refusal is, so a caller can tell it apart from a sqlite error. */
+export class ReplicaColumnMismatchError extends Error {
+  readonly table: string;
+  constructor(table: string, detail: string) {
+    super(`replica pull REFUSED (NR-22): table "${table}" — ${detail}`);
+    this.name = 'ReplicaColumnMismatchError';
+    this.table = table;
+  }
+}
+
+interface TableProjection {
+  table: string;
+  /** Shared column names, in the LOCAL table's order. */
+  columns: string[];
+  /** Columns the writer has and this build does not — dropped by the copy. */
+  writerOnly: string[];
+  /** True when the shared columns sit in a different relative order on the two
+   *  ends. Safe under name projection; recorded because it used to corrupt. */
+  orderDiffers: boolean;
+}
+
+/** NR-22-PROJECT-BY-NAME / NR-22-REFUSAL-RULE — decide how, or whether, one
+ *  table can be copied. Throws `ReplicaColumnMismatchError` on a shape the
+ *  intersection cannot cover safely; the rule is spelled out in this file's
+ *  header, and the reverse control for it is in
+ *  test/replica-column-projection.test.ts. */
+function planProjection(db: DatabaseSync, table: string): TableProjection {
+  const localCols = columnsOf(db, 'main', table);
+  const snapCols = columnsOf(db, 'snap', table);
+  const snapNames = new Set(snapCols.map((c) => c.name));
+  const localNames = new Set(localCols.map((c) => c.name));
+
+  const shared = localCols.filter((c) => snapNames.has(c.name));
+  const localOnly = localCols.filter((c) => !snapNames.has(c.name));
+
+  // NR-22-REFUSAL-RULE 2: a local column the writer cannot supply, which the
+  // local schema will not let the projection leave out.
+  const unfillable = localOnly.filter(
+    (c) => (c.notnull === 1 && c.dflt_value === null) || c.pk > 0,
+  );
+  if (unfillable.length) {
+    throw new ReplicaColumnMismatchError(
+      table,
+      `the writer's snapshot has no ${unfillable.map((c) => `"${c.name}"`).join(', ')}, `
+      + 'and this build cannot leave that column unset (NOT NULL without a default, '
+      + 'or part of the primary key). Deploy the writer to this build.',
+    );
+  }
+  // NR-22-REFUSAL-RULE 3.
+  if (!shared.length) {
+    throw new ReplicaColumnMismatchError(
+      table,
+      `the two ends share no column at all (local: ${localCols.length}, writer: ${snapCols.length})`,
+    );
+  }
+
+  // NR-22-ORDER-CHECK: the shared columns' relative order on both ends.
+  const sharedOnWriter = snapCols.filter((c) => localNames.has(c.name)).map((c) => c.name);
+  const sharedLocally = shared.map((c) => c.name);
+  const orderDiffers = sharedOnWriter.join('\u0000') !== sharedLocally.join('\u0000');
+
+  return {
+    table,
+    columns: sharedLocally,
+    writerOnly: snapCols.filter((c) => !localNames.has(c.name)).map((c) => c.name),
+    orderDiffers,
+  };
+}
+
+function quoteCols(columns: string[]): string {
+  return columns.map((c) => `"${c.replace(/"/g, '""')}"`).join(', ');
+}
+
 export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
   const { db, log } = deps;
   const stagePath = deps.stagePath ?? join(tmpdir(), 'flowmic-replica-snapshot.db');
   let appliedAt: number | null = null;
+  // Latched forensics for the two shape notes below. Keyed by the SHAPE, not by
+  // the table, so a note fires again the day the shape changes and stays quiet
+  // while it does not — the same reason the failure WARN further down is
+  // latched, and the same reading: quiet means "already said so".
+  const noted = new Set<string>();
+  const noteOnce = (key: string, emit: () => void): void => {
+    if (noted.has(key)) return;
+    noted.add(key);
+    emit();
+  };
 
   const pull = async (): Promise<number> => {
     const raw = await deps.fetchSnapshot();
@@ -124,6 +284,34 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
       }
       const applying = incoming.filter((t) => local.has(t));
 
+      // 🔴 PLANNED BEFORE THE TRANSACTION OPENS, deliberately: a refusal is a
+      // decision about shapes, not a write, so a refusing pull never takes a
+      // write lock at all and never leaves one to roll back.
+      const plans = applying.map((t) => planProjection(db, t));
+      for (const plan of plans) {
+        // NR-22-WRITER-AHEAD — named, not silent. The copy still applies; this
+        // build simply has nowhere to put those values yet.
+        if (plan.writerOnly.length) {
+          noteOnce(`ahead:${plan.table}:${plan.writerOnly.join(',')}`, () => {
+            log.warn('replica pull: the writer has columns this build does not — they are not copied', {
+              table: plan.table,
+              columns: plan.writerOnly,
+              hint: 'deploy the replica to the writer’s version',
+            });
+          });
+        }
+        // NR-22-ORDER-CHECK — safe under name projection, recorded anyway.
+        if (plan.orderDiffers) {
+          noteOnce(`order:${plan.table}:${plan.columns.join(',')}`, () => {
+            log.warn('replica pull: shared columns are in a different order on the two ends', {
+              table: plan.table,
+              local_order: plan.columns,
+              note: 'copied by name, so this is safe; it means the two databases were built by different routes',
+            });
+          });
+        }
+      }
+
       db.exec('BEGIN IMMEDIATE');
       try {
         // Deferred rather than disabled: constraints are still checked, just at
@@ -131,9 +319,13 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
         // with a broken reference land silently, and `PRAGMA foreign_keys` is a
         // no-op inside a transaction anyway — which is the trap this avoids.
         db.exec('PRAGMA defer_foreign_keys = ON');
-        for (const t of applying) {
-          db.exec(`DELETE FROM main."${t}"`);
-          db.exec(`INSERT INTO main."${t}" SELECT * FROM snap."${t}"`);
+        for (const plan of plans) {
+          const cols = quoteCols(plan.columns);
+          db.exec(`DELETE FROM main."${plan.table}"`);
+          // NR-22-PROJECT-BY-NAME. The two lists are the same names in the same
+          // order, so the writer's physical column order never reaches this
+          // statement.
+          db.exec(`INSERT INTO main."${plan.table}" (${cols}) SELECT ${cols} FROM snap."${plan.table}"`);
         }
         db.exec('COMMIT');
       } catch (err) {
@@ -145,7 +337,7 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
         throw err;
       }
       appliedAt = Date.now();
-      return applying.length;
+      return plans.length;
     } finally {
       // DETACH even on the failure path, or the next cycle cannot attach and one
       // bad snapshot becomes a permanent outage.

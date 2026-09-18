@@ -189,10 +189,11 @@ section('§4 publish.mjs actually calls it, before staging, with no bypass');
   // scripts/up7-apk-self-update-marker.test.mjs for why a loose "my conjunct is
   // in there" match would accept a neutralised one. Fourth conjunct added
   // 2026-08-19: the staged APK's reported target API level against the pin
-  // (scripts/apk-target-sdk-gate.test.mjs owns that gate).
+  // (scripts/apk-target-sdk-gate.test.mjs owns that gate). Fifth conjunct added
+  // 2026-09-17: the commit the APK was built from (card SC-5, publish GATE 0f).
   assertTrue(
-    /if \(versionOk && featureOk && disclosureOk && targetOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
-    'staging is gated on version + self-update + disclosure-copy + target-SDK'
+    /if \(versionOk && featureOk && disclosureOk && targetOk && shaOk\) stage\(apk, OUT/.test(PUBLISH_SRC),
+    'staging is gated on version + self-update + disclosure-copy + target-SDK + build sha'
   );
   const callIdx = PUBLISH_SRC.indexOf('const disclosureOk = verifyApkDisclosureCopy(apk, fail, ok)');
   const stageIdx = PUBLISH_SRC.indexOf('stage(apk, OUT');

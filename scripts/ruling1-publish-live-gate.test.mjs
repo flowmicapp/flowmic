@@ -313,6 +313,126 @@ section('§4 publish.mjs wiring — after the upload, before "done", exit 1 on r
   );
 }
 
+// ── §5 the freeze round: the same stop, a different exit code ──────────────
+//
+// 🔴 THE HAZARD THIS SECTION EXISTS FOR. Everything above says the gate must
+// not be escapable. `--freeze-round` is the one thing in the file that changes
+// what happens at that gate, so it is exactly the shape that could quietly
+// become an escape hatch — and the difference between "an exit the owner
+// sanctioned" and "a skip somebody added" is not in the code, it is in whether
+// the run still SAYS the live manifest was not updated. So the cases below pin
+// the words, not just the exit code.
+//
+// Background (CLAUDE.md: owner 2026-09-09 froze releases; measured 2026-09-18
+// on the first real orchestrated run): publish did everything correctly and
+// then died here, because under the freeze nobody may make the live manifest
+// advertise this round — which also made every DEPLOY_* step behind PUBLISH
+// unreachable through scripts/ship.mjs.
+section('§5 --freeze-round — publish stops at the same place, says so, and exits 0');
+{
+  const { FREEZE_COMPATIBLE_FLAGS, FREEZE_FLAG, describeLive, freezeBlock, freezeRefusal } = await import('./publish-freeze-round.mjs');
+
+  // 5.1 the refusal is an ALLOWLIST, so a flag invented tomorrow cannot inherit
+  // the freeze exit by not being on a denylist.
+  assertTrue(freezeRefusal([]) === null, 'no --freeze-round ⇒ nothing to say (publish behaves exactly as before)');
+  assertTrue(freezeRefusal([FREEZE_FLAG]) === null, 'the flag alone is accepted');
+  assertTrue(freezeRefusal([FREEZE_FLAG, '--skip-lan']) === null, '--skip-lan is compatible: it publishes nowhere at all');
+  const withManifest = freezeRefusal([FREEZE_FLAG, '--with-manifest']);
+  assertTrue(withManifest !== null && /--with-manifest/.test(withManifest), '🔴 --with-manifest is REFUSED beside it: it writes the very file the freeze forbids touching');
+  const invented = freezeRefusal([FREEZE_FLAG, '--publish-github-release']);
+  assertTrue(invented !== null && /--publish-github-release/.test(invented), 'and so is a flag this file has never heard of — allowlist, not denylist, so tomorrow is covered too');
+  assertTrue(/allowlist on purpose/.test(invented), '  ...and the refusal says WHY it is an allowlist, so the next person extends it deliberately');
+  assertTrue(
+    FREEZE_COMPATIBLE_FLAGS.includes('--freeze-round') && !FREEZE_COMPATIBLE_FLAGS.includes('--with-manifest'),
+    `the compatible list is exactly what it claims (${FREEZE_COMPATIBLE_FLAGS.join(' ')})`,
+  );
+
+  // 5.2 the block says the sentence a reader needs, and never invents a version.
+  const live = describeLive(okFetched({ 'windows-x64': liveEntry('0.3.85'), android: liveEntry('0.3.85') }, '0.3.55'));
+  assertTrue(/windows-x64=0\.3\.85/.test(live) && /ios=0\.3\.55/.test(live), `it reads what the live manifest actually points at, per platform (${live})`);
+  const block = freezeBlock({ version: '0.3.91', live, url: URL_UNDER_TEST });
+  assertTrue(/MANIFEST NOT UPDATED — release freeze round \(owner 2026-09-09\)/.test(block), 'the block leads with MANIFEST NOT UPDATED and names the ruling');
+  assertTrue(/the live\s*\n?\s*manifest still points at/.test(block), '  ...and says what the live manifest still points at');
+  assertTrue(/0\.3\.85/.test(block) && /0\.3\.91/.test(block), '  ...carrying both numbers: what shipped, and what clients are still being offered');
+  assertTrue(/build-update-manifest\.mjs/.test(block) && /verify-live-update-manifest\.mjs/.test(block), '  ...and the same three remaining steps the red gate names, so the freeze does not erase the todo');
+
+  // 🔴 REVERSE CONTROL on the honesty of the block: an endpoint we could not
+  // reach must NOT be reported as a version. "I could not ask" and "it says X"
+  // are different answers (§1-21) — and this block exists to tell a reader what
+  // installed clients are being offered, so a made-up answer is the worst
+  // possible content for it.
+  const blind = describeLive({ verdict: 'unreachable', status: null, manifest: null, detail: null, error: 'ECONNREFUSED' });
+  assertTrue(/COULD NOT ASK/.test(blind) && /ECONNREFUSED/.test(blind), 'an unreachable endpoint reads as COULD NOT ASK, with the reason');
+  assertTrue(!/=\d/.test(blind), '  ...and carries no version at all — it never dresses a failed question as an answer');
+
+  // 5.3 the WIRING in publish.mjs: same place, both branches present, exit 0.
+  const freezeIdx = PUBLISH_SRC.indexOf('freezeNotice(');
+  const gateIdx2 = PUBLISH_SRC.indexOf("'verify-live-update-manifest.mjs'");
+  assertTrue(freezeIdx !== -1, 'publish.mjs calls freezeNotice');
+  assertTrue(freezeIdx < gateIdx2, 'and it does so INSTEAD of the gate, at the same point in the run — not before the upload, not after "next steps"');
+  const uploadIdx2 = PUBLISH_SRC.indexOf('execFileSync(process.execPath, [downloadCenterScript]');
+  assertTrue(uploadIdx2 !== -1 && uploadIdx2 < freezeIdx, '🔴 and AFTER the download-centre upload — a freeze round still ships the bytes internally; what it skips is telling the world');
+  assertTrue(
+    /if \(FREEZE_ROUND\) \{[\s\S]{0,200}freezeNotice[\s\S]{0,200}\} else \{/.test(PUBLISH_SRC),
+    'the freeze branch and the gate branch are an if/else over the same spot — there is no path where BOTH are skipped',
+  );
+  assertTrue(
+    PUBLISH_SRC.slice(freezeIdx, gateIdx2).indexOf('process.exit(') === -1,
+    'the freeze branch does not exit mid-run: it falls through to the same closing lines, so the round ends green in the ordinary way',
+  );
+  assertTrue(
+    /freezeRefusal\(process\.argv/.test(PUBLISH_SRC),
+    'and the flag-combination refusal is wired at the top, where it is reachable before a byte is written',
+  );
+}
+
+// ── §6 --manifest-deferred — the same gate, asked one node later ────────────
+//
+// The freeze exit above says «this round tells installed clients NOTHING». This
+// one says «a later step of this same run will, and it asserts exactly what this
+// gate would have». The difference matters because only one of them leaves
+// somebody holding the other end — so the cases below pin BOTH halves: the words
+// publish prints, and the refusal that stops the flag being typed by hand, where
+// there is no later step and it would simply be ruling ① switched off.
+//
+// Why it was needed (measured 2026-09-18): in scripts/ship.mjs the manifest is
+// built and carried to the relay nodes by steps downstream of PUBLISH, so this
+// gate's only honest answer at PUBLISH is "not yet" — it failed every non-freeze
+// round on a fact about the graph. Since the 2026-09-09 freeze every round passed
+// --freeze-round, so the first full round would have been the first to meet it.
+section('§6 --manifest-deferred — publish stops at the same place, names the step that will assert it, and exits 0');
+{
+  const { DEFERRED_FLAG, SHIP_PID_ENV, deferralRefusal, deferredBlock } = await import('./publish-manifest-deferred.mjs');
+  const { describeLive } = await import('./publish-freeze-round.mjs');
+  // Recomputed rather than reached for: §5's copy is block-scoped, and a drill
+  // that reads another section's local is one edit away from a ReferenceError.
+  const gateIdx = PUBLISH_SRC.indexOf("'verify-live-update-manifest.mjs'");
+
+  assertTrue(deferralRefusal([]) === null, 'no flag ⇒ nothing to say (publish behaves exactly as before)');
+  const byHand = deferralRefusal([DEFERRED_FLAG], {});
+  assertTrue(byHand !== null && /only meaningful inside/.test(byHand), '🔴 typed by hand it is REFUSED — outside a ship run there is no later step, so this would be ruling ① turned off');
+  assertTrue(/verify-live-update-manifest\.mjs/.test(byHand), '  ...and the refusal names the assertion it is supposed to be deferring TO, so the reader can check it exists');
+  assertTrue(deferralRefusal([DEFERRED_FLAG], { [SHIP_PID_ENV]: '4242' }) === null, 'inside a ship run it is accepted, identified by the pid the orchestrator hands every child');
+
+  const live = describeLive(okFetched({ 'windows-x64': liveEntry('0.3.85'), android: liveEntry('0.3.85') }, '0.3.55'));
+  const block = deferredBlock({ version: '0.3.92', live, url: URL_UNDER_TEST });
+  assertTrue(/DEFERRED TO THE MANIFEST STEP/.test(block), 'the block says the gate was deferred, not passed');
+  assertTrue(/0\.3\.85/.test(block) && /0\.3\.92/.test(block), '  ...carrying both numbers: what shipped, and what clients are still being offered right now');
+  assertTrue(/verify-live-update-manifest\.mjs/.test(block), '  ...and names the step that makes the assertion, so a deferral cannot read as a dismissal');
+  assertTrue(/fails the ship/.test(block), '  ...and says what a red answer there costs');
+  const blind = deferredBlock({ version: '0.3.92', live: describeLive({ verdict: 'unreachable', status: null, manifest: null, detail: null, error: 'ECONNREFUSED' }), url: URL_UNDER_TEST });
+  assertTrue(/COULD NOT ASK/.test(blind), 'REVERSE CONTROL: an unreachable endpoint is still reported as COULD NOT ASK — a deferral never invents a version either');
+
+  // The wiring: same spot, three branches over one decision, no early exit.
+  const deferIdx = PUBLISH_SRC.indexOf('deferredNotice(');
+  assertTrue(deferIdx !== -1 && deferIdx < gateIdx, 'publish.mjs calls deferredNotice INSTEAD of the gate, at the same point in the run');
+  assertTrue(
+    /\} else if \(MANIFEST_DEFERRED\) \{[\s\S]{0,120}deferredNotice/.test(PUBLISH_SRC),
+    'and it is an else-if on the freeze branch — one decision, three outcomes, no path where the gate and both notices are all skipped',
+  );
+  assertTrue(/deferralRefusal\(process\.argv/.test(PUBLISH_SRC), 'and the flag refusal is wired at the top, reachable before a byte is written');
+}
+
 // ── summary ─────────────────────────────────────────────────────────────────
 // exitCode, NOT process.exit(): undici's just-released keep-alive sockets make
 // a hard exit trip libuv's UV_HANDLE_CLOSING assert on Windows (measured here,

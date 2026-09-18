@@ -135,7 +135,37 @@ class _Rig {
     session = newTestSession(
       transport: transport,
       audio: AudioCapture(recorder: FakeAudioRecorder(), spill: spill),
-      stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
+      // 🔴 `sessionDropGrace` IS TAKEN OUT OF THIS FIXTURE ON PURPOSE (card D1
+      // / NR-35), for the same reason `justDoneDuration` already was: it is an
+      // ambient PRODUCT clock this case does not model, and left at its default
+      // (3 s, state_machine.dart) it silently turns the scenario into a
+      // DIFFERENT one. `recordThroughAnOutage` pushes the transport down and
+      // every case then swipes up; once the grace fires the session is
+      // `disconnected`, and `pttCancel` opens with
+      // `if (fsm.session != SessionState.recording) return;` — contractually
+      // inert for a continuous recording (CR-D ③, ptt_link_loss.dart's
+      // 「NO CANCEL COUNTERPART, ON PURPOSE」). No cancel, so NO TOMBSTONE IS
+      // EVER WRITTEN, and the case reports 「the recovery reader still offers
+      // it」 — which reads as a broken filter and is nothing of the kind.
+      //
+      // ⚠️ THIS IS NOT 「WIDEN A WAIT UNTIL THE RACE IS WON」 (CLAUDE.md's CE-6b
+      // rule, which this card exists to obey): there is no wait here to widen.
+      // The race is between a product timer and how long the machine takes to
+      // get from one line of this test to the next, and the fixture's answer to
+      // an ambient clock it does not model is to not run it. The EVENT-DRIVEN
+      // half is the precondition assertion at the swipe below — if this clock
+      // ever does fire, the case says THAT instead of blaming the filter.
+      //
+      // MEASURED, INDUCED RATHER THAN WAITED FOR (dev-pc-a, 2026-09-14):
+      // with `sessionDropGrace: const Duration(milliseconds: 1)` the headline
+      // case fails EVERY run, byte-identical to the flake NR-35 recorded —
+      //     Expected: not contains 'a0-1789442595412335'
+      //       Actual: ['a0-1789442595412335']
+      // — which is what identified the timer as the deadline the flake obeys.
+      stateMachine: FlowmicStateMachine(
+        justDoneDuration: Duration.zero,
+        sessionDropGrace: const Duration(hours: 1),
+      ),
     );
     giveSessionAPairedIdentity(session);
     timeline = newTestStore();
@@ -161,7 +191,20 @@ class _Rig {
     )!;
     await controller.pttDown();
     transport.pushStatus(SocketStatus.disconnected);
-    await pumpEventQueue();
+    // 🔴 WAIT FOR THE FACT, NOT FOR A CADENCE (card D1 / NR-35 — this line was
+    // a bare `await pumpEventQueue()`). `_onEvicted` opens with
+    // `if (s._uplinkUp) return;` (retained_audio_legacy_face.dart:57), so an
+    // eviction handed to the spill before the status has reached it writes
+    // NOTHING, and the positive control below then reads 0 bytes.
+    // MEASURED on dev-pc-a 2026-09-14 (16 cores, 24 CPU + 8 IO load
+    // workers alongside): 3 reds in 20 runs, every one of them
+    //     Expected: <1440000>   Actual: <0>
+    //     test\retained_audio_cancel_tombstone_test.dart 169:5
+    // against 0 reds in 40 runs on a quiet machine. The pump was never the
+    // deadline — it was a bet on how loaded the box is.
+    await until(() => !spill.uplinkUp,
+        why: 'the spill to learn the uplink is down — until it does, eviction '
+            'is contractually a no-op and these bytes go nowhere');
     spill.onEvicted(
       BufferedChunk(seq: 0, tsMs: 0, payload: Uint8List(kOutageBytes)),
     );
@@ -212,9 +255,65 @@ void main() {
     final String articleId = await r.recordThroughAnOutage();
 
     // ── the user swipes up ─────────────────────────────────────────────────
+    // 🔴 THE PRECONDITION, PINNED (card D1 / NR-35). Everything below is about
+    // what a CANCEL does, and `pttCancel` is a no-op unless the session is
+    // still RECORDING. `_Rig._build`'s `sessionDropGrace` comment has the
+    // measurement; this line is the half that does not depend on a number
+    // being big enough — if the session ever is not recording here, the case
+    // says so in one sentence instead of failing four assertions downstream
+    // with a diagnosis that points at the wrong file.
+    expect(r.session.fsm.session, SessionState.recording,
+        reason: 'the swipe has to land on a LIVE recording; a session already '
+            'torn down makes pttCancel contractually inert (CR-D ③), so this '
+            'run would be measuring nothing');
     await r.session.pttCancel();
     await r.spill.flush();
-    await pumpEventQueue();
+    // 🔴 WAIT FOR THE TOMBSTONE TO BE ON DISK — THE EVENT, NOT A CADENCE
+    //    (card D1 / NR-35). `pttCancel` reaches `_journalTombstoneCancelled`
+    //    (audio_capture_journal.dart:92), which is `unawaited(...)` ON PURPOSE:
+    //    「a marker write must never be able to keep the microphone open (P1-1
+    //    ③)」. So nothing in the cancel path promises the file has landed, and
+    //    `spill.flush()` does not cover it either — that drains the APPEND
+    //    chain (`_flush(s) => s._writes`), and the tombstone is not an append.
+    //    This used to be `await pumpEventQueue()`: a fixed cadence racing a
+    //    real disk write, which is NR-35 verbatim.
+    //    MEASURED on dev-pc-a 2026-09-14 (16 cores, 24 CPU + 8 IO load
+    //    workers alongside): 10 reds in 20 runs, every one of them
+    //        Expected: not contains 'a0-1789437986961201'
+    //          Actual: ['a0-1789437986961201']
+    //        test\retained_audio_cancel_tombstone_test.dart 221:5
+    //    against 0 reds in 40 runs on a quiet machine (and 1 in 4018 on the
+    //    2026-09-10 deploy gate, which is where NR-35 came from).
+    //    ⚠️ THE PREDICATE CANNOT BE SATISFIED EARLY, and that is the whole
+    //    reason it replaces the pump: the file's EXISTENCE is the entire
+    //    tombstone state — `_readTombstones` keys on the FILE NAME and never
+    //    opens it (retained_audio_tombstone.dart:100-115), and it is the same
+    //    predicate ③ below asserts. `until` is bounded (10 s) and names what it
+    //    waited for, so a tombstone that never lands is reported as that
+    //    instead of as 「the recovery reader still offers it」 — which is the
+    //    misleading red this race has been printing.
+    // 🔴 WAIT FOR THE TOMBSTONE TO BE ON DISK — THE EVENT, NOT A CADENCE
+    //    (card D1 / NR-35, the second half of it). `pttCancel` reaches
+    //    `_journalTombstoneCancelled` (audio_capture_journal.dart:92), which is
+    //    `unawaited(...)` ON PURPOSE: 「a marker write must never be able to keep
+    //    the microphone open (P1-1 ③)」. So nothing on the cancel path promises
+    //    the file has landed, and `spill.flush()` does not cover it either —
+    //    that drains the APPEND chain (`_flush(s) => s._writes`), and the
+    //    tombstone is not an append. This line used to be
+    //    `await pumpEventQueue()`: a fixed cadence racing a real disk write.
+    //    MEASURED on dev-pc-a 2026-09-14 (16 cores, 24 CPU + 8 IO load
+    //    workers alongside): the write lands 7–90 ms after the swipe, so the
+    //    pump was a bet, not a deadline.
+    //    ⚠️ IT CANNOT BE SATISFIED EARLY, which is why it replaces the pump: the
+    //    file's EXISTENCE is the entire tombstone state — `_readTombstones`
+    //    keys on the FILE NAME and never opens it
+    //    (retained_audio_tombstone.dart:100-115) — and it is the same predicate
+    //    ③ below asserts. `until` is bounded (10 s) and names what it waited
+    //    for, so a tombstone that never lands now reports ITSELF instead of
+    //    reporting 「the recovery reader still offers it」.
+    await until(() => File(_tombPath(r.tmp, articleId)).existsSync(),
+        why: 'the cancel tombstone to reach the disk (the cancel path writes '
+            'it unawaited, so nothing else says when it is there)');
 
     // ① The recovery reader no longer offers it. BOTH readers, because the
     //    inner one is reachable with a key held from before the cancel.

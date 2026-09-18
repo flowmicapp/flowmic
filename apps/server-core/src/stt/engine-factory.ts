@@ -35,7 +35,7 @@ import { buildHotwords, type SttDictionaryEntry } from './hotwords';
 import { buildSonioxContext } from './terminology-context';
 import { resolveSttFaultStallMs, withSttFaultStall } from './fault-stall';
 import { SttEngineOrchestrator } from './orchestrator-core';
-import { DEFAULT_ENGINE_IDLE_HANGUP_MS, type OrchestratorOptions } from './orchestrator-types';
+import { DEFAULT_ENGINE_IDLE_HANGUP_MS, spawnTimeoutForEngine, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
 import type { VadGate } from './vad-gate';
 import { catalogCanServe } from './sherpa/model-catalog';
@@ -496,6 +496,13 @@ export function makeSttOrchestratorFactory(
     // `idleHangupMs` would silently also let a caller override the BILLING gate
     // `shouldFeedEngine`, which nothing has ever been allowed to do.
     const options: OrchestratorOptions = {
+      // NR-38: FIRST in the spread, so a caller that pins `engineSpawnTimeoutMs`
+      // still wins — this supplies a default for the one engine whose open() is
+      // a model load, it does not take the decision away. See
+      // LOCAL_MODEL_ENGINE_SPAWN_TIMEOUT_MS for why 5 s stopped being right for
+      // that engine the day its load stopped blocking the event loop.
+      ...(((ms) => (ms === undefined ? {} : { engineSpawnTimeoutMs: ms }))(
+        spawnTimeoutForEngine(selected.routing.engine_id))),
       ...(deps.orchestratorOptions ?? {}),
       ...(gated ? { shouldFeedEngine: (): boolean => vad!.open, idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS } : {}),
     };

@@ -93,6 +93,66 @@ export type SegmentCutReason = 'sentence' | 'pause' | 'leg';
  */
 export const MIN_PAUSE_MS = 600;
 
+/**
+ * 🔴 card NR-60 — THE SECOND BOUND ON AN ENGINE LEG, and the first one that is
+ * not a clock.
+ *
+ * SEG-4 made the leg a purely temporal thing: `cadenceMs + graceMs`
+ * (30 s + 15 s) bounds the vendor session and nothing else. That was true of
+ * every engine the product had when it was written, because every one of them
+ * could be handed a span of any length. The local **whisper** packs cannot, and
+ * the shipped decoder says so in as many words:
+ *
+ *   Only waves less than 30 seconds are supported. We process only the first
+ *   30 seconds and discard the remaining data
+ *
+ * (a literal in `sherpa-onnx-c-api.dll` 1.13.4 — measured 2026-09-16 on
+ * dev-pc-a; it is the ONLY audio-length limit string in that binary, so
+ * SenseVoice / transducer / nemo-ctc / canary / moonshine are unaffected.) It
+ * is not configurable: `OfflineWhisperModelConfig` is
+ * `{encoder, decoder, language, task, tailPaddings}` and `tailPaddings` PADS a
+ * short wave, it does not extend the window. The 30 s is Whisper's encoder — a
+ * fixed-length mel input, not a tunable.
+ *
+ * ⇒ On a whisper pack the last ~15 s of a 45 s leg was decoded by nobody and
+ * reported by nothing. That is the 「no silent failure」 red line in its worse
+ * direction: not a failure swallowed, but a PARTIAL transcript delivered as a
+ * whole one — and the tail is what goes, so the row reads finished.
+ *
+ * 🔴 THE BOUND IS ON AUDIO FED, NOT ON WALL TIME, and that is the whole design.
+ * Wall time only bounds audio from above (the VAD gate feeds less than elapses),
+ * so shortening the cadence would buy the same guarantee by making EVERY
+ * engine's rows shorter — a product change, to work around one pack's decoder.
+ * The quantity that has to stay under the wall is the span the flush hands over,
+ * and `engineFedBytes` is already exactly that number (NR-50 races its flush cap
+ * against it). One fact, two readers — not one value answering two questions.
+ *
+ * ⚠️ THE COST, stated: a whisper session rotates its leg every ~28 s instead of
+ * every ~45 s, and every rotation is a seam that costs the next leg its left
+ * acoustic context (SEG-3's whole account). That is a worse join at one seam,
+ * against a transcript missing a third of itself. The ROW is not cut: a leg
+ * rotation mints nothing (SEG-4), so nothing about this is visible to the user.
+ *
+ * ⚠️ THE MARGIN exists because the budget is checked once per fed chunk, i.e.
+ * the crossing is noticed only on the chunk that crosses it. The phone's chunks
+ * are ~200 ms and no part of the protocol pins that size, so 2 s is ten of
+ * today's and still leaves 28 s of usable leg. (A replayed tail is bounded by
+ * `replayWindowMs` = 5 s and only ever lands on a leg whose count was just
+ * reset, so it cannot jump the budget on its own.)
+ *
+ * ⚠️ 0 = 「this engine declared nothing」 = unbounded, which is byte-for-byte
+ * today's behaviour. Every network engine, and every local pack that is not
+ * whisper, stays there — a bound nobody measured is not a bound worth inventing.
+ */
+export const LEG_AUDIO_BUDGET_MARGIN_MS = 2_000;
+
+/** How much audio one leg of [engineMaxDecodeAudioMs] may be handed; 0 when the
+ *  engine declared no limit. See {@link LEG_AUDIO_BUDGET_MARGIN_MS}. */
+export function legAudioBudgetMs(engineMaxDecodeAudioMs: number | undefined): number {
+  if (engineMaxDecodeAudioMs === undefined || engineMaxDecodeAudioMs <= 0) return 0;
+  return Math.max(0, engineMaxDecodeAudioMs - LEG_AUDIO_BUDGET_MARGIN_MS);
+}
+
 /** The three inputs a DELIVERY decision is allowed to read, and nothing else.
  *  card SEG-4 removed `ceilingReached`: no timer can deliver a row any more —
  *  the timer's whole authority is now the engine leg. */
@@ -140,7 +200,7 @@ export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
  *
  * WHERE THE FULL STOP COMES FROM. Not from the flush, and not from us — from the
  * recognizer, and our own engine layer already had it written down:
- * `engines/sherpa-local.ts:202` — 「SenseVoice punctuates AS A FUNCTION OF THE
+ * `engines/sherpa-local.ts:266` — 「SenseVoice punctuates AS A FUNCTION OF THE
  * SPAN, so a 「。」 turns into a 「，」 the moment more speech follows it」.
  * ⇒ A segment boundary does not merely SPLIT the text. It changes what the
  * engine DECIDES the text is: hand it half a clause as a closed span and it
@@ -217,8 +277,15 @@ export interface SoftSegmentCadenceHooks {
   isFinished(): boolean;
   /** card SEG-4 — the leg span expired: rotate the ENGINE LEG (flush → seam-repair
    *  → bank → fresh leg), and mint NOTHING. The row keeps growing. This used to
-   *  be `cutNow()` and used to deliver; the rename is the card. */
-  rotateLeg(): void;
+   *  be `cutNow()` and used to deliver; the rename is the card.
+   *
+   *  card NR-60 — returns whether a rotation ACTUALLY STARTED. `startRollover`
+   *  has always refused when one is already in flight; it just never said so,
+   *  and the clock did not need to know (it re-arms either way). The audio
+   *  budget does need to know: it fires from the chunk path, where a refusal is
+   *  routine (the chunk that spends the budget can arrive during the rollover a
+   *  delivery cut started one chunk earlier). */
+  rotateLeg(): boolean;
 }
 
 /**
@@ -322,6 +389,32 @@ export class SoftSegmentCadence {
       // a timer that fires at the clock's every step.
       this.arm(this.cadenceMs + this.graceMs);
     }, delayMs);
+  }
+
+  /**
+   * card NR-60 — the leg's AUDIO budget is spent ({@link legAudioBudgetMs}):
+   * rotate now, through the same hook and the same re-arm phase 2 uses, so there
+   * is ONE way a leg ends rather than two that can drift apart. Returns whether a
+   * rotation started.
+   *
+   * 🔴 `_lastCutReason` is written only AFTER the rotation is known to have
+   * started, and that order is the mechanism. A refused rotation means one is
+   * already in flight — and on the delivery path that in-flight one is a ROW
+   * ending at a 'sentence' or a 'pause', whose reason `rolloverSegment` and the
+   * terminal `seamText` are about to read. Stamping 'leg' over it would make us
+   * strip a terminator the engine really produced, which is SEG-3's defect
+   * pointed the other way.
+   *
+   * ⚠️ Nothing between the hook call and the assignment reads the reason: the
+   * leg branch of `rolloverSegment` passes `'leg'` to `seamText` as a literal,
+   * and it reaches its first `await` (the flush) before this line runs.
+   */
+  rotateLegForAudioBudget(): boolean {
+    if (this.hooks.isFinished() || !this.hooks.hasEngine()) return false;
+    if (!this.hooks.rotateLeg()) return false;
+    this._lastCutReason = 'leg';
+    this.arm(this.cadenceMs + this.graceMs);
+    return true;
   }
 
   clear(): void {

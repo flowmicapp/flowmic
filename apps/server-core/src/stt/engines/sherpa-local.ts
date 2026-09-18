@@ -37,7 +37,7 @@ import {
   baseLang, catalogModelById, isLoadableThisPhase, SENSE_VOICE_MODEL_ID,
   sherpaModelCanRecognize, type CatalogModel,
 } from '../sherpa/model-catalog';
-import { loaderConfigEmbedsLanguage, offlineModelConfigFor } from '../sherpa/loader-config';
+import { loaderConfigEmbedsLanguage, maxDecodeAudioMsFor, offlineModelConfigFor } from '../sherpa/loader-config';
 import { resolveReadyModelForLanguage, type ResolvedModel } from '../sherpa/model-resolve';
 import { SherpaPreviewDecoder, type PreviewDisableReason } from './sherpa-preview';
 import { log } from '../../log';
@@ -51,18 +51,45 @@ const SHERPA_SPECIFIER = 'sherpa-onnx-node';
 export interface OfflineRecognizer {
   createStream(): OfflineStream;
   decode(stream: OfflineStream): void;
+  /** sherpa-onnx-node >= 1.13.4 — the same decode on a libuv worker. OPTIONAL
+   *  on the type and checked at RUNTIME for the same reason `createAsync` is
+   *  (see SherpaOfflineRecognizerCtor): the addon is whatever is on the
+   *  machine, and a missing method degrades to the synchronous decode. */
+  decodeAsync?: (stream: OfflineStream) => Promise<void>;
   getResult(stream: OfflineStream): { text?: string; lang?: string };
 }
 export interface OfflineStream {
   acceptWaveform(w: { sampleRate: number; samples: Float32Array }): void;
 }
-interface SherpaModule {
-  OfflineRecognizer: new (cfg: unknown) => OfflineRecognizer;
+/** The addon's `OfflineRecognizer` export, both of its construction paths.
+ *
+ *  `createAsync` is OPTIONAL on the TYPE and checked at RUNTIME on purpose: the
+ *  pin is `sherpa-onnx-node@1.13.4` (apps/server-core/package.json) which has
+ *  it, but the addon is an optionalDependency resolved from whatever is on the
+ *  machine, and a missing factory must degrade to the old synchronous path
+ *  rather than crash the open. */
+export interface SherpaOfflineRecognizerCtor {
+  new (cfg: unknown): OfflineRecognizer;
+  /** sherpa-onnx-node >= 1.13.4 — `addon.createOfflineRecognizerAsync`, which
+   *  builds the ONNX session on a libuv worker instead of the JS thread. */
+  createAsync?: (cfg: unknown) => Promise<OfflineRecognizer>;
+}
+export interface SherpaModule {
+  OfflineRecognizer: SherpaOfflineRecognizerCtor;
 }
 
 /** Keep loaded recognizers hot across utterances (spike §7 risk 4: avoid the
- *  ~1s + 228 MB reload per recording). Keyed by model path + thread count. */
-const RECOGNIZER_CACHE = new Map<string, OfflineRecognizer>();
+ *  ~1s + 228 MB reload per recording). Keyed by model path + thread count.
+ *
+ *  🔴 NR-38: the value is the in-flight PROMISE, not the recognizer. The load
+ *  became awaitable (see [constructRecognizer]) and an awaitable load opens a
+ *  window the synchronous one did not have: two sessions cold-opening the same
+ *  model at once would each build their own ~1 GB ONNX session. Caching the
+ *  promise makes the second one join the first. A REJECTED load is dropped
+ *  again below, because the synchronous version could never memoise a failure
+ *  (the constructor threw before the `set`) and 「the model is permanently
+ *  broken for this process」 is not something one failed load may decide. */
+const RECOGNIZER_CACHE = new Map<string, Promise<OfflineRecognizer>>();
 
 let dllPathPrepended = false;
 /** #3059: prepend the bundled sherpa-onnx-win-x64 dir to PATH so its
@@ -99,6 +126,42 @@ function threadsFromEnv(): number {
   if (!raw) return 2; // spike §4 sweet spot (28× realtime, memory doubles then stops)
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : 2;
+}
+
+/**
+ * NR-38 — build the recognizer WITHOUT taking the event loop hostage.
+ *
+ * THE DEFECT THIS IS THE FIX FOR (ledger §25, G10 root cause 2026-09-11): the
+ * first press after a sidecar start spent ~8 s in `open()` and the 5 s
+ * `raceSpawnTimeout` cap could not fire against it. Two costs were named there;
+ * only ONE of them was ever the event loop's problem, and this machine measured
+ * which (dev-pc-a, node v22.22.3, real
+ * `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`, 239_233_841 bytes,
+ * a 50 ms `setInterval` watching max tick latency):
+ *
+ *   the model SHA-256 (`model-fetch.ts` sha256File)   367–538 ms, max tick lag  0 ms
+ *   `new OfflineRecognizer(cfg)`                    1_505 ms, max tick lag 1_455 ms (0 ticks ran)
+ *   `OfflineRecognizer.createAsync(cfg)`            1_410 ms, max tick lag    14 ms (22 ticks ran)
+ *
+ * ⇒ the hash was ALREADY non-blocking — it is `createReadStream` piped into the
+ * hash and it yields between chunks — so the「哈希同步阻塞」half of the ledger
+ * entry is not what the loop was dying of. The native constructor was: it runs
+ * the whole ONNX session build on the JS thread, so no timer, no socket read
+ * and no ack could be serviced for its entire duration. `createAsync` does the
+ * same work on a libuv worker and costs the same WALL time — the loop just
+ * stays alive through it, which is what makes the spawn cap able to fire at all.
+ *
+ * ⚠️ WHAT THIS DOES NOT DO: the load is not faster. A 1 GB pack still takes as
+ * long as it takes; what changed is that the process can answer while it does.
+ */
+export async function constructRecognizer(
+  sherpa: SherpaModule,
+  cfg: unknown,
+): Promise<OfflineRecognizer> {
+  const Ctor = sherpa.OfflineRecognizer;
+  // Runtime check, not a version check: see SherpaOfflineRecognizerCtor.
+  if (typeof Ctor.createAsync === 'function') return Ctor.createAsync(cfg);
+  return new Ctor(cfg);
 }
 
 /**
@@ -209,7 +272,52 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
    * DELTA, that assertion is what turns red.
    */
   readonly interimShape = 'cumulative' as const;
+  /**
+   * NR-50 — the second declaration, and the one `raceFlushFinal` keys its
+   * fallback on: every interim this engine emits is `SherpaPreviewDecoder`'s
+   * tail re-decode — spans decoded WITHOUT their left context and cut at an
+   * energy boundary (this file's `flush()` says so where it decodes the real
+   * one). They are previews. When the terminal decode does not answer, the
+   * accumulated preview is NOT delivered in its place; see `FlushOutcome.refused`.
+   */
+  readonly interimIsPreviewOnly = true as const;
+  /**
+   * card NR-60 — the third declaration, and the only one that changes with the
+   * PACK rather than with this class: a whisper row's recognizer keeps the first
+   * 30 s of any wave and discards the rest (`maxDecodeAudioMsFor` carries the
+   * measurement). The orchestrator rotates the leg before a flush can hand one
+   * more than this.
+   *
+   * ⚠️ `undefined` before `open()` resolves a row, and for the seam-injected
+   * recognizer the preview tests drive — the same `activeRow === null` case the
+   * preview gate reads one screen down. That is today's behaviour (no bound),
+   * which is the right failure direction here: production always has a row by
+   * the time a chunk is pushed, so the null case cannot silently shorten a leg
+   * for an engine that did not need it.
+   */
+  get maxDecodeAudioMs(): number | undefined {
+    return this.activeRow === null ? undefined : maxDecodeAudioMsFor(this.activeRow);
+  }
   private _state: EngineState = 'closed';
+  /**
+   * NR-50 — one terminal decode at a time. `flush()` clears the utterance
+   * buffer BEFORE it decodes and the decode now yields, so a second `flush()`
+   * landing during the first would see an empty buffer and resolve with no
+   * final while the first is still computing — two callers, two ideas of
+   * 「done」. Chaining makes the second wait for the first. The orchestrator
+   * never double-flushes a leg (`flushing` / `isLegBusy`), so this guards the
+   * contract rather than a path production walks.
+   */
+  private flushChain: Promise<void> = Promise.resolve();
+  /**
+   * NR-50 — a terminal decode is on the libuv worker right now. Read by
+   * `push()`: a preview re-decode would drive the SAME recognizer from the JS
+   * thread while the worker holds it. Whether the addon tolerates two decodes
+   * on one recognizer at once was NOT measured, and a preview is an
+   * enhancement that already degrades to 「no interim」 by design — so it stands
+   * down for the duration instead of betting on it. The audio still accumulates.
+   */
+  private finalDecodeInFlight = false;
   private chunks: Buffer[] = [];
   private byteLength = 0;
   private rec: OfflineRecognizer | null = null;
@@ -329,35 +437,80 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     throw new SherpaModelNotReadyError(resolveModelDir('')); // '' ⇒ the models root itself
   }
 
-  private loadRecognizer(row: CatalogModel, modelDir: string): OfflineRecognizer {
+  private loadRecognizer(row: CatalogModel, modelDir: string): Promise<OfflineRecognizer> {
     const numThreads = threadsFromEnv();
     // Whisper/Canary embed the language in the model config itself, so those
     // kinds key the cache per language too — a French session must not reuse
     // the recognizer a German one built (loader-config.ts says why).
     const langFacet = loaderConfigEmbedsLanguage(row) ? baseLang(this.cfg.language) : '';
     const cacheKey = `${modelDir}::${numThreads}::${langFacet}`;
+    // NR-49 (owner ruling 2026-09-16 §1): this used to call
+    // `noteRecognizerLoaded(row.model_id)` so model-in-use.ts could refuse to
+    // delete any pack this process had loaded. That hold is gone — its
+    // mechanism was measured false on 2026-09-15 and the owner ruled the pack
+    // deletable — so the call went with it rather than staying as bookkeeping
+    // nothing reads. What did NOT change is this cache: a delete cannot free
+    // a recognizer (the addon exposes no destructor, pinned by
+    // test/sherpa-addon-surface.test.ts), and it does not need to — a deleted
+    // pack fails the controller's readiness check, so the ladder never asks
+    // for it again and this entry is simply unreachable.
     const cached = RECOGNIZER_CACHE.get(cacheKey);
     if (cached) return cached;
     const sherpa = nodeRequire(SHERPA_SPECIFIER) as SherpaModule;
-    const rec = new sherpa.OfflineRecognizer({
+    const pending = constructRecognizer(sherpa, {
       featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
       // The ONE writer of loader configs (LM-CAT §5) — the senseVoice-only
       // inline this replaces lives on only as that switch's senseVoice arm.
       modelConfig: offlineModelConfigFor(row, modelDir, this.cfg.language, numThreads),
     });
-    RECOGNIZER_CACHE.set(cacheKey, rec);
-    return rec;
+    RECOGNIZER_CACHE.set(cacheKey, pending);
+    pending.catch(() => {
+      // Only if it is still OURS — a later attempt may already have replaced it.
+      if (RECOGNIZER_CACHE.get(cacheKey) === pending) RECOGNIZER_CACHE.delete(cacheKey);
+    });
+    return pending;
   }
 
-  /** One offline decode of one PCM span. THROWS — each caller decides what a
-   *  failure means: for the final it is an engine error, for a preview it is a
-   *  reason to stand down quietly (see SherpaPreviewDecoder). */
+  /** One offline decode of one PCM span, on the JS thread. THROWS — each caller
+   *  decides what a failure means: for a preview it is a reason to stand down
+   *  quietly (see SherpaPreviewDecoder). The TERMINAL decode no longer comes
+   *  here — see {@link decodeSpanAsync}. */
   private decodeSpan(pcm: Buffer): string {
     if (!this.rec) throw new Error('recognizer not loaded');
     const stream = this.rec.createStream();
     stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: pcmS16leToFloat32(pcm) });
     this.rec.decode(stream);
     const result = this.rec.getResult(stream);
+    return typeof result.text === 'string' ? result.text : '';
+  }
+
+  /**
+   * NR-50 — the terminal decode, off the event loop.
+   *
+   * THE DEFECT (ledger §33, measured 2026-09-15 and re-measured on
+   * dev-pc-a 2026-09-16 with `--decode-cost`): `rec.decode()` is a
+   * synchronous native call, and the whole-utterance decode ran inside it — so
+   * for its entire duration not one timer, socket read or ack was serviced.
+   * SenseVoice 45 s: 2 067 ms with `ticks 0`; whisper-turbo 30 s: 17 095 ms
+   * with `ticks 0`. `decodeAsync` costs the SAME wall time (1 981 / 16 887 ms)
+   * and the loop stays alive through it (65 / 553 ticks ran). Same shape, same
+   * fix and same non-claim as NR-38's `createAsync`: not faster — answerable.
+   *
+   * Runtime check, not a version check (see the interface): an addon without
+   * the method decodes synchronously, exactly as before this card.
+   *
+   * The recognizer is captured LOCALLY: `close()` nulls `this.rec` while the
+   * worker may still be mid-decode, and `getResult` must be asked of the
+   * recognizer that decoded the stream. THROWS like `decodeSpan`.
+   */
+  private async decodeSpanAsync(pcm: Buffer): Promise<string> {
+    const rec = this.rec;
+    if (!rec) throw new Error('recognizer not loaded');
+    const stream = rec.createStream();
+    stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: pcmS16leToFloat32(pcm) });
+    if (typeof rec.decodeAsync === 'function') await rec.decodeAsync(stream);
+    else rec.decode(stream);
+    const result = rec.getResult(stream);
     return typeof result.text === 'string' ? result.text : '';
   }
 
@@ -376,6 +529,10 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
     // 缺席」). `activeRow === null` (seam-injected recognizer) keeps the
     // preview, because the preview suite drives this path.
     if (this.activeRow !== null && this.activeRow.streaming !== 'quasi') return;
+    // NR-50: the recognizer is busy with the terminal decode on the worker —
+    // the preview stands down (see `finalDecodeInFlight`); the chunk above is
+    // already in the utterance buffer, so no audio is lost by this return.
+    if (this.finalDecodeInFlight) return;
     // REQ-12-05. Ordered AFTER the accumulate on purpose: the utterance buffer
     // that produces the FINAL is written first and unconditionally, so no
     // preview outcome — including a throw that got past the decoder — can cost
@@ -395,7 +552,16 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
   }
 
   flush(): Promise<void> {
-    if (this._state !== 'open' || this.byteLength === 0 || !this.rec) return Promise.resolve();
+    // NR-50: serialised — see `flushChain`. A rejected run must not poison the
+    // chain for the next caller; `flushOnce` never rejects (it emits), but the
+    // chain is kept settled regardless.
+    const run = this.flushChain.then(() => this.flushOnce());
+    this.flushChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async flushOnce(): Promise<void> {
+    if (this._state !== 'open' || this.byteLength === 0 || !this.rec) return;
     // 🔴 REQ-12-05 — ONE line per utterance saying what the previews actually
     // cost on THIS machine. Written before the terminal decode so it lands even
     // if that one throws.
@@ -437,7 +603,25 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
         });
         text = '';
       } else {
-        text = this.decodeSpan(pcm);
+        // NR-50: off the loop. Everything below this await runs AFTER a yield,
+        // so the leg may have been closed meanwhile (the orchestrator's flush
+        // cap fired and it moved on, or the session ended) — a final emitted
+        // then would land on a closed engine with no listeners, or worse, on
+        // the next leg's accumulators. The state check is the guard; the
+        // orchestrator-level pin is `nr50-local-flush-cap.test.ts`.
+        this.finalDecodeInFlight = true;
+        try {
+          text = await this.decodeSpanAsync(pcm);
+        } finally {
+          this.finalDecodeInFlight = false;
+        }
+        if (this._state !== 'open') {
+          // Counts only — the decoded text stays out of the log.
+          log.warn('sherpa-local: terminal decode finished after the leg was closed; its result was dropped', {
+            decoded_chars: text.length, audio_ms: durationMs,
+          });
+          return;
+        }
         if (text !== '' && !hasLexicalContent(text)) {
           // Counts only — the decoded text stays out of the log (transcript
           // content never lands in server.log; same rule as the preview stats).
@@ -456,14 +640,42 @@ export class SherpaLocalEngine extends EventEmitter implements SttEngine {
       };
       this.emit('final', ev);
     } catch (err) {
-      this.emit('error', new SttEngineError('STT_ENGINE_TIMEOUT', `sherpa-local decode failed: ${(err as Error).message}`, true));
+      if (this._state !== 'open') {
+        log.warn('sherpa-local: terminal decode failed after the leg was closed; nothing to report it to', {
+          audio_ms: durationMs, message: (err as Error).message,
+        });
+        return;
+      }
+      // NR-50: `retryable: false`. This is the flush phase of a LOCAL decode —
+      // no ladder, no reconnect, nothing that a retry from the server's side
+      // could change — and the phone reads a terminal `stt:error` as an
+      // immediate stall that names the code, whereas `true` was only ever
+      // diagnosed and let the preview be delivered as the final (the same
+      // R11 breach as the cap, one branch over). `flushErrorVerdict` passes a
+      // non-retryable engine error through verbatim.
+      this.emit('error', new SttEngineError('STT_ENGINE_TIMEOUT', `sherpa-local decode failed: ${(err as Error).message}`, false));
     }
-    return Promise.resolve();
   }
 
   close(): Promise<void> {
     // Detach from the (cached, hot) recognizer — do not free it (kept warm for
     // the next utterance). Clear the buffer only.
+    //
+    // 🔴 NR-45 (2026-09-15, measured on dev-pc-b against the installed
+    // sherpa-onnx-node@1.13.4): 「do not free it」 is no longer a choice this
+    // line makes — THERE IS NO FREE TO CALL. `OfflineRecognizer` offers
+    // constructor / createAsync / createStream / setConfig / decode /
+    // decodeAsync / getResult; `OfflineStream` offers constructor /
+    // acceptWaveform / setOption; and not one of the addon's 99 native exports
+    // matches free|destroy|release|dispose|unload. (The C library's
+    // `SherpaOnnxDestroyOfflineRecognizer` IS linked into the addon binary, so
+    // something inside it can destroy one — nothing reachable from here can.)
+    // ⇒ the eviction path NR-45 asked for was deliberately NOT written: a
+    // method named `release` that only drops a Map entry would claim a
+    // capability the dependency does not have. Pinned by
+    // `test/sherpa-addon-surface.test.ts`, which turns red the day upstream
+    // adds one; re-measurable with
+    // `scripts/drills/local-engine-lifecycle-probe.mjs --surface`.
     this.rec = null;
     this.activeRow = null;
     this.chunks = [];

@@ -57,7 +57,12 @@ void main() {
       expect(FlowMicDockColors.bg, const Color(0xFFF7F7FA));
       expect(FlowMicDockColors.panel, const Color(0xFFFFFFFF));
       expect(FlowMicDockColors.ink, const Color(0xFF1C1B22));
-      expect(FlowMicDockColors.sub, const Color(0xFF716E7E));
+      // 🔴 NR-23, 2026-09-13: DARKENED from the mock's #716E7E, which was
+      // 4.31:1 on `chipbg`. The comment block above still quotes the mock's
+      // own `.ph{…--sub:#716E7E…}` verbatim and is left that way on purpose:
+      // this line is now a DEPARTURE from the mock, and hiding that by
+      // editing the quoted source would erase the only record of it.
+      expect(FlowMicDockColors.sub, const Color(0xFF6C6979));
       expect(FlowMicDockColors.line, const Color(0xFFE5E4EC));
       expect(FlowMicDockColors.pri, const Color(0xFF4F46E5));
       expect(FlowMicDockColors.chipbg, const Color(0xFFEFEEF6));
@@ -266,6 +271,45 @@ void main() {
           reason: 'ink on appendHighlight ($b): ${ratio.toStringAsFixed(2)}:1',
         );
       }
+    });
+
+    // NR-23 — `sub` IS BODY TEXT, SO IT GETS THE BODY BAR.
+    //
+    // `sub` paints the inactive mode segments, the PC key labels, the captions
+    // and the sheet header row (see its doc comment in tokens.dart) — all of
+    // it small text, none of it a decoration WCAG exempts. It had no contrast
+    // assertion here at all, and in LIGHT it was 4.31:1 on `chipbg`, which is
+    // the fill the unselected segments actually sit on.
+    //
+    // 🔴 THE LEDGER CALLED THIS A DARK-THEME PAIR AND IT IS NOT. NR-23 §10
+    // files「两对次级文字」under the DARK heading, but the failing `sub`
+    // pairing is the LIGHT one: dark `sub` on dark `chipbg` measures 5.19:1
+    // and never needed anything. The dark half of the card is `t3`, in
+    // theme_tokens_test.dart, alone.
+    //
+    // ⚠️ THIS IS NOT THE `restoreText` CASE ABOVE. That pair is pinned at
+    // 3.64:1 because the mock chose both of its colours and this repo has no
+    // authority to retune a spec. `sub` is different: NR-23 is the ruling that
+    // it be raised, and the browser mirrors whatever Dart says.
+    test('sub clears the 4.5:1 AA bar on every dock fill it is painted on, both themes', () {
+      for (final Brightness b in <Brightness>[Brightness.light, Brightness.dark]) {
+        FlowMicTheme.brightness.value = b;
+        final Map<String, Color> fills = <String, Color>{
+          'bg': FlowMicDockColors.bg,
+          'panel': FlowMicDockColors.panel,
+          'chipbg': FlowMicDockColors.chipbg,
+        };
+        for (final MapEntry<String, Color> fill in fills.entries) {
+          final double ratio = contrast(FlowMicDockColors.sub, fill.value);
+          expect(
+            ratio >= 4.5,
+            isTrue,
+            reason: 'sub on ${fill.key} ($b): ${ratio.toStringAsFixed(2)}:1 '
+                'is under the 4.5:1 AA bar',
+          );
+        }
+      }
+      FlowMicTheme.brightness.value = Brightness.dark;
     });
   });
 

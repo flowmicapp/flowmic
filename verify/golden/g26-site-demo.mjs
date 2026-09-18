@@ -667,8 +667,19 @@ export const G26 = {
       if (rejoin.budget.free_plan_minutes !== undefined) {
         return FAIL(`after signing in the ack still carries free_plan_minutes=${rejoin.budget.free_plan_minutes} - that field is a TRIAL's answer to 「what would an account get」, and this socket has one`);
       }
-      // The cap stays ON the row: signing out later is somebody else's card, and
-      // clearing it here would hand a fresh two minutes to a browser that had it.
+      // The cap stays ON the row. NOT because a re-mint would hand this browser a
+      // fresh two minutes on a modern client — a re-pair claims by device_uid and
+      // lands on the same ledger row (trial-ledger.ts), so that outcome can't
+      // happen any more. The real cost of clearing it: the reconnect leg never
+      // mints (mobile-reconnect.ts, mayMint:false), so a sign-out redial on a
+      // cleared row would run with NO per-browser cap at all until the next pair —
+      // worse than the state this assertion protects. (This column no longer
+      // decides the mobile-slot question either way: `occupiesMobileSlot` has read
+      // `client`, not `trial_user_id`, since card MP-6. NR-29's remaining half —
+      // whether a graduated instance should ever stop being exempt — was closed by
+      // the owner's ruling that a browser tab never takes a phone slot, signed in
+      // or not; see docs/decisions/2026-09-15-owner-web-tab-never-takes-a-phone-slot.md.
+      // Nothing here needed to change as code — only this comment's reason did.)
       if (db.prepare('SELECT trial_user_id FROM mobile_pairings WHERE id=?').get(pair.pairing_id).trial_user_id !== anonId) {
         return FAIL("signing in cleared the pairing row's trial identity");
       }

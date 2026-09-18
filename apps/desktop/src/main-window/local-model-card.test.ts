@@ -80,7 +80,8 @@ vi.mock('@tauri-apps/api/event', () => ({ emit: vi.fn(), listen: vi.fn() }));
 import LocalModelCard from './components/LocalModelCard.vue';
 import { resetModelStoreForTest, type ModelStore } from '../lib/model-client';
 import { asModelsStatus, type ModelsStatus } from '../lib/model-status';
-import { setLocale } from '../lib/strings';
+import { S, setLocale } from '../lib/strings';
+import { UI_LOCALES, type UiLocale } from '../lib/strings/locale';
 
 /** The real manifest total (model-manifest.ts), so every figure below is one a
  *  user will see: 239,233,841 + 315,894 = 228.5 MiB. */
@@ -103,6 +104,9 @@ function wireSnap(over: Record<string, unknown> = {}): Record<string, unknown> {
     source: null,
     resumed_from_bytes: 0,
     rate_bytes_per_sec: null,
+    // NR-7: the MEASURED occupancy of the pack folder. 0 by default, matching
+    // the default `absent` state — nothing on disk, nothing to delete.
+    disk_bytes: 0,
     error: null,
     ...over,
   };
@@ -135,6 +139,7 @@ function mkStatus(over: {
   selected?: Record<string, string>;
   busy?: string | null;
   rootDir?: string;
+  inUse?: string[];
 } = {}): ModelsStatus {
   const legacy = wireSnap(over.legacy);
   const body = {
@@ -147,6 +152,7 @@ function mkStatus(over: {
     busy_model_id: over.busy !== undefined
       ? over.busy
       : (legacy.state === 'downloading' ? (legacy.model_id as string) : null),
+    in_use_model_ids: over.inUse ?? [],
   };
   const s = asModelsStatus(body);
   if (s === null) throw new Error('fixture failed the wire narrowing — fix the fixture, not the test');
@@ -566,6 +572,174 @@ describe('the built-in speech model card', () => {
     // page cannot pass this by saying nothing at all.
     const html = await render({ status: st({ state: 'absent' }) });
     expect(html).toContain('Download the model');
+  });
+
+  // ── NR-7: deleting a pack (owner ruling 2026-09-02 §5) ────────────────────
+  //
+  // Every assertion below reads the RENDER, per this file's opening rule: the
+  // 0.2.53 lesson is that a test which asserts a catalogue constant is green
+  // while the user reads something else.
+
+  /** The row's delete control, or undefined. Found by its label rather than by
+   *  a class, because the label is what a user looks for. */
+  function deleteButton(html: string): { outer: string; inner: string } | undefined {
+    return buttons(html).find((b) => b.inner.includes('Delete'));
+  }
+
+  it('NR-7: a downloaded pack shows the MEASURED size on disk and a delete control', async () => {
+    const html = await render({
+      status: mkStatus({ legacy: { state: 'ready', bytes_done: REAL_TOTAL, disk_bytes: REAL_TOTAL } }),
+    });
+    // 「删除前提示大小」 — the size is on screen BEFORE the press, not inside a
+    // confirmation nobody has seen yet.
+    expect(html).toContain('Downloaded 228 MB');
+    const del = deleteButton(html);
+    expect(del, 'a downloaded pack must offer a way to remove it').toBeDefined();
+    expect(del?.outer).not.toContain('disabled');
+  });
+
+  it('NR-7: the size beside the delete control is the one ON DISK, not the declared one', async () => {
+    // The pack's catalog row still declares 228 MB; the disk holds half of it
+    // (a cancelled download's remainder). A control that freed 「228 MB」 and
+    // recovered 114 would be the same class of lie as a 100% bar over moving
+    // bytes — §4's reason for `bytes_total: null` in one sentence.
+    const half = Math.round(REAL_TOTAL / 2);
+    const html = await render({
+      status: mkStatus({ legacy: { state: 'partial', bytes_done: half, disk_bytes: half } }),
+    });
+    expect(html).toContain('Downloaded 114 MB');
+    expect(html).toContain('228 MB'); // the declared size is still shown beside it
+  });
+
+  it('NR-7: a pack with nothing on disk has NO delete control at all', async () => {
+    const html = await render({ status: st({ state: 'absent' }) });
+    expect(deleteButton(html), 'a control that cannot do anything is worse than none').toBeUndefined();
+    // Positive control: the same render DOES carry the row's real action, so
+    // an empty page cannot green this by rendering nothing.
+    expect(html).toContain('Download the model');
+  });
+
+  it('🔴 NR-7: the pack IN USE has the control DISABLED — and says why beside it', async () => {
+    const html = await render({
+      status: mkStatus({
+        legacy: { state: 'ready', bytes_done: REAL_TOTAL, disk_bytes: REAL_TOTAL },
+        inUse: [PACK_ID],
+      }),
+    });
+    const del = deleteButton(html);
+    // Disabled, not hidden: 「why can I delete that one and not this one」 is
+    // answered by a refused control, never by an absent one.
+    expect(del, 'the in-use pack still shows the control').toBeDefined();
+    expect(del?.outer).toContain('disabled');
+    // 🔴 The sentence that says WHY shipped with card WP2-COPY-1 (authored
+    // through the rewrite pipeline, owner ruling 2026-09-01), so what used to be
+    // asserted here — that the slot stays empty — is now its opposite: the
+    // refusal is explained where it is refused.
+    // The two things that must still NOT be on screen are the internals: the
+    // catalogue identifier and the server's error code are both developer
+    // vocabulary, and putting either in front of a user is the 0.2.53 defect.
+    expect(html).toContain(S.model_delete_in_use);
+    expect(html).not.toContain('model_delete_in_use');
+    expect(html).not.toContain('MODEL_IN_USE');
+  });
+
+  it('NR-7: the same pack becomes deletable the moment the server stops calling it in use', async () => {
+    // The pair is the point: the ONLY difference between these two renders is
+    // `in_use_model_ids`, so the disabled state is proven to come from the
+    // server's verdict and not from the state word, the selection, or the tier.
+    const legacy = { state: 'ready', bytes_done: REAL_TOTAL, disk_bytes: REAL_TOTAL };
+    const locked = await render({ status: mkStatus({ legacy, inUse: [PACK_ID] }) });
+    resetModelStoreForTest();
+    const free = await render({ status: mkStatus({ legacy, inUse: [] }) });
+    expect(deleteButton(locked)?.outer).toContain('disabled');
+    expect(deleteButton(free)?.outer).not.toContain('disabled');
+  });
+
+  // ── NR-49b · 「and these other languages lost their pack too」 ─────────────
+  // A delete can empty SEVERAL pairings while the rows above are about one
+  // language at a time. These cases mount the CARD, not the model: what is
+  // being delivered is a line on that screen, and a store field with the right
+  // contents and a screen that never renders it are both green under an
+  // assertion about the model (anti-façade ⑥).
+
+  /** The rendered NR-49b line's own text, or null when the card did not draw
+   *  it.
+   *
+   *  🔴 KNOW YOUR RULER — this helper exists because the first version of these
+   *  cases asserted the endonyms against the WHOLE page and passed with the
+   *  line deleted: the language PICKER above renders 「中文」 and 「日本語」 as
+   *  option labels, so a page-level `toContain` was measuring the select
+   *  element, not the sentence. The assertions below read the one element the
+   *  card is being judged on. */
+  function clearedLine(html: string): string | null {
+    const m = /<p class="sub cleared-langs"[^>]*>([\s\S]*?)<\/p>/.exec(html);
+    return m ? (m[1] ?? '') : null;
+  }
+
+  /** The card after a delete that emptied `langs`, in `locale`. */
+  async function afterDeleteClearing(langs: string[], locale: UiLocale = 'en'): Promise<string> {
+    setLocale(locale);
+    return render({
+      status: mkStatus({ legacy: { state: 'absent', bytes_done: 0, disk_bytes: 0 } }),
+      clearedLangs: langs,
+    });
+  }
+
+  it('🔴 NR-49b: names the OTHER languages the delete emptied, by their own names', async () => {
+    const line = clearedLine(await afterDeleteClearing(['zh', 'ja']));
+    expect(line, 'the card drew no line for the emptied languages').not.toBeNull();
+    // Their endonyms, because 「zh」 is our data model and the owner's 2026-08-22
+    // rule is that no internal word reaches the screen.
+    expect(line).toContain('中文');
+    expect(line).toContain('日本語');
+    expect(line).not.toContain('zh');
+    expect(line).not.toContain('ja');
+    // The sentence itself is mounted, not only the names.
+    expect(line).toContain(S.model_cleared_langs.split('{langs}')[0]);
+  });
+
+  it('🔴 NR-49b: with nothing cleared the line does not exist', async () => {
+    const html = await afterDeleteClearing([]);
+    expect(clearedLine(html), 'a report of a delete that emptied nothing').toBeNull();
+    expect(html).not.toContain(S.model_cleared_langs.split('{langs}')[0]);
+    // Positive control: this render is a real card, so 「nothing on screen」
+    // cannot be what greens the assertion above.
+    expect(html).toContain('Download the model');
+  });
+
+  it('🔴 NR-49b: every locale keeps the hole the names go into', async () => {
+    // The rewrite pipeline authors these nine sentences and nothing in it
+    // enforces `{langs}` — `PLACEHOLDER_RE` in copy-scent-context.mjs only
+    // knows `$name` / `${name}`, so a locale that dropped the brace would land
+    // green through the whole copy gate and render a sentence naming no
+    // language at all. This is the check that would see it, and it is written
+    // as the SCREEN rather than as the catalogue: both failure shapes — a lost
+    // hole and a literal one — are visible there.
+    for (const loc of UI_LOCALES) {
+      const line = clearedLine(await afterDeleteClearing(['zh', 'ja'], loc));
+      expect(line, `${loc}: no line at all`).not.toBeNull();
+      expect(line, `${loc}: the placeholder was rendered instead of filled`).not.toContain('{langs}');
+      expect(line, `${loc}: the emptied languages are not named`).toContain('中文');
+      expect(line, `${loc}: the emptied languages are not named`).toContain('日本語');
+      resetModelStoreForTest();
+    }
+    setLocale('en');
+  });
+
+  it('NR-49b: a language the registry does not know renders as its code, not as a blank', async () => {
+    // `endonymFor`'s verbatim arm. A selection file can hold a code an older
+    // build accepted; under-reporting which pairings were emptied would be
+    // worse than showing the raw code, because the reader would go looking for
+    // a language that was never named.
+    expect(clearedLine(await afterDeleteClearing(['xx']))).toContain('xx');
+  });
+
+  it('NR-7: the control is wired to the delete caller, naming the pack', async () => {
+    const src = readFileSync(
+      fileURLToPath(new URL('./components/LocalModelCard.vue', import.meta.url)),
+      'utf8',
+    );
+    expect(src).toContain('deleteModel(row.entry.model_id)');
   });
 
   it('renders in the reader language, not in English with a switch flipped', async () => {

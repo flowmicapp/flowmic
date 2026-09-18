@@ -356,6 +356,131 @@ describe('pc:release-mobile forwarded from a replica (B5)', () => {
     expect(after.mobiles).toEqual([]);
   });
 
+  // ── RL-4, owner 2026-09-13:「有时候可以，有时候不行」────────────────────
+  //
+  // THE STATE THE 09-10 ROUND SAID COULD NO LONGER HAPPEN. Its fix drops the
+  // replica's copy of rows the writer just deleted FOR THIS PRESS, and its note
+  // concluded 「the second press no longer happens」. srvjp, three days later,
+  // with that fix deployed:
+  //
+  //   11:08:15.610 pc:release-mobile (forwarded) {revoke:true, targets:0, revoked:0}
+  //
+  // A pairing can leave the writer without this desktop pressing anything — a
+  // web client unpairing itself on the writer (every measured `pair.node_hint`
+  // has `paired_on:"srvny"`, `home_node:"srvasia02"`), another session, the
+  // reaper — and then this snapshot serves it for up to 30 s and the user's
+  // FIRST press lands here.
+  //
+  // The fixture is that state exactly: the row is gone on the writer and still
+  // present on this replica. NOT a second press — `revoke` is called once.
+  it('a row the writer no longer has: acks absent, drops the stale copy, leaves the list', async () => {
+    const { pc, paired } = fixture();
+    // The deletion happened on the writer by some other path. This node has not
+    // pulled yet — which is the whole 30-second window this test lives in.
+    writer.db.mobiles.remove(paired.mobile.id);
+    expect(replica.db.mobiles.findById(paired.mobile.id)).not.toBeNull();
+
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    // The user can still see it — that is why they press.
+    const before = await socket.invoke('pc:list-mobiles', {});
+    expect((before.mobiles as { pairing_id: string }[]).map((m) => m.pairing_id)).toContain(paired.mobile.id);
+
+    const ack = await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    // `revoked` stays the literal truth (nothing was deleted on the writer —
+    // it was already gone); `absent` carries the answer the button asked for.
+    // Two questions, two values.
+    expect(ack).toMatchObject({ ok: true, revoked: 0, absent: true });
+    // …and the surface the user reads agrees NOW, not at the next pull.
+    expect(replica.db.mobiles.findById(paired.mobile.id)).toBeNull();
+    const after = await socket.invoke('pc:list-mobiles', {});
+    expect((after.mobiles as { pairing_id: string }[]).map((m) => m.pairing_id)).not.toContain(paired.mobile.id);
+  });
+
+  // REVERSE CONTROL ①: `absent` must never appear where something WAS revoked.
+  // If it were emitted unconditionally the desktop would stop distinguishing
+  // 「gone」 from 「I could not find it」, which is the whole v0.2.7 guard.
+  it('a revoke that really deleted a row does NOT claim absent', async () => {
+    const { pc, paired } = fixture();
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    const ack = await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    expect(ack).toMatchObject({ ok: true, revoked: 1 });
+    expect(ack).not.toHaveProperty('absent');
+  });
+
+  // REVERSE CONTROL ②: a DISCONNECT that found no target is not an absence
+  // claim. Disconnect deletes nothing anywhere, so「the pairing is gone」would
+  // be false — and the desktop reads a disconnect ack on `ok` alone, so a stray
+  // `absent` here would be a claim nobody checks.
+  it('a disconnect with no targets never claims absent, and destroys nothing', async () => {
+    const { pc, paired } = fixture();
+    writer.db.mobiles.remove(paired.mobile.id);
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    const ack = await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id });
+
+    expect(ack).toMatchObject({ ok: true });
+    expect(ack).not.toHaveProperty('absent');
+    expect(replica.db.mobiles.findById(paired.mobile.id)).not.toBeNull();
+  });
+
+  // REVERSE CONTROL ③: the stale-copy drop obeys the SAME ownership scope as
+  // the confirmed one. If this snapshot files the id under another PC, the
+  // conservative answer for a DELETE is still to leave it to the pull — one PC
+  // may not delete another's pairing on the strength of its own absence.
+  it('the absent-drop cannot reach another PC row on this replica', async () => {
+    const { pc, paired } = fixture();
+    const other = writer.registry.registerPc({ device_name: 'other-pc', user_id: 'default' }).pc;
+    replica.db.pcs.insert({
+      id: other.id, user_id: 'default', device_name: other.device_name, room_uuid: other.room_uuid,
+      device_token: other.device_token, short_code: other.short_code,
+    });
+    replica.db.mobiles.remove(paired.mobile.id);
+    replica.db.mobiles.insert({
+      id: paired.mobile.id, user_id: 'default', pc_device_id: other.id,
+      mobile_token: paired.token, mobile_name: 'Pixel',
+    });
+    writer.db.mobiles.remove(paired.mobile.id);
+    const fwd = productionForwardSync();
+    const socket = wirePc(makeWriterOnlyGuard(WRITER_URL), forwardReleaseMobileVia(fwd));
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true });
+
+    // Still there, still the other PC's. `absent` is still true — that answers
+    // 「does the WRITER have it for THIS pc」, and it does not.
+    expect(replica.db.mobiles.findById(paired.mobile.id)?.pc_device_id).toBe(other.id);
+  });
+
+  // REVERSE CONTROL ④: a node that CAN write never emits `absent`. The claim is
+  // only defensible because a replica's table is a copy of the writer's; on a
+  // lone server `targets: 0` means「wrong server」 (owner 2026-07-29
+  //「提示成功，但仍然还在」) and must keep reading as a failure.
+  it('a writable node answering no targets stays silent about absence', async () => {
+    const { pc } = fixture();
+    const socket = wirePc(NODE_CAN_WRITE);
+    socket.data.auth = { userId: 'default', deviceId: pc.id, kind: 'pc' };
+    socket.data.roomUuid = pc.room_uuid;
+
+    const ack = await socket.invoke('pc:release-mobile', { mobile_id: 'not-a-pairing-here', revoke: true });
+
+    expect(ack).toMatchObject({ ok: true, revoked: 0 });
+    expect(ack).not.toHaveProperty('absent');
+  });
+
   // The second press is what owner actually saw: on srvjp's journal his six
   // presses produced three `revoked:1` and three `targets:0, revoked:0` — the
   // same three rows, pressed twice, because the first press left them on screen.
@@ -376,11 +501,15 @@ describe('pc:release-mobile forwarded from a replica (B5)', () => {
 
     expect(await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true }))
       .toMatchObject({ ok: true, revoked: 1 });
-    // Nothing lists it any more, so a real user never gets here — and if they
-    // do (a row deleted by some other path), the ack is still the honest
-    // idempotent one rather than an error or a crash.
+    // 🔴 「Nothing lists it any more, so a real user never gets here」 stood on
+    // this line until RL-4, and srvjp disproved it (11:08:15.610, targets:0,
+    // with the 09-10 fix deployed): a row deleted by ANY other path — a web
+    // client unpairing itself on the writer, another session, the reaper —
+    // leaves this snapshot serving it, and then the user's FIRST press lands
+    // here. The ack is still the honest idempotent one, and since RL-4 it also
+    // carries `absent`, which is the half the desktop can act on.
     expect(await socket.invoke('pc:release-mobile', { mobile_id: paired.mobile.id, revoke: true }))
-      .toMatchObject({ ok: true, revoked: 0 });
+      .toMatchObject({ ok: true, revoked: 0, absent: true });
   });
 
   // REVERSE CONTROL. A disconnect deletes NOTHING anywhere — the pairing stays

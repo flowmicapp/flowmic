@@ -24,6 +24,29 @@
 //      Dart constant, and its own header listed "a third copy that renamed the
 //      constant" among the things it could not see.
 //
+// -- THE CUSTOM-SCHEME HALF, ADDED 2026-09-15 (card H-14) -------------------
+// This lint covered ONLY the https spelling, while the header above says "the
+// prefix" as if there were one. There are two: `https://flowmic.app/go/pair`
+// and `flowmic://pair` -- the same query with a different scheme+host -- and the
+// second one had NO single source at all. Measured: the desktop builder typed it
+// inline, `apps/mobile/lib/src/ui/scan_payload.dart` declared a second copy, and
+// `PairEntry.parse` (apps/mobile/lib/src/signaling/wire_payloads.dart) typed a
+// THIRD rather than importing the constant from the file it already imports from.
+//
+// 🔴 THE GUARD'S NAME SAID 「single source」 WHILE HALF OF ITS SUBJECT HAD NONE.
+// That is the shape this repo keeps paying for: a green check that reads as
+// coverage of a question it was never asked. `PAIR_CUSTOM_SCHEME` +
+// `PAIR_CUSTOM_HOST` now live in packages/protocol/src/constants.ts, the
+// generator emits `FlowMicPairLink.customPrefix`, and BOTH spellings are scanned
+// here by the same rule -- including the declaration site itself, which is now
+// generated and therefore excluded with every other generated file.
+//
+// ⚠️ What the custom half does NOT get, and the https half does: an OS
+// declaration to check against. Only `flowmic://login` is declared to Android
+// and iOS; `flowmic://pair` arrives by camera or paste. So there is no
+// applink-declarations equivalent for it, and its absence is deliberate (see
+// the constants.ts block).
+//
 // The PATH SHAPE check (leading slash, no trailing one) moved INTO the
 // generator, because the generator is now the thing that concatenates. It fires
 // at `make gen`, i.e. before anything compiles the mobile app.
@@ -63,6 +86,8 @@ const GENERATED_DIR = 'apps/mobile/lib/generated';
 
 const PROTO_HOST_RE = /^[ \t]*export[ \t]+const[ \t]+PAIR_HTTPS_HOST[ \t]*=[ \t]*'([^']+)'[ \t]*;/m;
 const PROTO_PATH_RE = /^[ \t]*export[ \t]+const[ \t]+PAIR_HTTPS_PATH[ \t]*=[ \t]*'([^']+)'[ \t]*;/m;
+const PROTO_SCHEME_RE = /^[ \t]*export[ \t]+const[ \t]+PAIR_CUSTOM_SCHEME[ \t]*=[ \t]*'([^']+)'[ \t]*;/m;
+const PROTO_CHOST_RE = /^[ \t]*export[ \t]+const[ \t]+PAIR_CUSTOM_HOST[ \t]*=[ \t]*'([^']+)'[ \t]*;/m;
 
 const rel = (abs) => path.relative(ROOT, abs).split(path.sep).join('/');
 
@@ -71,36 +96,67 @@ export default async function run() {
   if (protoText === null) {
     return {
       status: 'FAIL',
-      detail: `${PROTOCOL_FILE} is missing — it declares PAIR_HTTPS_HOST/PAIR_HTTPS_PATH, the pair link this scan is built from`,
-    };
-  }
-  const hostHit = PROTO_HOST_RE.exec(protoText);
-  if (!hostHit) {
-    return {
-      status: 'FAIL',
-      detail:
-        `PAIR_HTTPS_HOST is no longer declared as a plain string literal in ${PROTOCOL_FILE}. ` +
-        'Renamed, moved, or computed — this scan would now hunt for a prefix built from nothing ' +
-        'and pass while covering zero. Update verify/lint/pair-link-single-source.mjs ' +
-        '(and apps/mobile/tool/gen_protocol.mjs, which parses the same declaration).',
-    };
-  }
-  const pathHit = PROTO_PATH_RE.exec(protoText);
-  if (!pathHit) {
-    return {
-      status: 'FAIL',
-      detail:
-        `PAIR_HTTPS_PATH is not declared as a plain string literal in ${PROTOCOL_FILE}. ` +
-        'Renamed, moved, or computed — this scan would now cover only half a prefix, and it is ' +
-        'the half that has never changed. Update verify/lint/pair-link-single-source.mjs ' +
-        '(and apps/mobile/tool/gen_protocol.mjs, which parses the same declaration).',
+      detail: `${PROTOCOL_FILE} is missing — it declares PAIR_HTTPS_HOST/PAIR_HTTPS_PATH and PAIR_CUSTOM_SCHEME/PAIR_CUSTOM_HOST, the two pair links this scan is built from`,
     };
   }
 
-  const prefix = `https://${hostHit[1]}${pathHit[1]}`;
-  // Immediately preceded by a quote = the start of a hand-typed string literal.
-  // A backtick (doc comments quote this URL constantly) is not a quote here.
-  const needle = new RegExp(`['"]${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+  // Every declaration this scan is built from. A missing one is a FAIL and not
+  // a narrower scan: a prefix built from the empty string matches nothing and
+  // PASSES while covering zero, which is precisely what this file's header says
+  // it must never do.
+  const DECLS = [
+    {
+      re: PROTO_HOST_RE,
+      constName: 'PAIR_HTTPS_HOST',
+      consequence: 'this scan would now hunt for a prefix built from nothing and pass while covering zero.',
+    },
+    {
+      re: PROTO_PATH_RE,
+      constName: 'PAIR_HTTPS_PATH',
+      consequence: 'this scan would now cover only half a prefix, and it is the half that has never changed.',
+    },
+    {
+      re: PROTO_SCHEME_RE,
+      constName: 'PAIR_CUSTOM_SCHEME',
+      consequence: 'the custom-scheme half of this scan would be built from nothing — the half that had no single source at all until card H-14.',
+    },
+    {
+      re: PROTO_CHOST_RE,
+      constName: 'PAIR_CUSTOM_HOST',
+      consequence: 'the custom-scheme half of this scan would cover only `flowmic://`, which is also the login link — one needle answering two questions.',
+    },
+  ];
+  const values = {};
+  for (const d of DECLS) {
+    const hit = d.re.exec(protoText);
+    if (!hit) {
+      return {
+        status: 'FAIL',
+        detail:
+          `${d.constName} is no longer declared as a plain string literal in ${PROTOCOL_FILE}. ` +
+          `Renamed, moved, or computed — ${d.consequence} ` +
+          'Update verify/lint/pair-link-single-source.mjs ' +
+          '(and apps/mobile/tool/gen_protocol.mjs, which parses the same declaration).',
+      };
+    }
+    values[d.constName] = hit[1];
+  }
+
+  // The two spellings of ONE link. Both are scanned by the same rule; the
+  // `owner` field is what the failure tells the reader to import instead, and
+  // it differs, so it cannot be a single string.
+  const PREFIXES = [
+    {
+      prefix: `https://${values.PAIR_HTTPS_HOST}${values.PAIR_HTTPS_PATH}`,
+      owner: '`kPairLinkPrefixHttps` (src/ui/scan_payload.dart)',
+      from: 'PAIR_HTTPS_HOST + PAIR_HTTPS_PATH',
+    },
+    {
+      prefix: `${values.PAIR_CUSTOM_SCHEME}://${values.PAIR_CUSTOM_HOST}`,
+      owner: '`kPairLinkPrefix` (src/ui/scan_payload.dart)',
+      from: 'PAIR_CUSTOM_SCHEME + PAIR_CUSTOM_HOST',
+    },
+  ];
 
   const libAbs = path.join(ROOT, MOBILE_LIB);
   const files = (await walk(libAbs)).filter(
@@ -113,35 +169,46 @@ export default async function run() {
     };
   }
 
-  const hits = [];
+  // Read each file once, not once per needle.
+  const texts = [];
   for (const abs of files) {
     const text = await readText(abs);
-    if (text === null) continue;
-    needle.lastIndex = 0;
-    let m;
-    while ((m = needle.exec(text)) !== null) {
-      hits.push(`${rel(abs)}:${lineOf(text, m.index)}`);
-    }
+    if (text !== null) texts.push({ abs, text });
   }
 
-  if (hits.length > 0) {
-    return {
-      status: 'FAIL',
-      detail:
-        `${hits.length} hand-typed pairing-link literal '${prefix}' under ${MOBILE_LIB}: ` +
-        `${hits.join(', ')} — the prefix has ONE Dart spelling, ` +
-        '`kPairLinkPrefixHttps` (src/ui/scan_payload.dart), which is generated from ' +
-        `${PROTOCOL_FILE} by apps/mobile/tool/gen_protocol.mjs. A re-typed copy keeps working ` +
-        'until the day the host or the path moves, and then it refuses every QR it is handed ' +
-        'while its own tests stay green.',
-    };
+  for (const p of PREFIXES) {
+    // Immediately preceded by a quote = the start of a hand-typed string literal.
+    // A backtick (doc comments quote these URLs constantly) is not a quote here.
+    const needle = new RegExp(`['"]${p.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+    const hits = [];
+    for (const { abs, text } of texts) {
+      needle.lastIndex = 0;
+      let m;
+      while ((m = needle.exec(text)) !== null) {
+        hits.push(`${rel(abs)}:${lineOf(text, m.index)}`);
+      }
+    }
+    if (hits.length > 0) {
+      return {
+        status: 'FAIL',
+        detail:
+          `${hits.length} hand-typed pairing-link literal '${p.prefix}' under ${MOBILE_LIB}: ` +
+          `${hits.join(', ')} — that prefix has ONE Dart spelling, ` +
+          `${p.owner}, which is generated from ${PROTOCOL_FILE} (${p.from}) by ` +
+          'apps/mobile/tool/gen_protocol.mjs. A re-typed copy keeps working until the day the ' +
+          'host or the path moves, and then it refuses every QR it is handed while its own ' +
+          'tests stay green.',
+      };
+    }
   }
 
   return {
     status: 'PASS',
     detail:
-      `${files.length} .dart file(s) under ${MOBILE_LIB} hand-type '${prefix}' zero times; ` +
-      `the one spelling is generated from ${PROTOCOL_FILE} ` +
-      '(PAIR_HTTPS_HOST + PAIR_HTTPS_PATH) into lib/generated/flowmic_protocol.g.dart',
+      `${files.length} .dart file(s) under ${MOBILE_LIB} hand-type ` +
+      `${PREFIXES.map((p) => `'${p.prefix}'`).join(' and ')} zero times; ` +
+      `both spellings are generated from ${PROTOCOL_FILE} ` +
+      '(PAIR_HTTPS_HOST + PAIR_HTTPS_PATH; PAIR_CUSTOM_SCHEME + PAIR_CUSTOM_HOST) ' +
+      'into lib/generated/flowmic_protocol.g.dart',
   };
 }

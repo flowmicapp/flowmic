@@ -245,7 +245,7 @@ export function makeMobileReconnectHandler(
         speakerSignedIn: principal.speakerSignedIn,
       });
       setRoomUuid(socket, pc.room_uuid);
-      joinAndNotify(store, pc.room_uuid, mobile, socket);
+      joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
       // GA-04: re-bind an audio session still inside its mobile-drop grace, so a
       // sub-30s blip resumes on the SAME orchestrator (SeqTracker intact) and the
       // PC never learns the phone was gone. mobile:pair does not need this — it

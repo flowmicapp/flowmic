@@ -111,7 +111,11 @@ void main() {
     // session, stores, lifecycle). The behaviour it produces is already pinned
     // by the two cases above; what is left to pin is that the app declares it.
     // Same shape and same justification as `chat_history_source_wiring_test.dart`.
-    final String main = File('lib/main.dart').readAsStringSync();
+    // SC-5: main.dart + its part main_page_builders.dart are one library, and the
+    // ChatFlowPage construction the third case pins moved into the part when
+    // main.dart hit the 800-line cap.
+    final String main = File('lib/main.dart').readAsStringSync() +
+        File('lib/main_page_builders.dart').readAsStringSync();
 
     test('iOS is pinned to the Cupertino page transition', () {
       expect(

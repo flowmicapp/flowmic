@@ -32,9 +32,21 @@ export interface AccountContext {
  *  answer AUTH_TOKEN_EXPIRED vs AUTH_TOKEN_INVALID truthfully (frozen contract). */
 export type AccountAuthError = 'AUTH_TOKEN_INVALID' | 'AUTH_TOKEN_EXPIRED';
 
+/** What may be ACKED when no truthful identity exists — three codes, one more
+ *  than `AccountAuthError` has.
+ *
+ *  🔴 THE TWO TYPES ARE DELIBERATELY DIFFERENT SIZES, and that difference is the
+ *  whole of NR-18. `AccountAuthError` is what the handshake RECORDED ABOUT A
+ *  CREDENTIAL IT WAS GIVEN, so it has exactly two members and must not grow a
+ *  third: `AUTH_ACCOUNT_REQUIRED` describes a socket that presented nothing, and
+ *  a fact about a credential that does not exist cannot be written to
+ *  `setAccountAuthError`. Widening THAT type instead of this one would re-merge
+ *  the two questions this card just prised apart. */
+export type ActingIdentityError = AccountAuthError | 'AUTH_ACCOUNT_REQUIRED';
+
 /** The acting user for an identity-required op: a resolved userId, or the
  *  fail-loud error code to ack when no truthful identity exists. */
-export type ActingIdentity = { userId: string } | { error: AccountAuthError };
+export type ActingIdentity = { userId: string } | { error: ActingIdentityError };
 
 export function safeAck(ack: unknown, payload: unknown): void {
   if (typeof ack === 'function') (ack as Ack)(payload);

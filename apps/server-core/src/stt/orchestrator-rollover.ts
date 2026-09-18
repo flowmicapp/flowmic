@@ -60,16 +60,24 @@ export interface RolloverHost {
   spawnEngine(): Promise<void>;
   closeEngine(): Promise<void>;
   flushFinal(): Promise<FlushOutcome>;
+  /** NR-50 — the withheld-flush exit (`FlushOutcome.refused`): says so on the
+   *  wire, since the leg's text is about to be banked as `''`. */
+  noteFlushRefused(timedOut: boolean): void;
   replayBufferTail(gateUnfed?: boolean): void;
   flushAndEmitFinal(isSegment: boolean, durationMs: number): Promise<boolean>;
 }
 
 /** card SEG-1 — at most one rollover in flight; the ONE place a cut verdict
  *  becomes work. `deliver` carries whether this is a ROW ending or only a LEG
- *  (card SEG-4). Policy + full account: `stt/segment-boundary.ts`. */
-export function startRollover(host: RolloverHost, deliver: boolean): void {
-  if (host.rolloverWork || host.terminated || host.terminalizing || !host.engine) return;
+ *  (card SEG-4). Policy + full account: `stt/segment-boundary.ts`.
+ *
+ *  card NR-60 — returns whether this call BECAME work. The guard is unchanged;
+ *  it just stopped being silent about refusing, because the audio budget fires
+ *  from the chunk path and has to know (see `SoftSegmentCadence.rotateLegForAudioBudget`). */
+export function startRollover(host: RolloverHost, deliver: boolean): boolean {
+  if (host.rolloverWork || host.terminated || host.terminalizing || !host.engine) return false;
   runRollover(host, deliver);
+  return true;
 }
 
 /**
@@ -142,9 +150,10 @@ export async function flushAndCloseLegForSilence(host: RolloverHost): Promise<vo
   if (!engine) return;
   feedVadClosureSilence(engine, host.now());
   host.flushErrored = false; host.flushing = true;
-  const { result } = await host.flushFinal();
+  const { result, refused, timedOut } = await host.flushFinal();
   host.flushing = false;
   if (host.terminated) return;
+  if (refused) host.noteFlushRefused(timedOut); // NR-50: `result.text` is '' by refusal — say so before banking it
   host.offlineAccum = result.text; host.onlineDraft = '';
   await host.closeEngine();
 }
@@ -196,9 +205,10 @@ async function rolloverSegment(host: RolloverHost, deliver: boolean): Promise<vo
   const boundaryMs = host.now();
   if (!deliver) {
     host.flushErrored = false; host.flushing = true;
-    const { result } = await host.flushFinal();
+    const { result, refused, timedOut } = await host.flushFinal();
     host.flushing = false;
     if (host.terminated) return;
+    if (refused) host.noteFlushRefused(timedOut); // NR-50: '' by refusal, not by emptiness
     // The bank; `accumEmittedByFinal` stays false — no wire final carried this.
     host.offlineAccum = seamText(result.text, 'leg');
     host.onlineDraft = '';

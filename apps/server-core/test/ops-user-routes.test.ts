@@ -201,13 +201,13 @@ function usersSnapshot(handle: BootstrapHandle): string {
 
 // ── ① the gate: three answers, not two ─────────────────────────────────────────────────
 describe('/api/ops/users — the gate answers 401 / 403 / 200, never an empty list', () => {
-  it('anonymous → 401 AUTH_TOKEN_INVALID on both routes', async () => {
+  it('anonymous → 401 AUTH_ACCOUNT_REQUIRED on both routes', async () => {
     const { url, handle } = await saas();
     seed(handle);
     for (const path of [LIST, `${DETAIL}?user_id=u-normal`]) {
       const r = await get(url, path);
       expect(r.status, `${path} admitted an anonymous caller`).toBe(401);
-      expect(r.json.error, `${path}'s 401 is not named`).toBe('AUTH_TOKEN_INVALID');
+      expect(r.json.error, `${path}'s 401 is not named`).toBe('AUTH_ACCOUNT_REQUIRED');
       // 🔴 An empty 200 would be a lie AND an oracle. Assert no account leaked
       // into the refusal at all.
       expect(r.body).not.toContain('admin@ops.co');

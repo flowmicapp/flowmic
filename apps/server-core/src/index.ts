@@ -16,6 +16,7 @@ import { loadConfig, type LoadConfigOverrides } from './config';
 import { startServer, SERVER_VERSION } from './bootstrap';
 import { installProcessGuards } from './error-handling';
 import { initLogFile, log } from './log';
+import { SERVER_CORE_BUILD_STAMP } from './build-stamp';
 
 /** Parse `--mode <m>`, `--port <n>`, `--db <path>` (and `--key=value`) into
  *  loadConfig overrides. CLI beats env; anything unrecognized is ignored. */
@@ -57,6 +58,11 @@ async function main(): Promise<void> {
   // stdio error guards (an EPIPE on a dangling pipe used to kill this process
   // outright); this only creates the durable sink's directory.
   initLogFile();
+  // One line that answers "which build am I" in the server log — the build
+  // stamp's whole point (ledger NR-51). Deliberately NOT part of /api/health's
+  // return shape: provenance is a log fact, not a health field, and changing the
+  // health contract is out of scope for this card.
+  log.info('server-core build', { stamp: SERVER_CORE_BUILD_STAMP });
   const config = loadConfig(parseArgv(process.argv.slice(2)));
   const handle = await startServer(config);
   // Line 1 — the legacy bare port (smoke harnesses key on /^(\d+)/).

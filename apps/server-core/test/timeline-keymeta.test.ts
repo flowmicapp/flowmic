@@ -175,18 +175,18 @@ describe('keymeta: GET', () => {
 });
 
 describe('keymeta: auth — a named 401 for both verbs, nothing else happens', () => {
-  it('anonymous GET → 401 AUTH_TOKEN_INVALID', async () => {
+  it('anonymous GET → 401 AUTH_ACCOUNT_REQUIRED', async () => {
     const url = await saasServer();
     const r = await call('GET', `${url}${TIMELINE_KEYMETA_PATH}`);
     expect(r.status).toBe(401);
-    expect(r.json).toEqual({ error: 'AUTH_TOKEN_INVALID' });
+    expect(r.json).toEqual({ error: 'AUTH_ACCOUNT_REQUIRED' });
   });
 
-  it('anonymous PUT → 401, and a garbage Bearer is refused the same way', async () => {
+  it('anonymous PUT → 401 AUTH_ACCOUNT_REQUIRED, a garbage Bearer → AUTH_TOKEN_INVALID', async () => {
     const url = await saasServer();
     const anon = await call('PUT', `${url}${TIMELINE_KEYMETA_PATH}`, { salt_b64: SALT_16, sentinel: SENTINEL });
     expect(anon.status).toBe(401);
-    expect(anon.json).toEqual({ error: 'AUTH_TOKEN_INVALID' });
+    expect(anon.json).toEqual({ error: 'AUTH_ACCOUNT_REQUIRED' });
     const forged = await call(
       'PUT',
       `${url}${TIMELINE_KEYMETA_PATH}`,

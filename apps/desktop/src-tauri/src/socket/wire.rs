@@ -455,7 +455,21 @@ pub fn parse_release_mobile_ack(v: &Value, revoke: bool) -> bool {
     // the wrong channel's server (owner 2026-07-29: "success was shown, but it's still there").
     // `ok` alone therefore says "the request was well-formed", not "the pairing
     // is gone". Only the count answers the question the button asked.
-    v.get("revoked").and_then(Value::as_u64).unwrap_or(0) >= 1
+    if v.get("revoked").and_then(Value::as_u64).unwrap_or(0) >= 1 {
+        return true;
+    }
+    // RL-4 (owner 2026-09-13) — additive `absent:true`, sent ONLY by a replica
+    // whose forward to the WRITER came back naming no targets. It answers a
+    // different question from `revoked`: not "I deleted one" but "the
+    // authoritative table has no such pairing for this PC", which is the state
+    // the button was pressed to reach. Without this the desktop kept saying
+    //「操作未生效…请重试」about a pairing that was already gone everywhere except
+    // this node's ≤30 s-stale snapshot — and retrying could not fix it, because
+    // the request was already succeeding. A server that does not send the key
+    // (a lone relay, the writer's direct path, anything older) is read exactly
+    // as before: `revoked: 0` is still a failure, which is what keeps
+    // v0.2.7's「提示成功，但仍然还在」from coming back.
+    v.get("absent").and_then(Value::as_bool) == Some(true)
 }
 
 /// GA-18: read the additive `expires_in_ms` out of a pc:register / pc:refresh-code

@@ -69,10 +69,65 @@ export interface ErrorMessage {
 export const ERROR_CODES = {
   // Authentication / pairing
   AUTH_TOKEN_INVALID:        { zh_CN: '配对凭证已失效，请重新配对。',                en: 'Token invalid, please pair again.' },
-  AUTH_TOKEN_EXPIRED:        { zh_CN: '登录已过期，请重新登录。',              en: 'Session expired, please sign in again.' },
+  AUTH_TOKEN_EXPIRED:        { zh_CN: '登录已过期，请重新登录。',              en: 'Sign-in expired, please sign in again.' },
   AUTH_LOGIN_FAILED:         { zh_CN: '邮箱或密码不正确。',                    en: 'Email or password incorrect.' },
   // AUTH_USE_REST_LOGIN retired 2026-09-02 (WP-8 registry hygiene) — see the
   // "75 → 69" note near EXPECTED_ERROR_CODE_COUNT for why.
+  //
+  // ── 🔴 79 → 80 · NR-18's REMAINING HALF. owner approved 2026-09-15. ────────
+  //
+  // 「NO ACCOUNT WAS PRESENTED」 IS NOT 「THE ACCOUNT WE WERE GIVEN IS BAD」, and
+  // until this entry existed those two facts left the server as one code.
+  // `socket/acting-identity.ts` (2026-09-15) split the three credential states
+  // apart — 'absent' / 'rejected' / 'expired' — and 'absent' had nowhere
+  // truthful to go, so it borrowed AUTH_TOKEN_INVALID. This is the code it was
+  // waiting for; the switch points here in the companion auth commit.
+  //
+  // 🔴 WHY EVERY REGISTERED NEIGHBOUR LIES HERE, one by one, because "close
+  // enough" is how this table grew its two-questions-one-answer entries:
+  //   · AUTH_TOKEN_INVALID  — 「配对凭证已失效，请重新配对。」 sends a caller who
+  //     has never signed in off to redo a pairing. On `pc:register` the pairing
+  //     IS the verb that just failed, so the sentence names the one action that
+  //     cannot work. It also makes both clients DELETE a stored credential
+  //     (mobile_reconnect_flow.dart, socket/pairing.rs) that was never presented.
+  //   · AUTH_TOKEN_EXPIRED  — asserts a session existed and ran out. None did.
+  //   · AUTH_TOKEN_UNVERIFIABLE — answers 「we could not ask」. We could; there
+  //     was nothing to ask about.
+  //   · PC_HANDSHAKE_PENDING — answers 「the ack for this socket has not landed
+  //     yet」, a race. Nothing is racing; the caller simply has no account.
+  //
+  // 🔴 THE SENTENCE NAMES NO SCREEN, ON PURPOSE. It is read on two surfaces that
+  // sign in differently — the desktop device page's cloud card (the refusal
+  // rides the `pc:register` ack) and the phone's connections page (it rides the
+  // `mobile:pair {cloud_instance}` ack) — so naming a button would make the
+  // sentence false on the other one. Precedent: the ACCOUNT_RESTRICTED arm in
+  // pairing_strings.dart, which names nothing for the same reason.
+  //
+  // ⚠️ IT CLAIMS NOTHING WAS REFUSED, and that is the whole point: nothing was
+  // refused, nothing was presented. A forged or malformed credential keeps
+  // AUTH_TOKEN_INVALID and must keep it — the two are not to be merged back by
+  // "simplifying" either sentence.
+  //
+  // COPY PROVENANCE: both sentences were written by gemini-3.8-flash-high
+  // through the repo's rewrite pipeline (owner ruling 2026-09-01, items 1-3 —
+  // the executor does not type user-visible copy), fed the screens grepped
+  // above, the condition that reaches the string, and the neighbouring entries
+  // in this table; then reviewed by an independent second call (human /
+  // register / meaning / safe, all true) and audited by
+  // `pnpm copy:audit -- --key AUTH_ACCOUNT_REQUIRED --gate`.
+  //
+  // ⚠️ NO CLIENT PATH REACHES IT TODAY — measured, not assumed: the desktop
+  // dials the relay only under `CloudReadiness::Ready` (which requires a key)
+  // and `ConnectionsController.enterCloud` refuses locally with NOT_LOGGED_IN
+  // before it dials. That is why shipping the lie was cheap, and why this is a
+  // correctness fix rather than a user-visible one. ⚠️ AND THE DAY A CLIENT CAN
+  // REACH IT, the phone's own table owes this code an arm:
+  // `cloud_strings.dart` `cloudError` falls through to `pairError`, whose
+  // `default:` renders 「配对失败，请检查网络后重试 · 诊断码 <CODE>」 — the raw
+  // identifier plus an instruction that cannot help (the 0.2.53 shape). Recorded
+  // in the ledger rather than patched here, because an arm for a code no path
+  // can deliver is the façade this file has deleted entries for twice.
+  AUTH_ACCOUNT_REQUIRED:     { zh_CN: '未登录账号，请先登录。',                en: 'Sign in to continue.' },
   // F-2327 (SB-3): per-IP registration throttle. Too many sign-ups from one IP
   // inside the window -> 429 (a throwaway-account farm mints unbounded free quota).
   REGISTER_RATE_LIMITED:     { zh_CN: '注册过于频繁，请稍后再试。',            en: 'Too many sign-ups from this network, please try again later.' },
@@ -187,7 +242,7 @@ export const ERROR_CODES = {
   // waiting for the next attempt — same "no imperative because there is
   // nothing to imperative about" shape as NODE_IS_REPLICA and
   // PC_HANDSHAKE_PENDING.
-  AUTH_TOKEN_UNVERIFIABLE:   { zh_CN: '暂时无法验证连接凭证，请稍后再试。', en: 'Could not confirm this credential right now — please try again shortly.' },
+  AUTH_TOKEN_UNVERIFIABLE:   { zh_CN: '暂时无法确认此连接，请稍后再试。', en: 'Could not confirm this connection just now — please try again shortly.' },
   // ── PCID addressing (0.2.66) · 69 → 71, owner approved 2026-08-14 ────────────
   // Ruling   docs/decisions/2026-08-14-owner-cloud-pairing-requires-pcid.md
   // Design   docs/strategy/…-0266-cloud-pcid-pairing-design.md §5.3 — the full
@@ -561,7 +616,7 @@ export const ERROR_CODES = {
   // indistinguishable from 「帧从未发出」. Deliberately distinct from
   // INJECT_PC_OFFLINE: that one says the ROOM has no PC (retrying later may
   // help); this one says the SENDER isn't in a room yet (rejoin, then retry).
-  INJECT_NOT_IN_ROOM:        { zh_CN: '连接尚未就绪，请稍候重试。',                  en: 'Connection not ready (not in a session yet); retry shortly.' },
+  INJECT_NOT_IN_ROOM:        { zh_CN: '连接尚未就绪，请稍候重试。',                  en: 'Connection not ready yet — please try again in a moment.' },
   // 2026-07-30 (RV-04): the http image ingress refuses to relay a frame it could
   // not report a verdict for — its request_id ledger is momentarily full. First
   // written as PC_BUSY, which was a LIE in a user-visible string: PC_BUSY says
@@ -936,7 +991,7 @@ export const ERROR_CODES = {
   SETTINGS_SCHEMA_INVALID:   { zh_CN: '设置内容不合法。',                      en: 'Settings payload invalid.' },
 
   // Quota / plan
-  QUOTA_EXCEEDED:            { zh_CN: '本月套餐用量已达上限。',                en: 'Monthly plan quota exceeded.' },
+  QUOTA_EXCEEDED:            { zh_CN: '当前周期套餐用量已达上限。',            en: 'Plan quota exceeded for the current cycle.' },
   PLAN_UPGRADE_REQUIRED:     { zh_CN: '该功能需要升级到 Pro。',                en: 'This feature requires Pro upgrade.' },
   PCS_LIMIT_EXCEEDED:        { zh_CN: '已达套餐电脑数量上限。',                en: 'Plan PC limit reached.' },
   MOBILES_LIMIT_EXCEEDED:    { zh_CN: '已达套餐手机数量上限。',                en: 'Plan mobile limit reached.' },
@@ -1001,7 +1056,7 @@ export const ERROR_CODES = {
   TIMELINE_GRANT_REQUIRED:   { zh_CN: '需要手机重新授权才能预览云端时间线。',    en: 'Phone re-authorization required to preview the cloud timeline.' },
   // WEB_EVENT_NOT_ALLOWED: a kind:'web' socket emitted any event outside the
   // positive allowlist (timeline:grant-request + timeline:pull only).
-  WEB_EVENT_NOT_ALLOWED:     { zh_CN: '网页会话不允许执行该操作。',              en: 'Web session is not allowed to perform this action.' },
+  WEB_EVENT_NOT_ALLOWED:     { zh_CN: '无法在网页端执行此操作。',              en: 'This cannot be done from the web page.' },
   // TIMELINE_RATE_LIMITED: per-user timeline:grant-request token-bucket.
   TIMELINE_RATE_LIMITED:     { zh_CN: '预览授权请求过于频繁，请稍后再试。',      en: 'Too many preview grant requests, please try again later.' },
 
@@ -1151,7 +1206,7 @@ export const ERROR_CODES = {
   // worse than clicking twice. The waiting TIME rides beside this code as the
   // 429's `retry_after_ms`, never inside the sentence, so the budget and the
   // translations cannot drift apart.
-  WEB_ROOM_RATE_LIMITED:     { zh_CN: '开启网页会话过于频繁，请稍后再试。', en: 'Too many attempts to start a web session, please try again later.' },
+  WEB_ROOM_RATE_LIMITED:     { zh_CN: '打开网页过于频繁，请稍后再试。', en: 'Too many attempts to open the web page — please try again later.' },
 
   // ── The site demo (card M4-01) · 75 → 78 ────────────────────────────────
   // Owner gate: ruling 11 of 2026-09-09 (docs/decisions/2026-09-09-owner-stage4-

@@ -20,15 +20,16 @@
 // `false` means only "this frame failed to go out", which the frontend holds pending and REALLY
 // re-flushes now (settings-client.flushPending).
 
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+use rust_socketio::client::Client;
 use rust_socketio::Payload;
 use serde_json::Value;
 
 use crate::events;
 use crate::socket::client::DesktopSocket;
-use crate::socket::pairing::{Pairing, ShortCodeState};
+use crate::socket::pairing::{Pairing, SharedCode, SharedCreds, ShortCodeState};
 use crate::socket::refusal::is_account_auth_failure;
 use crate::socket::wire;
 
@@ -89,7 +90,105 @@ fn note_account_refusal_on(pairing: &Pairing, ctx: &str, code: Option<&str>) {
     }
 }
 
+/// NR-48 — the cloneable SEND-side of a [`DesktopSocket`], bundled so the shell
+/// layer can clone it out from behind the `SocketState` mutex and then run a
+/// device-page verb's slow sidecar-ack wait OUTSIDE the lock (see
+/// `shell::with_socket_handle`).
+///
+/// WHAT IS SAFE TO CLONE OUT (the NR-48 judgement, written down so it can be
+/// re-checked rather than re-derived):
+///   · `client` is `rust_socketio::client::Client`, `#[derive(Clone)]` — a shared
+///     handle to the socket.io transport, not the transport itself;
+///   · `pairing` / `creds` / `short_code` are `Arc<Pairing>` / `Arc<Mutex<…>>`,
+///     so every clone shares the SAME synchronised cell — nothing here needs the
+///     `SocketState` lock to stay consistent across the wait;
+///   · `pump` / `stop` / `mobile_count` / `connected` / `inject` are deliberately
+///     NOT carried: `pump` is the one non-cloneable field (the connection's
+///     lifetime must stay owned by the session slot), and the rest are not used
+///     by the five verbs.
+///
+/// Because every cell carried here is the OLD session's own Arc, a verb that
+/// writes back after the wait (`creds` on rename, `short_code` on refresh) can
+/// only ever write the OLD session's cell — never a replacement session's (the
+/// red line: 绝不串号 / never cross-wire). The capsule latch (`Sessions.admission`)
+/// is process-wide and stable, so `shell::release_mobile` re-locks for it alone.
+pub(crate) struct OutboundHandles {
+    client: Client,
+    pairing: Arc<Pairing>,
+    creds: SharedCreds,
+    short_code: SharedCode,
+}
+
 impl DesktopSocket {
+    /// NR-48 — the cheap clone of this session's SEND-side, so a caller can drop
+    /// the `SocketState` lock and then block on a device-page verb's sidecar ack
+    /// (up to 5.5 s) OUTSIDE the lock. Only the four cloneable parts are carried —
+    /// `client` (emit), `pairing` (account-verdict reporting), `creds` (rename
+    /// write-back) and `short_code` (refresh-code write-back). `pump` is NOT
+    /// cloned: it stays owned by the session, which is exactly what keeps dropping
+    /// the session the only way to stop the connection.
+    pub(crate) fn outbound_handles(&self) -> OutboundHandles {
+        OutboundHandles {
+            client: self.client.clone(),
+            pairing: self.pairing.clone(),
+            creds: self.creds.clone(),
+            short_code: self.short_code.clone(),
+        }
+    }
+
+    /// GA-08 — see [`OutboundHandles::release_mobile`]. Thin delegate kept so a
+    /// caller that still holds `&DesktopSocket` (unit tests) keeps the verb API.
+    pub fn release_mobile(&self, mobile_id: &str, revoke: bool, timeout: Duration) -> bool {
+        self.outbound_handles().release_mobile(mobile_id, revoke, timeout)
+    }
+
+    /// GA-10 — see [`OutboundHandles::rename_pc`].
+    pub fn rename_pc(&self, name: &str, creds_path: &std::path::Path, timeout: Duration) -> bool {
+        self.outbound_handles().rename_pc(name, creds_path, timeout)
+    }
+
+    /// See [`OutboundHandles::refresh_pairing_code`].
+    pub fn refresh_pairing_code(&self, timeout: Duration) -> Option<String> {
+        self.outbound_handles().refresh_pairing_code(timeout)
+    }
+
+    /// See [`OutboundHandles::fetch_paired_mobiles`].
+    pub fn fetch_paired_mobiles(&self, timeout: Duration) -> Option<Value> {
+        self.outbound_handles().fetch_paired_mobiles(timeout)
+    }
+
+    /// See [`OutboundHandles::fetch_settings_list`].
+    pub fn fetch_settings_list(&self, timeout: Duration) -> Option<Value> {
+        self.outbound_handles().fetch_settings_list(timeout)
+    }
+
+    /// GA-18: milliseconds until the cached pairing code expires, or `None` when
+    /// there is no code / the server sent no TTL. Lives beside the refresh verb
+    /// that fills it (client.rs is at the file-size cap and this serves the same
+    /// device-page surface).
+    pub fn short_code_expires_in_ms(&self) -> Option<u64> {
+        self.short_code
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().and_then(ShortCodeState::remaining_ms))
+    }
+
+    /// 0.2.66 — the relay's PUBLIC ADDRESSING id for this PC on THIS channel
+    /// (`socket::pairing::SharedPcid`), as the device page's PULL. Lives here for
+    /// the same reason `short_code_expires_in_ms` above does: client.rs is at the
+    /// file-size cap and this serves the same device-page surface.
+    ///
+    /// `None` is a real and expected answer, not a failure: the LAN channel never
+    /// has one (a standalone sidecar mints none — owner 2026-08-14 "the local
+    /// LAN … has no PCID"), and neither does a relay older than this round. Both must read
+    /// as "none" all the way to the QR builder, which then emits the pre-0.2.66
+    /// payload byte for byte.
+    pub fn pcid(&self) -> Option<String> {
+        self.pairing.pcid.lock().ok().and_then(|g| g.as_ref().cloned())
+    }
+}
+
+impl OutboundHandles {
     /// 🔴 THE ONE PLACE A DEVICE-PAGE VERB HANDS AN ACCOUNT VERDICT TO THE SCREEN.
     ///
     /// Owner ruling 2026-08-27 §R1 追加
@@ -138,62 +237,76 @@ impl DesktopSocket {
         note_account_refusal_on(&self.pairing, ctx, code);
     }
 
-    /// GA-18: milliseconds until the cached pairing code expires, or `None` when
-    /// there is no code / the server sent no TTL. Lives beside the refresh verb
-    /// that fills it (client.rs is at the file-size cap and this serves the same
-    /// device-page surface).
-    pub fn short_code_expires_in_ms(&self) -> Option<u64> {
-        self.short_code
-            .lock()
-            .ok()
-            .and_then(|s| s.as_ref().and_then(ShortCodeState::remaining_ms))
-    }
-
-    /// 0.2.66 — the relay's PUBLIC ADDRESSING id for this PC on THIS channel
-    /// (`socket::pairing::SharedPcid`), as the device page's PULL. Lives here for
-    /// the same reason `short_code_expires_in_ms` above does: client.rs is at the
-    /// file-size cap and this serves the same device-page surface.
-    ///
-    /// `None` is a real and expected answer, not a failure: the LAN channel never
-    /// has one (a standalone sidecar mints none — owner 2026-08-14 "the local
-    /// LAN … has no PCID"), and neither does a relay older than this round. Both must read
-    /// as "none" all the way to the QR builder, which then emits the pre-0.2.66
-    /// payload byte for byte.
-    pub fn pcid(&self) -> Option<String> {
-        self.pairing.pcid.lock().ok().and_then(|g| g.as_ref().cloned())
-    }
-
     /// pc:release-mobile (GA-08) — end ONE paired phone's access. `revoke=false`
     /// is "disconnect" (this session + the server's 60 s reconnect-suppression window);
     /// `revoke=true` is "revoke" (the pairing row is deleted — the phone must pair
     /// again). AWAITS the ack like the other device-page verbs: the page refreshes
     /// its table only after a genuine `{ok:true}`, so a failed action is never painted
     /// as a successful one.
-    pub fn release_mobile(&self, mobile_id: &str, revoke: bool, timeout: Duration) -> bool {
-        let (tx, rx) = mpsc::channel::<(bool, Option<String>)>();
+    pub(crate) fn release_mobile(&self, mobile_id: &str, revoke: bool, timeout: Duration) -> bool {
+        let (tx, rx) = mpsc::channel::<(bool, Option<String>, String)>();
         let emit = self.client.emit_with_ack(
             events::PC_RELEASE_MOBILE,
             wire::build_pc_release_mobile(mobile_id, revoke),
             timeout,
             move |ack, _s| {
                 let out = if let Payload::Text(vals) = ack {
-                    let ok = wire::unwrap_ack(&vals)
+                    let body = wire::unwrap_ack(&vals);
+                    let ok = body
                         .map(|o| wire::parse_release_mobile_ack(o, revoke))
                         .unwrap_or(false);
-                    (ok, wire::ack_error_code(&vals))
+                    // The ack's own words, verbatim-ish, for the failure line
+                    // below. Only the four fields this verdict is made of —
+                    // never the whole frame, which carries no secret today but
+                    // is not a promise this log should make.
+                    let shape = body.map_or_else(
+                        || "ack=unreadable".to_string(),
+                        |o| {
+                            format!(
+                                "ok={:?} revoked={:?} absent={:?} released={:?}",
+                                o.get("ok"),
+                                o.get("revoked"),
+                                o.get("absent"),
+                                o.get("released"),
+                            )
+                        },
+                    );
+                    (ok, wire::ack_error_code(&vals), shape)
                 } else {
-                    (false, None)
+                    (false, None, "ack=non-text".to_string())
                 };
                 let _ = tx.send(out);
             },
         );
         if emit.is_err() {
+            crate::forensic::record(
+                "socket",
+                &format!("pc:release-mobile revoke={revoke} NOT SENT (emit failed)"),
+            );
             return false;
         }
-        let (ok, refusal) = rx
+        let (ok, refusal, shape) = rx
             .recv_timeout(timeout + Duration::from_millis(500))
-            .unwrap_or((false, None));
+            .unwrap_or_else(|_| (false, None, "no ack within the window".to_string()));
         self.note_account_refusal(events::PC_RELEASE_MOBILE, refusal.as_deref());
+        // 🔴 RL-4 (owner 2026-09-13) — WHY A FAILURE MUST LEAVE A LINE HERE.
+        // The device page's only failure surface is one sentence
+        // (`dev_release_failed`:「操作未生效（未连接或服务端拒绝），请重试」), and
+        // `note_account_refusal` above writes NOTHING unless the ack carried an
+        // `error` — so the case that actually happened (a well-formed
+        // `{ok:true, revoked:0}` from a replica whose snapshot was stale) left
+        // ZERO trace: grepping the whole 1.1 MB forensic log for
+        // `pc:release-mobile` returned nothing at all, on the very machine that
+        // had just shown the banner. The root cause had to be read off the
+        // relay's journal instead. A no-ack timeout was equally silent.
+        // The same lesson `note_account_refusal_on` states next door, one verb
+        // later: the machine holding the answer could not answer from its own log.
+        if !ok {
+            crate::forensic::record(
+                "socket",
+                &format!("pc:release-mobile revoke={revoke} FAILED — {shape}"),
+            );
+        }
         ok
     }
 
@@ -204,7 +317,7 @@ impl DesktopSocket {
     /// fresh `pc:register` sends, so a desktop that renamed only on the server
     /// would silently restore the old label the first time its token died and it
     /// re-registered — a rename that quietly undoes itself weeks later.
-    pub fn rename_pc(&self, name: &str, creds_path: &std::path::Path, timeout: Duration) -> bool {
+    pub(crate) fn rename_pc(&self, name: &str, creds_path: &std::path::Path, timeout: Duration) -> bool {
         let (tx, rx) = mpsc::channel::<(bool, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::SETTINGS_UPDATE,
@@ -244,7 +357,7 @@ impl DesktopSocket {
     /// with PAIR_INVALID_CODE — honest, but a poor first-run). Blocks up to
     /// `timeout` for the ack; `None` if the socket is down or the ack times out.
     /// Unlike the fire-and-forget verbs below, this one AWAITS an ack (the code).
-    pub fn refresh_pairing_code(&self, timeout: Duration) -> Option<String> {
+    pub(crate) fn refresh_pairing_code(&self, timeout: Duration) -> Option<String> {
         let (tx, rx) = mpsc::channel::<(Option<String>, Option<String>)>();
         let sc = self.short_code.clone();
         // 🔴 0.2.66 — NO PCID IS READ HERE, and that is a decision rather than an
@@ -339,7 +452,7 @@ impl DesktopSocket {
     /// `wire::parse_list_mobiles_ack` before it leaves this layer (no token can
     /// reach the frontend). `None` on a down socket / ack timeout / error ack —
     /// the page then says so instead of rendering a confident empty table.
-    pub fn fetch_paired_mobiles(&self, timeout: Duration) -> Option<Value> {
+    pub(crate) fn fetch_paired_mobiles(&self, timeout: Duration) -> Option<Value> {
         let (tx, rx) = mpsc::channel::<(Option<Value>, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::PC_LIST_MOBILES,
@@ -366,7 +479,9 @@ impl DesktopSocket {
         self.note_account_refusal(events::PC_LIST_MOBILES, refusal.as_deref());
         rows
     }
+}
 
+impl DesktopSocket {
     /// settings:update{key, value, updated_at?} — save instantly on change (07 §8).
     /// Returns whether the frame reached the transport (false → the frontend keeps
     /// the edit pending).
@@ -407,14 +522,16 @@ impl DesktopSocket {
             )
             .is_ok()
     }
+}
 
+impl OutboundHandles {
     /// settings:list — pull the server-authoritative settings snapshot (WP-R3.5;
     /// 07 §8). Unlike the fire-and-forget verbs above this AWAITS the ack (like
     /// refresh_pairing_code): the ack carries `{ items: [{key,value}] }` and we
     /// return the `items` array Value for the frontend to adopt into its local
     /// display cache. `None` on a down socket / ack timeout / malformed ack — the
     /// frontend then simply keeps its local cache (never a fabricated snapshot).
-    pub fn fetch_settings_list(&self, timeout: Duration) -> Option<Value> {
+    pub(crate) fn fetch_settings_list(&self, timeout: Duration) -> Option<Value> {
         let (tx, rx) = mpsc::channel::<(Option<Value>, Option<String>)>();
         let emit = self.client.emit_with_ack(
             events::SETTINGS_LIST,

@@ -149,17 +149,6 @@ Future<List<RelayNode>> httpNodeListFetch(Uri url, Duration timeout) async {
 /// Nothing else is folded: no case folding on the host, no scheme upgrade, no
 /// `www.` equivalence. Each of those would let two genuinely different
 /// deployments read as one, which is the failure with no symptom.
-bool _sameHost(String a, String b) {
-  String strip(String v) {
-    String s = httpBaseOf(v);
-    while (s.endsWith('/')) {
-      s = s.substring(0, s.length - 1);
-    }
-    return s;
-  }
-
-  return strip(a) == strip(b);
-}
 
 /// The URL this phone should move to, or `null` to stay exactly where it is.
 ///
@@ -222,7 +211,9 @@ Future<String?> planNodeHop({
     diag('node.follow.unresolved', <String, Object?>{'want': wanted});
     return null;
   }
-  if (_sameHost(url, currentEndpoint)) return null;
+  // NR-61 — was a private `_sameHost` here, one of three copies of one
+  // question. See [sameRelayHost] in node_follow.dart.
+  if (sameRelayHost(url, currentEndpoint)) return null;
   diag('node.follow.moving', <String, Object?>{'want': wanted});
   return url;
 }

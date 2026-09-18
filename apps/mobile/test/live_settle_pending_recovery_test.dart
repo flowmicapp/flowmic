@@ -98,9 +98,19 @@ void main() {
         // A cloud-relay press: the terminal final comes back over the network,
         // AFTER the stop path closed the journal and stamped it. That is the
         // interleaving owner reported this on, and the one SD-2's stamp
-        // covers. (See [EchoTransport.finalDelay] for the other one, which
-        // this case deliberately does not model.)
-        r.transport.finalDelay = const Duration(milliseconds: 150);
+        // covers. (The other one — the final landing inside `stop()` — is the
+        // rig's default, and this case deliberately does not model it.)
+        //
+        // 🔴 HELD, NOT DELAYED (card D3, 2026-09-15). This line used to say
+        // `finalDelay = const Duration(milliseconds: 150)`, and the ordering it
+        // was buying was a bet, not a fact: the 150 ms raced how long this test
+        // takes to reach the positive control below, and a loaded machine wins
+        // that race. MEASURED under 24 CPU + 8 IO load workers on dev-pc-a:
+        // 19 red in 20 runs, every one 「Expected: not null / Actual: <null>」 at
+        // 「the press really is inside the settle window」 — the settle had
+        // already cleared the stamp the case exists to observe. The full
+        // reading is on [EchoTransport.holdTerminalFinal].
+        r.transport.holdTerminalFinal = true;
         src = PendingRecoveryStore(
             runner: r.controller.backfill, sourceLang: () => 'zh');
       });
@@ -135,7 +145,21 @@ void main() {
 
       bool settled = false;
       int samples = 0;
-      for (int i = 0; i < 60 && !settled; i++) {
+      // 🔴 THE FIRST SAMPLE IS TAKEN WHILE THE FINAL IS STILL HELD (card D3).
+      // Nothing has scheduled it, so this sample is provably inside the window
+      // — which turns `samples >= 1` below from a hope into a fact. Before the
+      // hold existed, that count depended on the loop winning a race against a
+      // 150 ms timer, and a loaded machine could have sampled zero times and
+      // failed an assertion about its own instrument.
+      expect(await sample(tester, src), isFalse,
+          reason: 'sample 0, with the terminal final provably not yet sent');
+      samples++;
+      // …and only NOW does the relay answer. From here the loop samples a
+      // window whose end it cannot predict, which is the honest shape: it stops
+      // on the FACT (an attempt carrying an outcome), never on a count of
+      // milliseconds.
+      await tester.runAsync(() async => r.transport.releaseTerminalFinal());
+      for (int i = 1; i < 60 && !settled; i++) {
         expect(await sample(tester, src), isFalse,
             reason: 'sample $i, between release and settle');
         samples++;

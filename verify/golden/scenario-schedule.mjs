@@ -64,6 +64,7 @@ export const SCENARIO_ISOLATION = new Map(Object.entries({
   G31: { group: 'pool', why: 'own startSaasServer(), mkdtemp file db + mkdtemp mail dir' },
   G32: { group: 'pool', why: 'own startSaasServer(), mkdtemp file db + mkdtemp mail dir' },
   G33: { group: 'chain', why: 'registerAndPair(url)' },
+  G34: { group: 'pool', why: 'own startSaasServer() ×2, mkdtemp file db + mkdtemp mail dir' },
 }));
 
 /** Longest-first execution order, measured (see run-golden.mjs's header for the
@@ -74,8 +75,9 @@ export const CHAIN_TASK_ID = '<chain>';
 // Measured 2026-09-13 with FLOWMIC_GOLDEN_CONCURRENCY=1 (seconds): G32 61.4,
 // chain 61.0 (of which G28 alone is 39.3), G30 18.8, G31 11.5, G26 7.1,
 // G24 6.2, then a tail every one of which is under 1.1.
+// G34 measured 2026-09-16 at 6.3 s on its own (same box, single case).
 const COST_ORDER = [
-  'G32', CHAIN_TASK_ID, 'G30', 'G31', 'G26', 'G24',
+  'G32', CHAIN_TASK_ID, 'G30', 'G31', 'G26', 'G34', 'G24',
   'G22', 'G15', 'G18', 'G21', 'G25', 'G11', 'G9', 'G4',
 ];
 

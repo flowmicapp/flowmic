@@ -161,17 +161,27 @@ void main() {
     // trap: **strip comments before searching**. If you search the raw
     // source, commenting that line out still leaves this assertion green
     // — a guard that reads comments as code is not a guard.
+    // SC-5: the composition root is now a LIBRARY of two files — main.dart plus
+    // its part main_page_builders.dart, which is where the three page builders
+    // went when main.dart hit the 800-line cap. Reading only the first half
+    // would make this guard go green on a file that no longer contains the
+    // wiring it guards.
     final File main = File('lib/main.dart');
-    expect(main.existsSync(), isTrue,
+    final File builders = File('lib/main_page_builders.dart');
+    expect(main.existsSync() && builders.existsSync(), isTrue,
         reason: 'run from apps/mobile; this test reads the composition root');
-    final String src = main
-        .readAsLinesSync()
+    final String src = <File>[main, builders]
+        .expand((File f) => f.readAsLinesSync())
         .where((String l) => !l.trimLeft().startsWith('//'))
         .join('\n');
 
     final int chat = src.indexOf('ChatFlowPage(');
     expect(chat, isNot(-1));
-    final String args = src.substring(chat, chat + 1400);
+    // Clamped since SC-5: the construction now sits near the END of the part
+    // file, so a fixed-width window can run past the end of the source and
+    // throw a RangeError — a red that says nothing about the wiring.
+    final String args =
+        src.substring(chat, chat + 1400 > src.length ? src.length : chat + 1400);
     expect(args.contains('onClearHistory:'), isTrue,
         reason: 'composition root did not pass it ⇒ the transcript page has no such button at all, and every widget test passes one itself, so none of them would go red');
     // And it must open **that** sheet: building a second inventory would

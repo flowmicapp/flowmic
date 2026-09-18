@@ -583,17 +583,62 @@ export function expectations(dartRaw) {
 }
 
 /**
+ * `part '<name>.dart';` directives declared in tokens.dart's OWN text, in
+ * source order. Comments are not stripped first — no `part` directive in this
+ * file family sits inside a comment, and doing this before stripComments keeps
+ * the function usable on either raw or already-line-comment-stripped text.
+ */
+export function partFileNames(dartRaw) {
+  return [...dartRaw.matchAll(/^part\s+'([^']+)'\s*;/gm)].map((m) => m[1]);
+}
+
+/**
+ * tokens.dart crossed the 800-line file-size cap (verify/lint/file-size.mjs)
+ * and was split VERBATIM into `part` files (tokens_scale.dart /
+ * tokens_palette.dart / tokens_dock.dart) — the same `part`/`part of` shape
+ * this file family already uses elsewhere (chat_message_tile.dart,
+ * chat_flow_page.dart). This lint parses tokens.dart as TEXT rather than
+ * through the Dart compiler, so it has to rebuild the same "logical" source
+ * the compiler sees: read tokens.dart, follow its own `part` directives, and
+ * concatenate each part's raw text after it, in declared order. A tokens.dart
+ * with no `part` directives (the drill's synthetic fixtures) round-trips as
+ * just its own text, unchanged from before this helper existed.
+ *
+ * @returns {Promise<string | null>} null when tokens.dart or any part it
+ *   declares cannot be read — the caller reports that as FAIL, never as an
+ *   empty comparison.
+ */
+export async function readDartFamily(dartAbsPath) {
+  const main = await readText(dartAbsPath);
+  if (main === null) return null;
+  const dir = path.dirname(dartAbsPath);
+  const chunks = [main];
+  for (const name of partFileNames(main)) {
+    const partText = await readText(path.join(dir, name));
+    if (partText === null) return null;
+    chunks.push(partText);
+  }
+  return chunks.join('\n');
+}
+
+/**
  * @param {{dartFile?: string, cssFile?: string}} [overrides]
- *   Absolute paths, for the drill. They point the same comparison at fixtures;
- *   neither can turn a FAIL into a PASS, and the path that was read is printed.
+ *   Absolute paths, for the drill. `dartFile` is read as a single self-
+ *   contained file (the drill's fixtures already carry the full text they
+ *   want parsed); the real, non-overridden tokens.dart is read through
+ *   [readDartFamily] so its `part` files are included. Neither override can
+ *   turn a FAIL into a PASS, and the path(s) read are printed.
  */
 export default async function run(overrides = {}) {
-  const dartPath = overrides.dartFile ?? path.join(ROOT, DART_FILE);
-  const dartRaw = await readText(dartPath);
+  const dartRaw = overrides.dartFile
+    ? await readText(overrides.dartFile)
+    : await readDartFamily(path.join(ROOT, DART_FILE));
   if (dartRaw === null) {
     return {
       status: 'FAIL',
-      detail: `${DART_FILE} is missing — it is the palette the browser client's tokens.css is compared against`,
+      detail:
+        `${overrides.dartFile ?? DART_FILE} is missing (or one of ${DART_FILE}'s \`part\` files is) — ` +
+        `it is the palette the browser client's tokens.css is compared against`,
     };
   }
   const built = expectations(dartRaw);

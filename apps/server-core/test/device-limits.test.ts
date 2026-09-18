@@ -411,7 +411,7 @@ describe('GA-16 — mobile pairing ceiling', () => {
     expect((thrown as ServerError).code).toBe('MOBILES_LIMIT_EXCEEDED');
   });
 
-  // ── card NR-29 (待 owner 追认) · an unsigned web visitor is not a device ──
+  // ── card NR-29 (RATIFIED 2026-09-15) · an unsigned web visitor is not a device ──
   //
   // 🔴 WHAT WAS MEASURED FIRST (originally golden g29-web-unsigned-trial.mjs,
   // RETIRED 2026-09-11 by card MP-6; the end-to-end assertion moved to
@@ -421,8 +421,11 @@ describe('GA-16 — mobile pairing ceiling', () => {
   // the owner's plan, about a browser that was never going to spend one of the
   // owner's minutes (card R-1).
   //
-  // ⚠️ THE DECISION IS THE MAIN AGENT'S AND IS PENDING OWNER RATIFICATION
-  // (待 owner 追认) — registered in
+  // ⚠️ THE DECISION WAS THE MAIN AGENT'S; IT IS NOW RATIFIED. The owner answered
+  // "yes", verbatim, to the plain question this left open — a browser tab never
+  // uses one of the account's phone slots, signed in or not; only real phones
+  // count — docs/decisions/2026-09-15-owner-web-tab-never-takes-a-phone-slot.md.
+  // Registered in
   // docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md §16.
   //
   // 🔴 CARD MP-6 CHANGED THE COLUMN THE RULE READS, NOT THE RULE. The predicate

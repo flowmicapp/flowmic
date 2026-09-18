@@ -12,6 +12,11 @@
 
 import type { Socket } from 'socket.io';
 import type { RoomStore } from '../../room/store';
+import {
+  armWebLivenessWatchdog,
+  type WatchedSocket,
+  type WebLivenessArmer,
+} from '../web-liveness-watchdog';
 
 /**
  * A12/F2-b (2026-09-02, WP-6) — SERVER-AUTHORED CONTENTION.
@@ -122,10 +127,23 @@ export function liveContender(store: RoomStore<Socket>, roomUuid: string, thisPa
 export function joinAndNotify(
   store: RoomStore<Socket>,
   roomUuid: string,
-  mobile: { id: string; mobile_name: string },
+  mobile: { id: string; mobile_name: string; client?: string | null },
   socket: Socket,
+  arm?: WebLivenessArmer,
 ): void {
   const { previous } = store.joinMobile(roomUuid, mobile.id, socket);
+  // NR-69 — THE ONE ARMING SITE for the 7-second web liveness watch, because
+  // this is the one moment in the process where a socket becomes a phone the
+  // desktop is being told about. It is a no-op for an 'app' client and for a
+  // pairing row that says nothing (`clientOriginOf`'s default), so the Dart
+  // handset's behaviour is unchanged; socket/web-liveness-watchdog.ts carries
+  // the whole argument, including why the engine's global 20 s pingTimeout is
+  // not the thing to shrink.
+  //
+  // The armer is a parameter so tests can drive the watch with a fake clock;
+  // the default is the REAL implementation rather than a friendly no-op, so a
+  // call site cannot silently ship without a watch.
+  (arm ?? armWebLivenessWatchdog)(socket as unknown as WatchedSocket, mobile.client ?? null);
   // Named separately on purpose — do not collapse these into one boolean again.
   // 「Took the slot」, NOT 「is newly present」 — see the header: the capsule verdict
   // is a question about THIS SOCKET, and the difference is the P0 red line.

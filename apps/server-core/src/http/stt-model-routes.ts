@@ -20,6 +20,19 @@
 // POST /api/stt/model/cancel    — {model_id}: stop at a resumable point
 // POST /api/stt/model/root      — {dir} | {reset:true}: re-point where model
 //                                 packs are downloaded (owner 2026-08-22)
+// POST /api/stt/model/delete    — {model_id}: remove one pack's files and
+//                                 report the bytes freed (NR-7, owner ruling
+//                                 2026-09-02 §5)
+//
+// ── THE DELETE GUARD LIVES HERE, NOT ON A DISABLED BUTTON (NR-7) ────────────
+// 「当前在用模型不许删」 is enforced in [handleDelete] below, against
+// `model-in-use.ts`, BEFORE anything touches the filesystem. The desktop card
+// also disables the control — but a card is a cached render of a fact that can
+// change between the poll and the press (a selection made in another window,
+// a recognizer loaded by an utterance that started a second ago), and a stale
+// screen must not be able to delete the pack that is transcribing. The status
+// body now carries `in_use_model_ids` so the button and this guard read ONE
+// computation rather than two that can disagree. [MODEL_DELETE_GUARD]
 //
 // ── STANDALONE ONLY, AND THE DOOR IS BRICKED UP IN SAAS ─────────────────────
 // Unchanged from the pre-LM-CAT header: `http/router.ts` mounts this module
@@ -62,12 +75,17 @@ import {
   type CatalogModel,
 } from '../stt/sherpa/model-catalog';
 import { declaredTotalBytes } from '../stt/sherpa/model-status';
-import { readModelSelection, writeModelSelection } from '../stt/sherpa/model-selection';
+import { clearModelSelectionFor, readModelSelection, writeModelSelection } from '../stt/sherpa/model-selection';
+import { modelsInUse, type InUseReason } from '../stt/sherpa/model-in-use';
+import { deleteModelDir, ModelDeleteRefused } from '../stt/sherpa/model-delete';
+import { dropModelController } from '../stt/sherpa/model-downloader';
+import { log } from '../log';
 
 export const STT_MODEL_STATUS_PATH = '/api/stt/model/status';
 export const STT_MODEL_DOWNLOAD_PATH = '/api/stt/model/download';
 export const STT_MODEL_CANCEL_PATH = '/api/stt/model/cancel';
 export const STT_MODEL_ROOT_PATH = '/api/stt/model/root';
+export const STT_MODEL_DELETE_PATH = '/api/stt/model/delete';
 
 /** Every path this module owns. Exported so the router's mount and the tests
  *  agree on one list rather than each keeping its own copy. */
@@ -76,6 +94,7 @@ export const STT_MODEL_ROUTE_PATHS: readonly string[] = [
   STT_MODEL_DOWNLOAD_PATH,
   STT_MODEL_CANCEL_PATH,
   STT_MODEL_ROOT_PATH,
+  STT_MODEL_DELETE_PATH,
 ];
 
 /** POST bodies are tiny JSON objects; anything past this is not one of ours. */
@@ -88,6 +107,10 @@ export interface SttModelRoutesDeps {
   controllerFor?: (row: CatalogModel) => ReturnType<typeof getModelController>;
   /** Test seam: the machine-wide busy scan. */
   busyController?: typeof busyModelController;
+  /** Test seam: which packs are in use. Production resolves the §6 ladder over
+   *  the real catalog (model-in-use.ts), which needs byte-correct model files
+   *  on disk — the same reason `model-resolve.ts` carries `ResolveSeams`. */
+  inUse?: () => Promise<Map<string, InUseReason>>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -124,6 +147,11 @@ async function fullStatusBody(deps: SttModelRoutesDeps, opts: { verify?: boolean
     if (row.model_id === SENSE_VOICE_MODEL_ID) legacy = snap;
   }
   const busy = (deps.busyController ?? busyModelController)();
+  // NR-7 — the SAME computation the delete guard runs, so the card's disabled
+  // state and the refusal cannot answer differently. Ids only: the REASON is
+  // per-refusal (it names the language or the live recognizer) and belongs on
+  // the answer to a press, not on a poll every ten seconds.
+  const inUse = await (deps.inUse ?? (() => modelsInUse(env)))();
   return {
     // Legacy top-level shape: the SenseVoice row's snapshot, byte-compatible
     // with the pre-LM-CAT single-model contract so an older reader keeps
@@ -139,6 +167,7 @@ async function fullStatusBody(deps: SttModelRoutesDeps, opts: { verify?: boolean
       configured: configuredModelsRoot(env) !== null,
     },
     busy_model_id: busy ? busy.modelId : null,
+    in_use_model_ids: [...inUse.keys()],
   };
 }
 
@@ -256,6 +285,11 @@ export function tryHandleSttModelRoutes(
       const env = deps.env ?? process.env;
       const controller = (deps.controllerFor ?? ((r: CatalogModel) => getModelController(r, env)))(row);
 
+      if (url === STT_MODEL_DELETE_PATH) {
+        await handleDelete(res, row, controller, deps, env);
+        return;
+      }
+
       if (url === STT_MODEL_DOWNLOAD_PATH) {
         // 🔴 THIS POST IS THE CONSENT (design §2-3): the button names a pack,
         // this call fetches that pack, nothing else consults an env var.
@@ -326,6 +360,127 @@ export function tryHandleSttModelRoutes(
 
 function rawUrlOf(req: IncomingMessage): string {
   return req.url ?? '/';
+}
+
+/**
+ * POST /api/stt/model/delete — NR-7. [MODEL_DELETE_GUARD]
+ *
+ * Order is the whole design, and every step refuses BEFORE the next one can
+ * change anything on disk:
+ *   1. is a download writing into this pack right now?  ⇒ 409, nothing removed
+ *      (the `.part` files it is appending to are exactly what a recursive
+ *      remove would pull out from under it);
+ *   2. is it IN USE?                                     ⇒ 409, nothing removed
+ *      — the owner's ruling, enforced here rather than by the card's disabled
+ *      button, because a card is a render of a fact that may have changed since
+ *      the poll;
+ *   3. containment                                       ⇒ 400, nothing removed
+ *      (model-delete.ts owns this one);
+ *   4. remove — a removal that fails PARTWAY is answered by name
+ *      (`MODEL_DELETE_FAILED`, with the errno), not left to surface as the
+ *      status layer's generic 500. NR-49: this is where the one reason the
+ *      recognizer hold still had — a future onnxruntime that memory-maps its
+ *      weights, under which Windows would refuse to unlink a mapped file — is
+ *      handled. It is handled AT the failure instead of by refusing every
+ *      delete in advance of it;
+ *   5. clear the per-language pairings that named this pack (owner ruling
+ *      2026-09-16 §1, 「已有的配对要留空」) and then forget the controller, so
+ *      the status body this call answers with is already about the directory
+ *      as it is now rather than about the pack that used to be there.
+ *
+ * ⚠️ ORDER INSIDE STEP 5 IS NOT COSMETIC: the pairings are cleared only after
+ * the bytes are actually gone. A refused delete must persist nothing — the
+ * same ordering rule card B2-G established on the download side.
+ *
+ * ⚠️ The reason strings below are MACHINE reasons in the same register as this
+ * module's siblings (`MODEL_DOWNLOAD_BUSY`, `MODEL_ROOT_BUSY`): they reach the
+ * desktop card's technical fold, not its body copy. The sentence a user reads
+ * for a refused delete is a catalogue key, and as of this commit that key does
+ * not exist yet — the card therefore keeps the control DISABLED for an in-use
+ * pack and does not invent a sentence for the fold to contradict.
+ */
+async function handleDelete(
+  res: ServerResponse,
+  row: CatalogModel,
+  controller: ReturnType<typeof getModelController>,
+  deps: SttModelRoutesDeps,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  if (controller.busy) {
+    sendJson(res, 409, {
+      ok: false, error: 'MODEL_DELETE_BUSY', busy_model_id: row.model_id,
+      message: `'${row.model_id}' is downloading; cancel it before deleting it`,
+    });
+    return;
+  }
+  const inUse = await (deps.inUse ?? (() => modelsInUse(env)))();
+  const reason = inUse.get(row.model_id);
+  if (reason !== undefined) {
+    sendJson(res, 409, {
+      ok: false, error: 'MODEL_IN_USE', model_id: row.model_id, in_use_reason: reason,
+      message: `'${row.model_id}' is the model that would open for a language in use`,
+    });
+    return;
+  }
+  let freed: number;
+  try {
+    freed = deleteModelDir(row.model_id, env).freed_bytes;
+  } catch (err) {
+    if (err instanceof ModelDeleteRefused) {
+      sendJson(res, 400, { ok: false, error: err.refusal, message: err.message });
+      return;
+    }
+    // NR-49 — the removal itself failed (EBUSY/EPERM on a platform that holds
+    // the weight files open, a permission change under the root). Named here
+    // so the card's technical fold gets the errno: the generic catch below
+    // would have called this 'MODEL_STATUS_UNAVAILABLE', which is a true
+    // sentence about the wrong subject. Nothing is cleared — the pairings
+    // still point at a pack whose bytes may be partly there, which is what
+    // the next status read will report as `partial`.
+    sendJson(res, 500, {
+      ok: false, error: 'MODEL_DELETE_FAILED', model_id: row.model_id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  // Owner ruling 2026-09-16 §1 — 「已有的配对要留空」. After the bytes, before
+  // the status body: `fullStatusBody` re-reads the selection file, so the
+  // `selected_by_lang` this response carries is already the cleared one and the
+  // card cannot render one stale in-use chip even for a frame.
+  const clearedLangs = clearModelSelectionFor(row.model_id, env);
+  if (clearedLangs.length > 0) {
+    // Where a support conversation gets the answer to 「why did my pick
+    // disappear」 for a machine nobody is watching. It stays even though the
+    // card now says it too: the response is read once, by one window, and is
+    // gone; this line is on disk.
+    log.info('stt.model delete cleared per-language pairings', {
+      model_id: row.model_id, langs: clearedLangs,
+    });
+  }
+  dropModelController(controller.dir);
+  sendJson(res, 200, {
+    ...(await fullStatusBody(deps)),
+    deleted_model_id: row.model_id,
+    freed_bytes: freed,
+    // NR-49b — WHICH languages were emptied. Withheld in the first half of
+    // NR-49 because nothing read it, and a field with no reader is this repo's
+    // #1 shape; the reader now exists and is named:
+    // LocalModelCard.vue's `model_cleared_langs` line, fed through
+    // model-client.ts `modelStore.clearedLangs`.
+    //
+    // 🔴 WHY THE CARD CANNOT DERIVE IT FROM `selected_by_lang`. What the card
+    // holds after adopting this body is the state AFTER the clear; the
+    // languages that were emptied are exactly the keys that are no longer in
+    // it, and a difference needs BOTH sides. The card could have diffed against
+    // its previous poll — and then the sentence would be a function of whether
+    // a poll happened to have landed, which is the shape where a screen is
+    // right on a fast machine and silent on a slow one.
+    //
+    // 🔴 ALWAYS PRESENT, `[]` WHEN NOTHING WAS PAIRED — not omitted. `absent`
+    // and `empty` are two facts, and a consumer that reads a missing key as
+    // 「none」 cannot tell an old server from a delete that cleared nothing.
+    cleared_langs: clearedLangs,
+  });
 }
 
 /** POST /api/stt/model/root — see the header's re-answered question for why a

@@ -357,12 +357,21 @@ export function onFocusChanged(p: unknown): void {
   if (next !== state.target) state.target = next;
 }
 /** Real STT engine health (R6-R2). Only a genuine stt:engine-status marks the
- *  engine "known"; before the first one the diagnostic honestly reads "undetected" (未探测). */
-function onEngineStatus(p: unknown): void {
+ *  engine "known"; before the first one the diagnostic honestly reads "undetected" (未探测).
+ *
+ *  🔴 NR-38 — `'loading'` joined the set (a local model's cold open, emitted
+ *  BEFORE the 1.9 s‥8 s pack load rather than after it). The `===` list below is
+ *  ALSO the degrade this repo leans on when it calls a protocol enum additive:
+ *  a value no version knows falls out of every arm and leaves both fields
+ *  untouched, so an old capsule against a new server behaves exactly as it did
+ *  before the value existed. Do not "simplify" it into a cast — the cast is the
+ *  fabricated verdict this whole row was built to stop
+ *  (engine-status-loading.test.ts pins both halves). */
+export function onEngineStatus(p: unknown): void {
   const provider = str(pick(p, 'provider'));
   const status = str(pick(p, 'status'));
   if (provider) state.engineProvider = provider;
-  if (status === 'ready' || status === 'reconnecting' || status === 'failed') {
+  if (status === 'loading' || status === 'ready' || status === 'reconnecting' || status === 'failed') {
     state.engineStatus = status;
     state.engineKnown = true;
   }

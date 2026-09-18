@@ -11,7 +11,7 @@ use crate::socket::blocking::run_blocking;
 use crate::socket::channel::CloudReadiness;
 use crate::socket::Channel;
 
-use super::{cloud, SocketState};
+use super::{cloud, with_socket_handle, SocketState};
 
 /// #6 (owner 2026-08-04): should a channel with NO live session be reported as
 /// `unreachable` (「问不到」, "can't be reached") rather than silently omitted
@@ -91,15 +91,11 @@ pub fn list_paired_mobiles(
             .readiness(crate::socket::channel::now_secs());
         for channel in [crate::socket::Channel::Lan, crate::socket::Channel::Cloud] {
             let tag = channel.tag();
-            let answered = {
-                let guard = match state.lock() {
-                    Ok(g) => g,
-                    Err(p) => p.into_inner(),
-                };
-                guard
-                    .slot(channel)
-                    .map(|s| s.fetch_paired_mobiles(std::time::Duration::from_secs(5)))
-            };
+            // NR-48 — clone the send handle out of the lock, then wait OUTSIDE it
+            // (`with_socket_handle` drops the guard before the ack wait).
+            let answered = with_socket_handle(&state, Some(channel), |handles| {
+                handles.map(|h| h.fetch_paired_mobiles(std::time::Duration::from_secs(5)))
+            });
             match answered {
                 // No live session on this channel. Two very different states share
                 // this arm, so ask which one it is (#6, see

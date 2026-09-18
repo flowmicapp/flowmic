@@ -63,6 +63,153 @@
 // unknown to 「accountFromBearer」. Its expiry is a column rather than a
 // convention so 「is this still good」 has one answer and it is on disk.
 
+// ── 🔴 WHY THERE IS A SECOND TABLE THAT LOOKS LIKE THE FIRST ───────────────
+// owner 2026-09-17 armed the cleanup sweep
+// (docs/decisions/2026-09-17-owner-enables-anon-trial-cleanup-with-archive.md)
+// and attached one condition to it: 「要留下记录，以备数据分析」. The sweep
+// deletes a 「users」 row and the foreign keys take the ledger row with it, so
+// the ONLY moment the row still exists is inside the sweep's transaction — this
+// table is where it is copied to, one statement before the DELETE.
+//
+// 🔴 IT IS NOT A SECOND AUTHOR FOR ANYTHING. Every row in here names an
+// identity that NO LONGER EXISTS: a reader asking 「what was granted to this
+// visitor」 about a LIVE identity still has exactly one place to look
+// (「trial_ledger」), and the two tables can never both answer, because a row
+// arrives here only as its original is destroyed. That is the whole of why this
+// is a table and not a column on the original.
+//
+// ── WHAT IT DELIBERATELY DOES NOT CARRY ────────────────────────────────────
+// · NO 「REFERENCES users(id)」 — a foreign key here would cascade the archive
+//   row away in the same DELETE that creates it, which is not a subtle bug: the
+//   archive would be empty for ever and every count would agree that it worked.
+// · NO transcript, no utterance, no IP address. There is nothing to strip: the
+//   source table never held any (「ip_bucket」 is a salted hash, and what a
+//   visitor SAID was never in this domain at all).
+// · NO PRIMARY KEY, and that is a decision rather than an omission. This is an
+//   append-only log; a UNIQUE constraint could only ever fire on a repeat of an
+//   id that is already gone, and its effect would be to make ONE anomalous row
+//   abort the whole sweep's transaction for ever — trading a duplicate record
+//   for a retention promise that stops being kept.
+// · NO 「ms_used」, for the same reason 「trial_ledger」 has none — see the block
+//   above. What an anonymous visitor actually SPENT is not in this table and
+//   never will be; it is in 「usage_records_archive」 below, which is a SECOND
+//   TABLE rather than a column here precisely because the meter must stay
+//   singular.
+//   〔This bullet used to end 「…cascade away UNARCHIVED … was not part of
+//   owner's ruling」. That was true when it was written and is false now:
+//   the same ruling's 「留下记录，以备数据分析」 covers the spend too, and the
+//   sweep was carrying away the only copy of it. Corrected in place rather than
+//   deleted, because the shape it describes — a cascade quietly destroying a
+//   table nobody listed — is the reason the second table exists.〕
+export const TRIAL_ARCHIVE_SQL = /* sql */ `
+-- ── 17b. trial_ledger_archive (owner 2026-09-17 — what the sweep destroyed) ──
+-- SPEC-REF: docs/decisions/2026-09-17-owner-enables-anon-trial-cleanup-with-archive.md
+--
+-- Column-for-column 「trial_ledger」 plus 「swept_at」. See schema-trial.ts for
+-- why there is no foreign key, no primary key and no 「ms_used」.
+--
+-- 🔴 THE COLUMN LIST IS PART OF THE CONTRACT. db/repos/trial-archive.repo.ts
+-- copies with 「INSERT INTO … (c1,…) SELECT c1,… FROM trial_ledger」, NAMING both
+-- sides — never 「SELECT *」. NR-22 is why: a positional copy between two tables
+-- whose column ORDER agrees today is a copy that silently writes into the wrong
+-- column the day one of them grows a column through the ALTER loop, and nothing
+-- anywhere reports it.
+CREATE TABLE IF NOT EXISTS trial_ledger_archive (
+  anon_user_id     TEXT NOT NULL,
+  ip_bucket        TEXT NOT NULL,
+  day              TEXT NOT NULL,
+  grants_used      INTEGER NOT NULL DEFAULT 0,
+  ms_granted       INTEGER NOT NULL DEFAULT 0,
+  -- Copied as it stood. The token is DEAD by construction — the identity it
+  -- named is deleted in the same transaction — so this is a record of which
+  -- credential existed, not a credential. db/tools/trial-ledger-export.ts
+  -- redacts it anyway on the way out of the machine.
+  anon_token       TEXT,
+  token_expires_at INTEGER NOT NULL,
+  created_at       TEXT NOT NULL,
+  device_uid       TEXT,
+  -- ISO-8601 UTC, stamped from the sweep's own clock (the same 「nowMs」 its
+  -- cutoff is computed from), so 「how long did this row actually live」 is
+  -- 「swept_at − created_at」 and both ends were written by the same reader.
+  swept_at         TEXT NOT NULL
+);
+-- The one read this table has: 「what did the sweep take, in this window」.
+-- Safe in INIT_SQL — every column above arrives with the CREATE TABLE, none of
+-- them through reconcileSchema's ALTER loop (test/init-sql-additive-column-order).
+CREATE INDEX IF NOT EXISTS idx_trial_ledger_archive_swept ON trial_ledger_archive(swept_at);
+`;
+
+// ── 🔴 THE SECOND ARCHIVE, AND WHY THE FIRST ONE WAS NOT ENOUGH ────────────
+// The sweep deletes a 「users」 row; 「usage_records」 has
+// 「REFERENCES users(id) ON DELETE CASCADE」 (db/schema.ts table 6), so the
+// swept identity's METER ROWS go with it in the same statement. Until this
+// table existed the archive therefore recorded what a visitor was GRANTED and
+// destroyed what they actually SPENT — and 「以备数据分析」 with the spend
+// missing is an analysis of the offer, not of the use.
+//
+// 🔴 IT IS STILL NOT A SECOND METER. Every row in here names an identity that
+// no longer exists, exactly as the ledger archive does, so 「how much has this
+// account used」 about a LIVE account still has one and only one answer
+// (「usage_records」). The two can never both be asked, because a row arrives
+// here only as its original is destroyed.
+//
+// ── WHY IT LIVES IN THIS FILE RATHER THAN BESIDE 「usage_records」 ──────────
+// Because the SWEEP owns it, not the meter. db/schema.ts stands at 798 of the
+// 800-line cap (the comment below measures what one more interpolation site
+// costs there), and this table's whole argument — the FK that would erase it,
+// the missing primary key, the 「swept_at」 stamp — is the argument two
+// paragraphs up. Splitting the pair across two files would put half of one
+// reason in each.
+//
+// ── WHAT IT DELIBERATELY DOES NOT CARRY ────────────────────────────────────
+// · NO 「REFERENCES users(id)」 and NO PRIMARY KEY, for the two reasons stated
+//   for 「trial_ledger_archive」 above: a foreign key would cascade the row away
+//   in the DELETE that writes it, and a unique constraint on (user_id, month)
+//   could only ever fire on an identity that is already gone — aborting a whole
+//   sweep transaction for ever in exchange for suppressing a duplicate record.
+// · NOTHING THAT WAS NOT ALREADY IN 「usage_records」: four numbers, a month
+//   string and a timestamp. No transcript, no utterance, no address, no email —
+//   the source table has never held any of them, so there is nothing to strip.
+export const USAGE_ARCHIVE_SQL = /* sql */ `
+-- ── 17c. usage_records_archive (owner 2026-09-17 — what the sweep spent) ────
+-- SPEC-REF: docs/decisions/2026-09-17-owner-enables-anon-trial-cleanup-with-archive.md
+--
+-- Column-for-column 「usage_records」 (db/schema.ts table 6) plus 「swept_at」.
+-- See schema-trial.ts for why there is no foreign key and no primary key.
+--
+-- 🔴 THE COLUMN LIST IS PART OF THE CONTRACT, same as its neighbour's.
+-- db/repos/usage-archive.repo.ts copies with 「INSERT INTO … (c1,…) SELECT c1,…」
+-- NAMING both sides — never 「SELECT *」 (NR-22: a positional copy between two
+-- tables is correct right up until one of them grows a column, and then it is
+-- silently wrong and nothing reports it).
+CREATE TABLE IF NOT EXISTS usage_records_archive (
+  -- The anonymous identity that was destroyed. No FK, by the argument above.
+  user_id         TEXT NOT NULL,
+  -- UTC YYYY-MM, the billing bucket, copied as it stood.
+  month           TEXT NOT NULL,
+  stt_minutes     REAL NOT NULL DEFAULT 0,
+  llm_tokens_in   INTEGER NOT NULL DEFAULT 0,
+  llm_tokens_out  INTEGER NOT NULL DEFAULT 0,
+  -- When the METER last moved. Distinct from 「swept_at」 below, and both are
+  -- kept: 「updated_at − created_at」 of the ledger row is how long the visitor
+  -- was active, 「swept_at」 is when we stopped keeping the record.
+  updated_at      TEXT NOT NULL,
+  -- ISO-8601 UTC from the sweep's own clock — the SAME string its sibling row
+  -- in 「trial_ledger_archive」 carries, so the two halves of one swept identity
+  -- can be rejoined by (anon_user_id = user_id AND swept_at).
+  swept_at        TEXT NOT NULL
+);
+-- The one read this table has, and the join key to its sibling. Safe in
+-- INIT_SQL — every column above arrives with the CREATE TABLE, none through
+-- reconcileSchema's ALTER loop (test/init-sql-additive-column-order).
+CREATE INDEX IF NOT EXISTS idx_usage_records_archive_swept ON usage_records_archive(swept_at);
+`;
+
+// 🔴 DECLARED BEFORE `TRIAL_SQL` AND INTERPOLATED INTO IT, rather than exported
+// as a second constant for db/schema.ts to interpolate beside it. That is not a
+// style choice: `schema.ts` stands at 798 of the 800-line cap, and the six lines
+// an extra interpolation site costs there push it over — measured, 807. The two
+// tables are one domain and one file already owns it, so the seam belongs here.
 export const TRIAL_SQL = /* sql */ `
 -- ── 17. trial_ledger (card M4-01, 2026-09-09 — the site-demo grant record) ──
 -- SPEC-REF: docs/strategy/2026-09-09-web-client-stage4-site-demo-design.md §2.3
@@ -146,4 +293,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_trial_ledger_token ON trial_ledger(anon_to
 -- The same reasoning applies to any future index/view/trigger over a column
 -- that arrives through the ALTER loop: it belongs beside its siblings in
 -- reconcileSchema, after the loop, never in INIT_SQL.
+--
+-- 🔴 AND SINCE 2026-09-15 THAT SENTENCE IS NO LONGER THE ONLY THING STANDING.
+-- A comment cannot fail; two tests can. The scan
+-- (apps/server-core/test/init-sql-additive-column-order.test.ts) executes
+-- INIT_SQL and rejects any object it creates that names an additive column,
+-- and the upgrade gate
+-- (apps/server-core/test/migration-upgrade-from-release.test.ts) opens this
+-- schema over a real previous release's DDL -- the path production is on, and
+-- the path nothing in this repository walked when the defect above shipped.
+${TRIAL_ARCHIVE_SQL}
+${USAGE_ARCHIVE_SQL}
 `;

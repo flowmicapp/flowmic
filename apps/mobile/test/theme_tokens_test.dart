@@ -77,7 +77,14 @@ void main() {
     expect(FlowMicColors.line, const Color(0xFF232839));
     expect(FlowMicColors.t1, const Color(0xFFE6E9F2));
     expect(FlowMicColors.t2, const Color(0xFF9AA1B5));
-    expect(FlowMicColors.t3, const Color(0xFF5C6377));
+    // 🔴 NR-23, 2026-09-13: THE ONE VALUE IN THIS FROZEN LIST THAT MOVED.
+    // #5C6377 was 2.83:1 on surface2 / 3.04 on surface / 3.24 on canvas —
+    // under the AA body bar on every dark fill. 「dark stays
+    // pixel-identical」 was the card V2-07.3 criterion this list encodes, and
+    // it is being broken on purpose by a later ruling (ledger §10), not
+    // drifted into: the new value is pinned here exactly as the old one was,
+    // and the dark contrast sweep below is what now holds it.
+    expect(FlowMicColors.t3, const Color(0xFF7E859B));
     expect(FlowMicColors.pttIdle, <Color>[const Color(0xFF5B54E8), const Color(0xFF7C74F2)]);
     expect(FlowMicColors.pttRec, <Color>[const Color(0xFFDC4C4C), const Color(0xFFF87171)]);
     expect(FlowMicColors.pttNoted, <Color>[const Color(0xFF4B5163), const Color(0xFF5C6377)]);
@@ -151,6 +158,52 @@ void main() {
     expectReadable(FlowMicColors.t1, FlowMicColors.pttNoted.last, 't1 on pttNoted[1]');
     // The hard-coded white ink on the brandDeep toggle (compose_band).
     expectReadable(const Color(0xFFFFFFFF), FlowMicColors.brandDeep, 'white on brandDeep');
+  });
+
+  // NR-23 — THE DARK TWIN THIS FILE WENT WITHOUT FOR A YEAR.
+  //
+  // The test above is named "light palette", and that name was the whole
+  // problem: the dark palette had no contrast bar at all, so `t3` sat at
+  // 3.04:1 on the dark surface and 2.83:1 on `surface2` while every gate in
+  // both repos stayed green. It was the browser mirror
+  // (`flowmic-web` e2e `parity-p2` / `parity-p7`) that had to MEASURE the
+  // phone's values to find it, and those two specs then carried a 3.0 floor
+  // named "phone-inherited" — a browser writing down a phone defect because
+  // the phone had nothing to compare itself against.
+  //
+  // 🔴 `surface2` is in the sweep even though NR-23 only measured `surface`
+  // and `canvas`: it is the LIGHTEST of the dark fills, so it is the pair that
+  // BINDS, and it was 2.83:1 — worse than either figure the ledger recorded,
+  // and under even the 3:1 large-text bar. The new value was picked against
+  // it, not against the two numbers the card quotes.
+  //
+  // ⚠️ `pttNoted`'s second stop is STILL #5C6377 and was deliberately not
+  // dragged along, even though it was the same literal: it is a FILL whose ink
+  // is `t1` at 13:1, not ink on a fill. Two roles that agreed on a value are
+  // still two roles — the same argument tokens.dart states for why
+  // FlowMicDockColors holds its own copies instead of aliasing.
+  //
+  // ⚠️ WHAT THIS DOES NOT PROVE: that any widget paints `t3` on `surface2`, or
+  // on any of the four. It compares token values. The screen-mounted half is
+  // the browser mirror's `parity-p2` / `parity-p7`, which measure COMPUTED
+  // colour on a real speak screen — and which is where both floors that used
+  // to say 3.0 now say 4.5.
+  test('dark palette keeps ≥4.5:1 on every text/fill pairing', () {
+    expect(FlowMicTheme.brightness.value, Brightness.dark);
+    final Color canvas = FlowMicColors.canvas;
+    final Color body = FlowMicColors.body;
+    final Color surface = FlowMicColors.surface;
+    final Color surface2 = FlowMicColors.surface2;
+    for (final (String name, Color ink) in <(String, Color)>[
+      ('t1', FlowMicColors.t1),
+      ('t2', FlowMicColors.t2),
+      ('t3', FlowMicColors.t3),
+    ]) {
+      expectReadable(ink, canvas, 'dark $name on canvas');
+      expectReadable(ink, body, 'dark $name on body');
+      expectReadable(ink, surface, 'dark $name on surface');
+      expectReadable(ink, surface2, 'dark $name on surface2');
+    }
   });
 
   test('light palette keeps every accent in its dark hue family', () {

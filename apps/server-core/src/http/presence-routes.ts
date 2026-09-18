@@ -74,6 +74,39 @@
 //   `pc_id`     — echoed so the phone can check the answer is about the PC it
 //                 asked about (cross-wiring identifiers is strictly forbidden). The phone already stores this from its
 //                 own pair ack, so nothing new is disclosed by returning it.
+//   `home_node` / `node` — OPTIONAL, card NR-61 (2026-09-17). `home_node` is
+//                 what THIS node's copy of `pc_devices.home_node` says right
+//                 now; `node` is which door answered this request. Both are
+//                 omitted (never null) on every deployment that has no node
+//                 directory, which is every LAN sidecar and every self-hosted
+//                 relay — so an old phone and a single-node deployment both see
+//                 byte-for-byte the response this route has always sent.
+//
+//                 🔴 WHY THE PHONE NEEDS THEM HERE, when the same two fields are
+//                 already on the pair/reconnect acks: those acks only exist when
+//                 the phone dials. A PC re-picks its node on every start, on the
+//                 offline switch coming back, and on a heartbeat-death rebuild
+//                 (`socket/node_select.rs`), and a phone whose socket never
+//                 dropped has NOTHING that gives it `home_node` a second time —
+//                 its room stays on the old node while `mirrorToPc` drops every
+//                 frame for a room with no PC in it, silently. This poll is the
+//                 only thing that already asks about that PC every 10 s, so it is
+//                 the cheapest place to hand over the fact: no new request, no
+//                 new event, no cross-node push.
+//
+//                 🔴 AND THE ONE BIT IS DELIBERATELY NOT NARROWED BY THEM. It
+//                 would be easy to read "the PC is on another node" as "so say
+//                 unknown here", and it would be wrong twice: `pcPresence` is the
+//                 ONE author of this fact for FOUR surfaces (see its header), and
+//                 the console — which always talks to the writer — would go back
+//                 to calling every replica-homed computer absent, which is the
+//                 defect 2026-09-01 removed. The honest split is that this route
+//                 answers "is that computer here right now" (it is, on a
+//                 forwarded heartbeat) and these two fields answer "and where",
+//                 which is the fact the READER needs to know whether its own room
+//                 is in the right process. Downgrading a reading whose node does
+//                 not match is the phone's call and the phone already makes it
+//                 (`session/presence_route.dart` `presenceAnswerIsAboutAnotherNode`).
 //   `pc_absent_reason` — OPTIONAL, and only ever alongside `pc_online:false`
 //                 (book 18 §7.3, owner ruling ⑧ 2026-08-04). "Why is that PC not
 //                 here" is a question about PRESENCE, so it is answered here
@@ -336,7 +369,11 @@ export function tryHandlePresenceRoutes(
   // only reads: one Map lookup and one `Date.parse` of a column somebody else
   // wrote. This route must never begin stamping `last_seen_at` — a resting list
   // polling for presence is not the phone having a session.
-  const online = pcPresence(deps.store, pc, (deps.now ?? Date.now)(), deps.nodeIdFor(req), {
+  // ONE call, read twice: the id this process answers as decides the presence
+  // branch AND is echoed below. Asking `nodeIdFor` a second time for the echo
+  // would be two expressions for one fact within four lines of each other.
+  const thisNode = deps.nodeIdFor(req);
+  const online = pcPresence(deps.store, pc, (deps.now ?? Date.now)(), thisNode, {
     rowsFromReplicationPull: deps.rowsFromReplicationPull,
   });
   // Asked ONLY when the PC is absent: a reason is an answer to "why is it not
@@ -391,10 +428,23 @@ export function tryHandlePresenceRoutes(
       });
     }
   }
+  // NR-61 — WHERE that computer is, beside WHETHER it is there.
+  //
+  // Emptiness is normalised to ABSENCE, never to `''` or `null`: a row that has
+  // never been stamped and a deployment with no nodes must arrive at the phone
+  // as the same "didn't say", because the phone's rule for both is the same one
+  // (`node_follow.dart`: a missing field, an empty field and a field of the
+  // wrong type ALL mean stay exactly where you are). A key whose value is an
+  // empty string would be a third case for a reader to get wrong.
+  const homeNode = typeof pc.home_node === 'string' && pc.home_node.trim() !== ''
+    ? pc.home_node.trim()
+    : null;
   sendJson(res, 200, {
     ok: true,
     pc_id: pc.id,
     pc_online: online,
+    ...(homeNode !== null ? { home_node: homeNode } : {}),
+    ...(thisNode !== null && thisNode !== '' ? { node: thisNode } : {}),
     // Omitted — not null — when nothing was recorded: an absent key reads as
     // "unknown" to every client, old and new, and that is the same answer this
     // route has always given.

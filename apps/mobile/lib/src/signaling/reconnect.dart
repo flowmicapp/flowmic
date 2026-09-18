@@ -332,6 +332,26 @@ class ReconnectCoordinator {
     if (replacePin || pinFingerprint != null) _pin = pinFingerprint;
   }
 
+  /// owner 2026-09-17 — drop the address, token and pin of a session that is
+  /// OVER and must leave nothing behind (the ephemeral site-demo session,
+  /// design §5). Refused while running: a running ladder re-dials [url] on the
+  /// next rung, and a null there would be a silent stop dressed as a cleanup —
+  /// stop it first (`stop()`), which is the order `_dropLink` already keeps.
+  ///
+  /// ⚠️ Not called by any persistent-pairing path on purpose: those hand the
+  /// next pair/resume a `replaceToken: true` configure, and a remembered PC's
+  /// credentials outliving one visit is the design (the instance list re-dials
+  /// them). The one production caller is `clearConnectedInstanceRouted`
+  /// (ptt/ptt_resume.dart), under `ephemeralSession`.
+  void forgetCredentials() {
+    if (_running) {
+      throw StateError('forgetCredentials() while the ladder is running');
+    }
+    _url = null;
+    _token = null;
+    _pin = null;
+  }
+
   /// B1 (2026-08-18) — 「手机的网络回来了」 as a reason to stop waiting.
   ///
   /// Attached once at the composition root (`main.dart`), not passed to the

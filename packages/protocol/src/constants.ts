@@ -75,6 +75,42 @@ export const PAIR_HTTPS_HOST = 'flowmic.app';
 // rather than re-typing it.
 export const PAIR_HTTPS_PATH = '/go/pair';
 
+// H-14 (2026-09-15) — the OTHER half of the same pairing link: the custom-scheme
+// form `flowmic://pair?...` the desktop QR has always emitted and the phone has
+// always accepted. Same query, same key order as the https twin above; only
+// scheme+host change (04-PROTOCOL-SPEC §3.1 L64).
+//
+// 🔴 WHY THIS BECAME A CONSTANT. Until now the https half had one source and the
+// custom half had none: `apps/desktop/src/lib/pairing.ts` built its prefix out of
+// a literal, `apps/mobile/lib/src/ui/scan_payload.dart` declared a second literal,
+// and `apps/mobile/lib/src/signaling/wire_payloads.dart` typed a THIRD one inline
+// instead of reading the constant beside it. `verify:lint pair-link-single-source`
+// covered only the https spelling, so the copy count for this half was unbounded
+// and nothing could see it. A builder and a parser that disagree about this prefix
+// produce a QR the phone refuses on the right host, with both sides' tests green
+// — the failure this file's https block already spends a page describing.
+//
+// ⚠️ SCHEME AND HOST, NOT A PREFIX. `apps/mobile/tool/gen_protocol.mjs` composes
+// `${PAIR_CUSTOM_SCHEME}://${PAIR_CUSTOM_HOST}` and THROWS on a value shaped any
+// other way, so a bad shape fails every mobile build rather than half-migrating
+// the product. They are split because the two halves answer different questions:
+// the SCHEME is what an operating system routes (`flowmic://login` is the same
+// scheme, a different host), the HOST is which of our links this is.
+//
+// ⚠️ THIS PAIR IS NOT DECLARED TO EITHER OPERATING SYSTEM, and that is deliberate,
+// not an oversight — measured 2026-09-15: the Android manifest and the iOS
+// Info.plist declare `flowmic://login` only. A `flowmic://pair` link reaches the
+// app by being SCANNED or PASTED, never by being opened, so it needs no
+// intent-filter and gets none. Do not "complete" the declaration here; that is a
+// product decision about link handling, not a spelling fix.
+//
+// CONSUMERS (anti-façade): apps/desktop/src/lib/pairing.ts `buildQrPayload`;
+// apps/mobile/tool/gen_protocol.mjs, which generates `FlowMicPairLink.customPrefix`
+// from these two; verify/lint/pair-link-single-source.mjs, which reads them out of
+// this file rather than re-typing them.
+export const PAIR_CUSTOM_SCHEME = 'flowmic';
+export const PAIR_CUSTOM_HOST = 'pair';
+
 // M4-01b — the sibling path used ONLY for the anonymous site-demo room's
 // pair_url (apps/server-core/src/http/web-room-routes.ts `webRoomPairUrl`'s
 // `path` argument, passed by `handleAnonymous`). Owner ruling 6
@@ -92,7 +128,17 @@ export const PAIR_HTTPS_PATH = '/go/pair';
 // ("码用另一条路径，不用改 App 的任何声明").
 //
 // Regular (account) rooms are UNAFFECTED — `webRoomPairUrl`'s `path` parameter
-// defaults to `PAIR_HTTPS_PATH`, so this constant has exactly one caller.
+// defaults to `PAIR_HTTPS_PATH`, so this constant has exactly one MINTING caller.
+//
+// 🔴 PARTLY OVERTURNED 2026-09-17 (docs/decisions/2026-09-17-owner-app-scans-
+// demo-qr-as-ephemeral-session.md): the App now DOES recognise this link when
+// SCANNED, and joins the demo room as an ephemeral session (off the device
+// list, nothing persisted, no reconnect). What ruling 6 keeps is the OS half
+// above — the path stays undeclared to both operating systems, so an OPENED
+// link still lands in a browser. Second reader, read-only:
+// apps/mobile/tool/gen_protocol.mjs emits it as `FlowMicPairLink.demoPath`, and
+// the phone matches on host + LAST path segment (the site puts a locale in
+// front: `/go/zh-cn/demo`) — never on this string as a prefix.
 export const DEMO_PAIR_HTTPS_PATH = '/go/demo';
 
 // Relay addresses this product HAS served from and has since RETIRED as the

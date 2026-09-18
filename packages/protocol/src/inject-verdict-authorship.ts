@@ -123,6 +123,13 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   AUTH_TOKEN_INVALID: 'none',
   AUTH_TOKEN_EXPIRED: 'none',
   AUTH_LOGIN_FAILED: 'none',
+  // AUTH_ACCOUNT_REQUIRED · 2026-09-15 (NR-18, owner-approved). Rides the
+  // `pc:register` and `mobile:pair {cloud_instance}` acks via
+  // `socket/acting-identity.ts` — an admission that never happened cannot have
+  // produced an injection, so it can never ride `inject:result`. Grepped: the
+  // only producer is `resolveSaasActingUser`, whose two callers are those two
+  // handlers.
+  AUTH_ACCOUNT_REQUIRED: 'none',
   // AUTH_TOKEN_UNVERIFIABLE · 2026-09-02 (WP-8). Rides `auth/middleware.ts`'s
   // handshake refusal and `mobile.handler.ts`'s `mobile:reconnect` ack on a
   // multi-node replica, never `inject:result` — a token this node could not

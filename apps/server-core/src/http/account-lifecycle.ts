@@ -229,6 +229,28 @@ export const USER_RETAINED_TABLES = [
   'ops_audit_log',
   'paddle_subscription_tombstones',
   'site_daily_counts',
+  // owner 2026-09-17 — the anonymous sweep's archive (db/schema-trial.ts).
+  //
+  // 🔴 RETAINED IN THIS CENSUS'S SENSE («it has no FK to `users`»), and an
+  // account deletion has nothing to erase in it for a reason no other entry in
+  // this list can claim: every row here names an ANONYMOUS identity that was
+  // ALREADY destroyed when the row was written. There is no path by which a row
+  // about a real account can arrive — `trial_ledger`, its only source, is
+  // anonymous-only by construction. So this name appearing in the 「retained」
+  // list of a delete response is honest about the FK graph and says nothing
+  // about the caller's data, because none of it is ever here.
+  'trial_ledger_archive',
+  // owner 2026-09-17, second half — the same sweep's METER archive
+  // (db/schema-trial.ts USAGE_ARCHIVE_SQL). Retained for the same reason and
+  // with the same footnote: its rows name anonymous identities that were
+  // already destroyed when the row was written, so an account deletion has
+  // nothing to erase here.
+  //
+  // ⚠️ DO NOT READ THIS AS 「the meter survives deletion」. `usage_records` —
+  // the live table, the one a real account's usage is in — CASCADES, and is in
+  // the cascade inventory beside it. This name is here because the ARCHIVE has
+  // no foreign key, and the archive only ever holds anonymous rows.
+  'usage_records_archive',
 ] as const;
 
 /** The `user_settings` keys an export must never carry. A SET, not a prefix

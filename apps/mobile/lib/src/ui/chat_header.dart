@@ -295,6 +295,27 @@ class ChatHeader extends StatelessWidget {
               ),
             ],
           ),
+          // ── Row 1b: 「this one is temporary」 (owner 2026-09-17) ──────────
+          // Only for an ephemeral site-demo session. Its own line rather than
+          // a chip on row 2: it is not a transient value about the link, it
+          // is a standing statement about what this session IS — off the
+          // device list, gone when the page is closed — and the user has to
+          // be able to read the whole sentence, not three letters of it
+          // (0.2.53). Absent otherwise: 「no note」 is not a statement.
+          ValueListenableBuilder<bool>(
+            valueListenable: controller.session.ephemeralSession,
+            builder: (BuildContext context, bool ephemeral, Widget? child) =>
+                ephemeral
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      strings.ephemeralSessionNote,
+                      key: const ValueKey<String>('chat.ephemeralNote'),
+                      style: TextStyle(color: FlowMicColors.t3, fontSize: 11.5),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
           // ── Row 2: how it's connected, where it injects to ─────────────
           // This whole row is **transient values**: the channel changes, the
           // PC can go offline, the focus window swaps every few seconds.

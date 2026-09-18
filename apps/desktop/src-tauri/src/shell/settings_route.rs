@@ -28,7 +28,7 @@ use serde_json::Value;
 use tauri::State;
 use crate::socket::blocking::run_blocking;
 
-use super::{with_lan_socket, SocketState};
+use super::{with_lan_socket, with_socket_handle, SocketState};
 /// Change-immediately-persist-immediately settings write (07 §8). Returns whether the frame reached the wire;
 /// `false` → the frontend holds it pending and re-flushes on reconnect.
 ///
@@ -60,7 +60,10 @@ pub fn settings_list(state: State<'_, SocketState>) -> Option<Value> {
     // worker, and the body blocks on an ack wait (up to 5.5 s). See `socket::blocking`.
     run_blocking(|| {
         // owner ⑤: hydrate from the LAN server — the one this page configures.
-        with_lan_socket(&state, |s| s.fetch_settings_list(std::time::Duration::from_secs(5)), None)
+        // NR-48 — clone the send handle out of the lock, then wait OUTSIDE it.
+        with_socket_handle(&state, Some(crate::socket::Channel::Lan), |handles| {
+            handles.and_then(|h| h.fetch_settings_list(std::time::Duration::from_secs(5)))
+        })
     })
 }
 

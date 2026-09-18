@@ -162,8 +162,20 @@ extension PttSessionPair on PttSession {
           ? null
           : (qrPin != null ? LanPinSource.qr : LanPinSource.tofu),
     ).enrichFromAck(ack);
-    await tokenStorage.addOrUpdatePairing(session);
+    // owner 2026-09-17 — an EPHEMERAL session (the site's demo QR) is NEVER
+    // written to token storage. This line is the only writer of a pairing row
+    // on the pair leg, so skipping it is what 「not on the device list, no
+    // `mobile_pairings`, no persisted token」 structurally means: the list
+    // reads `tokenStorage.readPairings()` and nothing else
+    // (connections_controller.dart `load()`). Everything below that is
+    // in-memory session identity still runs — the room is real, the ack's
+    // `pc_id` is still the ONE author of `target_pc_id` (绝不许串号), and the
+    // queue still drains on the `roomJoins` edge.
+    // Design: docs/strategy/2026-09-17-app-ephemeral-demo-session-design.md §1.
+    final bool ephemeral = entry.ephemeral;
+    if (!ephemeral) await tokenStorage.addOrUpdatePairing(session);
     applyPairedIdentity(session);
+    ephemeralSession.value = ephemeral;
     // owner 2026-08-20 — a FRESH pair to the same machine (scan after a revoke,
     // or after waiting out a disconnect) is proof the release moment has passed.
     // Without this, the latched eject from the previous session — same machine,
@@ -217,6 +229,24 @@ extension PttSessionPair on PttSession {
       pinFingerprint: pin,
       replacePin: true,
     );
+    // owner 2026-09-17 — an ephemeral session gets NO ladder: 「房间没了会话就
+    // 结束，App 不重连」. `configure` above still runs because the idle presence
+    // poll and the LAN image ingress read `reconnect.url/.token`
+    // (ptt_presence_poll.dart, session/link_recovery.dart) — a configured but
+    // never-started ladder dials on nothing: `_onStatus` is only subscribed by
+    // `start()`, `kickNow` refuses while `!_running`. `PAIR_RELEASED` and
+    // `PC_BUSY` can only arrive on a `mobile:reconnect` ack, and nothing sends
+    // one for this session (the instance list cannot tap a row that is not
+    // there; `resumePairing` is that list's verb). The node hop below is also
+    // skipped: it is implemented as `disconnect` + `kickNow`, and on a ladder
+    // that is not running that is a session torn down, not moved — the demo
+    // QR's `endpoint` is the wsOrigin of the node that minted the room, the
+    // same origin the page itself dials (web-room-routes.ts `relayWsOrigin`),
+    // so there is no hop to make. Design §1/§3.
+    if (ephemeral) {
+      diag('pair.ephemeral', <String, Object?>{'pc_id': session.pcId, 'pc_name': session.pcName});
+      return const PairResult(ok: true, session: null);
+    }
     reconnect.start();
     // 🔴 PHONE-FOLLOWS-PC ON THE PAIR LEG — the SECOND production caller of
     // [_followNodeIfMisplaced], and its absence was a real defect rather than a

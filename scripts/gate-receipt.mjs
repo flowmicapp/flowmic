@@ -56,7 +56,11 @@
 // Usage:
 //   node scripts/gate-receipt.mjs --begin    # first link of verify:delivery
 //   node scripts/gate-receipt.mjs --end      # last link of verify:delivery
-//   node scripts/gate-receipt.mjs --status   # read-only: is there a usable proof?
+//   node scripts/gate-receipt.mjs --begin|--end --gate <name>  # ...when the writer is not the sequential chain
+//   node scripts/gate-receipt.mjs --abandon  # a run that went red drops its own pending marker
+//   node scripts/gate-receipt.mjs --status   # read-only: is there a usable proof? (human text, always exit 0)
+//   node scripts/gate-receipt.mjs --status --json  # same judgement for a script: one JSON object, exit 1 when unusable
+//   node scripts/gate-receipt.mjs --gates    # the accept-list, one per line, for the deploy side to read
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -90,8 +94,51 @@ export const PENDING_PATH = pendingPathIn(RECEIPT_DIR);
 
 /** Bumped whenever the fingerprint recipe changes. An older receipt then fails
  *  to validate rather than being compared under new rules — a proof made by a
- *  mechanism that no longer exists is not a proof. */
-export const RECEIPT_VERSION = 1;
+ *  mechanism that no longer exists is not a proof.
+ *
+ *  v2 (2026-09-17, SC-6) added the `gate` field. A v1 receipt does not say
+ *  which gate made it, and "which mechanism proved this" cannot be recovered
+ *  afterwards — so v1 receipts are refused rather than assumed to be the
+ *  sequential gate. The cost is one re-run for anyone holding a receipt written
+ *  in the two hours before this change landed. */
+export const RECEIPT_VERSION = 2;
+
+/** 🔴 WHICH GATES MAY MINT A PROOF — one list, and it is the whole answer.
+ *
+ *  A receipt used to say "this tree was proved" and never said BY WHAT, because
+ *  until 2026-09-17 there was exactly one possible answer.
+ *  `pnpm verify:delivery:release` (SC-6, verify/run-delivery-release.mjs) is a
+ *  second one: the SAME stage list, run as six concurrent lanes instead of
+ *  seventeen sequential ones. The design's argument for letting it be a release
+ *  authority is that machine contention can turn a green test red and cannot
+ *  turn a red test green — so the parallel run is the STRICTER one
+ *  (docs/strategy/2026-09-17-ship-chain-eight-minute-design.md §2.3).
+ *
+ *  But "stricter" is a claim about a mechanism, and whoever reads a publish log
+ *  must still be able to see WHICH mechanism produced the proof they are
+ *  standing on: RELEASE-IRONRULES §1-22 says a gate result that does not name
+ *  its gate is this repo's headline defect shape (one value answering two
+ *  questions). So the name is recorded here, printed in the reuse banner, and a
+ *  receipt carrying a name that is not on this list is refused.
+ *
+ *  🔴 THIS IS THE LIST THE DEPLOY SIDE MIRRORS. `deploy/delivery_gate.py` in the
+ *  web repo (SC-2) answers the same question for the three deploy scripts. It
+ *  must not keep its own copy of these strings — `node scripts/gate-receipt.mjs
+ *  --gates` prints them one per line for exactly that purpose, and `--status`
+ *  already applies them. Two copies of an accept-list is how one of them ends up
+ *  accepting a gate the other retired, silently.
+ *
+ *  ⚠️ THERE IS NO "UNSTAMPED" CASE, and that is a consequence of v2 rather than
+ *  a second decision. SC-2 built this field as additive on a v1 receipt, so it
+ *  also had to define what an absent `gate` meant (it meant the sequential
+ *  chain, the only writer that existed). SC-6 then made the field REQUIRED by
+ *  bumping the format, and a receipt with no `gate` on it is by definition v1 —
+ *  refused two checks earlier, on version, before this list is ever consulted.
+ *  So nothing downstream needs a default for the missing case; a reader that
+ *  keeps one is carrying a branch its input can no longer reach. */
+export const SEQUENTIAL_GATE_NAME = 'verify:delivery';
+export const RELEASE_GATE_NAME = 'verify:delivery:release';
+export const ACCEPTED_GATE_NAMES = Object.freeze([SEQUENTIAL_GATE_NAME, RELEASE_GATE_NAME]);
 
 /** How long a proof stays usable. Deliberately a constant with no env override:
  *  an env var that lengthens the window is a bypass nobody would see in a diff,
@@ -217,7 +264,15 @@ function readJsonOrNull(p) {
   }
 }
 
-export function begin({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } = {}) {
+export function begin({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR, gate = SEQUENTIAL_GATE_NAME } = {}) {
+  if (!ACCEPTED_GATE_NAMES.includes(gate)) {
+    // Non-zero, unlike every other refusal in this file: the others mean "no
+    // proof, carry on"; this one means the caller asked for a proof under a name
+    // no consumer will accept, so letting the gate run would burn minutes to
+    // produce something unusable.
+    console.error(`x gate receipt: \`${gate}\` is not a gate that may mint a proof (${ACCEPTED_GATE_NAMES.join(', ')}).`);
+    return 1;
+  }
   const receiptPath = receiptPathIn(dir);
   const pendingPath = pendingPathIn(dir);
   // A stale receipt must not survive the start of a new run: from this moment
@@ -234,17 +289,54 @@ export function begin({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } 
   }
   mkdirSync(dir, { recursive: true });
   writeFileSync(pendingPath, `${JSON.stringify({
-    version: RECEIPT_VERSION, sha: fp.sha, digest: fp.digest, dirtyCount: fp.dirtyCount, startedAt: now,
+    version: RECEIPT_VERSION, gate, sha: fp.sha, digest: fp.digest, dirtyCount: fp.dirtyCount, startedAt: now,
   }, null, 2)}\n`);
   return 0;
 }
 
-export function end({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } = {}) {
+/**
+ * Drop the pending marker of a run that is NOT going to finish green.
+ *
+ * 🔴 WHY THIS EXISTS. `begin()` already unlinks the standing receipt, so a
+ * failed run cannot leave an old proof lying around. What it DOES leave is the
+ * pending marker, and a pending marker is half a proof: a later `--end` (typed
+ * by hand, or by a second gate started in the same tree) would find a marker
+ * whose fingerprint still matches and whose elapsed time is by then comfortably
+ * over MIN_GATE_MS, and would mint a receipt for a run that went RED. The
+ * sequential chain never needed this because `&&` means its `--end` is simply
+ * never reached; a runner that aggregates six lanes in-process has to say so
+ * out loud instead.
+ *
+ * Returns whether there was anything to drop, so a caller can report honestly.
+ */
+export function abandon({ dir = RECEIPT_DIR } = {}) {
+  const pendingPath = pendingPathIn(dir);
+  try {
+    if (!existsSync(pendingPath)) return false;
+    unlinkSync(pendingPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function end({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR, gate = SEQUENTIAL_GATE_NAME } = {}) {
+  if (!ACCEPTED_GATE_NAMES.includes(gate)) {
+    console.error(`x gate receipt: \`${gate}\` is not a gate that may mint a proof (${ACCEPTED_GATE_NAMES.join(', ')}).`);
+    return 1;
+  }
   const receiptPath = receiptPathIn(dir);
   const pendingPath = pendingPathIn(dir);
   const pending = readJsonOrNull(pendingPath);
   if (!pending || pending.version !== RECEIPT_VERSION) {
     console.log('· gate receipt: no matching --begin marker for this run — no proof written (run the whole `pnpm verify:delivery` chain to get one).');
+    return 0;
+  }
+  if (pending.gate !== gate) {
+    // A proof may only be closed by the gate that opened it. Without this the
+    // two gates can be spliced: open with the cheap half of one, close under the
+    // name of the other, and the receipt would name a run that never happened.
+    console.log(`· gate receipt: this --end says \`${gate}\` but the pending marker was opened by \`${pending.gate}\` — no proof written.`);
     return 0;
   }
   const fp = fingerprint(root);
@@ -268,9 +360,11 @@ export function end({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } = 
   mkdirSync(dir, { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify({
     version: RECEIPT_VERSION,
+    gate,
     sha: fp.sha,
     digest: fp.digest,
     dirtyCount: fp.dirtyCount,
+    gate,
     tools: toolStamp(),
     startedAt: pending.startedAt,
     finishedAt: now,
@@ -278,7 +372,7 @@ export function end({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } = 
   try {
     unlinkSync(pendingPath);
   } catch { /* the pending marker is superseded either way */ }
-  console.log(`✓ gate receipt written for ${fp.sha.slice(0, 12)} (${fp.dirtyCount} uncommitted path(s)) — publish may reuse it for the next ${Math.round(MAX_AGE_MS / 60000)} minutes.`);
+  console.log(`✓ gate receipt written by \`${gate}\` for ${fp.sha.slice(0, 12)} (${fp.dirtyCount} uncommitted path(s)) — publish may reuse it for the next ${Math.round(MAX_AGE_MS / 60000)} minutes.`);
   return 0;
 }
 
@@ -293,6 +387,13 @@ export function readValidReceipt({ root = REPO_ROOT, now = Date.now(), tools = n
   if (!receipt) return { ok: false, reason: 'no receipt on disk' };
   if (receipt.version !== RECEIPT_VERSION) {
     return { ok: false, receipt, reason: `receipt format v${receipt.version} predates the current recipe (v${RECEIPT_VERSION})` };
+  }
+  if (!ACCEPTED_GATE_NAMES.includes(receipt.gate)) {
+    return {
+      ok: false,
+      receipt,
+      reason: `receipt names gate \`${receipt.gate ?? '(none recorded)'}\`, which is not one a release may stand on (${ACCEPTED_GATE_NAMES.join(', ')})`,
+    };
   }
   const ageMs = now - Number(receipt.finishedAt ?? 0);
   if (!(ageMs >= 0) || ageMs > MAX_AGE_MS) {
@@ -323,6 +424,7 @@ export function reuseBanner(result) {
   const mm = String(made.getMinutes()).padStart(2, '0');
   return [
     '── REUSING A GATE PROOF — verify:delivery is NOT being run now ──────────',
+    `   gate:  ${result.receipt.gate}   (§1-22: a gate result must name its gate)`,
     `   proved at ${hh}:${mm} (${Math.round(result.ageMs / 60000)} min ago) for HEAD ${result.receipt.sha.slice(0, 12)}`,
     `   same HEAD, same working tree (${result.receipt.dirtyCount} uncommitted path(s)), same toolchain, inside the ${Math.round(MAX_AGE_MS / 60000)}-minute window`,
     '   To force a fresh run: delete .local/gate-receipt.json (or change anything in the tree).',
@@ -330,8 +432,40 @@ export function reuseBanner(result) {
   ].join('\n');
 }
 
-export function status({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR } = {}) {
+/**
+ * `--status`, in two shapes for two different readers.
+ *
+ * TEXT (default) is for a human and keeps its exit code at 0 on purpose: it is
+ * a question, not a gate, and nothing in the repo branches on it today.
+ *
+ * `--json` is for a SCRIPT — today deploy/delivery_gate.py in the web repo,
+ * which must decide whether to spend five minutes re-proving this tree. It gets
+ * BOTH an exit code (1 = do not reuse) and the whole judgement as one object,
+ * including `banner`: the caller prints that string verbatim so a reused proof
+ * announces itself in a deploy log with the exact words publish.mjs uses. A
+ * second hand-written copy of that banner would be free to drift, and a banner
+ * that drifts is how two different things start looking alike again.
+ *
+ * `reason` is carried in both shapes because the caller has to print WHY it is
+ * about to run the full gate; "not reusable" with no reason is the silence this
+ * module exists to remove.
+ */
+export function status({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR, json = false } = {}) {
   const r = readValidReceipt({ root, now, dir });
+  if (json) {
+    console.log(JSON.stringify({
+      ok: r.ok === true,
+      reason: r.reason ?? null,
+      sha: r.receipt?.sha ?? null,
+      gate: r.receipt?.gate ?? null,
+      dirtyCount: r.receipt?.dirtyCount ?? null,
+      finishedAt: r.receipt?.finishedAt ?? null,
+      ageMs: r.ageMs ?? null,
+      maxAgeMs: MAX_AGE_MS,
+      banner: r.ok ? reuseBanner(r) : null,
+    }));
+    return r.ok ? 0 : 1;
+  }
   if (r.ok) {
     console.log(reuseBanner(r));
     return 0;
@@ -341,11 +475,53 @@ export function status({ root = REPO_ROOT, now = Date.now(), dir = RECEIPT_DIR }
   return 0;
 }
 
+/** The gate name off the command line, defaulting to the sequential chain —
+ *  which is what `verify:preflight` / `verify:receipt` pass by omission, so
+ *  neither of those two package scripts had to change.
+ *
+ *  BOTH spellings are accepted (`--gate=<name>` and `--gate <name>`) because the
+ *  two lanes that built this file each wrote one of them, and the call sites are
+ *  now spread across package.json, verify/run-delivery-release.mjs and anything
+ *  an operator types. A `--gate` with nothing after it is an ERROR rather than a
+ *  silent fall back to the sequential name: the one thing this flag exists to do
+ *  is say which gate is speaking, so guessing would defeat it. */
+export function gateFromArgv(argv) {
+  const eq = argv.find((a) => a.startsWith('--gate='));
+  if (eq) {
+    const v = eq.slice('--gate='.length);
+    return v === '' ? null : v;
+  }
+  const i = argv.indexOf('--gate');
+  if (i < 0) return SEQUENTIAL_GATE_NAME;
+  const v = argv[i + 1];
+  return v && !v.startsWith('--') ? v : null;
+}
+
 export function main(argv = process.argv.slice(2)) {
-  if (argv.includes('--begin')) return begin();
-  if (argv.includes('--end')) return end();
-  if (argv.includes('--status')) return status();
-  console.error('usage: node scripts/gate-receipt.mjs --begin | --end | --status');
+  // Printed one per line so the deploy side (deploy/delivery_gate.py, web repo)
+  // can READ the accept-list instead of keeping a second copy of these strings.
+  if (argv.includes('--gates')) {
+    for (const g of ACCEPTED_GATE_NAMES) console.log(g);
+    return 0;
+  }
+  const usage = 'usage: node scripts/gate-receipt.mjs --begin | --end | --abandon | --status [--json] | --gates  [--gate <name>]';
+  if (argv.includes('--begin') || argv.includes('--end')) {
+    const gate = gateFromArgv(argv);
+    if (gate == null) {
+      console.error(usage);
+      return 1;
+    }
+    return argv.includes('--begin') ? begin({ gate }) : end({ gate });
+  }
+  if (argv.includes('--abandon')) {
+    const dropped = abandon();
+    console.log(dropped
+      ? '· gate receipt: pending marker dropped — this run will mint no proof.'
+      : '· gate receipt: no pending marker to drop.');
+    return 0;
+  }
+  if (argv.includes('--status')) return status({ json: argv.includes('--json') });
+  console.error(usage);
   return 1;
 }
 

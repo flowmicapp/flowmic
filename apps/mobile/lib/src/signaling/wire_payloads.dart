@@ -17,7 +17,8 @@ import 'lan_tls_fingerprint.dart' show isWellFormedLanTlsFingerprint;
 // S1-02 https prefix — the single Dart spelling lives next to classifyScan.
 // Re-typing it here was a silent-drift hole (XC-1-FIX). No cycle: scan_payload
 // does not import this file.
-import '../ui/scan_payload.dart' show kPairLinkPrefixHttps;
+import '../ui/scan_payload.dart'
+    show isDemoPairLink, kPairLinkPrefix, kPairLinkPrefixHttps;
 
 /// The three locked processing modes (04/08: realtime | translate | organize —
 /// never a fourth). Wire value is the enum name.
@@ -663,7 +664,20 @@ class PairEntry {
   /// relay's real CA chain), which is why that decision is not made here.
   final String? fingerprint;
 
-  const PairEntry({required this.payload, this.endpoint, this.fingerprint});
+  /// owner 2026-09-17 — this link is the site's DEMO code, and the session it
+  /// opens is EPHEMERAL: `PttSession.pair` must not persist the ack as a
+  /// `MobileSession`, must not start the reconnect ladder, and the App must
+  /// leave no trace when the room is gone. `false` for every other form.
+  /// Set by ONE writer, [parse], off `isDemoPairLink` (ui/scan_payload.dart).
+  /// Design: docs/strategy/2026-09-17-app-ephemeral-demo-session-design.md.
+  final bool ephemeral;
+
+  const PairEntry({
+    required this.payload,
+    this.endpoint,
+    this.fingerprint,
+    this.ephemeral = false,
+  });
 
   /// S1-02 (2026-09, web-client stage 1) — the https form the desktop's
   /// `buildQrPayload` also emits, once S1-01 lands: SAME query
@@ -679,7 +693,9 @@ class PairEntry {
   /// Parse raw user/scan input into a PairEntry.
   ///   - `1234`                                → short_code (endpoint = null)
   ///   - `flowmic://pair?endpoint=ws://..&code=1234[&channel=..]` → qr_payload
-  ///     (endpoint extracted from the QR)
+  ///     (endpoint extracted from the QR). Prefix spelling: [kPairLinkPrefix],
+  ///     generated from `PAIR_CUSTOM_SCHEME` + `PAIR_CUSTOM_HOST` — this line
+  ///     used to type it inline, which made it a third copy (card H-14).
   ///   - `https://flowmic.app/go/pair?endpoint=..&code=1234[&channel=..]` →
   ///     qr_payload, parsed identically to the line above (S1-02)
   /// Throws [FormatException] on anything else so the caller surfaces a
@@ -694,7 +710,15 @@ class PairEntry {
     if (RegExp(r'^\d{4}$').hasMatch(input)) {
       return PairEntry(payload: MobilePairPayload.shortCode(input, pcid: pcid));
     }
-    if (input.startsWith('flowmic://pair') || input.startsWith(kPairLinkPrefixHttps)) {
+    // owner 2026-09-17 — the site-demo form: same host, a path whose LAST
+    // segment is the demo one (a locale may sit in front). Parsed by the SAME
+    // arm as the two prefixes, because the query is byte-for-byte the relay's
+    // `webRoomPairUrl` output (`endpoint`/`code`/`channel=saas`/`pcid`/`v`);
+    // what differs is what the session does with the ack, and that is one bit.
+    final bool demo = isDemoPairLink(input);
+    if (demo ||
+        input.startsWith(kPairLinkPrefix) ||
+        input.startsWith(kPairLinkPrefixHttps)) {
       final Uri uri = Uri.parse(input);
       final String? endpoint = uri.queryParameters['endpoint'];
       final String? code = uri.queryParameters['code'];
@@ -719,6 +743,7 @@ class PairEntry {
         payload: MobilePairPayload.qrPayload(input),
         endpoint: (endpoint != null && endpoint.isNotEmpty) ? endpoint : null,
         fingerprint: fp.isEmpty ? null : fp,
+        ephemeral: demo,
       );
     }
     throw FormatException('unrecognized pairing input: $raw');

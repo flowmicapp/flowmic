@@ -76,11 +76,94 @@ export const FUNASR_FLUSH_QUIESCENCE_MS = 2_000;
  */
 export const FUNASR_FLUSH_HARD_CAP_MS = 15_000;
 
+/** The engine whose flush is a LOCAL DECODE — a bounded computation whose cost
+ *  is a function of the audio it holds, not a network round trip that may never
+ *  answer. Its cap is sized differently ({@link localFlushCapMs}). */
+export function isLocalDecodeEngine(engineId: string): boolean {
+  return engineId === 'sherpa-local';
+}
+
+/**
+ * NR-50 — the flush cap for the local engine scales with the audio it decodes.
+ *
+ * WHY NOT THE FLAT 3 000 ms. Until NR-50 the local terminal decode ran inside
+ * `flush()`'s synchronous body, so the flat cap structurally could not fire
+ * against it (no timer is serviced while a native call holds the loop). Moving
+ * the decode to `decodeAsync` frees the loop — and makes that cap fire for the
+ * first time. Measured on dev-pc-a (2026-09-16, quiet box: idle 20 ms
+ * timer lag 12 ms, node v22.22.3, sherpa-onnx-node@1.13.4, numThreads=2,
+ * real packs, `scripts/drills/local-engine-lifecycle-probe.mjs --decode-cost`
+ * + a one-off of the same shape for whisper):
+ *
+ *   senseVoice   45 s audio  →  2 001 / 1 981 ms wall  (RTF ≈ 0.046)
+ *   whisper-turbo 1 s audio  →  1 822 ms                (fixed cost alone)
+ *   whisper-turbo 30 s audio → 16 887 ms                (RTF ≈ 0.57)
+ *
+ * Wall time is the same sync or async (async only keeps the loop alive), so
+ * the quantity a cap races is the decode's WALL TIME, and that is linear in
+ * audio length with a per-row slope that differs 12× between the shipped rows.
+ * A flat 3 s would fail every whisper utterance over ~2 s on THIS machine; a
+ * flat number big enough for whisper would let a 1 s SenseVoice hang sit for
+ * as long. So: `max(floor, audioMs × RTF cap)`.
+ *
+ * WHAT THE CAP IS FOR, now. The user-facing wait is bounded by the PHONE's own
+ * 15 s processing watchdog (`state_machine.dart` `processingTimeout`), which it
+ * always was — a decode slower than that stalls the phone whether or not a
+ * server cap exists. This cap is the HANG detector: a native decode that does
+ * not return in 2× real time is not "a slow machine", it is a decode that is
+ * not coming back (2.0 is 3.5× the slowest measured row's RTF; a box that slow
+ * had lost the 15 s race long before). The floor covers whisper's fixed cost on
+ * short utterances with the same headroom.
+ *
+ * 🔴 WHEN IT FIRES, THE FALLBACK IS A REFUSAL, NOT THE PREVIEW — see
+ * {@link FlushOutcome.refused}. That is the other half of this card and the two
+ * were ruled inseparable (ledger §33/§38): a bigger cap alone would only make
+ * the silent preview-as-final rarer, not honest.
+ */
+export const LOCAL_FLUSH_RTF_CAP = 2.0;
+export const LOCAL_FLUSH_FLOOR_MS = 5_000;
+
+export function localFlushCapMs(legAudioMs: number): number {
+  return Math.max(LOCAL_FLUSH_FLOOR_MS, Math.round(legAudioMs * LOCAL_FLUSH_RTF_CAP));
+}
+
 /** Funasr/funspeech family default is the 15s hard cap (activity-extended
- *  quiescence lives in {@link raceFlushFinal}). An EXPLICITLY configured cap
- *  still wins the number; other engines are unchanged. */
-export function resolveFlushTimeoutMs(engineId: string, configuredMs: number, explicit: boolean): number {
-  return isFunasrFlushFamily(engineId) && !explicit ? FUNASR_FLUSH_HARD_CAP_MS : configuredMs;
+ *  quiescence lives in {@link raceFlushFinal}); the local engine's default is
+ *  {@link localFlushCapMs} of the audio this leg was fed. An EXPLICITLY
+ *  configured cap still wins the number; other engines are unchanged. */
+export function resolveFlushTimeoutMs(engineId: string, configuredMs: number, explicit: boolean, legAudioMs = 0): number {
+  if (explicit) return configuredMs;
+  if (isFunasrFlushFamily(engineId)) return FUNASR_FLUSH_HARD_CAP_MS;
+  if (isLocalDecodeEngine(engineId)) return localFlushCapMs(legAudioMs);
+  return configuredMs;
+}
+
+/**
+ * NR-50 — the frame the orchestrator emits INSTEAD of a final when a local
+ * flush was withheld ({@link FlushOutcome.refused}) and the engine's own error
+ * did not already go out. `retryable: false` is the honest value and the
+ * load-bearing one: the phone turns a terminal `stt:error` into an immediate
+ * PROCESSING stall that names the code, whereas a retryable one is only
+ * diagnosed — and an empty final after it would be read by the phone as the
+ * flush-cap placeholder that KEEPS the interim on screen as the transcript
+ * (`segment_buffer.dart` `put`, the `!emptyIsVerdict` branch). The only way the
+ * preview does not become the row is: this frame, and no final at all.
+ * Wording is the existing `STT_ENGINE_TIMEOUT` sentence (no new code — adding
+ * one is the owner's gate; the proposal is in the NR-50 report).
+ */
+export function localFlushRefusalError(
+  engineFedBytes: number,
+  capMs: number,
+  timedOut: boolean,
+): { code: string; message: string; retryable: false } {
+  const audioMs = Math.round(engineFedBytes / PCM_BYTES_PER_MS);
+  return {
+    code: 'STT_ENGINE_TIMEOUT',
+    message: timedOut
+      ? `local decode of ${audioMs} ms of audio did not finish within its ${capMs} ms cap; nothing was delivered (a preview is not a transcript)`
+      : `local decode of ${audioMs} ms of audio failed; nothing was delivered (a preview is not a transcript)`,
+    retryable: false,
+  };
 }
 
 /** FunASR/FunSpeech 2pass VAD needs trailing silence to close the final word —
@@ -157,17 +240,28 @@ export interface FlushOutcome {
   readonly result: FinalResult;
   /** true ⇒ the cap fired; the engine never finished flushing. */
   readonly timedOut: boolean;
+  /**
+   * NR-50 — true ⇒ the engine declares its interims are previews
+   * (`SttEngine.interimIsPreviewOnly`), produced NO final of its own, and the
+   * settle came from the cap or an error ⇒ `result.text` is `''` BY REFUSAL:
+   * the accumulated preview was deliberately withheld. The caller must not emit
+   * a final and must say why (`localFlushRefusalError`). A clean flush that
+   * simply had nothing to decode is NOT refused — that is the honest empty
+   * final with its `empty_reason`, unchanged.
+   */
+  readonly refused: boolean;
 }
 
 export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
   const empty: FinalResult = { kind: 'final', text: '', confidence: 0, language: d.language, duration_ms: 0 };
   const engine = d.engine;
-  if (!engine) return Promise.resolve({ result: { ...empty, text: d.getOfflineText() }, timedOut: false });
+  if (!engine) return Promise.resolve({ result: { ...empty, text: d.getOfflineText() }, timedOut: false, refused: false });
   const activityExtended = isFunasrFlushFamily(engine.id);
   return new Promise<FlushOutcome>((resolve) => {
     let captured: FinalResult | null = null;
     let settled = false;
     let timedOut = false;
+    let errored = false;
     let quiescenceTimer: unknown = null;
     let postAttachFinals = 0;
     const onActivity = (): void => {
@@ -198,20 +292,36 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
       // offlineAccum is authoritative. On timeout fallback only, if captured.text
       // is longer and contains offlineText as a prefix, use captured — the
       // engine's final may have the tail word offlineAccum lacks.
+      // NR-50 — a preview-only engine that did not answer gets NOTHING delivered
+      // on its behalf: `offline` here would be its last preview, decoded without
+      // left context, and handing that out as the terminal final was the R11
+      // breach this card closes. Keyed on the ENGINE's declaration, so the
+      // streaming engines' cap fallback (their interims ARE the decoder's
+      // hypothesis) is byte-for-byte what it was.
+      if (engine.interimIsPreviewOnly === true && captured === null && (timedOut || errored)) {
+        resolve({ result: { ...r, text: '' }, timedOut, refused: true });
+        return;
+      }
       const offline = d.getOfflineText();
       if (timedOut && captured && captured.text.length > offline.length && captured.text.startsWith(offline)) {
-        resolve({ result: { ...r, text: captured.text }, timedOut });
+        resolve({ result: { ...r, text: captured.text }, timedOut, refused: false });
       } else {
-        resolve({ result: { ...r, text: offline }, timedOut });
+        resolve({ result: { ...r, text: offline }, timedOut, refused: false });
       }
     };
-    const onError = (): void => finish(captured ?? empty); // settle, don't hang
+    const onError = (): void => { errored = true; finish(captured ?? empty); }; // settle, don't hang
     engine.on('final', onFinal);
     engine.on('error', onError);
     if (activityExtended) engine.on('interim', onInterim);
     const hardCapTimer = d.setTimeoutFn(() => {
       timedOut = true;
-      console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — using accumulated offline finals (${d.getOfflineText().length} chars)`);
+      // NR-50: say which of the two things is about to happen — the line used
+      // to claim "using accumulated" on a path that now withholds them.
+      if (engine.interimIsPreviewOnly === true && captured === null) {
+        console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — WITHHOLDING the accumulated preview (${d.getOfflineText().length} chars): a preview is not a transcript`);
+      } else {
+        console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — using accumulated offline finals (${d.getOfflineText().length} chars)`);
+      }
       finish(captured ?? empty);
     }, d.timeoutMs);
     // WP2-6a: stamp BEFORE the call, not in its `.then` — `.then` is "flush

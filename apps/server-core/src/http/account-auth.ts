@@ -39,19 +39,25 @@ import type { ServerMode } from '@flowmic/protocol';
 import type { AuthService } from '../auth/auth-service';
 import type { UserRecord } from '../db/repos/user.repo';
 import { log } from '../log';
+import { NO_ACCOUNT_CREDENTIAL_CODE } from '../socket/acting-identity';
+import type { ActingIdentityError } from '../socket/wire';
 import { sendJson } from './body';
 import { peerAddress } from './local-only';
 
-/** The two 401 reasons the account contract already defines (04 §3.1). Reused
- *  verbatim from GET /api/me — no new error code, the 55-code table stays 55. */
-export type AccountAuthError = 'AUTH_TOKEN_INVALID' | 'AUTH_TOKEN_EXPIRED';
+// 🔴 NR-55, 2026-09-16 — the duplicate `AccountAuthError` declaration that used to
+// live above this import is GONE. The HTTP leg now imports `ActingIdentityError`
+// (the answer type) from `socket/wire`, the socket leg's single type table, so a
+// change to that type on one leg makes the other leg fail to compile instead of
+// quietly drifting. `AccountAuthError` (the two-valued "fact about a credential
+// we were given") has ONE source and it is `socket/wire.ts` — never re-declared
+// here. See the same note on NR-18 in `socket/wire.ts`.
 
 /** Either WHO, or WHY NOT. Deliberately a discriminated union rather than
  *  `string | null`: a nullable id invites `?? 'default'` at the call site, which
  *  is the exact defect this module exists to remove. */
 export type UserIdVerdict =
   | { ok: true; userId: string }
-  | { ok: false; error: AccountAuthError };
+  | { ok: false; error: ActingIdentityError };
 
 /**
  * "Are you an admin" (是管理员), or the reason it is not, as THREE distinct answers rather than two.
@@ -72,7 +78,7 @@ export type UserIdVerdict =
  */
 export type AdminVerdict =
   | { ok: true; userId: string }
-  | { ok: false; status: 401; error: AccountAuthError }
+  | { ok: false; status: 401; error: ActingIdentityError }
   | { ok: false; status: 403; error: 'ADMIN_ONLY'; userId: string };
 
 /** The same verdict carrying the whole row, for the one route that projects it
@@ -81,7 +87,7 @@ export type AdminVerdict =
  *  has no business holding one. */
 export type AccountUserVerdict =
   | { ok: true; user: UserRecord }
-  | { ok: false; error: AccountAuthError };
+  | { ok: false; error: ActingIdentityError };
 
 /** The slice of AuthService this module needs — typed off the real service so
  *  there is no second interface to drift from it (same discipline as
@@ -104,18 +110,27 @@ export function bearerToken(req: IncomingMessage): string | null {
  * Bearer → the verified account's user id, or a named 401 reason.
  *
  * Three refusals, all of them explicit:
- *   • no header / not a Bearer  → AUTH_TOKEN_INVALID (an absent credential is a
- *     refusal, never 「no check needed」);
+ *   • no header / not a Bearer  → AUTH_ACCOUNT_REQUIRED (nothing was presented,
+ *     so nothing is refused — the one action that helps is SIGN IN);
  *   • bad signature / malformed → AUTH_TOKEN_INVALID;
  *   • past `exp`                → AUTH_TOKEN_EXPIRED (distinct so a client knows
  *     to re-login rather than to re-install);
  *   • validly signed for a user that no longer exists → AUTH_TOKEN_INVALID. The
  *     signature being good is not the same question as the account being real,
  *     and only the second one may open a door.
+ *
+ * 🔴 CORRECTION IN PLACE, 2026-09-16 (NR-55). The first bullet used to read
+ *   「no header / not a Bearer → AUTH_TOKEN_INVALID (an absent credential is a
+ *   refusal, never 「no check needed」)」 — it answered 「presented nothing」 with
+ *   the same code as 「presented something bad」, the exact two-questions-one-
+ *   answer NR-18 closed on the socket leg. 'absent' now answers
+ *   `NO_ACCOUNT_CREDENTIAL_CODE` (`AUTH_ACCOUNT_REQUIRED`, the shared constant),
+ *   and a credential that ARRIVED and did not verify keeps `AUTH_TOKEN_INVALID`.
+ *   The stale sentence is not carried here; it is preserved in git.
  */
 export function accountUserFromBearer(req: IncomingMessage, verifier: AccountVerifier): AccountUserVerdict {
   const token = bearerToken(req);
-  if (token === null) return { ok: false, error: 'AUTH_TOKEN_INVALID' };
+  if (token === null) return { ok: false, error: NO_ACCOUNT_CREDENTIAL_CODE };
   const verdict = verifier.verifyToken(token);
   if (!verdict.ok) return { ok: false, error: verdict.error };
   const user = verifier.getUser(verdict.sub);
@@ -235,7 +250,7 @@ export function refuseUnidentified(
   req: IncomingMessage,
   res: ServerResponse,
   route: string,
-  error: AccountAuthError,
+  error: ActingIdentityError,
 ): void {
   log.warn('http: refused an unidentified caller', {
     route,

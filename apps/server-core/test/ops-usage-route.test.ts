@@ -112,13 +112,13 @@ const ROUTES = [
 
 // ── ① the gate: three answers, not two ─────────────────────────────────────────────────
 describe('/api/ops/usage/* — the gate answers 401 / 403 / 200, never an empty 200', () => {
-  it('anonymous → 401 AUTH_TOKEN_INVALID on every route', async () => {
+  it('anonymous → 401 AUTH_ACCOUNT_REQUIRED on every route', async () => {
     const { url, handle } = await saas();
     seed(handle);
     for (const path of ROUTES) {
       const r = await get(url, path);
       expect(r.status, `${path} admitted an anonymous caller`).toBe(401);
-      expect(r.json.error, `${path}'s 401 is not named`).toBe('AUTH_TOKEN_INVALID');
+      expect(r.json.error, `${path}'s 401 is not named`).toBe('AUTH_ACCOUNT_REQUIRED');
       // 🔴 The negative half: not a single usage number rode along with the
       // refusal. Asserted on the WHOLE body, not on a field name — a nested echo
       // would slip past `expect(r.json.months).toBeUndefined()`.

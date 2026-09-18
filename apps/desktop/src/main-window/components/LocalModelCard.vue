@@ -16,6 +16,44 @@
      per pack. 「connecting」/「unknown」 stay states of our KNOWLEDGE — only
      one of 「不知道」 and 「没有」 may have a Download button under it.
 
+     ── DELETING A PACK (NR-7, owner ruling 2026-09-02 §5) ───────────────────
+     Three requirements, and each lands in a different layer on purpose:
+       · the SIZE is on screen before the press — the per-row 「Downloaded N MB」
+         chip, measured by the server from the files (`disk_bytes`), not read
+         off the manifest;
+       · a pack that is NOT in use can be deleted and the card updates with no
+         restart — the delete response carries the fresh status body and
+         `model-client.ts` adopts it;
+       · the pack IN USE may not be deleted — and the enforcement is the SERVER
+         guard (`MODEL_DELETE_GUARD` in stt-model-routes.ts), which a stale
+         render of this card cannot get past. The button below is disabled from
+         `status.in_use_model_ids`, the same computation that guard runs.
+     The sentence that tells a reader WHY the delete control on the in-use pack
+     is refused is `model_delete_in_use`, rendered under that row. It shipped with
+     card WP2-COPY-1; until then the control was disabled and silent, because no
+     catalogue key said it and no string on this surface may be authored here
+     (owner ruling 2026-09-01: product copy goes through the rewrite pipeline).
+     🔴 NR-49 (owner ruling 2026-09-16 §1): there used to be TWO server holds
+     and this key had to be true under either. `recognizer_loaded` is gone — a
+     pack spoken with this session may now be deleted — so the only hold left
+     is the ladder one, and the sentence's 「give that spoken language a
+     different pack first」 is now the literal remedy rather than the safest
+     thing sayable about two different refusals.
+     🔴 SAME RULING, SECOND HALF: deleting a pack CLEARS every per-language
+     pairing that named it (server: model-selection.ts `clearModelSelectionFor`).
+     That is why no string had to be authored for it — the emptiness is rendered
+     by the chips that stop appearing: the deleted row loses the in-use chip it
+     would otherwise keep wearing over zero bytes on disk, and the strip above
+     the rows goes on answering 「what would open if I spoke this now」 from the
+     ladder, so a language that falls through to another ready pack SAYS so
+     instead of swapping engines behind the reader.
+     🔴 AND SINCE NR-49b THE OTHER LANGUAGES ARE NAMED. One delete can empty
+     SEVERAL pairings while the rows above can only show the language currently
+     picked, so the delete answers with `cleared_langs` and the line under the
+     rows reads them back by their own names. The card cannot work that list out
+     for itself: what it holds after the delete is the selection AFTER the
+     clear, and a difference needs both sides.
+
      ── THE DOWNLOAD FOLDER IS THE USER'S (owner 2026-08-22) ─────────────────
      The root row edits where packs are stored. Changing it does NOT move
      already-downloaded files, and the note under the control says so — a
@@ -26,11 +64,12 @@ import Icon from './Icon.vue';
 import { S } from '../../lib/strings';
 import { getLocale } from '../../lib/strings/locale';
 import { SETTINGS_MSG } from '../../lib/strings/settings';
-import { ENDONYM_LOCALE, modelCardLangOptions } from '../../lib/spoken-langs';
+import { ENDONYM_LOCALE, endonymFor, modelCardLangOptions } from '../../lib/spoken-langs';
 import { LOCAL_MODEL_CARD_ID, requestedModelLang } from '../../lib/model-card-focus';
 import {
   applyModelsRoot,
   cancelModelDownload,
+  deleteModel,
   downloadingSnapshot,
   modelStore,
   recheckModel,
@@ -45,6 +84,7 @@ import {
   formatMb,
   formatMbCoarse,
   formatRate,
+  modelInUse,
   percentDone,
   snapshotForModel,
   sourceLabel,
@@ -124,6 +164,14 @@ interface PackRow {
   snap: ModelSnapshot | null;
   face: string;
   selected: boolean;
+  /** NR-7 — bytes this pack occupies RIGHT NOW, server-measured. `0` means
+   *  「nothing of it is on disk」, and that is the whole condition for whether
+   *  a delete control exists on the row: there is no such thing as deleting a
+   *  pack that was never downloaded, and a Delete button under 「Not
+   *  downloaded」 would be a control that cannot do anything. */
+  diskBytes: number;
+  /** NR-7 — the server's verdict, not ours (see `modelInUse`). */
+  inUse: boolean;
 }
 
 const rows = computed<PackRow[]>(() =>
@@ -136,6 +184,8 @@ const rows = computed<PackRow[]>(() =>
       // invented 「absent」 with a Download button under it.
       face: entry.streaming === 'streaming' ? 'streaming' : (snap?.state ?? 'unknown'),
       selected: status.value?.selected_by_lang[langKey.value] === entry.model_id,
+      diskBytes: snap?.disk_bytes ?? 0,
+      inUse: modelInUse(status.value, entry.model_id),
     };
   }),
 );
@@ -265,6 +315,44 @@ async function copyDir(): Promise<void> {
  *  so this strip answers the question it asks. */
 const inUse = computed(() => readyPackForLang(status.value, langKey.value));
 
+/**
+ * NR-49b — 「deleting this pack also emptied these languages」.
+ *
+ * 🔴 IT NAMES LANGUAGES THE READER MAY NOT BE LOOKING AT, and that is the whole
+ * point: the rows above are one language at a time, so a delete that emptied
+ * three pairings is visible in one of them and silent in the other two. The
+ * list comes from the delete's own answer (`modelStore.clearedLangs`) rather
+ * than from any diff this card could do — after adopting that answer the card
+ * holds the state AFTER the clear, and the emptied languages are exactly the
+ * keys that are no longer in it.
+ *
+ * 🔴 ENDONYMS, NEVER THE BARE CODE. `zh`/`ja` are wire values; a user reading
+ * 「zh、ja」 is being shown our data model (owner 2026-08-22: not one internal
+ * word on screen). `endonymFor` answers with the code verbatim for a language
+ * the registry does not know — deliberately, because a blank in this list would
+ * under-report what was emptied.
+ */
+const clearedLangNames = computed(() => modelStore.clearedLangs.map(endonymFor));
+
+/** The separator between the names is punctuation, not copy — 「, 」 in Latin
+ *  scripts, 「、」 in CJK — and the platform already knows which. A catalogue key
+ *  would have made a comma a sentence for nine translators to render. The
+ *  fallback is for a runtime without `Intl.ListFormat`: this list must never be
+ *  the reason the card throws and renders nothing at all. */
+function joinNames(names: string[]): string {
+  try {
+    return new Intl.ListFormat(getLocale(), { style: 'narrow', type: 'unit' }).format(names);
+  } catch {
+    return names.join(', ');
+  }
+}
+
+const clearedNote = computed(() =>
+  clearedLangNames.value.length === 0
+    ? null
+    : S.model_cleared_langs.replace('{langs}', joinNames(clearedLangNames.value)),
+);
+
 /** Per-pack errors of the visible language, for the technical fold. */
 const rowErrors = computed(() =>
   rows.value
@@ -375,8 +463,36 @@ const rowErrors = computed(() =>
                     @click="startModelDownload(row.entry.model_id, langKey)">
               {{ S.model_use }}
             </button>
+            <!-- NR-7 (owner ruling 2026-09-02 §5). The SECOND control on the
+                 row, and the rule above still holds: this is not a second
+                 primary. It exists only where there is something to delete
+                 (`diskBytes > 0`), it is ghost-weight and last, and it carries
+                 the destructive class rather than the primary one.
+                 🔴 DISABLED, NOT HIDDEN, for the pack in use. Hiding it would
+                 answer 「why can I delete that one and not this one?」 with
+                 nothing at all; the answer is the sentence rendered directly
+                 under this row. The refusal that MATTERS is still the server's:
+                 MODEL_DELETE_GUARD in
+                 apps/server-core/src/http/stt-model-routes.ts, which a stale
+                 render of this row cannot get past. -->
+            <button v-if="row.diskBytes > 0" class="btn ghost sm danger" type="button"
+                    :disabled="rowLocked(row.entry.model_id) || row.inUse"
+                    @click="deleteModel(row.entry.model_id)">
+              <Icon name="trash" />{{ S.op_delete }}
+            </button>
           </template>
         </div>
+        <!-- NR-7 — WHY the control above is refused, under the control that is
+             refused. Same pair of conditions the button has. Reasoning, and why
+             one sentence covers both of the server's holds: this file's NR-7 note
+             above the script block.
+             🔴 KEEP THIS COMMENT SHORT AND PLAIN: an SFC template comment is
+             RENDERED into the SSR output, so prose written here is matched by
+             every content assertion in local-model-card.test.ts. A longer draft
+             of this very comment turned two unrelated tests red — one on a
+             catalogue key it named, one on an ordinary English word that another
+             test forbids on screen. Explanations belong in the script block. -->
+        <p v-if="row.diskBytes > 0 && row.inUse" class="sub delete-why">{{ S.model_delete_in_use }}</p>
         <!-- The facts, as chips. Licence stays keyed off `license_class` DATA —
              the funasr row must never wear the OSI words (task §3-6). -->
         <div class="row pmeta">
@@ -384,6 +500,17 @@ const rowErrors = computed(() =>
             {{ LIC_LABEL[row.entry.license_class] }}</span>
           <span class="chip meta">{{ STREAM_LABEL[row.entry.streaming] }}</span>
           <span class="chip meta" v-if="row.entry.bytes_total !== null">{{ formatMbCoarse(row.entry.bytes_total) }}</span>
+          <!-- NR-7: 「删除前提示大小」 — the size ON THIS DISK, server-measured,
+               standing beside the pack's declared size rather than replacing it.
+               The two answer different questions (「how big is this pack」 vs
+               「how much of my disk does it hold」) and they differ in exactly the
+               cases that matter: a half-finished download, an abandoned `.part`,
+               a manifest revision that dropped a file. It is the number the
+               delete control frees, and it is on screen before the press.
+               Label is the existing `model_downloaded` key, which already sits
+               in front of a measured byte count in the progress block below —
+               the formatted count itself is a number, not copy. -->
+          <span class="chip meta" v-if="row.diskBytes > 0">{{ S.model_downloaded }} {{ formatMbCoarse(row.diskBytes) }}</span>
         </div>
         <p class="sub attr">{{ row.entry.attribution }}</p>
         <!-- De-emphasised: the id is what a support conversation needs, not what
@@ -417,6 +544,11 @@ const rowErrors = computed(() =>
         </div>
         <p v-if="row.face === 'failed'" class="sub">{{ S.model_failed_next }}</p>
       </div>
+
+      <!-- NR-49b — which languages the last delete left without a pack. Under
+           the rows, not inside one: the languages it names are usually not the
+           one on screen. Reasoning is in the script block. -->
+      <p v-if="clearedNote" class="sub cleared-langs">{{ clearedNote }}</p>
 
       <!-- What `ready` certifies (and does not — §3's closing warning),
            whenever this language has a verified pack. -->
@@ -519,6 +651,13 @@ const rowErrors = computed(() =>
 .phead { margin-bottom: 6px; }
 /* Pushes the row's single primary action to the right edge. */
 .spacer { flex: 1 1 auto; }
+/* NR-7 — the refused-delete sentence sits directly under the row whose control
+   is refused, tight against it, so the two read as one statement. */
+.delete-why { margin: 4px 0 0; }
+/* NR-49b — the result of a press, not a state of the card: amber ink, the same
+   「nothing broke, but something changed under you」 register the partial/absent
+   chips use, and no border, so it does not read as a second refusal box. */
+.cleared-langs { margin: 10px 0 0; color: var(--amber-ink); line-height: 1.6; }
 .pmeta { margin-top: 2px; }
 .acts { margin-top: 10px; }
 .dir { margin-top: 10px; }
@@ -550,6 +689,12 @@ const rowErrors = computed(() =>
    carries a restriction from looking identical to the two that do not. */
 .chip.meta.funasr { background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber-ink); }
 .chip.inuse { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
+/* NR-7: the one destructive control on the card. Red INK only — a filled red
+   button would out-shout the row's primary action, which is the one a reader
+   is normally looking for. `:disabled` keeps the browser's own dimming, so the
+   in-use pack's refused control does not also read as available. */
+.btn.danger { color: var(--red-ink); }
+.btn.danger:disabled { color: var(--t3); }
 .bar { height: 6px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; margin-top: 8px; }
 .fill { height: 100%; background: var(--brand); border-radius: 999px; }
 .bar.indeterminate {

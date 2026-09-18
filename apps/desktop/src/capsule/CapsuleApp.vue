@@ -470,15 +470,29 @@ watch(
 
 // R6-R2: honest STT engine diagnostic — gray "undetected" (未探测) until a real engine-status
 // arrives, then provider + ready(g)/reconnecting(y)/failed(r).
+// NR-38: `loading` shares the AMBER dot with `reconnecting` — both mean "work is
+// in progress, no verdict yet", and inventing a fifth colour for a state that
+// lasts 1.9 s‥8 s would be a legend nobody learns.
 const engineDot = computed(() =>
   !state.engineKnown
     ? 'o'
     : state.engineStatus === 'ready'
       ? 'g'
-      : state.engineStatus === 'reconnecting'
+      : state.engineStatus === 'reconnecting' || state.engineStatus === 'loading'
         ? 'y'
         : 'r',
 );
+// 🔴 NR-38 — `loading` HAS ITS OWN CELL VALUE, and that is why it is a fifth arm
+// rather than a fall-through. It may not borrow `cap_stt_unknown`
+// ("Not checked"), which would be a FALSE statement about an engine that is
+// demonstrably right here and reading its model off the disk; and it may not
+// borrow `cap_stt_failed`, which is the default arm below.
+// Until card WP2-COPY-1 this arm rendered '' — the key did not exist and an
+// executor does not author user-visible copy in this repo, so an empty cell beside
+// an amber dot was the honest form of "no sentence yet". `cap_stt_loading` was
+// then written through the rewrite pipeline in nine locales, and it is a SHORT
+// LABEL because this is one value cell of a five-value diagnostic row, not a
+// paragraph. Pinned by engine-status-loading.test.ts.
 const engineLabel = computed(() =>
   !state.engineKnown
     ? S.cap_stt_unknown
@@ -486,7 +500,9 @@ const engineLabel = computed(() =>
       ? S.cap_stt_ready
       : state.engineStatus === 'reconnecting'
         ? S.cap_stt_reconnecting
-        : S.cap_stt_failed,
+        : state.engineStatus === 'loading'
+          ? S.cap_stt_loading
+          : S.cap_stt_failed,
 );
 
 // T-5b: same deriveConnDot as the main-window sidebar (one truth).

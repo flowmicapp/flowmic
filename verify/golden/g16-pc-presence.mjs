@@ -74,6 +74,7 @@ export const G16 = {
   async fn(url) {
     const sockets = [];
     let saas = null;
+    let saasNode = null;
     try {
       // ── two real PCs on one standalone server, each with its own phone ──
       const pcA = await connect(url); sockets.push(pcA);
@@ -162,17 +163,72 @@ export const G16 = {
       // Same run, same server: the standalone-only image ingress still 404s, so
       // "mounted in saas" above is this route's own property and not a blanket
       // "saas serves everything".
+      // ── NR-61 DEGRADE CONTROL — this relay has no node directory, so it must
+      //    say NOTHING about nodes ───────────────────────────────────────────
+      // The whole safety argument of the additive change is that a deployment
+      // with no nodes answers byte-for-byte what it always answered. Asserted on
+      // the SAME response the two directions above were read from, so a server
+      // that started volunteering node ids everywhere cannot pass this file.
+      if (relayUp.body.home_node !== undefined || relayUp.body.node !== undefined) {
+        return FAIL(`a relay with no node configuration volunteered node ids (home_node=${JSON.stringify(relayUp.body.home_node)}, node=${JSON.stringify(relayUp.body.node)}) — an old phone would then read 「my PC moved」 on a deployment that has nowhere to move to`);
+      }
+
       const notMounted = await fetch(`${saasUrl}/api/inject/image`, { method: 'POST', body: '{}' });
       if (notMounted.status !== 404) {
         return FAIL(`the standalone-only image ingress answered ${notMounted.status} in saas — the mounting control is broken, so ⑥ proves nothing`);
       }
 
-      return PASS('standalone: online→offline tracked while /api/health stayed ok (two values, independently); untouched PC-B still true; naming another pc_id cannot change the subject; anon+bogus tokens 401 with no presence bit; saas relay answers both directions while the standalone-only ingress still 404s there');
+      // ── ⑧ NR-61: on a NODE-AWARE relay the answer says WHICH node ─────────
+      //
+      // 🔴 WHAT THIS SEAM ADDS OVER THE UNIT TEST, which is the only reason to
+      // spend a second process on it. `http-pc-presence.test.ts` hands the route
+      // a `nodeIdFor` of its own and writes `home_node` with a repo call — both
+      // halves faked. Here neither is: `nodeIdFor` is whatever
+      // bootstrap-http-deps wired, and `home_node` is stamped by the REAL
+      // `pc:register` path (pc.handler `stampHomeNode`). A build where the route
+      // was given a static process id, or where registration stopped stamping,
+      // passes every unit test in this repo and fails here.
+      //
+      // ⚠️ WHAT IT CANNOT COVER, said rather than glossed: `home_node` and `node`
+      // are necessarily EQUAL here — one process cannot be two nodes, and the
+      // disagreement this card exists for needs a second node plus replication.
+      // The disagreement itself is pinned in the unit test, and the phone acting
+      // on it in apps/mobile/test/node_follow_after_presence_test.dart.
+      const nodeSaas = await startSaasServer({
+        FLOWMIC_NODE_ROLE: 'writer',
+        FLOWMIC_NODE_ID: 'g16node',
+        FLOWMIC_NODE_SHARED_SECRET: 'golden-node-shared-secret-32-bytes-xx',
+      });
+      saasNode = nodeSaas;
+      const nodeUrl = `http://localhost:${nodeSaas.port}`;
+      const nodeJwt = await saasJwt(nodeUrl);
+      const pcD = await connect(nodeUrl, { jwt: nodeJwt }); sockets.push(pcD);
+      const regD = await ack(pcD, 'pc:register', { device_name: 'G16 node PC', client_instance_id: 'inst-g16-d-000000' });
+      const mobD = await connect(nodeUrl, { jwt: nodeJwt }); sockets.push(mobD);
+      const joinedD = once(pcD, 'pc:mobile-joined');
+      const pairD = await ack(mobD, 'mobile:pair', { short_code: regD.short_code, pcid: regD.pcid });
+      await joinedD;
+
+      const nodeAnswer = await askPresence(nodeUrl, pairD.mobile_token);
+      if (nodeAnswer.body.node !== 'g16node') {
+        return FAIL(`a node-aware relay did not name itself in the presence answer (node=${JSON.stringify(nodeAnswer.body.node)}) — a phone then has no way to tell 「my PC is elsewhere」 from 「there are no nodes」`);
+      }
+      if (nodeAnswer.body.home_node !== 'g16node') {
+        return FAIL(`registration did not stamp home_node on a node-aware relay (home_node=${JSON.stringify(nodeAnswer.body.home_node)}) — the field reaches the wire but says nothing, which is worse than absent`);
+      }
+      // Positive control for both: the one bit is still the real one, so the
+      // two ids above rode a genuine answer and not an error shape.
+      if (nodeAnswer.body.pc_online !== true) {
+        return FAIL(`the node-aware relay lost the presence bit itself (${JSON.stringify(nodeAnswer.body)})`);
+      }
+
+      return PASS('standalone: online→offline tracked while /api/health stayed ok (two values, independently); untouched PC-B still true; naming another pc_id cannot change the subject; anon+bogus tokens 401 with no presence bit; saas relay answers both directions while the standalone-only ingress still 404s there; that relay volunteers no node ids, and a node-aware one names itself in both home_node and node');
     } catch (e) {
       return FAIL(`threw: ${e.message}`);
     } finally {
       for (const s of sockets) { try { s.disconnect(); } catch { /* already gone */ } }
       if (saas) saas.child.kill();
+      if (saasNode) saasNode.child.kill();
     }
   },
 };

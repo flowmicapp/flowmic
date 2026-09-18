@@ -55,7 +55,10 @@ void main() {
     // instance, and a silent total loss if main.dart simply forgot. That is the
     // difference between a deliberate absence and an omission, and only the
     // composition root can tell them apart.
-    final String main = _read('lib/main.dart');
+    // SC-5: the composition root is a library of two files (main.dart + its part
+    // main_page_builders.dart, where the page builders live since main.dart hit
+    // the 800-line cap). Both halves, or this guard reads half a root.
+    final String main = _read('lib/main.dart') + _read('lib/main_page_builders.dart');
     expect(main.contains('cloudSummary: _cloudSummary,'), isTrue,
         reason: 'without this line the entry never appears for anybody, and '
             'every test in this lane stays green');

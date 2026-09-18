@@ -49,7 +49,7 @@ extension PttSessionDispose on PttSession {
     _pcPresence.dispose();
     // 49-2/49-3: `_holdOut` holds a timer ⇒ without cancelling it, it would
     // outlive this session.
-    _holdOut.cancel(); roomJoins.dispose();
+    _holdOut.cancel(); roomJoins.dispose(); ephemeralSession.dispose();
     _stopPresencePoll(); _pcBusy.dispose(); // G-15①
     micPermission.dispose(); // U2: the face notifier dies with its session.
     // P2-7 (2026-09-02 audit) — two more `ValueNotifier`s that outlived their

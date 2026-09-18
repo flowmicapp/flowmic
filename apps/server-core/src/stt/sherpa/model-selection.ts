@@ -73,3 +73,47 @@ export function writeModelSelection(lang: string, modelId: string, env: NodeJS.P
   writeFileSync(tmp, JSON.stringify({ selected_by_lang: next }, null, 2));
   renameSync(tmp, p);
 }
+
+/**
+ * NR-49 (owner ruling 2026-09-16 §1) — 「如果删模型，已有的配对要留空」.
+ *
+ * Drop every `lang → modelId` pair naming `modelId`, and return the languages
+ * that were cleared (empty when none were). The http delete route calls this
+ * AFTER the files are gone, never before: a removal that refuses must leave
+ * the user's choices exactly as they were — the same ordering card B2-G fixed
+ * on the download side for the same reason.
+ *
+ * 🔴 WHY CLEAR AT ALL, when `model-resolve.ts` already ignores a selection that
+ * is not ready. Because the stored pair is not only an input to resolution, it
+ * is also what the settings card RENDERS as 「this is your pick for this
+ * language」 (`selected_by_lang` → LocalModelCard.vue `row.selected` → the
+ * in-use chip). Left behind, the row for a pack with zero bytes on disk keeps
+ * wearing that chip: a state word with nothing behind it (15 册 R11). Clearing
+ * it makes the card say what is true — the slot is empty — and the strip above
+ * the rows goes on answering the OTHER question, 「what would open if I spoke
+ * this language now」, out of the ladder rather than out of this file.
+ *
+ * ⚠️ LEAVING IT BLANK IS THE WHOLE INSTRUCTION, so this deliberately does NOT
+ * pick a replacement pack for the language. Rung 2 of the §6 ladder may still
+ * resolve one, and that answer is rendered by the card's 「currently in use」
+ * strip; writing it into the selection file would turn a fallback into a
+ * choice the user never made.
+ */
+export function clearModelSelectionFor(
+  modelId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const current = readModelSelection(env);
+  const cleared = Object.keys(current).filter((lang) => current[lang] === modelId);
+  if (cleared.length === 0) return [];
+  const next: Record<string, string> = {};
+  for (const [lang, id] of Object.entries(current)) {
+    if (id !== modelId) next[lang] = id;
+  }
+  const p = selectionPath(env);
+  mkdirSync(join(p, '..'), { recursive: true });
+  const tmp = `${p}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ selected_by_lang: next }, null, 2));
+  renameSync(tmp, p);
+  return cleared;
+}

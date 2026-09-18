@@ -31,6 +31,9 @@ import { makeUserRepo, type UserRepo } from '../src/db/repos/user.repo';
 import { makeMobileRepo, type MobileRepo } from '../src/db/repos/mobile.repo';
 import { makePcRepo, type PcRepo } from '../src/db/repos/pc.repo';
 import { makeTrialLedgerRepo, type TrialLedgerRepo } from '../src/db/repos/trial-ledger.repo';
+import { makeTrialArchiveRepo, type TrialArchiveRepo } from '../src/db/repos/trial-archive.repo';
+import { makeUsageArchiveRepo, type UsageArchiveRepo } from '../src/db/repos/usage-archive.repo';
+import { makeTransactionRunner, type TransactionRunner } from '../src/db/tx';
 import { makeTrialLedger, type TrialLedger } from '../src/billing/trial-ledger';
 import { runAnonCleanup, ANON_ROW_RETENTION_MS } from '../src/db/anon-cleanup';
 
@@ -43,6 +46,9 @@ let users: UserRepo;
 let pcs: PcRepo;
 let mobiles: MobileRepo;
 let rows: TrialLedgerRepo;
+let trialArchive: TrialArchiveRepo;
+let usageArchive: UsageArchiveRepo;
+let tx: TransactionRunner;
 let ledger: TrialLedger;
 let n = 0;
 
@@ -80,6 +86,9 @@ beforeEach(() => {
   pcs = makePcRepo(db);
   mobiles = makeMobileRepo(db);
   rows = makeTrialLedgerRepo(db);
+  trialArchive = makeTrialArchiveRepo(db);
+  usageArchive = makeUsageArchiveRepo(db);
+  tx = makeTransactionRunner(db);
   ledger = makeTrialLedger({ rows, users });
   n = 0;
 });
@@ -120,7 +129,7 @@ describe('the 48-hour anonymous sweep, against a pairing that names an identity'
     const anon = trialIdentity(ANON_ROW_RETENTION_MS - HOUR);
     mobiles.setTrialUser(pairingId, anon);
 
-    const report = runAnonCleanup({ trials: rows, users, apply: true }, NOW);
+    const report = runAnonCleanup({ trials: rows, users, trialArchive, usageArchive, tx, apply: true }, NOW);
     // The candidate count is asserted as well as the deletion, because 「nothing
     // was deleted」 is also what a sweep that found nothing at all looks like.
     expect(report.candidates).toBe(0);
@@ -134,7 +143,7 @@ describe('the 48-hour anonymous sweep, against a pairing that names an identity'
     const anon = trialIdentity(ANON_ROW_RETENTION_MS + HOUR);
     mobiles.setTrialUser(pairingId, anon);
 
-    const report = runAnonCleanup({ trials: rows, users, apply: true }, NOW);
+    const report = runAnonCleanup({ trials: rows, users, trialArchive, usageArchive, tx, apply: true }, NOW);
     expect(report.deleted).toBe(1);
     expect(users.findById(anon)).toBeNull();
     // THE WHOLE CARD, IN THREE LINES: the browser's instance is still there, it
@@ -155,7 +164,7 @@ describe('the 48-hour anonymous sweep, against a pairing that names an identity'
     db.prepare('UPDATE mobile_pairings SET user_id=? WHERE id=?').run(anon, pairingId);
     expect(pairingExists(pairingId)).toBe(true); // positive control: it is there NOW
 
-    runAnonCleanup({ trials: rows, users, apply: true }, NOW);
+    runAnonCleanup({ trials: rows, users, trialArchive, usageArchive, tx, apply: true }, NOW);
 
     expect(pairingExists(pairingId)).toBe(false);
     // ⚠️ If this ever goes green, `user_id`'s CASCADE is gone and the first test

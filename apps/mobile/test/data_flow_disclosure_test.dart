@@ -551,13 +551,14 @@ void main() {
       ),
       AppLocale.de: (
         qualifier: <String>[
-          'das betrifft Ihre Stimme',
+          'das betrifft deine Stimme',
           'wohin der Text danach geht, ist Schritt 3',
         ],
-        // The phone catalogue addresses the reader with 「Sie」; the desktop one
-        // uses 「du」. Same promise, each screen's own register — which is why
-        // this is not one constant shared with the desktop test.
-        consent: 'weil Sie ihn verlangt haben',
+        // 2026-09-17: the phone catalogue used to address the reader with 「Sie」
+        // here while the desktop one used 「du」; the German copy is now du on
+        // both. The two tests still keep their own constants — the promise is
+        // the same, the sentence around it is each screen's own.
+        consent: 'weil du ihn verlangt hast',
       ),
       AppLocale.ru: (
         qualifier: <String>[

@@ -284,6 +284,27 @@ async function seedAccount(email: string): Promise<Seeded> {
   // control has a row to find. Deliberately carries NOTHING of this account —
   // that is the table's design and exactly why deletion must leave it alone.
   db.siteCounts.bump({ day: '2026-08-15', kind: 'register_ok', dim: '_', dim_value: '_' });
+  // owner 2026-09-17 — one row in the anonymous sweep's archive, so the
+  // retained-tables positive control has something to find here too. It names an
+  // anonymous identity that is already gone (that is the only shape this table
+  // ever holds) and carries NOTHING of this account — which is exactly why an
+  // account deletion must leave it alone.
+  db.raw.prepare(
+    `INSERT INTO trial_ledger_archive
+       (anon_user_id, ip_bucket, day, grants_used, ms_granted, anon_token,
+        token_expires_at, created_at, device_uid, swept_at)
+     VALUES ('anon-long-gone','h:bucket','2026-08-15',0,120000,NULL,1,
+             '2026-08-15T00:00:00.000Z',NULL,'2026-08-17T00:00:00.000Z')`,
+  ).run();
+  // …and its meter half, for the same identity and with the same swept_at — the
+  // two archives are one record in two tables (db/schema-trial.ts).
+  db.raw.prepare(
+    `INSERT INTO usage_records_archive
+       (user_id, month, stt_minutes, llm_tokens_in, llm_tokens_out, updated_at,
+        swept_at)
+     VALUES ('anon-long-gone','2026-08',1.5,0,0,'2026-08-15T00:10:00.000Z',
+             '2026-08-17T00:00:00.000Z')`,
+  ).run();
   // A paid one-time service for THIS account. Unlike site_daily_counts above it
   // does name the user — which is precisely why its survival is worth asserting:
   // the row is attributable, it is retained anyway, and the reason is that money
@@ -383,6 +404,18 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     // 0.3.25 B1 (card D-2). Table-wide like site_daily_counts above, but for the
     // opposite reason: this table has no account column because the account it
     // refers to no longer exists by the time a row is written.
+    // owner 2026-09-17 — table-wide, like site_daily_counts and for the same
+    // kind of reason: it has no account column, because the identities it
+    // records were anonymous and are already destroyed.
+    trial_ledger_archive: (
+      db.raw.prepare('SELECT COUNT(*) AS n FROM trial_ledger_archive').get() as { n: number }
+    ).n,
+    // Table-wide for the same reason as the line above it. ⚠️ This is the
+    // ARCHIVE, not `usage_records`: the live meter table cascades with its
+    // account and is asserted in the cascade half of this test.
+    usage_records_archive: (
+      db.raw.prepare('SELECT COUNT(*) AS n FROM usage_records_archive').get() as { n: number }
+    ).n,
     paddle_subscription_tombstones: (
       db.raw.prepare('SELECT COUNT(*) AS n FROM paddle_subscription_tombstones').get() as { n: number }
     ).n,
@@ -422,7 +455,13 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // TWENTY since card M4-01 (2026-09-09: trial_ledger, CASCADING).
     // TWENTY-TWO since card MP-1 (2026-09-11: integrator_keys, CASCADING;
     // integrator_rooms, no `users` FK — it dies through BOTH of its parents).
-    expect(tables.length).toBe(22);
+    // TWENTY-THREE since owner 2026-09-17 (trial_ledger_archive, NO user FK —
+    // a retained table, and the only one whose rows are about identities that
+    // were already destroyed when they were written).
+    // TWENTY-FOUR with that ruling's second half (usage_records_archive, NO
+    // user FK either, and for the same reason: a foreign key would erase the
+    // row in the DELETE that writes it).
+    expect(tables.length).toBe(24);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];
@@ -566,10 +605,13 @@ describe('GET /api/account/export', () => {
     expect(bExport.text).toContain(b.pcId);
   });
 
-  it('anonymous → 401 AUTH_TOKEN_INVALID (the existing named shape), garbage bearer likewise', async () => {
+  it('anonymous → 401 AUTH_ACCOUNT_REQUIRED (nothing presented), garbage bearer → AUTH_TOKEN_INVALID', async () => {
+    // 🔴 NR-55 — these two refusals used to be ONE code. A caller who presented
+    // nothing is told to sign in; a caller who presented a bad credential is
+    // told their credential is bad. The inequality keeps them from re-merging.
     const anon = await get('/api/account/export');
     expect(anon.status).toBe(401);
-    expect(anon.json).toEqual({ error: 'AUTH_TOKEN_INVALID' });
+    expect(anon.json).toEqual({ error: 'AUTH_ACCOUNT_REQUIRED' });
     const junk = await get('/api/account/export', { authorization: 'Bearer not.a.jwt' });
     expect(junk.status).toBe(401);
     expect(junk.json.error).toBe('AUTH_TOKEN_INVALID');
@@ -610,7 +652,7 @@ describe('POST /api/account/delete — the confirmation shape', () => {
     const a = await seedAccount('anon@b.co');
     const r = await post('/api/account/delete', deleteBody(a));
     expect(r.status).toBe(401);
-    expect(r.json).toEqual({ error: 'AUTH_TOKEN_INVALID' });
+    expect(r.json).toEqual({ error: 'AUTH_ACCOUNT_REQUIRED' });
     expect(db.users.findById(a.id)).not.toBeNull();
   });
 

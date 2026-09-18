@@ -26,6 +26,8 @@ export const DOWNLOAD_SRC_ALLOWLIST = Object.freeze([
   'nav',
   'demo_card',
   'demo_phone',
+  // the homepage hero try line's CTA after the demo ends
+  'hero_try',
 ] as const);
 
 const SRC_SET = new Set<string>(DOWNLOAD_SRC_ALLOWLIST);

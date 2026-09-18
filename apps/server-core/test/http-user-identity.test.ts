@@ -132,7 +132,7 @@ describe('saas: the mock billing gateway is structurally impossible (M5)', () =>
     expect(verified.raw).toContain('mock billing gateway disabled');
     const anonymous = await call(url, 'GET', '/api/billing/plan', undefined);
     expect(anonymous.status).toBe(401);
-    expect(anonymous.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(anonymous.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
   });
 });
 
@@ -144,7 +144,7 @@ describe('saas: an unidentified caller is refused — never served as somebody',
     for (const [method, path, body] of BILLING_ROUTES) {
       const r = await call(url, method, path, body);
       expect(r.status, `${method} ${path}`).toBe(401);
-      expect(r.json.error, `${method} ${path}`).toBe('AUTH_TOKEN_INVALID');
+      expect(r.json.error, `${method} ${path}`).toBe('AUTH_ACCOUNT_REQUIRED');
       expect(typeof r.json.message).toBe('string');
       // The literal the old code would have served as. Asserted on the RAW body
       // so a user id smuggled into any field — plan echo, message, anything —
@@ -208,7 +208,6 @@ describe('saas: an unidentified caller is refused — never served as somebody',
       ['alg:none header (no algorithm negotiation is offered)', `${enc({ alg: 'none', typ: 'JWT' })}.${pa}.`],
       ['not a JWT at all', 'not-a-jwt'],
       ['two segments', `${ha}.${pa}`],
-      ['empty', ''],
     ];
     for (const [label, bad] of forgeries) {
       const r = await call(url, 'GET', '/api/billing/quota', undefined, { authorization: `Bearer ${bad}` });
@@ -216,6 +215,15 @@ describe('saas: an unidentified caller is refused — never served as somebody',
       expect(r.json.error, label).toBe('AUTH_TOKEN_INVALID');
       expect(r.raw, label).not.toContain(STANDALONE_USER_ID);
     }
+
+    // 🔴 NR-55 — an EMPTY Bearer is 「nothing presented」, not 「a forged
+    // credential」: `Bearer ` carries no token to verify, so it answers the
+    // absent code, not the invalid one. Split out of the forgeries above for
+    // exactly that reason — the two must not share an answer.
+    const empty = await call(url, 'GET', '/api/billing/quota', undefined, { authorization: 'Bearer ' });
+    expect(empty.status).toBe(401);
+    expect(empty.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
+    expect(empty.raw).not.toContain(STANDALONE_USER_ID);
   });
 
   it('the refusal is OUT LOUD: one warn line naming the route and the reason', async () => {
@@ -224,7 +232,7 @@ describe('saas: an unidentified caller is refused — never served as somebody',
     expect((await call(url, 'GET', '/api/billing/quota', undefined)).status).toBe(401);
     const refusal = warn.mock.calls.find((c) => String(c[0]).includes('unidentified'));
     expect(refusal, 'a silent 401 is how nobody ever notices the relay being probed').toBeTruthy();
-    expect(refusal![1]).toMatchObject({ route: '/api/billing/quota', reason: 'AUTH_TOKEN_INVALID' });
+    expect(refusal![1]).toMatchObject({ route: '/api/billing/quota', reason: 'AUTH_ACCOUNT_REQUIRED' });
   });
 
   it('the 401 comes BEFORE the mock-gateway 404: an anonymous caller learns nothing about the deployment', async () => {
@@ -237,7 +245,7 @@ describe('saas: an unidentified caller is refused — never served as somebody',
     const url = await saasServer();
     const anon = await call(url, 'GET', '/api/billing/quota', undefined);
     expect(anon.status).toBe(401);
-    expect(anon.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(anon.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
     expect(anon.raw).not.toContain('mock billing gateway disabled');
   });
 });

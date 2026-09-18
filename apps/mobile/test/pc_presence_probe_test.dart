@@ -85,6 +85,64 @@ void main() {
     expect(s.seen.single.method, 'GET');
   });
 
+  test('🔴 NR-61: `home_node` / `node` are read off the same response as the bit', () async {
+    final s = await _serve((HttpRequest req) {
+      req.response
+        ..statusCode = 200
+        ..write(jsonEncode(<String, Object?>{
+          'ok': true,
+          'pc_id': 'pc-1',
+          'pc_online': true,
+          // The shape that matters: the computer IS there, and it is SOMEWHERE
+          // ELSE. Today's phone sees only the `true` and reads it as healthy
+          // while its own room sits in the process the PC left.
+          'home_node': 'srvjp',
+          'node': 'srvny',
+        }));
+      req.response.close();
+    });
+    addTearDown(() => s.server.close(force: true));
+
+    final PcPresenceReading r = await httpPcPresenceRead(
+      Uri.parse('${s.url}/api/pc/presence'),
+      'tok',
+      t,
+    );
+    expect(r.homeNode, 'srvjp');
+    expect(r.node, 'srvny');
+    // The bit is unchanged by their presence — two questions, two answers.
+    expect(r.presence, PcPresence.online);
+  });
+
+  test('NR-61: absent / empty / wrong-typed node ids all read as 「did not say」', () async {
+    // 🔴 THREE SPELLINGS, ONE MEANING, and the reader must collapse them here
+    // rather than leave three cases for every consumer. `node_follow.dart` states
+    // the rule for the identical pair on an ack: a missing field, an empty field
+    // and a field of the wrong type ALL mean 「stay exactly where you are」. A
+    // reading that carried `''` would be a fourth case nobody wrote a branch for.
+    final s = await _serve((HttpRequest req) {
+      req.response
+        ..statusCode = 200
+        ..write(jsonEncode(<String, Object?>{
+          'ok': true,
+          'pc_id': 'pc-1',
+          'pc_online': true,
+          'home_node': '   ',
+          'node': 7,
+        }));
+      req.response.close();
+    });
+    addTearDown(() => s.server.close(force: true));
+    final PcPresenceReading r =
+        await httpPcPresenceRead(Uri.parse('${s.url}/api/pc/presence'), 'tok', t);
+    expect(r.homeNode, isNull);
+    expect(r.node, isNull);
+    // Positive control: this response WAS read (so the two nulls are the parser
+    // refusing the values, not the request having failed).
+    expect(r.presence, PcPresence.online);
+    expect(r.pcId, 'pc-1');
+  });
+
   test('pc_online:false reads as offline', () async {
     final s = await _serve((HttpRequest req) {
       req.response

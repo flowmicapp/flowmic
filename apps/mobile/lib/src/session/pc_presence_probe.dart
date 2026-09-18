@@ -152,6 +152,16 @@ enum PcPresenceFault {
   status,
 }
 
+/// One node id off the wire, or null for every way of not having said one.
+///
+/// Private and tiny on purpose: it exists so the two NR-61 fields cannot be
+/// parsed two slightly different ways in the same expression.
+String? _nodeId(Object? v) {
+  if (v is! String) return null;
+  final String t = v.trim();
+  return t.isEmpty ? null : t;
+}
+
 /// The result of one presence question-and-answer. [pcId] is the server's own
 /// echo of 「我答的是哪台」 ("which one I'm answering for"), `null` = the
 /// question never got answered.
@@ -163,6 +173,8 @@ class PcPresenceReading {
     this.absentReason,
     this.fault,
     this.faultCode,
+    this.homeNode,
+    this.node,
   }) : pairingRejected = false;
 
   /// A question that went unanswered, carrying WHY. The presence is
@@ -175,6 +187,8 @@ class PcPresenceReading {
   }) : presence = PcPresence.unknown,
        pcId = null,
        absentReason = null,
+       homeNode = null,
+       node = null,
        pairingRejected = false;
 
   /// 🔴 The server answered, and its answer was **about this pairing**: it does
@@ -191,6 +205,8 @@ class PcPresenceReading {
     : presence = PcPresence.unknown,
       pcId = null,
       absentReason = null,
+      homeNode = null,
+      node = null,
       miss = PcPresenceMiss.unauthorized,
       fault = PcPresenceFault.status,
       faultCode = 401,
@@ -204,6 +220,38 @@ class PcPresenceReading {
   /// cross-wire ids") iron rule: **if the answer doesn't match, it doesn't
   /// count as an answer.**
   final String? pcId;
+
+  /// 🔴 NR-61 — WHERE that computer is, per the node that just answered
+  /// (`home_node`, presence-routes.ts). `null` on a LAN sidecar, on a
+  /// single-node relay, on a relay too old to send it, and for a PC that has
+  /// never registered on a node — all four are the same 「didn't say」, and the
+  /// caller's rule for all four is the same one: stay exactly where you are.
+  ///
+  /// 🔴 IT IS THE FRESH COPY OF A FACT THE SESSION ALREADY HOLDS A STALE ONE OF.
+  /// `ReconnectCoordinator.pcHomeNode` is written from the pair/reconnect ack,
+  /// and a phone whose socket never dropped has no newer ack — which is the
+  /// whole of NR-61: the PC re-picks its node on every start, the phone's room
+  /// stays in the old process, and `mirrorToPc` drops every frame there with no
+  /// error on either end. This field is what makes that discoverable without a
+  /// new request.
+  ///
+  /// ⚠️ It is NOT a second opinion about [presence], exactly as [absentReason]
+  /// is not: the server answers 「is it there」 and 「where」 separately and on
+  /// purpose (that route's header states why the bit is not narrowed by this
+  /// field), and this value alone can never make a row online or offline.
+  final String? homeNode;
+
+  /// Which node ANSWERED this request — the same distinction
+  /// `node_follow.dart` draws between [pcHomeNodeOf] and `answeringNode`.
+  ///
+  /// ⚠️ Carried for the diagnostic trail, and deliberately NOT used as 「where
+  /// this phone is」: the poll ROUTES itself to the PC's node
+  /// (`presenceEndpointFor`), so the door that answers this request is very
+  /// often NOT the one holding this phone's socket. The question 「where am I」
+  /// has exactly one author on this side — the last ack, via
+  /// `ReconnectCoordinator.node` — and reading it off this field instead would
+  /// be a second answer that is right only when the routing did nothing.
+  final String? node;
 
   /// 🔴 Why this question went unanswered, `null` when it WAS answered.
   ///
@@ -400,6 +448,13 @@ Future<PcPresenceReading> httpPcPresenceRead(
       // same absence of a claim. [PcAbsentReason.parse] owns that rule; this
       // line must never grow a second copy of it.
       absentReason: PcAbsentReason.parse(decoded['pc_absent_reason']),
+      // NR-61 — read at the same moment, off the same response, as the bit they
+      // qualify. Trimmed-empty and wrong-typed both collapse to null, so the
+      // reader downstream has ONE case to handle ("didn't say") rather than
+      // three spellings of it — the rule `node_follow.dart` already states for
+      // the identical pair on an ack.
+      homeNode: _nodeId(decoded['home_node']),
+      node: _nodeId(decoded['node']),
     );
     // 🔴 The arms below narrow the ONE `on Object` this function used to have.
     // They change no outcome — every one of them still returns

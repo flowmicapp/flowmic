@@ -100,6 +100,18 @@ export const TABLES = [
   // take its grant record with it, or the sweep would leave a ledger row
   // pointing at an account that no longer exists.
   'trial_ledger',
+  // owner 2026-09-17: the archive the sweep copies a row into one statement
+  // before it destroys it (db/schema-trial.ts TRIAL_ARCHIVE_SQL). EIGHTEEN.
+  // Purely additive — one CREATE plus one index, no ALTER and no new
+  // reconcileSchema step. 🔴 It carries NO foreign key, and that is the one
+  // thing about it worth registering here: a `REFERENCES users(id) ON DELETE
+  // CASCADE`, copied from its neighbour above out of symmetry, would erase each
+  // archive row in the very DELETE that writes it.
+  'trial_ledger_archive',
+  // owner 2026-09-17, second half: the same sweep's METER archive. NINETEEN.
+  // Additive in the same way — one CREATE plus one index, no ALTER — and with
+  // the same missing foreign key, for the same reason.
+  'usage_records_archive',
 ];
 
 /** The `users` DDL exactly as it stood BEFORE Window D1 (0.2.36) — no

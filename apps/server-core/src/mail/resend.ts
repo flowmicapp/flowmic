@@ -50,11 +50,46 @@ const SEND_TIMEOUT_MS = 10_000;
  *  server.log through us. */
 const ERROR_BODY_CAP = 400;
 
+/** NR-14 — the cap, applied to EVERY foreign string this file puts into an
+ *  Error message, and saying so when it bites.
+ *
+ *  Three foreign strings reach the log through here and only one of them used
+ *  to be capped: `res.text()` was, while `res.statusText` (the server's own
+ *  reason phrase — not a constant; any HTTP server may put any bytes there) and
+ *  the message of a REJECTED fetch (timeout, DNS, TLS — a runtime string we do
+ *  not author) were not. The caller logs whatever `Error.message` says,
+ *  verbatim: `http/password-reset-routes.ts` `dispatchResetMail`'s catch writes
+ *  `reason: err.message` into server.log, and the dispatch is fire-and-forget,
+ *  so nothing downstream trims it either.
+ *
+ *  The `…(+N more)` suffix is not decoration: an unmarked truncation reads as a
+ *  complete message, which is the operator-facing shape of a silent failure —
+ *  someone would stop looking for the rest of a sentence that was never short. */
+function capped(raw: string): string {
+  if (raw.length <= ERROR_BODY_CAP) return raw;
+  return `${raw.slice(0, ERROR_BODY_CAP)}…(+${raw.length - ERROR_BODY_CAP} more)`;
+}
+
+/** What to say when `fetch` itself rejected — nothing was refused, because
+ *  nothing was answered. The timeout is named apart from every other transport
+ *  failure because the two send an operator to two different places: 「we gave
+ *  up after ten seconds」 is about the vendor or the route, 「connection
+ *  refused」 is about this box's egress. The runtime's own text is kept (it is
+ *  the only detail we have) but capped. */
+function describeTransportFailure(err: unknown): string {
+  const detail = capped(err instanceof Error ? err.message : String(err));
+  // `AbortSignal.timeout` is the ONLY signal passed to this fetch, so a
+  // TimeoutError here can have come from nowhere else.
+  return err instanceof Error && err.name === 'TimeoutError'
+    ? `gave up after ${SEND_TIMEOUT_MS} ms without a response — ${detail}`
+    : `the request never completed — ${detail}`;
+}
+
 export function createResendMailProvider(config: MailConfig): MailProvider {
   return {
     id: 'resend',
     async send(message: MailMessage): Promise<void> {
-      const res = await fetch(config.endpoint, {
+      const request = (): Promise<Response> => fetch(config.endpoint, {
         method: 'POST',
         headers: {
           // 🔴 The key appears HERE and nowhere else — not in a log line, not in
@@ -75,6 +110,17 @@ export function createResendMailProvider(config: MailConfig): MailProvider {
         }),
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
+      // NR-14 — the REJECTION path. `SEND_TIMEOUT_MS` above only guarantees that
+      // the wait ENDS; what it ends with is a runtime-authored Error whose
+      // message goes straight into server.log at the caller. Re-thrown with our
+      // own sentence and the vendor text capped, so a failure cannot write an
+      // unbounded line. Nothing is swallowed: the send still fails, loudly.
+      let res: Response;
+      try {
+        res = await request();
+      } catch (err) {
+        throw new Error(`resend: ${describeTransportFailure(err)}`);
+      }
       if (!res.ok) {
         // Read the body for the reason — a bare "422" sends an operator to the
         // vendor's dashboard to find out what we already had in our hands. The
@@ -82,8 +128,8 @@ export function createResendMailProvider(config: MailConfig): MailProvider {
         // failure itself.
         const detail = await res.text().catch(() => '');
         throw new Error(
-          `resend: refused the message with HTTP ${res.status} ${res.statusText}` +
-            (detail === '' ? '' : ` — ${detail.slice(0, ERROR_BODY_CAP)}`),
+          `resend: refused the message with HTTP ${res.status} ${capped(res.statusText)}` +
+            (detail === '' ? '' : ` — ${capped(detail)}`),
         );
       }
       // 🔴 A 2xx means Resend ACCEPTED it, which is not the same as a mailbox

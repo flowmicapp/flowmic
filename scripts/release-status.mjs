@@ -29,7 +29,7 @@
 // Usage: node scripts/release-status.mjs
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -212,6 +212,84 @@ export async function rows() {
   return out;
 }
 
+// ── the four external queues (SC-9) ─────────────────────────────────────────
+//
+// 🔴 THIS FILE STILL OPENS NO NETWORK CONNECTION. The four rows below are facts
+// about Apple, GitHub and the LAN download centre — exactly the kind the header
+// says this tool refuses to fetch — and they appear here anyway because
+// `scripts/ship-watch.mjs` already asked, on its own clock, and wrote the answers
+// down. Reading a file somebody else wrote is the one way a read-only status
+// tool can carry a server fact without becoming a status command that hangs.
+//
+// They are printed VERBATIM rather than translated into this file's DONE/TODO/
+// UNKNOWN vocabulary. Those are two different three-state schemes answering two
+// different questions ("is this release step finished?" vs "has that queue come
+// back?"), and mapping one onto the other would need a rule for PENDING that is
+// either TODO (telling somebody to go do Apple's notarisation by hand) or
+// UNKNOWN (losing the fact that it is genuinely under way). Neither is true, so
+// neither is printed: the watcher's words are the watcher's words.
+
+const SHIP_DIR = join(REPO_ROOT, '.local', 'ship');
+const EXTERNAL_FILE = 'external.status';
+
+/** The round whose queues we should report: the most recently written status
+ *  file. Rounds are keyed by sha or version, and this tool has no way to know
+ *  which one the reader means — but "the one the last watcher touched" is both
+ *  the right guess and a visible one, since the file's own header line names the
+ *  round and the version it was watching. */
+export function newestExternalStatus(dir = SHIP_DIR) {
+  let best = null;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const p = join(dir, e.name, EXTERNAL_FILE);
+    try {
+      const mtime = statSync(p).mtimeMs;
+      if (!best || mtime > best.mtime) best = { round: e.name, path: p, mtime };
+    } catch { /* a round directory with no status file is a round nobody watched */ }
+  }
+  return best;
+}
+
+/** Returns the file's own lines, unparsed and unreordered. Deliberately not
+ *  re-derived: if this function ever disagreed with `ship-watch.mjs`, the
+ *  disagreement would be invisible — two readers of one file, one of them
+ *  quietly reinterpreting it, is the shape this repo keeps paying for. */
+export function externalLines(dir = SHIP_DIR) {
+  const found = newestExternalStatus(dir);
+  if (!found) return null;
+  const text = readFileSync(found.path, 'utf8');
+  return {
+    round: found.round,
+    path: found.path,
+    header: text.split(/\r?\n/).filter((l) => l.startsWith('#')),
+    lines: text.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#')),
+  };
+}
+
+function printExternal() {
+  console.log('');
+  console.log('EXTERNAL QUEUES (written by scripts/ship-watch.mjs; nothing was fetched to print this)');
+  let ext = null;
+  try { ext = externalLines(); } catch (err) { console.log(`  could not read the watcher's status file: ${err?.message ?? err}`); return; }
+  if (!ext) {
+    console.log('  no watcher record on this disk — the four queues have not been asked for any round.');
+    console.log(existsSync(join(REPO_ROOT, 'scripts', 'ship-watch.mjs'))
+      ? '  -> node scripts/ship-watch.mjs <version> --once     (or leave it running for the round)'
+      : '  -> not in this tree (the export omits the internal watcher): Apple, the public CI and your own distribution are yours to watch');
+    return;
+  }
+  console.log(`  round ${ext.round}  (${ext.path})`);
+  for (const h of ext.header) console.log(`  ${h}`);
+  for (const l of ext.lines) console.log(`  ${l}`);
+  const stale = ext.lines.filter((l) => l.split(/\s+/)[1] === 'PENDING');
+  if (stale.length > 0) {
+    console.log(`  ${stale.length} queue(s) still PENDING. A PENDING whose detail starts with "unreachable:" means the watcher could not ask,`);
+    console.log('  which is a different problem from the queue being slow — and the only reason the two are told apart here.');
+  }
+}
+
 function shortHead() {
   try {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
@@ -247,6 +325,8 @@ export async function main() {
     console.log(`  NEXT: ${next.label}`);
     console.log(`    ${next.next}`);
   }
+  printExternal();
+
   const unknown = list.filter((r) => r.state === UNKNOWN).length;
   if (unknown > 0) {
     console.log('');

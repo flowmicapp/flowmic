@@ -21,6 +21,7 @@ vi.mock('@tauri-apps/api/event', () => ({ emit: vi.fn(), listen: vi.fn() }));
 
 import {
   MODEL_CANCEL_PATH,
+  MODEL_DELETE_PATH,
   MODEL_DOWNLOAD_PATH,
   MODEL_ROOT_PATH,
   MODEL_STATUS_PATH,
@@ -28,6 +29,7 @@ import {
   POLL_IDLE_MS,
   applyModelsRoot,
   cancelModelDownload,
+  deleteModel,
   dismissModelNotice,
   modelStore,
   onSidecarPhaseForModel,
@@ -74,6 +76,9 @@ function snap(over: Record<string, unknown> = {}): Record<string, unknown> {
     source: 'hf',
     resumed_from_bytes: 0,
     rate_bytes_per_sec: 500,
+    // NR-7: measured occupancy. Defaults to the declared total so a fixture
+    // that says nothing about it reads as a pack whose files are all there.
+    disk_bytes: 1000,
     error: null,
     ...over,
   };
@@ -117,6 +122,7 @@ function body(
     spoken_langs: ['en', 'zh', 'fr', 'es', 'de', 'ja', 'ko', 'ru'],
     models_root: { dir: 'C:\\models', default_dir: 'C:\\models', configured: false },
     busy_model_id: legacy.state === 'downloading' ? legacy.model_id : null,
+    in_use_model_ids: [],
     ...topOver,
   };
 }
@@ -355,6 +361,97 @@ describe('the actions', () => {
     ]);
     expect(JSON.parse(String(t.calls[0]?.body))).toEqual({ dir: 'D:\\FlowMicPacks' });
     expect(JSON.parse(String(t.calls[1]?.body))).toEqual({ reset: true });
+    expect(modelStore.reach).toBe('ok');
+  });
+
+  it('NR-7: the delete POSTs the pack id, and the ANSWER is what refreshes the card', async () => {
+    // The whole 「no restart」 requirement lives in this one assertion pair: the
+    // response to the delete IS the new status, adopted here, so the row the
+    // user just emptied re-renders from the same round trip rather than from
+    // some later poll. A delete that answered `{ok:true}` and left the card to
+    // find out on its own would keep the freed size on screen for up to ten
+    // seconds — long enough to read as 「it did not work」.
+    await refreshModelStatus(transport(() => body({ state: 'ready', disk_bytes: 4096 })));
+    expect(modelStore.status?.models[0]?.disk_bytes).toBe(4096);
+
+    const t = transport(() => body({ state: 'absent', bytes_done: 0, disk_bytes: 0 }));
+    await deleteModel(PACK, t);
+    expect(t.calls.map((c) => ({ url: c.url, method: c.method })))
+      .toEqual([{ url: `${BASE}${MODEL_DELETE_PATH}`, method: 'POST' }]);
+    expect(JSON.parse(String(t.calls[0]?.body))).toEqual({ model_id: PACK });
+    expect(modelStore.status?.models[0]?.disk_bytes).toBe(0);
+    expect(modelStore.status?.models[0]?.state).toBe('absent');
+    expect(modelStore.actionError).toBeNull();
+    expect(modelStore.busy).toBe('');
+  });
+
+  it('🔴 NR-49b: the delete answer says WHICH languages it emptied, and the store keeps them', async () => {
+    // The wire fact this rides on: one delete can empty several pairings, and
+    // the body the card adopts only shows the selection AFTER the clear — the
+    // emptied languages are the keys that are no longer in it, which is not a
+    // difference one body can express. So the server names them and this is
+    // where they are picked up.
+    const t = transport(() => ({
+      ...body({ state: 'absent', disk_bytes: 0 }),
+      deleted_model_id: PACK,
+      freed_bytes: 4096,
+      cleared_langs: ['zh', 'ja'],
+    }));
+    await deleteModel(PACK, t);
+    expect(modelStore.clearedLangs).toEqual(['zh', 'ja']);
+  });
+
+  it('🔴 NR-49b: a delete that cleared nothing leaves no report behind', async () => {
+    const t = transport(() => ({ ...body({ state: 'absent' }), cleared_langs: [] }));
+    await deleteModel(PACK, t);
+    expect(modelStore.clearedLangs).toEqual([]);
+  });
+
+  it('🔴 NR-49b: the report belongs to the LAST press — the next press drops it', async () => {
+    // Otherwise a sentence naming two languages sits under the result of a
+    // different action, and the reader has no way to tell which press it is
+    // about. Same lifetime as `actionError`, for the same reason.
+    await deleteModel(PACK, transport(() => ({
+      ...body({ state: 'absent' }), cleared_langs: ['zh'],
+    })));
+    expect(modelStore.clearedLangs).toEqual(['zh']);
+    await startModelDownload(PACK, undefined, transport(() => body({ state: 'downloading' })));
+    expect(modelStore.clearedLangs).toEqual([]);
+  });
+
+  it('🔴 NR-49b: a POLL never touches the report', async () => {
+    // It is the result of something the user did. A poll landing a second
+    // later must not erase the only sentence that says what the press did —
+    // and a poll body carries no `cleared_langs` at all, so a reader that took
+    // it from every adopted body would blank it on the next tick.
+    await deleteModel(PACK, transport(() => ({
+      ...body({ state: 'absent' }), cleared_langs: ['zh', 'ja'],
+    })));
+    await refreshModelStatus(transport(() => body({ state: 'absent' })));
+    expect(modelStore.clearedLangs).toEqual(['zh', 'ja']);
+  });
+
+  it('NR-49b: a body without the field is read as 「nothing cleared」, not as a crash', async () => {
+    // An older sidecar (the routes ship in the desktop bundle, but a user can
+    // be running a sidecar this build did not install). No repair, no guess:
+    // the absent field renders no sentence at all.
+    const t = transport(() => body({ state: 'absent' }));
+    await deleteModel(PACK, t);
+    expect(modelStore.clearedLangs).toEqual([]);
+  });
+
+  it('NR-7: a refused delete reports the server reason and changes nothing on screen', async () => {
+    await refreshModelStatus(transport(() => body({ state: 'ready', disk_bytes: 4096 })));
+    const before = modelStore.status;
+    await deleteModel(PACK, transport(() => ({
+      ok: false, error: 'MODEL_IN_USE', in_use_reason: 'would_open',
+      message: "'x' is the model that would open for a language in use",
+    })));
+    expect(modelStore.actionError).toContain('MODEL_IN_USE');
+    // The pack is still there: a refused delete must not blank the row it
+    // refused to delete.
+    expect(modelStore.status).toBe(before);
+    expect(modelStore.status?.models[0]?.disk_bytes).toBe(4096);
     expect(modelStore.reach).toBe('ok');
   });
 

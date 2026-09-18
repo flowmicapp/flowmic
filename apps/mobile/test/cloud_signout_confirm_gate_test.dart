@@ -201,7 +201,9 @@ void main() {
     // ②「记录不受影响」 ③「账号不会被删」— what you keep. Separate finds on
     // purpose: dropping either one has to fail by name, not shorten a match.
     expect(find.text('手机上已有的记录'), findsOneWidget);
-    expect(find.text('你的账号本身（不会被删除）'), findsOneWidget);
+    // 2026-09-17: the owner's copy audit reworded this row to「（依然保留）」,
+    // because it sits under a「不受影响」heading and a second negation read twice.
+    expect(find.text('你的账号本身（依然保留）'), findsOneWidget);
   });
 
   testWidgets('⑤ the two actions are told apart WITHOUT colour '

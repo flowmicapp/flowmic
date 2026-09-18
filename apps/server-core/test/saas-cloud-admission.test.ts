@@ -162,11 +162,29 @@ describe('cloud-instance admission', () => {
     expect(pair.role).toBe('active');
   });
 
-  it('unauthenticated saas socket → {error:"AUTH_TOKEN_INVALID"}', async () => {
+  // 🔴 NR-18, 2026-09-15 — THIS ASSERTION USED TO READ `AUTH_TOKEN_INVALID`, AND
+  // IT WAS THE ONE PLACE THE LIE WAS WRITTEN DOWN AS A REQUIREMENT.
+  //
+  // A socket that presented nothing was answered 「配对凭证已失效，请重新配对。」 /
+  // "Token invalid, please pair again." Nothing had been refused — nothing had
+  // been presented — and there was no pairing to redo. The owner granted
+  // `AUTH_ACCOUNT_REQUIRED` on 2026-09-15 and `socket/acting-identity.ts` now
+  // answers 'absent' with it; `AUTH_TOKEN_INVALID` stays for a credential that
+  // arrived and did not verify (the next test but one).
+  //
+  // ⚠️ THIS TEST IS ALSO THE EVIDENCE THAT THE ARM IS REACHABLE ON THE WIRE. No
+  // shipped client takes it (the phone refuses locally with NOT_LOGGED_IN before
+  // dialling), but a socket is a socket: this one dials with no jwt and gets a
+  // real ack from a real server, so the sentence on that ack is a sentence that
+  // can be read — which is why registering the code was worth a round.
+  it('unauthenticated saas socket → {error:"AUTH_ACCOUNT_REQUIRED"}', async () => {
     const url = await saas();
     const c = await connect(url); // no jwt, no login
     const pair = await ack(c, 'mobile:pair', { cloud_instance: true });
-    expect(pair.error).toBe('AUTH_TOKEN_INVALID');
+    expect(pair.error).toBe('AUTH_ACCOUNT_REQUIRED');
+    // The inequality, stated rather than implied: these two states share a
+    // handler and shared an answer for one release.
+    expect(pair.error).not.toBe('AUTH_TOKEN_INVALID');
   });
 
   it('EXPIRED handshake JWT → {error:"AUTH_TOKEN_EXPIRED"}', async () => {

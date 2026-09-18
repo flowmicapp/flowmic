@@ -66,7 +66,19 @@ class NodeLabels {
     try {
       final List<RelayNode> nodes =
           await _fetch(nodeListUri(key), kNodeListTimeout);
-      _nodes = nodes;
+      // 🔴 NR-61 — AN EMPTY READ MUST NOT DESTROY A DIRECTORY WE ALREADY HAVE.
+      // `httpNodeListFetch` answers 「empty list」 for EVERY failure (its own
+      // doc), and this method is called for each new endpoint — so a phone that
+      // read `srvny`'s directory and then hops to `srvjp` would lose the whole
+      // list the moment the second read failed, on a radio, mid-hop. That list
+      // is no longer only a label source: `presenceEndpointFor`, the poll's
+      // wrong-node gate and `_followMovedPcNode` all resolve ids through it, and
+      // all three degrade to 「stay where you are」 when it is empty — i.e. the
+      // failure this card exists to remove would come back, caused by a failed
+      // fetch rather than by a missing field. `parseNodeList` already states the
+      // rule this line applies: empty means 「nothing to act on」, never 「forget
+      // what you knew」.
+      if (nodes.isNotEmpty) _nodes = nodes;
       for (final RelayNode n in nodes) {
         final String? s = n.short;
         if (s != null && s.trim().isNotEmpty) _shortById[n.id] = s.trim();

@@ -247,9 +247,31 @@ export const SttErrorSchema         = z.object({
   retryable: z.boolean(),
   judged_account: z.enum(['self', 'pc_owner']).optional(),
 });
+// NR-38 — `loading` is the FOURTH value (2026-09-14), and the only one that is
+// emitted BEFORE the engine exists. A local model engine (`sherpa-local`) spends
+// 1.9 s (SenseVoice, 229 MB) to 8 s (whisper-turbo, 1.03 GB) reading and building
+// its recogniser on the very first press, and until this value existed the wire
+// had no way to say so: the first frame a user could ever see was `ready`, after
+// the wait. The producer is the orchestrator's COLD OPEN only
+// (`stt/orchestrator-core.ts spawnEngine(coldOpen)`, gated on
+// `isLocalModelEngine`), so every `loading` is followed by exactly one `ready`
+// or one `failed` — a rollover / silence redial / ladder rung does NOT emit it,
+// because those have no `ready` to close them and would strand the state.
+//
+// 🔴 ADDITIVE, and the argument is the FAILURE DIRECTION, not a promise:
+// every shipped consumer already reads this field as a closed match with a
+// default arm that DROPS the frame rather than throwing — desktop capsule
+// `controller.ts onEngineStatus` (explicit `===` triple before it writes),
+// desktop Rust `socket/fanout.rs on_forward` (forwards the payload verbatim as
+// `serde_json::Value`, never parses the enum), phone
+// `lib/src/session/local_engine_status.dart observeFrame` (`_ => null` then
+// `return`). An un-updated end therefore behaves EXACTLY as it does today:
+// silent during the cold seconds. Nothing can refuse the frame ⇒ no deployment
+// order. No event name is added, so the 57-name whitelist and its count guard
+// do not move (asserted in `test/engine-status-loading.test.ts`).
 export const SttEngineStatusSchema  = z.object({
   provider: NonEmpty,
-  status: z.enum(['ready', 'reconnecting', 'failed']),
+  status: z.enum(['loading', 'ready', 'reconnecting', 'failed']),
   retry_count: z.number().int().nonnegative().optional(),
 });
 // stt:level is RETAINED (WP-R0-1): the mobile amplitude meter still consumes

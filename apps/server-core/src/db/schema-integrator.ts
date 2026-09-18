@@ -33,6 +33,12 @@
 //     the entire database until both nodes match. A NEW TABLE costs nothing
 //     there: it is skipped with a warning by an older replica and is simply
 //     absent from an older writer's snapshot.
+//     > 🔴 IN-PLACE CORRECTION (2026-09-14, card D5/NR-22): this bullet was the
+//     > measurement it claims to be, and it no longer holds. The puller projects
+//     > by column NAME now (grep 「NR-22-PROJECT-BY-NAME」), so a writer-ahead
+//     > column is dropped with one WARN instead of stalling every table. THE
+//     > DECISION IS UNCHANGED — it never rested on this bullet alone, and the
+//     > second one below is untouched.
 //   · node/token-rows.ts 「parsePc」 returns null when ANY expected key is
 //     missing from a replicated row. A new required field would make a NEW
 //     replica drop EVERY 「pc_devices」 row an OLD writer sends — a total outage

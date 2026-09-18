@@ -116,6 +116,20 @@ export interface ModelStatusSnapshot {
    *  have not observed 5 seconds yet, and null whenever nothing is downloading.
    *  Never an estimate of remaining TIME — §2-6. */
   rate_bytes_per_sec: number | null;
+  /**
+   * NR-7 — bytes a DELETE of this pack would free: a walk of the whole install
+   * directory, not a sum over the manifest.
+   *
+   * 🔴 IT IS A DIFFERENT QUESTION FROM `bytes_done` AND THE TWO MUST NOT BE
+   * COLLAPSED. `bytes_done` answers 「how far along is the download」 and so
+   * counts only files the manifest names; this answers 「how much disk does this
+   * pack occupy」 and counts everything in the folder — an abandoned `.part`
+   * from a cancelled attempt, a file a later manifest revision dropped, the
+   * archive fallback's leftovers. The owner's ruling is that the user sees the
+   * size BEFORE deleting (2026-09-02 §5), and the only honest number for that
+   * is the one the removal will actually free.
+   */
+  disk_bytes: number;
   error: ModelStatusError | null;
 }
 

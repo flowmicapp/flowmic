@@ -79,6 +79,11 @@ function isExcludedFile(relPath) {
   // `reclassifyUnmarked` it was built from, which is the one thing the tool
   // exists to avoid. Content scanners (no-cloud-keys) still walk it.
   if (relPath === 'scripts/provenance-dryrun.mjs') return true;
+  // Same artifact, same build command, same reason (owner 2026-09-17): the
+  // read-only anonymous-trial exporter, bundled from
+  // apps/server-core/src/tools/trial-ledger-export.ts. Gitignored; content
+  // scanners still walk it.
+  if (relPath === 'scripts/trial-ledger-export.mjs') return true;
   // WP-7: the three-direction transcription-screen design deliverable ships its
   // design-tool runtime (a vendored viewer payload, not authored source) beside
   // the .dc.html boards. The boards themselves stay under the HTML cap; only

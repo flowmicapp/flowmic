@@ -475,7 +475,7 @@ describe('A2-3 · boundaries', () => {
     // anonymous → named 401 (never an empty 200 that reads as 「done」).
     const anon = await call('POST', `${url}${RESTRICT_PATH}`, { user_id: m.id, restricted: true, reason: 'r', reason_code: 'other' });
     expect(anon.status).toBe(401);
-    expect(anon.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(anon.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
     // a real account that is not an admin → 403 ADMIN_ONLY, and nothing moved.
     const asMember = await call('POST', `${url}${RESTRICT_PATH}`, { user_id: m.id, restricted: true, reason: 'r', reason_code: 'other' }, bearer(m.token));
     expect(asMember.status).toBe(403);

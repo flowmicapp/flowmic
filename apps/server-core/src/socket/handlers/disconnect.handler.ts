@@ -25,6 +25,7 @@ import {
   isDeliberateLeave,
   mobileLeftOnGraceExpiry,
 } from '../../engine/audio-registry';
+import { wasWebLivenessDrop } from '../web-liveness-watchdog';
 
 export interface DisconnectHandlerDeps {
   store: RoomStore<Socket>;
@@ -105,7 +106,21 @@ export function makeDisconnectHandler(socket: Socket, deps: DisconnectHandlerDep
       // list calls socket.disconnect() → `client namespace disconnect`, which
       // is a departure, not a brief flicker: collapse the window so the PC's
       // capsule retreats on the same gesture (owner 2026-07-27: it lingered ~30 s).
-      if (isDeliberateLeave(reason)) audioRegistry.expireGraceNow(key);
+      //
+      // NR-69 — …or because the web liveness watch ended it. A browser end that
+      // went 7 s without answering `sys:ping` is a DEAD TAB, not a phone in a
+      // tunnel: the grace window exists to hide a blip from the PC, and there is
+      // nothing here that will come back and resume this session. Holding the
+      // desktop's capsule up for another 30 s would be announcing a presence
+      // with no mechanism behind it.
+      //
+      // 🔴 IT IS A FLAG ON THE SOCKET, NOT A SECOND REASON STRING. socket.io
+      // reports the watch's `socket.disconnect()` as `server namespace
+      // disconnect`, which `isDeliberateLeave` deliberately excludes because
+      // pc:release-mobile and auth:expired produce it too and own their own
+      // presence stories. The watch sets its own mark before it closes, so this
+      // line reads ONE path's intent rather than three paths' shared symptom.
+      if (isDeliberateLeave(reason) || wasWebLivenessDrop(socket)) audioRegistry.expireGraceNow(key);
     }
   };
 }

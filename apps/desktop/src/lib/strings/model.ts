@@ -155,6 +155,26 @@ export const MODEL_KEYS = [
   'model_source',
   'model_source_note',
   'model_downloaded',
+  // NR-7 — the sentence beside the DISABLED delete control of the pack in use.
+  // It was ONE key for BOTH of the server's in-use reasons; since NR-49 (owner
+  // ruling 2026-09-16 §1) the `recognizer_loaded` hold no longer exists, so
+  // `in_use_reason` can only be the ladder one and this sentence's remedy —
+  // give that spoken language a different pack first — is the literal action
+  // that lifts it. Rendered by LocalModelCard.vue; pinned by
+  // main-window/local-model-card.test.ts.
+  'model_delete_in_use',
+  // NR-49b — after a pack is deleted: WHICH speaking languages lost their
+  // pairing because of it. One delete can empty several, and the rows above
+  // show one language at a time, so without this sentence the other languages
+  // fall back silently and the reader finds out by speaking one of them.
+  // ⚠️ `{langs}` is filled with their ENDONYMS by LocalModelCard.vue (a name is
+  // data, never translated — spoken-langs.ts says why), and the hole must
+  // survive every locale: main-window/local-model-card.test.ts asserts it is
+  // present in all nine.
+  // ⚠️ It must not promise WHICH pack to pick: the card cannot know, and rung 2
+  // of the server's ladder may already be answering for that language anyway —
+  // what is gone is the CHOICE, not necessarily the ability.
+  'model_cleared_langs',
   // 🔴 §4's null total, said in words. NEVER 0 %, never 100 % — 「I do not know
   // the total」 and 「the total is zero」 are two facts and only one of them is
   // ever true here.

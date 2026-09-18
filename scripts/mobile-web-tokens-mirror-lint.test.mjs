@@ -21,12 +21,12 @@
 //
 // Exit codes follow scripts/run-script-tests.mjs: 0 PASS, 1 FAIL, 2 SKIP.
 
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import mirror, { expectations } from '../verify/lint/mobile-web-tokens-mirror.mjs';
+import mirror, { expectations, readDartFamily } from '../verify/lint/mobile-web-tokens-mirror.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -41,7 +41,11 @@ const bad = (name, detail) => {
 const check = (cond, name, detail) => (cond ? ok(name, detail) : bad(name, detail));
 
 const T = mkdtempSync(join(tmpdir(), 'fmtok-'));
-const dartRaw = readFileSync(DART, 'utf8');
+// tokens.dart is now `part`-split across three sibling files (800-line cap) —
+// [readDartFamily] reassembles the same logical text `run()` itself parses
+// when no `dartFile` override is given, so this fixture-building drill agrees
+// with what the real gate sees.
+const dartRaw = await readDartFamily(DART);
 const built = expectations(dartRaw);
 if (built.error) {
   console.log(`  FAIL  expectations() could not read the real tokens.dart  (${built.error.detail})`);

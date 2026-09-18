@@ -235,10 +235,14 @@ export function isBrowserMintedRoom(pc: { room_kind?: string | null }): boolean 
 
 /** Does this pairing row spend one of the account's MOBILE slots?
  *
- *  🔴 card NR-29 · 待 owner 追认 (registered in
- *  `docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md` §16;
- *  the decision recorded there is the MAIN-AGENT's, not owner's, and is flagged
- *  待 owner 追认 both here and in that entry).
+ *  🔴 card NR-29 · RATIFIED 2026-09-15 (was 待 owner 追认; registered in
+ *  `docs/strategy/2026-08-27-next-release-feature-and-optimization-ledger.md` §16).
+ *  The decision below was the MAIN-AGENT's when first written; the owner has since
+ *  answered, verbatim, "yes" to the plain-words question "a browser tab never uses
+ *  one of the account's phone slots, signed in or not; only real phones count" —
+ *  `docs/decisions/2026-09-15-owner-web-tab-never-takes-a-phone-slot.md`. Nothing
+ *  below changed as a result: the predicate this ratifies is the one already
+ *  implemented.
  *
  *  THE MEASUREMENT THIS EXISTS FOR (originally golden g29-web-unsigned-trial.mjs,
  *  RETIRED 2026-09-11 by card MP-6; the assertion now lives in
@@ -297,6 +301,19 @@ export function isBrowserMintedRoom(pc: { room_kind?: string | null }): boolean 
  *  it. A refusal-only gate on the sign-in was considered and REJECTED — a wall
  *  raised by a count that will never include the row it is refusing is a status
  *  word with nothing behind it (product red line R11).
+ *
+ *  🔴🔴 CLOSED 2026-09-15 BY RULING, NOT BY CODE. The "KNOWN GAP" paragraph
+ *  above was true when it was written and describes a state that ended with
+ *  MP-6 (2026-09-11): once the predicate stopped reading `trial_user_id` at
+ *  all, "the row goes on not counting" is what happens to EVERY web row, signed
+ *  in or not — there is nothing left for a "graduated" marker to change here.
+ *  The owner has since answered "yes" to the plain question this left open (a
+ *  browser tab never takes a phone slot, signed in or not) —
+ *  `docs/decisions/2026-09-15-owner-web-tab-never-takes-a-phone-slot.md`. Do
+ *  NOT clear `trial_user_id` on the W4-05 redial and do NOT add a
+ *  `mobile_pairings` column for this: neither has a reader (see G26's comment
+ *  at the corresponding assertion for why the row still needs to keep the
+ *  column it has).
  *
  *  ⚠️ `mobile_pairings.user_id` is NOT consulted, and could not be: `pairMobile`
  *  writes `input.user_id ?? pc.user_id` and no caller passes one, so on a web row

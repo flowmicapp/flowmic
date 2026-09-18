@@ -30,6 +30,17 @@ export const MAX_HTTP_BUFFER_BYTES = 8_000_000;
 export interface CreateSocketServerOpts {
   httpServer: HttpServer;
   authMiddleware: (socket: unknown, next: (err?: Error) => void) => void;
+  /**
+   * The connection-layer guard (socket/connection-guard.ts), or absent.
+   *
+   * 🔴 RUNS AFTER `authMiddleware`, AND ABSENT IN STANDALONE. Both are the
+   * guard's own conditions, stated at its class doc and at bootstrap's call
+   * site; this file only honours the order. Absent ⇒ this factory behaves
+   * byte-for-byte as it did before the guard existed, which is what keeps a LAN
+   * server — where every handshake arrives from 127.0.0.1 or one LAN address —
+   * entirely untouched by a per-network ceiling.
+   */
+  connectionGuard?: (socket: unknown, next: (err?: Error) => void) => void;
   cors?: { origin: string | string[] };
 }
 
@@ -48,6 +59,7 @@ export function createSocketServer(opts: CreateSocketServerOpts): SocketServerHa
     cors: { origin: opts.cors?.origin ?? '*' },
   });
   io.use(opts.authMiddleware);
+  if (opts.connectionGuard) io.use(opts.connectionGuard);
   return {
     io,
     async close(): Promise<void> {

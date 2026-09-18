@@ -29,6 +29,7 @@ import {
   DESKTOP_RE,
   MOBILE_RE,
   ALLOWLIST,
+  MOBILE_SSOT_FILES,
 } from '../verify/lint/design-token-literals.mjs';
 import designTokenLiterals from '../verify/lint/design-token-literals.mjs';
 
@@ -155,7 +156,7 @@ console.log('=== §11 REVERSE CONTROL: a fabricated stale ALLOWLIST entry turns 
   }
   for (const abs of await walk(MOBILE_ROOT, { skipDir })) {
     const r = rel(abs);
-    if (r === 'apps/mobile/lib/src/ui/tokens.dart' || !r.endsWith('.dart')) continue;
+    if (MOBILE_SSOT_FILES.has(r) || !r.endsWith('.dart')) continue;
     const text = await readText(abs);
     if (text == null || isTestFile(r)) continue;
     hits.push(...collectHits(text, r, MOBILE_RE));

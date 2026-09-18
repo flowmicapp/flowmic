@@ -276,10 +276,15 @@ describe('§3 state criteria — decided, not guessed', () => {
     writeFileSync(join(dir, 'model.bin'), body);
     const s = await new SherpaModelController(dir, { files }).snapshot();
     expect(Object.keys(s).sort()).toEqual([
-      'bytes_done', 'bytes_total', 'current_file', 'dir', 'error', 'files_done',
-      'files_total', 'model_id', 'rate_bytes_per_sec', 'resumed_from_bytes',
-      'source', 'state',
+      'bytes_done', 'bytes_total', 'current_file', 'dir', 'disk_bytes', 'error',
+      'files_done', 'files_total', 'model_id', 'rate_bytes_per_sec',
+      'resumed_from_bytes', 'source', 'state',
     ]);
+    // NR-7 added `disk_bytes` and it is deliberately NOT a synonym of
+    // `bytes_done`: this file is a manifest file, so the two agree here, and
+    // the case that separates them (a stray file in the pack folder) is pinned
+    // in stt-model-delete.test.ts where a stray file is actually staged.
+    expect(s.disk_bytes).toBe(body.length);
     // §3's 「不许合并」: `ready` answers 「are the files right」 and NOTHING here
     // may answer 「will the recogniser open」 — a missing DLL or the wrong CPU
     // architecture is true of a model whose bytes are perfect, and the two

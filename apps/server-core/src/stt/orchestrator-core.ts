@@ -18,11 +18,11 @@ import { flushErrorVerdict } from './flush-error-verdict';
 import type { AudioSession } from './audio/session';
 import {
   DEFAULT_SOFT_SEGMENT_MS, DEFAULT_SOFT_SEGMENT_GRACE_MS, DEFAULT_REPLAY_WINDOW_MS,
-  DEFAULT_ENGINE_SPAWN_TIMEOUT_MS, DEFAULT_ENGINE_FLUSH_TIMEOUT_MS,
+  DEFAULT_ENGINE_SPAWN_TIMEOUT_MS, DEFAULT_ENGINE_FLUSH_TIMEOUT_MS, isLocalModelEngine,
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
-import { seamText, SoftSegmentCadence } from './segment-boundary';
+import { legAudioBudgetMs, seamText, SoftSegmentCadence } from './segment-boundary';
 import { FunasrSpanClosureFeeder } from './funasr-span-closure';
 import { recheckQuotaOnLegBirth } from './quota-recheck';
 import { replayStillOwed } from './replay-debt';
@@ -33,7 +33,8 @@ import { SttConfigMissingError } from './engine-router';
 import { mergeOverlap, foldInterim, foldConfirmedWithDraft, bankDraftAcrossLegs } from './text-merge';
 import { feedReplayBufferTail } from './orchestrator-replay';
 import { startRollover, runRollover, flushAndCloseLegForSilence, dialLeg, type RolloverHost } from './orchestrator-rollover';
-import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, type FlushOutcome } from './flush-final';
+import { raceFlushFinal, resolveFlushTimeoutMs, feedVadClosureSilence, localFlushRefusalError, type FlushOutcome } from './flush-final';
+import { PCM_BYTES_PER_MS } from './tuning-env';
 import { noEngineTerminalText } from './terminal-final-text';
 import { silentEmptyFinalError, noEngineReachedError, vendorNoAudioIsOurSilence } from './empty-final-verdicts';
 import { emptyFinalCause } from './empty-final-cause';
@@ -230,7 +231,10 @@ export class SttEngineOrchestrator extends EventEmitter {
     // NAMED its open failure (e.g. sherpa-local's STT_CONFIG_MISSING for a
     // missing addon/model) keeps its code + message; see cold-open-verdict.ts.
     try {
-      await raceSpawnTimeout(this.spawnEngine(), this.engineSpawnTimeoutMs, this._setTimeout, this._clearTimeout);
+      // NR-38: `true` = THIS is the cold open — the one spawn of the four that
+      // is followed by the `ready` below. It is what licenses the
+      // `engine-status{loading}` announcement inside spawnEngine; see there.
+      await raceSpawnTimeout(this.spawnEngine(true), this.engineSpawnTimeoutMs, this._setTimeout, this._clearTimeout);
     } catch (err) {
       this.session.off('auto_stopped', this.onSessionAutoStopped);
       this.session.off('engine_session_expired', this.onEngineSessionExpired);
@@ -328,6 +332,9 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.voiceBytesCaptured += c.payload.length;
     if (this.engine && this.engine.state === 'open') {
       try { this.engine.push(c.payload, c.ts_ms); this.engineFedBytes += c.payload.length; this.sessionFedBytes += c.payload.length; this.lastEngineFedSeq = Math.max(this.lastEngineFedSeq, c.seq); this.idle.arm(); } catch (err) { console.error('[SttEngineOrchestrator] pushChunk engine.push error (reconnect ladder will handle):', err); }
+      // card NR-60 — AFTER the feed, because the number it reads is「what this
+      // leg has been handed」and this chunk is part of it.
+      this.enforceLegAudioBudget();
     }
     // ⚠️ The verdict is about the SESSION, not the engine. A frame the VAD gate
     // held back, or one buffered while an engine is being reconnected, is in the
@@ -426,8 +433,17 @@ export class SttEngineOrchestrator extends EventEmitter {
   /** card SEG-1 — moved VERBATIM to `orchestrator-rollover.ts`. This wrapper
    *  keeps the name `startRollover` reachable — nothing else changed; see
    *  that file's header for why. */
-  private startRollover(deliver: boolean): void {
-    startRollover(this.asRolloverHost(), deliver);
+  private startRollover(deliver: boolean): boolean {
+    return startRollover(this.asRolloverHost(), deliver);
+  }
+
+  /** card NR-60 — rotate the leg before its span outgrows what this engine's
+   *  decoder will actually read. Policy, measurement and cost: `legAudioBudgetMs`
+   *  in `segment-boundary.ts`; the declaration: `SttEngine.maxDecodeAudioMs`. */
+  private enforceLegAudioBudget(): void {
+    const budgetMs = legAudioBudgetMs(this.engine?.maxDecodeAudioMs);
+    if (budgetMs === 0 || this.engineFedBytes < budgetMs * PCM_BYTES_PER_MS) return;
+    this.cadence.rotateLegForAudioBudget();
   }
 
   /** card RT-2 hook — moved VERBATIM to `orchestrator-rollover.ts`; wrapper
@@ -491,9 +507,13 @@ export class SttEngineOrchestrator extends EventEmitter {
 
   private async flushAndEmitFinal(isSegment: boolean, durationMs: number): Promise<boolean> {
     this.flushErrored = false; this.flushing = true;
-    const { result: r, timedOut } = await this.flushFinal();
+    const { result: r, timedOut, refused } = await this.flushFinal();
     this.flushing = false;
     if (this.terminated || (isSegment && this.terminalizing)) return false;
+    // NR-50 — a withheld local flush: NO final of any kind leaves here (an empty
+    // one would be read by the phone as the flush-cap placeholder that keeps the
+    // preview on screen as the transcript), and the refusal is said on the wire.
+    if (refused) { this.noteFlushRefused(timedOut); return false; }
     if (this.flushErrored && r.text === '') return false; // no empty final on a flush error
     this.reportSilentEmptyFinal(r.text, timedOut);
     // card RT3-B: every final emitted below carries the accumulators out — see
@@ -558,7 +578,14 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.engineErrorEmitted = true; this.emit('error', p); return true;
   }
 
-  private async spawnEngine(): Promise<void> {
+  /**
+   * @param coldOpen `true` only from {@link start} — the FIRST leg of a
+   * recording, the one this method's caller closes with `engine-status{ready}`.
+   * A leg is born four ways (see the comment at the end of this method) and the
+   * other three — soft-segment rollover, silence redial, ladder rung — emit no
+   * `ready`, so an announcement made on those paths would never be closed.
+   */
+  private async spawnEngine(coldOpen = false): Promise<void> {
     if (this.engine) await this.closeEngine(); // never orphan a live engine on a stray double-spawn
     const banked = bankDraftAcrossLegs(this.legInterimShape, this.offlineAccum, this.onlineDraft);
     if (banked !== null) { this.offlineAccum = banked; this.onlineDraft = ''; }
@@ -604,6 +631,25 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.legInterimShape = engine.interimShape; // REQ-14-01: remembered past this leg's death — see the field
     this.boundHandlers = handlers;
     if (typeof engine.open === 'function') {
+      // 🔴 NR-38 — THE COLD SECONDS, SPOKEN. A local model engine's `open()` is a
+      // MODEL LOAD, not a dial: 1.9 s (SenseVoice, 229 MB) to 8 s
+      // (whisper-turbo, 1.03 GB) of reading the pack off disk and building the
+      // recogniser, measured on dev-pc-a / the ledger §25 runs. Until this line
+      // the first frame the user could ever see was the `ready` AFTER that wait,
+      // so the product's answer to "I pressed the button and nothing happened"
+      // was silence. It goes out BEFORE `await engine.open()` deliberately —
+      // after it, it would be an announcement of a wait that is already over.
+      //
+      // Scoped twice, and both halves are load-bearing:
+      //  - `coldOpen`, because only this path emits the closing `ready`;
+      //  - `isLocalModelEngine`, because a dialled engine opens in milliseconds
+      //    and a `loading` there is a flicker with no information in it.
+      // On failure the cold-open catch in `start()` emits `failed`, so every
+      // `loading` is closed by exactly one of the two (pinned in
+      // test/stt-local-cold-open-loading.test.ts).
+      if (coldOpen && isLocalModelEngine(engine.id)) {
+        this.emit('engine-status', { provider: engine.id, status: 'loading' });
+      }
       this.engineOpening = true;
       try {
         await engine.open();
@@ -651,7 +697,26 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  transcript, not a preview: see `flush-final.ts:104-109`. */
   flushSentHook: (() => void) | undefined = undefined; // WP2-6a: stt-factory → markFlushSent; raceFlushFinal is the one author
   private flushFinal(): Promise<FlushOutcome> {
-    return raceFlushFinal({ engine: this.engine, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: resolveFlushTimeoutMs(this.engine?.id ?? '', this.engineFlushTimeoutMs, this.engineFlushTimeoutExplicit), setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: this.flushSentHook });
+    return raceFlushFinal({ engine: this.engine, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: this.flushCapMs(), setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: this.flushSentHook });
+  }
+
+  /** NR-50 — the cap this leg's flush races. `engineFedBytes` is exactly the
+   *  audio THIS leg was handed (reset on every rollover), which is what a local
+   *  decode's cost is a function of — see `localFlushCapMs`. */
+  private flushCapMs(): number {
+    return resolveFlushTimeoutMs(this.engine?.id ?? '', this.engineFlushTimeoutMs, this.engineFlushTimeoutExplicit, this.engineFedBytes / PCM_BYTES_PER_MS);
+  }
+
+  /** NR-50 — the ONE exit for a withheld local flush (`FlushOutcome.refused`),
+   *  reached from `flushAndEmitFinal` and from the two rollover sites that bank
+   *  the flush text directly. If the engine's own flush-phase error already went
+   *  out (`handleFlushError` ⇒ `flushErrored`), that frame — terminal for this
+   *  engine — is the refusal and nothing is repeated; otherwise the cap fired
+   *  and this is the only frame the phone will get for the utterance. */
+  private noteFlushRefused(timedOut: boolean): void {
+    if (this.flushErrored) return;
+    this.engineErrorEmitted = true;
+    this.emit('error', localFlushRefusalError(this.engineFedBytes, this.flushCapMs(), timedOut));
   }
 
   private replayBufferTail(gateUnfed = false): void {

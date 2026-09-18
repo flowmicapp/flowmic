@@ -20,13 +20,13 @@
 //   • the `pending` reason — a snapshot describing the OTHER channel can answer
 //     none of this modal's questions, so nothing is drawn from it (see below).
 
-import { PAIR_HTTPS_HOST, PAIR_HTTPS_PATH } from '@flowmic/protocol';
+import { PAIR_CUSTOM_HOST, PAIR_CUSTOM_SCHEME, PAIR_HTTPS_HOST, PAIR_HTTPS_PATH } from '@flowmic/protocol';
 import type { CloudReadiness } from './channel';
 import { UI_LOCALES } from './strings/generated/locales.g';
 import type { ChannelTag } from './types';
 
 /** Re-export of the protocol SSOT so pairing tests keep one import surface. */
-export { PAIR_HTTPS_HOST, PAIR_HTTPS_PATH };
+export { PAIR_CUSTOM_HOST, PAIR_CUSTOM_SCHEME, PAIR_HTTPS_HOST, PAIR_HTTPS_PATH };
 
 export interface PairingInfo {
   /** The current 4-digit code, or null after a token reconnect (needs refresh). */
@@ -440,7 +440,12 @@ export function buildQrPayload(opts: {
   // sends them off to check a number that was right on the screen.
   const pcid = (opts.pcid ?? '').trim();
   const pcidPart = isQrSafeValue(pcid) ? `&pcid=${pcid}` : '';
-  return `flowmic://pair?endpoint=${ws}&code=${opts.code}&channel=${channel}${altPart}${fpPart}${pcidPart}`;
+  // H-14 (2026-09-15): the prefix comes from the protocol SSOT rather than
+  // being typed here. The emitted bytes are unchanged and pinned byte-for-byte
+  // by qr-roundtrip / pairing-pcid / pairing-fingerprint*; what changed is that
+  // this builder and the phone's parser can no longer disagree about it, which
+  // is the failure the https twin below already paid for (XC-1-FIX).
+  return `${PAIR_CUSTOM_SCHEME}://${PAIR_CUSTOM_HOST}?endpoint=${ws}&code=${opts.code}&channel=${channel}${altPart}${fpPart}${pcidPart}`;
 }
 
 /** Sibling of `buildQrPayload`, NOT an option on it: the two payloads are

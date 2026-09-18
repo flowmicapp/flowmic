@@ -11,6 +11,42 @@
 // The billing domain's own additive columns live with their DDL in
 // ./schema-billing.ts and are spread in below, exactly as before.
 
+// -- THE ORDERING RULE EVERY COLUMN IN THIS FILE IMPOSES (NR-33) ------------
+// AN INDEX, A VIEW OR A TRIGGER OVER A COLUMN LISTED HERE MAY ONLY LIVE ON THE
+// RECONCILE PATH (connection.ts, AFTER the ALTER loops). It may never sit in
+// INIT_SQL beside its table's CREATE.
+//
+// The reason is ORDER, and it is invisible in development. `openDatabase` runs
+// INIT_SQL first and `reconcileSchema` second. On a FRESH database every
+// CREATE TABLE brings every column with it, so anything INIT_SQL says about any
+// column is true. On an ALREADY-DEPLOYED database CREATE TABLE IF NOT EXISTS is
+// skipped, a column listed here does not exist until the loop below has run,
+// and a statement naming it fails outright -- 'no such column: <name>' --
+// which `openDatabase` rethrows as 'FlowMic DB migration failed' and the
+// process cannot boot.
+//
+// IT IS NOT HYPOTHETICAL. On 2026-09-10 `trial_ledger.device_uid` got its
+// partial unique index inside TRIAL_SQL; a brand-new database was fine, every
+// deployed node was not, the Japan replica crash-looped ten times and the
+// deploy auto-rolled back (r-20260910-123458). Fixed in 5b83dcef by moving the
+// index to the reconcile path, where its three siblings already were.
+//
+// IF NOT EXISTS DOES NOT SAVE YOU -- the index really does not exist; neither
+// does the column.
+//
+// ENFORCED, so that this paragraph is not the only thing standing:
+//   - apps/server-core/test/init-sql-additive-column-order.test.ts executes
+//     INIT_SQL, enumerates every object it creates and checks each against
+//     these two registries plus the hand-written ADD COLUMN steps in
+//     connection.ts. It carries its own positive control, so a predicate that
+//     stopped seeing anything cannot pass as a healthy schema.
+//   - apps/server-core/test/migration-upgrade-from-release.test.ts opens the
+//     current schema over a previous RELEASE's DDL, read out of that release's
+//     own commit by scripts/db-legacy-ddl.mjs. That is the gate this whole
+//     class of defect needed and did not have: every other test in this
+//     repository starts from an EMPTY database, which is the one kind of
+//     database this failure cannot happen to.
+
 import { BILLING_ADDITIVE_TEXT_COLUMNS } from './schema-billing';
 
 /** Additive columns reconciled onto pre-existing DBs (guarded ADD COLUMN). On a

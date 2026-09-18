@@ -621,6 +621,35 @@ export const G31 = {
       // down rather than rounded off, because the first reading of it — 「my
       // change broke a second golden」 — was wrong, and the thing that corrected
       // it was one more run, not one more argument.
+      //
+      // 🔴 IN-PLACE CORRECTION (card D2 / NR-28, 2026-09-15, dev-pc-a). THE
+      // TALLY ABOVE IS TRUE AND IT IS ABOUT A TREE THAT NO LONGER EXISTS. Read
+      // the two timestamps together: this block was written in `77deae36`
+      // (2026-09-11 08:57), and `57c56dc1` (2026-09-11 13:35, 「G10 was timing a
+      // deadline the frame it waits for cannot obey」) DELETED the very line it
+      // quotes —
+      //     - const w = terminalFrameWindowMs(STT_SPAWN_SRC,
+      //                   'DEFAULT_ENGINE_SPAWN_TIMEOUT_MS');
+      //     - if (!(await mobileToldP)) return FAIL('record-only utterance
+      //         failed on the server but the MOBILE was told nothing …');
+      // — and replaced that ~7 s arithmetic window with an awaited event under
+      // a 60 s liveness ceiling. So 4-pass/1-fail measured the window, and the
+      // window is gone. (The 2026-09-13 handoff §3-2 restates this block rather
+      // than re-measuring it, which is why the claim outlived its subject.)
+      //
+      // RE-MEASURED 2026-09-15 on today's tree: G10 30/30 alone against a
+      // dedicated standalone server; 40/40 with 24 CPU + 8 IO load workers
+      // running alongside on 16 cores — a load under which two mobile cases
+      // went red 13/20 and 19/20 the same afternoon; and 5/5 clean full
+      // `pnpm golden` runs, every one `PASS=30 SKIPPED=2 FAIL=0`. 75 isolated
+      // runs and 5 suites, zero failures.
+      //
+      // ⚠️ WHAT THIS DOES NOT SAY. Under that same load the SUITE does still
+      // red — 6 loaded runs gave G26 ×4, G30 ×2, G31 ×1, G20 ×1 — and NOT ONCE
+      // G10, G12 or G24. Those four are the cases that measure money against a
+      // wall clock, and a box starved this hard cannot hold a 120 s trial
+      // budget to a ±250 ms assertion. That is a different finding, it is
+      // written up rather than fixed, and it is not evidence about this line.
 
       // ── 7 · REVOKING the key closes the door, without deleting the record ──
       const revoked = await post('/api/cloud/integrator/keys/revoke', { id: key.id }, {

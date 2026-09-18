@@ -1593,6 +1593,11 @@
       "params": []
     },
     {
+      "key": "goTabInUseBody",
+      "leaf": "_lfGoTabInUseBody",
+      "params": []
+    },
+    {
       "key": "goOfficialSite",
       "leaf": "_lfGoOfficialSite",
       "params": []
@@ -3782,6 +3787,16 @@
       "params": []
     },
     {
+      "key": "ephemeralSessionNote",
+      "leaf": "_lfEphemeralSessionNote",
+      "params": []
+    },
+    {
+      "key": "ephemeralSessionEnded",
+      "leaf": "_lfEphemeralSessionEnded",
+      "params": []
+    },
+    {
       "key": "settingsTitle",
       "leaf": "_lfSettingsTitle",
       "params": []
@@ -4829,6 +4844,11 @@
       "params": []
     },
     {
+      "key": "micIosSafariAsksEachVisit",
+      "leaf": "_lfMicIosSafariAsksEachVisit",
+      "params": []
+    },
+    {
       "key": "pttLockContinuous",
       "leaf": "_lfPttLockContinuous",
       "params": []
@@ -4836,6 +4856,11 @@
     {
       "key": "admissionUnverifiableNotice",
       "leaf": "_lfAdmissionUnverifiableNotice",
+      "params": []
+    },
+    {
+      "key": "admissionPairLinkLost",
+      "leaf": "_lfAdmissionPairLinkLost",
       "params": []
     },
     {

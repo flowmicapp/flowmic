@@ -32,6 +32,12 @@ mixin ChatStrings on AppStringsLeaves {
   /// day it changes (the precedent is the plan-tier copy, where a count in the
   /// copy outlived the count in the code).
   String get sessionLostToast => _lfSessionLostToast;
+  // owner 2026-09-17 — the ephemeral site-demo session (design
+  // 2026-09-17-app-ephemeral-demo-session-design.md). Two sentences, two
+  // moments: the standing note under the chat header while it lasts, and the
+  // toast the page leaves with when the demo page (or the link) is gone.
+  String get ephemeralSessionNote => _lfEphemeralSessionNote;
+  String get ephemeralSessionEnded => _lfEphemeralSessionEnded;
   String get bannerLinkDown => _lfBannerLinkDown;
 
   /// Degraded: the reconnect ladder is climbing; capture keeps running.

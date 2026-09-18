@@ -111,6 +111,37 @@ export interface SttEngine {
    *  `text-merge.ts` `mergeCumulativeDraft` vs `mergeOnlineDraft`. */
   readonly interimShape?: InterimShape;
 
+  /**
+   * NR-50 — are this engine's interims PREVIEWS rather than a running hypothesis
+   * of the transcript? `true` ⇒ they were decoded without their left context and
+   * split at an energy boundary (sherpa-local's tail re-decodes), so when a
+   * flush settles WITHOUT an engine final — the cap fired, or the decode errored —
+   * the text the orchestrator accumulated from them is NOT a transcript and
+   * `raceFlushFinal` WITHHOLDS it (`FlushOutcome.refused`) instead of delivering
+   * it as one. Absent/false ⇒ the streaming engines' behaviour, unchanged: their
+   * interims come from the same decoder that would have produced the final.
+   * Declared by the engine, never inferred from the strings (INT-2's rule).
+   */
+  readonly interimIsPreviewOnly?: boolean;
+
+  /**
+   * card NR-60 — the LONGEST span of audio this engine can decode in ONE
+   * `flush()`. Audio beyond it is not transcribed, and the engine does not
+   * necessarily say so: the local whisper packs keep the first 30 s and discard
+   * the rest with nothing but a line on the decoder's own stderr
+   * (`segment-boundary.ts` `LEG_AUDIO_BUDGET_MARGIN_MS` carries the measurement
+   * and the binary the sentence came out of).
+   *
+   * Read by the orchestrator, which rotates the engine leg before the span it
+   * is holding can cross this — see `enforceLegAudioBudget`. Absent = 「this
+   * engine declared nothing」 and the leg keeps its clock-only bound, which is
+   * every network engine and every local pack that is not whisper. Absent is
+   * NOT 「unlimited」: it is 「unmeasured」, the same distinction
+   * {@link InterimShape} is written around, and inventing a number for an engine
+   * nobody measured would be a bound with no evidence behind it.
+   */
+  readonly maxDecodeAudioMs?: number;
+
   /** Push a PCM chunk to the engine. */
   push(chunk: Buffer, ts_ms: number): void;
 

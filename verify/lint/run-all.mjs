@@ -16,7 +16,7 @@
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
 import protocolWhitelist from './protocol-whitelist.mjs';
@@ -52,8 +52,10 @@ import worktreeLocation from './worktree-location.mjs';
 import planLimitCopy from './plan-limit-copy.mjs';
 import externalLinkDoor from './external-link-door.mjs';
 import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
+import serverCoreBundleStamp from './server-core-bundle-stamp.mjs';
 import outwardVoice from './outward-voice.mjs';
 import pairLinkSingleSource from './pair-link-single-source.mjs';
+import protocolGeneratedFresh from './protocol-generated-fresh.mjs';
 import spokenLangsMirror from './spoken-langs-mirror.mjs';
 import mobileWebTokensMirror from './mobile-web-tokens-mirror.mjs';
 
@@ -91,8 +93,10 @@ const LINTS = [
   { name: 'plan-limit-copy', run: planLimitCopy },
   { name: 'external-link-door', run: externalLinkDoor },
   { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
+  { name: 'server-core-bundle-stamp', run: serverCoreBundleStamp },
   { name: 'outward-voice', run: outwardVoice },
   { name: 'pair-link-single-source', run: pairLinkSingleSource },
+  { name: 'protocol-generated-fresh', run: protocolGeneratedFresh },
   { name: 'spoken-langs-mirror', run: spokenLangsMirror },
   { name: 'mobile-web-tokens-mirror', run: mobileWebTokensMirror },
 ];
@@ -133,8 +137,15 @@ const LOGICAL_CORES =
 const POOL_SIZE = Math.max(2, Math.floor(LOGICAL_CORES / 2));
 const USE_WORKERS = process.env.FLOWMIC_LINT_WORKERS !== '0';
 
-/** Registration guard — see the block above. Loud, never a silent skip. */
-function assertRegistrations() {
+/** Registration guard — see the block above. Loud, never a silent skip.
+ *  Returns the problem list rather than exiting: SC-10 (2026-09-17) made this
+ *  module importable from verify/precommit-single.mjs, and a library function
+ *  that calls process.exit() takes its caller's whole process down with it —
+ *  the exact shape CLAUDE.md's façade rules warn about one level up (a
+ *  function answering a question ["are registrations OK?"] by doing something
+ *  no caller asked for ["end the process"]). main() below is what turns a
+ *  non-empty list into the printed FAILED banner and a nonzero return. */
+function findRegistrationProblems() {
   const problems = [];
   for (const lint of LINTS) {
     if (typeof lint.run !== 'function') problems.push(`${lint.name}: no run() imported`);
@@ -142,11 +153,7 @@ function assertRegistrations() {
       problems.push(`${lint.name}: verify/lint/${lint.name}.mjs does not exist`);
     }
   }
-  if (problems.length > 0) {
-    process.stdout.write(`${paint(31, 'FAILED')} lint registration is broken:\n`);
-    for (const p of problems) process.stdout.write(`  · ${p}\n`);
-    process.exit(1);
-  }
+  return problems;
 }
 
 async function runOneInThread(lint) {
@@ -227,8 +234,21 @@ async function runInWorkers(lints) {
   return results;
 }
 
-async function main() {
-  assertRegistrations();
+/** Runs the full lint suite and prints the same PASS/SKIP/FAIL lines and
+ *  summary this file has always printed. Returns the process exit code
+ *  (0 clean, 1 a registration problem or a FAIL) — it does NOT call
+ *  process.exit() itself, so it is safe to `await` from another process's
+ *  main() (verify/precommit-single.mjs, SC-10). The direct-run guard at the
+ *  bottom of this file is what turns this return value into an actual
+ *  process.exit() when this file is run on its own, exactly as `pnpm
+ *  verify:lint` (`node verify/lint/run-all.mjs`) always has. */
+export async function main() {
+  const problems = findRegistrationProblems();
+  if (problems.length > 0) {
+    process.stdout.write(`${paint(31, 'FAILED')} lint registration is broken:\n`);
+    for (const p of problems) process.stdout.write(`  · ${p}\n`);
+    return 1;
+  }
   const wall0 = performance.now();
   const results = USE_WORKERS
     ? await runInWorkers(LINTS)
@@ -258,7 +278,14 @@ async function main() {
     `\n${fails === 0 ? paint(32, 'OK') : paint(31, 'FAILED')} ` +
       `${passes} pass / ${skips} skip / ${fails} fail — total ${wall}ms\n`
   );
-  process.exit(fails === 0 ? 0 : 1);
+  return fails === 0 ? 0 : 1;
 }
 
-main();
+// Entry-point guard (same pattern as verify/precommit-types.mjs and
+// scripts/module-entrypoint-guard.mjs's isDirectRun): only call process.exit()
+// when THIS file is the script node was started with — never on import, which
+// is exactly what verify/precommit-single.mjs (SC-10) now does to run this
+// suite in the same process as the incremental type check.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().then((code) => process.exit(code));
+}

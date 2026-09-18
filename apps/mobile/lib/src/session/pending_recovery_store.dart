@@ -175,8 +175,12 @@ class PendingRecoveryStore implements PendingRecoverySource {
       // terminal final lands INSIDE `AudioCapture.stop()` (a fast local
       // engine), the settle path closes the journal itself and no stamp is ever
       // written, leaving the same narrow window. Measured while writing
-      // `live_settle_test.dart`'s UX2-1 case, which models the cloud-relay
-      // ordering owner reported and says so at `_EchoTransport.finalDelay`.
+      // `live_settle_pending_recovery_test.dart`'s UX2-1 case, which models the
+      // cloud-relay ordering owner reported and says so at
+      // `EchoTransport.holdTerminalFinal` (card D3, 2026-09-15 — that field
+      // replaced `_EchoTransport.finalDelay`, which this line named until then
+      // and which no longer exists; the UX2-1 case also moved out of
+      // `live_settle_test.dart` under the test-file cap before that).
       if (s.liveSettlePending) continue;
       if (s.verifiedRecoverableRange.isEmpty) {
         // 🔴 O-2 - A CLAIM WITH NO BYTES BEHIND IT IS STILL A ROW ON THIS

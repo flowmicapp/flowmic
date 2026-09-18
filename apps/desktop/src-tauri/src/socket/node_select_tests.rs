@@ -127,19 +127,29 @@ fn a_self_hosted_relay_is_never_moved_onto_our_infrastructure() {
     // install off their own box. The guard is authority, not recognition —
     // an endpoint that publishes no node list yields no candidates, so there
     // is no code path here that could invent one of our URLs.
-    struct SelfHosted;
+    //
+    // Two shapes, same property. A relay that ANSWERS without a directory
+    // (404 on the route — every self-hosted install; `HttpProbe::list` maps it
+    // to `Some(empty)`) is a single node. A relay that does not answer at all
+    // (`None`) is an unreadable directory (2026-09-16). Neither may yield a
+    // URL the endpoint did not publish, and neither may probe anything.
+    struct SelfHosted(Option<Vec<NodeEntry>>);
     impl Probe for SelfHosted {
         fn list(&self, _: &str) -> Option<Vec<NodeEntry>> {
-            None
+            self.0.clone()
         }
         fn ping(&self, _: &str) -> Option<Duration> {
             panic!("nothing may be probed when the endpoint published no nodes")
         }
     }
-    let c = choose("https://relay.example.org", None, None, false, &SelfHosted);
+    let c = choose("https://relay.example.org", None, None, false, &SelfHosted(Some(vec![])));
     assert_eq!(c.url, "https://relay.example.org");
     assert_eq!(c.node, None);
     assert_eq!(c.reason, Reason::SingleNode);
+    let c = choose("https://relay.example.org", None, None, false, &SelfHosted(None));
+    assert_eq!(c.url, "https://relay.example.org");
+    assert_eq!(c.node, None);
+    assert_eq!(c.reason, Reason::ListUnreadable);
 }
 
 #[test]
@@ -322,6 +332,7 @@ fn every_reason_says_what_was_decided_and_why_in_one_sentence() {
             node: "srvny".into(),
         },
         Reason::NoWriterPublished,
+        Reason::ListUnreadable,
     ] {
         let s = r.describe();
         assert!(
@@ -437,4 +448,93 @@ fn probe_rounds_is_two_and_every_candidate_is_probed_that_many_times() {
     assert_eq!(pings.len(), 2 * PROBE_ROUNDS);
     assert_eq!(pings.iter().filter(|u| *u == NY).count(), PROBE_ROUNDS);
     assert_eq!(pings.iter().filter(|u| *u == JP).count(), PROBE_ROUNDS);
+}
+
+// ── 2026-09-16 node-selection audit — an unreadable directory is its own fact ──
+//
+// Measured on dev-pc-a (`window-forensics.log`, 2026-09-15T21:06:39Z,
+// autostart at boot): the list fetch died at exactly PING_TIMEOUT, the reason
+// line said "fewer than two selectable nodes published" while the directory
+// had three, and the PC spent the day on the far writer. Four assertions pin
+// the repair: the miss is NAMED, it is ASKED AGAIN, an answer is NOT asked
+// again, and a second ask that lands is used like any other read.
+//
+// Reverse controls actually run (2026-09-16, this lane, dev-pc-a):
+// with `LIST_ASKS` forced to 1, TWO tests went red (`…answers_on_the_second_ask`
+// on "the second ask's directory drives a real choice", and the budget test);
+// with the `readable` branch disabled, THREE went red (both unreadable tests
+// and the self-hosted test's `None` shape, all on `reason == SingleNode`).
+// Restored, 28 green, `REVERSE-CONTROL` residue grep = 0.
+
+#[test]
+fn an_unreadable_directory_is_named_as_such_and_asked_twice() {
+    let mut f = two_far();
+    f.nodes = None;
+    let c = choose(CANON, None, None, false, &f);
+    assert_eq!(c.reason, Reason::ListUnreadable);
+    assert_eq!(c.url, CANON, "no directory ⇒ the endpoint as given, never nothing");
+    assert_eq!(c.node, None);
+    assert_eq!(
+        f.asked(),
+        vec![CANON.to_string(); LIST_ASKS],
+        "a fetch that produced nothing is asked again, at the canonical endpoint only"
+    );
+    assert!(f.pinged().is_empty(), "nothing to probe when nothing was read");
+}
+
+#[test]
+fn an_empty_directory_is_an_answer_and_is_not_asked_again() {
+    let mut f = two_far();
+    f.nodes = Some(vec![]);
+    let c = choose(CANON, None, None, false, &f);
+    assert_eq!(c.reason, Reason::SingleNode, "an empty list is a published answer");
+    assert_eq!(c.url, CANON);
+    assert_eq!(f.asked(), vec![CANON.to_string()], "an answer is never retried");
+}
+
+#[test]
+fn a_directory_that_answers_on_the_second_ask_is_used() {
+    /// Fails the first ask, answers the second — the boot-time shape.
+    struct Flaky {
+        misses: Mutex<usize>,
+        asked: Mutex<Vec<String>>,
+        inner: Fake,
+    }
+    impl Probe for Flaky {
+        fn list(&self, base: &str) -> Option<Vec<NodeEntry>> {
+            self.asked.lock().unwrap().push(base.to_string());
+            let mut m = self.misses.lock().unwrap();
+            if *m > 0 {
+                *m -= 1;
+                return None;
+            }
+            self.inner.list(base)
+        }
+        fn ping(&self, url: &str) -> Option<Duration> {
+            self.inner.ping(url)
+        }
+    }
+    let f = Flaky { misses: Mutex::new(1), asked: Mutex::new(Vec::new()), inner: two_far() };
+    let c = choose(CANON, None, None, false, &f);
+    assert_eq!(c.node.as_deref(), Some("srvjp"), "the second ask's directory drives a real choice");
+    assert!(matches!(c.reason, Reason::Chose { .. }), "{:?}", c.reason);
+    assert_eq!(f.asked.lock().unwrap().clone(), vec![CANON.to_string(), CANON.to_string()]);
+}
+
+#[test]
+fn registration_on_an_unreadable_directory_says_so_and_dials_the_endpoint() {
+    let mut f = two_far();
+    f.nodes = None;
+    let c = choose(CANON, None, None, true, &f);
+    assert_eq!(c.reason, Reason::ListUnreadable);
+    assert_eq!(c.url, CANON);
+    assert!(f.pinged().is_empty());
+}
+
+#[test]
+fn the_list_budget_is_not_the_ping_budget() {
+    // The whole 2026-09-15 defect in one inequality: the directory fetch must
+    // outlive a ping, because it decides everything and runs once.
+    assert!(LIST_TIMEOUT > PING_TIMEOUT);
+    assert!(LIST_ASKS >= 2, "one ask is the shape that pinned a PC to New York for a day");
 }

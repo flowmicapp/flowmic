@@ -157,3 +157,32 @@ export function offlineModelConfigFor(
 export function loaderConfigEmbedsLanguage(model: CatalogModel): boolean {
   return model.loader === 'whisper' || model.loader === 'canary';
 }
+
+/**
+ * 🔴 card NR-60 — Whisper's encoder takes a FIXED 30-second mel window, so a
+ * whisper recognizer decodes the first 30 s of whatever wave it is given and
+ * throws the rest away. sherpa-onnx says so itself:
+ *
+ *   Only waves less than 30 seconds are supported. We process only the first
+ *   30 seconds and discard the remaining data
+ *
+ * — a literal in `sherpa-onnx-c-api.dll` 1.13.4 (measured 2026-09-16 on
+ * dev-pc-a; the ONLY audio-length limit string in that binary, which is the
+ * evidence for the `undefined` every other arm returns). Not raisable:
+ * `OfflineWhisperModelConfig` is `{encoder, decoder, language, task,
+ * tailPaddings}` and `tailPaddings` pads a short wave rather than extending the
+ * window.
+ *
+ * Keyed on the LOADER KIND, not on `model_id`: it is a property of Whisper's
+ * architecture, so a second whisper row added to the catalog tomorrow inherits
+ * it without anyone remembering to.
+ *
+ * ⚠️ `undefined` means UNMEASURED, not unlimited — see `SttEngine.maxDecodeAudioMs`.
+ * The other kinds are here because nothing in that binary limits them, not
+ * because someone fed each of them a 60-second wave and watched.
+ */
+export const WHISPER_MAX_DECODE_AUDIO_MS = 30_000;
+
+export function maxDecodeAudioMsFor(model: CatalogModel): number | undefined {
+  return model.loader === 'whisper' ? WHISPER_MAX_DECODE_AUDIO_MS : undefined;
+}

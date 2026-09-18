@@ -337,6 +337,13 @@ function parseMobile(v: unknown): MobileRecord | null {
   // not this read-through: `INSERT INTO main.t SELECT * FROM snap.t` compares
   // COLUMN COUNTS, so it fails in BOTH deploy orders until both nodes carry the
   // column.)
+  // 🔴 IN-PLACE CORRECTION (2026-09-14, card D5/NR-22). The parenthesis above
+  // was true and is kept; the pull no longer behaves that way. It projects by
+  // column NAME, so the WRITER-AHEAD direction survives (the extra column is
+  // dropped with one WARN) and only the REPLICA-AHEAD direction can still refuse
+  // — and only when this build's new column is NOT NULL without a default, or
+  // part of the primary key. Which is exactly why the deploy order is now
+  // written down instead of enforced by a crash: RELEASE-IRONRULES §1-23.
   const trial_user_id = strOrNull(o.trial_user_id);
   if (
     id === null || pc_device_id === null || mobile_token === null || mobile_name === null

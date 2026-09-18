@@ -82,12 +82,12 @@
 //   ⚠️ G13/G14/G16/G17/G19/G20/G23 ALSO start their own saas server; that half
 //   is isolated, but their standalone half is not, so the whole case is shared.
 //
-//   SELF-STARTING (13) — start every server they touch, with FLOWMIC_PORT '0'
+//   SELF-STARTING (14) — start every server they touch, with FLOWMIC_PORT '0'
 //   (an ephemeral port), FLOWMIC_DB_PATH `:memory:` or a `mkdtempSync` file, and
 //   a `mailFileDir()` that is itself a mkdtemp (harness.mjs says why). Nothing
 //   they write is addressed by a fixed name, so N of them can run at once.
 //     G4 (pure SKIP, touches nothing)  G9 G11 G15 G18 G21 G22 G24 G25 G26 G30
-//     G31 G32
+//     G31 G32 G34
 //   ⚠️ G22 is the one entry whose signature takes a parameter (`_sharedUrl`)
 //   and ignores it — declared with `ignoresUrl` below so the arity cross-check
 //   below does not have to trust this sentence.
@@ -195,6 +195,7 @@ import { G30 } from './g30-payer-matrix.mjs';
 import { G31 } from './g31-integrator-arm.mjs';
 import { G32 } from './g32-continuous-minutes-cap.mjs';
 import { G33 } from './g33-control-key-receipt.mjs';
+import { G34 } from './g34-trial-cap-enforced.mjs';
 
 // `AUDIO` left with G10 (card G10-TIMING) — it was this file's only reader.
 
@@ -569,6 +570,13 @@ const GOLDEN = [
   // The two frames are deliberately different events for the same reason
   // (a keypress has no row, no text and no mode), so their paths are too.
   G33,
+  // The anonymous visitor's 120 s, on its ENFORCEMENT face. Its own file rather
+  // than a section of G26 for the reason its header gives: G26 seeds the DEMO
+  // ACCOUNT down and refuses on the payer's month, so it is green with the
+  // per-browser gate deleted. This one leaves the payer a whole month and spends
+  // only the browser's grant, so the only ceiling in its room is the one owner's
+  // 2026-09-16 default-on ruling put between a stranger and our engines.
+  G34,
 ];
 
 async function main() {

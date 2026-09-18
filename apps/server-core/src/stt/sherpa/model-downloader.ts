@@ -50,6 +50,7 @@ import {
   type ModelFile, type ModelSource,
 } from './model-manifest';
 import { isLoadableThisPhase, type CatalogModel } from './model-catalog';
+import { dirSizeBytes } from './model-delete';
 
 export type { ModelStatusSnapshot, ModelState } from './model-status';
 
@@ -201,6 +202,9 @@ export class SherpaModelController {
       source: downloading ? this.current.source : null,
       resumed_from_bytes: this.current.resumed_from,
       rate_bytes_per_sec: downloading ? this.rate.rate() : null,
+      // NR-7 — measured, not declared: what a delete of this pack would free.
+      // See the field's own note for why it is not `bytes_done`.
+      disk_bytes: dirSizeBytes(this.dir),
       // A `ready` model never carries an error: the question the error answered
       // ("why are the files not right") no longer has a subject.
       error: state === 'ready' ? null : this.lastError,
@@ -451,6 +455,33 @@ export function busyModelController(): SherpaModelController | null {
  *  controller (and its remembered error) into the next case. */
 export function resetSherpaModelControllers(): void {
   CONTROLLERS.clear();
+}
+
+/**
+ * NR-7 — forget the controller for ONE directory, after that directory's files
+ * have been deleted.
+ *
+ * 🔴 WHY THIS EXISTS RATHER THAN LETTING THE MEMO NOTICE. The verification memo
+ * IS stat-keyed and would invalidate itself, so `state` would come back right
+ * on its own. What does NOT come back right is `lastError`: a controller that
+ * failed a download keeps the classified reason so the card can explain the
+ * `failed` face, and after the files are gone that reason is about a pack that
+ * no longer exists — the card would render 「Download failed: …」 under a row
+ * the user just emptied. Dropping the whole controller is one line instead of
+ * a second 「forget your error but keep everything else」 method whose two
+ * callers would drift.
+ *
+ * ⚠️ Refuses to drop a BUSY controller: the single flight lives in the
+ * registry, so removing it mid-download would let the next POST start a second
+ * fetch into the same `.part` files — the one failure mode the `.part` design
+ * cannot survive (see this file's header).
+ */
+export function dropModelController(dir: string): boolean {
+  const existing = CONTROLLERS.get(dir);
+  if (existing === undefined) return false;
+  if (existing.busy) return false;
+  CONTROLLERS.delete(dir);
+  return true;
 }
 
 /**

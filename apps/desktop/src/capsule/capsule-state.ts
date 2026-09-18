@@ -32,7 +32,14 @@ export const watchdog = new SpeakingWatchdog();
 /** Honest STT engine health for the capsule diagnostic (R6-R2). `known` stays
  *  false until a real stt:engine-status arrives — the row then shows "undetected" (未探测)
  *  rather than a fabricated green "ready · FunASR" (就绪 · FunASR). */
-type EngineStatus = 'ready' | 'reconnecting' | 'failed';
+/** NR-38: `loading` is the FOURTH value and the only one emitted before the
+ *  engine exists — a local model pack takes 1.9 s (SenseVoice, 229 MB) to 8 s
+ *  (whisper-turbo, 1.03 GB) to read and build on the first press, and until it
+ *  existed this row went straight from "undetected" (未探测) to `ready` with the
+ *  wait unaccounted for. Mirrors `SttEngineStatusSchema.status`; kept as a hand
+ *  written union rather than derived because the wire type is the server's
+ *  vocabulary and this is what the capsule chooses to render of it. */
+type EngineStatus = 'loading' | 'ready' | 'reconnecting' | 'failed';
 
 export const state = reactive({
   form: 'idle' as Morph,

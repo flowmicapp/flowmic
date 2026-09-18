@@ -50,6 +50,9 @@ import { makeEmailVerificationRepo, type EmailVerificationRepo } from './repos/e
 import { makeSiteCountsRepo, type SiteCountsRepo } from './repos/site-counts.repo';
 import { makeRecoveryOperationsRepo, type RecoveryOperationsRepo } from './repos/recovery-operations.repo';
 import { makeUsageEffectLedger, type UsageEffectLedger } from './repos/usage-effects.repo';
+import { makeTrialArchiveRepo, type TrialArchiveRepo } from './repos/trial-archive.repo';
+import { makeUsageArchiveRepo, type UsageArchiveRepo } from './repos/usage-archive.repo';
+import { makeTransactionRunner, type TransactionRunner } from './tx';
 
 export interface DbConnection {
   raw: DatabaseSync;
@@ -76,6 +79,28 @@ export interface DbConnection {
    *  what they actually SPENT is `usage_records` and nothing else, which is why
    *  the site-wide daily read in this repo is a JOIN rather than a column. */
   trials: TrialLedgerRepo;
+  /** owner 2026-09-17 — where a `trial_ledger` row is copied one statement
+   *  before the cleanup sweep destroys it (`trial_ledger_archive`).
+   *
+   *  🔴 ONE WRITER, `db/anon-cleanup.ts`, and it writes only inside `transact`
+   *  below. Nothing reads this table in the server: what it is for happens on an
+   *  operator's machine, through `src/tools/trial-ledger-export.ts`. */
+  trialArchive: TrialArchiveRepo;
+  /** owner 2026-09-17 — where an identity's `usage_records` rows are copied one
+   *  statement before the cascade under the swept `users` row destroys them
+   *  (`usage_records_archive`).
+   *
+   *  🔴 NOT A SECOND METER. Its rows are all about identities that no longer
+   *  exist, so 「how much has this account used」 about a LIVE account still has
+   *  exactly one answer, `usage` above. Same single writer, same transaction. */
+  usageArchive: UsageArchiveRepo;
+  /** Run something inside one sqlite transaction (db/tx.ts).
+   *
+   *  🔴 EXPOSED ON THE CONNECTION rather than reached for through `raw`, so the
+   *  one caller that needs two repos to commit together can be handed a
+   *  transaction without being handed a database. SQLite has no nested `BEGIN`:
+   *  a caller already inside one must not use this. */
+  transact: TransactionRunner;
   /** card MP-1 — publishable keys and the room→key edge. */
   integratorKeys: IntegratorKeyRepo;
   /** Card PR-2 (2026-09-06) — the operation registry (`recovery_operations`).
@@ -511,6 +536,15 @@ export function reconcileSchema(db: DatabaseSync): void {
     // `INSERT INTO main.t SELECT * FROM snap.t`, which maps BY POSITION (NR-22,
     // still open). Two shapes that differ in order would land values in the
     // wrong columns with no error at all.
+    // > 🔴 IN-PLACE CORRECTION (2026-09-14, card D5/NR-22): the second half of
+    // > that paragraph is no longer true and the original is kept because it was
+    // > true when it was written. The puller now projects BY COLUMN NAME
+    // > (grep `NR-22-PROJECT-BY-NAME`), so a column-order difference between the
+    // > two ends can no longer land a value in the wrong column — it gets one
+    // > forensic WARN instead. THE RULE ABOVE IS UNCHANGED ANYWAY: the
+    // > convergence test still compares `PRAGMA table_info` element by element,
+    // > and that is reason enough to keep every ALTER for one table in one block
+    // > in DDL order.
     //
     // 🔴 NO BACKFILL, and here the reason is that the answer is not knowable:
     // only the admission knows which branch of the payer rule chose an account,
@@ -540,6 +574,15 @@ export function reconcileSchema(db: DatabaseSync): void {
     // one transaction it rolls back EVERY table. Card MP-1's two NEW tables are
     // free of that (an unknown table is skipped with a warning); this one
     // column is not, and it is the only reason MP-1 has a deploy order at all.
+    // > 🔴 IN-PLACE CORRECTION (2026-09-14, card D5/NR-22). Original kept: it
+    // > was true, and it is the reason the deploy order exists at all. What
+    // > changed is the copy, not the discipline — `replica-puller.ts` now
+    // > projects by column NAME, so a writer that is one column AHEAD no longer
+    // > throws and no longer stalls every other table; the replica simply cannot
+    // > store that column yet and says so once (`NR-22-WRITER-AHEAD`). The
+    // > deploy order therefore became a written rule rather than a consequence
+    // > of a crash: RELEASE-IRONRULES §1-23 — a version that changes the `users`
+    // > structure deploys the REPLICA first, or both nodes in one window.
     //
     // NO BACKFILL, for `payer_reason`'s reason: only the admission knows which
     // key was presented, and NULL says 「nobody recorded it」.
@@ -589,6 +632,20 @@ export function reconcileSchema(db: DatabaseSync): void {
       db.exec('ALTER TABLE one_time_purchases ADD COLUMN refund_external_reference TEXT');
     }
   }
+  // -- EVERY INDEX BELOW IS HERE BECAUSE OF ONE RULE (NR-33) -----------------
+  // An index / view / trigger over an ADDITIVE column (schema-additive-columns.ts,
+  // or one of the hand-written guarded ADD COLUMN steps above) may live ONLY
+  // here, after the ALTER loops -- never in INIT_SQL beside its table's CREATE.
+  // INIT_SQL runs on every boot BEFORE any of this, so on a database that
+  // predates the column such a statement fails with 'no such column: <name>'
+  // and openDatabase rethrows it as 'FlowMic DB migration failed'. A fresh
+  // database never sees it; every deployed node does. That is what took the
+  // Japan replica down ten times on 2026-09-10 (r-20260910-123458), and the
+  // rule is now enforced rather than remembered:
+  // apps/server-core/test/init-sql-additive-column-order.test.ts (the scan) and
+  // apps/server-core/test/migration-upgrade-from-release.test.ts (a real
+  // previous release's DDL, opened by this function).
+  //
   // v0.2.4 machine-level identity lookups. Created AFTER the ALTER loop above —
   // on a pre-0.2.4 DB the columns do not exist until that loop has run, and an
   // index on a missing column is a hard error, not a skipped step.
@@ -681,6 +738,9 @@ export function createDbConnection(
     usage: makeUsageRepo(db, opts.now),
     usageEvents: makeUsageEventsRepo(db),
     trials: makeTrialLedgerRepo(db),
+    trialArchive: makeTrialArchiveRepo(db),
+    usageArchive: makeUsageArchiveRepo(db),
+    transact: makeTransactionRunner(db),
     integratorKeys: makeIntegratorKeyRepo(db),
     recoveryOps: makeRecoveryOperationsRepo(db),
     usageEffects: makeUsageEffectLedger(db),

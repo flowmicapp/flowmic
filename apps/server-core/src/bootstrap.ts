@@ -23,6 +23,7 @@ import { RoomStore } from './room/store';
 import { PairRateLimiter } from './room/pair-rate-limit';
 import { ReleaseSuppression } from './room/release-suppression';
 import { authMiddleware, type JwtHandshakeConfig, type TokenLookup } from './auth/middleware';
+import { SocketConnectionGuard, resolveSocketMaxPerIp, resolveSocketUnauthTtlMs } from './socket/connection-guard';
 import { makeAuthService } from './auth/auth-service';
 import { makeAuthRateLimiters } from './auth/register-rate-limit';
 import { QrGrantStore } from './auth/qr-grant';
@@ -43,7 +44,8 @@ import { newToken } from './auth/token';
 import { webRoomWiring } from './bootstrap-web-room-deps';
 import { makeHttpHandler } from './http/router';
 import { composeHttpDeps } from './bootstrap-http-deps';
-import { getAccount, getAccountAuthError, type ActingIdentity } from './socket/wire';
+import type { ActingIdentity } from './socket/wire';
+import { resolveSaasActingUser } from './socket/acting-identity';
 import type { AuthExpiryClock } from './socket/handlers/auth-expiry';
 import { broadcastUpdated } from './socket/handlers/settings.handler';
 import { GrantPendingStore, GrantRequestRateLimiter } from './socket/handlers/grant.handler';
@@ -74,7 +76,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.85';
+export const SERVER_VERSION = '0.3.92';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -455,7 +457,13 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // side this ledger backs, and node_forward_seen is node plumbing that a
   // single-node deployment never creates at all.
   const forwardLedger = nodeRuntime.nodeConfig.role === 'writer' ? makeForwardLedger(db.raw) : undefined;
-  const sweeps = startSweepsForBootstrap({ config, db, billing, overrides, forwardLedger });
+  // NR-67 — the same `nodeConfig` the line above reads. Every sweep in that file
+  // writes, and a replica's writes are undone by the next pull, so a replica
+  // arms none of them (bootstrap-sweeps.ts header for the two that are not
+  // merely wasted).
+  const sweeps = startSweepsForBootstrap({
+    config, db, billing, overrides, forwardLedger, nodeRole: nodeRuntime.nodeConfig.role,
+  });
   const retention = sweeps.retention;
 
   // W-5a (REQ-13-03) — the status probe timer. ONE per server, held here for the
@@ -595,6 +603,18 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // comma separated) with DEFAULT_SAAS_CORS_ORIGINS as the unset default
     // (marketing site + go/web/cdn.flowmic.app). An explicit env still fully
     // overrides. standalone stays '*' — it is a LAN server for one owner.
+    // Connection-layer guard (socket/connection-guard.ts): saas ONLY. On a LAN
+    // server every handshake arrives from 127.0.0.1 or one LAN address, so a
+    // per-network ceiling would count the owner's own PC and phones into one
+    // bucket while guarding against an internet that cannot reach the box.
+    // Absent here ⇒ standalone is byte-identical to before this existed.
+    // `webRoom.ipSalt` is the salt already resolved once for this process.
+    ...(config.mode === 'saas'
+      ? { connectionGuard: new SocketConnectionGuard({
+          maxPerIp: resolveSocketMaxPerIp(), unauthTtlMs: resolveSocketUnauthTtlMs(),
+          ipSalt: webRoom.ipSalt, nodeId: nodeRuntime.nodeConfig.nodeId ?? 'unknown',
+        }).middleware }
+      : {}),
     cors: { origin: socketCorsOrigin(config.mode, config.corsOrigins) },
   });
   ioRef = io; // WP-W1b: arm the console REST settings fan-out hook
@@ -602,13 +622,16 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // Truthful acting-user resolution (04 §3.1 / F-2094): standalone collapses to
   // 'default'; saas derives from the verified handshake JWT / in-session login,
   // and fails loud (never a silent 'default') when the saas socket is
-  // unauthenticated — AUTH_TOKEN_EXPIRED vs AUTH_TOKEN_INVALID per the contract.
-  const resolveActingUser = (socket: Socket): ActingIdentity => {
-    if (config.mode !== 'saas') return { userId: STANDALONE_USER_ID };
-    const acct = getAccount(socket);
-    if (acct) return { userId: acct.userId };
-    return { error: getAccountAuthError(socket) === 'AUTH_TOKEN_EXPIRED' ? 'AUTH_TOKEN_EXPIRED' : 'AUTH_TOKEN_INVALID' };
-  };
+  // unauthenticated.
+  //
+  // NR-18 — the saas arm used to be ONE TERNARY HERE, and its `else` answered
+  // both 「no credential was presented」 and 「the credential presented is
+  // broken」 with `AUTH_TOKEN_INVALID`. The three states now live in
+  // `socket/acting-identity.ts`, named and switched exhaustively; that file
+  // carries the argument, including which sentence the missing third code has
+  // to say and why no registered neighbour can say it.
+  const resolveActingUser = (socket: Socket): ActingIdentity =>
+    config.mode !== 'saas' ? { userId: STANDALONE_USER_ID } : resolveSaasActingUser(socket);
 
   // WP-R1-3: the STT engine layer. Asserts FLOWMIC_STT_* tuning env at build
   // (fail-loud), then produces a fresh SttSessionBridge per audio:start whose

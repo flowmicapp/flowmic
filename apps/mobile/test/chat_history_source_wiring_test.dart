@@ -18,22 +18,32 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('main.dart wires ChatFlowPage.historySource to the opened storage', () {
+    // SC-5: the composition root is now a LIBRARY of two files — main.dart plus
+    // its part main_page_builders.dart, which is where the three page builders
+    // went when main.dart hit the 800-line cap. Reading only the first half
+    // would make this guard go green on a file that no longer contains the
+    // wiring it guards.
     final File main = File('lib/main.dart');
-    expect(main.existsSync(), isTrue,
+    final File builders = File('lib/main_page_builders.dart');
+    expect(main.existsSync() && builders.existsSync(), isTrue,
         reason: 'run from apps/mobile; this test reads the composition root');
     // 🔴 Comments stripped FIRST. The initial version of this guard searched the
     // raw source and stayed green while the argument was commented out — a
     // guard that reads a comment as if it were code is not a guard. (Caught by
     // running this test red on purpose, which is the only reason it is known.)
-    final String src = main
-        .readAsLinesSync()
+    final String src = <File>[main, builders]
+        .expand((File f) => f.readAsLinesSync())
         .where((String l) => !l.trimLeft().startsWith('//'))
         .join('\n');
 
     final int chat = src.indexOf('ChatFlowPage(');
     expect(chat, isNot(-1), reason: 'the composition root builds the chat page');
     // The argument list of that one construction, bounded by the next builder.
-    final String args = src.substring(chat, chat + 900);
+    // Clamped since SC-5: the construction now sits near the END of the part
+    // file, so a fixed-width window can run past the end of the source and
+    // throw a RangeError — a red that says nothing about the wiring.
+    final String args =
+        src.substring(chat, chat + 900 > src.length ? src.length : chat + 900);
 
     expect(
       args.contains('historySource:'),

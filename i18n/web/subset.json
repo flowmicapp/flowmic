@@ -151,6 +151,13 @@
       ]
     },
     {
+      "id": "mic-ios-safari-hint",
+      "why": "AUTHORED for the browser clients. Shown ONCE on iPhone/iPad Safari, BEFORE the visitor has ever held the talk button — so nothing has gone wrong, nothing has been refused, and this is not an error message. The fact it states: Safari's default for a site's microphone is 'Ask', which it remembers only for the current browsing session, so somebody who grants the microphone is asked again the next time they reopen Safari (measured by the owner on an iPad). The cure is to set the microphone to allow in this site's settings, which does persist. It is rendered immediately above micRecoveryStepsIosSafari, which already carries the exact path (address bar → page settings → website settings → microphone) in all nine languages, so this key must NOT repeat those steps — it says why the visitor would want to. Calm and short, one or two sentences, no placeholders, no imperative about a fault, and it must not claim the browser is broken or that FlowMic will remember anything.",
+      "keys": [
+        "micIosSafariAsksEachVisit"
+      ]
+    },
+    {
       "id": "ptt-lock",
       "why": "The 「keep the microphone on」 lock (card S1-10). `pttLockContinuous` is the lock's own label; `continuousStop` is what the button says while the lock holds the microphone open, where `pttRecording` (「Release to end」) would be a lie — there is nothing to release. `continuousStop` already existed in all nine locales and is only SELECTED here. The lock's caption stays blank on purpose: `pttSubDirect` ends with 「slide up to cancel」, which is false while the lock holds the mic.",
       "keys": [
@@ -183,6 +190,13 @@
         "pairError__1",
         "pairLinkOutdated",
         "pairLanOnlyUseApp"
+      ]
+    },
+    {
+      "id": "pairing-link-lost",
+      "why": "AUTHORED for the browser clients (card NR-42). A scanned pairing whose socket dies before any answer is asked again, up to three attempts; this is the sentence for the end of that budget, which until now left the page showing only the header's 'Not connected'. WHAT HAPPENED, precisely: the connection to the relay dropped repeatedly WHILE pairing, before the computer ever answered — so nothing refused anything, and the wording must not say the computer said no (admissionRefusedUnknownCode does say that, which is why it is not reused here). WHAT TO DO: scan the QR code again, because the code already in the address bar has been spent on attempts that never got an answer. No placeholders, no error code on the glass (the trigger is this client's own internal sentinel, not a relay code), and no promise to keep trying — the page has stopped.",
+      "keys": [
+        "admissionPairLinkLost"
       ]
     },
     {
@@ -680,6 +694,13 @@
         "goLeaveConfirmTitle",
         "goLeaveConfirmBody",
         "goLeaveConfirmLeave"
+      ]
+    },
+    {
+      "id": "go-tab-in-use",
+      "why": "AUTHORED for this client (card D4). ANOTHER TAB OF THIS BROWSER already has FlowMic open and holds the connection to the computer; speak there, or close it and reload this page. Never 'another phone' — false here. No retry promise. No placeholders. The longer form: the tab that wins the Web Lock dials, the one that loses renders this in an otherwise empty slot beside the connect screen. `pairError__11` and `capsuleTakenNotice` were NOT reused because both name another phone, a device this visitor does not have. Takeover is automatic once the holder closes, so there is nothing to press and nothing to promise.",
+      "keys": [
+        "goTabInUseBody"
       ]
     },
     {

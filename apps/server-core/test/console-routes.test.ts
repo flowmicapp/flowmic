@@ -288,7 +288,7 @@ describe('console: cloud summary / subscription (③)', () => {
     expect(after.json.devices).toEqual(before);
     const noAuth = await get(`${url}/api/cloud/summary`);
     expect(noAuth.status).toBe(401);
-    expect(noAuth.json.error).toBe('AUTH_TOKEN_INVALID');
+    expect(noAuth.json.error).toBe('AUTH_ACCOUNT_REQUIRED');
   });
 
   it('GET /api/cloud/subscription (Bearer) → mock plan read-out', async () => {

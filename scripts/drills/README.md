@@ -156,3 +156,51 @@ into the JSONL.
 Markdown). Any rewrite of this probe that
 sends `Buffer.alloc(0)` re-creates the M3-1 bug and will silently measure our own
 3 s fallback timer in every region — identically, and plausibly.
+
+---
+
+## `local-engine-lifecycle-probe.mjs` — what the built-in offline engine costs, and what it holds
+
+**What it answers**, three questions that decide two ledger cards (NR-45, NR-46):
+
+| section | question | why it cannot be a unit test |
+|---|---|---|
+| `--surface` | can a JS caller free a recognizer? is `decodeAsync` there? | needs the native addon, an optionalDependency |
+| `--delete-lock` | can a model pack be deleted while a recognizer built from it is decoding — and does that recognizer survive it? | needs a real pack (70–240 MB) and a real filesystem |
+| `--decode-cost` | how long does ONE decode hold the event loop, by audio length, sync vs `decodeAsync`? | needs a real pack and real audio |
+
+The half that CAN be pinned anywhere the addon resolves — "no free-like member
+appeared, `decodeAsync` and `createAsync` are still there" — is
+`apps/server-core/test/sherpa-addon-surface.test.ts`. This file is the half that
+produces numbers.
+
+### Run it
+
+```bash
+node scripts/drills/local-engine-lifecycle-probe.mjs                  # all three
+node scripts/drills/local-engine-lifecycle-probe.mjs --surface        # no model needed
+node scripts/drills/local-engine-lifecycle-probe.mjs --decode-cost
+```
+
+Packs are discovered under the app's own models root (`%APPDATA%\FlowMic\models`
+/ `$XDG_DATA_HOME/FlowMic/models`); `--models=<dir>` overrides it and
+`--wav=<file>` overrides the repo's 6 s Chinese fixture. With no pack installed
+the drill says so and measures nothing — **an absence is not a reading**.
+
+### Reading it
+
+`maxLag` is the longest gap a 20 ms timer saw and `ticks` is how many timers ran
+during the decode. `ticks=0` is the binary half: a synchronous native decode runs
+none at all, which is the same signature NR-38 found on the recognizer *load*.
+The `wall` columns should be roughly equal between sync and async — `decodeAsync`
+does not make anything faster, it makes the process answerable while it works.
+
+### Two things this rig gets right, because the obvious version gets them wrong
+
+- **`--delete-lock` copies the pack first**, and deletes only the copy. It also
+  deletes a second, never-loaded copy as a control, so "the delete succeeded"
+  cannot be confused with "this filesystem never locks anything".
+- **The first decode after a load is reported and then discarded.** It pays that
+  model's one-time ONNX arena / thread-pool / first-graph-run cost, which by
+  construction cannot repeat; judging the steady state on it measures the wrong
+  thing (the same trap `sherpa-preview.ts` header ② records).

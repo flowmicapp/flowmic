@@ -173,9 +173,37 @@ class EchoTransport extends FakeSocketTransport {
   /// server behaviour, so the rig has to be able to send either.
   String? finalEmptyReason = 'heard_no_words';
 
-  /// How long the terminal final takes to come back, or null for 「inside
-  /// `stop()`」 (see [emit]).
-  Duration? finalDelay;
+  /// true ⇒ the terminal final does NOT come back on its own; it waits for
+  /// [releaseTerminalFinal]. That is the cloud-relay interleaving — the final
+  /// arrives after the stop path has closed the journal and stamped it.
+  ///
+  /// 🔴 THIS REPLACED `Duration? finalDelay` (card D3, 2026-09-15), and the
+  /// difference is the whole fix. That field said 「the final comes back in
+  /// 150 ms」, and 150 ms is not a fact about the product — it was a bet that
+  /// the test would reach its next assertion first. MEASURED on dev-pc-a
+  /// (16 cores) with 24 CPU + 8 IO load workers running alongside:
+  /// `live_settle_pending_recovery_test.dart` went red 19 times in 20 runs,
+  /// every one of them
+  ///     Expected: not null
+  ///       Actual: <null>
+  /// at 「the press really is inside the settle window」 — i.e. the final had
+  /// already landed and the settle had already cleared the stamp the case was
+  /// about to assert. 0 red in 20 runs on a quiet machine. Two hardcoded time
+  /// constants racing, CLAUDE.md's CE-6b shape, and the rule there is to wait
+  /// on the event rather than pick a bigger number.
+  ///
+  /// The ORDERING this models is unchanged and is now guaranteed instead of
+  /// hoped for: nothing schedules the final, so it provably cannot arrive
+  /// before the test says so.
+  bool holdTerminalFinal = false;
+  bool _terminalFinalHeld = false;
+
+  /// Let the held terminal final go. Safe to call when nothing is held.
+  void releaseTerminalFinal() {
+    if (!_terminalFinalHeld) return;
+    _terminalFinalHeld = false;
+    _pushTerminalFinal();
+  }
 
   /// Segment index the next final will carry. Bumped by [pushSoftSegment] so a
   /// continuous recording's terminal final closes the LAST span.
@@ -194,14 +222,14 @@ class EchoTransport extends FakeSocketTransport {
       // ⚠️ Card UX2-1 — WHEN the terminal final lands decides which of two
       // interleavings the rig models, and they are BOTH real. A microtask puts
       // it inside `AudioCapture.stop()` (a local engine; the settle path closes
-      // the journal itself, see `retained_audio_live_settle.dart`); a delay
+      // the journal itself, see `retained_audio_live_settle.dart`); HOLDING it
       // puts it after the stop path finished, which is every cloud-relay press
-      // — the shape owner reported UX2-1 on.
-      final Duration? d = finalDelay;
-      if (d == null) {
-        Future<void>.microtask(_pushTerminalFinal);
+      // — the shape owner reported UX2-1 on. See [holdTerminalFinal] for why
+      // the second arm is a held frame and no longer a delay.
+      if (holdTerminalFinal) {
+        _terminalFinalHeld = true;
       } else {
-        Future<void>.delayed(d, _pushTerminalFinal);
+        Future<void>.microtask(_pushTerminalFinal);
       }
     }
   }
